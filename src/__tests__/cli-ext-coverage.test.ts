@@ -5,13 +5,9 @@
  * ext:info display variations, ext:list formatting, and parseArgs edge cases.
  */
 
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock, spyOn } from "bun:test";
+import { test, expect, describe, afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mkdtemp, rm, mkdir } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
 import type { ExtensionManifestV2 } from "../extensions/types";
-import { configContent } from "./helpers/write-config";
 
 // ── Mock DB layer ─────────────────────────────────────────────────────
 
@@ -45,14 +41,18 @@ mock.module("../db/connection", () => ({
   getDb: () => { throw new Error("DB not available in test"); },
 }));
 
+const stage = mock(async (source: string) => ({ source, openUrl: "/extensions/author?installation=staged" }));
+const update = mock(async (name: string) => ({ name, openUrl: "/extensions/author?workspace=fork" }));
+const init = mock(async (_name: string, _type?: string) => "/tmp/source");
+mock.module("../extensions/cli-control", () => ({
+  stageCliExtension: stage, updateCliExtension: update, removeCliExtension: async () => {},
+  initCliExtension: init, verifyCliExtension: async () => ({ state: "succeeded" }),
+}));
+
 // Import after mocks
 const { parseArgs, cli } = await import("../cli");
 
 // ── Helpers ───────────────────────────────────────────────────────────
-
-const env = { ...process.env };
-const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-  Bun.spawnSync(cmd, { ...opts, env });
 
 function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
@@ -84,45 +84,7 @@ function makeExtEntry(id: string, overrides: Record<string, any> = {}) {
   };
 }
 
-let tempBase: string;
-let bareRepoDir: string;
-let installBase: string;
-
-beforeAll(async () => {
-  tempBase = await mkdtemp(join(tmpdir(), "cli-ext-cov-"));
-  bareRepoDir = join(tempBase, "bare.git");
-  installBase = join(tempBase, "extensions");
-  await mkdir(installBase, { recursive: true });
-
-  // Create a bare repo with v1.0.0 and v1.1.0 tags
-  spawn(["git", "init", "--bare", bareRepoDir]);
-
-  const workDir = join(tempBase, "work");
-  spawn(["git", "clone", bareRepoDir, workDir]);
-  spawn(["git", "config", "user.email", "test@test.com"], { cwd: workDir });
-  spawn(["git", "config", "user.name", "Test"], { cwd: workDir });
-
-  const manifest = makeManifest();
-  await Bun.write(join(workDir, "ezcorp.config.ts"), configContent(manifest));
-  await Bun.write(join(workDir, "index.ts"), 'console.log("cov ext");');
-
-  spawn(["git", "add", "."], { cwd: workDir });
-  spawn(["git", "commit", "-m", "v1.0.0"], { cwd: workDir });
-  spawn(["git", "tag", "v1.0.0"], { cwd: workDir });
-  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: workDir });
-
-  const updatedManifest = makeManifest({ version: "1.1.0" });
-  await Bun.write(join(workDir, "ezcorp.config.ts"), configContent(updatedManifest));
-  spawn(["git", "add", "."], { cwd: workDir });
-  spawn(["git", "commit", "-m", "v1.1.0"], { cwd: workDir });
-  spawn(["git", "tag", "v1.1.0"], { cwd: workDir });
-  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: workDir });
-});
-
-afterAll(async () => {
-  restoreModuleMocks();
-  await rm(tempBase, { recursive: true, force: true }).catch(() => {});
-});
+afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
   mockExtensions.clear();
@@ -131,6 +93,17 @@ beforeEach(() => {
 // ── parseArgs edge cases ────────────────────────────────────────────
 
 describe("parseArgs - ext edge cases", () => {
+  test("init distinguishes absent, explicit, and missing type values", async () => {
+    const output = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      for (const [options, type] of [[[], undefined], [["--type", "skill"], "skill"], [["--type"], ""]] as const) {
+        const args = ["ext", "init", "extension", ...options];
+        expect(parseArgs(args)).toMatchObject({ command: "ext:init", extName: "extension", type });
+        await cli(args);
+        expect(init).toHaveBeenLastCalledWith("extension", type);
+      }
+    } finally { output.mockRestore(); }
+  });
   test("ext install without source parses with undefined source", () => {
     const result = parseArgs(["ext", "install"]);
     expect(result.command).toBe("ext:install");
@@ -145,130 +118,37 @@ describe("parseArgs - ext edge cases", () => {
 
 // ── ext:install error path ──────────────────────────────────────────
 
-describe("cli - ext:install error paths", () => {
-  test("install error (clone fails) prints error and exits", async () => {
-    const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+describe("CLI release control", () => {
+  test("source failures propagate without claiming installation success", async () => {
+    stage.mockRejectedValueOnce(new Error("source fetch denied"));
+    await expect(cli(["ext", "install", "github:owner/repo"])).rejects.toThrow("source fetch denied");
+  });
 
-    process.env.__EZCORP_TEST_EXTENSIONS_DIR = installBase;
-
+  test("a named update opens a source fork rather than replacing active code", async () => {
+    const logs: string[] = [];
+    const output = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
     try {
-      await cli(["ext", "install", "file:///nonexistent/repo.git"]);
-    } catch {}
+      await cli(["ext", "update", "extension"]);
+      expect(update).toHaveBeenCalledWith("extension");
+      expect(JSON.parse(logs.at(-1)!)).toMatchObject({ openUrl: "/extensions/author?workspace=fork" });
+    } finally { output.mockRestore(); }
+  });
 
-    expect(errors.some(l => l.startsWith("Error:"))).toBe(true);
-    errSpy.mockRestore();
-    exitSpy.mockRestore();
-    delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
+  test("a failed update does not print success", async () => {
+    update.mockRejectedValueOnce(new Error("owner denied"));
+    await expect(cli(["ext", "update", "extension"])).rejects.toThrow("owner denied");
+  });
+
+  test("bulk updates cannot bypass per-release review", async () => {
+    await expect(cli(["ext", "update"])).rejects.toThrow("Each release needs an explicit review");
+  });
+
+  test("automatic approval flags fail before source import", async () => {
+    const previousCalls = stage.mock.calls.length;
+    await expect(cli(["ext", "install", "github:owner/repo", "--yes"])).rejects.toThrow("cannot approve");
+    expect(stage.mock.calls.length).toBe(previousCalls);
   });
 });
-
-// ── ext:update CLI paths ────────────────────────────────────────────
-
-describe("cli - ext:update paths", () => {
-  test("single named update success prints from -> to", async () => {
-    // Install first so updateExtension can find it
-    process.env.__EZCORP_TEST_EXTENSIONS_DIR = installBase;
-    const logs: string[] = [];
-
-    // Install v1.0.0
-    await cli(["ext", "install", `file://${bareRepoDir}@v1.0.0`, "--yes"]);
-
-    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
-
-    await cli(["ext", "update", "test-cov-ext"]);
-
-    expect(logs.some(l => l.includes("Updated test-cov-ext:") && l.includes("->"))).toBe(true);
-    logSpy.mockRestore();
-    delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
-  });
-
-  test("single named update failure prints error and exits", async () => {
-    const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-
-    try {
-      await cli(["ext", "update", "nonexistent-ext"]);
-    } catch {}
-
-    expect(errors.some(l => l.startsWith("Error:"))).toBe(true);
-    errSpy.mockRestore();
-    exitSpy.mockRestore();
-  });
-
-  test("update all with no extensions prints 'No extensions installed.'", async () => {
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
-
-    await cli(["ext", "update"]);
-
-    expect(logs.some(l => l.includes("No extensions installed."))).toBe(true);
-    logSpy.mockRestore();
-  });
-
-  test("update all with extensions that are up to date prints message", async () => {
-    // Pre-populate with an extension that has a local source (no updates available)
-    mockExtensions.set("uptodate-id", makeExtEntry("uptodate-id", {
-      source: "local:/tmp/fake",
-      version: "1.0.0",
-    }));
-
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
-
-    await cli(["ext", "update"]);
-
-    expect(logs.some(l => l.includes("All extensions are up to date."))).toBe(true);
-    logSpy.mockRestore();
-  });
-
-  test("update all with extension that has update available", async () => {
-    // Install v1.0.0 so it can be updated to v1.1.0
-    process.env.__EZCORP_TEST_EXTENSIONS_DIR = installBase;
-
-    // Clear and install fresh
-    mockExtensions.clear();
-    await cli(["ext", "install", `file://${bareRepoDir}@v1.0.0`, "--yes"]);
-
-    const logs: string[] = [];
-    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
-
-    await cli(["ext", "update"]);
-
-    expect(logs.some(l => l.includes("Updated test-cov-ext:") && l.includes("->"))).toBe(true);
-    logSpy.mockRestore();
-    delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
-  });
-
-  test("update all with extension update failure prints error and continues", async () => {
-    // Use real bare repo (so checkForUpdates finds v1.1.0 > v1.0.0)
-    // but set installPath to nonexistent dir so git fetch/checkout fails in updateExt
-    mockExtensions.set("bad-id", makeExtEntry("bad-id", {
-      name: "bad-ext",
-      source: `file://${bareRepoDir}@v1.0.0`,
-      version: "1.0.0",
-      installPath: "/tmp/nonexistent-ext-path-for-test",
-    }));
-
-    const errors: string[] = [];
-    const logs: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
-    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
-
-    // Should not throw -- errors are caught per-extension
-    await cli(["ext", "update"]);
-
-    expect(errors.some(l => l.includes("Failed to update bad-ext:"))).toBe(true);
-    // Also prints "All extensions are up to date." since updated count remains 0
-    expect(logs.some(l => l.includes("All extensions are up to date."))).toBe(true);
-    errSpy.mockRestore();
-    logSpy.mockRestore();
-  });
-});
-
-// ── ext:info comprehensive display ──────────────────────────────────
 
 describe("cli - ext:info display variations", () => {
   test("extension with skills array prints Skills section", async () => {

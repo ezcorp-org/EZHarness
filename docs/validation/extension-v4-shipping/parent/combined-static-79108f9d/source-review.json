@@ -1,0 +1,22 @@
+{
+  "source_commit_sha": "79108f9deb128ffa9780a08530f0121273ddc5ef",
+  "source_matches_tested_patch": true,
+  "inputs": [
+    {
+      "path": "scripts/verify-production-image-lifecycle.sh",
+      "sha256": "8f0bf829d3bca4e9812df4ab081a6d1a8c7e7e920d07b3b35ad088eaa01198db"
+    },
+    {
+      "path": "src/__tests__/production-image-lifecycle-launch.integration.test.ts",
+      "sha256": "7329da1e04b8f6b30fa1cfdd9f152adabb1e810f981fb91372db29b976028847"
+    },
+    {
+      "path": "web/e2e/extension-deep-links.spec.ts",
+      "sha256": "913546acc47b2b54cf8978fa73200198e07dc8aff835a1cf5f1ceabf86ea04a4"
+    },
+    {
+      "path": "web/src/routes/(app)/extensions/[id]/+page.svelte",
+      "sha256": "78a688a430f2085aabddd9e63e2e3590a25beb3a0da6933203ad2165bcf48528"
+    }
+  ]
+}

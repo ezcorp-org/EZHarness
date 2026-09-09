@@ -32,7 +32,7 @@ class FakeStorage {
   private rows = new Map<string, unknown>();
   async get<T>(key: string): Promise<{ value: T | null; exists: boolean }> {
     if (!this.rows.has(key)) return { value: null, exists: false };
-    return { value: this.rows.get(key) as T, exists: true };
+    return { value: structuredClone(this.rows.get(key)) as T, exists: true };
   }
   async set<T>(key: string, value: T): Promise<{ ok: true; sizeBytes: number }> {
     this.rows.set(key, structuredClone(value));
@@ -48,16 +48,7 @@ class FakeStorage {
   }
 }
 
-class FakeTaskEvents {
-  snapshots: Array<{ tasks: TrackedTask[]; activeTaskId?: string }> = [];
-  assignmentUpdates: Array<{ taskId: string; assignment: TaskAssignment }> = [];
-  async emitSnapshot(tasks: TrackedTask[], activeTaskId?: string): Promise<void> {
-    this.snapshots.push({ tasks: structuredClone(tasks), ...(activeTaskId !== undefined ? { activeTaskId } : {}) });
-  }
-  async emitAssignmentUpdate(taskId: string, assignment: TaskAssignment): Promise<void> {
-    this.assignmentUpdates.push({ taskId, assignment: structuredClone(assignment) });
-  }
-}
+import { TaskEventStorageFixture as FakeTaskEvents } from "./helpers/task-event-storage";
 
 class FakeAgentConfigs {
   private configs = new Map<string, { id: string; name: string; description: string; isTeam: boolean; ownerUserId: string | null }>();
@@ -91,7 +82,7 @@ let fakeAgents: FakeAgentConfigs;
 
 beforeEach(() => {
   fakeStorage = new FakeStorage();
-  fakeEvents = new FakeTaskEvents();
+  fakeEvents = new FakeTaskEvents(fakeStorage);
   fakeAgents = new FakeAgentConfigs([
     { id: "agent-builder", name: "builder", description: "Builds things" },
     { id: "agent-team", name: "ops-team", description: "A team", isTeam: true },
@@ -108,7 +99,7 @@ afterEach(() => {
 function isResultText(out: unknown, re: RegExp): boolean {
   const o = out as { content?: Array<{ type: string; text: string }>; isError?: boolean };
   const first = o.content?.[0];
-  if (!first || first.type !== "text") return false;
+  if (first?.type !== "text") return false;
   return re.test(first.text);
 }
 
@@ -632,7 +623,7 @@ describe("task-tracking extension — task_unassign", () => {
 // ── commit-3 spawn integration ─────────────────────────────────────
 
 type SpawnRecord = {
-  input: { task: string; agentConfigId?: string; agentName?: string; title?: string; taskId?: string; assignmentId?: string };
+  input: Parameters<Parameters<typeof _setSpawnForTests>[0]>[0];
 };
 
 function makeFakeSpawn(opts: {
@@ -668,6 +659,25 @@ function makeFakeSpawn(opts: {
 }
 
 describe("task-tracking extension — task_plan with assignTo (commit-3)", () => {
+  test("uses the host-committed running snapshot without a stale second write", async () => {
+    _setSpawnForTests(async input => {
+      const committed = structuredClone(fakeStorage.peek()!);
+      const task = committed.tasks.find(candidate => candidate.id === input.taskId)!;
+      const assignment = task.assignments.find(candidate => candidate.id === input.assignmentId)!;
+      assignment.status = "running";
+      assignment.agentRunId = `run-${assignment.id}`;
+      assignment.subConversationId = `sub-${assignment.id}`;
+      task.title = "Concurrent host title";
+      fakeStorage.seed(committed);
+      return { agentRunId: assignment.agentRunId, subConversationId: assignment.subConversationId, taskId: task.id, assignmentId: assignment.id };
+    });
+    const result = await tools.task_plan!({ tasks: [{ title: "Build", assignTo: "builder" }] });
+    expect(result.isError).not.toBe(true);
+    expect(fakeStorage.peek()!.tasks[0]!.title).toBe("Concurrent host title");
+    expect(fakeStorage.peek()!.tasks[0]!.assignments[0]!.status).toBe("running");
+    expect(fakeEvents.assignmentUpdates).toEqual([]);
+  });
+
   test("happy path: spawns, flips assignment to running, emits task:assignment_update", async () => {
     const { fn, calls } = makeFakeSpawn();
     _setSpawnForTests(fn);
@@ -893,7 +903,7 @@ describe("task-tracking extension — task:assignment_update subscription", () =
       status: "running",
       assignedAt: new Date().toISOString(),
     });
-    await _internals.saveSnapshot(snap);
+    fakeStorage.seed(snap);
     fakeEvents.snapshots.length = 0;
 
     await _internals.handleAssignmentUpdate({
@@ -933,7 +943,7 @@ describe("task-tracking extension — task:assignment_update subscription", () =
       status: "running",
       assignedAt: new Date().toISOString(),
     });
-    await _internals.saveSnapshot(snap);
+    fakeStorage.seed(snap);
 
     await _internals.handleAssignmentUpdate({
       conversationId: "conv",
@@ -969,7 +979,7 @@ describe("task-tracking extension — task:assignment_update subscription", () =
       completedAt: new Date().toISOString(),
     });
     snap.tasks[0]!.status = "completed";
-    await _internals.saveSnapshot(snap);
+    fakeStorage.seed(snap);
     fakeEvents.snapshots.length = 0;
 
     await _internals.handleAssignmentUpdate({
@@ -1032,6 +1042,22 @@ describe("task-tracking extension — task:assignment_update subscription", () =
     expect(fakeEvents.snapshots).toHaveLength(1);
   });
 
+  test("a host-committed terminal assignment still advances its active task once", async () => {
+    await tools.task_plan!({ tasks: [{ title: "A", assignTo: "builder", autoStart: false }] });
+    const snapshot = structuredClone(fakeStorage.peek()!);
+    const task = snapshot.tasks[0]!;
+    task.status = "active";
+    const assignment = task.assignments[0]!;
+    assignment.status = "completed";
+    assignment.completedAt = new Date().toISOString();
+    fakeStorage.seed(snapshot);
+    await _internals.handleAssignmentUpdate({ conversationId: "conv", taskId: task.id, assignment });
+    expect(fakeStorage.peek()!.tasks[0]!.status).toBe("completed");
+    const writes = fakeEvents.snapshots.length;
+    await _internals.handleAssignmentUpdate({ conversationId: "conv", taskId: task.id, assignment });
+    expect(fakeEvents.snapshots).toHaveLength(writes);
+  });
+
   test("multi-assignment task: first completion keeps task active until second completes", async () => {
     await tools.task_plan!({ tasks: [{ title: "A" }] });
     const snap = fakeStorage.peek()!;
@@ -1054,7 +1080,7 @@ describe("task-tracking extension — task:assignment_update subscription", () =
         assignedAt: new Date().toISOString(),
       },
     );
-    await _internals.saveSnapshot(snap);
+    fakeStorage.seed(snap);
 
     // First completion — task must stay active, sibling still running.
     await _internals.handleAssignmentUpdate({
@@ -1118,7 +1144,7 @@ describe("task-tracking extension — task:assignment_update subscription", () =
         assignedAt: new Date().toISOString(),
       },
     );
-    await _internals.saveSnapshot(snap);
+    fakeStorage.seed(snap);
 
     await _internals.handleAssignmentUpdate({
       conversationId: "conv",
@@ -1189,7 +1215,7 @@ describe("task-tracking extension — task:assignment_update subscription", () =
         assignedAt: new Date().toISOString(),
       },
     ];
-    await _internals.saveSnapshot(snap);
+    fakeStorage.seed(snap);
 
     await _internals.handleAssignmentUpdate({
       conversationId: "conv",
@@ -1432,6 +1458,33 @@ describe("task-tracking extension — task_stop", () => {
 // ── Phase 4: task_resume LLM tool ───────────────────────────────────
 
 describe("task-tracking extension — task_resume", () => {
+  for (const taskStatus of ["active", "pending"] as const) test(`uses host-committed resume state without overwriting concurrent edits (${taskStatus})`, async () => {
+    fakeStorage.seed(seedTaskWithAssignments([{
+      taskId: "t1", taskStatus,
+      assignments: [{ id: "a1", status: "assigned", subConversationId: "sub-persisted" }],
+    }], taskStatus === "active" ? "t1" : undefined));
+    const { fn, calls } = makeFakeSpawn();
+    _setSpawnForTests(async input => {
+      const handle = await fn(input);
+      const committed = structuredClone(fakeStorage.peek()!);
+      const task = committed.tasks[0]!;
+      Object.assign(task.assignments[0]!, { status: "running", agentRunId: handle.agentRunId, subConversationId: handle.subConversationId });
+      task.title = "Concurrent host title";
+      fakeStorage.seed(committed);
+      return handle;
+    });
+    const result = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
+    expect(isResultText(result, /Concurrent host title/)).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.input.reuseSubConversationFor).toBe("agent-builder");
+    const committed = fakeStorage.peek()!;
+    expect(committed.tasks[0]!.title).toBe("Concurrent host title");
+    expect(committed.tasks[0]!.status).toBe("active");
+    expect(committed.tasks[0]!.assignments[0]).toMatchObject({ status: "running", agentRunId: "run-a1", subConversationId: "sub-a1" });
+    expect(fakeEvents.assignmentUpdates).toEqual([]);
+    expect(fakeEvents.snapshots).toHaveLength(taskStatus === "active" ? 0 : 1);
+  });
+
   test("rejects when assignment status !== 'assigned'", async () => {
     fakeStorage.seed(seedTaskWithAssignments([
       {

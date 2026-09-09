@@ -323,7 +323,7 @@ describe("installFromLocal — env-key-leak install-gate integration", () => {
     // means the gate read no leaks and the install proceeded.
     await expect(
       installFromLocal(dir, { grantedAt: {} } as never, false),
-    ).rejects.toBeInstanceOf(EnvKeyLeakInstallError);
+    ).rejects.toThrow("EXTENSION_V4_REQUIRED");
 
     // No DB row — the gate runs BEFORE createExtension.
     const rows = await getTestDb()
@@ -332,10 +332,9 @@ describe("installFromLocal — env-key-leak install-gate integration", () => {
       .where(eq(extensions.name, "user-install-leaky"));
     expect(rows.length).toBe(0);
 
-    // The audit-row trail still lands (one per leaked name).
     const blocked = await blockedRows();
-    expect(blocked.length).toBe(1);
-    expect(blocked[0]!.target).toBe("user-install-leaky");
+    expect(blocked.length).toBe(0);
+    expect((await escapeHatchRows()).length).toBe(0);
   });
 
   test("bundled install (isBundled=true) WITHOUT envEscapeHatch + leaky manifest → throws + no extensions row", async () => {
@@ -350,7 +349,7 @@ describe("installFromLocal — env-key-leak install-gate integration", () => {
         isBundled: true,
         envEscapeHatch: false,
       }),
-    ).rejects.toBeInstanceOf(EnvKeyLeakInstallError);
+    ).rejects.toThrow("EXTENSION_V4_REQUIRED");
 
     const rows = await getTestDb()
       .select()
@@ -359,37 +358,34 @@ describe("installFromLocal — env-key-leak install-gate integration", () => {
     expect(rows.length).toBe(0);
 
     const blocked = await blockedRows();
-    expect(blocked.length).toBe(1);
+    expect(blocked.length).toBe(0);
     // No escape-hatch row — the unflagged path is the user-equivalent.
     expect((await escapeHatchRows()).length).toBe(0);
   });
 
-  test("bundled install (isBundled=true) WITH envEscapeHatch + leaky manifest → succeeds + extensions row + escape-hatch audit row", async () => {
+  test("bundled install (isBundled=true) WITH envEscapeHatch cannot bypass v4 approval or create a row", async () => {
     const dir = await mkdtemp(join(tmpdir(), "envleak-bundled-hatch-"));
     await writeFakeExtension(dir, {
       name: "bundled-with-hatch",
       permissions: { env: ["TAVILY_API_KEY"] },
     });
 
-    const installed = await installFromLocal(
+    const pending = installFromLocal(
       dir,
       { grantedAt: {} } as never,
       true,
       { isBundled: true, envEscapeHatch: true },
     );
-    expect(installed.name).toBe("bundled-with-hatch");
+    await expect(pending).rejects.toThrow("EXTENSION_V4_REQUIRED");
 
     const rows = await getTestDb()
       .select()
       .from(extensions)
       .where(eq(extensions.name, "bundled-with-hatch"));
-    expect(rows.length).toBe(1);
+    expect(rows.length).toBe(0);
 
-    // No blocked row — the gate let it through.
     expect((await blockedRows()).length).toBe(0);
-    // One escape-hatch row keyed on manifest name.
     const escapeAudits = await escapeHatchRows();
-    expect(escapeAudits.length).toBe(1);
-    expect(escapeAudits[0]!.target).toBe("bundled-with-hatch");
+    expect(escapeAudits.length).toBe(0);
   });
 });

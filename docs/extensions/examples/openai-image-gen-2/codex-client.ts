@@ -12,6 +12,7 @@
 // SSE, pluck base64 images out of `image_generation_call` outputs.
 
 import { fetchPermitted } from "@ezcorp/sdk/runtime";
+import { getInvocationContext } from "@ezcorp/sdk/v4";
 import {
   ACCEPTED_IMAGE_REF_HELP,
   isAcceptedImageRef,
@@ -285,7 +286,7 @@ export async function generateViaCodex(
   if (typeof options.prompt !== "string" || options.prompt.trim().length === 0) {
     throw new CodexImageError("validation", "`prompt` is required and must be a non-empty string.");
   }
-  const accountId = extractChatGPTAccountId(token);
+  const accountId = getInvocationContext() ? undefined : extractChatGPTAccountId(token);
   const fetcher = opts.fetcher ?? fetchPermitted;
 
   // Inline ext-files URLs to data: URIs before the request leaves the
@@ -298,7 +299,7 @@ export async function generateViaCodex(
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
-    "chatgpt-account-id": accountId,
+    ...(accountId ? { "chatgpt-account-id": accountId } : {}),
     "OpenAI-Beta": "responses=experimental",
     originator: "ezcorp",
     "content-type": "application/json",

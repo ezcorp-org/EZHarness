@@ -13,12 +13,12 @@ describe("AUTO_ENABLE_ON_INSTALL allowlist", () => {
     "substack-pilot",
   ];
 
-  test("contains exactly the five formerly-bundled names", () => {
-    expect([...AUTO_ENABLE_ON_INSTALL].sort()).toEqual([...listed].sort());
+  test("contains no names: every release requires human approval", () => {
+    expect([...AUTO_ENABLE_ON_INSTALL]).toEqual([]);
   });
 
-  test.each(listed)("shouldAutoEnableOnInstall(%s) → true", (name) => {
-    expect(shouldAutoEnableOnInstall(name)).toBe(true);
+  test.each(listed)("formerly bundled %s cannot auto-enable", (name) => {
+    expect(shouldAutoEnableOnInstall(name)).toBe(false);
   });
 
   test.each([

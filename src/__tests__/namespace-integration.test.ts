@@ -1,5 +1,6 @@
 import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+afterAll(() => restoreModuleMocks());
 import type { RegisteredTool } from "../extensions/registry";
 import { ToolExecutor, PermissionDeniedError, _resetToolCallsCounterForTests } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
@@ -227,30 +228,13 @@ describe("Executor namespace stripping", () => {
     expect(proc.callTool.mock.calls[0]![1]).toEqual({ q: "test" });
   });
 
-  test("namespaced name is used for DB recording (via getDb mock)", async () => {
-    // We track what's passed to the insert().values() chain
-    let recordedToolName: string | undefined;
-    mock.module("../db/connection", () => ({
-      getDb: () => ({
-        insert: () => ({
-          values: (row: any) => {
-            recordedToolName = row.toolName;
-            return Promise.resolve();
-          },
-        }),
-      }),
-    }));
-
-afterAll(() => restoreModuleMocks());
-
-    // Re-import to pick up the new mock
-    const { ToolExecutor: FreshExecutor } = await import("../extensions/tool-executor");
+  test("namespaced name is used for the atomic tool record and event", async () => {
     const registry = createMockRegistry([searchA]);
-    const executor = new FreshExecutor(registry as any, createStubPermissionEngine());
-
+    const executor = new ToolExecutor(registry as any, createStubPermissionEngine());
     await executor.executeToolCall("ext-a__search", { q: "test" }, "conv-1", "msg-1");
-
-    expect(recordedToolName).toBe("ext-a__search");
+    expect(persistedToolEvents).toHaveLength(1);
+    expect(persistedToolEvents[0]?.[0].toolName).toBe("ext-a__search");
+    expect(persistedToolEvents[0]?.[1]?.payload.toolName).toBe("ext-a__search");
   });
 
   test("error messages include namespaced name for unknown tools", async () => {
@@ -599,3 +583,5 @@ describe("Namespace edge cases", () => {
     await expect(ctx.invoke("fake__tool", {})).rejects.toThrow("Unknown tool: fake__tool");
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+const persistedToolEvents = mockToolEventPersistence();

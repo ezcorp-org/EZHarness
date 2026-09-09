@@ -1,0 +1,12 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/mcp-netns-raw-socket-blocked.test.ts:
+(pass) Stage 2 direct TCP isolation > the production namespace blocks direct TCP; removing only nft makes the deny assertion fail [2246.51ms]
+
+src/__tests__/mcp-stage2-ipv6-disabled.test.ts:
+(pass) Stage 2 IPv6 isolation > the launcher removes seeded IPv6 while IPv4 proxy traffic works; omitting only the disable writes fails [1385.39ms]
+
+ 2 pass
+ 0 fail
+ 17 expect() calls
+Ran 2 tests across 2 files. [4.05s]

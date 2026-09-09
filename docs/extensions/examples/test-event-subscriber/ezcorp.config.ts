@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // Minimal test extension for the Phase 2c event-subscription
 // integration test. Declares a single tool that drains the
@@ -6,12 +6,12 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 // via the new manifest permission. Not bundled — only loaded by
 // src/__tests__/event-subscription.integration.test.ts.
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "test-event-subscriber",
   version: "1.0.0",
   description: "Integration-test fixture — buffers task:snapshot events",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: false,
   tools: [
     {

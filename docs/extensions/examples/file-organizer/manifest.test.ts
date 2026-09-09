@@ -3,15 +3,13 @@
 // declared in permissions.eventSubscriptions (so the page-tree validator
 // won't drop a single action node).
 import { describe, expect, test } from "bun:test";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 import manifest from "./ezcorp.config";
 import { ALL_EVENTS } from "./lib/page";
 
 describe("file-organizer manifest", () => {
-  test("passes validateManifestV2", () => {
-    const { valid, errors } = validateManifestV2(manifest as unknown);
-    expect(errors).toEqual([]);
-    expect(valid).toBe(true);
+  test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(manifest)).not.toThrow();
   });
 
   test("declares exactly one consolidated Hub page", () => {
@@ -33,11 +31,11 @@ describe("file-organizer manifest", () => {
     expect((perms as { network?: unknown }).network).toBeUndefined();
     expect(perms.shell).toBe(false);
     expect(perms.storage).toBe(false);
-    expect(perms.filesystem).toEqual(["$CWD"]);
+    expect(perms.filesystem).toEqual(["/data"]);
   });
 
   test("declares the persistent host-side daemon entrypoint", () => {
-    expect(manifest.entrypoint).toBe("./index.ts");
+    expect(manifest.entrypoint).toBe("./extension.ts");
     expect(manifest.persistent).toBe(true);
   });
 

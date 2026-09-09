@@ -1,47 +1,7 @@
-/**
- * substack-pilot — chat E2E (gap #4)
- *
- * Drives the real `executor.streamChat` → `ExtensionRegistry` → tool-loop
- * pipeline against a stub substack-pilot subprocess and a fake-LLM
- * `Agent` mock that emits a three-step tool-call sequence:
- *
- *   1. `substack-pilot__get_post_type({slug:"weekly"})`
- *   2. `substack-pilot__summarize_urls({urls:[…]})`
- *   3. `substack-pilot__generate_substack_draft({postTypeSlug:"weekly", urls:[…]})`
- *
- * followed by a final assistant text message containing the fake draft
- * URL the stub returned. This pins the host-side wiring of the extension's
- * seven tool names — namespacing as `substack-pilot__<tool>`, JSON-RPC
- * `tools/call` framing, isError-bit propagation — for the canonical
- * "use the weekly post type, here are URLs" flow that the README walks
- * through.
- *
- * Modeled directly on `chat-tool-loop-e2e.test.ts` (the host's own
- * tool-loop e2e), reusing the same MockAgent + setupTestDb + grant
- * `always_allow` settings pattern.
- *
- * What this test does NOT cover (handled elsewhere):
- *   - The real production handlers in `lib/{post-types,summarize,substack}.ts`
- *     — exercised by `docs/extensions/examples/substack-pilot/tests/*.test.ts`.
- *   - The real `createToolDispatcher` + `getChannel` channel — exercised
- *     by `docs/extensions/examples/substack-pilot/tests/dispatcher-integration.test.ts`.
- *   - Real-LLM round-trips through a running EZCorp instance — field-only.
- *
- * Scope of the stub subprocess (`helpers/substack-pilot-stub/`):
- *   - Mirrors `mock-extension/entrypoint.ts`'s JSON-RPC stdin/stdout loop.
- *   - Routes all seven tool names with canned responses whose shapes
- *     match the production handlers' contracts (postTypes[], postType,
- *     summaries[], draft envelope w/ mcpResponse).
- *   - Manifest in `helpers/substack-pilot-stub/ezcorp.config.ts` declares
- *     `name:"substack-pilot"` so the host's `extensions[]` ref resolves
- *     to the namespaced tool names a real install would produce.
- */
-
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { stubAssistantMessage } from "./helpers/mock-pi-ai";
-import { resolve } from "node:path";
 import type { AgentEvents } from "../types";
 
 mockDbConnection();
@@ -288,8 +248,10 @@ import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
 import stubManifest from "./helpers/substack-pilot-stub/ezcorp.config";
-
-const STUB_DIR = resolve(__dirname, "helpers/substack-pilot-stub");
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { handleRequest } from "./helpers/substack-pilot-stub/entrypoint";
+import { configureReleaseRuntime } from "../extensions/release-process";
+import { createUser } from "../db/queries/users";
 
 const SUBSTACK_TOOL_NAMES = [
   "list_post_types",
@@ -304,9 +266,12 @@ const SUBSTACK_TOOL_NAMES = [
 let extensionId: string;
 let agentConfigId: string;
 let projectId: string;
+let ownerId: string;
+const releaseCalls: Array<{ name: string; input: unknown; principalId: string }> = [];
 
 beforeAll(async () => {
   await setupTestDb();
+  ownerId = (await createUser({ email: "substack-owner@example.test", passwordHash: "fixture", name: "Substack owner", role: "admin" })).id;
 
   const project = await createProject({
     name: "substack-pilot chat e2e",
@@ -321,10 +286,20 @@ beforeAll(async () => {
     name: stubManifest.name,
     version: stubManifest.version,
     manifest: stubManifest,
-    source: "local:/test",
-    installPath: STUB_DIR,
+    source: "release-v4",
+    creatorUserId: ownerId,
   });
   extensionId = ext.id;
+  const release = releaseRuntimeFixture(extensionId, stubManifest, {
+    ownerId,
+    invoke: async (name, input, context) => {
+      releaseCalls.push({ name, input, principalId: context.principalId });
+      const response = handleRequest({ jsonrpc: "2.0", id: crypto.randomUUID(), method: "tools/call", params: { name, arguments: input } });
+      if ("error" in response) throw new Error(response.error!.message);
+      return response.result;
+    },
+  });
+  release.configure();
 
   const agent = await createAgentConfig({
     name: "substack-pilot-e2e-agent",
@@ -353,6 +328,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   ExtensionRegistry.resetInstance();
+  configureReleaseRuntime({ runner: async () => { throw new Error("Test runtime is closed"); }, resolve: async () => null });
   await closeTestDb();
   restoreModuleMocks();
 });
@@ -364,6 +340,7 @@ describe("substack-pilot — chat E2E (gap #4)", () => {
 
     const conv = await createConversation(projectId, {
       title: "substack-pilot weekly draft",
+      userId: ownerId,
     });
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
@@ -406,6 +383,9 @@ describe("substack-pilot — chat E2E (gap #4)", () => {
     // ── C. Final assistant text echoes the fake draft URL ────────
     const fullText = (run.result?.output as { fullText?: string })?.fullText ?? "";
     expect(fullText).toContain("https://example.substack.com/p/weekly-2026-05-11");
+    expect(releaseCalls.map((call) => call.name)).toEqual(["get_post_type", "summarize_urls", "generate_substack_draft"]);
+    expect(releaseCalls.every((call) => call.principalId === ownerId)).toBe(true);
+    expect(releaseCalls[2]?.input).toEqual({ postTypeSlug: "weekly", urls: ["https://a.example/post1", "https://b.example/post2"] });
 
     // ── D. Three tool calls fired in order ───────────────────────
     //

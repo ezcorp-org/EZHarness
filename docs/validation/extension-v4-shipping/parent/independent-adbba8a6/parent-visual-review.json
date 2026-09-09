@@ -1,0 +1,55 @@
+{
+  "source_commit_sha": "adbba8a693cdcd4410c51023dfca93517f9db1e8",
+  "reviewer": "parent",
+  "review": "All 12 retained lifecycle PNGs were opened at full size. Build diagnostics, repaired tool output, human release review, stale denial, uninstall state, and narrow/mobile/desktop controls are readable. No visible clipping, overlapping controls, or contrast defect was found in these images.",
+  "full_size_images_reviewed": [
+    {
+      "file": "png/extension-browser-build-diagnostics.png",
+      "sha256": "2824318d93d0d60c8003da84c863120a18a11dbaad4d5d8490359e45d6df2c79"
+    },
+    {
+      "file": "png/extension-browser-repaired-output.png",
+      "sha256": "0cf129861e5edd6c31cc497ed7dbaa18dad3fe7d2a017015673c565f379d336a"
+    },
+    {
+      "file": "png/extension-lifecycle-live-output.png",
+      "sha256": "44cee48cb71581a03b3cef1d20d94476559255b3239abbbcc11db8251fc77e08"
+    },
+    {
+      "file": "png/extension-lifecycle-review-desktop.png",
+      "sha256": "ee78cc2c3c993ee06cc71d284c3e459e91939215bf4b08ffc9ff71a0be3753aa"
+    },
+    {
+      "file": "png/extension-lifecycle-revoked-mention-list.png",
+      "sha256": "1bde74be2acb899a8ea379248c365dbe4f6fca336145ed1b8300d7618403d801"
+    },
+    {
+      "file": "png/extension-lifecycle-sidebar-720.png",
+      "sha256": "b9f50cb7b96d82e454315b9973de13de68fb48db61d618709c3dcbca7f45fa88"
+    },
+    {
+      "file": "png/extension-lifecycle-tool-selection-desktop-after-mobile.png",
+      "sha256": "842f64de7cad286b0c5c7275c63d1ee6912c1254a78ae50f58c30e87bd9f150b"
+    },
+    {
+      "file": "png/extension-lifecycle-tool-selection-mobile-narrow.png",
+      "sha256": "6db402288fe59c1a5eaef566645c66f766aab567e7210ca767b16949961644cc"
+    },
+    {
+      "file": "png/extension-lifecycle-tool-selection-mobile.png",
+      "sha256": "624bde80b59eb0e94aa252c99d474fa8bae2b9f467bca065780c88f07c5ebab1"
+    },
+    {
+      "file": "png/extension-stale-tab-denial.png",
+      "sha256": "997e12cdcde146b72e19d3f0a88f6e53d6c0f62925b241ac1bc9392268dee41b"
+    },
+    {
+      "file": "png/extension-stale-tab-uninstall-release.png",
+      "sha256": "4c69982af0b067b64dbeb2a850bde9f331398d582f891727fb670b730bd99a95"
+    },
+    {
+      "file": "png/extension-stale-tab-uninstall.png",
+      "sha256": "fc524538da718690f36a0a6e88bd16bd283e3631703ecc88c373bc80be16731d"
+    }
+  ]
+}

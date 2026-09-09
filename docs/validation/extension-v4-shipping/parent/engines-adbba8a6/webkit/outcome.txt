@@ -1,0 +1,11 @@
+webkit=1
+2 tests passed:
+- human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension
+- same-session stale tabs cannot replace a new active release or restore an uninstall
+
+1 test failed:
+- reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable
+
+Failure: client diagnostics contained one failed request:
+POST /api/extensions/control, status 0, error "Load request cancelled".
+The test requires failedApiRequests to be empty.

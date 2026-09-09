@@ -25,17 +25,20 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
 
+let interrupts = 0;
+let repair: () => Promise<number> = async () => 0;
 mock.module("../db/queries/active-runs", () => ({
   updateHeartbeat: async () => {},
   updatePartialResponse: async () => {},
   markInterrupted: async () => {},
   cleanupOrphanedRuns: async () => 0,
-  interruptAllRuns: async () => 0,
+  interruptAllRuns: async () => { interrupts++; return 0; },
   getActiveRun: async () => null,
 }));
+let finalize: () => Promise<number> = async () => 1;
 mock.module("../db/queries/runs", () => ({
-  finalizeRunRow: async () => {},
-  terminalizeOrphanedRuns: async () => 0,
+  finalizeRunRow: () => finalize(),
+  terminalizeOrphanedRuns: () => repair(),
 }));
 
 import {
@@ -54,6 +57,9 @@ let fakeNow = 0;
 let capturedTicks: Array<() => void> = [];
 
 beforeEach(() => {
+  interrupts = 0;
+  repair = async () => 0;
+  finalize = async () => 1;
   originalSetInterval = globalThis.setInterval;
   globalThis.setInterval = ((fn: (...args: unknown[]) => void) => {
     capturedTicks.push(() => fn());
@@ -139,6 +145,49 @@ function makeHarness(): Harness {
 
 const RUN_ID = "run-1";
 const CONV_ID = "conv-1";
+
+test("startup active cleanup waits for terminal repair and does not run after repair failure", async () => {
+  const harness = makeHarness();
+  let finish!: (count: number) => void;
+  repair = () => new Promise<number>((resolve) => { finish = resolve; });
+  harness.manager.startOrphanCleanup();
+  expect(interrupts).toBe(0);
+  finish(0);
+  await advanceAndTick(0);
+  expect(interrupts).toBe(1);
+  harness.manager.destroy();
+  const failed = makeHarness();
+  repair = async () => { throw new Error("repair transaction failed"); };
+  failed.manager.startOrphanCleanup();
+  await advanceAndTick(0);
+  expect(interrupts).toBe(1);
+  failed.manager.destroy();
+});
+
+test("watchdog aborts immediately but terminal notification waits for durable success", async () => {
+  const harness = makeHarness();
+  let settle!: (count: number) => void;
+  finalize = () => new Promise<number>((resolve) => { settle = resolve; });
+  const run = startWithPersist(harness);
+  const controller = harness.controllers.get(RUN_ID)!;
+  await advanceAndTick(95_000);
+  expect(run.status).toBe("error");
+  expect(controller.signal.aborted).toBe(true);
+  expect(harness.events).toEqual([]);
+  settle(1);
+  await advanceAndTick(1);
+  expect(harness.events).toEqual([{ type: "run:error" }]);
+  harness.manager.destroy();
+});
+
+test("watchdog never announces a failed durable write", async () => {
+  const harness = makeHarness();
+  finalize = async () => { throw new Error("transaction failed"); };
+  startWithPersist(harness);
+  await advanceAndTick(95_000);
+  expect(harness.events).toEqual([]);
+  harness.manager.destroy();
+});
 
 function startWithPersist(
   h: Harness,

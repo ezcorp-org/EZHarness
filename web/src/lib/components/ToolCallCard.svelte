@@ -103,7 +103,7 @@
 	async function handleExpand() {
 		expanded = !expanded;
 		// Lazy-fetch full output from DB on first expand if we have a tool call ID
-		if (expanded && fullOutput == null && toolCall.id && toolCall.status !== 'running') {
+		if (expanded && fullOutput == null && toolCall.source !== 'inline' && toolCall.id && toolCall.status !== 'running') {
 			loadingOutput = true;
 			try {
 				const res = await fetch(`/api/tool-calls/${toolCall.id}/output`);

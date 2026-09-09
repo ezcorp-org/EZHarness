@@ -1,0 +1,84 @@
+{
+  "rows": [
+    {
+      "path": "delivery/runtime/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "embeddings/runtime/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "file-organizer/runtime/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "historical-upgrade/upgrade/assert-candidate/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "historical-upgrade/upgrade/assert-restore/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "historical-upgrade/upgrade/seed-previous/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "legacy-adoption/legacy/adopt/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "legacy-adoption/legacy/seed/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "revocation/runtime/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "runtime-resources/runtime/command.log",
+      "command_exit": 1,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    {
+      "path": "runtime/runtime/command.log",
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    }
+  ],
+  "all_app_log_exits_zero": true,
+  "all_owned_cleanup_exits_zero": true,
+  "all_verifier_cleanup_exits_zero": true
+}

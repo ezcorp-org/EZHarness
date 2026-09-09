@@ -1,8 +1,7 @@
 // ── Async locks ─────────────────────────────────────────────────
 //
-// In-process sequencing primitives. `withLock(key, fn)` serializes all
-// invocations that share the same `key`; `createMutex()` gives you a
-// key-less single-chain mutex scoped to a closure.
+// v4 invocations use host-held locks across workers. Standalone calls
+// retain local sequencing. v4 createMutex requires a stable key.
 //
 // Rejections in `fn` do NOT poison the chain — a failing critical section
 // still releases the next waiter. The rejection propagates to the caller
@@ -16,7 +15,57 @@
  * Using `Promise<unknown>` instead of `Promise<void>` so we can reuse the
  * same entry for every subsequent caller without caring what they return.
  */
+import { getExtensionContext } from "../v4/context";
+import { setTimeout as delay } from "node:timers/promises";
+import { ContractError, validateRuntimeLockKey } from "@ezcorp/extension-contract";
+
 const tails = new Map<string, Promise<unknown>>();
+
+async function waitForTurn<T>(previous: Promise<unknown>, action: (deadline?: number) => Promise<T>): Promise<T> {
+  const context = getExtensionContext();
+  if (!context) return previous.then(() => action());
+  context.signal.throwIfAborted();
+  const deadline = Math.min(Date.now() + 30_000, context.invocation.deadline);
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) throw new ContractError("LOCK_TIMEOUT", "Lock wait exceeded its bounded deadline");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
+  try {
+    await Promise.race([previous, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new ContractError("LOCK_TIMEOUT", "Lock wait exceeded its bounded deadline")), remaining);
+      abort = () => reject(context.signal.reason);
+      context.signal.addEventListener("abort", abort, { once: true });
+    })]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (abort) context.signal.removeEventListener("abort", abort);
+  }
+  return action(deadline);
+}
+
+async function hostLock<T>(key: string, fn: () => Promise<T>, waitDeadline: number): Promise<T> {
+  const context = getExtensionContext();
+  if (!context) return fn();
+  validateRuntimeLockKey(key);
+  const deadline = Math.min(context.invocation.deadline, waitDeadline);
+  let fence: string | undefined;
+  let retryDelay = 50;
+  while (!fence) {
+    context.signal.throwIfAborted();
+    if (Date.now() >= deadline) throw new ContractError("LOCK_TIMEOUT", "Lock wait exceeded its bounded deadline");
+    const response = await context.call("ezcorp/lock.acquire", { key });
+    if (!response || typeof response !== "object" || Array.isArray(response) || !("acquired" in response) || typeof response.acquired !== "boolean") throw new ContractError("INVALID_LOCK", "Invalid lock response");
+    if (response.acquired) {
+      if (!("fence" in response) || typeof response.fence !== "string" || response.fence.length > 128 || !response.fence) throw new ContractError("INVALID_LOCK", "Invalid lock fence");
+      fence = response.fence;
+    } else {
+      await delay(Math.min(retryDelay, Math.max(0, deadline - Date.now())), undefined, { signal: context.signal });
+      retryDelay = Math.min(1000, retryDelay * 2);
+    }
+  }
+  try { context.signal.throwIfAborted(); return await fn(); }
+  finally { if (!context.signal.aborted && Date.now() < context.invocation.deadline) await context.call("ezcorp/lock.release", { key, fence }); }
+}
 
 /**
  * Serialize `fn` against every other call with the same `key`. Calls with
@@ -28,7 +77,7 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 
   // The tail we publish back to the map: it resolves when `fn` settles
   // (success OR failure), so the next caller runs no matter what.
-  const run = prev.then(() => fn());
+  const run = waitForTurn(prev, deadline => hostLock(key, fn, deadline ?? 0));
   // Publish a tail that NEVER rejects, so future `.then(() => fn())`
   // always moves forward. Caller still sees the real rejection via `run`.
   const tail = run.catch(() => undefined);
@@ -45,14 +94,16 @@ export function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Create an anonymous single-chain mutex (no key). Callers chain through
- * the same closure-scoped tail regardless of what `fn` they pass.
+ * Create a single-chain mutex. A stable key is required inside v4 workers.
  * Rejection in `fn` does not poison the chain.
  */
-export function createMutex(): <T>(fn: () => Promise<T>) => Promise<T> {
+export function createMutex(key?: string): <T>(fn: () => Promise<T>) => Promise<T> {
   let tail: Promise<unknown> = Promise.resolve();
   return <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = tail.then(() => fn());
+    const run = waitForTurn(tail, deadline => {
+      if (getExtensionContext() && key === undefined) throw new ContractError("LOCK_KEY_REQUIRED", "v4 createMutex requires a stable explicit key");
+      return key === undefined ? fn() : hostLock(key, fn, deadline ?? 0);
+    });
     tail = run.catch(() => undefined);
     return run;
   };

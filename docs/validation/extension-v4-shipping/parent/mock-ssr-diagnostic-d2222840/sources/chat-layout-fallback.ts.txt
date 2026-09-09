@@ -1,0 +1,27 @@
+    22	export const load: LayoutLoad = async ({ fetch }) => {
+    23	  try {
+    24	    const res = await fetch("/api/extensions");
+    25	    if (res.ok) {
+    26	      const data = (await res.json()) as ExtensionListItem[] | { extensions?: ExtensionListItem[] };
+    27	      const list: ExtensionListItem[] = Array.isArray(data)
+    28	        ? data
+    29	        : Array.isArray(data?.extensions)
+    30	          ? data.extensions
+    31	          : [];
+    32	      await Promise.all(
+    33	        list
+    34	          .filter(
+    35	            (e) =>
+    36	              e.enabled === true &&
+    37	              typeof e.name === "string" &&
+    38	              e.manifest?.settings &&
+    39	              Object.keys(e.manifest.settings).length > 0,
+    40	          )
+    41	          .map((e) => loadExtensionSettings(e.name as string).catch(() => undefined)),
+    42	      );
+    43	    }
+    44	  } catch {
+    45	    // Non-fatal — tool cards fall back to defaults if their settings aren't preloaded.
+    46	  }
+    47	  return {};
+    48	};

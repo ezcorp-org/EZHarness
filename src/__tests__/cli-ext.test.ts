@@ -1,17 +1,8 @@
-/**
- * Integration tests for `pi ext` CLI commands.
- *
- * Tests parseArgs for all ext subcommands and integration tests using
- * local bare git repos (same pattern as git-install.test.ts).
- */
 
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock, spyOn } from "bun:test";
+import { test, expect, describe, afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mkdtemp, rm, mkdir } from "fs/promises";
 import { join } from "path";
-import { tmpdir } from "os";
 import type { ExtensionManifestV2 } from "../extensions/types";
-import { configContent } from "./helpers/write-config";
 
 // ── Mock DB layer ─────────────────────────────────────────────────────
 
@@ -47,14 +38,24 @@ mock.module("../db/connection", () => ({
   getDb: () => { throw new Error("DB not available in test"); },
 }));
 
+const stagedSources: string[] = [];
+mock.module("../extensions/cli-control", () => ({
+  initCliExtension: async () => "/source",
+  verifyCliExtension: async () => ({ state: "succeeded" }),
+  stageCliExtension: async (source: string) => {
+    stagedSources.push(source);
+    return { workspace: { id: "draft" }, openUrl: "/extensions/author?workspace=draft" };
+  },
+  removeCliExtension: async (name: string) => {
+    if (!await extStore.getExtensionByName(name)) throw new Error("Extension not found.");
+  },
+  updateCliExtension: async () => { throw new Error("Extension not found."); },
+}));
+
 // Import after mocks
 const { parseArgs, cli } = await import("../cli");
 
 // ── Test fixtures ─────────────────────────────────────────────────────
-
-const env = { ...process.env };
-const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-  Bun.spawnSync(cmd, { ...opts, env });
 
 function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
@@ -70,48 +71,14 @@ function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionMa
   };
 }
 
-let tempBase: string;
-let bareRepoDir: string;
-let installBase: string;
+const bareRepoDir = "/source";
+const installBase = "/extensions";
 
-beforeAll(async () => {
-  tempBase = await mkdtemp(join(tmpdir(), "cli-ext-test-"));
-  bareRepoDir = join(tempBase, "bare.git");
-  installBase = join(tempBase, "extensions");
-  await mkdir(installBase, { recursive: true });
-
-  spawn(["git", "init", "--bare", bareRepoDir]);
-
-  const workDir = join(tempBase, "work");
-  spawn(["git", "clone", bareRepoDir, workDir]);
-  spawn(["git", "config", "user.email", "test@test.com"], { cwd: workDir });
-  spawn(["git", "config", "user.name", "Test"], { cwd: workDir });
-
-  const manifest = makeManifest();
-  await Bun.write(join(workDir, "ezcorp.config.ts"), configContent(manifest));
-  await Bun.write(join(workDir, "index.ts"), 'console.log("cli ext");');
-
-  spawn(["git", "add", "."], { cwd: workDir });
-  spawn(["git", "commit", "-m", "v1.0.0"], { cwd: workDir });
-  spawn(["git", "tag", "v1.0.0"], { cwd: workDir });
-  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: workDir });
-
-  // Create v1.1.0 tag
-  const updatedManifest = makeManifest({ version: "1.1.0" });
-  await Bun.write(join(workDir, "ezcorp.config.ts"), configContent(updatedManifest));
-  spawn(["git", "add", "."], { cwd: workDir });
-  spawn(["git", "commit", "-m", "v1.1.0"], { cwd: workDir });
-  spawn(["git", "tag", "v1.1.0"], { cwd: workDir });
-  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: workDir });
-});
-
-afterAll(async () => {
-  restoreModuleMocks();
-  await rm(tempBase, { recursive: true, force: true }).catch(() => {});
-});
+afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
   mockExtensions.clear();
+  stagedSources.length = 0;
 });
 
 // ── parseArgs tests ─────────────────────────────────────────────────
@@ -168,32 +135,12 @@ describe("parseArgs - ext subcommands", () => {
 // ── CLI error handling tests ────────────────────────────────────────
 
 describe("cli - ext error cases", () => {
-  test("ext install without source prints error", async () => {
-    const logs: string[] = [];
-    const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-
-    try {
-      await cli(["ext", "install"]);
-    } catch {}
-
-    expect(logs.some(l => l.includes("source"))).toBe(true);
-    spy.mockRestore();
-    exitSpy.mockRestore();
+  test("ext install without source rejects", async () => {
+    await expect(cli(["ext", "install"])).rejects.toThrow("source");
   });
 
-  test("ext remove without name prints error", async () => {
-    const logs: string[] = [];
-    const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-
-    try {
-      await cli(["ext", "remove"]);
-    } catch {}
-
-    expect(logs.some(l => l.includes("name"))).toBe(true);
-    spy.mockRestore();
-    exitSpy.mockRestore();
+  test("ext remove without name rejects", async () => {
+    await expect(cli(["ext", "remove"])).rejects.toThrow("name");
   });
 
   test("ext info without name prints error", async () => {
@@ -201,9 +148,7 @@ describe("cli - ext error cases", () => {
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
     const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
 
-    try {
-      await cli(["ext", "info"]);
-    } catch {}
+    await expect(cli(["ext", "info"])).rejects.toThrow("exit");
 
     expect(logs.some(l => l.includes("name"))).toBe(true);
     spy.mockRestore();
@@ -214,20 +159,21 @@ describe("cli - ext error cases", () => {
 // ── CLI integration tests (full lifecycle) ──────────────────────────
 
 describe("cli - ext integration lifecycle", () => {
-  test("ext install from local bare repo", async () => {
-    const logs: string[] = [];
-    const spy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
+  test("ext install stages source without activation", async () => {
+    const spy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await cli(["ext", "install", "./source"]);
+      expect(stagedSources).toEqual(["./source"]);
+      expect(JSON.parse(spy.mock.calls[0]![0])).toEqual({
+        workspace: { id: "draft" }, openUrl: "/extensions/author?workspace=draft",
+      });
+      expect(mockExtensions.size).toBe(0);
+    } finally { spy.mockRestore(); }
+  });
 
-    // We need to set the extensionsDir env for test — the CLI will use default.
-    // Actually, the CLI calls installFromGit without extensionsDir, so the install
-    // will go to data/extensions/. For test isolation, we override via env.
-    process.env.__EZCORP_TEST_EXTENSIONS_DIR = installBase;
-
-    await cli(["ext", "install", `file://${bareRepoDir}`, "--yes"]);
-
-    expect(logs.some(l => l.includes("Installed") && l.includes("test-cli-ext"))).toBe(true);
-    spy.mockRestore();
-    delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
+  test("ext install refuses automatic approval before staging", async () => {
+    await expect(cli(["ext", "install", "./source", "--yes"])).rejects.toThrow("human session");
+    expect(stagedSources).toHaveLength(0);
   });
 
   test("ext list shows installed extension", async () => {
@@ -295,9 +241,7 @@ describe("cli - ext integration lifecycle", () => {
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
     const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
 
-    try {
-      await cli(["ext", "info", "nonexistent"]);
-    } catch {}
+    await expect(cli(["ext", "info", "nonexistent"])).rejects.toThrow("exit");
 
     expect(logs.some(l => l.includes("not found"))).toBe(true);
     spy.mockRestore();
@@ -327,18 +271,8 @@ describe("cli - ext integration lifecycle", () => {
     spy.mockRestore();
   });
 
-  test("ext remove non-existent extension errors", async () => {
-    const logs: string[] = [];
-    const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-
-    try {
-      await cli(["ext", "remove", "nonexistent"]);
-    } catch {}
-
-    expect(logs.some(l => l.includes("not found"))).toBe(true);
-    spy.mockRestore();
-    exitSpy.mockRestore();
+  test("ext remove non-existent extension rejects", async () => {
+    await expect(cli(["ext", "remove", "nonexistent"])).rejects.toThrow("not found");
   });
 });
 
@@ -361,28 +295,12 @@ describe("parseArgs - ext --force flag", () => {
 });
 
 describe("cli - ext update edge cases", () => {
-  test("ext update non-existent extension prints error", async () => {
-    const logs: string[] = [];
-    const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-
-    try {
-      await cli(["ext", "update", "nonexistent-extension"]);
-    } catch {}
-
-    expect(logs.some(l => l.includes("not found") || l.includes("nonexistent-extension"))).toBe(true);
-    spy.mockRestore();
-    exitSpy.mockRestore();
+  test("ext update non-existent extension rejects", async () => {
+    await expect(cli(["ext", "update", "nonexistent-extension"])).rejects.toThrow("not found");
   });
 
-  test("ext update all with no extensions prints message", async () => {
-    const logs: string[] = [];
-    const spy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
-
-    await cli(["ext", "update"]);
-
-    expect(logs.some(l => l.includes("No extensions installed"))).toBe(true);
-    spy.mockRestore();
+  test("ext update requires an explicit extension", async () => {
+    await expect(cli(["ext", "update"])).rejects.toThrow("explicit review");
   });
 });
 

@@ -25,6 +25,8 @@ import { test, expect, describe, beforeEach, vi } from "vitest";
 
 // ── Mocks (hoisted handles so the module factories can close over them) ──
 const h = vi.hoisted(() => ({
+  stageMcpExtension: vi.fn(async () => ({ workspaceId: "candidate" })),
+  restageMcpExtension: vi.fn(async () => ({ workspaceId: "candidate" })),
   getSetting: vi.fn(async (_k: string) => undefined as unknown),
   // Params are declared so `mock.calls` keeps a tuple shape the `([k]) =>`
   // destructuring below can index.
@@ -93,6 +95,7 @@ vi.mock("$server/extensions/registry", () => ({
     getInstance: () => ({ reload: h.reload, refreshMcpTools: h.refreshMcpTools }),
   },
 }));
+vi.mock("$server/extensions/mcp-control", () => ({ stageMcpExtension: h.stageMcpExtension, restageMcpExtension: h.restageMcpExtension }));
 vi.mock("$server/mcp/client", () => ({
   McpClient: class {
     connect = h.mcpConnect;
@@ -136,11 +139,11 @@ const MEMBER = { id: "u-2", email: "u@x", name: "u", role: "member" };
 /** The attack: an admin PRINCIPAL whose key was scoped read-only. */
 const ADMIN_ROLE_READ_KEY = { user: ADMIN, apiKeyScopes: ["read"] };
 /** A browser session — carries no apiKeyScopes at all. */
-const ADMIN_COOKIE = { user: ADMIN };
+const ADMIN_COOKIE = { user: ADMIN, authMethod: "session" };
 /** A correctly-minted admin key. */
 const ADMIN_SCOPED_KEY = { user: ADMIN, apiKeyScopes: ["admin"] };
 /** Role axis control: a properly scoped key whose principal is NOT an admin. */
-const MEMBER_COOKIE = { user: MEMBER };
+const MEMBER_COOKIE = { user: MEMBER, authMethod: "session" };
 
 const MCP_SERVER = { transport: "http", name: "srv", url: "https://mcp.example.com" };
 
@@ -222,7 +225,7 @@ const ROUTES: Record<string, Probe> = {
   "POST /api/mcp-servers": {
     call: (l) => invoke(mcpServers.POST, evt("/api/mcp-servers", "POST", { name: "srv", server: MCP_SERVER }), l),
     arm: () => {},
-    breached: () => h.installMcpExtension.mock.calls.length > 0,
+    breached: () => h.stageMcpExtension.mock.calls.length > 0,
   },
   "PUT /api/mcp-servers/:id": {
     call: (l) =>
@@ -230,12 +233,12 @@ const ROUTES: Record<string, Probe> = {
     arm: () => {
       h.getExtension.mockResolvedValue({ id: "e1", name: "srv", manifest: { kind: "mcp", mcpServers: [MCP_SERVER] } });
     },
-    breached: () => h.updateMcpExtension.mock.calls.length > 0,
+    breached: () => h.restageMcpExtension.mock.calls.length > 0,
   },
   "POST /api/mcp-servers/:id/refresh": {
     call: (l) => invoke(mcpRefresh.POST, evt("/api/mcp-servers/e1/refresh", "POST", undefined, { id: "e1" }), l),
     arm: () => {},
-    breached: () => h.refreshMcpTools.mock.calls.length > 0,
+    breached: () => h.restageMcpExtension.mock.calls.length > 0,
   },
   "POST /api/providers/local/models": {
     call: (l) =>
@@ -335,8 +338,12 @@ describe("F2 — admin routes enforce the SCOPE axis, not just ROLE", () => {
       const res = await probe.call(ADMIN_ROLE_READ_KEY);
       expect(res.status).toBe(403);
       const body = (await res.json()) as { error?: string; required?: string };
-      expect(body.error).toBe("Insufficient scope");
-      expect(body.required).toBe("admin");
+      if (name.includes("/api/mcp-servers")) {
+        expect(body.error).toBe("Interactive session required");
+      } else {
+        expect(body.error).toBe("Insufficient scope");
+        expect(body.required).toBe("admin");
+      }
       // The whole point: the privileged operation never ran.
       expect(probe.breached()).toBe(false);
     },
@@ -351,10 +358,15 @@ describe("F2 — admin routes enforce the SCOPE axis, not just ROLE", () => {
     expect(probe.breached()).toBe(true);
   });
 
-  test.each(ROUTE_NAMES)("%s — a correctly-scoped admin key still succeeds", async (name) => {
+  test.each(ROUTE_NAMES)("%s — admin keys obey session-only restrictions", async (name) => {
     const probe = ROUTES[name];
     probe.arm();
     const res = await probe.call(ADMIN_SCOPED_KEY);
+    if (name.includes("/api/mcp-servers")) {
+      expect(res.status).toBe(403);
+      expect(probe.breached()).toBe(false);
+      return;
+    }
     expect(res.status).not.toBe(403);
     expect(res.status).not.toBe(401);
     expect(probe.breached()).toBe(true);

@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+# Run each test file in its own bun process to prevent mock.module() contamination.
+# Files run in parallel (up to PARALLEL jobs) for speed, but each gets full isolation.
+#
+# WHY THIS WRAPPER EXISTS (Phase 54 verification-gap closure, 2026-05-11):
+# ──────────────────────────────────────────────────────────────────────
+# Naive `bun test` from the repo root globs all 553 spec files into a
+# single bun process. Two independent verification runs (35+ min and
+# 20+ min wall-clock) HUNG past warm-up with repeating "Watchdog deferred"
+# log lines and never progressed. Root cause: cross-file `mock.module()`
+# state bleeds between specs in a single bun process — at this pool size
+# (553 files × tens of module mocks each) the contamination produces a
+# deadlock that bun's per-test timeout cannot surface (the wait is at
+# module-load, not in a test body).
+#
+# Bisection (Phase 54 gap-closure, 2026-05-11): `bun test src/__tests__/a*`
+# alone completes in <60s; `bun test src/__tests__/{a..f}*` completes in
+# <3min; only the full 553-file pool hangs. No single offending spec —
+# the failure mode is emergent at pool size, not file-local. Therefore
+# the mitigation is the WRAPPER (per-file process isolation), not a
+# skip-list.
+#
+# CANONICAL ENTRY POINTS for the backend pool:
+#   - `bun run test`         (uses package.json:15 → this script)
+#   - `bash scripts/test.sh` (this script directly)
+# DO NOT run bare `bun test` from the repo root — it hangs. If a CI step
+# or doc references bare `bun test`, route it through this wrapper instead.
+#
+# Per-file targeted runs are fine: `bun test src/__tests__/foo.test.ts`.
+# It's only the unbounded glob that triggers the cross-spec deadlock.
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/test-file-sets.sh
+source "$SCRIPT_DIR/lib/test-file-sets.sh"
+# Per-worker CPU-progress watchdog — kills a wedged (not merely slow) worker
+# so it can't take the shared machine down with it. See scripts/lib/watchdog.sh
+# for the full incident writeup and parameter justification.
+# shellcheck source=scripts/lib/watchdog.sh
+source "$SCRIPT_DIR/lib/watchdog.sh"
+# A wrong bun here corrupts the results, not just the timing — see
+# lib/bun-version-check.sh. Runs before anything else; `set -e` above stops
+# the whole pool on a minor/major skew. No-op fallback defined FIRST, then
+# overridden by sourcing the real helper only if it exists — this script's
+# own checkout always ships it, but the pattern stays identical to the two
+# git hooks (which get exercised against a minimal fixture repo in
+# src/__tests__/git-hooks.test.ts) so the guard can't drift into "present
+# here, absent there".
+check_bun_version_skew() { return 0; }
+# shellcheck source=scripts/lib/bun-version-check.sh
+[ -f "$SCRIPT_DIR/lib/bun-version-check.sh" ] && source "$SCRIPT_DIR/lib/bun-version-check.sh"
+check_bun_version_skew
+
+# Default pool width: min(nproc, 6) — see default_parallel in
+# lib/test-file-sets.sh. Explicit PARALLEL still overrides.
+#
+# WHAT THIS RUN COSTS, stated here so nobody prices it by guesswork and skips
+# the authoritative gate (that mis-estimate has already cost a red CI round).
+# Measured on a 32-core / 30 GB dev box with six sibling agents running,
+# 1273 files: this run is ~6 min, and `bun run test:coverage` — the gate that
+# actually decides — is 6m38s. Both fit in one sitting. Run them.
+#
+# AND DON'T REACH FOR `PARALLEL` TO SPEED THIS UP. Measured, not guessed, back
+# to back on that box:
+#
+#   bun run test          default(6) → 325s      PARALLEL=12 → 309s   (-5%)
+#   bun run test:coverage default(6) → 639s ✓    PARALLEL=12 → 1121s ✗
+#                                                (OOM-killed the suggest leg)
+#
+# Twelve wide buys five percent here and LOSES on coverage, because every file
+# is its own bun + PGlite process and the pool exhausts memory and IO bandwidth
+# long before it exhausts cores. That is what default_parallel's cap is for; it
+# is not what is costing you the wall clock. Widening it only adds contention
+# for the DB-heavy suites noted at the `--timeout 30000` below.
+PARALLEL=${PARALLEL:-$(default_parallel)}
+TOTAL_PASS=0
+TOTAL_FAIL=0
+FAILED_FILES=()
+
+# The pass/fail set (P) is defined in scripts/lib/test-file-sets.sh and shared
+# with scripts/test-coverage.sh so the two can never drift. RESIDUAL_ONLY=1
+# runs ONLY the files in P that the coverage shards do NOT run (the
+# *integration* variants) — the CI `residual-tests` job uses this so every
+# pass/fail file runs somewhere without re-running what the coverage shards
+# already cover. Empty residual is fine (the loop is a no-op).
+# CRITICAL_ONLY=1 runs ONLY the curated critical correctness set (RBAC /
+# migrations / gh-projects concurrency / auth / secrets / mention-wiring) that
+# the CI `backend-critical` job gates strictly on pass/fail — see
+# critical_backend_files() in lib/test-file-sets.sh.
+if [ -n "$RESIDUAL_ONLY" ]; then
+  mapfile -t FILES < <(residual_passfail_files)
+  # Membership assert: route-contract.test.ts lives in P\C (see
+  # lib/test-file-sets.sh) and this job is its ONLY pass/fail home. A
+  # set-membership drift (rename, pattern rot, the coverage set C accidentally
+  # absorbing it) would silently de-gate the remote-control meta-test — fail
+  # loudly instead. The residual set may otherwise legitimately shrink.
+  ROUTE_CONTRACT="web/src/__tests__/route-contract.test.ts"
+  FOUND_RC=0
+  for f in "${FILES[@]}"; do
+    [ "$f" = "$ROUTE_CONTRACT" ] && FOUND_RC=1
+  done
+  if [ "$FOUND_RC" != "1" ]; then
+    echo "::error::residual set (P\\C) no longer contains $ROUTE_CONTRACT — membership drift would silently de-gate the remote-control governance meta-test. Check scripts/lib/test-file-sets.sh." >&2
+    exit 1
+  fi
+elif [ -n "$CRITICAL_ONLY" ]; then
+  mapfile -t FILES < <(critical_backend_files)
+  # Floor guard: the curated critical set is built from find patterns; a
+  # rename or pattern rot can silently shrink it (size 33 when this guard
+  # landed). Fail loudly below 25 files instead of green-gating a hollowed-out
+  # set. Raise the floor if membership deliberately grows.
+  if [ "${#FILES[@]}" -lt 25 ]; then
+    echo "::error::critical set has only ${#FILES[@]} files (< 25 floor; 33 expected) — pattern rot in critical_backend_files()? Check scripts/lib/test-file-sets.sh." >&2
+    exit 1
+  fi
+elif [ -n "$HOST_FILES_OVERRIDE" ] && [ -z "$CI" ]; then
+  # Dev-only escape hatch, mirroring scripts/test-coverage.sh's identically-
+  # named HOST_FILES_OVERRIDE: run an explicit file list (one repo-relative
+  # path per line) instead of the real pass/fail set P. Lets the pool
+  # machinery itself — parallelism, per-file isolation, and the per-worker
+  # watchdog (scripts/lib/watchdog.sh) — be exercised against a tiny synthetic
+  # set (e.g. a deliberately wedged fixture) without running the full backend
+  # pool. INERT IN CI: GitHub Actions always sets CI, so this can never
+  # replace the real gate there.
+  mapfile -t FILES < "$HOST_FILES_OVERRIDE"
+  echo "== dev-only override (HOST_FILES_OVERRIDE): ${#FILES[@]} file(s) =="
+else
+  mapfile -t FILES < <(passfail_files)
+fi
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+# Run each file in its own process, up to PARALLEL at a time
+RUNNING=0
+IDX=0
+
+for f in "${FILES[@]}"; do
+  OUTFILE="$TMPDIR/result_$IDX"
+  CODEFILE="$TMPDIR/code_$IDX"
+  WDFILE="$TMPDIR/watchdog_$IDX"
+  (
+    # set +e (scoped to this subshell): the script runs under `set -e`, so a
+    # FAILING worker (via the `wait "$bun_pid"` inside ez_watchdog_run_file)
+    # would otherwise abort the subshell BEFORE the exit-code/output files are
+    # written. That file then leaves no result_$IDX, the collection loop below
+    # `continue`s past the missing file, its failure is never tallied, and
+    # test.sh exits 0 on a genuinely red file — silently swallowing the failure
+    # (proven: a residual-set file failing left no code/result file and the run
+    # reported 0 fail). set +e records the real exit code so a failing file is
+    # ALWAYS counted. Mirrors the identical guard in test-coverage.sh's
+    # run_host_pool, which was fixed for exactly this reason.
+    set +e
+    # --timeout 30000: DB-heavy suites share the host with PARALLEL-1 sibling
+    # PGlite processes; bun's 5s default per-test ceiling is contention-bound,
+    # not correctness-bound, in this pool. A genuine hang still fails at 30s —
+    # PROVIDED the process is healthy enough for that in-process timer to run
+    # at all. ez_watchdog_run_file (scripts/lib/watchdog.sh) adds the backstop
+    # for the case that timer structurally cannot see: a worker that has
+    # stopped executing altogether (module-load hang, indefinite blocking
+    # call, IO/swap wedge). It writes $OUTFILE/$CODEFILE exactly like a plain
+    # `bun test` would, plus $WDFILE with a self-describing diagnostic IFF it
+    # had to kill the worker — collect_pool_results surfaces that instead of
+    # its normal fallback tail so a watchdog kill reads as what it is, never
+    # as an ordinary assertion failure to go debug.
+    ez_watchdog_run_file "$f" "$OUTFILE" "$CODEFILE" "$WDFILE"
+  ) &
+  IDX=$((IDX + 1))
+  RUNNING=$((RUNNING + 1))
+
+  if [ "$RUNNING" -ge "$PARALLEL" ]; then
+    wait -n 2>/dev/null || true
+    RUNNING=$((RUNNING - 1))
+  fi
+done
+
+# Wait for remaining
+wait
+
+# Collect results (shared with test-web.sh — see lib/test-file-sets.sh). A
+# missing result file counts as a FAILURE ("no result recorded (killed?)"),
+# never a silent skip.
+collect_pool_results FILES
+
+echo ""
+echo "================================"
+echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | ${#FILES[@]} files"
+echo "================================"
+
+if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
+  echo ""
+  echo "Failed files:"
+  for f in "${FAILED_FILES[@]}"; do
+    echo "  - $f"
+  done
+fi
+
+[ "$TOTAL_FAIL" = "0" ] && exit 0 || exit 1

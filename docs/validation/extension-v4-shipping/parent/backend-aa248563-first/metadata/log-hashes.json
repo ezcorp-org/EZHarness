@@ -1,0 +1,11 @@
+{
+  "private_raw_logs": {
+    "backend-complete.log": "6bcfdd235fd6a7d1e9aecdbb85474f47ad4f3749f97001612ea2a1069f3d326f",
+    "backend/coverage.log": "a7b060c155cacf4481323b8a5343593c020a51c3e4a3dba1bcccc72f45f53a66",
+    "backend/residual.log": "15901cea66312db0a8d513c42822490ad6bbfdbf52580af38617455f6e626c4b",
+    "backend/new-file-coverage.log": "9393a83b083f604fa5840a3ba7ae38bcfa765db6608fd84a2e089c70be488b68",
+    "backend/patch-coverage.log": "73cdb50fb31fe0c68a1f584937e4d8844f8b915d21a26b190fba73de00aa9116",
+    "backend/runner-probe.log": "254d14a604c7b3d38cfcbed1e945f2f525fcd46a4365bf0858ef21e0ac52c2de"
+  },
+  "raw_logs_published": false
+}

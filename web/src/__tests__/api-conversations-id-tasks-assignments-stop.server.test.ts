@@ -1,3 +1,4 @@
+import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 /**
  * Server-handler unit tests for
  * /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/stop
@@ -14,7 +15,7 @@ import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getTaskSnapshotForConversation = vi.fn();
-const writeTaskSnapshotForConversation = vi.fn(async () => undefined);
+const writeTaskSnapshotForConversation = vi.fn(taskSnapshotPort);
 const ensureTaskTrackingWired = vi.fn(async () => undefined);
 const cancelRun = vi.fn(() => true);
 const busEmit = vi.fn();
@@ -26,6 +27,7 @@ vi.mock("$server/db/queries/conversations", () => ({
 vi.mock("$server/runtime/task-tracking-host", () => ({
   getTaskSnapshotForConversation,
   writeTaskSnapshotForConversation,
+  writeTaskAssignmentForConversation: taskAssignmentPort,
   ensureTaskTrackingWired,
 }));
 

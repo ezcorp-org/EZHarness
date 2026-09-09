@@ -37,6 +37,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 import { cleanupOldWebhookDeliveries } from "./webhook-store";
+import { registerFireCallProvenance, releaseCallProvenance } from "./call-provenance";
 
 const log = logger.child("ext.webhook-delivery-daemon");
 
@@ -133,19 +134,21 @@ async function dispatchClaimedDelivery(row: DeliveryRow, now: Date, cfg: Dispatc
     return false;
   }
   let proc: ReturnType<WebhookDaemonRegistry["getProcessIfRunning"]> = null;
+  let extensionId: string | null = null;
   try {
-    const extId = await cfg.resolveExtensionId(row.extensionId);
-    proc = extId ? cfg.registry.getProcessIfRunning(extId) : null;
+    extensionId = await cfg.resolveExtensionId(row.extensionId);
+    proc = extensionId ? cfg.registry.getProcessIfRunning(extensionId) : null;
   } catch (err) {
     log.warn("resolve-process-failed", { deliveryId: row.id, error: String(err) });
   }
-  if (!proc) {
+  if (!proc || !extensionId) {
     await revertToPending(row.id);
     return false;
   }
   const catchUp = row.catchUp || (now.getTime() - row.receivedAt.getTime() > cfg.catchUpThresholdMs);
+  const ezCallId = registerFireCallProvenance({ actorExtensionId: extensionId, onBehalfOf: null, conversationId: null, runId: null, parentCallId: null, kind: "event", ownerless: true });
   try {
-    proc.sendNotification("ezcorp/webhook-fire", buildFireContext(row, catchUp));
+    await proc.sendNotification("ezcorp/webhook-fire", { ...buildFireContext(row, catchUp), _meta: { ezCallId, deliveryId: row.id } });
   } catch (err) {
     // The subprocess was present but the push failed — a poison signal, not
     // transient downtime. Bound the retries: increment attempts, dead-letter at
@@ -153,6 +156,8 @@ async function dispatchClaimedDelivery(row: DeliveryRow, now: Date, cfg: Dispatc
     log.warn("dispatch-failed", { deliveryId: row.id, error: String(err) });
     await recordDispatchFailure(row, now, String(err), cfg.maxAttempts);
     return false;
+  } finally {
+    releaseCallProvenance(ezCallId);
   }
   await getDb().update(webhookDeliveries)
     .set({ status: "ok", deliveredAt: now, catchUp })

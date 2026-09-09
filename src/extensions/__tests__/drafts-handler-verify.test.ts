@@ -1,16 +1,3 @@
-/**
- * Phase C — `ezcorp/drafts.verify` reverse-RPC action.
- *
- * The bundled `extension-author` subprocess cannot import the host's
- * `verifyExtension` (sandbox-preload poisons fs; host module not
- * reachable). `validate_extension` reverse-RPCs `{action:"verify"}` so
- * the LLM gets the host's structured VerifyResult as the machine
- * verdict — root-cause fix #4 (hand-rolled bypass). This drives that
- * host-side action end-to-end against a real scaffolded draft on disk.
- *
- * Owner-scoping mirrors `resolveDir`; the pass/fail verdict comes from
- * the canonical `verifyExtension` pipeline (real subprocess round-trip).
- */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import {
@@ -24,7 +11,7 @@ import {
   type TempProjectRoot,
 } from "../../__tests__/helpers/temp-project-root";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 mock.module("../../db/connection", () => ({
   getDb: () => {
@@ -114,6 +101,7 @@ function writeScaffold(
   });
   mutate?.(files);
   for (const [n, c] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, n)), { recursive: true });
     writeFileSync(`${dir}/${n}`, c);
   }
 }
@@ -142,25 +130,27 @@ afterAll(async () => {
 });
 
 describe("ezcorp/drafts.verify — param + ownership", () => {
-  test("missing draftId → -32602", async () => {
+  test("missing draftId still returns the v4 cutover", async () => {
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
       rpc({ action: "verify" }),
       makeCtx(),
     );
-    expect(resp.error?.code).toBe(-32602);
+    expect(resp.error?.code).toBe(-32601);
   });
 
-  test("unknown draftId → -32603 (opaque)", async () => {
+  test("unknown draftId returns opaque v4 cutover", async () => {
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
       rpc({ action: "verify", draftId: "00000000-0000-0000-0000-000000000000" }),
       makeCtx(),
     );
-    expect(resp.error?.code).toBe(-32603);
+    expect(resp.error?.code).toBe(-32601);
+    expect(resp.error?.data).toMatchObject({ code: "extension_v4_required" });
+    expect(resp.result).toBeUndefined();
   });
 
-  test("non-owner → -32603 (same as missing)", async () => {
+  test("non-owner receives the same opaque cutover", async () => {
     const draftId = await makeAuthorDraft();
     writeScaffold(draftId, "tool");
     const resp = await handleDraftsRpc(
@@ -168,12 +158,14 @@ describe("ezcorp/drafts.verify — param + ownership", () => {
       rpc({ action: "verify", draftId }),
       makeCtx(OTHER_USER),
     );
-    expect(resp.error?.code).toBe(-32603);
+    expect(resp.error?.code).toBe(-32601);
+    expect(resp.error?.data).toMatchObject({ code: "extension_v4_required" });
+    expect(resp.result).toBeUndefined();
   });
 });
 
 describe("ezcorp/drafts.verify — VerifyResult shape", () => {
-  test("scaffolded tool draft ⇒ pass:true + steps[]", async () => {
+  test("scaffolded tool draft cannot bypass an isolated release build", async () => {
     const draftId = await makeAuthorDraft();
     writeScaffold(draftId, "tool");
     const resp = await handleDraftsRpc(
@@ -181,40 +173,24 @@ describe("ezcorp/drafts.verify — VerifyResult shape", () => {
       rpc({ action: "verify", draftId }),
       makeCtx(),
     );
-    expect(resp.error).toBeUndefined();
-    const result = resp.result as {
-      pass: boolean;
-      steps: Array<{ name: string; ok: boolean; detail: string }>;
-    };
-    expect(result.pass).toBe(true);
-    expect(Array.isArray(result.steps)).toBe(true);
-    expect(result.steps.some((s) => s.name === "smoke-test-roundtrip" && s.ok)).toBe(
-      true,
-    );
+    expect(resp.error?.code).toBe(-32601);
+    expect(resp.error?.data).toMatchObject({ code: "extension_v4_required", openUrl: "/extensions/author" });
+    expect(resp.result).toBeUndefined();
   }, 25_000);
 
-  test("draft with a broken smokeTest tool ⇒ pass:false + failing step", async () => {
+  test("executable draft never runs through the removed verify action", async () => {
     const draftId = await makeAuthorDraft();
     writeScaffold(draftId, "tool", (files) => {
-      // Point smokeTest at a tool the manifest does NOT declare — the
-      // canonical validator must reject it (machine verdict, not
-      // self-judged).
-      files["ezcorp.config.ts"] = files["ezcorp.config.ts"]!.replace(
-        /tool: "verify-rpc-tool-example"/,
-        'tool: "ghost-tool"',
-      );
+      files["extension.ts"] = "throw new Error('UNTRUSTED_DRAFT_EXECUTED')";
     });
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
       rpc({ action: "verify", draftId }),
       makeCtx(),
     );
-    expect(resp.error).toBeUndefined();
-    const result = resp.result as {
-      pass: boolean;
-      steps: Array<{ name: string; ok: boolean; detail: string }>;
-    };
-    expect(result.pass).toBe(false);
-    expect(result.steps.some((s) => !s.ok)).toBe(true);
+    expect(resp.error?.code).toBe(-32601);
+    expect(resp.error?.data).toMatchObject({ code: "extension_v4_required" });
+    expect(resp.error?.message).not.toContain("UNTRUSTED_DRAFT_EXECUTED");
+    expect(resp.result).toBeUndefined();
   }, 25_000);
 });

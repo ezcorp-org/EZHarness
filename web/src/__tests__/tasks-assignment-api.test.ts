@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
   TrackedTask,
@@ -157,12 +158,13 @@ mock.module("$lib/server/command-resolver", () => ({
 // module directly.
 
 const mockGetTaskSnapshotForConversation = mock(async (_id: string) => taskStore);
-const mockWriteTaskSnapshotForConversation = mock(async (..._args: any[]) => {});
+const mockWriteTaskSnapshotForConversation = mock(taskSnapshotPort);
 const mockEnsureTaskTrackingWired = mock(async (..._args: any[]) => {});
 
 mock.module("$server/runtime/task-tracking-host", () => ({
   getTaskSnapshotForConversation: mockGetTaskSnapshotForConversation,
   writeTaskSnapshotForConversation: mockWriteTaskSnapshotForConversation,
+  writeTaskAssignmentForConversation: taskAssignmentPort,
   ensureTaskTrackingWired: mockEnsureTaskTrackingWired,
   getTaskTrackingExtensionId: async () => "ext-tt",
 }));
@@ -1253,6 +1255,10 @@ describe("POST /start — __current__ model sentinel resolution", () => {
 describe("POST /start — auto-continue with pending messages", () => {
   // Capture the run:complete callback registered by the handler
   let capturedRunCompleteCallback: ((...args: unknown[]) => unknown) | null = null;
+  async function completeRun(payload: unknown): Promise<void> {
+    capturedRunCompleteCallback!(payload);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
   let capturedRunId: string | null = null;
 
   beforeEach(() => {
@@ -1289,7 +1295,7 @@ describe("POST /start — auto-continue with pending messages", () => {
     expect(capturedRunCompleteCallback).not.toBeNull();
 
     // Simulate run:complete
-    capturedRunCompleteCallback!({
+    await completeRun({
       run: { id: capturedRunId, result: { output: "Done!" } },
     });
 
@@ -1331,7 +1337,7 @@ describe("POST /start — auto-continue with pending messages", () => {
     expect(mockStreamChat).toHaveBeenCalledTimes(1);
 
     // Simulate run:complete
-    capturedRunCompleteCallback!({
+    await completeRun({
       run: { id: capturedRunId, result: { output: "Done!" } },
     });
 
@@ -1359,7 +1365,7 @@ describe("POST /start — auto-continue with pending messages", () => {
     const res = await POST_start(makeStartEvent("conv-1", "task-1", "assign-1"));
     capturedRunId = (await res.json()).runId;
 
-    capturedRunCompleteCallback!({
+    await completeRun({
       run: { id: capturedRunId, result: { output: "Done!" } },
     });
 

@@ -1,0 +1,11 @@
+state	0
+embeddings	0
+token-cap	0
+log-guard	0
+typecheck	1
+lint	1
+boundaries	0
+manifest	0
+shell	0
+whitespace	0
+source-guard	0

@@ -21,7 +21,7 @@ async function checkResponse(res: Response): Promise<void> {
 		}).catch(() => {});
 	}
 	const data = await res.json().catch(() => ({}));
-	throw new Error(data.error ?? `${res.status} ${res.statusText}`);
+	throw new Error(data.error ?? data.message ?? `${res.status} ${res.statusText}`);
 }
 
 export type InputFieldType = "string" | "text" | "number" | "boolean" | "select" | "file-path" | "custom";
@@ -584,10 +584,13 @@ export type McpServerSpec =
 	| { transport: "http"; name: string; url: string; headers?: Record<string, string> }
 	| { transport: "sse"; name: string; url: string; headers?: Record<string, string> };
 
-/** Edit-after-install: re-point an existing MCP extension at a new server
- *  config. The server re-connects + re-lists tools before persisting; a 502
- *  (connection failure) leaves the stored config untouched. Returns the
- *  updated extension record. */
+export function extensionReviewLocation(value: unknown): string {
+  if (!value || typeof value !== "object" || !("openUrl" in value) || typeof value.openUrl !== "string") throw new Error("The server did not return an extension review workspace.");
+  const location = new URL(value.openUrl, "https://extension-review.invalid");
+  if (location.origin !== "https://extension-review.invalid" || location.pathname !== "/extensions/author" || !location.searchParams.get("installation")) throw new Error("The server returned an invalid extension review location.");
+  return location.pathname + location.search;
+}
+
 export async function updateMcpServer(
 	id: string,
 	body: { description?: string; server: McpServerSpec },
@@ -1789,6 +1792,8 @@ export interface ImportItemResult {
 	requested: string;
 	finalName?: string;
 	extId?: string;
+	operationId?: string;
+	openUrl?: string;
 	status: "ok" | "error";
 	message?: string;
 }
@@ -1821,4 +1826,13 @@ export async function uninstallExtension(id: string): Promise<void> {
 		method: "DELETE",
 	});
 	if (!res.ok && res.status !== 204) await checkResponse(res);
+}
+
+export async function removeImportedSkill(installationId: string): Promise<void> {
+	const res = await fetch(`${BASE}/api/extensions/control`, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ tool: "extensions_release", input: { action: "uninstall", installationId } }),
+	});
+	await checkResponse(res);
 }

@@ -1,14 +1,7 @@
-/**
- * Covers the `ext:test` CLI dispatch (the `case "ext:test"` block in cli()):
- * the sdk test-runner is invoked with the parsed extDir/filter and its exit
- * code becomes the process exit code (`return process.exit(code)` — the
- * post-B2 shape with the dead break dropped). Runner + DB are mocked; the
- * exit is captured as a thrown sentinel (mirrors cli-workflow-list-dispatch).
- */
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
-let runnerCalls: Array<{ extDir?: string; filter?: string }> = [];
+let runnerCalls: string[] = [];
 let runnerExitCode = 0;
 
 // Mock BEFORE importing ../cli.
@@ -17,10 +10,14 @@ mock.module("../db/connection", () => ({
   getDb: () => ({}),
   closeDb: async () => {},
 }));
-mock.module("../extensions/sdk/test-runner", () => ({
-  runExtensionTests: async (opts: { extDir?: string; filter?: string }) => {
-    runnerCalls.push(opts);
-    return runnerExitCode;
+mock.module("../extensions/cli-control", () => ({
+  initCliExtension: async () => "/source",
+  stageCliExtension: async () => ({}),
+  updateCliExtension: async () => ({}),
+  removeCliExtension: async () => {},
+  verifyCliExtension: async (directory: string) => {
+    runnerCalls.push(directory);
+    return { state: runnerExitCode === 0 ? "succeeded" : "failed", diagnostics: [] };
   },
 }));
 
@@ -48,13 +45,13 @@ async function captureExit(fn: () => Promise<unknown>): Promise<number> {
 }
 
 describe("cli ext:test dispatch", () => {
-  test("runs the sdk test-runner and exits with its code (0)", async () => {
+  test("runs the isolated release build and exits successfully", async () => {
     runnerCalls = [];
     runnerExitCode = 0;
     const code = await captureExit(() => cli(["ext", "test", "./my-ext"]));
     expect(code).toBe(0);
     expect(runnerCalls).toHaveLength(1);
-    expect(runnerCalls[0]!.extDir).toBe("./my-ext");
+    expect(runnerCalls[0]).toBe("./my-ext");
   });
 
   test("a failing suite's exit code propagates verbatim", async () => {

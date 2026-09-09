@@ -1,12 +1,13 @@
-import { ExtensionProcess, type ExtensionProcessOptions, parseMemoryLimit } from "./subprocess";
+import type { ExtensionProcess, ExtensionProcessOptions } from "./subprocess";
+import { ReleaseProcess } from "./release-process";
+import { ReleaseMcpClient } from "./release-mcp-client";
+import { validateManifest as validateReleaseManifest } from "@ezcorp/extension-contract";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
 import { normalizeMcpManifest } from "./mcp-capabilities";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
-import { verifyPackageChecksums } from "./checksum";
-import { denyAndDisable } from "./security";
-import { listExtensions, updateExtension, rehydrateMcpServerSecrets } from "../db/queries/extensions";
+import { listExtensions } from "../db/queries/extensions";
 import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -16,11 +17,8 @@ import { join } from "node:path";
 import { findProjectRoot } from "@ezcorp/sdk/runtime";
 import { getProjectRoot } from "./bundled";
 import { resolveInstallPath } from "./install-roots";
-import { McpClient } from "../mcp/client";
-import { buildSandboxedMcpSpec, runMcpSeccompSoakReader } from "./mcp-sandbox";
-import { releaseVethSlot, initStage2 } from "./mcp-netns";
+import type { McpClient } from "../mcp/client";
 import type { McpProxyHandle } from "./mcp-proxy";
-import { getPermissionEngine } from "./permission-engine";
 import {
   buildEntityToolDefinitions,
   entityToolNames,
@@ -337,7 +335,6 @@ export class ExtensionRegistry {
   /** callerExtId -> depPackageName -> resolvedExtId */
   private depRoutes = new Map<string, Map<string, string>>();
   /** Extensions verified this session (cleared on reload) */
-  private verifiedSessions = new Set<string>();
   /** extension-NAME (not id) -> env map to inject at spawn time. Populated
    *  by the web layer for bundled extensions that need loopback-only
    *  internal credentials (e.g. ai-kit's ezkint_ API key + EZCORP_BASE_URL).
@@ -350,15 +347,7 @@ export class ExtensionRegistry {
    *  the current token. Overrides the static map for the same name. */
   private envResolversByName: Map<string, InjectedEnvResolver> = new Map();
 
-  private constructor() {
-    // Phase 58 / MCP-05 — Plan 58-03 — boot-time Stage 2 init.
-    // Fire-and-forget: degradation sets `stage2DegradedAtBoot` flag inside
-    // mcp-netns.ts which `probeVethCapability` consults to short-circuit
-    // every Stage 2 spawn. Boot must not block on this.
-    void initStage2(null).catch(() => {
-      /* fire-and-forget — boot proceeds regardless */
-    });
-  }
+  private constructor() {}
 
   /** Register a set of env vars to inject into the named extension's
    *  subprocess at spawn time. Intended for bundled-extension credentials
@@ -415,6 +404,12 @@ export class ExtensionRegistry {
    *  value to detect that an install / uninstall / upgrade happened under
    *  them, without re-querying the DB on every check. */
   private loadGeneration = 0;
+  private readonly reloadListeners = new Set<() => void | Promise<void>>();
+
+  onReload(listener: () => void | Promise<void>): () => void {
+    this.reloadListeners.add(listener);
+    return () => { this.reloadListeners.delete(listener); };
+  }
 
   /** @see loadGeneration */
   get generation(): number {
@@ -442,7 +437,9 @@ export class ExtensionRegistry {
       // declaration, so an install-time-only derivation would be erased by the
       // first "Refresh tools" click. Non-MCP manifests are returned by
       // reference, untouched.
-      const manifest = normalizeMcpManifest(ext.manifest as ExtensionManifestV2);
+      const manifest = (ext.manifest as { schemaVersion?: number }).schemaVersion === 4
+        ? validateReleaseManifest(ext.manifest) as unknown as ExtensionManifestV2
+        : normalizeMcpManifest(ext.manifest as ExtensionManifestV2);
       this.manifests.set(ext.id, manifest);
       const isBundled = (ext as { isBundled?: boolean }).isBundled === true;
       // Bundled rows store `install_path` PROJECT-ROOT-RELATIVE (portability
@@ -467,7 +464,7 @@ export class ExtensionRegistry {
       // spawn with the same actionable message. Applies to bundled AND
       // non-bundled; resolution is anchored at the extension's (resolved)
       // install dir.
-      if (manifest.npmDependencies && resolvedInstallPath) {
+      if ((manifest.schemaVersion as number) !== 4 && manifest.npmDependencies && resolvedInstallPath) {
         const check = verifyNpmDependencies(manifest.npmDependencies, resolvedInstallPath);
         if (!check.ok) {
           log.error("extension npm dependencies unresolvable", {
@@ -515,6 +512,7 @@ export class ExtensionRegistry {
     }
 
     this.buildDepRoutes();
+    for (const listener of this.reloadListeners) await listener();
     this.loadGeneration++;
   }
 
@@ -653,10 +651,15 @@ export class ExtensionRegistry {
     return this.extensionTools.get(extensionId) ?? [];
   }
 
-  /** Get an existing process ONLY if it is already running. Never starts a new process. */
+  /** Resolve a lazy release adapter. This does not start an execution worker. */
   getProcessIfRunning(extensionId: string): ExtensionProcess | null {
     const proc = this.processes.get(extensionId);
-    return proc?.isRunning ? proc : null;
+    if (proc?.isRunning) return proc;
+    if ((this.manifests.get(extensionId)?.schemaVersion as number | undefined) !== 4) return null;
+    const process = new ReleaseProcess(extensionId);
+    process.ensureRunning();
+    this.processes.set(extensionId, process);
+    return process;
   }
 
   /** Get the manifest for an extension by ID. */
@@ -682,95 +685,13 @@ export class ExtensionRegistry {
   }
 
   /** Get or create an ExtensionProcess for the given extension ID. */
-  async getProcess(extensionId: string, options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
-    let proc = this.processes.get(extensionId);
-    if (proc?.isRunning) {
-      return proc;
-    }
-
+  async getProcess(extensionId: string, _options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
     const manifest = this.manifests.get(extensionId);
-    const installPath = this.installPaths.get(extensionId);
-    if (!manifest || !installPath) {
-      throw new Error(`Extension ${extensionId} not found in registry`);
+    if (!manifest) throw new Error(`Extension ${extensionId} not found in registry`);
+    if ((manifest?.schemaVersion as number | undefined) !== 4) {
+      throw new Error("Extension requires migration to an approved v4 release");
     }
-
-    // Verify package integrity on first load per session. Bundled
-    // extensions (those in src/extensions/bundled.ts) are skipped: their
-    // source lives in this repo and changes legitimately with every pull,
-    // so a file-level integrity check against install-time checksums
-    // would wedge the whole server after any commit that touched the
-    // extension's directory. Trust is rooted elsewhere for bundled
-    // extensions (code review on the repo, signed commits, etc.).
-    // Audit finding #2 fix: bundled trust comes from the DB row's
-    // `isBundled` flag, not from matching `manifest.name` against the
-    // hardcoded list. Prevents an attacker-installed extension named
-    // "ai-kit" (or any other bundled name) from inheriting the
-    // integrity-check skip.
-    const isBundled = this.bundledFlags.get(extensionId) === true;
-    if (
-      !isBundled &&
-      !this.verifiedSessions.has(extensionId) &&
-      manifest.packageChecksums
-    ) {
-      const result = await verifyPackageChecksums(installPath, manifest.packageChecksums, manifest.packageChecksumsAlgo);
-      if (!result.valid) {
-        await denyAndDisable(extensionId, "Integrity check failed: files modified since install", installPath);
-        this.processes.delete(extensionId);
-        this.manifests.delete(extensionId);
-        this.installPaths.delete(extensionId);
-        this.grantedPerms.delete(extensionId);
-        throw new Error(`Extension ${extensionId} failed integrity check: ${result.mismatched.join(", ")}`);
-      }
-      this.verifiedSessions.add(extensionId);
-    }
-
-    if (!manifest.entrypoint) {
-      throw new Error(`Extension ${extensionId} has no entrypoint defined`);
-    }
-    const entrypoint = `${installPath}/${manifest.entrypoint.replace(/^\.\//, "")}`;
-    const granted = this.grantedPerms.get(extensionId) ?? { grantedAt: {} };
-    const resolver = this.envResolversByName.get(manifest.name);
-    let injected = this.injectedEnvByName.get(manifest.name);
-    if (resolver) {
-      try {
-        injected = await resolver();
-      } catch {
-        // Resolver failed (upstream unreachable, no configured credential).
-        // Spawn with no injected env — the extension surfaces a clean
-        // error to the caller rather than stalling the whole run.
-        injected = undefined;
-      }
-    }
-    const allowedEnv = buildAllowedEnv(manifest, granted, extensionId, injected);
-
-    const memOpt = manifest.resources?.memory;
-    const memoryLimitBytes = memOpt ? parseMemoryLimit(memOpt) : undefined;
-    // Manifest-declared per-call timeout. Extensions that make slow
-    // upstream calls (e.g. image generation) declare a higher value so
-    // the subprocess dispatcher doesn't cut them off at the 30s default.
-    const callTimeoutMs =
-      typeof manifest.resources?.callTimeoutMs === "number" && manifest.resources.callTimeoutMs > 0
-        ? manifest.resources.callTimeoutMs
-        : undefined;
-
-    proc = new ExtensionProcess(extensionId, entrypoint, allowedEnv, {
-      persistent: manifest.persistent,
-      memoryLimitBytes,
-      callTimeoutMs,
-      networkAllowed: (granted.network?.length ?? 0) > 0,
-      shellAllowed: granted.shell === true,
-      // Verify the manifest's third-party npm deps before spawn — an
-      // unresolvable dep throws an actionable error instead of crash-
-      // looping the subprocess into auto-disable. See npm-deps.ts. The
-      // name rides along so the pre-check error names the extension, not
-      // its UUID.
-      npmDependencies: manifest.npmDependencies,
-      extensionName: manifest.name,
-      ...options,
-    });
-
-    this.processes.set(extensionId, proc);
-    return proc;
+    return this.getProcessIfRunning(extensionId)!;
   }
 
   /** Get all registered tool definitions. */
@@ -973,7 +894,6 @@ export class ExtensionRegistry {
     for (const extId of this.mcpProxies.keys()) trackSignature(extId);
     for (const extId of this.mcpClients.keys()) trackSignature(extId);
 
-    this.verifiedSessions.clear();
     await this.loadFromDb();
 
     // After loadFromDb, `this.manifests` reflects the post-reload set.
@@ -1036,319 +956,16 @@ export class ExtensionRegistry {
    * Lazily constructs and connects on first call.
    */
   async getMcpClient(extensionId: string): Promise<McpClient> {
+    const manifest = this.manifests.get(extensionId);
+    if (manifest?.schemaVersion !== 4 || manifest.kind !== "mcp") throw new Error("MCP requires an approved v4 release");
     const existing = this.mcpClients.get(extensionId);
     if (existing?.isConnected) return existing;
-
-    const manifest = this.manifests.get(extensionId);
-    if (!manifest) throw new Error(`Extension ${extensionId} not found in registry`);
-    if (manifest.kind !== "mcp") throw new Error(`Extension ${extensionId} is not an MCP extension`);
-    const redactedServer = manifest.mcpServers?.[0];
-    if (!redactedServer) throw new Error(`Extension ${extensionId} has no mcpServers entry`);
-    // db-audit (mcp-secrets): the manifest at rest is value-BLANKED — the real
-    // transport auth (headers for http/sse, env for stdio) lives in the
-    // encrypted extension_secrets store. Rehydrate it here, on the server-side
-    // connect path, so the live MCP connection carries the true credentials.
-    // Never surface this rehydrated definition in a client response.
-    const server = await rehydrateMcpServerSecrets(manifest.name, redactedServer);
-
-    // Audit finding #1: route stdio spawns through the sandbox envelope
-    // (prlimit + bounded env). http/sse are pass-through — nothing to wrap.
-    //
-    // Phase 7: when the PDP singleton is wired (production boot), pass
-    // a `ctx` so `buildSandboxedMcpSpec` starts the per-MCP forward
-    // proxy and (on Linux) wraps the spawn in `unshare`. The PDP being
-    // unavailable is a test-time signal; we degrade to the pre-Phase-7
-    // prlimit-only spec rather than fail-closed because many existing
-    // unit tests construct registries without going through full boot.
-    let phase7Ctx: { engine: ReturnType<typeof getPermissionEngine>; conversationId: null; userId: null } | undefined;
-    try {
-      phase7Ctx = {
-        engine: getPermissionEngine(),
-        conversationId: null,
-        userId: null,
-      };
-    } catch {
-      // Engine not initialized (test path) — fall through to pre-P7 wrap.
-      phase7Ctx = undefined;
-    }
-    const granted = this.grantedPerms.get(extensionId) ?? { grantedAt: {} };
-    const { spec: sandboxedSpec, proxyHandle } = await buildSandboxedMcpSpec(
-      server,
-      manifest,
-      granted,
-      extensionId,
-      phase7Ctx,
-    );
-
-    if (proxyHandle) {
-      // Stop any prior proxy for this extension (re-load path) before
-      // recording the new handle.
-      const prior = this.mcpProxies.get(extensionId);
-      if (prior) {
-        void prior.stop().catch(() => {});
-      }
-      this.mcpProxies.set(extensionId, proxyHandle);
-    }
-
-    const client = existing ?? new McpClient(sandboxedSpec);
-    // Server-driven lifecycle. Attached BEFORE `connect()` because a
-    // transport can die during the handshake.
-    //
-    // Defensive `typeof` guard: test fixtures stub McpClient with bare
-    // { connect, close, listTools, callTool } objects — same tolerance as
-    // the `getChildProcess` probe below.
-    if (typeof client.setLifecycleHooks === "function") {
-      client.setLifecycleHooks({
-        onClosed: () => this.onMcpTransportClosed(extensionId, client),
-        onToolListChanged: () => this.onMcpToolListChanged(extensionId),
-      });
-    }
-    // Phase 58 / MCP-04 — capture spawnAt BEFORE the (potentially-slow)
-    // connect() so the journalctl --since window in the soak reader
-    // is anchored to actual spawn time, not post-handshake. connect()
-    // typically resolves <100ms but a slow MCP could skew the window.
-    const spawnAt = new Date();
-    // Phase 58 / MCP-05 — narrow the spec to stdio to read the
-    // Stage 2 carrier. http/sse transports never carry _internal_vethSetup.
-    const vethSetup =
-      sandboxedSpec.transport === "stdio"
-        ? sandboxedSpec._internal_vethSetup ?? null
-        : null;
-    try {
-      await client.connect();
-    } catch (err) {
-      this.mcpClients.delete(extensionId);
-      // Tear down the proxy we just started — its child process never
-      // came up, so the listener is leaked otherwise.
-      const failedProxy = this.mcpProxies.get(extensionId);
-      if (failedProxy) {
-        void failedProxy.stop().catch(() => {});
-        this.mcpProxies.delete(extensionId);
-      }
-      // Phase 58 / MCP-05 — release the veth slot + delete the host-side
-      // veth if Stage 2 was active. Open Question 2 resolution: belt+
-      // suspenders — the happy-path child.exited handler below also
-      // releases on normal exit, but a failed connect never reaches
-      // child.exited (the SDK transport's onclose fires only after a
-      // successful spawn). The slot is only safe to release AFTER the
-      // host-side veth is actually deleted; the synchronous `ip link
-      // delete` here gives that ordering guarantee.
-      if (vethSetup) {
-        Bun.spawnSync({
-          cmd: ["ip", "link", "delete", vethSetup.hostSideName],
-          stdout: "ignore",
-          stderr: "ignore",
-        });
-        releaseVethSlot(vethSetup.slot);
-      }
-      throw err;
-    }
+    const client = new ReleaseMcpClient(extensionId, () => this.getProcess(extensionId));
+    await client.connect();
     this.mcpClients.set(extensionId, client);
-
-    // Phase 58 / MCP-04 — schedule the seccomp soak reader on child
-    // exit so production accumulates audit_log signal. Phase 55
-    // exported the reader but never wired it (Plan 55-03 SUMMARY
-    // line 72 documented this as deferred); the gate at
-    // mcp-sandbox.ts:404 is what populates /audit. Fire-and-forget;
-    // failures swallowed (the child has already exited).
-    //
-    // Defensive `typeof` guard: test fixtures stub McpClient with bare
-    // { connect, close, listTools, callTool } objects (mcp-registry
-    // pre-Phase-58 tests). The guard lets those stubs pass through
-    // without error — production McpClient instances always carry
-    // getChildProcess().
-    const childProc =
-      typeof client.getChildProcess === "function"
-        ? client.getChildProcess()
-        : null;
-    if (childProc !== null) {
-      const soakCtx = {
-        userId: phase7Ctx?.userId ?? null,
-        extensionId,
-        extensionName: manifest.name,
-      };
-      const pid = childProc.pid;
-      void childProc.exited
-        .then(() => runMcpSeccompSoakReader(pid, spawnAt, soakCtx))
-        .catch(() => {
-          // Fire-and-forget; soak read failure is non-fatal.
-        });
-
-      // Phase 58 / MCP-05 — schedule slot release + host-side veth
-      // deletion on normal child exit. Mirrors the soak-reader fire-
-      // and-forget pattern above. Host-side delete auto-cleans the
-      // namespace-side peer; the kernel reclaims both interfaces when
-      // the netns is also torn down by the child's exit. Slot release
-      // is safe AFTER the delete (Anti-Patterns "Releasing the slot
-      // before child exit").
-      if (vethSetup) {
-        void childProc.exited
-          .then(() => {
-            Bun.spawnSync({
-              cmd: ["ip", "link", "delete", vethSetup.hostSideName],
-              stdout: "ignore",
-              stderr: "ignore",
-            });
-            releaseVethSlot(vethSetup.slot);
-          })
-          .catch(() => {
-            // Fire-and-forget; orphan veth is reaped on next boot sweep.
-          });
-      }
-    }
     return client;
   }
-
-  /**
-   * The extension's MCP transport is gone — the server restarted, the stdio
-   * child exited, or the stream dropped.
-   *
-   * Dropping the cache entry is what makes the recovery COMPLETE. Clearing
-   * `connected` alone would let the next `getMcpClient` fall through to the
-   * rebuild path and hand the same instance back (`existing ?? new
-   * McpClient`), reconnecting against a spec built for the dead child — a
-   * forward proxy that has since been replaced, a veth slot that has been
-   * released. With the entry gone, the next call rebuilds the whole sandbox
-   * envelope and constructs a client from the fresh spec.
-   *
-   * The identity check is not paranoia: a reconnect can already have
-   * replaced the entry by the time a late close event lands, and an
-   * unconditional delete would evict the LIVE client.
-   */
-  private onMcpTransportClosed(extensionId: string, client: McpClient): void {
-    if (this.mcpClients.get(extensionId) !== client) return;
-    this.mcpClients.delete(extensionId);
-    log.info("MCP transport closed — cached client dropped, next call reconnects", {
-      extensionId,
-    });
-  }
-
-  /**
-   * `notifications/tools/list_changed` — the server says its catalog moved.
-   *
-   * Reuses {@link refreshMcpTools}, the SAME entry point
-   * `POST /api/mcp-servers/[id]/refresh` drives, so a server-initiated change
-   * invalidates exactly what an admin refresh invalidates (the manifest at
-   * rest plus `manifests` / `extensionTools` / `toolMap`) instead of a
-   * parallel subset that would drift from it.
-   *
-   * COALESCED, not just serialized. Serializing bounds INTERLEAVING; it does
-   * not bound WORK. One refresh is `getMcpClient` (which rebuilds the whole
-   * sandbox envelope when the transport has closed) + a `tools/list` round
-   * trip + `listExtensions(false)` (every extension row) + an `updateExtension`
-   * jsonb write, so a chatty or hostile server emitting N notifications used
-   * to buy N of those plus N retained closures — a chain the map does not even
-   * hold a reference to. At most ONE refresh is queued behind the in-flight
-   * one: the queue is a flag, so notification 3..N collapse onto notification
-   * 2 and the last one still wins, which is the only ordering that can be
-   * correct. Peak outstanding work is 2 refreshes per extension, whatever the
-   * server does.
-   */
-  private onMcpToolListChanged(extensionId: string): void {
-    const inFlight = this.mcpToolRefreshes.get(extensionId);
-    if (inFlight) {
-      // Last notification wins, and it costs one boolean rather than one
-      // more link. The in-flight refresh re-runs once when it lands.
-      inFlight.queued = true;
-      return;
-    }
-    // Published BEFORE the drain starts (the drain's own identity check reads
-    // it), so `promise` is placeheld for the one statement in between. No
-    // await separates the two, so nothing can observe the placeholder.
-    const entry: McpToolRefresh = { queued: false, promise: Promise.resolve() };
-    this.mcpToolRefreshes.set(extensionId, entry);
-    entry.promise = this.drainMcpToolRefreshes(extensionId, entry);
-  }
-
-  /**
-   * Run this extension's refresh, then its ONE coalesced re-run if a
-   * notification arrived while it was in flight.
-   *
-   * Never rejects — both arms of each refresh are handled — so a failing
-   * refresh cannot wedge the next notification.
-   *
-   * The identity check is the SHUTDOWN interlock. `killAll()` closes every
-   * MCP client and `reload()` drops the stale ones; a queued re-run that
-   * survived either would call `getMcpClient`, find no cached client, and
-   * REBUILD the sandbox envelope — respawning the stdio child of a server the
-   * host has deliberately just closed. Dropping the map entry is therefore how
-   * both of those cancel a queued refresh, and this loop asks whether it is
-   * still the registry's before it does any more work.
-   */
-  private async drainMcpToolRefreshes(
-    extensionId: string,
-    entry: McpToolRefresh,
-  ): Promise<void> {
-    try {
-      for (;;) {
-        entry.queued = false;
-        try {
-          const tools = await this.refreshMcpTools(extensionId);
-          log.info("MCP server changed its tool catalog", {
-            extensionId,
-            toolCount: tools.length,
-          });
-        } catch (err) {
-          log.warn("MCP tools/list_changed refresh failed", {
-            extensionId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-        if (!entry.queued) return;
-        if (this.mcpToolRefreshes.get(extensionId) !== entry) {
-          log.info("MCP tools/list_changed refresh dropped — extension was shut down", {
-            extensionId,
-          });
-          return;
-        }
-      }
-    } finally {
-      // Only THIS drain's own slot, so a `killAll()` + fresh notification
-      // cannot have its entry deleted by the drain it replaced.
-      if (this.mcpToolRefreshes.get(extensionId) === entry) {
-        this.mcpToolRefreshes.delete(extensionId);
-      }
-    }
-  }
-
-  /**
-   * Connect to the MCP server, re-list its tools, and write the fresh
-   * list back into the extension row's manifest and in-memory maps.
-   */
   async refreshMcpTools(extensionId: string): Promise<ToolDefinition[]> {
-    const manifest = this.manifests.get(extensionId);
-    if (!manifest || manifest.kind !== "mcp") {
-      throw new Error(`Extension ${extensionId} is not an MCP extension`);
-    }
-    const client = await this.getMcpClient(extensionId);
-    const tools = await client.listTools();
-
-    // Re-derive the per-tool capability declaration: `tools` is a fresh
-    // `tools/list` from the wire and carries none, so a bare
-    // `{...manifest, tools}` would drop every MCP tool back to an EMPTY
-    // needed-cap set — both in memory and, via the `updateExtension` below,
-    // at rest. The ceiling in `manifest.permissions` is preserved as-is.
-    const updatedManifest: ExtensionManifestV2 = normalizeMcpManifest({ ...manifest, tools });
-    this.manifests.set(extensionId, updatedManifest);
-
-    const ext = (await listExtensions(false)).find((e) => e.id === extensionId);
-    const extName = ext?.name ?? manifest.name;
-
-    // Register the NORMALIZED tools so `getToolsForExtension` /
-    // `getToolsForAgent` expose the same declaration the manifest carries.
-    const registered: RegisteredTool[] = (updatedManifest.tools ?? []).map((t) => ({
-      ...t,
-      name: `${manifest.name}__${t.name}`,
-      originalName: t.name,
-      extensionId,
-      extensionName: extName,
-    }));
-    const prev = this.extensionTools.get(extensionId) ?? [];
-    for (const old of prev) this.toolMap.delete(old.name);
-    this.extensionTools.set(extensionId, registered);
-    for (const tool of registered) this.toolMap.set(tool.name, tool);
-
-    await updateExtension(extensionId, { manifest: updatedManifest });
-    return tools;
+    return (await this.getMcpClient(extensionId)).listTools();
   }
 }

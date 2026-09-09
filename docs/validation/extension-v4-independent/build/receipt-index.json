@@ -1,0 +1,380 @@
+{
+  "schema": 1,
+  "created": "2026-09-06T03:01:00Z",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "final_validation_head": "9e083b0d01ca0ff99e3977499c41c51a59774ddc",
+  "final_validation_tree": "31a3adeb44ff2caf2fdcc28c07e10231ca1ad7cd",
+  "tools": {
+    "bun": "1.3.14",
+    "node_coverage": "22.22.2",
+    "podman": "5.8.2",
+    "conmon": "2.2.1"
+  },
+  "artifacts": {
+    "logs_archive": {
+      "file": "build-validation-logs.tar.zst",
+      "sha256": "292e733cc4cdc7f736147dc60e599d34b87f8d314b0348ddfb21039db539c441"
+    },
+    "coverage_archive": {
+      "file": "final-coverage-curated-3a56a869.tar.zst",
+      "sha256": "ba9f8cfc7fcb656d583b312e3e08c825ea667b5a4ef9491e4da2cd1675949335",
+      "inputs": 1556
+    },
+    "supplemental_receipts": {
+      "file": "build-supplemental-receipts.tar.zst",
+      "sha256": "c18ac5133725e5a5eda945444399150c46a73c8d584cf565f382714aabfddfb2",
+      "index": "supplemental-receipt-index.json"
+    },
+    "coverage_archive_final": {
+      "file": "final-coverage-curated-ea445e9e-plus4d.tar.zst",
+      "sha256": "dc49e57619ec3ff242cf8ffe6ef716c57c5331882b8d106be3d06b1e7985230e",
+      "inputs": 1556
+    },
+    "replacement_logs": {
+      "file": "final-replacement-validation-logs.tar.zst",
+      "sha256": "aa6d84dc2484cec13a268b1732d5187d6f9e75f1c17fc2e81e0ddb0f48053b0c"
+    }
+  },
+  "receipts": [
+    {
+      "log": "110-final-backend-wrapper.log",
+      "sha256": "b90565bde9673d926ae4d6d57526a8cd87f9734a408a1f104821bd28431b5fbe",
+      "command": "bun run test",
+      "start": "2026-09-06T01:13:46Z",
+      "end": "2026-09-06T01:22:04Z",
+      "exit": 0,
+      "result": "24608 pass, 0 fail, 1564 files",
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+    },
+    {
+      "log": "111-final-node22-full-coverage.log",
+      "sha256": "b9387b87307c39dbdc01f98289373f5b3a940aa3d825ad2615c0ad9f27ddca5a",
+      "command": "bash scripts/test-coverage.sh (Node 22 host+legs)",
+      "start": "2026-09-06T01:22:30Z",
+      "end": "2026-09-06T01:32:28Z",
+      "exit": 0,
+      "result": "TESTS PASS; COVERAGE PASS; host 25873 pass; Vitest 4551 pass",
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+    },
+    {
+      "log": "112-final-node22-extras-replacement.log",
+      "sha256": "7f724500f505a9d2086e6282f16a6444db8786ba4ed58f4ad84d0604ac8add67",
+      "command": "COVERAGE_LEGS_ONLY=1 bash scripts/test-coverage.sh",
+      "start": "2026-09-06T01:33:45Z",
+      "end": "2026-09-06T01:34:36Z",
+      "exit": 0,
+      "result": "1443 pass, 0 fail; five LCOV legs",
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+    },
+    {
+      "log": "113-final-security-coverage-replacement.log",
+      "sha256": "fdc919ac14e2926a28512d0cc0b8deea5fc535e46b9d2c99730528228ff32cc4",
+      "command": "bash scripts/security-coverage.sh",
+      "start": "2026-09-06T01:34:44Z",
+      "end": "2026-09-06T01:34:45Z",
+      "exit": 0,
+      "result": "18 suites; 10 LCOV records",
+      "declared_input_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+      "command_head": "19d9da92f771a5771d491234c9cff75eb104660b"
+    },
+    {
+      "log": "116-final-background-timers-replacement.log",
+      "sha256": "41471fcf25daf20b1c2adc2bb3a7d8562743b425c3efd963e0528e242388557d",
+      "command": "focused background-timers coverage",
+      "start": "2026-09-06T01:46:18Z",
+      "end": "2026-09-06T01:46:18Z",
+      "exit": 0,
+      "result": "65 pass, 271 assertions",
+      "declared_input_head": "428a8145680f5ef5693bced4a35bc536ee64c71d",
+      "command_head": "428a8145680f5ef5693bced4a35bc536ee64c71d"
+    },
+    {
+      "log": "119-final-seccomp-fixed-image-build.log",
+      "sha256": "7f166a42e71e9ef852bdd02194341353f9a2c48b4c6d67936c055dcd07a91826",
+      "command": "podman build --format docker --no-cache",
+      "start": "2026-09-06T02:02:49Z",
+      "end": "2026-09-06T02:05:34Z",
+      "exit": 0,
+      "result": "compiler 333 added/74 skipped; BPF 2736 bytes",
+      "declared_input_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c",
+      "command_head": "939a2b30f5a9f6dfe06b6be00a8e87bad8344c5c"
+    },
+    {
+      "log": "122-final-validation-typecheck.log",
+      "sha256": "4968952004db92259054e5d62e734aa3593cbe65e760e870a9fc6137e011ec85",
+      "command": "bun run typecheck",
+      "start": "2026-09-06T02:06:48Z",
+      "end": "2026-09-06T02:07:15Z",
+      "exit": 0,
+      "result": "backend, web, backend-tests, web-e2e pass",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "123-final-validation-image-build.log",
+      "sha256": "6d791ef1788eb0df5da4f7d63ae2a868165124621a18b4b33210ab41bdbbf109",
+      "command": "podman build --format docker --layers",
+      "start": "2026-09-06T02:07:26Z",
+      "end": "2026-09-06T02:08:40Z",
+      "exit": 0,
+      "result": "image 8f722e76d30f...; healthcheck retained",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "124-final-validation-image-verifier.log",
+      "sha256": "72c3a66bdd4d5fbdff2a0a3795b2ce9678de096a198248c66ceec59e2be9e09e",
+      "command": "initial verifier setup attempt",
+      "start": "2026-09-06T02:08:52Z",
+      "end": "2026-09-06T02:08:52Z",
+      "exit": 126,
+      "result": "invalid: script invoked without bash and conmon executable name wrong",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "125-final-validation-image-verifier.log",
+      "sha256": "42deed8020cec9116620bc9abc5a9c7b8540658217b83592bde2d9b24181503a",
+      "command": "verifier from dependency-clean image worktree",
+      "start": "2026-09-06T02:09:06Z",
+      "end": "2026-09-06T02:09:06Z",
+      "exit": 1,
+      "result": "invalid: host runner dependencies absent",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "126-final-validation-image-verifier.log",
+      "sha256": "2f3e1709fe892dc99633547242809106d6f2f3ef534fb2eead79a0c395d46d61",
+      "command": "bash scripts/verify-extension-container.sh IMAGE",
+      "start": "2026-09-06T02:09:16Z",
+      "end": "2026-09-06T02:09:37Z",
+      "exit": 0,
+      "result": "8/8 named production checks pass",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "127-final-validation-image-docker-load.log",
+      "sha256": "43be2928db985a74c58e97dc23d723425990f30a6a412a062ba762ba0185a64e",
+      "command": "podman save IMAGE | docker load",
+      "start": "2026-09-06T02:09:44Z",
+      "end": "2026-09-06T02:10:10Z",
+      "exit": 0,
+      "result": "same immutable image ID loaded; healthcheck retained",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "129-final-affected-coverage-producers.log",
+      "sha256": "c10fa5dc2295bf7f7037a3181eb2643d4f944ecaa15e5098a608014e313bda2c",
+      "command": "three focused final coverage producers",
+      "start": "2026-09-06T02:14:36Z",
+      "end": "2026-09-06T02:14:39Z",
+      "exit": 0,
+      "result": "12 pass, 3 skip, 0 fail across three files",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "131-final-curated-coverage-gates.log",
+      "sha256": "d9cbd2d87388f8187b3894dfd955a46a00d6bcc65b401491519ac952873e6c50",
+      "command": "merge 1556 inputs; threshold/new-file/patch gates",
+      "start": "2026-09-06T02:15:37Z",
+      "end": "2026-09-06T02:16:10Z",
+      "exit": 0,
+      "result": "1392 SF; threshold1246; new131; patch378",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "132-final-static-gates.log",
+      "sha256": "657ab56669950b391e5d6155f2f4c317dbf7ff3145cf403f365c1b6eb8454727",
+      "command": "lint; boundaries; manifest; gate-integrity; svelte",
+      "start": "2026-09-06T02:16:53Z",
+      "end": "2026-09-06T02:17:02Z",
+      "exit": 1,
+      "result": "all pass except expected gate-integrity: 84 protected changes lack approval label",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "133-final-web-unit-runners.log",
+      "sha256": "a29dc3fc216b10a642b278adf8e17ed3db066d02e8910dcefcfb1d7d7f9b844c",
+      "command": "alternate Bun wrapper then full Vitest",
+      "start": "2026-09-06T02:17:21Z",
+      "end": "2026-09-06T02:18:05Z",
+      "exit": 1,
+      "result": "wrapper defect 4686 pass/17 fail; Vitest 7046/543 pass",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab",
+      "command_tree": "282ef4b14630c6813731742c0f2e76d02b7e888e",
+      "production_input_equivalent_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2"
+    },
+    {
+      "log": "134-final-web-bun-rerun.log",
+      "sha256": "f2154ac46e8af6902275f87a73fbbdc1551ed4f101f83f8905d754c2ce24c8cf",
+      "command": "alternate Bun wrapper reproduction",
+      "start": "2026-09-06T02:18:24Z",
+      "end": "2026-09-06T02:18:34Z",
+      "exit": 1,
+      "result": "same 4686 pass/17 fail; fixed later by canonical delegation",
+      "declared_input_head": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "command_head": "3509dca46c32c87ee044fd58c811cd8dadd794ab"
+    },
+    {
+      "log": "135-final-enforce-producer.log",
+      "sha256": "bb2a701978ac07a56946f0c7be27467948abf262cbdcb2b94c0b2c940c375764",
+      "command": "final enforcement focused coverage",
+      "start": "2026-09-06T02:19:06Z",
+      "end": "2026-09-06T02:19:07Z",
+      "exit": 0,
+      "result": "0 pass, 1 explicit absent-BPF skip; image envelope separately exercised",
+      "declared_input_head": "3a56a869b2cb4b3cdfffb1f2ce041eb37fa95d17",
+      "command_head": "e5b57ca57453999117bc0e47074d717cb1caffd8"
+    },
+    {
+      "log": "137-final-gitleaks-docker.log",
+      "sha256": "06bae6a20c134ff203ab1389bb669e566441998aff034969c455dc37c23c68a5",
+      "command": "digest-pinned gitleaks dir scan",
+      "start": "2026-09-06T02:19:49Z",
+      "end": "2026-09-06T02:19:51Z",
+      "exit": 0,
+      "result": "60.48 MB scanned; no leaks",
+      "declared_input_head": "3a56a869b2cb4b3cdfffb1f2ce041eb37fa95d17",
+      "command_head": "e5b57ca57453999117bc0e47074d717cb1caffd8"
+    },
+    {
+      "log": "138-final-post-wrapper-lint.log",
+      "sha256": "053e89725d57a625419c31753686cad082422cdbd6159ee637ddfe19e8fe5dbd",
+      "command": "bun run lint",
+      "start": "2026-09-06T02:22:06Z",
+      "end": "2026-09-06T02:22:07Z",
+      "exit": 0,
+      "result": "3992 files; 100 warnings; 11 infos; no errors",
+      "declared_input_head": "37593411323ba33faf4563413b9e673c865052f7",
+      "command_head": "c6acc60fd55a16c72b9bfbf5384b95e98f2c3d38"
+    },
+    {
+      "log": "139-ea-final-affected-host-coverage.log",
+      "sha256": "4d0687e58df0a2e646d438b9a1ca2f712d7e1a9823c2874916d5aae24a935065",
+      "command": "affected host coverage producers",
+      "start": "2026-09-06T02:49:36Z",
+      "end": "2026-09-06T02:49:46Z",
+      "exit": 0,
+      "result": "price 3/4 skip; MCP 5/4 skip; task 7/43; todo 7/33; AI-kit default guards",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "140-ea-final-ai-kit-suite-coverage.log",
+      "sha256": "e87d6fd9432aff2772d27a782e2e55ba783c7e1e409f9114f949c9f64c2878b1",
+      "command": "bun test --cwd packages/@ezcorp/ai-kit --coverage",
+      "start": "2026-09-06T02:51:16Z",
+      "end": "2026-09-06T02:51:18Z",
+      "exit": 0,
+      "result": "220 pass, 0 fail, 540 assertions",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "142-ea-final-ai-kit-extra-coverage.log",
+      "sha256": "3fe960d73c19ef51699d53b3b47dd2529da8b4f3e78900c20f5393fe27f033c4",
+      "command": "root-based AI-kit coverage leg",
+      "start": "2026-09-06T02:52:59Z",
+      "end": "2026-09-06T02:53:01Z",
+      "exit": 0,
+      "result": "220 pass, 0 fail, 540 assertions; canonical SF paths",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "143-ea-final-static.log",
+      "sha256": "55d4b2f837cf2db3612e34b23788115b57ac7162170de1a74c6be6d2db5d864f",
+      "command": "bun run typecheck; bun run lint; manifest lock check",
+      "start": "2026-09-06T02:53:13Z",
+      "end": "2026-09-06T02:53:38Z",
+      "exit": 0,
+      "result": "all pass; lint 100 warnings and 11 infos",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "144-ea-final-image-build.log",
+      "sha256": "74784fb2f0d92d52670bc6333005cdcac2ad9fd49abc28ab27eedc1c00b8e520",
+      "command": "podman build --format docker --layers",
+      "start": "2026-09-06T02:54:06Z",
+      "end": "2026-09-06T02:55:13Z",
+      "exit": 0,
+      "result": "image abc364440518...",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "145-ea-final-image-verifier.log",
+      "sha256": "a0e4344ffe1ec20ac95ee144245de237374ba9c58c6adb62178e0de38e1d74f3",
+      "command": "bash scripts/verify-extension-container.sh IMAGE",
+      "start": "2026-09-06T02:55:27Z",
+      "end": "2026-09-06T02:55:45Z",
+      "exit": 0,
+      "result": "8/8 pass; BPF SHA 4b975...",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "146-ea-final-docker-load.log",
+      "sha256": "e9d6249aada0daf4a71aafdc05c5109e2e204fbebc21b42d4ecff9bd6e0db269",
+      "command": "podman save IMAGE | docker load",
+      "start": "2026-09-06T02:55:59Z",
+      "end": "2026-09-06T02:56:20Z",
+      "exit": 0,
+      "result": "same immutable image ID loaded",
+      "command_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "147-final-quickstart-producer.log",
+      "sha256": "24016b16a7fcf828cd782826c75da99c1f0ccf735c73b813cd774ca778f23ba7",
+      "command": "focused quickstart coverage producer",
+      "start": "2026-09-06T02:56:39Z",
+      "end": "2026-09-06T02:56:40Z",
+      "exit": 0,
+      "result": "0 pass, 1 explicit live test skip plus 2 skipped hooks, 0 fail",
+      "command_head": "9e083b0d01ca0ff99e3977499c41c51a59774ddc",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    },
+    {
+      "log": "148-final-replacement-coverage-gates.log",
+      "sha256": "cd75418500aab44ed97777610cd5eb3226dd0eb443e0e3549f394a212bd1d121",
+      "command": "merge 1556 inputs; threshold/new-file/patch gates",
+      "start": "2026-09-06T02:56:51Z",
+      "end": "2026-09-06T02:57:24Z",
+      "exit": 0,
+      "result": "1392 SF; threshold1246; new131; patch378",
+      "command_head": "9e083b0d01ca0ff99e3977499c41c51a59774ddc",
+      "production_input_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778"
+    }
+  ],
+  "production_code_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+  "production_code_tree": "801704279706828fa0b9f958ae4446237f38e451",
+  "image_source_head": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+  "image_source_tree": "801704279706828fa0b9f958ae4446237f38e451",
+  "external_receipts": {
+    "fresh_clean_installs": "../parent/parent-first-clean-installs.json",
+    "independent_ci_coverage_replay": "../parent/final-ci-coverage-replay.json",
+    "final_web_production12": "../web (cf75ab65 evidence; 12 pass, 0 skip, exit 0, cleanup 0)"
+  }
+}

@@ -5,14 +5,14 @@ A tool extension that fetches public GitHub repository and user statistics via t
 ## Install
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/github-stats
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/github-stats
 ```
 
 ## Manifest Walkthrough
 
-### `schemaVersion: 2`
+### `schemaVersion: 4`
 
-All extensions use schema version 2, the current manifest format.
+This example uses schema version 4, the current runtime manifest format.
 
 ### `tools` (3 tools)
 

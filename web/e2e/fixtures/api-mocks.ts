@@ -115,6 +115,7 @@ export interface MockOverrides {
 		status: "success" | "error" | "interrupted";
 		messageId?: string | null;
 		cardType?: string | null;
+		cardLayout?: string | null;
 	}>>;
 	/**
 	 * Path listings that the mention search API returns for `type=path` queries.
@@ -222,6 +223,7 @@ export interface MockOverrides {
 		status: "success" | "error" | "interrupted";
 		messageId?: string | null;
 		cardType?: string | null;
+		cardLayout?: string | null;
 	}>>;
 	/**
 	 * Phase 48 — fixtures for the Ez panel API.
@@ -308,7 +310,9 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	const agents = overrides.agents ?? [DEFAULT_AGENT];
 	const runs = overrides.runs ?? [];
 	const conversations = overrides.conversations ?? [DEFAULT_CONV];
-	const messages = overrides.messages ?? [];
+	// Mutable copy: the POST handler appends its saved user row so later
+	// history refreshes mirror the server instead of returning the seed only.
+	const messages = [...(overrides.messages ?? [])];
 	const workflows = overrides.workflows ?? [];
 	const workflowRuns = overrides.workflowRuns ?? [];
 	const agentConfigs = overrides.agentConfigs ?? [];
@@ -829,6 +833,9 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				// path exercises its attachments render.
 				...(attachments.length > 0 ? { attachments } as any : {}),
 			});
+			const existingUserMessage = messages.findIndex((message) => message.id === userMsg.id);
+			if (existingUserMessage >= 0) messages[existingUserMessage] = userMsg;
+			else messages.push(userMsg);
 
 			// EZ Actions v1 e2e support: detect `![EZ:*]` tokens in the
 			// content. For each, synthesize a result message; if the

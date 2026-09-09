@@ -1,0 +1,8 @@
+bundled-bootstrap-r1.json
+bootstrap_installations=28
+initial_pending=0 maximum_pending=0
+terminal_states=verified:28
+bundled-bootstrap-r2.json
+bootstrap_installations=28
+initial_pending=28 maximum_pending=28
+terminal_states=verified:28

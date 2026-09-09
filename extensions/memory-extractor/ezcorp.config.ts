@@ -31,16 +31,16 @@
 // dropped `gemini-2.0-flash-lite` from the catalog, and an unlisted id
 // resolves to a zero-cost stub that reports every turn as unpriced.
 
-import { defineExtension } from "../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "memory-extractor",
   version: "1.0.0",
   description:
     "Extracts durable facts from completed chat runs (preferences, biographical, technical, decisions/goals) and runs a 6-hour compaction sweep.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   // Phase 53.6 — event-only extension; idle-out would silently drop run:complete after 5min
   persistent: true,
 

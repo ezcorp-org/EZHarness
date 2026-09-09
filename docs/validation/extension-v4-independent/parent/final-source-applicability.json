@@ -1,0 +1,110 @@
+{
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "package_input_changes_since_freeze1": [
+    "packages/@ezcorp/ai-kit/src/client.ts",
+    "packages/@ezcorp/ai-kit/test/e2e/_guard.ts",
+    "packages/@ezcorp/ai-kit/test/fixtures/stub-server.ts",
+    "packages/@ezcorp/ai-kit/test/unit/client.test.ts",
+    "packages/@ezcorp/extension-runner/tests/provision.integration.test.ts"
+  ],
+  "lifecycle_input_changes_since_freeze2": [
+    "docs/extensions/examples/city-conditions/lib/open-meteo.ts",
+    "docs/extensions/examples/weather/index.ts",
+    "packages/@ezcorp/extension-runner/tests/provision.integration.test.ts"
+  ],
+  "postgres_input_changes_since_freeze2": [],
+  "limit": "Exact listed-path comparison. Does not extend previous full backend or browser results to later changes; their final run receipts are separate.",
+  "changed_manifest_rows": [
+    "city-conditions",
+    "weather"
+  ],
+  "unchanged_manifest_rows": 48,
+  "package_limit": "AI-kit client/test fixtures changed and have new full package, owned HTTP and strong lifecycle receipts. Runner provisioning fixture has a final actual build check. Other package production and test inputs remain unchanged.",
+  "lifecycle_toolchain_production_changes_since_freeze2": [],
+  "memory_llm_named_source_changes_since_parent_receipt": [],
+  "full_backend_coverage_checkpoint": "19d9da92f771a5771d491234c9cff75eb104660b",
+  "checkpoint_tree": "5bf40268df5184c05cbdc1298e16fefc5fd33883",
+  "final_integrated_source": "69d9fd244918d1f7ddfe08dcb3ed451729d38651",
+  "final_integrated_tree": "31a3adeb44ff2caf2fdcc28c07e10231ca1ad7cd",
+  "all_production_and_test_changes_since_full_checkpoint": [
+    "build/compile-seccomp.c",
+    "manifest.lock.json",
+    "packages/@ezcorp/ai-kit/src/client.ts",
+    "packages/@ezcorp/ai-kit/test/e2e/_guard.ts",
+    "packages/@ezcorp/ai-kit/test/fixtures/stub-server.ts",
+    "packages/@ezcorp/ai-kit/test/unit/client.test.ts",
+    "src/__tests__/background-timers.test.ts",
+    "src/__tests__/helpers/first-party-release.ts",
+    "src/__tests__/mcp-netns-integration.test.ts",
+    "src/__tests__/mcp-seccomp-enforce-integration.test.ts",
+    "src/__tests__/mcp-seccomp-profile.test.ts",
+    "src/__tests__/memory-list-derived-owner.integration.test.ts",
+    "src/__tests__/price-chart.e2e.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/bundled.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/doctor.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/fanout.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/internal-auth.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/on-behalf-of.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/quickstart.test.ts",
+    "src/extensions/first-party-integration/task-stack/e2e-server-pipeline.test.ts",
+    "src/extensions/first-party-integration/todo-tracker/e2e-server-pipeline.test.ts",
+    "web/scripts/test.sh"
+  ],
+  "compiler_replacement_evidence": "Actual C/libseccomp baseline/fixed proof, parent final-compiler-setting check, final Docker image8f722, eight verifier cases, browser12, and actual filtered syscall effects; kernel audit rows remain unavailable.",
+  "test_changes": "Explicit changed-file follow-up: daemon settings, seccomp compiler/enforcement, memory fixture, canonical web runner, AI-kit client/readiness tests, Price Chart installed fixture, Task Stack/Todo real-process parity and bwrap userspace bytes. Latest coverage requires replacement producers for these files and AI-kit extra leg.",
+  "coverage_limit": "The authoritative full run remains recorded at19d. Final CI replay uses every raw host producer, replacement producers for changed test files, and same-source repeated extras/security, with explicit per-producer provenance.",
+  "evidence_head": "b1043e2fcb7e3ca258dcb2ea2ed00ec9f665fc8e",
+  "image_source": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+  "image_tree": "801704279706828fa0b9f958ae4446237f38e451",
+  "image_to_final_source_changes": [
+    "manifest.lock.json",
+    "packages/@ezcorp/ai-kit/src/client.ts",
+    "packages/@ezcorp/ai-kit/test/e2e/_guard.ts",
+    "packages/@ezcorp/ai-kit/test/fixtures/stub-server.ts",
+    "packages/@ezcorp/ai-kit/test/unit/client.test.ts",
+    "src/__tests__/helpers/first-party-release.ts",
+    "src/__tests__/mcp-netns-integration.test.ts",
+    "src/__tests__/mcp-seccomp-enforce-integration.test.ts",
+    "src/__tests__/price-chart.e2e.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/bundled.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/doctor.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/fanout.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/internal-auth.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/on-behalf-of.test.ts",
+    "src/extensions/first-party-integration/ai-kit/e2e/quickstart.test.ts",
+    "src/extensions/first-party-integration/task-stack/e2e-server-pipeline.test.ts",
+    "src/extensions/first-party-integration/todo-tracker/e2e-server-pipeline.test.ts",
+    "web/scripts/test.sh"
+  ],
+  "previous_production_image_source": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+  "replacement_image_required": false,
+  "production_changes_since_full_checkpoint": [
+    "build/compile-seccomp.c",
+    "packages/@ezcorp/ai-kit/src/client.ts"
+  ],
+  "manifest_changes_since_full_checkpoint": [
+    "ai-kit"
+  ],
+  "new_lifecycle_manifest_rows_after_weather_city": [
+    "ai-kit"
+  ],
+  "unchanged_extension_rows_since_second_freeze": 47,
+  "production_and_test_changes_after_image": [
+    "src/extensions/first-party-integration/ai-kit/e2e/quickstart.test.ts"
+  ],
+  "source_changes_after_final_test_checkpoint": [],
+  "final_coverage": "All1550 host producers plus six named producers, affected replacements after final test source, independent12-group replay from archive dc49e576, allgates1246/131/378 pass.",
+  "seccomp_effect_applicability": {
+    "compared_paths": [
+      "build/compile-seccomp.c",
+      "src/extensions/mcp-seccomp.json",
+      "src/extensions/mcp-sandbox.ts",
+      "src/extensions/mcp-netns.ts",
+      "Dockerfile"
+    ],
+    "changed_paths": [],
+    "bpf_sha256": "4b9755245461ac5e8bed6bd3b9c3933faebd6cbc2638e50bbf6920d98efa2a1a",
+    "effect_image": "8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be",
+    "final_image": "abc3644405188068cb2b0397f85199799b76d51336cb8d17e0a0d83492189962"
+  }
+}

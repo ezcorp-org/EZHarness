@@ -1,0 +1,32 @@
+{
+  "verified_source_revision": "ac53921ce07db8569eb8895456eda8271d6aab3f",
+  "input_sha256": {
+    "docs/extensions/examples/claude-design/lib/generator.ts": "e196994d284e5dc214d1e18dd93e61cb41de07403f49ace599794a865a69a351",
+    "docs/extensions/examples/claude-design/lib/tailwind-browser-4.3.3.txt": "6d8c473ef2f8ad63feafc0bd76502dda31501a6c135dc4c6173f6268cde595be",
+    "web/src/lib/server/extension-document.ts": "f6d5fe12f69685a11210c60e81c9e096dcc2470873d7cfd8bcd740b06a93ae88"
+  },
+  "runtime_result": {
+    "status": "passed",
+    "actual": {
+      "display": "flex",
+      "alignItems": "center",
+      "backgroundColor": "rgb(255, 0, 102)",
+      "dynamicDisplay": "grid",
+      "storageDenied": true
+    },
+    "requestCount": 1,
+    "remoteAssetRequests": 0,
+    "pageErrors": [],
+    "tailwindSha256": "6d8c473ef2f8ad63feafc0bd76502dda31501a6c135dc4c6173f6268cde595be",
+    "csp": "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; connect-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
+    "browser": "151.0.7922.34",
+    "bun": "1.3.14"
+  },
+  "exit": 0,
+  "raw_sha256": "739760c633f971a85a60b707407c6fedc001d4eeb97ba78b8e86e9891333c599",
+  "scope": "Production scaffold and real production HTTP headers through an owned loopback server; does not replace authenticated installed-release route tests",
+  "images": {
+    "scaffold-csp-desktop.png": "c1c58aa7fc756467935df4f8282998a71e276114b085d0d4486e538a850ec035",
+    "scaffold-csp-mobile.png": "bc52ff0408c5c4afdd16f1ec92bb088ac40a61a2b24d897973bedb0c19026d17"
+  }
+}

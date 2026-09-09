@@ -1,0 +1,14 @@
+{
+  "scope": "sanitized-publication-reconstruction",
+  "successfulCommand": "flock --close .cache/validation-heavy.lock python3 .cache/terra-shipping/parent/reconstruct-sanitized-coverage-archives.py <private-original-root> <public-build-root> <safe-comparison-receipt>",
+  "successfulExit": 0,
+  "compression": {
+    "program": "zstd",
+    "level": 19,
+    "threads": 1,
+    "streaming": true
+  },
+  "scriptSha256": "34e146c5cbfd8f796f846842ea7f88d11293f8784e653efdab401cc305e38830",
+  "verification": "The successful command reconstructed and compared each logical tar member. The comparison verifies member order, type, logical metadata, and all regular payload hashes; only the required target payload and size differ.",
+  "priorAttempts": "Earlier private intermediate attempts were retained outside this public evidence. They are not the published archives."
+}

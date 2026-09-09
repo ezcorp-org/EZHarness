@@ -1,0 +1,9 @@
+proof	exit	receipt
+file-organizer	0	.cache/production-lifecycle/file-organizer
+embeddings	0	.cache/production-lifecycle/embeddings
+runtime	0	.cache/production-lifecycle/runtime
+delivery	0	.cache/production-lifecycle/delivery
+revocation	0	.cache/production-lifecycle/revocation
+runtime-resources	0	.cache/production-lifecycle/runtime-resources
+historical-upgrade	0	.cache/production-lifecycle/historical-upgrade
+legacy-adoption	0	.cache/production-lifecycle/legacy-adoption

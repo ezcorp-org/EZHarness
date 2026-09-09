@@ -1,0 +1,130 @@
+{
+  "archive": "coordinator-checkpoints.tar.gz",
+  "records": [
+    {
+      "file": "csp-scaffold-proof.log",
+      "sha256": "739760c633f971a85a60b707407c6fedc001d4eeb97ba78b8e86e9891333c599",
+      "bytes": 675
+    },
+    {
+      "file": "file-organizer-final-independent.log",
+      "sha256": "eaf29a9f14528f913e94311c1c43e185408e607c0d8b696f0e46a748c5364de6",
+      "bytes": 28507
+    },
+    {
+      "file": "final-ci-coverage-replay.log",
+      "sha256": "ffe0700cf6edd6de698005e04aa2aea19defdfaaf5936582bc231028392041c2",
+      "bytes": 154894
+    },
+    {
+      "file": "final-compiler-setting-independent.log",
+      "sha256": "c2ac82f159bc2e5d0d1298bfe666fde6da1f5a2b63cee0e781356f2d33f00579",
+      "bytes": 10967
+    },
+    {
+      "file": "final-lock-provision-independent.log",
+      "sha256": "8999a69093229498bb1fc21d896ed0fdacc9fac4cf929fd80142593bfa9a252b",
+      "bytes": 37665
+    },
+    {
+      "file": "final-optin-parity-independent.log",
+      "sha256": "10dc581bf1e5d45d0dda25f5d389f9f32982caa2bfdcb0d3760e6062bc624111",
+      "bytes": 3743
+    },
+    {
+      "file": "final-policy-gate.log",
+      "sha256": "3af863ae9e58df99efdd63cc8e5379da762e55872b9d0357ecad5c774aa4f5ce",
+      "bytes": 18046
+    },
+    {
+      "file": "freeze-regressions.log",
+      "sha256": "74399e1a6f6eb508123e0d3c4be880c0379a9d833be0f8857330742c4a26d7f9",
+      "bytes": 9116
+    },
+    {
+      "file": "freeze2-regressions.log",
+      "sha256": "726af58f17c7d5c65f1ae401aa9dd8564dba34bb4410d07af39a398beb0b50dc",
+      "bytes": 23711
+    },
+    {
+      "file": "hosted-coverage.log",
+      "sha256": "1df94d6f78a9134de2b7ec7dca319aa2e1ee4bfddb37f39fad5e47c639b238d2",
+      "bytes": 67
+    },
+    {
+      "file": "hosted-merge.log",
+      "sha256": "26db16a7ea526d0e795acf26a637d257c437f1c8a588f0c9a4ad2a5635f9edda",
+      "bytes": 48
+    },
+    {
+      "file": "hosted-new-file.log",
+      "sha256": "fe35d6d09cb2469b468138d0a93bbd5c5b97dfc5113b60c7564114d20f813c32",
+      "bytes": 61
+    },
+    {
+      "file": "hosted-patch.log",
+      "sha256": "9e00dfc7e1ecf8a4f774484e65ae811045e188a600bb657a17d33a1ccd5f544f",
+      "bytes": 80
+    },
+    {
+      "file": "launcher-event-followup.log",
+      "sha256": "1ccb860d5e959eede64298560546f1fc0f56eb08aa34835664b0a1f8b0198947",
+      "bytes": 2550
+    },
+    {
+      "file": "memory-llm-independent.log",
+      "sha256": "e3594e1b337c0c647659c3c076932ed99b898b23cec950d80c09258d9cf19597",
+      "bytes": 7548
+    },
+    {
+      "file": "parent-first-clean-installs.log",
+      "sha256": "2b4f47ed554833e0fd278b138ae8c6848b7732a17e5cd1854ba7f445b35242d2",
+      "bytes": 2183
+    },
+    {
+      "file": "post-quickstart-static.log",
+      "sha256": "7f7206fb698c79c4f72663b24f81767f407756370d3ad44c3e3b5ba233dbacd7",
+      "bytes": 16869
+    },
+    {
+      "file": "pre-aikit-ci-coverage-replay.log",
+      "sha256": "b6805aaf0dcc019b3e105f8d14d10a3616ae14330b6c8f46e28b1016145e4164",
+      "bytes": 154894
+    },
+    {
+      "file": "root-install.log",
+      "sha256": "5a0719aa28e0ba96d61aa1bdabb4888385236f2778bb45772e9ce910ff988608",
+      "bytes": 809
+    },
+    {
+      "file": "sdk-build.log",
+      "sha256": "781a10af5b6d2c1214f2be00467fa8dde4ce30fefcc5665279ba2750a69a0754",
+      "bytes": 34
+    },
+    {
+      "file": "sdk-gate-regression.log",
+      "sha256": "c43adcbf8fd6c0120434e22a96c1d50b203a6640f388f6a42ce9a9b047182f91",
+      "bytes": 5794
+    },
+    {
+      "file": "sdk-rootless-lifetime.log",
+      "sha256": "1424753584835db2926b606b77081b6fd6525493be3a3210d03e37caa6478f3f",
+      "bytes": 277
+    },
+    {
+      "file": "sdk-served-regression.log",
+      "sha256": "2fe758897cda20625f9933c0d11d05f3c88bd431c094befc0722bee89dcd931a",
+      "bytes": 1755
+    },
+    {
+      "file": "weather-independent.log",
+      "sha256": "5413cd8f581e79a88c19fe2b2f52d92048cdc1e5688d48cdca788a6006d67ec1",
+      "bytes": 475
+    },
+    {
+      "file": "web-install.log",
+      "sha256": "971a270407993560cc33d403d12ddd7a02c9fd538b10fc3d7e1fe60c62c391c2",
+      "bytes": 833
+    }
+  ]
+}

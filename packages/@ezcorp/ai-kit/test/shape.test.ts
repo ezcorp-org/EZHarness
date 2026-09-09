@@ -70,7 +70,7 @@ describe("ai-kit surface drift guard", () => {
     "ezcorp.config.ts exports orchestration tools for Tier 4",
     () => {
       const cfg = read("ezcorp.config.ts");
-      expect(cfg).toMatch(/schemaVersion:\s*2/);
+      expect(cfg).toMatch(/schemaVersion:\s*4/);
       expect(cfg).toMatch(/start_chat|spawn_chats|send_message/);
     },
   );

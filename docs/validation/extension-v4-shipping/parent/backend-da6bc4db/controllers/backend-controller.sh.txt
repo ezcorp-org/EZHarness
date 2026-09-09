@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# CI-equivalent backend closure: coverage producers + P\C residual + diff gates.
+# Invocation (do not run until source freeze):
+#   BASE_REF=origin/main bash .cache/terra-shipping/backend/run-full-backend.sh \
+#     .cache/terra-shipping/backend/full-$(date -u +%Y%m%dT%H%M%SZ)
+set -uo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
+lock=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock
+if [[ ${EZ_BACKEND_LOCK_HELD:-} != 1 ]]; then
+  exec env EZ_BACKEND_LOCK_HELD=1 flock --close "$lock" "$0" "$@"
+fi
+
+receipt=${1:?provide an absolute or repo-relative receipt directory}
+cd "$repo_root"
+receipt=$(realpath -m "$receipt")
+mkdir -p "$receipt"
+
+bun_bin=/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun
+node_bin=/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin/node
+export PATH="$(dirname "$bun_bin"):$(dirname "$node_bin"):$PATH"
+hash -r
+export CONMON=${CONMON:-/tmp/ez-audit-ci-conmon}
+base_ref=${BASE_REF:-origin/main}
+
+{
+  printf 'worktree=%s\n' "$repo_root"
+  printf 'source=%s\n' "$(git rev-parse HEAD)"
+  printf 'tree=%s\n' "$(git rev-parse HEAD^{tree})"
+  printf 'base_ref=%s\n' "$base_ref"
+  printf 'base=%s\n' "$(git rev-parse "$base_ref" 2>&1 || true)"
+  printf 'bun=%s\n' "$($bun_bin --version)"
+  printf 'node=%s\n' "$($node_bin --version)"
+  printf 'conmon=%s\n' "$CONMON"
+  printf 'runner_probe=not-yet-run\n'
+} > "$receipt/provenance.txt"
+
+git status --short > "$receipt/git-status.txt"
+sha256sum scripts/test-coverage.sh scripts/test.sh scripts/check-new-file-coverage.ts scripts/check-patch-coverage.ts > "$receipt/gate-file-hashes.txt"
+
+all=0
+last_rc=0
+run_gate() {
+  local name=$1
+  shift
+  local log="$receipt/$name.log"
+  printf '%q ' "$@" > "$receipt/$name.command"
+  printf '\n' >> "$receipt/$name.command"
+  "$@" > "$log" 2>&1
+  local rc=$?
+  last_rc=$rc
+  printf '%s\t%s\n' "$name" "$rc" >> "$receipt/exits.tsv"
+  printf '%s exit=%s\n' "$name" "$rc"
+  [ "$rc" -eq 0 ] || all=1
+}
+
+run_gate runner-probe env CONMON="$CONMON" bash scripts/setup-extension-runner-ci.sh --probe
+printf 'runner_probe_exit=%s\n' "$last_rc" >> "$receipt/provenance.txt"
+run_gate coverage env CONMON="$CONMON" EZCORP_RUN_PODMAN_TESTS=1 "$bun_bin" run test:coverage
+if [ "$last_rc" -eq 0 ]; then
+  cp coverage/lcov.info "$receipt/lcov.info" 2>"$receipt/lcov-copy.err" || { printf 'lcov-copy\t1\n' >> "$receipt/exits.tsv"; all=1; }
+else
+  printf 'lcov-copy\tskipped-after-coverage-failure\n' >> "$receipt/exits.tsv"
+fi
+run_gate residual env CONMON="$CONMON" EZCORP_RUN_PODMAN_TESTS=1 RESIDUAL_ONLY=1 "$bun_bin" run test
+run_gate new-file-coverage env BASE_REF="$base_ref" "$bun_bin" scripts/check-new-file-coverage.ts
+run_gate patch-coverage env BASE_REF="$base_ref" "$bun_bin" scripts/check-patch-coverage.ts
+
+printf '%s\n' "$all" > "$receipt/exit"
+exit "$all"

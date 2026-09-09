@@ -1,0 +1,21 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/compose-podman-masks.test.ts:
+(pass) tmpfs secret masks — base file (Docker) > every tree the mask exists to hide is actually masked [0.46ms]
+(pass) tmpfs secret masks — base file (Docker) > every worktree tree on disk is masked, not just the ones we remembered [11.28ms]
+(pass) tmpfs secret masks — base file (Docker) > every mask is size-capped, so none can default to half of host RAM [1.00ms]
+(pass) tmpfs secret masks — base file (Docker) > the base file never carries notmpcopyup — the Docker daemon rejects it [0.22ms]
+(pass) mask completeness — derived from git, not from memory > real browser session credentials stay masked even between test runs [0.27ms]
+(pass) mask completeness — derived from git, not from memory > every ignored credential path under /repo is masked [161.96ms]
+(pass) tmpfs secret masks — Podman override > the override covers exactly the base file's masks — no drift either way [0.88ms]
+(pass) tmpfs secret masks — Podman override > every masked path disables tmpcopyup under Podman [0.17ms]
+(pass) tmpfs secret masks — Podman override > `!override` replaces the list, so base options must survive into it [0.37ms]
+(pass) boot-time guard — the masks are verified, not assumed > the guard checks exactly the set of masked paths [0.45ms]
+(pass) boot-time guard — the masks are verified, not assumed > the guard aborts the boot rather than warning [0.24ms]
+(pass) boot-time guard — the masks are verified, not assumed > the guard survives Compose interpolation [0.26ms]
+(pass) image references resolve without host registry configuration > every image is fully qualified [0.43ms]
+
+ 13 pass
+ 0 fail
+ 44 expect() calls
+Ran 13 tests across 1 file. [627.00ms]

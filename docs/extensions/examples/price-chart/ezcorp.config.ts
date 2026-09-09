@@ -1,7 +1,7 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "price-chart",
   version: "0.1.0",
   description:
@@ -12,7 +12,7 @@ export default defineExtension({
     "renders the chart as inline SVG and provides 1W/1M/3M/1Y range " +
     "switching purely client-side. No filesystem permission needed.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: false,
   category: "Markets",
   tags: ["finance", "stocks", "crypto", "charts", "demo"],

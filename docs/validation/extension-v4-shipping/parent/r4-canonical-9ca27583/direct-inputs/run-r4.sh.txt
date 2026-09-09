@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${EZ_PRODUCTION_RECEIPT_DIR:?}"
+unset EZ_RUNTIME_RESOURCE_CYCLES
+export EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS=1800
+export EZ_RUNTIME_RESOURCE_MAX_CYCLES=1440
+bun=/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun
+"$bun" /home/dev/work/EZCorp/extension-v4-independent-audit/scripts/verify-shipping-runtime-resources.ts > "$EZ_PRODUCTION_RECEIPT_DIR/r4-driver.log" 2>&1 &
+driver_pid=$!
+set +e
+wait "$driver_pid"
+driver_result=$?
+set -e
+printf 'driver_exit=%s\n' "$driver_result" > "$EZ_PRODUCTION_RECEIPT_DIR/r4-driver.exit"
+set +e
+"$bun" -e 'const p=process.argv[1];const x=JSON.parse(await Bun.file(p).text());if(x.mode!=="duration"||x.requestedMinimumDurationMs!==1800000||x.actualDurationMs<1800000||x.completedCycles<10)throw new Error("R4 duration controller receipt is invalid");' "$EZ_PRODUCTION_RECEIPT_DIR/r4-resource-samples.json" > "$EZ_PRODUCTION_RECEIPT_DIR/duration-assertion.log" 2>&1
+duration_result=$?
+set -e
+printf 'duration_assertion_exit=%s\n' "$duration_result" > "$EZ_PRODUCTION_RECEIPT_DIR/duration-assertion.exit"
+if [[ "$driver_result" -ne 0 ]]; then exit "$driver_result"; fi
+exit "$duration_result"

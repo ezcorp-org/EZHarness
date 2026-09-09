@@ -1,3 +1,4 @@
+// @ezcorp-host-integration
 /**
  * `lib/sanitize.ts` — invariants 12 (secret redaction) and 13 (adversarial
  * delimiter neutering), plus the two things this port adds that the

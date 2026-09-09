@@ -19,7 +19,7 @@
  * `restoreModuleMocks()` in `afterAll` hands the real module back.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import * as realRuntime from "@ezcorp/sdk/runtime";
 
 afterAll(() => {
@@ -361,7 +361,7 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void): void
 // builders directly.
 
 describe("page registration", () => {
-  test("both pages carry the SAME action set, namespaced", () => {
+  test("both pages share one registration of each namespaced action", () => {
     // Two handlers, two mount points, mounted on BOTH page ids. That is
     // not tidiness: the Hub POSTs an action tagged with the page it was
     // rendered on, so an action reachable from one page and handled only
@@ -369,11 +369,9 @@ describe("page registration", () => {
     // — `ezcorp.config.test.ts` pins the manifest against `PAGE_EVENTS`.
     registerPages();
     expect(pages.length).toBeGreaterThan(0);
-    for (const page of pages) {
-      expect(Object.keys(page.actions ?? {}).sort()).toEqual(
-        ["ez-factory:job-run", "ez-factory:job-save"],
-      );
-    }
+    expect(pages.flatMap((page) => Object.keys(page.actions ?? {})).sort()).toEqual(
+      ["ez-factory:job-run", "ez-factory:job-save"],
+    );
   });
 });
 

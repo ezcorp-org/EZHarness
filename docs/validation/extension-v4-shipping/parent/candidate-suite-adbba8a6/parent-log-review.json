@@ -1,0 +1,192 @@
+{
+  "reviewer": "parent",
+  "suite_driver_commit_sha": "adbba8a693cdcd4410c51023dfca93517f9db1e8",
+  "suite_exit": 0,
+  "leaf_count": 8,
+  "all_leaf_exits_zero": true,
+  "log_scope": "Structured app error/warning records plus embedding-ready transitions; full private compose logs remain in the cache.",
+  "app_logs": [
+    {
+      "path": "delivery/runtime/compose.log",
+      "sha256": "d8be02caadc9775783032c08893e3350b503dfb3c4ae93f0f831342df049c182",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 1
+        },
+        {
+          "subsystem": "ext-events",
+          "message": "hub action subprocess dispatch failed",
+          "code": "",
+          "count": 4
+        }
+      ],
+      "embedding_ready_events": [],
+      "interpretation": "Dispatch failures occur in the intentional worker-death and uncertain-delivery cases; all six effect/outcome assertions pass. This leaf does not assert embedding readiness and has no retained resume event."
+    },
+    {
+      "path": "embeddings/runtime/compose.log",
+      "sha256": "64ddf8b2d4f8bfe4a43be5adad449461ae517814a97324f872a4d94806425bec",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 1
+        }
+      ],
+      "embedding_ready_events": [],
+      "interpretation": "The HTTP vector and ready-health assertions prove model readiness. No later background-worker resume log is retained before this short app run ends."
+    },
+    {
+      "path": "file-organizer/runtime/compose.log",
+      "sha256": "e919ff412b7a30b8b642b4e03c9b7f6466587f5dfc771943108c671d93886562",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 1
+        }
+      ],
+      "embedding_ready_events": [
+        {
+          "at": "2026-09-07T04:38:30.341Z",
+          "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts"
+        }
+      ],
+      "interpretation": "A retained worker resume event follows the embedding-not-ready warning. No structured error-level record is present."
+    },
+    {
+      "path": "historical-upgrade/upgrade/assert-candidate/compose.log",
+      "sha256": "cb53eb5839dc471eb455501f62121fb896b8162106ed475a0e18cf9d12bba207",
+      "errors": [],
+      "warnings": [],
+      "embedding_ready_events": [],
+      "interpretation": "No structured error/warning records are present; this phase asserts exact restored lifecycle state."
+    },
+    {
+      "path": "historical-upgrade/upgrade/assert-restore/compose.log",
+      "sha256": "2be659ae3253768e0552c766eb2b1d707cbfa8701432f3f023494ac7bef3da6e",
+      "errors": [],
+      "warnings": [],
+      "embedding_ready_events": [],
+      "interpretation": "No structured error/warning records are present; this phase asserts exact restored lifecycle state."
+    },
+    {
+      "path": "historical-upgrade/upgrade/seed-previous/compose.log",
+      "sha256": "7921db9e762f42735a55d8b55d66499d4bab7453842b8731c57ef7d39f4cf938",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 1
+        }
+      ],
+      "embedding_ready_events": [],
+      "interpretation": "The historical seed has no retained embedding resume event. It supplies a lifecycle-state baseline, not an embedding readiness proof."
+    },
+    {
+      "path": "legacy-adoption/legacy/adopt/compose.log",
+      "sha256": "13b731e2391778ca14952bf1adde9946a3d65e60507bf23d873af6729c426c02",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 1
+        }
+      ],
+      "embedding_ready_events": [
+        {
+          "at": "2026-09-07T04:57:52.233Z",
+          "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts"
+        }
+      ],
+      "interpretation": "A retained worker resume event follows the embedding-not-ready warning. No structured error-level record is present."
+    },
+    {
+      "path": "legacy-adoption/legacy/seed/compose.log",
+      "sha256": "d17e7414d1c82cc6a8a04cb07b68f9fb22b8b44e747947f0d5a986add5d77978",
+      "errors": [
+        {
+          "subsystem": "extensions",
+          "message": "Failed to install extension",
+          "code": "",
+          "count": 1
+        }
+      ],
+      "warnings": [],
+      "embedding_ready_events": [],
+      "interpretation": "Historical main rejects the bundled github-stats manifest declaring GITHUB_TOKEN under its existing credential deprecation guard. The owned legacy seed and adoption still pass. This is not a candidate-image error or proof that every historical bundle installed."
+    },
+    {
+      "path": "revocation/runtime/compose.log",
+      "sha256": "3d9b2fbca53a5e51d09fd6841f7272f1e6ba52cc500f0bebbbfb37a948b536a4",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 1
+        }
+      ],
+      "embedding_ready_events": [
+        {
+          "at": "2026-09-07T04:55:46.171Z",
+          "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts"
+        }
+      ],
+      "interpretation": "A retained worker resume event follows the embedding-not-ready warning. No structured error-level record is present."
+    },
+    {
+      "path": "runtime/runtime/compose.log",
+      "sha256": "c0fd979d7c7c91469c4a4b1cea813deddccf00da8016fe1f15dc2c974717399c",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 2
+        }
+      ],
+      "embedding_ready_events": [
+        {
+          "at": "2026-09-07T04:43:17.726Z",
+          "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts"
+        }
+      ],
+      "interpretation": "A retained worker resume event follows the embedding-not-ready warning. No structured error-level record is present."
+    },
+    {
+      "path": "runtime-resources/runtime/compose.log",
+      "sha256": "5feacb8fb3eca9a02bd3f031240e6adb73092c4e47eda3f4a736c1593b61e959",
+      "errors": [],
+      "warnings": [
+        {
+          "subsystem": "embed-worker",
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "code": "",
+          "count": 1
+        }
+      ],
+      "embedding_ready_events": [
+        {
+          "at": "2026-09-07T04:56:12.833Z",
+          "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts"
+        }
+      ],
+      "interpretation": "A retained worker resume event follows the embedding-not-ready warning. No structured error-level record is present."
+    }
+  ]
+}

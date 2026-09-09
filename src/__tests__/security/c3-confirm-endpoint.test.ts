@@ -1,321 +1,164 @@
-// Regression test for the sec-C3 follow-up: admin-only activate endpoint
-// that enables an installed extension and (optionally) grants clamped
-// permissions. This closes the gap left by the sec-C3 fix (f6ee69e),
-// which hard-codes enabled=false on install and ignores caller-supplied
-// permissions — after that fix there was no API path to enable an
-// installed extension or grant any of its declared permissions.
-//
-// NOTE on path: the task originally called for `[id]/confirm` but that
-// route was already occupied by the runtime shell/filesystem permission
-// prompt handler. The admin-activate endpoint lives at
-// `[id]/activate/+server.ts` instead. Behaviour is what the task spec
-// asked for.
-//
-// Fix semantics exercised:
-//   - requireRole(locals, "admin")  → member gets 403, unauth gets 401
-//   - POST with no body            → 200, enabled=true, perms untouched
-//   - POST with grantedPermissions that exceed manifest → clamped
-//   - POST to unknown id           → 404
-//   - Success path writes an audit entry
-//
-// Strategy: handler-level probe. Mock getExtension / updateExtension /
-// insertAuditEntry / ExtensionRegistry, then drive POST with each shape.
 
-import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
+import { afterAll, expect, mock, test, beforeEach } from "bun:test";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
-import {
-  mockServerAlias,
-  createMockEvent,
-  jsonFromResponse,
-  ADMIN_USER,
-  MEMBER_USER,
-} from "../helpers/mock-request";
+import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "../helpers/mock-request";
 
-// ── Module-level mocks (BEFORE handler imports) ──────────────────
 mockServerAlias();
+const scopes = () => ({ requireScope: () => null });
+mock.module("$lib/server/security/api-keys", scopes);
+mock.module("../../../web/src/lib/server/security/api-keys", scopes);
+const { POST } = await import("../../../web/src/routes/api/extensions/[id]/activate/+server");
+afterAll(() => restoreModuleMocks());
 
-// SvelteKit generated $types stub — not present at test time.
-mock.module(
-  "../../../web/src/routes/api/extensions/[id]/activate/$types",
-  () => ({}),
-);
-
-// requireScope no-op passthrough.
-mock.module("$lib/server/security/api-keys", () => ({
-  requireScope: () => null,
-}));
-mock.module("../../../web/src/lib/server/security/api-keys", () => ({
-  requireScope: () => null,
-}));
-
-// ── Stub extension record & capture writes ──────────────────────
-let currentManifestPerms: Record<string, unknown> = {};
-let updateCalls: Array<{ id: string; data: Record<string, unknown> }> = [];
-let getExtensionReturnsNull = false;
-
-const extensionsQueriesMock = () => ({
-  getExtension: async (id: string) => {
-    if (getExtensionReturnsNull) return null;
-    return {
-      id,
-      name: "fake-ext",
-      version: "1.0.0",
-      description: "",
-      manifest: {
-        schemaVersion: 2,
-        name: "fake-ext",
-        version: "1.0.0",
-        description: "",
-        author: { name: "test" },
-        permissions: currentManifestPerms,
-      },
-      source: "local:/tmp/fake-ext",
-      installPath: "/tmp/fake-ext",
-      enabled: false,
-      grantedPermissions: { grantedAt: {} },
-      checksumVerified: true,
-      consecutiveFailures: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-  },
-  updateExtension: async (id: string, data: Record<string, unknown>) => {
-    updateCalls.push({ id, data });
-    return {
-      id,
-      name: "fake-ext",
-      enabled: data.enabled,
-      grantedPermissions: data.grantedPermissions,
-    };
-  },
-  resetFailures: async () => {},
-});
-mock.module("$server/db/queries/extensions", extensionsQueriesMock);
-mock.module("../../db/queries/extensions", extensionsQueriesMock);
-
-// Security module — /activate now carries the hasSecurityViolation gate
-// (moved from PATCH as part of the enable-via-PATCH lockdown). Default off.
-let activateViolationFlag = false;
-const activateSecurityMock = () => ({
-  hasSecurityViolation: async () => activateViolationFlag,
-});
-mock.module("$server/extensions/security", activateSecurityMock);
-mock.module("../../extensions/security", activateSecurityMock);
-
-// Audit log — capture for assertion.
-const auditCalls: Array<{
-  userId: string | null;
-  action: string;
-  target?: string;
-  metadata?: unknown;
-}> = [];
-const auditLogMock = () => ({
-  insertAuditEntry: async (
-    userId: string | null,
-    action: string,
-    target?: string,
-    metadata?: unknown,
-  ) => {
-    auditCalls.push({ userId, action, target, metadata });
-  },
-});
-mock.module("$server/db/queries/audit-log", auditLogMock);
-mock.module("../../db/queries/audit-log", auditLogMock);
-
-// ExtensionRegistry.getInstance().reload() — no-op stub.
-const registryMock = () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({
-      reload: async () => {},
-    }),
-  },
-});
-mock.module("$server/extensions/registry", registryMock);
-mock.module("../../extensions/registry", registryMock);
-
-// ── Handler import (AFTER mocks) ─────────────────────────────────
-import { POST } from "../../../web/src/routes/api/extensions/[id]/activate/+server";
-
-// SvelteKit handlers may throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
-  try {
-    return (await handler(event)) as Response;
-  } catch (e) {
-    if (e instanceof Response) return e;
-    throw e;
+test("neither role can install, execute or grant authority through the retired endpoint", async () => {
+  for (const user of [ADMIN_USER, MEMBER_USER]) {
+    for (const id of ["installation", "unknown"]) {
+      for (const body of [{}, { grantedPermissions: { shell: true, filesystem: ["/"], network: true, storage: true } }, { grantedPermissions: "invalid" }]) {
+        const event = createMockEvent({ method: "POST", url: "http://localhost/api/extensions/" + id, params: { id }, user, body });
+        const response = await POST(event as never);
+        expect(response.status).toBe(410);
+        expect(await response.json()).toMatchObject({ code: "extension_v4_required", controlUrl: "/api/extensions/control", openUrl: "/extensions/author" });
+      }
+    }
   }
+});
+
+test("unauthenticated requests remain denied before the retirement response", async () => {
+  const event = createMockEvent({ method: "POST", url: "http://localhost/api/extensions/installation", params: { id: "installation" }, body: {} });
+  let response: Response;
+  try { response = await POST(event as never); }
+  catch (error) { if (!(error instanceof Response)) throw error; response = error; }
+  expect(response.status).toBe(401);
+});
+
+async function retiredActivation(user: typeof ADMIN_USER | typeof MEMBER_USER, body: unknown, id = "installation") {
+  return POST(createMockEvent({ method: "POST", url: `http://localhost/api/extensions/${id}/activate`, params: { id }, user, body }) as never);
 }
 
-afterAll(() => {
-  restoreModuleMocks();
+
+import { sql } from "drizzle-orm";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../helpers/test-pglite";
+import { createPermissionEngine, type AuthorizeContext } from "../../extensions/permission-engine";
+import { hasProjectOperationConsent } from "../../extensions/project-consent";
+import { createExtension, updateExtension } from "../../db/queries/extensions";
+import { createProject } from "../../db/queries/projects";
+import { createConversation } from "../../db/queries/conversations";
+import { users } from "../../db/schema";
+import type { ExtensionRegistry } from "../../extensions/registry";
+import { validateManifest } from "@ezcorp/extension-contract";
+
+mockDbConnection();
+beforeEach(setupTestDb);
+afterAll(closeTestDb);
+async function fixture() {
+  const database = getTestDb();
+  const [user] = await database.insert(users).values({ email: `${crypto.randomUUID()}@example.test`, name: "Owner", passwordHash: "unused" }).returning();
+  const project = await createProject({ name: "Owned project", path: "/project" }, user!.id);
+  const conversation = await createConversation(project.id, { title: "Owned", userId: user!.id });
+  const id = crypto.randomUUID();
+  const manifest = validateManifest({ schemaVersion: 4, name: `project-${id}`, version: "1.0.0", author: { name: "Test" }, description: "Consent fixture", permissions: { shell: true, network: ["api.github.com"] } });
+  const grants = { shell: true, network: ["api.github.com"], grantedAt: { shell: Date.now(), network: Date.now() } };
+  await createExtension({ id, name: manifest.name, manifest, version: manifest.version, creatorUserId: user!.id, source: "release-v4", enabled: true, grantedPermissions: grants });
+  const installation = { id, ownerId: user!.id, scope: "global", activeReleaseId: "release", generation: 1, enabled: true, uninstalled: false };
+  const binding = { id: "binding", projectId: project.id, ownerId: user!.id, releaseId: "release", generation: 1, approvedAt: "2026-01-01T00:00:00.000Z", writePaths: ["docs/"] };
+  await database.execute(sql`INSERT INTO extension_release_installations(id,owner_id,scope,payload) VALUES(${id},${user!.id},'global',${JSON.stringify(installation)})`);
+  await database.execute(sql`INSERT INTO extension_project_bindings(installation_id,payload) VALUES(${id},${JSON.stringify(binding)})`);
+  const registry = { getManifest: () => manifest, getGrantedPermissions: () => grants } as unknown as ExtensionRegistry;
+  const engine = createPermissionEngine({ registry, db: database, bus: { emit() {}, on() {} } as never });
+  const context: AuthorizeContext = { extensionId: id, userId: user!.id, conversationId: conversation.id, toolName: "project.gitHead", projectConsent: { projectId: project.id, bindingId: "binding" } };
+  return { database, user: user!, project, id, installation, binding, context, engine };
+}
+
+test("exact human project consent satisfies only fixed reads after normal live grant checks", async () => {
+  const { context, engine, id, database } = await fixture();
+  expect((await engine.authorize(context, [{ kind: "shell" }])).decision).toBe("allow");
+  expect((await engine.authorize({ ...context, projectConsent: undefined }, [{ kind: "shell" }])).decision).toBe("prompt");
+  expect((await engine.authorize({ ...context, toolName: "shell.run" }, [{ kind: "shell" }])).decision).toBe("deny");
+  expect((await engine.authorize({ ...context, capContext: [] }, [{ kind: "shell" }])).decision).toBe("deny");
+  await updateExtension(id, { grantedPermissions: { grantedAt: {} } });
+  expect((await engine.authorize(context, [{ kind: "shell" }])).decision).toBe("deny");
+  await database.execute(sql`UPDATE extension_project_bindings SET payload='invalid-json' WHERE installation_id=${id}`);
+  expect(await hasProjectOperationConsent(context, [{ kind: "shell" }])).toBe(false);
 });
 
-beforeEach(() => {
-  updateCalls = [];
-  auditCalls.length = 0;
-  currentManifestPerms = {};
-  getExtensionReturnsNull = false;
-  activateViolationFlag = false;
+test("revoked or rebound projects and lost membership cannot reuse old consent", async () => {
+  const { database, context, engine, id, binding, user } = await fixture();
+  await database.execute(sql`UPDATE extension_project_bindings SET payload=${JSON.stringify({ ...binding, id: "replacement" })} WHERE installation_id=${id}`);
+  expect((await engine.authorize(context, [{ kind: "shell" }])).decision).toBe("deny");
+  await database.execute(sql`UPDATE extension_project_bindings SET payload=${JSON.stringify(binding)} WHERE installation_id=${id}`);
+  await database.execute(sql`DELETE FROM project_members WHERE project_id=${binding.projectId} AND user_id=${user.id}`);
+  expect((await engine.authorize(context, [{ kind: "shell" }])).decision).toBe("deny");
 });
 
-describe("sec-C3 follow-up: POST /api/extensions/[id]/activate role gate", () => {
-  test("member role → 403, updateExtension NOT called", async () => {
-    currentManifestPerms = { storage: true };
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/ext-1/activate",
-      params: { id: "ext-1" },
-      body: {},
-      user: MEMBER_USER,
-    });
-    const res = await call(POST, event);
-    expect(res.status).toBe(403);
-    expect(updateCalls.length).toBe(0);
-  });
-
-  test("unauthenticated → 401, updateExtension NOT called", async () => {
-    currentManifestPerms = { storage: true };
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/ext-1/activate",
-      params: { id: "ext-1" },
-      body: {},
-      // no user
-    });
-    const res = await call(POST, event);
-    expect(res.status).toBe(401);
-    expect(updateCalls.length).toBe(0);
-  });
+test("GitHub writes require a live executing human decision in addition to the binding", async () => {
+  const { database, context, engine, id, binding, user } = await fixture();
+  const write = { ...context, toolName: "project.pullRequest.write", projectConsent: { ...context.projectConsent!, proposalId: "proposal" } };
+  const needed = [{ kind: "shell" as const }, { kind: "network" as const, value: "api.github.com" }];
+  expect((await engine.authorize(write, needed)).decision).toBe("deny");
+  const proposal = { ownerId: user.id, decidedBy: user.id, bindingId: binding.id, projectId: binding.projectId, decision: "finalize", createdAt: Date.now() };
+  await database.execute(sql`INSERT INTO extension_project_decisions(id,installation_id,state,payload) VALUES('proposal',${id},'proposed',${JSON.stringify(proposal)})`);
+  expect((await engine.authorize(write, needed)).decision).toBe("deny");
+  await database.execute(sql`UPDATE extension_project_decisions SET state='executing' WHERE id='proposal'`);
+  expect((await engine.authorize(write, needed)).decision).toBe("allow");
+  await database.execute(sql`UPDATE extension_project_decisions SET state='completed' WHERE id='proposal'`);
+  expect((await engine.authorize(write, needed)).decision).toBe("deny");
+  expect(await hasProjectOperationConsent({ ...write, projectConsent: { ...context.projectConsent! } }, needed)).toBe(false);
+  expect(await hasProjectOperationConsent(context, [{ kind: "fs.write", value: "/etc" }])).toBe(false);
+  expect(await hasProjectOperationConsent({ ...context, userId: null }, needed)).toBe(false);
 });
 
-describe("sec-C3 follow-up: activate semantics", () => {
-  test("admin + empty body → 200, enabled=true, grantedPermissions untouched", async () => {
-    currentManifestPerms = { storage: true };
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/ext-1/activate",
-      params: { id: "ext-1" },
-      body: {},
-      user: ADMIN_USER,
-    });
-    const res = await call(POST, event);
-    const data = await jsonFromResponse(res);
+let bindingOwner = "";
+mock.module("../../extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => ({ inspect: async () => ({ installation: { ownerId: bindingOwner } }) }) }));
+const { getExtensionProjectBinding, setExtensionProjectBinding } = await import("../../extensions/project-binding");
 
-    expect(res.status).toBe(200);
-    expect(updateCalls.length).toBe(1);
-    const update = updateCalls[0]!.data;
-    expect(update.enabled).toBe(true);
-    // No grantedPermissions key at all — omitted means "do not touch"
-    expect("grantedPermissions" in update).toBe(false);
-    expect(data.enabled).toBe(true);
-  });
+test("human binds exact active release and revokes without child-writable storage", async () => {
+  const { id, user, project } = await fixture();
+  bindingOwner = user.id;
+  const actor = { kind: "human" as const, principalId: user.id, scope: "global" };
+  const input = { installationId: id, projectId: project.id, releaseId: "release", generation: 1 };
+  expect(await getExtensionProjectBinding("missing")).toBeNull();
+  const binding = await setExtensionProjectBinding(actor, input);
+  expect(binding).toMatchObject({ projectId: project.id, ownerId: user.id, releaseId: "release", generation: 1 });
+  expect(await getExtensionProjectBinding(id)).toEqual(binding);
+  const replacement = await setExtensionProjectBinding(actor, { ...input, writePaths: ["docs/", "README.md", "docs/"] });
+  expect(replacement?.id).not.toBe(binding?.id);
+  expect(replacement?.writePaths).toEqual(["README.md", "docs/"]);
+  expect(await setExtensionProjectBinding(actor, { ...input, projectId: null })).toBeNull();
+  expect(await getExtensionProjectBinding(id)).toBeNull();
+});
 
-  test("admin + grantedPermissions that exceed manifest → 200, stored perms clamped", async () => {
-    // Manifest only declared storage. Admin tries to grant shell + filesystem + storage.
-    // Post-clamp: only storage should survive.
-    currentManifestPerms = { storage: true };
+test("binding requires human active owner membership local project and exact revision", async () => {
+  const { id, user, project, database, binding } = await fixture();
+  bindingOwner = user.id;
+  const actor = { kind: "human" as const, principalId: user.id, scope: "global" };
+  const input = { installationId: id, projectId: project.id, releaseId: "release", generation: 1 };
+  await expect(setExtensionProjectBinding({ ...actor, kind: "agent" }, input)).rejects.toThrow("human session");
+  await expect(setExtensionProjectBinding(actor, { ...input, generation: -1 })).rejects.toThrow("exact release");
+  for (const path of ["../outside", "/absolute", "docs//", "docs/./file", "docs/*", "docs/\\bad", ""]) await expect(setExtensionProjectBinding(actor, { ...input, writePaths: [path] })).rejects.toThrow("safe relative");
+  bindingOwner = "other";
+  await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("installation owner");
+  bindingOwner = user.id;
+  await database.execute(sql`UPDATE users SET status='inactive' WHERE id=${user.id}`);
+  await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("active user");
+  await database.execute(sql`UPDATE users SET status='active' WHERE id=${user.id}`);
+  await database.execute(sql`UPDATE projects SET path='' WHERE id=${project.id}`);
+  await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("local project");
+  await database.execute(sql`UPDATE projects SET path='/project' WHERE id=${project.id}`);
+  await expect(setExtensionProjectBinding(actor, { ...input, generation: 0 })).rejects.toThrow("active release changed");
+  await database.execute(sql`DELETE FROM project_members WHERE project_id=${project.id} AND user_id=${user.id}`);
+  await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("membership");
+  expect(await getExtensionProjectBinding(id)).toEqual(binding);
+});
 
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/ext-1/activate",
-      params: { id: "ext-1" },
-      body: {
-        grantedPermissions: {
-          shell: true,
-          filesystem: ["/"],
-          network: ["*"],
-          env: ["SECRET"],
-          storage: true,
-          grantedAt: {
-            shell: 1700000000000,
-            filesystem: 1700000000000,
-            storage: 1700000000000,
-          },
-        },
-      },
-      user: ADMIN_USER,
-    });
-    const res = await call(POST, event);
-    expect(res.status).toBe(200);
-
-    expect(updateCalls.length).toBe(1);
-    const update = updateCalls[0]!.data;
-    expect(update.enabled).toBe(true);
-    const stored = update.grantedPermissions as Record<string, unknown>;
-
-    expect(stored.shell).toBeUndefined();
-    expect(stored.filesystem).toBeUndefined();
-    expect(stored.network).toBeUndefined();
-    expect(stored.env).toBeUndefined();
-    expect(stored.storage).toBe(true);
-    expect(stored.grantedAt).toBeDefined();
-  });
-
-  test("admin + grantedPermissions as non-object → 400", async () => {
-    currentManifestPerms = { storage: true };
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/ext-1/activate",
-      params: { id: "ext-1" },
-      body: { grantedPermissions: "totally valid I promise" },
-      user: ADMIN_USER,
-    });
-    const res = await call(POST, event);
-    expect(res.status).toBe(400);
-    expect(updateCalls.length).toBe(0);
-  });
-
-  test("admin + unknown extension id → 404", async () => {
-    getExtensionReturnsNull = true;
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/does-not-exist/activate",
-      params: { id: "does-not-exist" },
-      body: {},
-      user: ADMIN_USER,
-    });
-    const res = await call(POST, event);
-    const data = await jsonFromResponse(res);
-    expect(res.status).toBe(404);
-    expect(String(data.error)).toContain("Not found");
-    expect(updateCalls.length).toBe(0);
-  });
-
-  test("admin + successful activate → audit entry recorded", async () => {
-    currentManifestPerms = { storage: true };
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/ext-1/activate",
-      params: { id: "ext-1" },
-      body: { grantedPermissions: { storage: true, grantedAt: { storage: 1 } } },
-      user: ADMIN_USER,
-    });
-    const res = await call(POST, event);
-    expect(res.status).toBe(200);
-
-    expect(auditCalls.length).toBe(1);
-    const entry = auditCalls[0]!;
-    expect(entry.userId).toBe(ADMIN_USER.id);
-    expect(entry.action).toBe("extension:confirmed");
-    expect(entry.target).toBe("ext-1");
-    const metadata = entry.metadata as Record<string, unknown>;
-    expect(metadata.enabled).toBe(true);
-    expect(metadata.grantedPermissions).toBeDefined();
-  });
-
-  test("member failures do NOT produce audit entries", async () => {
-    currentManifestPerms = { storage: true };
-    const event = createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/extensions/ext-1/activate",
-      params: { id: "ext-1" },
-      body: {},
-      user: MEMBER_USER,
-    });
-    await call(POST, event);
-    expect(auditCalls.length).toBe(0);
-  });
+test("disabled changed uninstalled or transferred releases immediately invalidate binding", async () => {
+  const { id, user, project, database, installation } = await fixture();
+  bindingOwner = user.id;
+  const actor = { kind: "human" as const, principalId: user.id, scope: "global" };
+  const input = { installationId: id, projectId: project.id, releaseId: "release", generation: 1 };
+  await setExtensionProjectBinding(actor, input);
+  for (const patch of [{ enabled: false }, { uninstalled: true }, { activeReleaseId: "new" }, { generation: 2 }, { ownerId: "other" }]) {
+    await database.execute(sql`UPDATE extension_release_installations SET payload=${JSON.stringify({ ...installation, ...patch })} WHERE id=${id}`);
+    expect(await getExtensionProjectBinding(id)).toBeNull();
+    await expect(setExtensionProjectBinding(actor, input)).rejects.toThrow("active release changed");
+  }
 });

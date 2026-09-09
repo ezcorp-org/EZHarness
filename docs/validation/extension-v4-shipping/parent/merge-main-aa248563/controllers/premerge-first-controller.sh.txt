@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Caller holds one shared flock; source and merge index are frozen.
+set -euo pipefail
+cd /home/dev/work/EZCorp/extension-v4-independent-audit
+receipt=${1:?New absolute receipt directory}
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 2
+expected=048cfb25a998d70a7a740f83cf908445c1c95bea
+[[ "$(git write-tree)" == "$expected" ]] || exit 3
+mkdir -p "$receipt"
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon
+export BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+cp "$0" "$receipt/controller.sh.txt"
+cp .cache/terra-shipping/parent/merge-main-bd736438/focused-files.txt "$receipt/focused-files.txt"
+printf '%s\n' "$expected" > "$receipt/index-tree.txt"
+git rev-parse HEAD MERGE_HEAD > "$receipt/parents.txt"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/started-at.txt"
+finish() {
+ local rc=$?
+ trap - EXIT
+ printf '%s\n' "$rc" > "$receipt/controller.exit"
+ date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/completed-at.txt"
+ exit "$rc"
+}
+trap finish EXIT
+failed=0
+run_check() {
+ local name=$1 rc start
+ shift
+ start=$(date +%s)
+ if "$@" > "$receipt/$name.log" 2>&1; then rc=0; else rc=$?; fi
+ printf '%s\t%s\t%s\n' "$name" "$rc" "$(( $(date +%s)-start ))" | tee -a "$receipt/results.tsv"
+ if [[ "$rc" != 0 ]]; then failed=1; fi
+}
+run_check sdk-build bun run --cwd packages/@ezcorp/sdk build
+run_check typecheck-all bun run typecheck
+run_check focused-tests env CI= HOST_FILES_OVERRIDE="$receipt/focused-files.txt" EZCORP_RUN_PODMAN_TESTS=1 bash scripts/test.sh
+run_check lint-boundaries bash -c 'bun run lint && bun scripts/check-boundaries.ts'
+run_check manifest-lock bun scripts/regenerate-manifest-lock.ts --check
+[[ "$(git write-tree)" == "$expected" ]] || exit 4
+exit "$failed"

@@ -352,7 +352,7 @@ describe("executor → applyToolFilters plumbing for options.readOnlyAllowedTool
 });
 
 describe("Ez turn → extension-author wire (streamChat, end-to-end)", () => {
-  test("BEHAVIORAL: a kind='ez' conversation's toolset carries the Ez tools AND extension-author__create_extension", async () => {
+  test("an Ez conversation carries native extension controls, never the retired authoring tool", async () => {
     // kind:'ez' flips setup-tools' Ez branch on: wireEzToolsForTurn plus
     // the wireExtensionAuthorToolsIfEz call site right after it.
     mock.module("../db/queries/conversations", () => ({
@@ -417,7 +417,8 @@ describe("Ez turn → extension-author wire (streamChat, end-to-end)", () => {
     expect(capturedToolNames).toContain("read_page");
     expect(capturedToolNames).toContain("propose_create_project");
     // …and the bundled authoring tool rode in through the ez-only wire.
-    expect(capturedToolNames).toContain("extension-author__create_extension");
+    for (const name of ["extensions_describe", "extensions_workspace", "extensions_build", "extensions_inspect", "extensions_release"]) expect(capturedToolNames).toContain(name);
+    expect(capturedToolNames).not.toContain("extension-author__create_extension");
   });
 
   test("BEHAVIORAL control: a regular conversation gets NO Ez or extension-author tools", async () => {

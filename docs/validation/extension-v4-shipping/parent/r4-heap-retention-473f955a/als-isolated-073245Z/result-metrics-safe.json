@@ -1,0 +1,205 @@
+{
+  "kind": "result",
+  "runtime": "1.3.14",
+  "warmRequests": 10,
+  "measuredRequests": 500,
+  "payloadBytes": 4082,
+  "results": {
+    "noals-single": {
+      "warm": {
+        "rssBytes": 109576192,
+        "heapSizeBytes": 1441622,
+        "heapCapacityBytes": 2341286,
+        "extraMemoryBytes": 1014182,
+        "objectCount": 6154,
+        "protectedObjectCount": 16,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 11
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 6
+        }
+      },
+      "final": {
+        "rssBytes": 157229056,
+        "heapSizeBytes": 3149579,
+        "heapCapacityBytes": 4571515,
+        "extraMemoryBytes": 2654587,
+        "objectCount": 7166,
+        "protectedObjectCount": 94,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 26
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 16
+        }
+      },
+      "rssDeltaBytes": 47652864
+    },
+    "als-single": {
+      "warm": {
+        "rssBytes": 110071808,
+        "heapSizeBytes": 1447015,
+        "heapCapacityBytes": 2361719,
+        "extraMemoryBytes": 1018231,
+        "objectCount": 6160,
+        "protectedObjectCount": 16,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 11
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 6
+        }
+      },
+      "final": {
+        "rssBytes": 157732864,
+        "heapSizeBytes": 4752868,
+        "heapCapacityBytes": 6206004,
+        "extraMemoryBytes": 4239924,
+        "objectCount": 7531,
+        "protectedObjectCount": 98,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 44
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 28
+        }
+      },
+      "rssDeltaBytes": 47661056
+    },
+    "noals-admit-read": {
+      "warm": {
+        "rssBytes": 111775744,
+        "heapSizeBytes": 1518352,
+        "heapCapacityBytes": 2500688,
+        "extraMemoryBytes": 1075280,
+        "objectCount": 6379,
+        "protectedObjectCount": 22,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 14
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 9
+        }
+      },
+      "final": {
+        "rssBytes": 159170560,
+        "heapSizeBytes": 3769855,
+        "heapCapacityBytes": 5483519,
+        "extraMemoryBytes": 3238911,
+        "objectCount": 7723,
+        "protectedObjectCount": 122,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 41
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 27
+        }
+      },
+      "rssDeltaBytes": 47394816
+    },
+    "als-admit-read": {
+      "warm": {
+        "rssBytes": 109744128,
+        "heapSizeBytes": 3452597,
+        "heapCapacityBytes": 4388085,
+        "extraMemoryBytes": 2962677,
+        "objectCount": 7250,
+        "protectedObjectCount": 51,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 22,
+          "ReadableStream": 42
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 24
+        }
+      },
+      "final": {
+        "rssBytes": 284069888,
+        "heapSizeBytes": 140025664,
+        "heapCapacityBytes": 141729328,
+        "extraMemoryBytes": 136748592,
+        "objectCount": 63357,
+        "protectedObjectCount": 2130,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 1022,
+          "ReadableStream": 2042
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 1103
+        }
+      },
+      "rssDeltaBytes": 174325760
+    },
+    "als-response-only": {
+      "warm": {
+        "rssBytes": 98250752,
+        "heapSizeBytes": 418505,
+        "heapCapacityBytes": 1175929,
+        "extraMemoryBytes": 94585,
+        "objectCount": 4917,
+        "protectedObjectCount": 7,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 0
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 0
+        }
+      },
+      "final": {
+        "rssBytes": 103034880,
+        "heapSizeBytes": 461074,
+        "heapCapacityBytes": 1427282,
+        "extraMemoryBytes": 132946,
+        "objectCount": 4956,
+        "protectedObjectCount": 7,
+        "objectTypeCounts": {
+          "Response": 1,
+          "Request": 2,
+          "ReadableStream": 0
+        },
+        "protectedObjectTypeCounts": {
+          "Response": 0,
+          "Request": 0,
+          "ReadableStream": 0
+        }
+      },
+      "rssDeltaBytes": 4784128
+    }
+  },
+  "snapshotFilesCopied": false
+}

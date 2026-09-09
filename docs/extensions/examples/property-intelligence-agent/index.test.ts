@@ -469,7 +469,7 @@ test("generate-property-deep-dive rejects unknown property", async () => {
 
 test("manifest declares the expected tools, agent, and skill", async () => {
   const manifest = (await import(import.meta.dir + "/ezcorp.config.ts")).default;
-  expect(manifest.schemaVersion).toBe(2);
+  expect(manifest.schemaVersion).toBe(4);
   expect(manifest.name).toBe("property-intelligence-agent");
   expect(manifest.persistent).toBe(true);
   const toolNames = (manifest.tools as Array<{ name: string }>).map((t) => t.name);

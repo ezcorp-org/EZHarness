@@ -1,0 +1,3 @@
+command_exit=0
+app_log_exit=0
+owned_cleanup_exit=0

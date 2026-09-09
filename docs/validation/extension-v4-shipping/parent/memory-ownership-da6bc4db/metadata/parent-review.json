@@ -1,0 +1,18 @@
+{
+  "verified_input_hashes": [
+    "src/db/queries/memories.ts",
+    "web/src/routes/api/memories/+server.ts",
+    "web/src/routes/api/memories/[id]/+server.ts",
+    "src/__tests__/memory-list-derived-owner.integration.test.ts",
+    "src/__tests__/security/h3-conversations-memories-idor.test.ts",
+    "web/src/__tests__/api-memories-patch.server.test.ts"
+  ],
+  "raw_validation_sha256": "b1206e2158a4748358c411c8a1bcd630a4a96a24b7fcd615aadbd06a7d8d2e6a",
+  "integration_pass": 8,
+  "h3_pass": 37,
+  "backend_total_pass": 45,
+  "backend_assertions": 119,
+  "web_patch_pass": 17,
+  "typecheck_all_passed": true,
+  "errors": []
+}

@@ -1,0 +1,465 @@
+[
+     {
+          "Id": "5c4ccd4383d56cfe605003a39bc48ae9ce0267bbb80d76064fab87685bcfb9e9",
+          "Digest": "sha256:980c96797bcd7d9b69452b7693e2189a192037c23538abee2507bd61429dfa0d",
+          "RepoTags": [
+               "localhost/ezcorp-extension-v4:shipping-60a3421b"
+          ],
+          "RepoDigests": [
+               "localhost/ezcorp-extension-v4@sha256:980c96797bcd7d9b69452b7693e2189a192037c23538abee2507bd61429dfa0d"
+          ],
+          "Parent": "",
+          "Comment": "debuerreotype 0.17",
+          "Created": "2026-09-06T21:43:37.789675623-04:00",
+          "Config": {
+               "User": "bun",
+               "ExposedPorts": {
+                    "3000/tcp": {}
+               },
+               "Env": [
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bun-node-fallback-bin",
+                    "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0",
+                    "BUN_INSTALL_BIN=/usr/local/bin",
+                    "EZCORP_IMAGE_VERSION=1.3.0",
+                    "EZCORP_IMAGE_SHA=60a3421b0a9c0b5fb569cb93b857ceb90a073500",
+                    "EZCORP_PORT=3000",
+                    "BODY_SIZE_LIMIT=134217728",
+                    "EZCORP_DB_PATH=/app/data/ezcorp",
+                    "NODE_ENV=production"
+               ],
+               "Entrypoint": [
+                    "/usr/local/bin/docker-entrypoint.sh"
+               ],
+               "Cmd": [
+                    "bun",
+                    "run",
+                    "web/build/index.js"
+               ],
+               "Volumes": {
+                    "/app/.ezcorp": {},
+                    "/app/data": {}
+               },
+               "WorkingDir": "/app",
+               "Labels": {
+                    "org.opencontainers.image.created": "2026-09-06T21:34:20-04:00",
+                    "org.opencontainers.image.description": "EZ Corp AI — self-hosted agent runtime with embedded PGlite",
+                    "org.opencontainers.image.licenses": "NOASSERTION",
+                    "org.opencontainers.image.revision": "60a3421b0a9c0b5fb569cb93b857ceb90a073500",
+                    "org.opencontainers.image.source": "https://github.com/ezcorp-org/EZcorp",
+                    "org.opencontainers.image.title": "ezcorp",
+                    "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+                    "org.opencontainers.image.version": "1.3.0"
+               },
+               "ArgsEscaped": true
+          },
+          "Version": "",
+          "Author": "",
+          "Architecture": "amd64",
+          "Os": "linux",
+          "Size": 3485456346,
+          "VirtualSize": 3485456346,
+          "GraphDriver": {
+               "Name": "overlay",
+               "Data": {
+                    "LowerDir": "/home/dev/.local/share/containers/storage/overlay/ce19899f69171fc327d6ad17c64a633cadb6a103454d5949972b1508e927d291/diff:/home/dev/.local/share/containers/storage/overlay/a6e06da2abb99a90d822b05c87e81e13892f84730f913fe6ed59137ca128b69a/diff:/home/dev/.local/share/containers/storage/overlay/dc3e8bdeafbe29f43661f7f3c0813e2ac2d391b64b303ed4f0e515fd9cc2b10e/diff:/home/dev/.local/share/containers/storage/overlay/8d4303474ca4417ea4f8e2ef9bd346cd24cdcd695af12a9d2c053e9ce6138324/diff:/home/dev/.local/share/containers/storage/overlay/e4c96b3b3b4100c7a5bb5a4ac562b7f19547b216bf069f39ac4a18bc7d01e75f/diff:/home/dev/.local/share/containers/storage/overlay/83ab92e283b03ca132fdccc6a40913edc462cbf0e9ce42a49e28dac2d86b96df/diff:/home/dev/.local/share/containers/storage/overlay/61c5e62951d5179827b4fb87d380420ebadd7f2b5fb0e5cd4069dd426ea55cc0/diff:/home/dev/.local/share/containers/storage/overlay/383c90e44c61c0cb01f67e24e718615b960c56f2dd7e9b246a55b45549f0d907/diff:/home/dev/.local/share/containers/storage/overlay/7da63559a309f7a70416c24756509ef60e84d7ce4d3d9eff0bca777664df580a/diff:/home/dev/.local/share/containers/storage/overlay/11e04671ef028d39f55652a05a0fce49421ae67f1c0f80b0868143e6d3b782e1/diff:/home/dev/.local/share/containers/storage/overlay/ad4e9f05b4577d0e981e0849f9799ae1314fbd283e49ed565abae246014d0862/diff:/home/dev/.local/share/containers/storage/overlay/55ad9d5b22983b198fbd7b6b2edbc95adc3bc0fbeafbcc214c4334d4eac4afab/diff:/home/dev/.local/share/containers/storage/overlay/d4e96718d8d2eb7b836f54922dc7fd165511302aa74a90f95d4e09edcc498e74/diff:/home/dev/.local/share/containers/storage/overlay/80ca2147feadcd3bff3805cef8811262e55592757e7d30e8cd37fbcb9c1aef66/diff:/home/dev/.local/share/containers/storage/overlay/3583a748540c0f745ced92e288ced77502d906a01c4731e516b6c6d8ac1e5457/diff:/home/dev/.local/share/containers/storage/overlay/13b68dde9fdacc8d336e5787b5943616b838834e848c63c9b71efa006f2d0619/diff:/home/dev/.local/share/containers/storage/overlay/efb55549c0ea01166a9f21c319c073c248792eedfe581f3f16623582be866dc9/diff:/home/dev/.local/share/containers/storage/overlay/d49bb1c411f2fde94f55ac0f1a5dadedd28591170df62125e4f1a6248ef7e823/diff:/home/dev/.local/share/containers/storage/overlay/30d2b60e8f8039c54c8fc16d39aa5a6dc7b89fc46babb1bca8f6181506808e35/diff:/home/dev/.local/share/containers/storage/overlay/191d99d6991c3e1ed7ab6d958a4e925f7ae0a1597cb350454ba22bde58c24f8c/diff:/home/dev/.local/share/containers/storage/overlay/f96f4fb8a45b83078e0f7318c554199db7f5e006f2fc64694bc3f985e3f5e24d/diff:/home/dev/.local/share/containers/storage/overlay/7ffd378abdc81526572540a6b2b3f34db37d4cd5792af388c54c8e165f55775c/diff:/home/dev/.local/share/containers/storage/overlay/b3872c95e696e8a6e84d8d0c6bd289969de7c2e85a4c6be7a00e75667c3e6a49/diff:/home/dev/.local/share/containers/storage/overlay/07322692b23e46178434fa1667ee4de40ab8fb5a5d52e33512917ce31d74bd9f/diff:/home/dev/.local/share/containers/storage/overlay/e3fc9a9e2e7cb4fece99533d072075b4e58dfd0d7e003e884b4e545fd8a06fc6/diff:/home/dev/.local/share/containers/storage/overlay/07c0e45d8d445cffe5579cef49da7bb0eb869d36284ba6d1b63b0820662f3114/diff:/home/dev/.local/share/containers/storage/overlay/3971441b0b0dfcba0a3cfdc9e9fc83ae3d752a0c92859b5717c0fbfd6039c883/diff:/home/dev/.local/share/containers/storage/overlay/818d55bab6a199d18eeff6f90c82c5aaa69ad9cfebe05127b6fc738722d4399b/diff:/home/dev/.local/share/containers/storage/overlay/e2556d851daac7f8fba1abf51272efe3dd9457c891891c3b017384131b47b740/diff:/home/dev/.local/share/containers/storage/overlay/e75ad743d172267557afd324cf33267845f71375dd68257ee1247afd86ceced8/diff:/home/dev/.local/share/containers/storage/overlay/bd5352efbec515b2d91e3d490c1bfc4179d3c015443442d0ad309eac95917cd2/diff:/home/dev/.local/share/containers/storage/overlay/bca07020721c8b088c8416477355e917aea3801e3ed2208288ca976593c51bc6/diff:/home/dev/.local/share/containers/storage/overlay/9fc3c89855cb4cd7120de618947fcd7e8f402c783caaa6e347bcf504b23d7da2/diff:/home/dev/.local/share/containers/storage/overlay/83d32958ea87e99a45ce9fdcf5197aa0fea4abaa5da8e84a00f099729ff80b5f/diff:/home/dev/.local/share/containers/storage/overlay/33bd8c4d0b0cc72f36fb2cfdccecddf1d9c9ff85caad891796c919b985372ccc/diff:/home/dev/.local/share/containers/storage/overlay/e9418f0d3603468fcc9cd779b150fea2a0f9514c3bc481c04845bcf44d2dd8f5/diff:/home/dev/.local/share/containers/storage/overlay/79dd1f4c855cd061f687a994426634cf5f84c8ecdbc66c7a7d118e828dd93c99/diff",
+                    "UpperDir": "/home/dev/.local/share/containers/storage/overlay/3becbd06185cb2753d387fd4249d1bf6423dd0102800f93555d39d358439f3a6/diff",
+                    "WorkDir": "/home/dev/.local/share/containers/storage/overlay/3becbd06185cb2753d387fd4249d1bf6423dd0102800f93555d39d358439f3a6/work"
+               }
+          },
+          "RootFS": {
+               "Type": "layers",
+               "Layers": [
+                    "sha256:79dd1f4c855cd061f687a994426634cf5f84c8ecdbc66c7a7d118e828dd93c99",
+                    "sha256:e8c93c1e0426d6098672a9c32aba492c5426f333e081afcd55ab2f191439c830",
+                    "sha256:82cbe67bf06a61ee0e8ed114e70b1bae9e68a2bf30c29c8e939a3011a89e8c35",
+                    "sha256:e312dc3ae0a609d5b9a2872d2776dcbe1f25dc5026e9403e7e033c50dc062d43",
+                    "sha256:10444d22dd2a8927cacad7db8cecd5f0480a843772deeaabda05d863039e224d",
+                    "sha256:98a22a70bf79f7ebe15af64a32bec12d689852bea78bb6f44efb0d89abbf5a1a",
+                    "sha256:3b011d57d2dc395701e73cc20f2cafc492f54eb1c778231942d9562c20b11364",
+                    "sha256:a37bb270de812aab63c0dca79a4c61dd9c690866f2da74a2a1dc073d1eb4d649",
+                    "sha256:5016e317a52b275dfaef871bf395579f07f08179ec1bc251eb4bac5c7757fcc8",
+                    "sha256:fe7df5a2a521dc68069d8763401ab10a1a107528f9dcb08691fe84fb388641ab",
+                    "sha256:9f6ba68084882435564f15c710d99571d7787d734bd6e41398367ce9bd4e325a",
+                    "sha256:ff956c5d5e850b0f1d257fd3d4a588bb357ca0fa838aee7ca621c4baf2f8df5b",
+                    "sha256:94612e9af0bfb5963e859e9511e2c69d0dc71c2f0fb0e558bbdc79e072bba9b8",
+                    "sha256:baa3ef0d7ca9667a497d0afb9a42b74d090833c03e9ce40672469a178560e13d",
+                    "sha256:080632b07b2b59be5f122da0f52b4d04dfce3001ef737775314c8f339c2e45c4",
+                    "sha256:33b0000f61c37e091cad7b68faf46044d83458932a6f634996cb3df9c3b20cfa",
+                    "sha256:1d60ae4bfe854580d715b54ff647f882e5c63da26d4877a2a91f6781fdcd8a31",
+                    "sha256:6c1bd444198ad06f28f5c0faad752ccf9ce85feb91f41d66cfda7a18d6e28160",
+                    "sha256:978d4aa7f9a03eefe08e63b01164c5629c997943f38b820649590cef2c89d511",
+                    "sha256:2da036f07c17e967288d53fbddacd20955d2db60390904444f68d1a4bc22a235",
+                    "sha256:adc9e1641cbd070eb79e1c02798a30657f3bb694c1dbebb9b8aedb0609b542fc",
+                    "sha256:4d57e0d7e7388dd2a63cfd22ee48af91f9c31df2748437a5dc286101f4b91565",
+                    "sha256:736ef811aba5781ce4476063bb0c4ebe0c911f320de61e709e8f05d4adce6bb6",
+                    "sha256:ec73abc9d8bd478c5d4c8761d7b805e95b5e167914348be9bd9950679e769a7f",
+                    "sha256:b75499304486685d4930a0694fb346f2c251aa4b6eb89dcfadbce13be0085b2c",
+                    "sha256:86f4b76044774bbfabc8ee1ed190c2e179a068aaaea0dd20e37580096f1a0d47",
+                    "sha256:f7b5707038e536fc4057d95f3c5f0f61d1e26ac689d53a89b8369dde1801c5b3",
+                    "sha256:635459022d9e9828b53f3b9f6db21ab1a7d69c4cb61aa6ce8a895750b690e8a6",
+                    "sha256:c33eef857aac48ff11b4324c8428484e4d4eb4c0483a2fa39214a4c5b0e5d150",
+                    "sha256:f7a8cefbe09e942b62f94dbf130fe1a4ff8ae9f6cf9daf3b7cebca06f859cab7",
+                    "sha256:9c4fa04332c7e1cc53986323ac108b5650495d98c3d3d0b95c9afaf496d0e914",
+                    "sha256:290664ab49174368ff36c633f3f397310df3f85383b2ef92bd4c6b7dd0ae24c4",
+                    "sha256:e3949a57763ccd6e9354e09c7ca0296920a9e2ca1850db4d03f21e77f38b2043",
+                    "sha256:ecadc25b58ddf691902a8213870c1c0a7d99dca708c8e65e800263960113025f",
+                    "sha256:4fa97ae53a911e185ba716eaa979e0b65ac86b0eed7f8209b6b9d2d30756034d",
+                    "sha256:895296b70c0360ddd199c7fbc691bbba600840f7bc2a76c7cbd7f826d8bdd883",
+                    "sha256:4ba1d56cf565655fff5c984bf0a7102ef4a61df09c1436ae9605a42549a0dd4b",
+                    "sha256:83f796a442126a71dcd10c888fa23d51163364a42894ede06edce766f184c78f"
+               ]
+          },
+          "Labels": {
+               "org.opencontainers.image.created": "2026-09-06T21:34:20-04:00",
+               "org.opencontainers.image.description": "EZ Corp AI — self-hosted agent runtime with embedded PGlite",
+               "org.opencontainers.image.licenses": "NOASSERTION",
+               "org.opencontainers.image.revision": "60a3421b0a9c0b5fb569cb93b857ceb90a073500",
+               "org.opencontainers.image.source": "https://github.com/ezcorp-org/EZcorp",
+               "org.opencontainers.image.title": "ezcorp",
+               "org.opencontainers.image.url": "https://github.com/oven-sh/bun",
+               "org.opencontainers.image.version": "1.3.0"
+          },
+          "Annotations": {},
+          "ManifestType": "application/vnd.oci.image.manifest.v1+json",
+          "User": "bun",
+          "History": [
+               {
+                    "created": "2026-05-05T00:00:00Z",
+                    "created_by": "# debian.sh --arch 'amd64' out/ 'trixie' '@1777939200'",
+                    "comment": "debuerreotype 0.17"
+               },
+               {
+                    "created": "2026-05-13T03:50:38.868312264Z",
+                    "created_by": "ARG BUN_RUNTIME_TRANSPILER_CACHE_PATH=0",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-05-13T03:50:38.868312264Z",
+                    "created_by": "ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-05-13T03:50:38.868312264Z",
+                    "created_by": "ARG BUN_INSTALL_BIN=/usr/local/bin",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-05-13T03:50:38.868312264Z",
+                    "created_by": "ENV BUN_INSTALL_BIN=/usr/local/bin",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-05-13T03:50:38.868312264Z",
+                    "created_by": "COPY docker-entrypoint.sh /usr/local/bin # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-05-13T03:50:49.353435183Z",
+                    "created_by": "COPY /usr/local/bin/bun /usr/local/bin/bun # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-05-13T03:50:49.415290076Z",
+                    "created_by": "RUN |2 BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin /bin/sh -c mkdir -p /usr/local/bun-node-fallback-bin && ln -s /usr/local/bin/bun /usr/local/bun-node-fallback-bin/node # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-05-13T03:50:49.415290076Z",
+                    "created_by": "ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bun-node-fallback-bin",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-05-13T03:50:49.5021587Z",
+                    "created_by": "RUN |2 BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_INSTALL_BIN=/usr/local/bin /bin/sh -c groupadd bun       --gid 1000     && useradd bun       --uid 1000       --gid bun       --shell /bin/sh       --create-home     && ln -s /usr/local/bin/bun /usr/local/bin/bunx     && which bun     && which bunx     && bun --version # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-05-13T03:50:49.512434833Z",
+                    "created_by": "WORKDIR /home/bun/app",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-05-13T03:50:49.512434833Z",
+                    "created_by": "ENTRYPOINT [\"/usr/local/bin/docker-entrypoint.sh\"]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-05-13T03:50:49.512434833Z",
+                    "created_by": "CMD [\"/usr/local/bin/bun\"]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T16:54:09.949014691-04:00",
+                    "created_by": "ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T16:54:09.949014691-04:00",
+                    "created_by": "WORKDIR /app",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T16:55:07.962597396-04:00",
+                    "created_by": "RUN /bin/sh -c apt-get update   && apt-get install -y --no-install-recommends        util-linux        iproute2        iptables        nftables        libcap2-bin        bubblewrap        libseccomp2   && rm -rf /var/lib/apt/lists/* # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:29:49.450108127-04:00",
+                    "created_by": "COPY /app/src/extensions/mcp-seccomp.json /tmp/mcp-seccomp.json # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:29:49.652834403-04:00",
+                    "created_by": "COPY /app/build/compile-seccomp.c /tmp/compile-seccomp.c # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:30:23.074650104-04:00",
+                    "created_by": "RUN /bin/sh -c apt-get update   && apt-get install -y --no-install-recommends        gcc libseccomp-dev libc6-dev   && gcc -O2 -o /tmp/compile-seccomp /tmp/compile-seccomp.c -lseccomp   && mkdir -p /app/src/extensions   && /tmp/compile-seccomp /tmp/mcp-seccomp.json /app/src/extensions/mcp-seccomp.bpf   && apt-get purge -y --auto-remove gcc libseccomp-dev libc6-dev   && rm -rf /var/lib/apt/lists/* /tmp/compile-seccomp /tmp/compile-seccomp.c /tmp/mcp-seccomp.json # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:30:23.074650104-04:00",
+                    "created_by": "ARG VERSION=1.3.0",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T20:30:23.074650104-04:00",
+                    "created_by": "ARG REVISION=60a3421b0a9c0b5fb569cb93b857ceb90a073500",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T20:30:23.074650104-04:00",
+                    "created_by": "ARG CREATED=2026-09-06T21:34:20-04:00",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T20:30:23.074650104-04:00",
+                    "created_by": "ENV EZCORP_IMAGE_VERSION=1.3.0",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T20:30:23.074650104-04:00",
+                    "created_by": "ENV EZCORP_IMAGE_SHA=60a3421b0a9c0b5fb569cb93b857ceb90a073500",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T20:30:23.074650104-04:00",
+                    "created_by": "LABEL org.opencontainers.image.title=ezcorp org.opencontainers.image.version=1.3.0 org.opencontainers.image.revision=60a3421b0a9c0b5fb569cb93b857ceb90a073500 org.opencontainers.image.created=2026-09-06T21:34:20-04:00 org.opencontainers.image.source=https://github.com/ezcorp-org/EZcorp org.opencontainers.image.description=EZ Corp AI — self-hosted agent runtime with embedded PGlite",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T20:30:23.188948359-04:00",
+                    "created_by": "COPY package.json bun.lock ./ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:30:23.315385554-04:00",
+                    "created_by": "COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:30:23.421011108-04:00",
+                    "created_by": "COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:30:23.517589541-04:00",
+                    "created_by": "COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:30:23.619233445-04:00",
+                    "created_by": "COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T20:30:23.713575332-04:00",
+                    "created_by": "COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:36:34.712080593-04:00",
+                    "created_by": "RUN |3 VERSION=1.3.0 REVISION=60a3421b0a9c0b5fb569cb93b857ceb90a073500 CREATED=2026-09-06T21:34:20-04:00 /bin/sh -c bun install --production --frozen-lockfile --ignore-scripts # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:36:34.837877477-04:00",
+                    "created_by": "COPY web/package.json web/bun.lock web/ # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:36:38.008233479-04:00",
+                    "created_by": "RUN |3 VERSION=1.3.0 REVISION=60a3421b0a9c0b5fb569cb93b857ceb90a073500 CREATED=2026-09-06T21:34:20-04:00 /bin/sh -c cd web && bun install --production --frozen-lockfile --ignore-scripts # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:36:38.254963252-04:00",
+                    "created_by": "COPY /app/src ./src # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:36:38.511140491-04:00",
+                    "created_by": "RUN |3 VERSION=1.3.0 REVISION=60a3421b0a9c0b5fb569cb93b857ceb90a073500 CREATED=2026-09-06T21:34:20-04:00 /bin/sh -c chmod +x /app/src/extensions/mcp-launcher.sh # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:36:38.620469631-04:00",
+                    "created_by": "COPY /app/build/preview-spawn.c /tmp/preview-spawn.c # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:09.758732337-04:00",
+                    "created_by": "RUN |3 VERSION=1.3.0 REVISION=60a3421b0a9c0b5fb569cb93b857ceb90a073500 CREATED=2026-09-06T21:34:20-04:00 /bin/sh -c apt-get update   && apt-get install -y --no-install-recommends gcc libc6-dev   && mkdir -p /app/bin   && gcc -O2 -Wall -Wextra -o /app/bin/preview-spawn /tmp/preview-spawn.c   && chown root:root /app/bin/preview-spawn   && chmod 4755 /app/bin/preview-spawn   && apt-get purge -y --auto-remove gcc libc6-dev   && rm -rf /var/lib/apt/lists/* /tmp/preview-spawn.c # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:09.876956359-04:00",
+                    "created_by": "COPY /app/packages/@ezcorp/sdk/src ./packages/@ezcorp/sdk/src # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:09.990524078-04:00",
+                    "created_by": "COPY /app/packages/@ezcorp/sdk/dist ./packages/@ezcorp/sdk/dist # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.100626598-04:00",
+                    "created_by": "COPY /app/packages/@ezcorp/harness-client/src ./packages/@ezcorp/harness-client/src # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.200460662-04:00",
+                    "created_by": "COPY /app/packages/@ezcorp/harness-client/dist ./packages/@ezcorp/harness-client/dist # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.303862914-04:00",
+                    "created_by": "COPY /app/packages/@ezcorp/extension-contract/src ./packages/@ezcorp/extension-contract/src # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.413868534-04:00",
+                    "created_by": "COPY /app/packages/@ezcorp/extension-runner/src ./packages/@ezcorp/extension-runner/src # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.515900213-04:00",
+                    "created_by": "COPY /app/scripts/migrate-extension-v4.ts ./scripts/migrate-extension-v4.ts # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.629819264-04:00",
+                    "created_by": "COPY /app/packages/@ezcorp/ai-kit ./packages/@ezcorp/ai-kit # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.87108276-04:00",
+                    "created_by": "COPY /app/docs ./docs # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:10.977709691-04:00",
+                    "created_by": "COPY /app/extensions ./extensions # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:11.078596497-04:00",
+                    "created_by": "COPY /app/manifest.lock.json ./manifest.lock.json # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:37:11.366950667-04:00",
+                    "created_by": "COPY /app/web/build ./web/build # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:43:37.400697232-04:00",
+                    "created_by": "RUN |3 VERSION=1.3.0 REVISION=60a3421b0a9c0b5fb569cb93b857ceb90a073500 CREATED=2026-09-06T21:34:20-04:00 /bin/sh -c mkdir -p /app/data /app/.ezcorp && chown -R bun:bun /app /app/data /app/.ezcorp # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "RUN |3 VERSION=1.3.0 REVISION=60a3421b0a9c0b5fb569cb93b857ceb90a073500 CREATED=2026-09-06T21:34:20-04:00 /bin/sh -c chown root:root /app/bin/preview-spawn   && chmod 4755 /app/bin/preview-spawn # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "VOLUME [/app/data]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "VOLUME [/app/.ezcorp]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "EXPOSE [3000/tcp]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "ENV EZCORP_PORT=3000",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "ENV BODY_SIZE_LIMIT=134217728",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "ENV EZCORP_DB_PATH=/app/data/ezcorp",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "ENV NODE_ENV=production",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "USER bun",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "HEALTHCHECK &{[\"CMD-SHELL\" \"bun -e \\\"const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)\\\" || exit 1\"] \"30s\" \"5s\" \"1m0s\" \"0s\" '\\x03'}",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               },
+               {
+                    "created": "2026-09-06T21:43:37.789675623-04:00",
+                    "created_by": "CMD [\"bun\" \"run\" \"web/build/index.js\"]",
+                    "comment": "buildkit.dockerfile.v0",
+                    "empty_layer": true
+               }
+          ],
+          "NamesHistory": [
+               "localhost/ezcorp-extension-v4:shipping-60a3421b"
+          ]
+     }
+]

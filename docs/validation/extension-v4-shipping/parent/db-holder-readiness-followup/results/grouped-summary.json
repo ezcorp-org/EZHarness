@@ -1,0 +1,34 @@
+{
+  "replays": [
+    {
+      "run": 1,
+      "guardExit": 0,
+      "connectionExit": 0,
+      "mode": "separate covered Bun processes"
+    },
+    {
+      "run": 2,
+      "guardExit": 0,
+      "connectionExit": 0,
+      "mode": "separate covered Bun processes"
+    },
+    {
+      "run": 3,
+      "guardExit": 0,
+      "connectionExit": 0,
+      "mode": "separate covered Bun processes"
+    },
+    {
+      "run": 4,
+      "guardExit": 0,
+      "connectionExit": 0,
+      "mode": "separate covered Bun processes"
+    },
+    {
+      "run": 5,
+      "guardExit": 0,
+      "connectionExit": 0,
+      "mode": "separate covered Bun processes"
+    }
+  ]
+}

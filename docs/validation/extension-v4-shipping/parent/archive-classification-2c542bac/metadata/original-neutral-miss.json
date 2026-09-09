@@ -1,0 +1,27 @@
+{
+  "scope": "private original neutral-extension control; no generator, archive, or raw finding is published",
+  "helper_sha256": "2104065a9777ed83171ae0bcdc18ac2479835a4314e96a95cae216fc9097db85",
+  "result": {
+    "memberCount": 0,
+    "pinned_gitleaks_exit": 0
+  },
+  "meaning": "suffix-only classification did not expand a ZIP renamed .payload; the pinned scanner therefore found no canary.",
+  "raw_hashes": {
+    "original_neutral_verdict": {
+      "private_path": ".cache/terra-shipping/parent/scanner-expansion-control-2c542bac-20260907T000000Z/neutral-verdict.txt",
+      "sha256": "cd529a1a9e28c45555dd4176c1c118d184663b403d21e0922d90b2c7577b7766",
+      "bytes": 80
+    },
+    "original_neutral_expansion": {
+      "private_path": ".cache/terra-shipping/parent/scanner-expansion-control-2c542bac-20260907T000000Z/neutral-expansion/expanded-inputs.json",
+      "sha256": "7b74f3cf39c92e70123a2a96d8bf9b647fa679c27548400e2de030853faae021",
+      "bytes": 75
+    },
+    "original_neutral_gitleaks_exit": {
+      "private_path": ".cache/terra-shipping/parent/scanner-expansion-control-2c542bac-20260907T000000Z/neutral/exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    }
+  },
+  "observed_time": "not retained; the source receipt path suffix 000000 is not a timestamp"
+}

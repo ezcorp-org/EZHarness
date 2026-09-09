@@ -1,0 +1,11 @@
+{
+  "sourceReceipt": "cache-default-final-checks-20260907T180159Z/coverage/lcov.info",
+  "sourceInputHash": "0a46fb2fd2010d2a2434892999d130086940921b8748e22572d47761f47b4508",
+  "helper": {
+    "functionsFound": 8,
+    "functionsHit": 8,
+    "linesFound": 33,
+    "linesHit": 33
+  },
+  "verified": true
+}

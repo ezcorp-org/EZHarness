@@ -1,0 +1,5 @@
+caf70121de3d1c22f9d8e7fcb6b5dd5acf4877608ac36be8217d65a3cf759b7f  web/e2e/extension-install-granted-caps.spec.ts
+47c413c0f6745626f267e3712daf28c9f2902abfc28c6a5a84e9ba4f53b56487  web/e2e/extensions-bundled-drift-reapproval.spec.ts
+a8f2ea98aab5471b55f2b8776619d0431e342863f873470d137e14c3fce0d7a4  web/e2e/extensions-mcp-permissions.spec.ts
+8823076e216cf001399d48a9db0ed772215a48722defb19fe73b3f68400641a8  web/e2e/extensions-workflows-grant.spec.ts
+950612bf796bcac6af9ff3232597d79e696ac41bf9f9d7c9f45faa9ce82f4f5c  web/e2e/fixtures/extension-source-import.ts

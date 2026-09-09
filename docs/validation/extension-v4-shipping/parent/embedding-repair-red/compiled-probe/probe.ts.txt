@@ -1,0 +1,25 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+const mode=process.argv[2] ?? 'built';
+let embed: (text: string, progress?: (msg: string) => void) => Promise<number[]>;
+if (mode === 'source') {
+  ({generateEmbedding: embed}=await import('/app/src/memory/embeddings.ts'));
+} else {
+  const dir='/app/web/build/server/chunks';
+  const hits=readdirSync(dir).filter(f=>/^embeddings-[^.]+\.js$/.test(f));
+  if(hits.length!==1) throw new Error(`Expected one public embedding chunk, got ${hits.length}`);
+  const file=join(dir,hits[0]!);
+  console.log(JSON.stringify({mode,chunk:file}));
+  ({generateEmbedding: embed}=await import(file));
+}
+try {
+ const start=Date.now();
+ const vector=await embed('An installed extension can find this saved note.', msg=>console.log(JSON.stringify({progress:msg})));
+ const norm=Math.sqrt(vector.reduce((s,n)=>s+n*n,0));
+ if(vector.length!==384 || !vector.every(Number.isFinite) || Math.abs(norm-1)>0.001) throw new Error(`Bad vector: ${vector.length}, norm ${norm}`);
+ console.log(JSON.stringify({mode,dimensions:vector.length,norm,elapsedMs:Date.now()-start,result:'pass'}));
+ process.exit(0);
+} catch(error) {
+ console.error(error);
+ process.exit(1);
+}

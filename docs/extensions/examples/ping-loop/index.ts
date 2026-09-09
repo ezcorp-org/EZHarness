@@ -23,7 +23,6 @@
 
 import {
   createLoopRunStore,
-  createToolDispatcher,
   defineLoop,
   getChannel,
   getLoopTools,
@@ -227,7 +226,6 @@ export function definePingLoop(): void {
  */
 export function start(): void {
   definePingLoop();
-  createToolDispatcher({ ...getLoopTools() });
   getChannel().start();
 }
 

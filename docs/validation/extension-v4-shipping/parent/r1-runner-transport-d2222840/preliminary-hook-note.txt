@@ -1,0 +1,5 @@
+Normal git commit attempted after parent red/green and canonical typecheck.
+Exit: 1. No commit created.
+Biome error: scripts/verify-shipping-runtime.ts:161 noUnsafeFinally; explicit throw in finally can replace the primary error.
+Biome warning: src/__tests__/production-image-lifecycle-launch.integration.test.ts:74 noTemplateCurlyInString in generated child code.
+This is a parent note from the observed hook output, not a captured raw hook log. Both findings are being corrected without a bypass.

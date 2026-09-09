@@ -1,14 +1,14 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "markdown-utils",
   version: "1.0.0",
   description: "Markdown formatting tools, style guidelines, and an editing assistant in one package",
   author: {
     name: "EZCorp",
   },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   tools: [
     {

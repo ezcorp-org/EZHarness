@@ -1,0 +1,9 @@
+{
+  "maximum_cycles": 10,
+  "completed_cycles": 10,
+  "reconnects_per_cycle": 10,
+  "total_reconnects": 100,
+  "actual_duration_ms": 65597,
+  "relation_cache_warmup_cycle": 6,
+  "resource_assertions_passed": true
+}

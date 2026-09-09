@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // ── substack-pipeline ────────────────────────────────────────────
 //
@@ -34,13 +34,13 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 //    NO shell, NO env. `ask-user` is NOT a dependency — the LLM calls it.
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "substack-pipeline",
   version: "1.0.0",
   description:
     "Summarize a URL, draft a Substack article with a bounded user approve/revise loop, then generate a cover image. Deterministic role-prompted stages; the LLM sequences the human turn.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "draft_substack_post",

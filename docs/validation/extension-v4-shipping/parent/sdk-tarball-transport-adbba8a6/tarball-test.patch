@@ -1,0 +1,157 @@
+diff --git a/packages/@ezcorp/sdk/test/integration/tarball.test.ts b/packages/@ezcorp/sdk/test/integration/tarball.test.ts
+index 533b4af3..1c0429e8 100644
+--- a/packages/@ezcorp/sdk/test/integration/tarball.test.ts
++++ b/packages/@ezcorp/sdk/test/integration/tarball.test.ts
+@@ -15,17 +15,68 @@
+ // node:fs/promises (project rule).
+ 
+ import { afterAll, beforeAll, expect, test } from "bun:test";
+-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+-import { join } from "node:path";
++import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
++import { createRequire } from "node:module";
++import { dirname, join } from "node:path";
+ import { tmpdir } from "node:os";
+ 
+ const SDK_DIR = join(import.meta.dir, "..", "..");
++const CONTRACT_DIR = join(SDK_DIR, "../extension-contract");
+ 
+ let packDir: string;
+ let fixtureDir: string;
+ let installCacheDir: string | undefined;
++let linkInstallDir: string | undefined;
++let linkedDependencies: Array<{ packageName: string; directory: string }>;
+ let tarballPath: string;
+ 
++function installedDirectDependencies(packageRoot: string): Array<{ packageName: string; directory: string }> {
++  const ownerManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
++    dependencies?: Record<string, string>;
++  };
++  const requireFromPackage = createRequire(join(packageRoot, "package.json"));
++  return Object.entries(ownerManifest.dependencies ?? {})
++    .filter(([, version]) => !version.startsWith("workspace:"))
++    .map(([packageName, declaredVersion]) => {
++      if (!/^\d+\.\d+\.\d+$/.test(declaredVersion)) {
++        throw new Error(`${packageRoot}/package.json must pin ${packageName}, got ${declaredVersion}`);
++      }
++      const manifestPath = requireFromPackage
++        .resolve
++        .paths(packageName)
++        ?.map((nodeModules) => join(nodeModules, packageName, "package.json"))
++        .find(existsSync);
++      if (!manifestPath) {
++        throw new Error(`could not find installed ${packageName} from ${packageRoot} dependencies`);
++      }
++      const resolvedManifestPath = realpathSync(manifestPath);
++      const manifest = JSON.parse(readFileSync(resolvedManifestPath, "utf8")) as {
++        name?: string;
++        version?: string;
++      };
++      if (manifest.name !== packageName || manifest.version !== declaredVersion) {
++        throw new Error(
++          `installed ${packageName}@${manifest.version ?? "missing"} does not match declared ${declaredVersion}`,
++        );
++      }
++      return { packageName, directory: dirname(resolvedManifestPath) };
++    });
++}
++
++function linkedDirectDependencies(): Array<{ packageName: string; directory: string }> {
++  const dependencies = new Map<string, string>();
++  for (const packageRoot of [SDK_DIR, CONTRACT_DIR]) {
++    for (const { packageName, directory } of installedDirectDependencies(packageRoot)) {
++      const existingDirectory = dependencies.get(packageName);
++      if (existingDirectory && existingDirectory !== directory) {
++        throw new Error(`conflicting installed paths for ${packageName}`);
++      }
++      dependencies.set(packageName, directory);
++    }
++  }
++  return [...dependencies].map(([packageName, directory]) => ({ packageName, directory }));
++}
++
+ async function run(
+   cmd: string[],
+   opts: { cwd: string; env?: Record<string, string> } = { cwd: process.cwd() },
+@@ -64,12 +115,19 @@ beforeAll(async () => {
+     throw new Error(`no .tgz produced in ${packDir}: ${readdirSync(packDir).join(", ")}`);
+   }
+   tarballPath = join(packDir, tgz);
+-  const contractPack = await run([process.execPath, "pm", "pack", "--destination", packDir], { cwd: join(SDK_DIR, "../extension-contract") });
++  const contractPack = await run([process.execPath, "pm", "pack", "--destination", packDir], { cwd: CONTRACT_DIR });
+   if (contractPack.exitCode !== 0) throw new Error(`Contract pack failed: ${contractPack.stderr}`);
+   const contractTarball = readdirSync(packDir).find(file => file.startsWith("ezcorp-extension-contract-") && file.endsWith(".tgz"));
+   if (!contractTarball) throw new Error("Contract tarball was not produced");
++  linkedDependencies = linkedDirectDependencies();
+ 
+   // Scaffold fixture: minimal package.json + one Bun test asserting imports.
++  const overrides: Record<string, string> = {
++    "@ezcorp/extension-contract": `file:${join(packDir, contractTarball)}`,
++  };
++  for (const { packageName } of linkedDependencies) {
++    overrides[packageName] = `link:${packageName}`;
++  }
+   await Bun.write(
+     join(fixtureDir, "package.json"),
+     JSON.stringify(
+@@ -78,7 +136,10 @@ beforeAll(async () => {
+         version: "0.0.0",
+         type: "module",
+         private: true,
+-        overrides: { "@ezcorp/extension-contract": `file:${join(packDir, contractTarball)}` },
++        // The SDK and contract still install from fresh tarballs. Link each direct,
++        // exact dependency from their resolved local installs so this export-surface
++        // test does not turn into a public registry availability test.
++        overrides,
+       },
+       null,
+       2,
+@@ -122,14 +183,33 @@ test("@ezcorp/sdk/v4: contract and runtime import from packed dependencies", ()
+ `,
+   );
+ 
+-  // Install tarball into fixture. Empty HOME/XDG_CACHE to avoid writing to the
+-  // user's global bun install state; use a scratch dir instead.
++  // Install tarball into fixture with an isolated Bun cache. The closed registry
++  // proves this fixture uses its local archives and linked locked dependency.
+   installCacheDir = mkdtempSync(join(tmpdir(), "phase3-tarball-cache-"));
+-  const install = await run([process.execPath, "add", `file:${join(packDir, contractTarball)}`, `file:${tarballPath}`], {
++  linkInstallDir = mkdtempSync(join(tmpdir(), "phase3-tarball-links-"));
++  const linkEnv = {
++    BUN_INSTALL_CACHE_DIR: installCacheDir,
++    BUN_INSTALL: linkInstallDir,
++  };
++  for (const { packageName, directory } of linkedDependencies) {
++    const linked = await run([process.execPath, "link"], {
++      cwd: directory,
++      env: linkEnv,
++    });
++    if (linked.exitCode !== 0) {
++      throw new Error(`bun link ${packageName} failed (exit ${linked.exitCode}):\n${linked.stderr}`);
++    }
++  }
++  const install = await run([
++    process.execPath,
++    "add",
++    "--registry",
++    "http://127.0.0.1:9",
++    `file:${join(packDir, contractTarball)}`,
++    `file:${tarballPath}`,
++  ], {
+     cwd: fixtureDir,
+-    env: {
+-      BUN_INSTALL_CACHE_DIR: installCacheDir,
+-    },
++    env: linkEnv,
+   });
+   if (install.exitCode !== 0) {
+     throw new Error(
+@@ -139,7 +219,7 @@ test("@ezcorp/sdk/v4: contract and runtime import from packed dependencies", ()
+ }, 120_000);
+ 
+ afterAll(() => {
+-  for (const directory of [packDir, fixtureDir, installCacheDir]) {
++  for (const directory of [packDir, fixtureDir, installCacheDir, linkInstallDir]) {
+     if (directory) rmSync(directory, { recursive: true, force: true });
+   }
+ });

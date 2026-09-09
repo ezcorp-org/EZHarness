@@ -1,0 +1,32 @@
+{
+  "receipt": "embedding-log-guard-parent-controls-20260907T1803Z",
+  "controls": [
+    {
+      "phase": "first",
+      "raw_sha256": "72092b7d042544ff7c1c7a940a2e9a6d43fde9be73190b0c84bfe6a038cb46ab",
+      "exit": 1
+    },
+    {
+      "phase": "second",
+      "raw_sha256": "2a8f9c7588512488287ac23fad60c7307357aa5f2b71b997e43f2d0da3bd83fe",
+      "exit": 1
+    },
+    {
+      "parser_control": "valid",
+      "exit": 0
+    },
+    {
+      "parser_control": "missing",
+      "exit": 1
+    },
+    {
+      "parser_control": "duplicate",
+      "exit": 1
+    },
+    {
+      "parser_control": "malformed",
+      "exit": 1
+    }
+  ],
+  "rawComposeLogs": "not copied"
+}

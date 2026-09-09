@@ -1,0 +1,13 @@
+context=exact candidate production image built from base source in a fresh isolated worktree
+source=0728184bfec77d6b3a8dba2b38b431bfed2ad5ef
+bun=1.3.14
+host_conmon_sha256=1d97294c14c43d477e0a0826e9cd0f2a2af373ddfafe6f10252e8a3c43f32be6
+host_podman_info=conmon=/tmp/ez-audit-ci-conmon/conmon-2.2.1 event_logger=journald default_log_driver=journald rootless=true
+controller_sha256=0e7076579774815d21c853b3db6eac44c2db259d08021d8b09147b4e10b23df6
+image=ezcorp:stage2-repro-0728184b
+image_revision=0728184bfec77d6b3a8dba2b38b431bfed2ad5ef
+baseline_mode=--nft-on
+baseline_exit=126
+baseline_stdout_bytes=0
+baseline_stderr=[conmon:e]: Include journald in compilation path to log to systemd journal | Error: conmon failed: exit status 1
+baseline_log=private; hashes recorded in raw-input-hashes.tsv

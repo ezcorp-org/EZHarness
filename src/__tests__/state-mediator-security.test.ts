@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { EventBus } from "../runtime/events";
+import { withStateProvenance } from "./helpers/state-provenance";
 import type { AgentEvents } from "../types";
 import type { JsonRpcNotification } from "../extensions/types";
 import {
@@ -16,7 +17,7 @@ const MANIFEST: MediatorManifest = {
 
 function setup() {
   const bus = new EventBus<AgentEvents>();
-  const mediator = new ExtensionStateMediator(bus, () => MANIFEST);
+  const mediator = withStateProvenance(new ExtensionStateMediator(bus, () => MANIFEST));
   const events: AgentEvents["ext:state"][] = [];
   bus.on("ext:state", (e) => events.push(e));
   return { bus, mediator, events };

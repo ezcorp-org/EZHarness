@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
 import { errorMessage, toolError, type BuiltinToolDef } from "./types";
-import { getToolOutputLimit, truncateText } from "./output-limits";
+import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import type { ToolParams } from "./validate";
 
 /**
@@ -116,8 +116,8 @@ export function buildSearchArgs(
 const RG_PATH = Bun.which("rg");
 
 /**
- * Read a child stream fully but bounded to `maxBytes`. Returning early when
- * the cap is hit closes the reader, which SIGPIPEs the child on its next
+ * Read a child stream fully but retain at most `maxBytes`. Cancel an
+ * overflowing stream to close the pipe, which SIGPIPEs the child on its next
  * write — so a runaway match set can't OOM us. Crucially, callers drain
  * stdout AND stderr concurrently: `grep -r` over a large tree emits a lot
  * of stderr (permission-denied, broken symlinks), and the old
@@ -128,22 +128,34 @@ const RG_PATH = Bun.which("rg");
 async function drainBounded(
   stream: ReadableStream<Uint8Array> | null,
   maxBytes: number,
-): Promise<string> {
-  if (!stream) return "";
+): Promise<{ text: string; truncated: boolean }> {
+  if (!stream) return { text: "", truncated: false };
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let out = "";
+  let bytes = 0;
+  let truncated = false;
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-      out += decoder.decode(value, { stream: true });
-      if (out.length >= maxBytes) break;
+      if (done) {
+        out += decoder.decode();
+        break;
+      }
+      const remaining = maxBytes - bytes;
+      const retained = value.subarray(0, remaining);
+      out += decoder.decode(retained, { stream: true });
+      bytes += retained.byteLength;
+      if (value.byteLength > remaining) {
+        truncated = true;
+        await reader.cancel();
+        break;
+      }
     }
   } finally {
     reader.releaseLock();
   }
-  return out;
+  return { text: out, truncated };
 }
 
 export function createGrepTool(projectPath: string): BuiltinToolDef {
@@ -235,7 +247,7 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
         }
 
         const { stdout, stderr, exitCode } = outcome;
-        const trimmed = stdout.trim();
+        const trimmed = stdout.text.trim();
 
         // Exit 2 = a real error (bad regex, unreadable root). Check this
         // BEFORE the no-match case: both tools can also exit 2 from a
@@ -245,7 +257,7 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
         // `!trimmed` no-match check below would otherwise mask a genuine
         // error as a bland "No matches found.")
         if (exitCode === 2 && !trimmed) {
-          return toolError(stderr.trim() || "search error", { matchCount: 0 });
+          return toolError(stderr.text.trim() || "search error", { matchCount: 0 });
         }
 
         // Exit 1 = "no matches" for both grep and ripgrep.
@@ -261,14 +273,16 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
         // regex naturally excludes them.
         const matchCount = trimmed.split("\n").filter((l) => /^.+:\d+:/.test(l)).length;
 
-        const { text, truncated, originalBytes } = truncateText(trimmed, cap, "grep");
+        const text = stdout.truncated
+          ? trimmed + buildStreamTruncationMarker("grep", cap)
+          : trimmed;
         return {
           content: [{ type: "text" as const, text }],
           details: {
             matchCount,
             pattern: params.pattern,
             backend,
-            ...(truncated ? { truncated: true, originalBytes } : {}),
+            ...(stdout.truncated ? { truncated: true } : {}),
           },
         };
       } catch (e) {

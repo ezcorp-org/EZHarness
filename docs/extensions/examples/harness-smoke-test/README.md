@@ -9,7 +9,7 @@ This is the exact extension an in-app agent built (conversation
 "use the ping tool". The post-mortem found four non-prompt-fixable
 causes; this fixture exists so every fix stays wired:
 
-- **Idempotent install** — `ezcorp ext install ./harness-smoke-test`
+- **Idempotent install** — `EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./harness-smoke-test`
   twice refreshes in place instead of throwing a raw
   `Failed query: insert into "extensions"` unique error.
 - **Deterministic acceptance** — the `smokeTest` block makes

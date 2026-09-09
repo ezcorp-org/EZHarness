@@ -26,6 +26,13 @@ import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 // Every ToolExecutor method the dispatch table can invoke. The stub records
 // which method a route resolved to and returns a tagged response.
 const HANDLER_NAMES = [
+  "handlePiHostApi",
+  "handlePiProjectPullRequest",
+  "handlePiProjectGit",
+  "handlePiProjectPullRequestReview",
+  "handlePiNetworkBroker",
+  "handlePiNetworkTunnel",
+  "handlePiCredentialBroker",
   "handlePiInvoke",
   "handlePiFsRead",
   "handlePiFsWrite",
@@ -71,6 +78,16 @@ function makeStubExecutor(): { self: ToolExecutor; lastCalled: () => string | nu
 }
 
 describe("routeReverseRpc dispatch table", () => {
+  test("native transport and credential methods use distinct exact handlers", async () => {
+    for (const method of ["open", "write", "read", "close"].map((action) => `ezcorp/network.tunnel.${action}`).concat("ezcorp/env.get", "ezcorp/credentials.read")) {
+      const { self, lastCalled } = makeStubExecutor();
+      const response = await routeReverseRpc(self, "ext-1", { jsonrpc: "2.0", id: 1, method, params: {} });
+      const expected = method.startsWith("ezcorp/network.tunnel.") ? "handlePiNetworkTunnel" : "handlePiCredentialBroker";
+      expect(lastCalled()).toBe(expected);
+      expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { via: expected } });
+    }
+  });
+
   test("every exact-match route resolves to a real handler (never -32601)", async () => {
     const { self, lastCalled } = makeStubExecutor();
     const methods = Object.keys(REVERSE_RPC_ROUTES);
@@ -172,6 +189,29 @@ describe("handlePiLessons / handlePiSearch real delegate bodies", () => {
   });
   afterEach(() => _resetCallProvenanceForTests());
 
+  for (const [handler, method] of [
+    ["handlePiProjectGit", "ezcorp/project.gitHead"],
+    ["handlePiProjectPullRequestReview", "ezcorp/project.reviewPr"],
+    ["handlePiNetworkBroker", "ezcorp/network.fetch"],
+    ["handlePiNetworkTunnel", "ezcorp/network.tunnel.open"],
+  ] as const) {
+    test(`${handler} delegates to the real broker and rejects absent, foreign, and expired authority`, async () => {
+      const foreign = registerCallProvenance({ ...prov(), actorExtensionId: "other-extension" });
+      const expired = registerCallProvenance(prov());
+      releaseCallProvenance(expired);
+      try {
+        for (const token of [undefined, foreign, expired]) {
+          const response = await executor[handler]("ext-1", {
+            jsonrpc: "2.0", id: 41, method,
+            params: token ? { _meta: { ezCallId: token } } : {},
+          });
+          expect(response).toEqual({ jsonrpc: "2.0", id: 41, error: { code: -32602, message: "Reverse-RPC provenance unresolved (no valid call token)" } });
+          expect(response.result).toBeUndefined();
+        }
+      } finally { releaseCallProvenance(foreign); }
+    });
+  }
+
   test("handlePiSearch reaches the search handler (soft-fails without a search grant)", async () => {
     const tok = registerCallProvenance(prov());
     try {
@@ -186,6 +226,18 @@ describe("handlePiLessons / handlePiSearch real delegate bodies", () => {
     } finally {
       releaseCallProvenance(tok);
     }
+  });
+
+  test("handlePiNetworkTunnel preserves the broker denial when no TCP destination was granted", async () => {
+    const token = registerCallProvenance(prov());
+    try {
+      const response = await executor.handlePiNetworkTunnel("ext-1", {
+        jsonrpc: "2.0", id: 42, method: "ezcorp/network.tunnel.open",
+        params: { destination: "example.com:443", _meta: { ezCallId: token } },
+      });
+      expect(response).toEqual({ jsonrpc: "2.0", id: 42, error: { code: -32603, message: "TCP tunnel denied, expired, or unavailable.", data: { retryable: false } } });
+      expect(response.result).toBeUndefined();
+    } finally { releaseCallProvenance(token); }
   });
 
   test("handlePiLessons reaches the lessons handler under a resolvable token", async () => {

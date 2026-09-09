@@ -1,0 +1,27 @@
+{
+  "source": "cddb0627f94ffd1e0ae0c36939737c6f97ae4a53",
+  "image_id": "0f04d6307db27e6259c27e01d77f2962e7c967d502a66ac51954440c62f28c60",
+  "image_build_exit": 0,
+  "verifier_exit": 0,
+  "result": {
+    "passed": true,
+    "profile": "rootless-podman-v4",
+    "checks": [
+      "production-boot",
+      "file-credential",
+      "real-isolated-build",
+      "human-approval",
+      "activation",
+      "tool-invocation",
+      "disable-denial",
+      "retained-history"
+    ]
+  },
+  "old_log_driver_exit": 126,
+  "inspection": "Coordinator read actual production verifier assertions and shell set -e; actual HarnessClient import precedes the 8-check script. Build owner must produce later source image after Hub fix.",
+  "raw_sha256": {
+    "83-verifier-old-log-driver-red.log": "6897db7ab417c28c78b0b6aa4c82a76b59e870c7f53742f9c41a89954f40eb09",
+    "84-verifier-fixed-eight.log": "f3131545e6e3a93cd9733d3ca0c00ede7ab91902f953146b91923dd5d39c484d",
+    "82-final-image-build.log": "60d036d41698fbb9fe4d5ec62321a56fcff8896aed852cc6c777675f8824c1eb"
+  }
+}

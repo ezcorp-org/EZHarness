@@ -60,7 +60,9 @@ import {
   getWorkflowRunRow,
 } from "../db/queries/workflow-runs";
 import { answerApproval } from "./workflow-answer-approval";
-import { getWorkflowRuntime, type WorkflowRuntime } from "./workflow/runtime-registry";
+import { getWorkflowRuntime, workflowResumeEntry, type WorkflowRuntime } from "./workflow/runtime-registry";
+import { workflowReleaseCanAccess } from "./workflow-release-assets";
+import { workflowExecutionHash } from "./workflow-definition-hash";
 import { logger } from "../logger";
 
 const log = logger.child("workflow.approval-timeout");
@@ -158,7 +160,7 @@ export async function sweepExpiredWorkflowApprovals(
     // it. Read once — the policy lookup needs it, and a missing run means
     // there is no policy to read.
     const runRow = await getWorkflowRunRow(approval.workflowRunId);
-    const policy = resolvePolicy(approval, runRow?.workflowName, runtime);
+    const policy = await resolvePolicy(approval, runRow, runtime);
     if (policy === undefined) {
       // The policy lives on the DEFINITION, not on the row. Without one
       // we do not know what the author asked for, and "abort" is not a
@@ -201,14 +203,16 @@ function applyOutcome(result: ApprovalTimeoutSweepResult, outcome: Outcome): voi
  * documented default), while a definition we cannot resolve means we have
  * no idea, and those two must not share a code path that cancels runs.
  */
-function resolvePolicy(
+async function resolvePolicy(
   approval: WorkflowApprovalRow,
-  workflowName: string | undefined,
+  row: Awaited<ReturnType<typeof getWorkflowRunRow>>,
   runtime: WorkflowRuntime | null,
-): ApprovalTimeoutPolicy | undefined {
-  if (!runtime || workflowName === undefined) return undefined;
-  const definition = runtime.getWorkflows().find((w) => w.name === workflowName);
-  const step = definition?.steps.find((s) => s.name === approval.stepName);
+): Promise<ApprovalTimeoutPolicy | undefined> {
+  if (!runtime || !row) return undefined;
+  const entry = workflowResumeEntry(runtime, row.workflowName);
+  if (!entry || !await workflowReleaseCanAccess(entry, row.userId, row.projectId)) return undefined;
+  if (entry.source === "extension" && row.definitionHash !== workflowExecutionHash(entry.definition, entry.extensionRelease)) return undefined;
+  const step = entry.definition.steps.find((step) => step.name === approval.stepName);
   if (!step) return undefined;
   return step.onTimeout ?? "abort";
 }

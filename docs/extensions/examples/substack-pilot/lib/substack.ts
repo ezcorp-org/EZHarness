@@ -369,8 +369,8 @@ export async function generateSubstackDraft(
     return toolError("LLM returned empty body — refusing to create draft");
   }
 
-  const title = defaultTitle(postType, summaries, titleOverride);
-  const subtitle = defaultSubtitle(postType, summaries, subtitleOverride);
+  const title = defaultTitle(postType, summaries, typeof titleOverride === "string" ? titleOverride : undefined);
+  const subtitle = defaultSubtitle(postType, summaries, typeof subtitleOverride === "string" ? subtitleOverride : undefined);
 
   // ── 4. Call substack-mcp ───────────────────────────────────
   let caller: McpCaller | null = _caller;

@@ -1,0 +1,1 @@
+Each attachment manifest row has the capture label in attachment_name and the Playwright reporter test ID in test_id. The capture label is the stable user-visible evidence name. All rows include file bytes and SHA-256, with the source archive SHA-256, so parent byte comparison can trace each curated PNG to its raw archive.

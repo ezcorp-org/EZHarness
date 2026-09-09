@@ -21,6 +21,7 @@
  *      seam is a door frame with the door shut.
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import { workflowReleaseFixture } from "../../__tests__/helpers/workflow-release";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
   setupTestDb, closeTestDb, mockDbConnection, getTestDb,
@@ -126,6 +127,7 @@ function deps(perms?: ExtensionPermissions): RpcHandlerDeps {
 }
 
 function registerRuntime() {
+  const { entry } = workflowReleaseFixture(SHIPPED, userId, extensionId);
   registerWorkflowRuntime({
     workflowExecutor: {
       async runWorkflow(workflow, _input, _proj, uid) {
@@ -147,6 +149,7 @@ function registerRuntime() {
       }) as never,
     },
     getWorkflows: () => [SHIPPED],
+    getCachedWorkflows: () => [entry],
   });
 }
 
@@ -158,7 +161,7 @@ function ownerlessToken(): string {
     conversationId: null,
     runId: null,
     parentCallId: null,
-    actorExtensionId: "ext-under-test",
+    actorExtensionId: extensionId,
     kind: "event",
     ownerless: true,
   };
@@ -172,7 +175,7 @@ function ownedToken(conv: string | null = null): string {
     conversationId: conv,
     runId: null,
     parentCallId: null,
-    actorExtensionId: "ext-under-test",
+    actorExtensionId: extensionId,
     kind: "tool",
     ownerless: false,
   };
@@ -247,7 +250,7 @@ afterAll(async () => {
 describe("resolveDelegatedProvenance", () => {
   test("passes an OWNERLESS fire through with onBehalfOf: null", () => {
     const id = ownerlessToken();
-    const out = resolveDelegatedProvenance("ext-under-test", req("ezcorp/workflows-delegated", id));
+    const out = resolveDelegatedProvenance(extensionId, req("ezcorp/workflows-delegated", id));
 
     expect(out.ok).toBe(true);
     if (!out.ok) throw new Error("expected ok");
@@ -257,7 +260,7 @@ describe("resolveDelegatedProvenance", () => {
 
   test("carries the OWNER through when the fire has one", () => {
     const id = ownedToken(conversationId);
-    const out = resolveDelegatedProvenance("ext-under-test", req("ezcorp/workflows-delegated", id));
+    const out = resolveDelegatedProvenance(extensionId, req("ezcorp/workflows-delegated", id));
 
     expect(out.ok).toBe(true);
     if (!out.ok) throw new Error("expected ok");
@@ -267,7 +270,7 @@ describe("resolveDelegatedProvenance", () => {
 
   test("an UNRESOLVED token still fail-fasts with -32602", () => {
     const out = resolveDelegatedProvenance(
-      "ext-under-test",
+      extensionId,
       req("ezcorp/workflows-delegated", "bogus-token"),
     );
 
@@ -278,7 +281,7 @@ describe("resolveDelegatedProvenance", () => {
 
   test("a MISSING token fail-fasts too — tolerance is about owners, not tokens", () => {
     const out = resolveDelegatedProvenance(
-      "ext-under-test",
+      extensionId,
       req("ezcorp/workflows-delegated", undefined),
     );
 
@@ -287,16 +290,16 @@ describe("resolveDelegatedProvenance", () => {
     expect(out.errorResponse.error?.code).toBe(-32602);
   });
 
-  test("a token minted for ANOTHER extension still resolves (tripwire logs, never rejects)", () => {
+  test("a token minted for another extension cannot delegate capabilities", () => {
     // Parity with `resolveStorageProvenance`/`resolveReverseRpcMeta`: the
     // actorExtensionId mismatch is observability, not a gate, because the
     // cross-extension `ezcorp/invoke` correspondence is subtle.
     const id = ownedToken(null);
     const out = resolveDelegatedProvenance("a-different-extension", req("x", id));
 
-    expect(out.ok).toBe(true);
-    if (!out.ok) throw new Error("expected ok");
-    expect(out.onBehalfOf).toBe(userId);
+    expect(out.ok).toBe(false);
+    if (out.ok) throw new Error("foreign token accepted");
+    expect(out.errorResponse.error?.code).toBe(-32602);
   });
 });
 
@@ -306,7 +309,7 @@ describe("resolveReverseRpcMeta is NOT loosened", () => {
   test("the same ownerless token still gets a byte-identical -32106", () => {
     const id = ownerlessToken();
     const request = req("ezcorp/workflows", id);
-    const out = resolveReverseRpcMeta("ext-under-test", request);
+    const out = resolveReverseRpcMeta(extensionId, request);
 
     expect(out.ok).toBe(false);
     if (out.ok) throw new Error("expected refusal");

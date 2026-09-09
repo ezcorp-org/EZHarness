@@ -306,10 +306,15 @@ describe("identify_slab", () => {
 });
 
 describe("manifest", () => {
-  test("declares the three tools, the Hub page, and grants (no credential env grant)", async () => {
+  test("declares lookup and private saved-card tools, the Hub page, and grants", async () => {
     const manifest = (await import("./ezcorp.config.ts")).default;
     expect(manifest.name).toBe("graded-card-scanner");
     expect(manifest.tools?.map((t) => t.name)).toEqual([
+      "scanner_saved_list",
+      "scanner_saved_get",
+      "scanner_saved_upsert",
+      "scanner_saved_delete",
+      "scanner_saved_clear",
       "lookup_card",
       "identify_slab",
       "set_psa_token",
@@ -357,7 +362,7 @@ describe("manifest", () => {
       },
     ]);
     const identify = manifest.tools?.find((t) => t.name === "identify_slab");
-    expect(identify?.cardType).toBe("grade-delta-chart");
+    expect(identify).toMatchObject({ cardType: "grade-delta-chart" });
     // The preprocessor's declared tool MUST exist in tools[] — the host
     // manifest validator enforces this at admit time; pin it here too so
     // a rename can't silently break the deterministic trigger.

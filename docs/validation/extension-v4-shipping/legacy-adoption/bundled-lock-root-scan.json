@@ -1,0 +1,39 @@
+{
+  "checked": 28,
+  "packageManifests": 8,
+  "mismatches": [],
+  "checks": [
+    {
+      "name": "ai-kit",
+      "match": true
+    },
+    {
+      "name": "kokoro-tts",
+      "match": true
+    },
+    {
+      "name": "lessons-distiller",
+      "match": true
+    },
+    {
+      "name": "memory-extractor",
+      "match": true
+    },
+    {
+      "name": "file-organizer",
+      "match": true
+    },
+    {
+      "name": "ping-loop",
+      "match": true
+    },
+    {
+      "name": "github-projects",
+      "match": true
+    },
+    {
+      "name": "ez-factory",
+      "match": true
+    }
+  ]
+}

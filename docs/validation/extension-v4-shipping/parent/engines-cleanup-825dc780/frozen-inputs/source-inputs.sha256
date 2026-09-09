@@ -1,0 +1,5 @@
+ce64e8b55f51a7cf04e1c80a8d611d89eea411f3c94234d18d774c1ad3a0c244  web/playwright.real.config.ts
+3c9204b1326711b82b87cdcbe166a059d96135ca8c8ede936c75e821cf6431bc  web/e2e/run-real-auth-fixture.sh
+1be673098d391e0d296f2312f7416cafc1f35afd653ea473c996c70e7e6f5f50  web/e2e/real-auth-teardown.ts
+e65a18a442d021364c62a2bb8b3c5d5d3eb8a090454436ec7fd7ef21d01d8e8e  web/e2e/real-auth/extension-lifecycle-flow.spec.ts
+02a8e5972535d9266fb837147b2efec3c92714eb39d3b33dd57e48515f0cd304  src/__tests__/real-auth-fixture-cleanup.test.ts

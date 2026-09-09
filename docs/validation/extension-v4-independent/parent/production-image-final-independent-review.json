@@ -1,0 +1,53 @@
+{
+  "checked_utc": "2026-09-06T03:00:56.575459+00:00",
+  "image_source": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+  "image_tree": "801704279706828fa0b9f958ae4446237f38e451",
+  "verifier_command_source": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+  "verifier_production_test_input_changes": [],
+  "tag": "localhost/ezcorp-extension-v4:audit-final-ea445e9e",
+  "image_id": "abc3644405188068cb2b0397f85199799b76d51336cb8d17e0a0d83492189962",
+  "manifest_digest": "sha256:687e142a8bddaaae3889d08b9ee06e67cc6e0263dd1893861c0c6f3340ed3449",
+  "format": "docker",
+  "healthcheck": {
+    "Test": [
+      "CMD-SHELL",
+      "bun -e \"const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)\" || exit 1"
+    ],
+    "StartPeriod": 60000000000,
+    "Interval": 30000000000,
+    "Timeout": 5000000000,
+    "Retries": 3
+  },
+  "checks": [
+    "production-boot",
+    "file-credential",
+    "real-isolated-build",
+    "human-approval",
+    "activation",
+    "tool-invocation",
+    "disable-denial",
+    "retained-history"
+  ],
+  "verifier_imports_actual_HarnessClient": true,
+  "loaded_docker_id_matches": true,
+  "bpf_bytes": 2736,
+  "bpf_sha256": "4b9755245461ac5e8bed6bd3b9c3933faebd6cbc2638e50bbf6920d98efa2a1a",
+  "raw_logs": [
+    {
+      "name": "144-ea-final-image-build.log",
+      "sha256": "74784fb2f0d92d52670bc6333005cdcac2ad9fd49abc28ab27eedc1c00b8e520",
+      "exit": 0
+    },
+    {
+      "name": "145-ea-final-image-verifier.log",
+      "sha256": "a0e4344ffe1ec20ac95ee144245de237374ba9c58c6adb62178e0de38e1d74f3",
+      "exit": 0
+    },
+    {
+      "name": "146-ea-final-docker-load.log",
+      "sha256": "e9d6249aada0daf4a71aafdc05c5109e2e204fbebc21b42d4ecff9bd6e0db269",
+      "exit": 0
+    }
+  ],
+  "limit": "Eight actual verifier checks and packaging proof. The earlier image8f722 syscall-effect receipt applies only to unchanged compiler/profile/spawn inputs and identical BPF bytes. Kernel audit output remains unproved. New production browser12 has a separate receipt."
+}

@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/review-resource-receipt.py", line 55, in <module>
+    assert terminal["actualDurationMs"] >= args.minimum_ms
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

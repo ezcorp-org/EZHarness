@@ -1,0 +1,6 @@
+launcher_source=adbba8a693cdcd4410c51023dfca93517f9db1e8
+image=localhost/ezcorp-extension-v4:shipping-adbba8a6
+project=ezcorp-production-lifecycle-1239410638
+container=ezcorp-production-lifecycle-1239410638-app
+port=4282
+image_id=sha256:3800bd95cd2e106d1d3b9fb304cddce94db5872006f5a4b782d673e01a601b8f revision=adbba8a693cdcd4410c51023dfca93517f9db1e8

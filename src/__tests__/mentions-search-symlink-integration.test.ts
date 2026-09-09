@@ -18,6 +18,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
+import { unavailableWorkflowAccess } from "./helpers/mock-cleanup";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -37,6 +38,10 @@ mock.module("$server/auth/middleware", () => ({
 
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
+}));
+
+mock.module("$lib/server/workflow-access", () => ({
+  listVisibleWorkflows: async () => [],
 }));
 
 mock.module("$lib/server/context", () => ({
@@ -75,16 +80,8 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
   getBuiltInCategories: () => [],
 }));
 
-// Un-poison the one `$server/*` alias this file STUBS (issue #208). The other
-// registrations above are pass-through shims (the alias resolves to the real
-// module, so nothing leaks); `getBuiltInCategories: () => []` is a real stub,
-// and a later file that mounts the mentions-search route would read the empty
-// list. This file does not call `restoreModuleMocks()`, so it un-poisons
-// exactly what it poisoned. The LAZY `require()` is the same form
-// `restoreModuleMocks()` installs: it re-dispatches at every resolution, so a
-// later file's own mock still wins through the alias, and nothing is loaded
-// here at module-load time.
 afterAll(() => {
+  mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
   );

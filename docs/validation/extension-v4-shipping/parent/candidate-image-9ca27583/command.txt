@@ -1,0 +1,5 @@
+flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock \
+  bash /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/new-payload-final/build-frozen-candidate.sh \
+  9ca275838faf30666da5dba1c0eba141dd053050 \
+  localhost/ezcorp-extension-v4:shipping-9ca27583 \
+  /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-9ca27583-20260907T075156Z

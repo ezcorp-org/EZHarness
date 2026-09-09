@@ -1,0 +1,1 @@
+No durable exit receipt was retained for the original stopped-DB command. See provenance.md.

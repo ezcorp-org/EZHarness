@@ -1,3 +1,4 @@
+// @ezcorp-host-integration
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { __resetChannelForTests, __resetPagesForTests } from "@ezcorp/sdk/runtime";
 import { validatePageTree } from "../../../../src/extensions/page-schema";

@@ -1,0 +1,15 @@
+{
+  "committed_input_copies": 7,
+  "coverage": {
+    "FNF": 8,
+    "FNH": 8,
+    "LF": 33,
+    "LH": 33
+  },
+  "test_registration": {
+    "passfail": 1,
+    "coverage": 1
+  },
+  "actual_terminal_files_retained": true,
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62"
+}

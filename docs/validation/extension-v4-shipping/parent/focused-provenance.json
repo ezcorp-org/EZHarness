@@ -1,0 +1,25 @@
+{
+  "reviewed_at_commit_sha": "f253266568a169ea325435d4896416011a6950c9",
+  "unchanged_since_commit_sha": "e121969eac2f39fda4ed56e9ac640d90e888df36",
+  "command": "bun test --timeout 30000 ./<path> (one fresh process per file)",
+  "bun_version": "1.3.14",
+  "files": [
+    {
+      "path": "src/extensions/__tests__/source-adoption.test.ts",
+      "sha256": "3f2d4ac2a9e24e830c5ffd084d711becbaec492e9c3707fdb9a22f2900ed447d"
+    },
+    {
+      "path": "src/extensions/extension-lifecycle-service.test.ts",
+      "sha256": "c95c6583d98da723daf8d5a88abd4e679563128637b67bc166bbaccb70718fd3"
+    },
+    {
+      "path": "src/__tests__/mcp-proxy.test.ts",
+      "sha256": "6d463e793b2dee674452d4de2aaa2170a6474298bac136f0a2fc5aef7609de0a"
+    },
+    {
+      "path": "src/__tests__/mock-cleanup-coverage.test.ts",
+      "sha256": "4a456be92bb29bab0b098d995d60d2abe53658485eaed395c8ee3b18bad03be8"
+    }
+  ],
+  "receipt_note": "Parent independently replayed these four unchanged test files after the e121 callback assertion repair. Tool session 62492 exited zero. Each retained log records its pass and failure counts."
+}

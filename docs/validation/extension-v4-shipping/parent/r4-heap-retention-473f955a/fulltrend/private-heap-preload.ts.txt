@@ -1,0 +1,65 @@
+import { rename } from "node:fs/promises";
+import { heapStats } from "bun:jsc";
+
+let startupRss: number | undefined;
+let maximumRss = 0;
+let snapshotTaken = false;
+const trackedTypes = ["Request", "Response", "ReadableStream", "Promise", "ArrayBuffer", "Uint8Array", "DataView", "Function", "Object"];
+
+function emit(kind: "start" | "interval" | "snapshot-start" | "snapshot-end"): void {
+  try {
+    const memory = process.memoryUsage();
+    const resource = process.resourceUsage();
+    startupRss ??= memory.rss;
+    maximumRss = Math.max(maximumRss, memory.rss);
+    const stats = heapStats();
+    const objectTypeCounts = Object.fromEntries(trackedTypes.flatMap(name => stats.objectTypeCounts[name] === undefined ? [] : [[name, stats.objectTypeCounts[name]]]));
+    console.log("R4_HEAP " + JSON.stringify({
+      kind,
+      capturedAt: new Date().toISOString(),
+      pid: process.pid,
+      startupRss,
+      maximumRss,
+      processMemory: { rss: memory.rss, heapUsed: memory.heapUsed, external: memory.external, arrayBuffers: memory.arrayBuffers },
+      resourceUsage: { maxRssKiB: resource.maxRSS, maxRssBytes: resource.maxRSS * 1024 },
+      jsc: { objectTypeCounts, heapSize: stats.heapSize, heapCapacity: stats.heapCapacity, extraMemorySize: stats.extraMemorySize, objectCount: stats.objectCount, protectedObjectCount: stats.protectedObjectCount },
+      mimalloc: { commitCurrent: stats.mimalloc.committed.current, reservedCurrent: stats.mimalloc.reserved.current },
+    }));
+  } catch (error) {
+    console.error("R4_HEAP_ERROR " + JSON.stringify({ kind, name: error instanceof Error ? error.name : "Error" }));
+  }
+}
+
+async function capturePostDurationSnapshot(): Promise<void> {
+  try {
+    emit("snapshot-start");
+    const snapshot = Bun.generateHeapSnapshot("v8", "arraybuffer");
+    const snapshotPath = "/app/data/r4-post-duration.heapsnapshot";
+    const snapshotTemporaryPath = snapshotPath + ".tmp";
+    const bytes = await Bun.write(snapshotTemporaryPath, snapshot);
+    await rename(snapshotTemporaryPath, snapshotPath);
+    const markerPath = "/app/data/r4-post-duration.done.json";
+    const markerTemporaryPath = markerPath + ".tmp";
+    await Bun.write(markerTemporaryPath, JSON.stringify({ bytes, snapshotBytes: snapshot.byteLength }) + "\n");
+    await rename(markerTemporaryPath, markerPath);
+    emit("snapshot-end");
+    console.log("R4_HEAP_SNAPSHOT " + JSON.stringify({ phase: "complete", capturedAt: new Date().toISOString(), bytes, snapshotBytes: snapshot.byteLength }));
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "Error";
+    try {
+      const errorPath = "/app/data/r4-post-duration.error.json";
+      const errorTemporaryPath = errorPath + ".tmp";
+      await Bun.write(errorTemporaryPath, JSON.stringify({ name, capturedAt: new Date().toISOString() }) + "\n");
+      await rename(errorTemporaryPath, errorPath);
+    } catch {}
+    console.error("R4_HEAP_SNAPSHOT_ERROR " + JSON.stringify({ phase: "failed", name }));
+  }
+}
+
+emit("start");
+setInterval(() => emit("interval"), 5_000).unref();
+process.on("SIGUSR2", () => {
+  if (snapshotTaken) return;
+  snapshotTaken = true;
+  void capturePostDurationSnapshot();
+});

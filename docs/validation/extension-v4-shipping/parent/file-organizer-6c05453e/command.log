@@ -1,0 +1,9 @@
+setup_http=201
+login_http=not-needed
+key_http=201
+runtime_events_idle_exit=0
+playwright_exit=0
+command_exit=0
+compose_started=1
+app_log_exit=0
+owned_cleanup_exit=0

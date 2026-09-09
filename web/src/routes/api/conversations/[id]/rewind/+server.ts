@@ -1,6 +1,5 @@
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
-import { logger } from "$server/logger";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
@@ -10,8 +9,6 @@ import { rewindSession, isSessionHistoryProducerEnabled } from "$server/db/sessi
 import { rewindConversationSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import type { RequestHandler } from "./$types";
-
-const log = logger.child("api.rewind");
 
 /**
  * POST /api/conversations/:id/rewind — rewind/checkpoint the conversation to a
@@ -55,16 +52,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const parsed = rewindConversationSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return validationError(parsed.error);
 
-  const outcome = await rewindSession(conversationId, parsed.data.targetMessageId, parsed.data.summary);
+  const outcome = await rewindSession(conversationId, parsed.data.targetMessageId, parsed.data.summary, getBus());
   if (!outcome.ok) {
     return errorJson(400, "targetMessageId does not belong to this conversation", { code: "target_not_found" });
-  }
-
-  // Best-effort nudge to other tabs/subscribers — the tree is already durable.
-  try {
-    getBus().emit("conversation:tree-changed", { conversationId, currentLeaf: outcome.tree.currentLeaf });
-  } catch (err) {
-    log.warn("tree-changed emit failed (rewind already persisted)", { conversationId, error: String(err) });
   }
 
   return json(outcome.tree);

@@ -1,0 +1,3 @@
+head=132720fc61203c92b532050d92b2d592ac25173d
+7dfa2f3ba5b105cfd991dee141ae435c823ddb3d12ca32aee0debcca691b2400  web/e2e/real-auth/extension-lifecycle-flow.spec.ts
+923510c210137449afeb509e98becb791bfdab68364bc7332835cd5e40faa8aa  web/src/routes/(app)/extensions/author/+page.svelte

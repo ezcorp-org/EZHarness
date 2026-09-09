@@ -1,0 +1,5 @@
+Attempt 2 failed after the setup-first-run prerequisite passed all 3 cases. The real-auth suite then ran 62 cases: 61 passed and 1 failed.
+
+The failing case was `e2e/real-auth/auth-fixture.spec.ts:26:2` (`GET / lands an authenticated user in chat (no login redirect)`). Its private trace records Playwright `Create context` as the failing fixture action. The failure occurred before that test body or a product request. Chromium 1234 reported `SEGV_MAPERR`.
+
+This is a recurrence of the first attempt’s native context-creation crash at a different test position. It is not a product assertion failure. This bundle excludes the raw trace and all browser-authenticated artifacts.

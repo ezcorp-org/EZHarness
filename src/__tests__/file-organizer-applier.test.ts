@@ -88,6 +88,22 @@ describe("applyProposal — move", () => {
     expect(await readFile(join(watched, "sub", "a.txt"), "utf8")).toBe("existing");
   });
 
+  test("a sealed collision target appearing after approval blocks without overwriting", async () => {
+    const watched = join(root, "w");
+    await mkdir(join(watched, "sub"), { recursive: true });
+    const src = join(watched, "a.txt");
+    const destination = join(watched, "sub", "a (2).txt");
+    await writeFile(src, "new");
+    await writeFile(destination, "late-file");
+    const ctx = await ctxFor(watched);
+    ctx.hostActionAuthority = {};
+    ctx.hostActionEffect = { action: "file-organizer:accept", subject: "p1:1:move", paths: [src, destination] };
+    const outcome = await applyProposal(moveProposal(src, join(watched, "sub", "a.txt"), 3), ctx);
+    expect(outcome).toMatchObject({ status: "blocked", reason: "destination changed after approval" });
+    expect(await readFile(src, "utf8")).toBe("new");
+    expect(await readFile(destination, "utf8")).toBe("late-file");
+  });
+
   test("destination escaping the watched root is blocked", async () => {
     const watched = join(root, "w");
     await mkdir(watched, { recursive: true });
@@ -214,6 +230,24 @@ describe("applyProposal — quarantine", () => {
     expect(outcome.status).toBe("blocked");
     expect(await _applierInternals.pathExists(src)).toBe(true);
   });
+
+  test("a sealed quarantine refuses a missing or changed private target", async () => {
+    const watched = join(root, "w");
+    await mkdir(watched, { recursive: true });
+    const src = join(watched, "junk.tmp");
+    await writeFile(src, "junk");
+    const ctx = await ctxFor(watched);
+    ctx.hostActionAuthority = {};
+    ctx.hostActionEffect = { action: "file-organizer:accept", subject: "p1:1:delete-quarantine", paths: [src] };
+    const proposal = { id: "p", kind: "delete-quarantine", src, dst: null, quarantineId: "q1", snapshot: { size: 4, mtimeMs: 0, isSymlink: false, nlink: 1 } } as const;
+    expect(await applyProposal(proposal, ctx)).toMatchObject({ status: "blocked", reason: "missing sealed quarantine target" });
+    ctx.hostActionEffect = { ...ctx.hostActionEffect, privatePath: "/data/.trash/q1/junk.tmp" };
+    await mkdir(join(ctx.trashRoot, "q1"), { recursive: true });
+    await writeFile(join(ctx.trashRoot, "q1", "junk.tmp"), "late");
+    expect(await applyProposal(proposal, ctx)).toMatchObject({ status: "blocked", reason: "quarantine destination changed after approval" });
+    expect(await readFile(src, "utf8")).toBe("junk");
+    expect(await readFile(join(ctx.trashRoot, "q1", "junk.tmp"), "utf8")).toBe("late");
+  });
 });
 
 describe("restoreFromQuarantine", () => {
@@ -230,6 +264,23 @@ describe("restoreFromQuarantine", () => {
     expect(outcome.status).toBe("applied");
     expect(outcome.resolvedPath).toBe(join(watched, "a (2).txt"));
     expect(await readFile(outcome.resolvedPath!, "utf8")).toBe("restored");
+  });
+
+  test("a sealed restore destination appearing after approval is left untouched", async () => {
+    const watched = join(root, "w");
+    await mkdir(watched, { recursive: true });
+    const ctx = await ctxFor(watched);
+    const trashed = join(ctx.trashRoot, "q1", "a.txt");
+    const original = join(watched, "a.txt");
+    const planned = join(watched, "a (2).txt");
+    await mkdir(join(ctx.trashRoot, "q1"), { recursive: true });
+    await writeFile(trashed, "restored");
+    await writeFile(planned, "late-file");
+    ctx.hostActionAuthority = {};
+    ctx.hostActionEffect = { action: "file-organizer:restore", subject: "quarantine:q1", paths: [planned], privatePath: "/data/.trash/q1/a.txt" };
+    expect(await restoreFromQuarantine({ trashPath: trashed, restorePath: original }, ctx)).toMatchObject({ status: "blocked", reason: "restore destination changed after approval" });
+    expect(await readFile(trashed, "utf8")).toBe("restored");
+    expect(await readFile(planned, "utf8")).toBe("late-file");
   });
 
   test("missing trashed file ⇒ stale-source", async () => {
@@ -253,8 +304,15 @@ describe("restoreFromQuarantine", () => {
 describe("journal crash-replay", () => {
   /** Anchors covering the fixture's watched root (see the security suite
    *  for the refusal cases these must not fire on). */
-  function anchors(...roots: string[]): { roots: string[]; dataDirRoot: string } {
-    return { roots, dataDirRoot: join(root, ".ezcorp", "extension-data", "file-organizer") };
+  function anchors(...roots: string[]) {
+    return {
+      roots,
+      dataDirRoot: join(root, ".ezcorp", "extension-data", "file-organizer"),
+      engine: fakeEngine("allow"),
+      extensionId: "ext-fo",
+      userId: null,
+      conversationId: null,
+    };
   }
 
   test("copy-done entry finishes the unlink idempotently", async () => {

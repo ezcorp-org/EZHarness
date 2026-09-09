@@ -1241,9 +1241,11 @@ export const _internals = {
 
 // Production wiring — gated on `import.meta.main` so test imports don't
 // open stdin. Same pattern as scratchpad / task-tracking.
-if (import.meta.main) {
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   registerEventHandlerImpl("task:assignment_update", handleAssignmentUpdate);
   ch.start();
 }
+
+if (import.meta.main) start();

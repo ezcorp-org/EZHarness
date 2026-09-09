@@ -204,6 +204,14 @@ describe("web/src pass/fail gating", () => {
   const coverageFiles = setMembers("coverage_host_files");
   const webInC = coverageFiles.filter((f) => f.startsWith("web/src/"));
 
+  test("isolated Hub workers run in prepared host lanes, not web orphans", () => {
+    const file = "web/src/__tests__/hub-isolated-action.integration.test.ts";
+    expect(inP.has(file)).toBe(true);
+    expect(coverageFiles).toContain(file);
+    expect(bashLines(`source ${SETS_LIB}; web_host_files`)).toContain(file);
+    expect(bashLines(`source ${SETS_LIB}; web_bunleg_files`)).not.toContain(file);
+  });
+
   /**
    * web/src suites that are coverage-measured but deliberately NOT pass/fail-
    * gated. Every entry needs a CONCRETE environmental reason (needs Docker, a

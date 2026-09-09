@@ -1,0 +1,14 @@
+{
+  "reviewed_utc": "2026-09-07T20:00:31.333530+00:00",
+  "source_commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "scanned_index_tree": "cf4531c8342c97dbb7259bab1b8f6fa159e6692c",
+  "raw_receipt": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/final-staged-scan-2c542bac-20260907T195702Z",
+  "expanded_bytes": 7445289360,
+  "expanded_members": 15943,
+  "expanded_headers": 18844,
+  "scanner_findings": 0,
+  "scanner_exit": 0,
+  "cleanup_exit": 0,
+  "controller_exit": 0,
+  "scope": "Pinned Gitleaks with unchanged repository config on complete staged checkout plus recursively expanded extension validation archives. Git history excluded. This receipt precedes its own publication; an additional private exact-index scan gates the commit."
+}

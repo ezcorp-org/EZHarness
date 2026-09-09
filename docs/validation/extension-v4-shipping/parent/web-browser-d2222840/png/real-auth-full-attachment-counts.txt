@@ -1,0 +1,7 @@
+archive=real-auth.zip
+archiveSha256=6fce7ad4470c39aac72bb4d160a50b9baec0915449e0d2b6ce15b5c0bc62ef8e
+attachEvents=39
+pngAttachments=33
+copiedPng=25
+excludedPng=8
+nonPngAttachments=6

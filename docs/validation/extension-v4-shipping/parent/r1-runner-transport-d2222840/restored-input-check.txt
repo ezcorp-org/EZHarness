@@ -1,0 +1,3 @@
+scripts/lib/production-lifecycle-client.ts: OK
+scripts/verify-shipping-runtime.ts: OK
+src/__tests__/production-image-lifecycle-launch.integration.test.ts: OK

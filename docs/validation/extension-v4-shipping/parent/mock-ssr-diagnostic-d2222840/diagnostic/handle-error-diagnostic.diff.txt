@@ -1,0 +1,18 @@
+diff --git a/web/src/hooks.server.ts b/web/src/hooks.server.ts
+index 5627d396..ebe29af1 100644
+--- a/web/src/hooks.server.ts
++++ b/web/src/hooks.server.ts
+@@ -952,10 +952,9 @@ export const handle: Handle = async (input) => {
+ 
+ // ── Error Handler ─────────────────────────────────────────────────────
+ 
+-export const handleError: HandleServerError = ({ error, status, message }) => {
+-  const err = error as Error;
+-  log.error("server error", { status, error: err?.message ?? "Unknown error" });
+-  return { message: message || "An unexpected error occurred" };
++export const handleError: HandleServerError = ({ event, status, message }) => {
++	log.error("server error", { method: event.request.method, path: event.url.pathname, status });
++	return { message: message || "An unexpected error occurred" };
+ };
+ 
+ // ── Runtime Event Transport ───────────────────────────────────────────

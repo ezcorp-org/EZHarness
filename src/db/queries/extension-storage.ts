@@ -3,6 +3,7 @@ import { getDb } from "../connection";
 import { extensionStorage } from "../schema";
 
 type Scope = "global" | "conversation" | "user";
+export type StorageDatabase = Pick<ReturnType<typeof getDb>, "select" | "insert" | "delete" | "execute">;
 
 // ── Read ─────────────────────────────────────────────────────────────
 
@@ -11,8 +12,9 @@ export async function getStorageValue(
   scope: Scope,
   scopeId: string | null,
   key: string,
+  database?: StorageDatabase,
 ): Promise<{ value: unknown; encrypted: boolean; sizeBytes: number } | null> {
-  const db = getDb();
+  const db = database ?? getDb();
   const rows = await db
     .select()
     .from(extensionStorage)
@@ -50,8 +52,9 @@ export async function setStorageValue(
   encrypted: boolean,
   sizeBytes: number,
   expiresAt?: Date,
+  database?: StorageDatabase,
 ): Promise<void> {
-  const db = getDb();
+  const db = database ?? getDb();
   const now = new Date();
 
   await db
@@ -81,8 +84,9 @@ export async function deleteStorageValue(
   scope: Scope,
   scopeId: string | null,
   key: string,
+  database?: StorageDatabase,
 ): Promise<boolean> {
-  const db = getDb();
+  const db = database ?? getDb();
   const result = await db
     .delete(extensionStorage)
     .where(
@@ -107,8 +111,9 @@ export async function listStorageKeys(
   scopeId: string | null,
   prefix?: string,
   limit = 100,
+  database?: StorageDatabase,
 ): Promise<Array<{ key: string; sizeBytes: number; encrypted: boolean; expiresAt: Date | null }>> {
-  const db = getDb();
+  const db = database ?? getDb();
 
   const conditions = [
     eq(extensionStorage.extensionId, extensionId),
@@ -157,6 +162,7 @@ export async function listStorageRowsForKey(
   extensionId: string,
   scope: Scope,
   key: string,
+  page?: { limit: number; afterScopeId: string },
 ): Promise<Array<{ scopeId: string | null; value: unknown }>> {
   const db = getDb();
   const rows = await db
@@ -167,9 +173,10 @@ export async function listStorageRowsForKey(
         eq(extensionStorage.extensionId, extensionId),
         eq(extensionStorage.scope, scope),
         eq(extensionStorage.key, key),
+        page ? sql`${extensionStorage.scopeId} > ${page.afterScopeId}` : undefined,
         sql`(${extensionStorage.expiresAt} IS NULL OR ${extensionStorage.expiresAt} >= NOW())`,
       ),
-    );
+    ).orderBy(extensionStorage.scopeId).limit(page ? Math.max(1, Math.min(500, Math.trunc(page.limit))) : 2147483647);
   return rows.map((r: { scopeId: string | null; value: unknown }) => ({
     scopeId: r.scopeId ?? null,
     value: r.value,
@@ -180,8 +187,9 @@ export async function listStorageRowsForKey(
 
 export async function getStorageUsage(
   extensionId: string,
+  database?: StorageDatabase,
 ): Promise<{ totalBytes: number; keyCount: number }> {
-  const db = getDb();
+  const db = database ?? getDb();
   const [row] = await db
     .select({
       totalBytes: sql<number>`COALESCE(SUM(${extensionStorage.sizeBytes}), 0)::int`,

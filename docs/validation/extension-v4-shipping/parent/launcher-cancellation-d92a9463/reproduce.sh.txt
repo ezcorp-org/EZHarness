@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Run from the source tree whose two files match inputs/SHA256SUMS.
+set -euo pipefail
+lock=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock
+pinned_path=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+flock --close "$lock" env CONMON=/tmp/ez-audit-ci-conmon BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 PATH="$pinned_path" \
+  bun test src/__tests__/production-image-lifecycle-launch.integration.test.ts
+RESIDUAL_ONLY=1 flock --close "$lock" env CONMON=/tmp/ez-audit-ci-conmon BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 PATH="$pinned_path" \
+  bun run test

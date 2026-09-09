@@ -1,0 +1,4 @@
+6ee0a8de2a76993df84950d6a953ece215169e994279261a9cb1ba9226f2db4f  bun.lock
+6330f504510171d4dbbf8a3fb4769b2660141e5ef92828dadc04a1c838a5bce4  web/bun.lock
+be57c0cb67d2b9e7f5d46d486270bde3c9b219e4e5aabe6e994cfdcb1479102e  scripts/audit-deps.ts
+daa1a425e3d1591b55c504142fdb7d8d9c79c27063b562ebbae45a580a5f90ea  scripts/audit-allowlist.json

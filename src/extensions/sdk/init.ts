@@ -69,5 +69,5 @@ export async function initExtension(opts: InitOptions): Promise<void> {
   await Promise.all(writes);
 
   log.info("Created extension", { name: opts.extName, path: `./${opts.extName}/` });
-  log.info(`Next: cd ${opts.extName} && bun install`);
+  log.info(`Next: ezcorp ext verify ./${opts.extName}. Import source into an extension workspace for release review and approval.`);
 }

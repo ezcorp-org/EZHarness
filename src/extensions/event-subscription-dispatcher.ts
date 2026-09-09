@@ -33,12 +33,14 @@ import {
 } from "../runtime/sse-conversation-filter";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
+import { manifestEventsIncludeFullPayload } from "./clamp-permissions";
 import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { logger } from "../logger";
 import { getConversation } from "../db/queries/conversations";
 import { registerFireCallProvenance } from "./call-provenance";
+import { isPersistedDomainEvent, sanitizeDomainEvent } from "./domain-event-outbox";
 
 const log = logger.child("event-subscription-dispatcher");
 
@@ -68,6 +70,7 @@ const DEFAULT_OVERFLOW_AUDIT_MS = 1000;
 export class EventSubscriptionDispatcher {
   /** extensionId → set of subscribed event types (post-clamp). */
   private readonly subscriptions = new Map<string, Set<SubscribableEvent>>();
+  private readonly namespaces = new Map<string, string>();
   /** event type → set of extensionIds subscribed to it. Mirror of
    *  `subscriptions` so `dispatch` can fan out without a full-map scan. */
   private readonly eventToExtensions = new Map<SubscribableEvent, Set<string>>();
@@ -135,6 +138,23 @@ export class EventSubscriptionDispatcher {
     this.includeFullPayload.set(extensionId, value);
   }
 
+  reconcileFromRegistry(): void {
+    const started = this.started;
+    const payloadGrants = new Map(this.includeFullPayload);
+    this.stop();
+    for (const extensionId of this.subscriptions.keys()) this.unregisterExtension(extensionId);
+    this.namespaces.clear();
+    this.includeFullPayload.clear();
+    for (const [extensionId, manifest] of this.registry.getAllManifests()) {
+      const subscriptions = this.registry.getGrantedPermissions(extensionId)?.eventSubscriptions;
+      if (Array.isArray(subscriptions) && subscriptions.length > 0) {
+        this.registerExtension(extensionId, subscriptions);
+        this.setIncludeFullPayload(extensionId, payloadGrants.get(extensionId) === true && manifestEventsIncludeFullPayload(manifest.permissions.eventSubscriptions));
+      }
+    }
+    if (started) this.start();
+  }
+
   registerExtension(extensionId: string, eventTypes: string[]): void {
     // Defensive: tests pass a stub registry that may not implement
     // `getManifest`. Treat missing as "no manifest", which short-circuits
@@ -144,6 +164,7 @@ export class EventSubscriptionDispatcher {
         ? this.registry.getManifest(extensionId)
         : undefined;
     const ownNamespace = manifest?.name;
+    if (ownNamespace) this.namespaces.set(extensionId, ownNamespace);
 
     let extSubs = this.subscriptions.get(extensionId);
     let added = 0;
@@ -211,11 +232,7 @@ export class EventSubscriptionDispatcher {
     // therefore have a matching SSE-filter registry entry to clean
     // up) vs platform events (registered as direct carriers; not
     // owned by us).
-    const manifest =
-      typeof this.registry.getManifest === "function"
-        ? this.registry.getManifest(extensionId)
-        : undefined;
-    const ownNamespace = manifest?.name;
+    const ownNamespace = this.namespaces.get(extensionId);
 
     for (const eventType of subs) {
       const extSet = this.eventToExtensions.get(eventType);
@@ -242,6 +259,7 @@ export class EventSubscriptionDispatcher {
       }
     }
     this.subscriptions.delete(extensionId);
+    this.namespaces.delete(extensionId);
   }
 
   /**
@@ -288,6 +306,7 @@ export class EventSubscriptionDispatcher {
    * expected for misclassified events and aren't audited.
    */
   private async dispatch(eventType: string, payload: unknown): Promise<void> {
+    if (isPersistedDomainEvent(payload)) return;
     const subscribers = this.eventToExtensions.get(eventType as SubscribableEvent);
     // Terminal spawn updates are rare + load-bearing (a spawning extension
     // awaits them; a silent drop wedges its dispatch until timeout), so this
@@ -394,7 +413,7 @@ export class EventSubscriptionDispatcher {
           kind: "event",
           ownerless,
         });
-        proc.sendNotification(`ezcorp/event/${eventType}`, {
+        await proc.sendNotification(`ezcorp/event/${eventType}`, {
           ...sanitize(eventType, payload, allowFull),
           _meta: { ezCallId },
         });
@@ -474,37 +493,6 @@ export class EventSubscriptionDispatcher {
 // `{events: [...], includeFullPayload: true}`. When the host clamps
 // at install time, the flag flows through into `registerExtension`'s
 // `payloadAllowlist` map; lookup is per-extension at sanitize time.
-const HEAVY_PAYLOAD_EVENTS = new Set([
-  "tool:start",
-  "tool:complete",
-  // The permission card's payload. Its `input` is not merely heavy — it is
-  // the LLM's raw arguments for a call that HAS NOT RUN YET, i.e. the exact
-  // thing the human is about to allow or deny. For a `caller` tool those are
-  // the arguments for something that will execute on the user's own machine,
-  // and for a built-in they are the shell command or the file write.
-  //
-  // `caller:tool-call` and `ez:client-tool` were moved out of
-  // `DIRECT_CARRIER_EVENT_TYPES` precisely so no extension could subscribe to
-  // that data (`sse-conversation-filter.ts`). `tool:permission_request`
-  // carries the SAME arguments a moment EARLIER and is a direct carrier, so
-  // leaving it out of this set handed an extension by the front door what the
-  // other two were re-classified to deny. No first-party extension declares
-  // it; one that genuinely needs it opts in like any other.
-  "tool:permission_request",
-]);
-
-function sanitize(
-  eventType: string,
-  payload: unknown,
-  includeFullPayload: boolean,
-): Record<string, unknown> {
-  const obj = (payload ?? {}) as Record<string, unknown>;
-  if (!HEAVY_PAYLOAD_EVENTS.has(eventType) || includeFullPayload) {
-    return obj;
-  }
-  // Strip the heavy blobs but keep everything else (id, conversationId,
-  // toolName, status, etc.).
-  const { input, output, ...rest } = obj;
-  void input; void output;
-  return rest;
+function sanitize(eventType: string, payload: unknown, includeFullPayload: boolean): Record<string, unknown> {
+  return sanitizeDomainEvent(eventType, (payload ?? {}) as Record<string, unknown>, includeFullPayload);
 }

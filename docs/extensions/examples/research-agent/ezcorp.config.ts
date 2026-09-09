@@ -1,7 +1,7 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "research-agent",
   version: "1.0.0",
   description: "An AI research assistant that summarizes topics and answers questions with structured responses",

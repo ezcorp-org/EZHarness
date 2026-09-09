@@ -1,0 +1,56 @@
+{
+  "files": [
+    {
+      "bytes": 91133,
+      "path": "hosted/34126606100-current.json",
+      "sha256": "b3f284526a4cb52beeac3c30cf4e6c06fba2638789ff4ecae51e8b6e04006cee"
+    },
+    {
+      "bytes": 2904,
+      "path": "hosted/34126606103-current.json",
+      "sha256": "bc76650ed0fd84d96faef287f825e6d638b48b233cf65158a609744a86e0509e"
+    },
+    {
+      "bytes": 2466,
+      "path": "hosted/34126606175-current.json",
+      "sha256": "63ae4bd368486f5337dea31a379804ca30ca03940f1d7ca20c54b4c40979561f"
+    },
+    {
+      "bytes": 3518,
+      "path": "hosted-browser-review/summary.json",
+      "sha256": "6f7bf0ec750460e7b2442eb77e769b31830291abf1729829862f0a9b03f74fe6"
+    },
+    {
+      "bytes": 189,
+      "path": "hosted-browser-review/parent-independent-verification.json",
+      "sha256": "3e5ca944548ef45818ce81b8584f522700a3c082154334d495df0bdbf1ec2af5"
+    },
+    {
+      "bytes": 3884,
+      "path": "hosted-production-review/parent-eight-leaf-review.json",
+      "sha256": "62147a3aa5d3f18ba6ca6263d46874453fc45463f8d823f5e53474f224d72daf"
+    },
+    {
+      "bytes": 170576,
+      "path": "hosted-production-review/production-image-lifecycle-artifact-20260907T140506Z.zip",
+      "sha256": "58615d53216b4a8b6445ee7c38d42e2067b0dda84e41e98a286c70d3303e597c"
+    },
+    {
+      "bytes": 3508,
+      "path": "hosted-production-review/production-job-20260907T140411Z.json",
+      "sha256": "05301556af22fb1a7bc404d1a34e2a32c9af52ae94a78b9bf3df7ee66b34de40"
+    },
+    {
+      "bytes": 70217,
+      "path": "hosted-production-review/source-identity-inspection.txt",
+      "sha256": "d1b5d6d3a59c65c6eb0e7c4fc69fd284083a30ebff0717d4183a0fa538eb3927"
+    },
+    {
+      "bytes": 995,
+      "path": "hosted-policy-review/comparison.json",
+      "sha256": "a6f054cace4e3559ec84e8138fe0f755d429b634d5ab70535675ed55b78dd3a2"
+    }
+  ],
+  "private_receipt_root": ".cache/terra-shipping/parent/publication-hosted-fixes-20260907T131520Z",
+  "scope": "Hashes identify private receipts and artifacts. None are copied into this directory."
+}

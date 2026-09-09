@@ -1,0 +1,11 @@
+REMOVED FROM PRIOR CHECKPOINT (new main base):
+docs/extensions/examples/github-stats/index.test.ts: test file GUTTED in place: removes 19 assertion/test line(s), adds 9 (net -10 of 19 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label
+docs/extensions/examples/multi-agent-orchestrator/index.test.ts: test file GUTTED in place: removes 21 assertion/test line(s), adds 8 (net -13 of 22 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label
+
+CHANGED EXACT LINE COUNT:
+src/__tests__/define-extension-unit.test.ts: test file GUTTED in place: removes 49 assertion/test line(s), adds 7 (net -42 of 75 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label
+=>
+src/__tests__/define-extension-unit.test.ts: test file GUTTED in place: removes 48 assertion/test line(s), adds 7 (net -41 of 74 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label
+
+ADDED AGAINST NEW MAIN BASE:
+src/__tests__/scaffold-deterministic-gate.test.ts: test file GUTTED in place: removes 33 assertion/test line(s), adds 11 (net -22 of 32 at base — >50% loss) — hollowing out a surviving test file needs the gate-change-approved label

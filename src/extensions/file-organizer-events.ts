@@ -23,6 +23,8 @@ export interface DispatchDeps {
   extensionId: string;
   userId: string;
   settings: { quarantineTtlDays: number; quarantineCapGb: number };
+  actionAuthority?: unknown;
+  now?: () => number;
 }
 
 export interface DispatchResult {
@@ -62,6 +64,8 @@ export async function dispatchFileOrganizerEvent(
     extensionId: deps.extensionId,
     userId: deps.userId,
     settings: deps.settings,
+    actionAuthority: deps.actionAuthority,
+    now: deps.now,
   };
 
   const wrap = (r: HandlerResult): DispatchResult => ({ handled: true, changed: r.changed, message: r.message, ok: r.ok });

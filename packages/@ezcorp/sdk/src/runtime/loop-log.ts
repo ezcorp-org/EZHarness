@@ -15,6 +15,7 @@
 // stays free of fs/page concerns.
 
 import { join } from "node:path";
+import { getToolContext } from "./tool-context";
 
 import { fsWrite, fsMkdir } from "./fs";
 import { PageBuilder, definePage, pushPage } from "./page";
@@ -55,6 +56,10 @@ function projectRoot(): string {
 
 /** Absolute `.ezcorp/extension-data/<loop>/` directory for a loop. */
 export function loopDataDir(loopId: string): string {
+  if (getToolContext()?.invocation) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(loopId)) throw new Error("Invalid loop data namespace");
+    return join("/data", "loops", loopId);
+  }
   return join(projectRoot(), ".ezcorp", "extension-data", loopId);
 }
 

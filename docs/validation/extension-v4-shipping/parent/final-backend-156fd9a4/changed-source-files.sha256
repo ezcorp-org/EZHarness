@@ -1,0 +1,5 @@
+a0612272a09886e024c147d7932ffd679d9a136a3e4f5ffcde6ed52106e2ca65  packages/@ezcorp/sdk/test/integration/tarball.test.ts
+3587978021d26c6dac628815ace0a999025ff0e564f543b2b3a70eef83f6e3ed  scripts/lib/shipping-runtime-resource-accounting.ts
+ec4e02fc458925943a5e43640dafbd9abc660ef21fb9a82d218d6a699966a182  scripts/verify-shipping-runtime-resource-accounting.test.ts
+3da1525d502be891185ac5f7ab4a63e43978c3eb2b533730f9c39808ea0b32fd  scripts/lib/test-file-sets.sh
+5cbe3612da04a0d3d2209491c6e863e60ba601f828167a3d402dc0dad06f6877  scripts/verify-shipping-runtime-resources.ts

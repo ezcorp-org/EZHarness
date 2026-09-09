@@ -1,0 +1,42 @@
+Temporary audit source used against runtime repair ddd024e5.
+The file path during execution was packages/@ezcorp/sdk/src/v4/policy-audit-temp.test.ts.
+It was removed after the passing run and was never committed.
+
+import { expect, test } from "bun:test";
+import { defineExtension, validateManifest, type ExtensionContext } from "./index";
+
+const manifest = validateManifest({ schemaVersion: 4, name: "audit", version: "1.0.0", description: "audit", author: { name: "audit" }, permissions: {}, methods: [{ name: "go", inputSchema: {}, outputSchema: {} }] });
+const context = (id: string, call: ExtensionContext["call"]): ExtensionContext => ({ invocation: { invocationId: id, workerId: "worker", releaseId: "release", principalId: "owner", scopeId: "scope", token: id, deadline: Date.now() + 5_000 }, signal: new AbortController().signal, call });
+
+for (const [name, value] of [["undefined", undefined], ["null", null], ["zero", 0], ["false", false], ["Error", new Error("original")]] as const) {
+  test(`retains thrown ${name} after draining an admitted request`, async () => {
+    const admitted = Promise.withResolvers<void>();
+    const extension = defineExtension({ manifest, methods: { go: { inputSchema: {}, outputSchema: {}, handle: (_input, ctx) => { void ctx.call("effect", {}); throw value; } } } });
+    const invocation = extension.dispatch("go", {}, context(name, async () => { await admitted.promise; return null; }));
+    let settled = false;
+    void invocation.then(() => { settled = true; }, () => { settled = true; });
+    await Bun.sleep(0);
+    expect(settled).toBe(false);
+    admitted.resolve();
+    try { await invocation; throw new Error("unexpected fulfillment"); }
+    catch (error) { expect(error).toBe(value); }
+  });
+}
+
+test("two concurrent invocations drain only their own admitted request", async () => {
+  const extension = defineExtension({ manifest, methods: { go: { inputSchema: {}, outputSchema: {}, handle: (_input, ctx) => { void ctx.call("effect", { id: ctx.invocation.invocationId }); return null; } } } });
+  const a = Promise.withResolvers<void>();
+  const b = Promise.withResolvers<void>();
+  let aDone = false;
+  let bDone = false;
+  const first = extension.dispatch("go", {}, context("a", async () => { await a.promise; return null; })).then(() => { aDone = true; });
+  const second = extension.dispatch("go", {}, context("b", async () => { await b.promise; return null; })).then(() => { bDone = true; });
+  await Bun.sleep(0);
+  expect([aDone, bDone]).toEqual([false, false]);
+  a.resolve();
+  await first;
+  expect([aDone, bDone]).toEqual([true, false]);
+  b.resolve();
+  await second;
+  expect([aDone, bDone]).toEqual([true, true]);
+});

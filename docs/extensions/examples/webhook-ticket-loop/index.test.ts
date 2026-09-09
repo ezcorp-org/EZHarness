@@ -9,7 +9,7 @@ import { test, expect, describe } from "bun:test";
 import type { LoopActContext, LoopCheckContext, WebhookInput } from "@ezcorp/sdk/runtime";
 import { defineWebhookLoop, ticketAct, ticketCheck } from "./index";
 import config from "./ezcorp.config";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 
 function whInput(parsed: unknown, overrides: Partial<WebhookInput> = {}): WebhookInput {
   return {
@@ -138,11 +138,8 @@ describe("defineWebhookLoop", () => {
 });
 
 describe("manifest", () => {
-  test("passes validateManifestV2 (snake_case settings keys)", () => {
-    const result = validateManifestV2(config);
-    expect(result.errors).toEqual([]);
-    expect(result.valid).toBe(true);
-    // snake_case keys only (validateManifestV2 rejects camelCase).
+test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(config)).not.toThrow();
     expect(Object.keys(config.settings ?? {})).toEqual(
       expect.arrayContaining(["enabled", "min_priority"]),
     );

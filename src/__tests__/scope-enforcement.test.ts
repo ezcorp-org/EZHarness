@@ -149,6 +149,7 @@ describe("scope enforcement coverage", () => {
         // logic. Accepting the wrapper keeps this textual scan accurate without
         // forcing a redundant inline `requireScope` into every route.
         !content.includes("authGithubRoute") &&
+        !(content.includes('from "$lib/server/extensions/mcp-request"') && content.includes("mcpControlRequest(locals,")) &&
         // `verifyWebhookAuth` (src/extensions/webhook-auth.ts) is the public
         // webhook-ingress route's gate: constant-time per-hook bearer-secret
         // compare, fail-closed when no secret is set, behind a pre-lookup rate

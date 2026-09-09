@@ -1,6 +1,8 @@
 # Hub Pages
 
-Extensions can contribute **page-level UI**: a tab on the top-level **Hub** page (`/hub`), rendered from a declarative JSON component tree. Your code sends *data*; the host renders native Svelte. Extension HTML/JS never touches the DOM — XSS is impossible by construction.
+Extensions can contribute a tab on the Hub page (`/hub`) through a validated declarative component tree. The host renders native Svelte rather than executing page-supplied HTML or JavaScript. Schema validation and browser security checks remain required; this is not an absolute XSS guarantee.
+
+Use these contribution fragments inside a v4 worker registered with `createRuntimeExtension`. Follow [Authoring](AUTHORING.md) for build and human approval. A worker-only `ezcorp.config.ts` is not host-executable configuration.
 
 Core features use the same system (the Daily Briefing tab at `/hub/core:briefing` is a core provider), so your page gets the exact same renderer, validation, and caching as first-party UI.
 
@@ -59,7 +61,7 @@ getChannel().start();
 ```
 
 - The host pulls renders over the existing JSON-RPC channel (`ezcorp/page.render`, dispatched on `pageId`). First open lazy-spawns your subprocess (~1–3s; the Hub shows a skeleton). Renders are raced against a **10s** timeout.
-- Render results are cached host-side (~60s TTL). Stale entries are served instantly with a background refresh.
+- Render results are cached per principal, complete scope, and live release authority (~60s TTL). Authority is checked before cache lookup and after rendering. Stale entries can refresh in the background; a revoked grant cannot reuse the old result.
 - `render` may return a `PageBuilder` (built automatically) or a raw `{ title, nodes }` tree.
 
 ## 3. Component vocabulary
@@ -86,7 +88,7 @@ import { pushPage } from "@ezcorp/sdk/runtime";
 pushPage("dashboard", new PageBuilder("Cron Dashboard")./* … */);
 ```
 
-The host validates the tree, caches it, and broadcasts a **content-free invalidation signal** (`ext:page-state` — only `{extensionId, extensionName, pageId}`, never tree content). Open Hub tabs re-pull the session-authed render endpoint. Pushes share the panel's mediator budget: **10 updates/second** per extension, 64KB per tree.
+The host validates the push and broadcasts a content-free invalidation (`ext:page-state`). It does not put pushed private content into a shared page cache. Open Hub tabs call the authenticated render endpoint again. Implement `definePage.render`; a push alone is not the page's persistent source. Pushes retain the mediator's rate and payload limits.
 
 ## 4b. Per-project pages (`perProject: true`)
 
@@ -108,10 +110,10 @@ definePage({
 });
 ```
 
-- **Project hub** (`/project/<id>/hub/ext:<name>:<page>`): `render` receives `{ project: { id, name, path } }` — render that project's view. `path` is the project's checkout root, so data keyed by repo/path maps directly.
-- **Global hub** (`/hub/ext:<name>:<page>`): `render` receives `{ projects }` — the full project list, for an overview/home view. Deep-link rows into the project hub with `href: `/project/${p.id}/hub/${encodeURIComponent("ext:<name>:<page>")}``.
-- **Compatibility**: without the flag (or on an older host) `render` is called with no context — a zero-arg `render` keeps working unchanged. The flag is additive; nothing else about actions, limits, or validation changes.
-- **Caching**: variants are cached per (extension, page, project) with the same ~60s TTL. Concurrent re-pulls of one variant are single-flighted host-side, so an invalidation with many open viewers costs ONE render, not one per tab.
+- **Project hub** (`/project/<id>/hub/ext:<name>:<page>`): `render` receives the approved project's ID and name. Its `path` is the virtual `/project`, never the host checkout path.
+- **Global hub** (`/hub/ext:<name>:<page>`): `render` receives only projects visible to the current user. Use project IDs, not paths, for identity and links.
+- **Without the flag**: project selection does not grant project context. Host capability checks still apply.
+- **Caching**: concurrent requests share work only when principal, live authority, and full render scope match. Two users never share a private result.
 - **Refresh**: use `invalidatePage("dashboard")` — it drops every cached variant and broadcasts the content-free signal, so each open view (home or any project) re-pulls its own context. On a `perProject` page a `pushPage` tree is ENFORCED as invalidate-only (the tree is discarded): a tree built in one context can't cover the global + per-project variants, so the host never caches it as the home view:
 
 ```typescript

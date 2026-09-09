@@ -30,7 +30,7 @@ describe("ToolExecutor dispatch for MCP-kind extensions", () => {
       description: "",
       author: { name: "t" },
       kind: "mcp",
-      mcpServers: [{ transport: "stdio", name: "remote", command: "node" }],
+      mcpServers: [{ transport: "http", name: "remote", url: "https://example.com/mcp" }],
       tools: [
         { name: "ping", description: "ping tool", inputSchema: { type: "object" } },
       ],
@@ -77,3 +77,5 @@ describe("ToolExecutor dispatch for MCP-kind extensions", () => {
     expect(result.content[0]).toEqual({ type: "text", text: "pong" });
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

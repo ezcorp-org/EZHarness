@@ -1,0 +1,3 @@
+Checked 1 file in 7ms. No fixes applied.
+[extension-v4-independent-audit 153e74d8] ci: remove stale legacy sandbox probe commands
+ 5 files changed, 18 insertions(+), 6 deletions(-)

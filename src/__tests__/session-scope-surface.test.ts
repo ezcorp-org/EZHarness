@@ -90,6 +90,7 @@ const VERBS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 const SESSION_GATE_PRIMITIVES = [
   "requireSessionAuth(",
   "requireAdminSession(",
+  "mcpControlRequest(",
 ] as const;
 
 /**
@@ -252,6 +253,14 @@ describe("scope: \"session\" ⇄ requireSessionAuth — both directions, derived
     });
     expect(fn?.body).toContain("requireSessionAuth(locals)");
     expect(fn?.body).toContain('checkRole(locals, "admin")');
+  });
+
+  test("the MCP wrapper enforces a session before executing its action", async () => {
+    const declarations = await declarationsOf(join(REPO_ROOT, "web/src/lib/server/extensions/mcp-request.ts"));
+    const body = declarations.get("mcpControlRequest")?.body;
+    expect(body).toContain("requireSessionAuth(locals)");
+    expect(body).toContain('user.role !== "admin"');
+    expect(body!.indexOf("requireSessionAuth(locals)")).toBeLessThan(body!.indexOf("await action("));
   });
 
   test("a session gate is never confused with a plain read on the same file", () => {

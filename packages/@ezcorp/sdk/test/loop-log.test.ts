@@ -40,6 +40,7 @@ import { spyOn } from "bun:test";
 import type { StorageScope } from "../src/runtime/storage";
 import type { LoopRunState } from "../src/runtime/loop-types";
 import type { PageDefinition } from "../src/runtime/page";
+import { withToolContext } from "../src/runtime/tool-context";
 
 function makeKv() {
   const map = new Map<string, unknown>();
@@ -150,6 +151,17 @@ async function fireEvent(event: string, payload: unknown): Promise<void> {
 // ── loopDataDir ─────────────────────────────────────────────────────
 
 describe("loopDataDir", () => {
+  test("v4 loop artifacts use isolated data paths, not environment or host cwd", async () => {
+    await withToolContext({ invocation: { invocationId: "loop", workerId: "worker", releaseId: "release", principalId: "owner", scopeId: "scope", token: "token", deadline: Date.now() + 1000 }, extensionName: "example", projectRoot: "/host/private" }, async () => {
+      expect(loopDataDir("first")).toBe("/data/loops/first");
+      expect(loopDataDir("second")).toBe("/data/loops/second");
+      for (const name of ["", ".", "..", "../other", "/host", "a\\b", "a\0b"]) expect(() => loopDataDir(name)).toThrow("Invalid loop data namespace");
+      defineLoop<{ slug: string }, { body: string }>({ id: "first", trigger: { kind: "event", event: "run:complete" }, contract: { states: ["done"] }, act: async () => ({ kind: "terminal", status: "done", outcome: { body: "saved" } }), log: { artifact: (_run, outcome) => ({ path: "notes/result.md", body: outcome.body }) } });
+      await fireEvent("run:complete", { slug: "virtual" });
+      expect(fs.writes).toEqual([{ path: "/data/loops/first/notes/result.md", body: "saved" }]);
+      expect(fs.mkdirs).toContain("/data/loops/first/notes");
+    });
+  });
   test("resolves under EZCORP_PROJECT_ROOT/.ezcorp/extension-data/<loop>", () => {
     const prev = process.env.EZCORP_PROJECT_ROOT;
     process.env.EZCORP_PROJECT_ROOT = "/proj";

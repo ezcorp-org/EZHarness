@@ -1,3 +1,4 @@
+import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 /**
  * Server-handler unit tests for
  * /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start
@@ -17,7 +18,7 @@ import { makeRequestEvent } from "./helpers/server-route-test-utils";
 const getConversation = vi.fn();
 const getAgentConfig = vi.fn();
 const getTaskSnapshotForConversation = vi.fn();
-const writeTaskSnapshotForConversation = vi.fn(async () => undefined);
+const writeTaskSnapshotForConversation = vi.fn(taskSnapshotPort);
 const ensureTaskTrackingWired = vi.fn(async () => undefined);
 const startAssignment = vi.fn(async () => ({
   subConversationId: "sub-x",
@@ -35,6 +36,7 @@ vi.mock("$server/db/queries/agent-configs", () => ({
 vi.mock("$server/runtime/task-tracking-host", () => ({
   getTaskSnapshotForConversation,
   writeTaskSnapshotForConversation,
+  writeTaskAssignmentForConversation: taskAssignmentPort,
   ensureTaskTrackingWired,
 }));
 

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd /home/dev/work/EZCorp/extension-v4-independent-audit
+receipt=${1:?Provide a new absolute receipt directory}
+[[ "$receipt" == /* && ! -e "$receipt" ]] || exit 2
+mkdir -p "$receipt"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/started-at.txt"
+scan_root=$(mktemp -d /tmp/ez-shipping-scan-XXXXXXXX)
+finish_scan() {
+  local controller_rc=$?
+  trap - EXIT
+  set +e
+  rm -rf "$scan_root"
+  local cleanup_rc=$?
+  printf '%s\n' "$cleanup_rc" > "$receipt/cleanup.exit"
+  if [[ "$controller_rc" -eq 0 && "$cleanup_rc" -ne 0 ]]; then controller_rc=$cleanup_rc; fi
+  printf '%s\n' "$controller_rc" > "$receipt/controller.exit"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$receipt/completed-at.txt"
+  exit "$controller_rc"
+}
+trap finish_scan EXIT
+cp "${BASH_SOURCE[0]}" "$receipt/controller.sh.txt"
+sha256sum .gitleaks.toml > "$receipt/config.sha256"
+git write-tree > "$receipt/index-tree.txt"
+git rev-parse HEAD > "$receipt/source_commit_sha"
+git checkout-index --all --prefix="$scan_root/"
+controller_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+expand_helper="$controller_dir/scan-final-staged-snapshot-expand.py"
+cp "$expand_helper" "$receipt/expand-helper.py.txt"
+cp "$controller_dir/archive_expansion_config.py" "$receipt/archive-expansion-config.py.txt"
+sha256sum "$controller_dir/archive_expansion_config.py" > "$receipt/archive-expansion-config.sha256"
+sha256sum "$expand_helper" > "$receipt/expand-helper.sha256"
+python3 "$expand_helper" "$scan_root" "$receipt"
+[[ -d "$scan_root/expanded-validation-review" ]] || { echo "Missing staged archive expansion root" >&2; exit 1; }
+export CONMON=/tmp/ez-audit-ci-conmon
+set +e
+podman --remote=false run --rm -v "$scan_root:/repo:ro" -v "$receipt:/receipts" -w /repo \
+  ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+  dir . --no-banner --config .gitleaks.toml --redact --exit-code 1 --report-format json --report-path /receipts/findings.json \
+  > "$receipt/scan.log" 2>&1
+rc=$?
+set -e
+printf '%s\n' "$rc" > "$receipt/exit"
+exit "$rc"

@@ -1,0 +1,195 @@
+{
+  "publication_controller": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/executed-controller.py.txt",
+    "sha256": "68f31a1a01af9567b4762a1bc9932b47ab5893dcc8547a657c4da0b312be4808",
+    "bytes": 3073
+  },
+  "scanner_controller": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/controller.sh.txt",
+    "sha256": "c949bb2625d2932eab14f61ead5a5ba7a5e46eedd08531b0ef316efabad405e4",
+    "bytes": 2059
+  },
+  "archive_expander": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/expand-helper.py.txt",
+    "sha256": "04f9b20aad11634bfc1f58a3df0d36c381a048200f83ef32dc23e470feb505bc",
+    "bytes": 8785
+  },
+  "archive_expansion_config": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/archive-expansion-config.py.txt",
+    "sha256": "48ddbb6810cc9ce8b1f13ed5674b6ea5f8e7e55e7ef41b15cb08e02bcfa7d383",
+    "bytes": 516
+  },
+  "gitleaks_config": {
+    "source": "git show 8ae7f086:.gitleaks.toml",
+    "sha256": "732fcac1fa9681dd2823122e86f430c50618c69a5350e34dd0c475ecdf045147"
+  },
+  "exact_index_scan_log": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/scan.log",
+    "sha256": "1b2d4c3575985d4994b5439ea847e4a923c7fea4a988204bd5775abe1a48287f",
+    "bytes": 136
+  },
+  "expanded_inputs": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/expanded-inputs.json",
+    "sha256": "e6efa840bdf88e95a691aa163b531b32892c027d18ad9cd9702af3db445e94e7",
+    "bytes": 7579792
+  },
+  "published_head": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/published-head.txt",
+    "sha256": "22cbf2ea91c4f4957646b659d3ef78369c62a3fba96ee7d6a37542fe6a0b06d2",
+    "bytes": 41
+  },
+  "remote_before": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/remote-before.txt",
+    "sha256": "bb83222ab98beef44f771edf58d5511204674033d3e634c6e26f9b5008008fde",
+    "bytes": 127
+  },
+  "remote_after": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/remote-after.txt",
+    "sha256": "5ec058c8bb50aa22418989d35932fb4875af2a1a51dfe7e2c3c38f783b7ab53d",
+    "bytes": 70
+  },
+  "index_tree": {
+    "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/index-tree.txt",
+    "sha256": "c9b81f2d97071e8952a44ee01676ed26f26c6a0e440db63e971b812d0d5d03e7",
+    "bytes": 41
+  },
+  "exits": {
+    "authored-whitespace.exit": "0",
+    "checksums.exit": "0",
+    "commit.exit": "0",
+    "push.exit": "0",
+    "controller.exit": "0",
+    "expanded-scan.exit": "0",
+    "exact-index-scan/controller.exit": "0",
+    "exact-index-scan/cleanup.exit": "0",
+    "exact-index-scan/exit": "0"
+  },
+  "copied_safe_files": {
+    "commit.log": {
+      "curated_path": "logs/commit.log.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/commit.log",
+      "sha256": "294500698353ad7b82a0587fb228dea0ac5da3f70074218f213a053b8bf49143",
+      "bytes": 22064
+    },
+    "push.log": {
+      "curated_path": "logs/push.log.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/push.log",
+      "sha256": "778a1e35507cdcec35a3b8e49eee80fd9d4e20b1729dc5ce463697280e0b7f8a",
+      "bytes": 9025
+    },
+    "authored-whitespace.log": {
+      "curated_path": "logs/authored-whitespace.log.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/authored-whitespace.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "checksums.log": {
+      "curated_path": "logs/checksums.log.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/checksums.log",
+      "sha256": "dabf84b64c5bd8c6b8a0fb8471bccb2d146d2f951299910d5dbfdedb12d6a8f3",
+      "bytes": 70
+    },
+    "expanded-scan.log": {
+      "curated_path": "logs/expanded-scan.log.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/expanded-scan.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "exact-index-scan/scan.log": {
+      "curated_path": "logs/exact-index-scan.log.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/scan.log",
+      "sha256": "1b2d4c3575985d4994b5439ea847e4a923c7fea4a988204bd5775abe1a48287f",
+      "bytes": 136
+    },
+    "controller.exit": {
+      "curated_path": "exits/controller.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/controller.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "commit.exit": {
+      "curated_path": "exits/commit.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/commit.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "push.exit": {
+      "curated_path": "exits/push.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/push.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "authored-whitespace.exit": {
+      "curated_path": "exits/authored-whitespace.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/authored-whitespace.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "checksums.exit": {
+      "curated_path": "exits/checksums.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/checksums.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "expanded-scan.exit": {
+      "curated_path": "exits/expanded-scan.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/expanded-scan.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "exact-index-scan/controller.exit": {
+      "curated_path": "exits/exact-index-scan-controller.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/controller.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "exact-index-scan/cleanup.exit": {
+      "curated_path": "exits/exact-index-scan-cleanup.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/cleanup.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "exact-index-scan/exit": {
+      "curated_path": "exits/exact-index-scan-exit.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "started-at.txt": {
+      "curated_path": "identity/started-at.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/started-at.txt",
+      "sha256": "8e2fe2cf0f5b6134654da436ae6f99dcb817ee8adf3d5f7f4ff04e91b25db847",
+      "bytes": 33
+    },
+    "completed-at.txt": {
+      "curated_path": "identity/completed-at.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/completed-at.txt",
+      "sha256": "9a050421c7844b75921ddc261d470e8784c4a91ad19a61729ec8f4f251081282",
+      "bytes": 33
+    },
+    "published-head.txt": {
+      "curated_path": "identity/published-head.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/published-head.txt",
+      "sha256": "22cbf2ea91c4f4957646b659d3ef78369c62a3fba96ee7d6a37542fe6a0b06d2",
+      "bytes": 41
+    },
+    "remote-before.txt": {
+      "curated_path": "identity/remote-before.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/remote-before.txt",
+      "sha256": "bb83222ab98beef44f771edf58d5511204674033d3e634c6e26f9b5008008fde",
+      "bytes": 127
+    },
+    "remote-after.txt": {
+      "curated_path": "identity/remote-after.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/remote-after.txt",
+      "sha256": "5ec058c8bb50aa22418989d35932fb4875af2a1a51dfe7e2c3c38f783b7ab53d",
+      "bytes": 70
+    },
+    "exact-index-scan/index-tree.txt": {
+      "curated_path": "identity/exact-index-tree.txt",
+      "private_path": ".cache/terra-shipping/parent/publish-ci-followups-a28bba35-20260907T2053Z/exact-index-scan/index-tree.txt",
+      "sha256": "c9b81f2d97071e8952a44ee01676ed26f26c6a0e440db63e971b812d0d5d03e7",
+      "bytes": 41
+    }
+  }
+}

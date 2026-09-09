@@ -5,7 +5,7 @@
 		importPreview,
 		importCommit,
 		deleteUserCommand,
-		uninstallExtension,
+		removeImportedSkill,
 		type ImportPreviewResult,
 		type ImportItemResult,
 	} from "$lib/api.js";
@@ -129,7 +129,7 @@
 			if (r.kind === "command" && r.finalName) {
 				await deleteUserCommand(r.finalName);
 			} else if (r.kind === "skill" && r.extId) {
-				await uninstallExtension(r.extId);
+				await removeImportedSkill(r.extId);
 			}
 			results = results.map((x) =>
 				x === r ? { ...x, status: "error", message: "removed" } : x,
@@ -304,8 +304,8 @@
 						Imported skills run their bundled scripts via the
 						<code>skill_info</code> / <code>list_scripts</code> /
 						<code>run_script</code> tools, sandboxed like any extension. They
-						install <strong>disabled</strong> — review permissions and enable
-						from the Extensions page.
+						are staged for an isolated build. Use <strong>Review build</strong>
+						to request human approval. Nothing runs before approval.
 					</p>
 					<div class="space-y-2">
 						{#each preview.skills as s (s.id)}
@@ -372,6 +372,10 @@
 							{/if}
 						</span>
 						{#if r.status === "ok"}
+							<div class="flex items-center gap-2">
+							{#if r.kind === "skill" && r.openUrl}
+								<a class="text-xs underline" href={r.openUrl}>Review build</a>
+							{/if}
 							<button
 								class="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)]"
 								onclick={() => removeItem(r)}
@@ -379,6 +383,7 @@
 							>
 								Remove
 							</button>
+							</div>
 						{/if}
 					</div>
 				{/each}

@@ -1,0 +1,75 @@
+{
+  "rangeScanExit": 1,
+  "rangeFindings": 7,
+  "parentClassifiedFindings": [
+    {
+      "file": "docs/validation/extension-v4-shipping/browser-engines/chromium/diagnostic-02-extension-lifecycle-server-state.json",
+      "commit": "8911687ea50016889a1ae7e887a8965fd3c1708c",
+      "line": 46,
+      "rule": "generic-api-key",
+      "field": "idempotencyKey",
+      "valueShape": "36-character UUID",
+      "classification": "Operation deduplication identifier; authentication is separate."
+    },
+    {
+      "file": "docs/validation/extension-v4-shipping/browser-engines/chromium/diagnostic-02-extension-lifecycle-server-state.json",
+      "commit": "8911687ea50016889a1ae7e887a8965fd3c1708c",
+      "line": 88,
+      "rule": "generic-api-key",
+      "field": "idempotencyKey",
+      "valueShape": "36-character UUID",
+      "classification": "Operation deduplication identifier; authentication is separate."
+    },
+    {
+      "file": "docs/validation/extension-v4-shipping/browser-engines/chromium/diagnostic-02-extension-lifecycle-server-state.json",
+      "commit": "8911687ea50016889a1ae7e887a8965fd3c1708c",
+      "line": 128,
+      "rule": "generic-api-key",
+      "field": "idempotencyKey",
+      "valueShape": "36-character UUID",
+      "classification": "Operation deduplication identifier; authentication is separate."
+    },
+    {
+      "file": "docs/validation/extension-v4-shipping/browser-engines/firefox/diagnostic-02-extension-lifecycle-server-state.json",
+      "commit": "8911687ea50016889a1ae7e887a8965fd3c1708c",
+      "line": 46,
+      "rule": "generic-api-key",
+      "field": "idempotencyKey",
+      "valueShape": "36-character UUID",
+      "classification": "Operation deduplication identifier; authentication is separate."
+    },
+    {
+      "file": "docs/validation/extension-v4-shipping/browser-engines/firefox/diagnostic-02-extension-lifecycle-server-state.json",
+      "commit": "8911687ea50016889a1ae7e887a8965fd3c1708c",
+      "line": 128,
+      "rule": "generic-api-key",
+      "field": "idempotencyKey",
+      "valueShape": "36-character UUID",
+      "classification": "Operation deduplication identifier; authentication is separate."
+    },
+    {
+      "file": "docs/validation/extension-v4-shipping/browser-engines/webkit/diagnostic-02-extension-lifecycle-server-state.json",
+      "commit": "8911687ea50016889a1ae7e887a8965fd3c1708c",
+      "line": 46,
+      "rule": "generic-api-key",
+      "field": "idempotencyKey",
+      "valueShape": "36-character UUID",
+      "classification": "Operation deduplication identifier; authentication is separate."
+    },
+    {
+      "file": "docs/validation/extension-v4-shipping/browser-engines/webkit/diagnostic-02-extension-lifecycle-server-state.json",
+      "commit": "8911687ea50016889a1ae7e887a8965fd3c1708c",
+      "line": 128,
+      "rule": "generic-api-key",
+      "field": "idempotencyKey",
+      "valueShape": "36-character UUID",
+      "classification": "Operation deduplication identifier; authentication is separate."
+    }
+  ],
+  "compressedExpansionExit": 0,
+  "compressedBlobScanExit": 0,
+  "compressedFindings": 0,
+  "cleanupExit": 0,
+  "scope": "Explicit outgoing range through 825dc780. The subsequent final documentation snapshot must pass its own expanded staged scan.",
+  "authenticationSource": "web/src/routes/api/extensions/control/+server.ts:15 requires authentication before actor resolution; src/extensions/v4/lifecycle.ts:73-82 uses these values for operation deduplication."
+}

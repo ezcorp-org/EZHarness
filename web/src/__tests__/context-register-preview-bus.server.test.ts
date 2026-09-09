@@ -24,6 +24,7 @@ import { test, expect, describe, vi } from "vitest";
 
 // The one collaborator under observation.
 const registerPreviewBus = vi.fn();
+const reloadFixture = vi.hoisted(() => ({ listeners: [] as Array<() => void | Promise<void>>, events: vi.fn(), lifecycle: vi.fn(), workflows: vi.fn(async () => []) }));
 vi.mock("$server/runtime/preview/preview-bus-registry", () => ({
   registerPreviewBus: (...a: unknown[]) => registerPreviewBus(...a),
   getRegisteredPreviewBus: () => null,
@@ -57,6 +58,7 @@ vi.mock("$server/extensions/registry", () => ({
       getGrantedPermissions: () => undefined,
       getProcessIfRunning: () => undefined,
       killAll: vi.fn(),
+      onReload: (listener: () => void | Promise<void>) => { reloadFixture.listeners.push(listener); return vi.fn(); },
     }),
   },
 }));
@@ -84,6 +86,7 @@ vi.mock("$server/extensions/state-mediator", () => ({
 vi.mock("$server/extensions/lifecycle-dispatcher", () => ({
   LifecycleHookDispatcher: class {
     registerExtension = vi.fn();
+    reconcileFromRegistry = reloadFixture.lifecycle;
     start = vi.fn();
     stop = vi.fn();
   },
@@ -91,6 +94,7 @@ vi.mock("$server/extensions/lifecycle-dispatcher", () => ({
 vi.mock("$server/extensions/event-subscription-dispatcher", () => ({
   EventSubscriptionDispatcher: class {
     registerExtension = vi.fn();
+    reconcileFromRegistry = reloadFixture.events;
     start = vi.fn();
     stop = vi.fn();
   },
@@ -114,11 +118,13 @@ vi.mock("$server/runtime/loader", () => ({
 vi.mock("$server/runtime/workflow-loader", () => ({
   loadYamlWorkflows: vi.fn(async () => []),
 }));
+vi.mock("$server/runtime/workflow-release-assets", () => ({ loadReleaseWorkflowEntries: reloadFixture.workflows }));
 vi.mock("$server/db/queries/workflows", () => ({
   loadDbCachedWorkflows: vi.fn(async () => []),
 }));
 vi.mock("$server/runtime/executor", () => ({
   AgentExecutor: class {
+    listAgents() { return []; }
     setStateMediator = vi.fn();
     destroy = vi.fn();
   },
@@ -163,5 +169,13 @@ describe("ensureInitialized — registers the live preview bus (gap #3)", () => 
     // And it is the SAME instance the rest of the app reaches via getBus()
     // — i.e. the live conversation SSE bus, not a throwaway.
     expect(registeredBus).toBe(ctx.getBus());
+    expect(reloadFixture.events).toHaveBeenCalledTimes(1);
+    expect(reloadFixture.lifecycle).toHaveBeenCalledTimes(1);
+    expect(reloadFixture.workflows).toHaveBeenCalledTimes(1);
+    expect(reloadFixture.listeners).toHaveLength(2);
+    for (const listener of reloadFixture.listeners) await listener();
+    expect(reloadFixture.events).toHaveBeenCalledTimes(2);
+    expect(reloadFixture.lifecycle).toHaveBeenCalledTimes(2);
+    expect(reloadFixture.workflows).toHaveBeenCalledTimes(2);
   });
 });

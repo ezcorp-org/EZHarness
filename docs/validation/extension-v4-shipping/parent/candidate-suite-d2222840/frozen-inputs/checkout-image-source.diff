@@ -1,0 +1,355 @@
+diff --git a/scripts/lib/production-lifecycle-client.ts b/scripts/lib/production-lifecycle-client.ts
+index bb62637b..f210d19d 100644
+--- a/scripts/lib/production-lifecycle-client.ts
++++ b/scripts/lib/production-lifecycle-client.ts
+@@ -1,6 +1,7 @@
+ import { strict as assert } from "node:assert";
+ import { readFile } from "node:fs/promises";
+ import { join } from "node:path";
++import { validateWire, type RunnerInspection } from "@ezcorp/extension-contract";
+ import type { PGlite } from "@electric-sql/pglite";
+ import { HarnessClient } from "@ezcorp/harness-client";
+ import { APP_DATABASE } from "../../src/db/datadir-upgrade";
+@@ -31,6 +32,24 @@ export async function readSessionCookie(file: string): Promise<string> {
+   return cookies.join("; ");
+ }
+ 
++/** Inspect the launcher's real authenticated runner transport. */
++export async function inspectProductionRunner(operationId: string): Promise<RunnerInspection> {
++  const token = (await readFile(required("EZ_EXTENSION_RUNNER_TOKEN_FILE"), "utf8")).trim();
++  assert(token, "The launcher must provide a runner credential");
++  const response = await fetch("http://localhost/v4/inspect", {
++    unix: required("EZ_EXTENSION_RUNNER_SOCKET"),
++    method: "POST",
++    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
++    body: JSON.stringify({ id: operationId }),
++    signal: AbortSignal.timeout(5_000),
++  });
++  const value: unknown = await response.json();
++  if (!response.ok) throw new Error(`Runner inspection returned HTTP ${response.status}`);
++  const inspection = validateWire("inspection", value);
++  if (inspection.id !== operationId) throw new Error("Runner inspection returned an unexpected operation");
++  return inspection;
++}
++
+ /** Read only the launcher's owned database after its app has stopped. */
+ export async function readStoppedProductionDatabase<T>(read: (database: PGlite) => Promise<T>): Promise<T> {
+   const container = required("EZ_PRODUCTION_CONTAINER");
+diff --git a/scripts/verify-shipping-runtime.ts b/scripts/verify-shipping-runtime.ts
+index 0df162ac..1fc87c64 100644
+--- a/scripts/verify-shipping-runtime.ts
++++ b/scripts/verify-shipping-runtime.ts
+@@ -5,11 +5,12 @@
+  * launcher's exact app container.
+  */
+ import { createHash } from "node:crypto";
+-import { readFile, writeFile } from "node:fs/promises";
++import { writeFile } from "node:fs/promises";
+ import { join } from "node:path";
+ import type { HarnessClient } from "@ezcorp/harness-client";
++import type { RunnerInspection } from "@ezcorp/extension-contract";
+ import type { InstallationRecord, InstallationState, LifecycleOperation, WorkspaceRecord } from "../src/extensions/v4/types";
+-import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
++import { command, inspectProductionRunner, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
+ import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
+ import { requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
+ 
+@@ -23,39 +24,33 @@ async function podman(args: string[]): Promise<string> {
+   return command("podman", args);
+ }
+ 
+-type RunnerEvidence = { id: string; state: string; diagnosticCodes: string[]; diagnostics: unknown } | { error: string };
++type RunnerEvidence = RunnerInspection | { error: string };
+ 
+-function requireRunnerState(evidence: RunnerEvidence, expected: readonly string[], point: string): void {
++function safeRunnerError(error: unknown): string {
++  if (error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string") return (error as { code: string }).code;
++  return error instanceof Error ? error.name : "runner_inspect_failed";
++}
++
++function requireRunnerState(evidence: RunnerEvidence, expected: readonly RunnerInspection["state"][], point: string): void {
+   if ("error" in evidence) throw new Error(`Owned runner inspect failed ${point}: ${evidence.error}`);
+   if (!expected.includes(evidence.state)) throw new Error(`Owned runner state ${evidence.state} ${point}; expected ${expected.join(", ")}.`);
+ }
+ 
+-async function ownedRunnerState(runRoot: string, operationId: string): Promise<RunnerEvidence> {
++async function ownedRunnerState(operationId: string): Promise<RunnerEvidence> {
+   try {
+-    const token = (await readFile(join(runRoot, "token"), "utf8")).trim();
+-    const response = await fetch("http://localhost/v4/inspect", {
+-      unix: join(runRoot, "socket", "runner.sock"),
+-      method: "POST",
+-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+-      body: JSON.stringify({ id: operationId }),
+-      signal: AbortSignal.timeout(5_000),
+-    });
+-    const value = await response.json() as { id?: unknown; state?: unknown; diagnostics?: unknown };
+-    if (!response.ok || typeof value.id !== "string" || typeof value.state !== "string") throw new Error(`runner inspect ${response.status}`);
+-    const diagnosticCodes = Array.isArray(value.diagnostics) ? value.diagnostics.flatMap((diagnostic) => diagnostic && typeof diagnostic === "object" && typeof (diagnostic as { code?: unknown }).code === "string" ? [(diagnostic as { code: string }).code] : []) : [];
+-    return { id: value.id, state: value.state, diagnosticCodes, diagnostics: value.diagnostics ?? [] };
++    return await inspectProductionRunner(operationId);
+   } catch (error) {
+-    return { error: error instanceof Error ? error.name : "runner_inspect_failed" };
++    return { error: safeRunnerError(error) };
+   }
+ }
+ 
+-async function captureBuildFailure(runRoot: string, installationId: string, state: InstallationState, operationId: string): Promise<void> {
++async function captureBuildFailure(installationId: string, state: InstallationState, operationId: string): Promise<void> {
+   const operation = state.operations[operationId];
+   const evidence = {
+     installationId,
+     operationId,
+     lifecycle: { state: operation?.state, releaseId: operation?.releaseId, lease: operation?.lease, events: operation?.events ?? [], diagnostics: operation?.diagnostics ?? [] },
+-    runner: operation?.lease?.holder ? await ownedRunnerState(runRoot, operation.lease.holder) : { error: "runner_operation_missing" },
++    runner: operation?.lease?.holder ? await ownedRunnerState(operation.lease.holder) : { error: "runner_operation_missing" },
+   };
+   await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "failed-build-evidence.json"), JSON.stringify(evidence) + "\n", { mode: 0o600 });
+ }
+@@ -131,7 +126,7 @@ const workspaceId = created.workspace.id;
+ const v1 = await client.extensionControl<{ id: string; revision: number }>("extensions_workspace", { action: "edit", installationId, workspaceId, expectedRevision: revision, writes: echoSource(name, "1.0.0", "echo-v1:", "R1 production restart echo") });
+ revision = v1.revision;
+ const originalBuild = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId, workspaceId, expectedRevision: revision, idempotencyKey: crypto.randomUUID() });
+-const originalState = await waitForVerified(client, installationId, originalBuild.id, 12, state => captureBuildFailure(runRoot, installationId, state, originalBuild.id));
++const originalState = await waitForVerified(client, installationId, originalBuild.id, 12, state => captureBuildFailure(installationId, state, originalBuild.id));
+ const originalRelease = originalState.releases[originalState.operations[originalBuild.id]!.releaseId!]!;
+ await approveAndActivate(installationId, originalRelease.id, null);
+ const conversation = await client.createConversation({ title: "R1 retained active release" });
+@@ -143,24 +138,39 @@ const v2 = await client.extensionControl<{ id: string; revision: number }>("exte
+ revision = v2.revision;
+ const build = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId, workspaceId, expectedRevision: revision, idempotencyKey: crypto.randomUUID() });
+ const paused = await pauseOwnedBuild(client, installationId, build.id, join(runRoot, "store"));
+-const runnerEvidence = { beforeRestart: await ownedRunnerState(runRoot, paused.runnerOperationId), afterUnpause: undefined as Awaited<ReturnType<typeof ownedRunnerState>> | undefined, afterRecovery: undefined as Awaited<ReturnType<typeof ownedRunnerState>> | undefined };
++const runnerEvidence: { beforeRestart?: RunnerEvidence; afterUnpause?: RunnerEvidence; afterRecovery?: RunnerEvidence } = {};
+ const writeRunnerEvidence = () => writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "runner-evidence.json"), JSON.stringify(runnerEvidence) + "\n", { mode: 0o600 });
+-requireRunnerState(runnerEvidence.beforeRestart, ["building"], "when the build was paused");
++const failures: unknown[] = [];
+ try {
++  const beforeRestart = await ownedRunnerState(paused.runnerOperationId);
++  runnerEvidence.beforeRestart = beforeRestart;
++  await writeRunnerEvidence();
++  requireRunnerState(beforeRestart, ["building"], "when the build was paused");
+   await command("docker", ["kill", "--signal", "KILL", appContainer]);
+   await command("docker", ["start", appContainer]);
+   await waitForHealth(origin);
+-} finally {
++} catch (error) {
++  failures.push(error);
++}
++try {
+   const state = await podman(["inspect", "--format", "{{.State.Status}}", paused.container]);
+   if (state === "paused") await podman(["unpause", paused.container]);
+-  runnerEvidence.afterUnpause = await ownedRunnerState(runRoot, paused.runnerOperationId);
++} catch (error) {
++  failures.push(error);
++}
++try {
++  runnerEvidence.afterUnpause = await ownedRunnerState(paused.runnerOperationId);
+   await writeRunnerEvidence();
++} catch (error) {
++  failures.push(error);
+ }
++if (failures.length === 1) throw failures[0];
++if (failures.length > 1) throw new AggregateError(failures, "R1 restart and cleanup failed");
+ if (echoText(await client.invokeExtensionTool(conversation.id, name, "echo", { text: marker })) !== `echo-v1:${marker}`) throw new Error("Old active echo changed immediately after app restart and worker unpause.");
+ // One lease may expire while the app is down. Bounded long-polls let the
+ // recovered isolated build complete verification.
+-const recovered = await waitForVerified(client, installationId, build.id, 24, state => captureBuildFailure(runRoot, installationId, state, build.id));
+-runnerEvidence.afterRecovery = await ownedRunnerState(runRoot, paused.runnerOperationId);
++const recovered = await waitForVerified(client, installationId, build.id, 24, state => captureBuildFailure(installationId, state, build.id));
++runnerEvidence.afterRecovery = await ownedRunnerState(paused.runnerOperationId);
+ await writeRunnerEvidence();
+ requireRunnerState(runnerEvidence.afterRecovery, ["succeeded", "failed", "cancelled"], "after lifecycle recovery");
+ const bundledBootstrap = await waitForBundledBootstrap(client, { requireObservedPending: false });
+diff --git a/src/__tests__/production-image-lifecycle-launch.integration.test.ts b/src/__tests__/production-image-lifecycle-launch.integration.test.ts
+index 832ed0ad..e1808032 100644
+--- a/src/__tests__/production-image-lifecycle-launch.integration.test.ts
++++ b/src/__tests__/production-image-lifecycle-launch.integration.test.ts
+@@ -69,9 +69,9 @@ printf '%s' "$code"
+       "bash",
+       "scripts/verify-production-image-lifecycle.sh",
+       "--",
+-      "bash",
+-      "-c",
+-      'printf "%s\\n" "$EZ_PRODUCTION_RUN_ROOT" > "$PROBE_OUTPUT"',
++      "bun",
++      "-e",
++      'const {inspectProductionRunner}=await import("./scripts/lib/production-lifecycle-client.ts");const inspection=await inspectProductionRunner("launcher-readiness");if(inspection.id!=="launcher-readiness"||inspection.state!=="unknown")throw new Error("Unexpected runner inspection: "+JSON.stringify(inspection));await Bun.write(process.env.PROBE_OUTPUT,JSON.stringify({stateRoot:process.env.EZ_PRODUCTION_RUN_ROOT,id:inspection.id,state:inspection.state})+"\\n");',
+     ], {
+       cwd: root,
+       env: {
+@@ -104,7 +104,7 @@ printf '%s' "$code"
+     ]);
+     expect(timedOut).toBe(false);
+     expect(exit, `${stdout}\n${stderr}`).toBe(0);
+-    expect(await readFile(commandEnvironment, "utf8")).toBe(`${state}\n`);
++    expect(await readFile(commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: state, id: "launcher-readiness", state: "unknown" })}\n`);
+     const generatedCompose = await readFile(compose, "utf8");
+     const [mountedRunnerRoot, mountedRunnerToken] = (await readFile(runnerTransport, "utf8")).trim().split("\n");
+     expect(mountedRunnerToken).toBeDefined();
+diff --git a/web/src/lib/server/security/__tests__/payload.test.ts b/web/src/lib/server/security/__tests__/payload.test.ts
+index 8a75d28a..6880069d 100644
+--- a/web/src/lib/server/security/__tests__/payload.test.ts
++++ b/web/src/lib/server/security/__tests__/payload.test.ts
+@@ -49,40 +49,142 @@ function hasBoundedRequests(counts: { warm: number; first: number; second: numbe
+     && counts.second - counts.first <= RETAINED_REQUEST_LIMIT;
+ }
+ 
+-test("bodyless request admission preserves the original request", async () => {
+-  const request = new Request("http://localhost/api/extensions/control");
+-  expect(await admitRequestPayload(request, "/api/extensions/control")).toBe(request);
+-});
++type BunAdmissionEvent = { request: Request; platform: { server: unknown; request: Request } };
++type AdmittedBunRequest = {
++  request: Request;
++  sameEvent: () => boolean;
++  rawHadBody: boolean;
++};
+ 
+-test("admitted Bun server payload remains readable through the request event context", async () => {
+-  type RequestEvent = { request: Request; platform: { request: Request } };
+-  const events = new AsyncLocalStorage<RequestEvent>();
+-  const server = Bun.serve({
++async function withAdmittedBunServer(
++  respond: (input: AdmittedBunRequest) => Promise<Response>,
++  exercise: (origin: URL) => Promise<void>,
++): Promise<void> {
++  const events = new AsyncLocalStorage<BunAdmissionEvent>();
++  let server: ReturnType<typeof Bun.serve>;
++  server = Bun.serve({
+     hostname: "127.0.0.1",
+     port: 0,
+     async fetch(rawRequest) {
+-      // Match the adapter: make the public request before its event enters ALS.
+-      const request = new Request(rawRequest.url, rawRequest);
+-      const event = { request, platform: { request: rawRequest } };
++      const url = new URL(rawRequest.url);
++      // Match svelte-adapter-bun: clone before the event enters ALS.
++      const event: BunAdmissionEvent = {
++        request: new Request(url.origin + url.pathname + url.search, rawRequest),
++        platform: { server, request: rawRequest },
++      };
+       return events.run(event, async () => {
+-        event.request = await admitRequestPayload(event.request, "/api/extensions/control");
+-        const payload = await readBoundedJson(event.request, getMaxPayload("/api/extensions/control")) as { text: string };
+-        return Response.json({ text: payload.text, preserved: events.getStore() === event });
++        const rawHadBody = event.request.body !== null;
++        event.request = await admitRequestPayload(event.request, url.pathname);
++        return respond({ request: event.request, rawHadBody, sameEvent: () => events.getStore() === event });
+       });
+     },
+   });
+-  const text = `payload-${"😀".repeat(1024)}`;
+   try {
+-    const response = await fetch(new URL("/api/extensions/control", server.url), {
++    await exercise(server.url);
++  } finally {
++    server.stop(true);
++  }
++}
++
++test("bodyless request admission preserves the original request", async () => {
++  const request = new Request("http://localhost/api/extensions/control");
++  expect(await admitRequestPayload(request, "/api/extensions/control")).toBe(request);
++});
++
++test("admitted Bun server payload remains readable through the request event context", async () => {
++  const text = `payload-${"😀".repeat(1024)}`;
++  await withAdmittedBunServer(async ({ request, sameEvent }) => {
++    const payload = await readBoundedJson(request, getMaxPayload("/api/extensions/control")) as { text: string };
++    return Response.json({ text: payload.text, preserved: sameEvent() });
++  }, async origin => {
++    const response = await fetch(new URL("/api/extensions/control", origin), {
+       method: "POST",
+       headers: { "content-type": "application/json", connection: "close" },
+       body: JSON.stringify({ text }),
+     });
+     expect(response.status).toBe(200);
+     expect(await response.json()).toEqual({ text, preserved: true });
+-  } finally {
+-    server.stop(true);
+-  }
++  });
++});
++
++test("admitted Bun HTTP multipart preserves its exact boundary and bytes", async () => {
++  await withAdmittedBunServer(async ({ request, sameEvent }) => {
++    const form = await request.formData();
++    const file = form.get("file");
++    if (!(file instanceof File)) return new Response("missing file", { status: 400 });
++    return Response.json({
++      contentType: request.headers.get("content-type"),
++      customHeader: request.headers.get("x-payload-probe"),
++      text: form.get("text"),
++      file: {
++        bytes: Array.from(new Uint8Array(await file.arrayBuffer())),
++        name: file.name,
++        type: file.type,
++      },
++      preserved: sameEvent(),
++    });
++  }, async origin => {
++    const form = new FormData();
++    form.set("text", "café 😀");
++    form.set("file", new File([new Uint8Array([0, 255, 1, 2])], "résumé-😀.bin", { type: "application/octet-stream" }));
++    // Construct before fetch so the assertion pins the actual generated boundary.
++    const outbound = new Request(new URL("/api/extensions/control", origin), {
++      method: "POST",
++      headers: { "x-payload-probe": "preserved" },
++      body: form,
++    });
++    const originalContentType = outbound.headers.get("content-type");
++    expect(originalContentType).toMatch(/^multipart\/form-data;.*boundary=/);
++    const response = await fetch(outbound);
++    expect(response.status).toBe(200);
++    expect(await response.json()).toEqual({
++      contentType: originalContentType,
++      customHeader: "preserved",
++      text: "café 😀",
++      file: { bytes: [0, 255, 1, 2], name: "résumé-😀.bin", type: "application/octet-stream" },
++      preserved: true,
++    });
++  });
++});
++
++test("admission preserves a direct body-bearing zero-byte stream", async () => {
++  const emptyStream = new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } });
++  const request = new Request("http://localhost/api/extensions/control", {
++    method: "POST",
++    headers: { "content-type": "application/octet-stream", "x-payload-probe": "preserved" },
++    body: emptyStream,
++    // @ts-expect-error — Bun/undici stream-body needs duplex:"half".
++    duplex: "half",
++  });
++  expect(request.body).not.toBeNull();
++  const admitted = await admitRequestPayload(request, "/api/extensions/control");
++  expect(admitted.body).not.toBeNull();
++  expect(admitted.headers.get("x-payload-probe")).toBe("preserved");
++  expect(new Uint8Array(await admitted.arrayBuffer())).toEqual(new Uint8Array());
++});
++
++test("admitted Bun HTTP zero-byte POST preserves wire body state", async () => {
++  await withAdmittedBunServer(async ({ request, sameEvent, rawHadBody }) => Response.json({
++    rawHadBody,
++    admittedHadBody: request.body !== null,
++    bytes: Array.from(new Uint8Array(await request.arrayBuffer())),
++    preserved: sameEvent(),
++  }), async origin => {
++    const emptyStream = new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } });
++    const response = await fetch(new URL("/api/extensions/control", origin), {
++      method: "POST",
++      headers: { "content-type": "application/octet-stream" },
++      body: emptyStream,
++      // @ts-expect-error — Bun/undici stream-body needs duplex:"half".
++      duplex: "half",
++    });
++    expect(response.status).toBe(200);
++    const result = await response.json() as { rawHadBody: boolean; admittedHadBody: boolean; bytes: number[]; preserved: boolean };
++    expect(typeof result.rawHadBody).toBe("boolean");
++    expect(result.admittedHadBody).toBe(result.rawHadBody);
++    expect(result.bytes).toEqual([]);
++    expect(result.preserved).toBe(true);
++  });
+ });
+ 
+ test("stream admission stays bounded across two Bun ALS request batches", async () => {

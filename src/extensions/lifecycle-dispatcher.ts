@@ -1,7 +1,10 @@
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { ExtensionRegistry } from "./registry";
-import { registerFireCallProvenance } from "./call-provenance";
+import { registerFireCallProvenance, releaseCallProvenance } from "./call-provenance";
+import { extensionLogger } from "../logger";
+
+const log = extensionLogger("lifecycle", "dispatch");
 
 // ── Allowed Hooks ───────────────────────────────────────────────────
 
@@ -68,11 +71,23 @@ export class LifecycleHookDispatcher {
   private hookToExtensions = new Map<LifecycleHookName, Set<string>>();
   /** unsubscribe functions from EventBus */
   private unsubscribers: Array<() => void> = [];
+  private started = false;
 
   constructor(
     private readonly bus: EventBus<AgentEvents>,
     private readonly registry: ExtensionRegistry,
   ) {}
+
+  reconcileFromRegistry(): void {
+    const started = this.started;
+    this.stop();
+    this.subscriptions.clear();
+    this.hookToExtensions.clear();
+    for (const [extensionId, manifest] of this.registry.getAllManifests()) {
+      if (manifest.lifecycleHooks?.length) this.registerExtension(extensionId, manifest.lifecycleHooks as LifecycleHookName[]);
+    }
+    if (started) this.start();
+  }
 
   /**
    * Register an extension to receive specific lifecycle hooks.
@@ -105,6 +120,8 @@ export class LifecycleHookDispatcher {
    * On event, sanitizes the payload and sends fire-and-forget notifications.
    */
   start(): void {
+    if (this.started) return;
+    this.started = true;
     for (const hook of ALLOWED_LIFECYCLE_HOOKS) {
       const extSet = this.hookToExtensions.get(hook);
       if (!extSet || extSet.size === 0) continue;
@@ -124,6 +141,7 @@ export class LifecycleHookDispatcher {
    * Unsubscribe from all EventBus listeners.
    */
   stop(): void {
+    this.started = false;
     for (const unsub of this.unsubscribers) {
       unsub();
     }
@@ -134,11 +152,12 @@ export class LifecycleHookDispatcher {
    * Fire-and-forget notification to an extension's subprocess.
    * Only sends if the process is already running — never starts a sleeping process.
    */
-  private sendNotification(
+  private async sendNotification(
     extensionId: string,
     hookName: string,
     params: Record<string, unknown>,
-  ): void {
+  ): Promise<void> {
+    let ezCallId: string | undefined;
     try {
       const proc = this.registry.getProcessIfRunning(extensionId);
       if (!proc) return;
@@ -150,7 +169,7 @@ export class LifecycleHookDispatcher {
       // unresolved"). Lifecycle fires have no conversation or user by design,
       // so `ownerless: true`. The token auto-releases on the default 2-min
       // window (a lifecycle handler is fast + fire-and-forget).
-      const ezCallId = registerFireCallProvenance({
+      ezCallId = registerFireCallProvenance({
         onBehalfOf: null,
         conversationId: null,
         runId: null,
@@ -163,12 +182,14 @@ export class LifecycleHookDispatcher {
       // may already carry `_meta` fields (e.g. correlation ids); stamping
       // `ezCallId` must ADD to them, not drop them.
       const priorMeta = (params as { _meta?: Record<string, unknown> })._meta;
-      proc.sendNotification(`lifecycle/${hookName}`, {
+      await proc.sendNotification(`lifecycle/${hookName}`, {
         ...params,
         _meta: { ...(priorMeta ?? {}), ezCallId },
       });
     } catch {
-      // Gracefully ignore any errors — fire-and-forget
+      log.error("Lifecycle delivery failed", { extensionId, hookName });
+    } finally {
+      if (ezCallId) releaseCallProvenance(ezCallId);
     }
   }
 }

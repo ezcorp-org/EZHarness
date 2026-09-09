@@ -1,0 +1,35 @@
+{
+  "base": "39a20c21",
+  "scope": "Only the four product modules changed in this follow-up; full PR coverage is independently gated in CI.",
+  "normalization": "Vitest web-relative SF paths prefixed with the absolute web root; no hit counts or measured lines changed.",
+  "results": [
+    {
+      "file": "web/src/lib/inline-tool-store.svelte.ts",
+      "measuredLines": 48,
+      "coveredLines": 48,
+      "changedLines": 29,
+      "uncoveredChangedLines": []
+    },
+    {
+      "file": "web/src/lib/chat/page-handlers/load-messages.ts",
+      "measuredLines": 111,
+      "coveredLines": 111,
+      "changedLines": 5,
+      "uncoveredChangedLines": []
+    },
+    {
+      "file": "web/src/lib/stores.svelte.ts",
+      "measuredLines": 476,
+      "coveredLines": 261,
+      "changedLines": 29,
+      "uncoveredChangedLines": []
+    },
+    {
+      "file": "web/src/lib/components/tool-cards/DockHost.svelte",
+      "measuredLines": 101,
+      "coveredLines": 83,
+      "changedLines": 7,
+      "uncoveredChangedLines": []
+    }
+  ]
+}

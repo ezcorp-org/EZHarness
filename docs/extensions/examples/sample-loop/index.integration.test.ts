@@ -1,3 +1,5 @@
+// @ezcorp-host-integration
+const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url: import.meta.url };
 /**
  * sample-loop — REAL subprocess integration test.
  *
@@ -35,11 +37,11 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
-import { buildHarnessEnv, makeFsRpcHandler } from "../_harness/pipeline-harness";
-import type { JsonRpcRequest, JsonRpcResponse } from "../../../../src/extensions/types";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
+import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
+import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
-const ENTRYPOINT = join(import.meta.dir, "index.ts");
+const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
 interface HostState {
   kv: Map<string, unknown>;

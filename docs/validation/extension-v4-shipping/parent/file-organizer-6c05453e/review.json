@@ -1,0 +1,17 @@
+{
+  "source_commit_sha": "6c05453edbb4148d53cbc37b67d05907b5459c67",
+  "image_id": "sha256:f46201b8f779745e5fa927d780cd7976c85ae8031e63ae584e68ac93e81aeea5",
+  "tests_passed": 13,
+  "retries": 0,
+  "runtime_events_heartbeats": 3,
+  "runtime_events_elapsed_ms": 45007,
+  "command_exit": 0,
+  "cleanup_exit": 0,
+  "parent_inspected_screenshots": 2,
+  "proof": "Visible folder approval with exact scopes; exact sentinel destination, source lstat ENOENT, applied proposal; disable/reapproval/uninstall. Parent separately observed the applied proposal during the run.",
+  "additional_live_read": "A later parent snapshot attempt ran after cleanup and failed; it is not independent destination-hash evidence.",
+  "app_log_review": {
+    "file_organizer_handler_errors": 0,
+    "model_startup_warnings": "Local-model fetch URL warnings and initial embedding degraded-mode warning; separate diagnosis pending."
+  }
+}

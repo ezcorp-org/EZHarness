@@ -15,6 +15,7 @@
 	import { goto } from "$app/navigation";
 	import { onMount } from "svelte";
 	import {
+		fetchSettings,
 		fetchModes,
 		createConversation,
 		updateConversation,
@@ -108,11 +109,10 @@
 
 	async function checkObsEnabled() {
 		try {
-			const res = await fetch("/api/settings/global:showObservability");
-			if (res.ok) {
-				const data = await res.json();
-				showObsButton = data.value === true;
-			}
+			// Settings absent from a new account are represented by absence in the
+			// batch response. Reading one optional row separately turns that normal
+			// state into a visible 404 in every newly opened chat.
+			showObsButton = (await fetchSettings())["global:showObservability"] === true;
 		} catch {
 			// silent
 		}

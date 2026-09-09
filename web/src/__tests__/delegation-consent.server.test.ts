@@ -19,6 +19,24 @@
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { workflowDefinitionHash } from "$server/runtime/workflow-definition-hash";
+import { releaseRuntimeFixture } from "$server/__tests__/helpers/release-runtime";
+import { configureReleaseRuntime, releaseBinding } from "$server/extensions/release-process";
+vi.mock("$server/db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: "active", role: "member" }) }));
+const service = vi.hoisted(() => ({ enabled: true }));
+vi.mock("$server/db/queries/service-accounts", () => ({ findLiveServiceAccount: async (id: string) => service.enabled ? { id, projectId: null } : undefined }));
+
+const originCapture = vi.hoisted(() => ({ calls: 0, rejectAt: 0 }));
+vi.mock("$server/runtime/workflow-release-assets", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$server/runtime/workflow-release-assets")>();
+  return {
+    ...actual,
+    captureWorkflowConsentOrigin: async (...args: Parameters<typeof actual.captureWorkflowConsentOrigin>) => {
+      originCapture.calls++;
+      if (originCapture.calls === originCapture.rejectAt) throw new Error("release changed during review");
+      return actual.captureWorkflowConsentOrigin(...args);
+    },
+  };
+});
 
 const cache = vi.hoisted(() => ({ getCachedWorkflows: vi.fn(), getExecutor: vi.fn() }));
 vi.mock("$lib/server/context", () => ({
@@ -86,22 +104,133 @@ function request(overrides: Record<string, unknown> = {}) {
   return {
     entry: ROOT,
     extensionName: "ext",
+    originInstallationId: "installation",
     workflowName: "root",
     projectId: null,
     ownerKind: "user" as const,
     ownerId: "u1",
+    consenterId: "u1",
     trigger: { kind: "cron", spec: { expr: "0 * * * *" } },
     ...overrides,
   } as never;
 }
 
 beforeEach(() => {
+  releaseRuntimeFixture("installation", { schemaVersion: 4, name: "ext", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" }).configure();
+  service.enabled = true;
+  originCapture.calls = 0;
+  originCapture.rejectAt = 0;
   cache.getCachedWorkflows.mockReset().mockReturnValue([ROOT]);
   cache.getExecutor.mockReset().mockReturnValue({ listAgents: () => [] });
   registry.getRegisteredTool.mockReset().mockReturnValue(null);
   registry.getGrantedPermissions.mockReset().mockReturnValue(null);
   db.getWorkflowByName.mockReset().mockResolvedValue(undefined);
   db.getLatestWorkflowVersion.mockReset().mockResolvedValue(undefined);
+});
+
+test("service consent binds only the exact referenced release closure and requires its human owner", async () => {
+  const fixture = releaseRuntimeFixture("installation", { schemaVersion: 4, name: "sealed", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" });
+  fixture.configure();
+  const release = { installationId: "installation", ownerId: "u1", scope: "global", binding: releaseBinding(fixture.snapshot) };
+  const boundEntry = (name: string, child?: string) => ({ ...entry(name, "private", child), source: "extension", id: null, extensionRelease: release });
+  const root = boundEntry("sealed:root", "sealed:child");
+  cache.getCachedWorkflows.mockReturnValue([root, boundEntry("sealed:child"), boundEntry("sealed:unrelated")]);
+  const input = { entry: root, workflowName: "sealed:root", ownerKind: "service", ownerId: "svc", consenterId: "u1" };
+  const result = await buildDelegationConsent(request(input));
+  expect(result).not.toBeInstanceOf(Response);
+  if (result instanceof Response) throw new Error("Expected service consent");
+  expect(JSON.parse(result.extensionReleaseBinding!)).toEqual({ version: 2, origin: { release, workflowName: "sealed:root", ownerKind: "service", ownerId: "svc", projectId: null }, releases: [{ release, workflows: ["sealed:child", "sealed:root"] }] });
+  expect(result.material.graph.map(graph => graph.name).sort()).toEqual(["sealed:child", "sealed:root"]);
+  for (const consenterId of [undefined, "other"]) expect(await buildDelegationConsent(request({ ...input, consenterId }))).toBeInstanceOf(Response);
+  service.enabled = false;
+  expect(await buildDelegationConsent(request(input))).toBeInstanceOf(Response);
+});
+
+test("human consent for a host root records its referenced private extension release", async () => {
+  const fixture = releaseRuntimeFixture("installation", { schemaVersion: 4, name: "sealed", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" });
+  fixture.configure();
+  const release = { installationId: "installation", ownerId: "u1", scope: "global", binding: releaseBinding(fixture.snapshot) };
+  const child = { ...entry("sealed:child", "private"), source: "extension", id: null, extensionRelease: release };
+  const root = entry("root", "system", "sealed:child");
+  cache.getCachedWorkflows.mockReturnValue([root, child]);
+  const result = await buildDelegationConsent(request({ entry: root, originInstallationId: "installation" }));
+  expect(result).not.toBeInstanceOf(Response);
+  if (result instanceof Response) throw new Error("Expected human consent");
+  expect(result.material.graph.map(graph => graph.name).sort()).toEqual(["root", "sealed:child"]);
+  expect(result.extensionReleaseBinding).not.toBeNull();
+});
+
+test("consent refuses an origin that disappears during the final review check", async () => {
+  originCapture.rejectAt = 2;
+  const result = await buildDelegationConsent(request());
+  expect(result).toBeInstanceOf(Response);
+  if (!(result instanceof Response)) throw new Error("Expected final origin refusal");
+  expect(result.status).toBe(404);
+  expect(await result.json()).toEqual({ error: "Workflow is not available to this principal." });
+  expect(originCapture.calls).toBe(2);
+});
+
+test("service host roots consent to owned target releases, omit foreign metadata, and reject oversized maps", async () => {
+  const makeRelease = (identifier: string, ownerId = "u1") => releaseRuntimeFixture(identifier, { schemaVersion: 4, name: identifier, version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId });
+  const source = makeRelease("installation");
+  const targets = Array.from({ length: 33 }, (_, index) => makeRelease(`target-${index}`));
+  const foreign = makeRelease("foreign", "other");
+  const fixtures = [source, ...targets, foreign];
+  configureReleaseRuntime({ runner: async () => source.runner, resolve: async id => fixtures.find(fixture => fixture.snapshot.installation.id === id)?.snapshot ?? null });
+  const children = [...targets, foreign].map(fixture => ({ ...entry(`${fixture.snapshot.installation.id}:child`, "private"), source: "extension", id: null, userId: fixture.snapshot.installation.ownerId, extensionRelease: { installationId: fixture.snapshot.installation.id, ownerId: fixture.snapshot.installation.ownerId, scope: "global", binding: releaseBinding(fixture.snapshot) } }));
+  const root = { ...ROOT, definition: { name: "root", description: "Root", steps: [children[0]!, children.at(-1)!].map((child, index) => ({ name: `child-${index}`, kind: "workflow", workflow: child.definition.name, input: {} })) } };
+  cache.getCachedWorkflows.mockReturnValue([root, ...children]);
+  const input = request({ entry: root, ownerKind: "service", ownerId: "svc" });
+  const result = await buildDelegationConsent(input);
+  expect(result).not.toBeInstanceOf(Response);
+  if (result instanceof Response) throw new Error("Expected exact mixed release consent");
+  const consent = JSON.parse(result.extensionReleaseBinding!);
+  expect(consent.origin.release.installationId).toBe("installation");
+  expect(consent.releases.map((target: { release: { installationId: string } }) => target.release.installationId)).toEqual(["target-0"]);
+  expect(result.material.unresolved).toEqual(["foreign:child"]);
+  expect(result.material.graph.map(graph => graph.name).sort()).toEqual(["root", "target-0:child"]);
+  root.definition.steps = children.slice(0, 33).map((child, index) => ({ name: `child-${index}`, kind: "workflow", workflow: child.definition.name, input: {} }));
+  const oversized = await buildDelegationConsent(input);
+  expect(oversized).toBeInstanceOf(Response);
+  if (!(oversized instanceof Response)) throw new Error("Expected bounded consent refusal");
+  expect(oversized.status).toBe(400);
+  expect(await oversized.text()).toContain("bounds");
+});
+
+test("consent assembly rejects an unbound extension root and omits an unbound nested graph", async () => {
+  const child = { ...entry("sealed:child", "private"), source: "extension", id: null, definition: { ...definition("sealed:child"), steps: [{ name: "private-step", agent: "confidential-agent", input: {} }] } };
+  const root = entry("root", "system", "sealed:child");
+  cache.getCachedWorkflows.mockReturnValue([root, child]);
+  const denied = await buildDelegationConsent(request({ entry: child, workflowName: "sealed:child" }));
+  expect(denied).toBeInstanceOf(Response);
+  if (denied instanceof Response) expect(denied.status).toBe(404);
+  expect(db.getWorkflowByName).not.toHaveBeenCalled();
+  const result = await buildDelegationConsent(request({ entry: root }));
+  expect(result).not.toBeInstanceOf(Response);
+  if (result instanceof Response) return;
+  expect(result.material.graph.map(graph => graph.name)).toEqual(["root"]);
+  expect(result.material.unresolved).toEqual(["sealed:child"]);
+  expect(JSON.stringify(result)).not.toContain("confidential-agent");
+});
+
+test("a release revoked during the version query cannot return consent graph metadata", async () => {
+  const fixture = releaseRuntimeFixture("installation", { schemaVersion: 4, name: "sealed", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" });
+  fixture.configure();
+  const root = { ...entry("sealed:root", "private"), source: "extension", id: null, extensionRelease: { installationId: "installation", ownerId: "u1", scope: "global", binding: releaseBinding(fixture.snapshot) } };
+  cache.getCachedWorkflows.mockReturnValue([root]);
+  const entered = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  db.getWorkflowByName.mockImplementationOnce(async () => { entered.resolve(); await resume.promise; return undefined; });
+  const result = buildDelegationConsent(request({ entry: root, workflowName: "sealed:root" }));
+  await entered.promise;
+  fixture.snapshot.installation.enabled = false;
+  resume.resolve();
+  const response = await result;
+  expect(response).toBeInstanceOf(Response);
+  if (response instanceof Response) {
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("material");
+  }
 });
 
 // ── the capability lookups honour "undefined means unreachable" ─────

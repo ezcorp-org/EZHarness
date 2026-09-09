@@ -1,0 +1,27 @@
+{
+  "source_commit_sha": "6c05453edbb4148d53cbc37b67d05907b5459c67",
+  "test_worktree": "extension-v4-fo-repair",
+  "integration_worktree": "extension-v4-independent-audit",
+  "files": [
+    {
+      "path": "web/src/lib/components/hub/HubPageView.svelte",
+      "sha256": "9437e00e961a8d487e10b9d4995e768a013e88547bd98b6659fbf1bbae6b2625"
+    },
+    {
+      "path": "web/src/lib/components/hub/HubPageView.component.test.ts",
+      "sha256": "c8ecd7d40b0610b7c0d49c6b9388180b3ad9835657f56e4691556693abd56236"
+    },
+    {
+      "path": "web/src/routes/(app)/extensions/author/+page.svelte",
+      "sha256": "5cd10bfac3db43b156451fbc7450113ebbb94fbff9510fe0dc5153975ee2c750"
+    },
+    {
+      "path": "web/src/__tests__/extension-author-page.component.test.ts",
+      "sha256": "8188b03aa24b94a714f7c9c3c2baea6d4f11e149f76512f87fb39e1a6f78c7ac"
+    },
+    {
+      "path": "web/src/__tests__/file-organizer-hub-authority.integration.test.ts",
+      "sha256": "d747a853b3985fc139bb63baf5270446306a548c28de45ad85247f0b655156da"
+    }
+  ]
+}

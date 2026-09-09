@@ -1,0 +1,13 @@
+source=480f7c71bc9e23839a6b526ccbfe453ea426ce17
+100644 blob 3767df2b890b458047e349c149700d219e3d850a	web/playwright.config.ts
+100644 blob 9935d3743fdaf20d0c4ce71909b2fc201911ccde	web/playwright.real.config.ts
+100644 blob f87155ec7499dbe98386254aa76529e3c7f68204	web/e2e/real-auth-teardown.ts
+100644 blob 77548c2c0e52963207178cd0cb39a69ae0891c82	web/e2e/real-auth/extension-lifecycle-flow.spec.ts
+100644 blob 7d1e4821c890f2c4eea41043812dd90d83cb243c	web/e2e/lanes.json
+100755 blob 88f85a17b5b8571923eb7c8d50952d5e679b6a71	web/e2e/run-real-auth-fixture.sh
+100644 blob 1dfe4f2b596c233f8c4d000dd079c17fd120c3b8	scripts/e2e-lane-args.ts
+100644 blob f3e93423500c6965426d86211803f7bc3d00f0c2	scripts/setup-extension-runner-ci.sh
+100644 blob f55a8fbe778e6919f4c24989f9d7c8b5f30bb3bf	scripts/start-extension-runner-e2e.sh
+100644 blob cfdac251a6a82ee6efd1afda47409a4bd1154050	scripts/run-real-e2e.ts
+100755 blob fb4cd24a1181992114616a6471f01ec718e3e035	scripts/visual-evidence/capture.sh
+100644 blob 3757495c49233497ac9352dc7fda0ef03c6eacd3	scripts/visual-evidence/build-manifest.ts

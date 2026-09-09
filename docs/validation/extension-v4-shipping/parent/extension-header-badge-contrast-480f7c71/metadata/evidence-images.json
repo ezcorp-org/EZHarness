@@ -1,0 +1,25 @@
+{
+  "blob_sha256": "1246beec435d04d9a5baee8f7362de7a5d77f67c66c775380b58a88a3132a227",
+  "attachments": [
+    {
+      "label": "extension-detail-verified-badge-dark",
+      "sha256": "8fa0221cd060af1ea9270525d893fcbc68e0836f2b65210c6c2acc1d07386106",
+      "bytes": 61894
+    },
+    {
+      "label": "extension-detail-unsigned-violation-badges-light",
+      "sha256": "575938b11ff3857d598390ca84fd73ead9447333bf73a410807288853564d40e",
+      "bytes": 65983
+    },
+    {
+      "label": "extension-detail-verified-badge-light",
+      "sha256": "de79475fd96a64b1de064bb9bcb44df27e8d65241774fed634636ef5846df591",
+      "bytes": 61976
+    },
+    {
+      "label": "extension-detail-unsigned-violation-badges-dark",
+      "sha256": "91895f3be6c00d02b5897c318204c7d4052fda49e9b2b21cdb25d45fbda52d0f",
+      "bytes": 66196
+    }
+  ]
+}

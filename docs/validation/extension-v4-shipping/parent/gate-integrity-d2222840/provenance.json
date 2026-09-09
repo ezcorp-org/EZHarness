@@ -1,0 +1,5 @@
+{
+  "source_commit_sha": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "base_commit_sha": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "command": "env -u GATE_CHANGE_APPROVED BASE_REF=origin/main bun scripts/gate-integrity.ts"
+}

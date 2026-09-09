@@ -1,0 +1,50 @@
+[
+  {
+    "curated_path": "logs/101874032479.log.txt",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/static-logs/101874032479.log",
+    "sha256": "8ae626ceb76c3383d254640a8d119f28d6fa3a4117814b5fbe03bd5194c610a1",
+    "bytes": 58773
+  },
+  {
+    "curated_path": "logs/101874032648.log.txt",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/static-logs/101874032648.log",
+    "sha256": "4235d68ee0476ea0c6b7eab6ab0885fc4857dcbd8b29e259dd5cdfc68d3e190c",
+    "bytes": 42463
+  },
+  {
+    "curated_path": "logs/101874032680.log.txt",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/static-logs/101874032680.log",
+    "sha256": "297dc65ee65502cdd3a385d13511ab952e81febb139cdfe7738d23e0c937e06b",
+    "bytes": 30441
+  },
+  {
+    "curated_path": "logs/101874032758.log.txt",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/static-logs/101874032758.log",
+    "sha256": "60e3268775fa1b5dcb363ce3ce9d7905b706dc5d5163bff85d014cef811ece7d",
+    "bytes": 49053
+  },
+  {
+    "curated_path": "logs/101874032809.log.txt",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/static-logs/101874032809.log",
+    "sha256": "1b375442ddcf696fec9d4c4ff47bd0d661d019d77825c129eed89ca32152d875",
+    "bytes": 27055
+  },
+  {
+    "curated_path": "gate-integrity-parent-review.json",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/gate-integrity-parent-review.json",
+    "sha256": "222f8dc4b2b0154363f00d9832520f24d18c0652459add5204c630e9d305e6ab",
+    "bytes": 693
+  },
+  {
+    "curated_path": "ordered-policy-findings.txt",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/ordered-policy-findings.txt",
+    "sha256": "4dd1d389b6dcfbd8d506f25bede0f955e55480ef1dd3f5242e82259c487f5491",
+    "bytes": 17468
+  },
+  {
+    "curated_path": "static-parent-inputs.json",
+    "private_path": ".cache/terra-shipping/parent/hosted-0733ca51/static-parent-inputs.json",
+    "sha256": "4c065ef2fbc290918421da0a4a9ff450c631ae52697c7b9f3da6151362f91acf",
+    "bytes": 1439
+  }
+]

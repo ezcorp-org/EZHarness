@@ -11,7 +11,7 @@ test("config exports a valid object", async () => {
 
 test("schemaVersion is 2 (number)", async () => {
   const manifest = await loadConfig();
-  expect(manifest.schemaVersion).toBe(2);
+  expect(manifest.schemaVersion).toBe(4);
   expect(typeof manifest.schemaVersion).toBe("number");
 });
 

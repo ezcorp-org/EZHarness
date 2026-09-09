@@ -1,0 +1,145 @@
+{
+  "run_id": 34161268825,
+  "production_job": {
+    "id": 101863432208,
+    "exit": "success",
+    "started_utc": "2026-09-07T20:56:17Z",
+    "completed_utc": "2026-09-07T21:36:48Z"
+  },
+  "e2e_aggregate": {
+    "id": 101870674874,
+    "exit": "success",
+    "completed_utc": "2026-09-07T21:36:53Z"
+  },
+  "pr_head": "8ae7f0860728741c0918729452a8ec846cf6ed29",
+  "checkout_merge": "6dd9b83ddda3b84f8a31e79a698754017ae9dea3",
+  "checkout_parents": [
+    "bd7364388d0106364864e18a3d321b13ba978c36",
+    "8ae7f0860728741c0918729452a8ec846cf6ed29"
+  ],
+  "tree": "ab9e26fb316a3a2e0761ebdb745f6dc1437e3048",
+  "tree_equal": true,
+  "image_id": "sha256:200601699d12047d9ae092720f00cac59a3684c2e9addaef1393158ad3d2f183",
+  "proofs": [
+    {
+      "proof": "file-organizer",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/file-organizer"
+    },
+    {
+      "proof": "embeddings",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/embeddings"
+    },
+    {
+      "proof": "runtime",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/runtime"
+    },
+    {
+      "proof": "delivery",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/delivery"
+    },
+    {
+      "proof": "revocation",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/revocation"
+    },
+    {
+      "proof": "runtime-resources",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/runtime-resources"
+    },
+    {
+      "proof": "historical-upgrade",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/historical-upgrade"
+    },
+    {
+      "proof": "legacy-adoption",
+      "exit": 0,
+      "receipt": ".cache/production-lifecycle/legacy-adoption"
+    }
+  ],
+  "launcher_exit_fields": {
+    "historical-upgrade/upgrade/assert-candidate/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "historical-upgrade/upgrade/seed-previous/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "historical-upgrade/upgrade/assert-restore/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "delivery/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "file-organizer/runtime/command.log": {
+      "runtime_events_idle_exit": 0,
+      "playwright_exit": 0,
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "revocation/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "runtime/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "legacy-adoption/legacy/seed/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "legacy-adoption/legacy/adopt/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "runtime-resources/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    },
+    "embeddings/runtime/command.log": {
+      "command_exit": 0,
+      "app_log_exit": 0,
+      "owned_cleanup_exit": 0,
+      "verifier_cleanup_exit": 0
+    }
+  },
+  "embedding_log_guard": [
+    "runtime_exit=0",
+    "embedding_log_guard_exit=0"
+  ],
+  "r4": {
+    "samples": 11,
+    "cycles": 10,
+    "totalReconnects": 100,
+    "actualDurationMs": 81050
+  }
+}

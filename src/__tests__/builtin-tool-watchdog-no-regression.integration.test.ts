@@ -38,6 +38,7 @@ afterAll(() => restoreModuleMocks());
 
 // ── Module mocks (must precede SUT imports) ────────────────────────────
 
+mock.module("../db/queries/runs", () => ({ finalizeRunRow: async () => 1, terminalizeOrphanedRuns: async () => 0 }));
 mock.module("../db/queries/active-runs", () => ({
   updateHeartbeat: async () => {},
   updatePartialResponse: async () => {},

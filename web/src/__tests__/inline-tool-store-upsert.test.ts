@@ -8,7 +8,9 @@
  *   - Insert a new entry when the id is unseen.
  *   - Merge-update when the id already exists (status/duration/output).
  *   - Omitted `input` does NOT clobber a previously-stored input.
- *   - `hydrateToolCalls(convId, …)` replacement semantics are unchanged.
+ *   - persisted rows replace matching streamed entries;
+ *   - an in-flight snapshot retains only newer agent-run entries it cannot
+ *     yet contain.
  *
  * Runs under VITEST, not bun, despite the plain `.test.ts` name (registered
  * explicitly in web/vitest.config.ts and subtracted from `web_bunleg_files()`
@@ -176,6 +178,62 @@ describe("InlineToolStore.upsertStreaming", () => {
 		expect(entries[0]!.id).toBe("tc-db");
 	});
 
+	test("delayed hydration keeps an agent-run received after its request snapshot", () => {
+		const requestLiveRevision = inlineToolStore.liveRevision;
+		inlineToolStore.upsertStreaming({
+			id: "tc-live",
+			conversationId: "conv-1",
+			extensionName: "claude-design",
+			toolName: "claude-design__open-canvas",
+			input: { draftId: "d-1" },
+			status: "complete",
+			output: "canvas ready",
+			cardType: "design-canvas",
+			cardLayout: "dock",
+		});
+
+		inlineToolStore.hydrateToolCalls("conv-1", [], requestLiveRevision);
+
+		const [live] = inlineToolStore.getByConversation("conv-1");
+		expect(live).toMatchObject({
+			id: "tc-live",
+			status: "complete",
+			output: "canvas ready",
+			cardLayout: "dock",
+			source: "agent-run",
+		});
+	});
+
+	test("completion received after the snapshot keeps a call that started before it", () => {
+		inlineToolStore.upsertStreaming({
+			id: "tc-live", conversationId: "conv-1", extensionName: "builtin",
+			toolName: "read_file", input: {}, status: "running",
+		});
+		const requestLiveRevision = inlineToolStore.liveRevision;
+		inlineToolStore.upsertStreaming({
+			id: "tc-live", conversationId: "conv-1", extensionName: "builtin",
+			toolName: "read_file", status: "complete", output: "done",
+		});
+
+		inlineToolStore.hydrateToolCalls("conv-1", [], requestLiveRevision);
+
+		expect(inlineToolStore.getByConversation("conv-1")).toMatchObject([
+			{ id: "tc-live", status: "complete", output: "done" },
+		]);
+	});
+
+	test("a later authoritative hydration removes a missing earlier live call", () => {
+		inlineToolStore.upsertStreaming({
+			id: "tc-live", conversationId: "conv-1", extensionName: "builtin",
+			toolName: "read_file", input: {}, status: "complete",
+		});
+		const requestLiveRevision = inlineToolStore.liveRevision;
+
+		inlineToolStore.hydrateToolCalls("conv-1", [], requestLiveRevision);
+
+		expect(inlineToolStore.getByConversation("conv-1")).toHaveLength(0);
+	});
+
 	test("hydrateToolCalls leaves OTHER conversations' entries alone", () => {
 		inlineToolStore.upsertStreaming({
 			id: "other-1", conversationId: "conv-2", extensionName: "builtin",
@@ -221,9 +279,10 @@ describe("InlineToolStore.upsertStreaming", () => {
 		expect(byId.get("cut")!.cardLayout).toBeUndefined();
 	});
 
-	test("id-aligned reload: streamed id matches DB id → hydrate produces one entry, not two", () => {
+	test("persisted matching id replaces a newer streamed entry without a duplicate", () => {
 		// This is the happy path after the server change that makes DB id === event.toolCallId.
 		const sharedId = "00000000-0000-0000-0000-000000000001";
+		const requestLiveRevision = inlineToolStore.liveRevision;
 		inlineToolStore.upsertStreaming({
 			id: sharedId,
 			conversationId: "conv-1",
@@ -231,6 +290,7 @@ describe("InlineToolStore.upsertStreaming", () => {
 			toolName: "edit_file",
 			input: { file_path: "src/a.ts" },
 			status: "complete",
+			output: "stream output",
 		});
 		inlineToolStore.hydrateToolCalls("conv-1", [{
 			id: sharedId,
@@ -241,9 +301,10 @@ describe("InlineToolStore.upsertStreaming", () => {
 			success: true,
 			durationMs: 1,
 			status: "success",
-		}]);
+		}], requestLiveRevision);
 		expect(inlineToolStore.getByConversation("conv-1")).toHaveLength(1);
 		expect(inlineToolStore.getByConversation("conv-1")[0]!.id).toBe(sharedId);
+		expect(inlineToolStore.getByConversation("conv-1")[0]!.output).toBe("ok");
 	});
 
 	test("upsertStreaming defaults source to 'agent-run' on insert (prevents duplicate render in unanchored cards fallback)", () => {

@@ -19,6 +19,7 @@
  */
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
+import type { Database, DbTransaction } from "../db/connection";
 import { extensionSchedules, type ExtensionSchedule } from "../db/schema";
 import { eq, and, notInArray } from "drizzle-orm";
 import { parseCron, validateCron } from "./cron";
@@ -29,9 +30,10 @@ export async function reconcileSchedules(
   extensionId: string,
   manifestCrons: string[],
   now: () => Date = () => new Date(),
+  database?: Database | DbTransaction,
 ): Promise<{ added: number; disabled: number; preserved: number }> {
   const valid = manifestCrons.filter((c) => validateCron(c).ok).slice(0, 8);
-  const db = getDb();
+  const db = database ?? getDb();
 
   // MANIFEST rows only — see the module header. This snapshot feeds both
   // the re-enable map and the `disabled` count, so filtering here is what

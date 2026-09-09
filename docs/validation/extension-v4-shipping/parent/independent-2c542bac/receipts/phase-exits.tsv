@@ -1,0 +1,3 @@
+phase	command_exit	app_log_exit	owned_cleanup_exit	verifier_cleanup_exit
+canonical-eight	0	n/a	0	n/a
+independent-container	0	n/a	0	n/a

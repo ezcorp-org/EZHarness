@@ -1,0 +1,14 @@
+{
+  "head": "eeb1cf9a46be4ade0fc8a4dbfbd825fa2e190ec2",
+  "tree": "5c26c4e6fc2eaee4149ec471d8e2b79d4fb21345",
+  "bun": "1.3.14",
+  "files": 4,
+  "pass": 48,
+  "fail": 0,
+  "assertions": 138,
+  "exit": 0,
+  "raw": "memory-llm-independent.log",
+  "sha256": "e3594e1b337c0c647659c3c076932ed99b898b23cec950d80c09258d9cf19597",
+  "scope": "Actual memory GET handler and owned database queries; memory handler; memory injection ownership; production LLM JSON-safe costs. Separate processes per file.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
+}

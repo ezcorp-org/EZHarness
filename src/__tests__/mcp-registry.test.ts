@@ -11,6 +11,7 @@ import {
   getExtension,
 } from "../db/queries/extensions";
 import type { ExtensionManifestV2 } from "../extensions/types";
+import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
 
 beforeAll(async () => {
   await setupTestDb();
@@ -27,7 +28,7 @@ beforeEach(() => {
 describe("ExtensionRegistry getMcpClient", () => {
   test("throws when extension is not in registry", async () => {
     const registry = ExtensionRegistry.getInstance();
-    await expect(registry.getMcpClient("never-loaded")).rejects.toThrow(/not found in registry/);
+    await expect(registry.getMcpClient("never-loaded")).rejects.toThrow(/approved v4 release/);
   });
 
   test("throws when extension is not MCP-kind", async () => {
@@ -44,7 +45,7 @@ describe("ExtensionRegistry getMcpClient", () => {
       permissions: {},
     };
     registry.setManifestForTest("local-1", manifest);
-    await expect(registry.getMcpClient("local-1")).rejects.toThrow(/not an MCP extension/);
+    await expect(registry.getMcpClient("local-1")).rejects.toThrow(/approved v4 release/);
   });
 
   test("throws when MCP manifest is missing mcpServers entry", async () => {
@@ -60,10 +61,10 @@ describe("ExtensionRegistry getMcpClient", () => {
       permissions: {},
     };
     registry.setManifestForTest("bad-1", manifest);
-    await expect(registry.getMcpClient("bad-1")).rejects.toThrow(/no mcpServers entry/);
+    await expect(registry.getMcpClient("bad-1")).rejects.toThrow(/approved v4 release/);
   });
 
-  test("removes the client from the cache and propagates when connect fails", async () => {
+  test("rejects a legacy connection even when its old client remains in cache", async () => {
     const registry = ExtensionRegistry.getInstance();
     const manifest: ExtensionManifestV2 = {
       schemaVersion: 2,
@@ -85,7 +86,8 @@ describe("ExtensionRegistry getMcpClient", () => {
       callTool: async () => ({ content: [], isError: false }),
     });
 
-    await expect(registry.getMcpClient("fails-1")).rejects.toThrow(/boom/);
+    await expect(registry.getMcpClient("fails-1")).rejects.toThrow(/approved v4 release/);
+    registry.killAll();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect((registry as any).mcpClients.has("fails-1")).toBe(false);
   });
@@ -129,29 +131,13 @@ describe("ExtensionRegistry getMcpClient", () => {
   });
 
   test("caches and returns the same connected client on subsequent calls", async () => {
-    const registry = ExtensionRegistry.getInstance();
-    const manifest: ExtensionManifestV2 = {
-      schemaVersion: 2,
-      name: "cached-mcp",
-      version: "1.0.0",
-      description: "",
-      author: { name: "t" },
-      kind: "mcp",
-      mcpServers: [{ transport: "stdio", name: "cached-mcp", command: "node" }],
-      permissions: {},
-    };
-    registry.setManifestForTest("cached-1", manifest);
-
-    // Stub McpClient connect to avoid spawning a real process
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fakeClient: any = { _connected: false, isConnected: false, connect: async function () { this._connected = true; this.isConnected = true; }, close: async () => {}, listTools: async () => [], callTool: async () => ({ content: [], isError: false }) };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (registry as any).mcpClients.set("cached-1", fakeClient);
-
-    const a = await registry.getMcpClient("cached-1");
-    const b = await registry.getMcpClient("cached-1");
-    expect(a).toBe(b);
-    expect((a as { isConnected: boolean }).isConnected).toBe(true);
+    const fixture = mcpReleaseFixture();
+    try {
+      const first = await fixture.registry.getMcpClient(fixture.id);
+      expect(await fixture.registry.getMcpClient(fixture.id)).toBe(first);
+      expect(first.isConnected).toBe(true);
+      expect(fixture.starts()).toBe(0);
+    } finally { fixture.cleanup(); }
   });
 });
 
@@ -164,10 +150,10 @@ describe("ExtensionRegistry refreshMcpTools", () => {
       tools: [], permissions: {},
     };
     registry.setManifestForTest("nonmcp-1", manifest);
-    await expect(registry.refreshMcpTools("nonmcp-1")).rejects.toThrow(/not an MCP extension/);
+    await expect(registry.refreshMcpTools("nonmcp-1")).rejects.toThrow(/approved v4 release/);
   });
 
-  test("updates in-memory maps and persists fresh tools to DB", async () => {
+  test("refresh refuses a legacy catalog and does not persist unapproved tools", async () => {
     // Create a real DB row so refreshMcpTools's updateExtension call can target it.
     const installed = await installMcpExtension({
       name: "refresh-mcp",
@@ -195,23 +181,15 @@ describe("ExtensionRegistry refreshMcpTools", () => {
       callTool: async () => ({ content: [], isError: false }),
     });
 
-    const result = await registry.refreshMcpTools(installed.id);
-    expect(result).toEqual(fresh);
+    await expect(registry.refreshMcpTools(installed.id)).rejects.toThrow(/approved v4 release/);
 
-    // In-memory: old namespaced name dropped, new ones registered
-    expect(registry.getToolExtension("refresh-mcp__old")).toBeNull();
-    expect(registry.getToolExtension("refresh-mcp__new-one")).toBe(installed.id);
-    expect(registry.getToolExtension("refresh-mcp__new-two")).toBe(installed.id);
+    expect(registry.getToolExtension("refresh-mcp__old")).toBe(installed.id);
+    expect(registry.getToolExtension("refresh-mcp__new-one")).toBeNull();
+    expect(registry.getToolExtension("refresh-mcp__new-two")).toBeNull();
 
-    // DB: manifest.tools updated, each re-stamped with the capability
-    // declaration the PDP reads at dispatch (B5). A bare `{...manifest, tools}`
-    // would persist the wire list verbatim and silently un-declare every MCP
-    // tool on the first "Refresh tools" click. This server's command line
-    // names no host, so the declaration is the `ezcorp:mcp:invoke` sentinel
-    // alone — which is what keeps a hostless row gated at all (F5).
     const row = await getExtension(installed.id);
     expect(row?.manifest.tools).toEqual(
-      fresh.map((t) => ({ ...t, capabilities: { custom: { "ezcorp:mcp:invoke": true } } })),
+      [{ name: "old", description: "old", inputSchema: { type: "object" }, capabilities: { custom: { "ezcorp:mcp:invoke": true } } }],
     );
 
     await deleteExtension(installed.id);

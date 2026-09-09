@@ -1,0 +1,31 @@
+{
+  "syntaxPass": true,
+  "sanitizerReplayExit": 0,
+  "exactOutputFiles": [
+    "fixed-after.txt",
+    "fixed-before.txt",
+    "fixed-exit.txt",
+    "fixed-new.txt",
+    "fixed-playwright.log.txt",
+    "original-after.txt",
+    "original-before.txt",
+    "original-exit.txt",
+    "original-new.txt",
+    "original-playwright.log.txt",
+    "sanitizer-record.txt"
+  ],
+  "actualPlaywrightDeltas": [
+    {
+      "replay": "original",
+      "actualCommandExit": 0,
+      "independentNewRootCount": 2
+    },
+    {
+      "replay": "fixed",
+      "actualCommandExit": 0,
+      "independentNewRootCount": 0
+    }
+  ],
+  "exactSourceBlobs": 4,
+  "sanitizerProvenance": "Reconstructed afterrun; independently reproduces existing published outputs."
+}

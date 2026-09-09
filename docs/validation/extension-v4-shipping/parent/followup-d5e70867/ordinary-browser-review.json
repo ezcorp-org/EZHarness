@@ -1,0 +1,64 @@
+{
+  "source": "d5e7086743e9c0d3610584e605ff25cdf0298dd8",
+  "run": "https://github.com/ezcorp-org/EZHarness/actions/runs/34171793680",
+  "parent_review": [
+    {
+      "lane": "real_auth",
+      "job_id": 101893353824,
+      "passed_counts": [
+        3,
+        62
+      ],
+      "structured_500_count": 0,
+      "file": "job-101893353824.log",
+      "sha256": "c880ef2f0b3dce49d5a3addea0f8a9917c132cf0e7992ea12763fd79ca4f949a"
+    },
+    {
+      "lane": "mock",
+      "job_id": 101893354065,
+      "passed_counts": [
+        255
+      ],
+      "structured_500_count": 0,
+      "file": "job-101893354065.log",
+      "sha256": "2be48f13aac70222371aadd5d4ea212173218d3b72bb759b3c9219e49c8d43e0"
+    },
+    {
+      "lane": "webkit",
+      "job_id": 101893354145,
+      "passed_counts": [
+        3
+      ],
+      "structured_500_count": 0,
+      "file": "job-101893354145.log",
+      "sha256": "b711815c87fe911832c39de7d53704eadb4a8b251a3d48fe02d61209dabe4ebd"
+    },
+    {
+      "lane": "firefox",
+      "job_id": 101893354161,
+      "passed_counts": [
+        3
+      ],
+      "structured_500_count": 0,
+      "file": "job-101893354161.log",
+      "sha256": "ce78230cae89ce8f394693902b9822d63e547db4e13171c7eb64aaba8d840225"
+    },
+    {
+      "lane": "visual",
+      "job_id": 101893354238,
+      "passed_counts": [
+        191,
+        13
+      ],
+      "structured_500_count": 0,
+      "file": "job-101893354238.log",
+      "sha256": "d3849bd16bf7016be0a6aa030358550acb36d883c4f9cbc21a92c8957806abe8"
+    }
+  ],
+  "visual_review": "Agent opened three named representative images; parent opened the mobile tool-selection image. No visible defect in those images. Raw artifacts remain private.",
+  "limits": [
+    "Mock has13 intentional production-only skips.",
+    "Expected negative-frame ZXing logs and an unattributed Svelte history warning do not establish operation failures; no claim of zero browser-console errors.",
+    "Two backend first-pass failures are retained separately; passing aggregate results do not erase them."
+  ]
+}

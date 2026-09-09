@@ -1,0 +1,17 @@
+{
+  "exit": {
+    "cleanup_exit": "0",
+    "command_exit": "0",
+    "final_exit": "0"
+  },
+  "image": {
+    "id": "sha256:4da2058ff34b7f87fb9036dfa038e9ef71a74b52c8af434088fe6772c37c9098",
+    "revision": "79108f9deb128ffa9780a08530f0121273ddc5ef",
+    "user": "bun"
+  },
+  "input_hashes": {
+    "bytes": 456,
+    "sha256": "c4b6f533b35958f2b441abe899d72a74b4421e0e2120d16f420f8d17e6f775f5"
+  },
+  "source_commit_sha": "79108f9deb128ffa9780a08530f0121273ddc5ef"
+}

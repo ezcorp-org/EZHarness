@@ -1,0 +1,18 @@
+ 96 |       const terminal = await pending;
+ 97 |       if (action === "control") {
+ 98 |         assert("result" in terminal);
+ 99 |         assert.equal(outputText(terminal.result), `stored:${raceValue}`);
+100 |       } else {
+101 |         assert("error" in terminal || terminal.result.success === false, `${action} must deny the paused handler's next storage effect`);
+              ^
+AssertionError: disable must deny the paused handler's next storage effect
+ generatedMessage: false,
+     actual: false,
+   expected: true,
+   operator: "==",
+       code: "ERR_ASSERTION"
+
+      at main (/home/dev/work/EZCorp/extension-v4-independent-audit/scripts/verify-shipping-revocation.ts:101:9)
+      at processTicksAndRejections (native:7:39)
+
+Bun v1.3.14 (Linux x64)

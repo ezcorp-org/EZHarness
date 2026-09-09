@@ -1,0 +1,17 @@
+{
+  "revision": "71db8c0254a188193b9870808db28564ebf93988",
+  "indexes": [
+    {
+      "index": "runtime/artifacts/SHA256SUMS",
+      "entries": 40,
+      "sha256": "05e2ec5e9a2994465754679b7020f481706641f7090c9fa1d55c366049ee0106",
+      "status": "verified"
+    },
+    {
+      "index": "policy/artifacts/SHA256SUMS",
+      "entries": 14,
+      "sha256": "ffbb6b9a164e60ac006f192f7dfef40db05b7a20388054cdc35d641c9576203b",
+      "status": "verified"
+    }
+  ]
+}

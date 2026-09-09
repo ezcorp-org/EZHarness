@@ -1,0 +1,17 @@
+Traceback (most recent call last):
+  File "<temporary-control-root>/control-helper/scan-final-staged-snapshot-expand.py", line 120, in <module>
+    if __name__=='__main__': main()
+                             ~~~~^^
+  File "<temporary-control-root>/control-helper/scan-final-staged-snapshot-expand.py", line 118, in main
+    path,source,chain=queue.popleft(); serial+=1; expand(path,source,chain,output,queue,records,serial,totals)
+                                                  ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<temporary-control-root>/control-helper/scan-final-staged-snapshot-expand.py", line 75, in expand
+    try: stream_add(queue,records,root,source,chain,(parent_member or path.name)[:-4],serial,process.stdout,totals)
+         ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<temporary-control-root>/control-helper/scan-final-staged-snapshot-expand.py", line 62, in stream_add
+    if payload_bytes>MAX_BYTES-totals['bytes']: fail('archive expansion limit exceeded')
+                                                ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<temporary-control-root>/control-helper/scan-final-staged-snapshot-expand.py", line 8, in fail
+    def fail(message): raise ValueError(message)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: archive expansion limit exceeded

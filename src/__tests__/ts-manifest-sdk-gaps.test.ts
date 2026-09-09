@@ -1,237 +1,104 @@
-/**
- * Phase 28 gap tests: SDK tools (publish, dev, test-runner) integration
- * with loadManifest/loadManifestFresh, plus backward compatibility.
- */
-import { test, expect, describe, beforeEach, afterEach, mock, afterAll } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { controlActor, controlFixture, controlInstallation as installation, controlWorkspace as workspace } from "./helpers/extension-control-fixture";
+import { createExtensionFiles, extensionControlTools } from "../extensions/extension-control";
+import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
+import { assertJson, compileValueSchema, parseJson, validateInvocationContext, validateManifest, validateResourceLimits, validateWire } from "@ezcorp/extension-contract";
+import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { writeConfig } from "./helpers/write-config";
+import { loadManifest, loadManifestFresh } from "../extensions/loader";
 
-// ── Shared fixtures ──────────────────────────────────────────────
 
-const VALID_MANIFEST = {
-  schemaVersion: 2,
-  name: "sdk-gap-ext",
-  version: "1.0.0",
-  description: "SDK gap test extension",
-  author: { name: "Tester" },
-  entrypoint: "index.ts",
-  permissions: {},
-  tools: [{ name: "noop", description: "No-op", inputSchema: { type: "object" } }],
-};
+const contractManifest = { schemaVersion: 4, name: "echo", version: "1.0.0", description: "Echo", author: { name: "Test" }, permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "string" } }] };
 
-const MANIFEST_WITH_MEMORY = {
-  ...VALID_MANIFEST,
-  resources: { memory: "256MB" },
-};
-
-// ── Mocks ────────────────────────────────────────────────────────
-
-const SEMVER_RE = /^\d+\.\d+\.\d+$/;
-mock.module("../extensions/manifest", () => ({
-  validateManifestV2: (data: unknown) => {
-    const errors: string[] = [];
-    if (!data || typeof data !== "object") return { valid: false, errors: ["not an object"] };
-    const m = data as Record<string, unknown>;
-    if (m.schemaVersion !== 2) errors.push("schemaVersion must be 2");
-    if (typeof m.version !== "string" || !SEMVER_RE.test(m.version)) errors.push("version must be valid semver");
-    if (!m.description || typeof m.description !== "string") errors.push("description required");
-    if (!m.author || typeof m.author !== "object") errors.push("author.name required");
-    return { valid: errors.length === 0, errors };
-  },
-  generateSlug: (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
-  inferPackageType: () => "tool",
-}));
-
-const mockInitDb = mock(() => Promise.resolve());
-// Publish tokens are stored hashed at rest (sha256 hex), never as plaintext.
-const VALID_TOKEN_HASH = createHash("sha256").update("valid-token").digest("hex");
-const mockGetAllSettings = mock(() => Promise.resolve({
-  "publish:token:user-1": { tokenHash: VALID_TOKEN_HASH, createdAt: 1 },
-}));
-const mockCreateListing = mock(() => Promise.resolve({ id: "lst-1", name: "sdk-gap-ext", slug: "sdk-gap-ext" }));
-const mockGetListingBySlug = mock(() => Promise.resolve(undefined));
-const mockCreateVersion = mock(() => Promise.resolve({ id: "ver-1" }));
-const mockGetVersion = mock(() => Promise.resolve(undefined));
-const mockRunExtensionTests = mock(() => Promise.resolve(0));
-const mockComputePackageChecksums = mock(() => Promise.resolve({ "index.ts": "abc" }));
-
-mock.module("../db/connection", () => ({ initDb: mockInitDb, getDb: mock(() => ({})) }));
-mock.module("../db/queries/settings", () => ({
-  getSetting: mock(() => Promise.resolve(undefined)),
-  getAllSettings: mockGetAllSettings,
-  upsertSetting: mock(() => Promise.resolve()),
-  deleteSetting: mock(() => Promise.resolve(true)),
-}));
-mock.module("../db/queries/marketplace", () => ({
-  createListing: mockCreateListing,
-  getListingBySlug: mockGetListingBySlug,
-}));
-mock.module("../db/queries/marketplace-versions", () => ({
-  createVersion: mockCreateVersion,
-  getVersion: mockGetVersion,
-}));
-mock.module("../extensions/sdk/test-runner", () => ({
-  runExtensionTests: mockRunExtensionTests,
-}));
-mock.module("../extensions/checksum", () => ({
-  computePackageChecksums: mockComputePackageChecksums,
-  computeChecksum: mock(() => Promise.resolve("a".repeat(64))),
-  verifyChecksum: mock(() => Promise.resolve(true)),
-  verifyPackageChecksums: mock(() => Promise.resolve({ valid: true, mismatched: [] })),
-}));
-
-afterAll(() => restoreModuleMocks());
-
-// ── Helpers ──────────────────────────────────────────────────────
-
-let tempDir: string;
-
-beforeEach(() => {
-  tempDir = mkdtempSync(join(tmpdir(), "sdk-gap-test-"));
-  mockInitDb.mockClear();
-  mockGetAllSettings.mockClear();
-  mockCreateListing.mockClear();
-  mockGetListingBySlug.mockClear();
-  mockCreateVersion.mockClear();
-  mockGetVersion.mockClear();
-  mockComputePackageChecksums.mockClear();
-  mockGetListingBySlug.mockImplementation(() => Promise.resolve(undefined));
-  mockGetVersion.mockImplementation(() => Promise.resolve(undefined));
-  mockCreateListing.mockImplementation(() => Promise.resolve({ id: "lst-1", name: "sdk-gap-ext", slug: "sdk-gap-ext" }));
-  mockGetAllSettings.mockImplementation(() => Promise.resolve({
-    "publish:token:user-1": { tokenHash: VALID_TOKEN_HASH, createdAt: 1 },
-  }));
-});
-
-afterEach(() => {
-  rmSync(tempDir, { recursive: true, force: true });
-});
-
-function writeEntrypoint() {
-  writeFileSync(join(tempDir, "index.ts"), 'export default {};');
+async function assertHostSdkRefusal(config: string | undefined): Promise<boolean> {
+  const directory = await mkdtemp(join(tmpdir(), "sdk-host-load-"));
+  const marker = join(directory, "executed");
+  try {
+    await Bun.write(join(directory, "manifest.json"), JSON.stringify({ schemaVersion: 2, name: "legacy-json" }));
+    if (config) await Bun.write(join(directory, "ezcorp.config.ts"), `await Bun.write(${JSON.stringify(marker)}, "executed"); ${config}`);
+    await expect(loadManifest(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
+    await expect(loadManifestFresh(directory)).rejects.toMatchObject({ code: "EXTENSION_V4_REQUIRED" });
+    expect(await Bun.file(marker).exists()).toBe(false);
+    return false;
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-// ── publish + loadManifest ───────────────────────────────────────
+test("SDK host consumer refuses a missing local configuration", async () => { expect(await assertHostSdkRefusal(undefined)).toBe(false); });
 
-describe("publishExtension + loadManifest", () => {
-  test("reads manifest via loadManifest without throwing", async () => {
-    const { publishExtension } = await import("../extensions/sdk/publish");
-    await writeConfig(tempDir, VALID_MANIFEST);
-    writeEntrypoint();
-
-    await expect(
-      publishExtension({ extDir: tempDir, token: "valid-token", skipTests: true }),
-    ).resolves.toBeUndefined();
+  test("describes one SDK contract with nested tested source and no approval tool", async () => {
+    const { control } = controlFixture();
+    expect(await control.execute(controlActor, "extensions_describe", {})).toMatchObject({ schemaVersion: 4, sdk: "@ezcorp/sdk/v4", runtime: { helpers: "@ezcorp/sdk" }, browser: { sdk: "@ezcorp/sdk/browser", config: "ezcorp.browser.json", configFields: ["schemaVersion", "entrypoint", "html", "styles", "tools"], preview: "/extensions/<name>/preview?conversationId=<owned-id>" } });
+    const files = createExtensionFiles("safe-name", "test");
+    expect(files).toEqual(scaffoldWorkspace({ name: "safe-name", description: "test" }).files);
+    expect(files["extension.ts"]).toContain("defineExtension");
+    expect(files["src/echo.test.ts"]).toContain("expect");
+    expect(() => createExtensionFiles("../escape")).toThrow("lowercase");
+    expect(extensionControlTools.map((tool) => tool.name)).not.toContain("extensions_approve");
   });
 
-  test("rejects when ezcorp.config.ts is missing", async () => {
-    const { publishExtension } = await import("../extensions/sdk/publish");
-    // tempDir exists but has no config file
-
-    await expect(
-      publishExtension({ extDir: tempDir, token: "valid-token", skipTests: true }),
-    ).rejects.toThrow("No ezcorp.config.ts found");
+  test("validates every contribution shape with unknown fields denied", () => {
+    expect(validateManifest(contractManifest).name).toBe("echo");
+    for (const addition of [{ unknown: true }, { schemaVersion: 3 }, { permissions: { network: true } }, { pages: [{ id: "page", title: 7 }] }, { tools: [{ ...contractManifest.tools[0], outputSchema: undefined }] }]) expect(() => validateManifest({ ...contractManifest, ...addition })).toThrow();
+    expect(() => validateManifest({ ...contractManifest, tools: [contractManifest.tools[0], contractManifest.tools[0]] })).toThrow("duplicate");
+    expect(() => validateManifest({ ...contractManifest, preprocessors: [{ tool: "missing", accepts: ["text/plain"] }] })).toThrow();
+    expect(() => validateManifest({ ...contractManifest, messageToolbar: [{ id: "bad", icon: "test", tooltip: "x", event: "other:write" }] })).toThrow();
+    expect(validateManifest({ ...contractManifest, skills: [{ name: "help", description: "Help", files: ["SKILL.md"] }], pages: [{ id: "view", title: "View" }], entities: [{ type: "note", label: "Note", pluralLabel: "Notes", schema: { type: "object", properties: { body: { type: "string" } } } }], permissions: { llm: { providers: ["openai"], maxCallsPerHour: 3 }, workflows: { names: ["review"] }, schedule: { crons: ["*/5 * * * *"] } } }).entities).toHaveLength(1);
   });
 
-  test("rejects invalid manifest (missing required fields)", async () => {
-    const { publishExtension } = await import("../extensions/sdk/publish");
-    writeFileSync(
-      join(tempDir, "ezcorp.config.ts"),
-      `export default { name: "bad" };\n`,
-    );
-
-    await expect(
-      publishExtension({ extDir: tempDir, token: "valid-token", skipTests: true }),
-    ).rejects.toThrow("Invalid manifest");
-  });
-});
-
-// ── test-runner + loadManifest ───────────────────────────────────
-
-describe("runExtensionTests + loadManifest", () => {
-  // For these tests we need the real test-runner (not the mock used by publish).
-  // We import loadManifest directly since test-runner is mocked above.
-  test("loadManifest succeeds for valid config in test-runner context", async () => {
-    const { loadManifest } = await import("../extensions/loader");
-    await writeConfig(tempDir, VALID_MANIFEST);
-
-    const manifest = await loadManifest(tempDir);
-    expect(manifest.name).toBe("sdk-gap-ext");
-    expect(manifest.version).toBe("1.0.0");
+  test("rejects executable data without running accessors", () => {
+    let accessed = false;
+    const accessor = Object.defineProperty({}, "secret", { enumerable: true, get() { accessed = true; return "leak"; } });
+    for (const invalid of [accessor, new Date(), { value: undefined }, { value: () => 1 }, { value: Infinity }, JSON.parse('{"__proto__":{"evil":true}}'), new Array(2)]) expect(() => assertJson(invalid)).toThrow();
+    expect(accessed).toBe(false);
+    const cycle: unknown[] = []; cycle.push(cycle);
+    expect(() => assertJson(cycle)).toThrow();
+    expect(() => parseJson('"éé"', 4)).toThrow();
+    expect(() => parseJson("{bad}")).toThrow();
   });
 
-  test("loadManifest fails when ezcorp.config.ts is missing (test-runner path)", async () => {
-    const { loadManifest } = await import("../extensions/loader");
-
-    await expect(loadManifest(tempDir)).rejects.toThrow("No ezcorp.config.ts found");
+  test("schemas validate input and reject unsafe or unbounded evaluation", () => {
+    const validate = compileValueSchema(contractManifest.tools[0]!.inputSchema);
+    expect(() => validate({ text: "hello" })).not.toThrow();
+    for (const input of [{}, { text: 5 }, { text: "ok", secret: "extra" }]) expect(() => validate(input)).toThrow();
+    const local = compileValueSchema({ type: "object", properties: { text: { $ref: "#/$defs/text" } }, $defs: { text: { type: "string", pattern: "^[a-z]+$" } } });
+    expect(() => local({ text: "hello" })).not.toThrow();
+    expect(() => local({ text: "123" })).toThrow();
+    expect(() => compileValueSchema({ $ref: "https://attacker/schema" })).toThrow();
+    expect(() => compileValueSchema({ $ref: "#/$defs/self", $defs: { self: { $ref: "#/$defs/self" } } })).toThrow();
+    expect(() => compileValueSchema({ type: "string", pattern: "(a)\\1" })).toThrow();
+    expect(() => compileValueSchema({ type: "string", invalid: true })).toThrow();
+    const regex = compileValueSchema({ type: "string", pattern: "(a+)+$" });
+    const before = Date.now();
+    expect(() => regex(`${"a".repeat(20_000)}!`)).toThrow();
+    expect(Date.now() - before).toBeLessThan(2000);
   });
 
-  test("manifest.resources.memory is available for memory limit", async () => {
-    const { loadManifest } = await import("../extensions/loader");
-    await writeConfig(tempDir, MANIFEST_WITH_MEMORY);
-
-    const manifest = await loadManifest(tempDir) as unknown as Record<string, unknown>;
-    const resources = manifest.resources as { memory?: string };
-    expect(resources?.memory).toBe("256MB");
-  });
-});
-
-// ── dev server + loadManifestFresh ───────────────────────────────
-
-describe("startDevServer + loadManifestFresh", () => {
-  test("dev.ts imports loadManifestFresh from loader", async () => {
-    const source = await Bun.file(join(import.meta.dir, "../extensions/sdk/dev.ts")).text();
-    expect(source).toContain("loadManifestFresh");
-    expect(source).toMatch(/import\s*\{[^}]*loadManifestFresh[^}]*\}\s*from\s*["']\.\.\/loader["']/);
+  test("resource and identity inputs fail closed", () => {
+    const limits = { memoryBytes: 128000000, cpuMillis: 500, pids: 32, tmpBytes: 1000, outputBytes: 1000, timeoutMs: 1000 };
+    expect(validateResourceLimits(limits)).toEqual(limits);
+    expect(() => validateResourceLimits({ ...limits, pids: -1 })).toThrow();
+    expect(() => validateResourceLimits({ ...limits, flags: ["--privileged"] })).toThrow();
+    expect(() => validateInvocationContext({ invocationId: "x", workerId: "w", releaseId: "r", principalId: "", scopeId: "s", token: "t", deadline: 1 })).toThrow();
+    expect(() => validateWire("buildResult", { state: "succeeded" })).toThrow();
   });
 
-  test("dev.ts does NOT import loadManifest (only loadManifestFresh)", async () => {
-    const source = await Bun.file(join(import.meta.dir, "../extensions/sdk/dev.ts")).text();
-    // Should not have a bare loadManifest import (loadManifestFresh is fine)
-    const importLine = source.match(/import\s*\{([^}]*)\}\s*from\s*["']\.\.\/loader["']/);
-    expect(importLine).toBeTruthy();
-    const imports = importLine![1]!.split(",").map(s => s.trim());
-    expect(imports).toContain("loadManifestFresh");
-    expect(imports).not.toContain("loadManifest");
-  });
-});
-
-// ── Backward compatibility ───────────────────────────────────────
-
-describe("backward compatibility", () => {
-  test("directory with only manifest.json throws 'No ezcorp.config.ts found'", async () => {
-    const { loadManifest } = await import("../extensions/loader");
-    writeFileSync(join(tempDir, "manifest.json"), JSON.stringify(VALID_MANIFEST));
-    // No ezcorp.config.ts
-
-    await expect(loadManifest(tempDir)).rejects.toThrow("No ezcorp.config.ts found");
-  });
-
-  test("directory with both manifest.json and ezcorp.config.ts returns data from config", async () => {
-    const { loadManifest } = await import("../extensions/loader");
-    // Write manifest.json with different name
-    writeFileSync(join(tempDir, "manifest.json"), JSON.stringify({ ...VALID_MANIFEST, name: "json-name" }));
-    // Write ezcorp.config.ts with the real name
-    await writeConfig(tempDir, VALID_MANIFEST);
-
-    const manifest = await loadManifest(tempDir);
-    expect(manifest.name).toBe("sdk-gap-ext"); // from config, not json
-  });
-
-  test("loadManifest error message mentions 'ezcorp.config.ts'", async () => {
-    const { loadManifest } = await import("../extensions/loader");
-
-    try {
-      await loadManifest(tempDir);
-      expect.unreachable("should have thrown");
-    } catch (err) {
-      const msg = (err as Error).message;
-      expect(msg).toContain("ezcorp.config.ts");
-      expect(msg).not.toContain("manifest.json");
+  test("formats and presentation hints keep validation separate from UI annotations", () => {
+    for (const [format, valid, invalid] of [["date", "2024-02-29", "2024-02-31"], ["date-time", "2024-02-29T12:00:00Z", "yesterday"], ["uri", "https://example.com", "not a uri"], ["email", "person@example.com", "not an email"], ["uuid", "12345678-1234-1234-1234-123456789abc", "123"]]) {
+      const check = compileValueSchema({ type: "string", format });
+      expect(() => check(valid)).not.toThrow();
+      expect(() => check(invalid)).toThrow();
     }
+    expect(() => compileValueSchema({ type: "string", format: "combo-box", "x-options": { options: ["one"] }, "x-shared": "project.cwd" })("one")).not.toThrow();
+    expect(() => compileValueSchema({ type: "string", format: "unknown" })).toThrow();
+    expect(() => compileValueSchema({ type: "string", "x-shared": true })).toThrow();
+    expect(() => compileValueSchema({ type: "string", "x-options": true })).toThrow();
   });
-});
+
+  test("data schema changes require declared migration methods and safe compatibility versions", () => {
+    const method = { name: "data/migrate", inputSchema: { type: "object" }, outputSchema: { type: "object" } };
+    expect(validateManifest({ ...contractManifest, methods: [method], dataSchema: { version: "2", readableVersions: ["1", "2"], migrateMethod: "data/migrate" }, permissions: { hostApi: { routes: [{ method: "GET", path: "/api/projects/:id" }], events: false }, custom: { githubProjects: { actions: ["tickets"] } } } }).dataSchema?.version).toBe("2");
+    expect(() => validateManifest({ ...contractManifest, dataSchema: { version: "2", readableVersions: ["1"] } })).toThrow();
+    expect(() => validateManifest({ ...contractManifest, dataSchema: { version: "2", readableVersions: ["2"], migrateMethod: "missing" } })).toThrow();
+    expect(() => validateManifest({ ...contractManifest, permissions: { hostApi: { routes: [{ method: "GET", path: "/api/*" }], events: false } } })).toThrow();
+  });

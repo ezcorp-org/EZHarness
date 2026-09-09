@@ -1,0 +1,11 @@
+{
+  "name": "graded-card-scanner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zxing/library": "0.23.0",
+    "fast-png": "8.0.0",
+    "jpeg-js": "0.4.4"
+  }
+}

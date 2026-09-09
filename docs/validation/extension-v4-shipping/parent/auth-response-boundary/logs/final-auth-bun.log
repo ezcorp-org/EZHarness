@@ -1,0 +1,56 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/auth-middleware.test.ts:
+(pass) requireAuth > returns user when locals.user is set [0.43ms]
+(pass) requireAuth > throws Response with status 401 when locals.user is undefined [0.60ms]
+(pass) checkAuth > returns the authenticated user [0.04ms]
+(pass) checkAuth > RETURNS the requireAuth 401 Response without throwing [0.26ms]
+(pass) checkAuth > re-throws a non-Response error unchanged [0.24ms]
+(pass) requireRole > returns user when role matches [0.03ms]
+(pass) requireRole > throws Response with status 403 when role does not match [0.03ms]
+(pass) requireRole > throws 401 when no user at all [0.02ms]
+(pass) requireSessionAuth > returns the user for a cookie SESSION — the one allowed method [0.04ms]
+(pass) requireSessionAuth > RETURNS a 403 for an `api-key` principal — the R-4 hole itself [0.02ms]
+(pass) requireSessionAuth > RETURNS a 403 for an `internal` (bundled-extension) principal
+(pass) requireSessionAuth > RETURNS a 403 when the auth method was never stamped
+(pass) requireSessionAuth > RETURNS a 403 for an auth method that does not exist yet
+(pass) requireSessionAuth > an ADMIN with an api-key is still refused — method beats role [0.01ms]
+(pass) requireSessionAuth > a SESSION admin is allowed, so the refusal above is about the method
+(pass) requireSessionAuth > RETURNS a 401 (not 403) when there is no principal at all
+(pass) requireSessionAuth > the 401 body is byte-identical to requireAuth's [0.05ms]
+(pass) requireSessionAuth > the 403 body names the requirement [0.03ms]
+(pass) requireSessionAuth > NEVER throws — a thrown Response is a 500 from a +server.ts handler [0.03ms]
+(pass) requireSessionAuth > api-key SCOPES are irrelevant — every scope set is still refused [0.03ms]
+(pass) requireSessionAuth > a session with NO apiKeyScopes and one WITH them both resolve on method [0.01ms]
+(pass) isInteractiveSession > true only for `session` [0.01ms]
+(pass) isInteractiveSession > false for every other stamped method, and for an unstamped request [0.01ms]
+(pass) isInteractiveSession > a method nobody has invented yet lands on the DENY side [0.01ms]
+(pass) isInteractiveSession > agrees with requireSessionAuth on every input — one allowlist, not two [0.03ms]
+(pass) checkRole > returns the user (not a Response) when role matches [0.05ms]
+(pass) checkRole > RETURNS a 403 Response when role does not match (does not throw) [0.02ms]
+(pass) checkRole > RETURNS a 401 Response when there is no user (does not throw) [0.03ms]
+(pass) checkRole > re-throws a non-Response error unchanged [0.03ms]
+(pass) checkRole > admin role + API-key WITHOUT admin scope RETURNS a 403 (scope axis) [0.05ms]
+(pass) checkRole > admin role + API-key WITH admin scope returns the user (both axes pass) [0.01ms]
+(pass) checkRole > admin role + cookie session (no apiKeyScopes) is unaffected — returns the user [0.01ms]
+(pass) checkRole > member role + admin scope is still 403 (role axis holds independently) [0.01ms]
+(pass) requireAdminSession > the legitimate caller — an admin AT A BROWSER — gets through [0.04ms]
+(pass) requireAdminSession > an admin-role API KEY WITH the admin scope is still refused (session axis) [0.04ms]
+(pass) requireAdminSession > a NON-admin session is refused (role axis) [0.03ms]
+(pass) requireAdminSession > no principal at all is 401, not 403 [0.03ms]
+(pass) requireAdminSession > SESSION runs FIRST: a non-admin key hears about the session, not the role [0.03ms]
+(pass) requireAdminSession > an UNSTAMPED principal is refused — the negative-inference killer [0.01ms]
+(pass) requireAdminSession > every denial is RETURNED, never thrown (a thrown Response is a 500) [0.04ms]
+(pass) hasRequiredScope > undefined scopes (cookie session) always satisfies — allow-all [0.01ms]
+(pass) hasRequiredScope > returns true when the required scope is present
+(pass) hasRequiredScope > returns false when the required scope is absent
+(pass) requireTeamRole > returns user when membership role >= minRole [15.84ms]
+(pass) requireTeamRole > returns user when membership role equals minRole [27.82ms]
+(pass) requireTeamRole > throws 403 when membership role < minRole [7.65ms]
+(pass) requireTeamRole > instance admin bypasses team role check [7.23ms]
+(pass) requireTeamRole > throws 403 when user has no membership at all [3.81ms]
+
+ 48 pass
+ 0 fail
+ 83 expect() calls
+Ran 48 tests across 1 file. [1076.00ms]

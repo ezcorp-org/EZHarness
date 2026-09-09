@@ -9,6 +9,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
+vi.mock("$server/extensions/source-import", () => ({ importExtensionSource: vi.fn() }));
 
 vi.mock("$server/db/queries/marketplace", () => ({
   getListingById: vi.fn(),
@@ -44,6 +45,7 @@ const { createAgentConfig, getAgentConfigByName } = await import(
 );
 const { insertAuditEntry } = await import("$server/db/queries/audit-log");
 const { upsertSetting } = await import("$server/db/queries/settings");
+const { importExtensionSource } = await import("$server/extensions/source-import");
 const { POST } = await import(
   "../routes/api/marketplace/[id]/install/+server.ts"
 );
@@ -295,5 +297,21 @@ describe("POST /api/marketplace/[id]/install", () => {
     } as any);
     expect(res.status).toBe(201);
     expect(getLatestVersion).toHaveBeenCalledWith("listing-1");
+  });
+
+  test("v4 source requires an administrator session and stages without direct activation", async () => {
+    vi.mocked(getListingById).mockResolvedValue({ id: "listing-1" } as any);
+    vi.mocked(getLatestVersion).mockResolvedValue({ id: "version-1", version: "1.0.0", manifest: { schemaVersion: 4 } } as any);
+    for (const locals of [{ user: { ...user, role: "admin" }, authMethod: "api-key" }, { user, authMethod: "session" }]) expect((await POST(makeEvent({ locals, body: {} }))).status).toBe(403);
+    expect(importExtensionSource).not.toHaveBeenCalled();
+    vi.mocked(importExtensionSource).mockResolvedValue({ installation: { id: "installation" }, operation: { id: "build" }, openUrl: "/extensions/author" } as any);
+    const response = await POST(makeEvent({ locals: { user: { ...user, role: "admin" }, authMethod: "session" }, body: {} }));
+    expect(response.status).toBe(202);
+    expect(importExtensionSource).toHaveBeenCalledWith({ principalId: "u1", scope: "global", kind: "human" }, { kind: "marketplace", versionId: "version-1" });
+    expect(createAgentConfig).not.toHaveBeenCalled();
+    expect(incrementInstallCount).not.toHaveBeenCalled();
+    expect((await response.json()).operation.id).toBe("build");
+    vi.mocked(importExtensionSource).mockRejectedValue(new Error("corrupt artifact"));
+    expect((await POST(makeEvent({ locals: { user: { ...user, role: "admin" }, authMethod: "session" }, body: {} }))).status).toBe(500);
   });
 });

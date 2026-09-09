@@ -5,7 +5,8 @@
  * EZCorp process) from opening a datadir a running server holds.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -18,10 +19,38 @@ import {
   releaseHolder,
 } from "../db/live-holder-guard";
 
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-  while (cleanups.length) cleanups.pop()?.();
+const cleanups: Array<() => void | Promise<void>> = [];
+afterEach(async () => {
+  while (cleanups.length) await cleanups.pop()?.();
 });
+
+type Child = Pick<ReturnType<typeof Bun.spawn>, "exitCode" | "exited" | "kill">;
+
+function trackChild(child: Child): void {
+  cleanups.push(async () => {
+    if (child.exitCode === null) child.kill();
+    await child.exited;
+  });
+}
+
+/** Wait until the child has exec'd the expected executable, not merely forked. */
+async function waitForExecutable(pid: number, executable: string): Promise<void> {
+  const expected = realpathSync(executable);
+  for (let i = 0; i < 500; i++) {
+    if (await realpath(`/proc/${pid}/exe`).catch(() => "") === expected) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`Child ${pid} did not exec ${expected} within 5000ms`);
+}
+
+/** Wait until Linux has published the exec arguments, rather than its empty exec window. */
+async function waitForCmdline(pid: number): Promise<void> {
+  for (let i = 0; i < 500; i++) {
+    if (readFileSync(`/proc/${pid}/cmdline`, "utf8")) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`Child ${pid} did not publish cmdline within 5000ms`);
+}
 
 function tempDbPath(): string {
   const dir = mkdtempSync(join(tmpdir(), "ezcorp-holder-guard-"));
@@ -80,15 +109,10 @@ describe("assertNoLiveHolder", () => {
   test("throws DbInUseError for a LIVE bun holder, with remediation", async () => {
     const db = tempDbPath();
     // A real, live bun process — exactly what a running EZCorp server is.
-    const child = Bun.spawn(["bun", "-e", "await Bun.sleep(30_000)"]);
-    cleanups.push(() => child.kill());
-    // Right after spawn (pre-exec) /proc/<pid>/cmdline is briefly empty;
-    // wait until the kernel exposes the real argv before asserting.
-    for (let i = 0; i < 50; i++) {
-      const cmdline = await Bun.file(`/proc/${child.pid}/cmdline`).text().catch(() => "");
-      if (cmdline.includes("bun")) break;
-      await Bun.sleep(100);
-    }
+    const child = Bun.spawn([process.execPath, "-e", "await Bun.sleep(30_000)"]);
+    trackChild(child);
+    await waitForExecutable(child.pid, process.execPath);
+    expect(isLiveHolder(child.pid)).toBe(true);
     writeFileSync(holderPidPath(db), String(child.pid));
     let caught: unknown;
     try {
@@ -109,8 +133,13 @@ describe("assertNoLiveHolder", () => {
     const db = tempDbPath();
     // A live process whose cmdline is not bun/ezcorp — models pid recycling
     // after a container restart. Refusing here would crash-loop the server.
-    const child = Bun.spawn(["sleep", "30"]);
-    cleanups.push(() => child.kill());
+    const sleep = Bun.which("sleep");
+    if (!sleep) throw new Error("sleep is required for the pid-recycling control");
+    const child = Bun.spawn([sleep, "30"]);
+    trackChild(child);
+    await waitForExecutable(child.pid, sleep);
+    await waitForCmdline(child.pid);
+    expect(isLiveHolder(child.pid)).toBe(false);
     writeFileSync(holderPidPath(db), String(child.pid));
     expect(() => assertNoLiveHolder(db)).not.toThrow();
   });
@@ -128,6 +157,20 @@ describe("isLiveHolder", () => {
     const emptyProc = tempDbPath(); // just a fresh temp path; no /<pid> inside
     expect(isLiveHolder(process.pid, emptyProc)).toBe(true);
   });
+
+  test("alive runtime with an empty readable cmdline counts as live during exec", async () => {
+    const child = Bun.spawn([process.execPath, "-e", "await Bun.sleep(30_000)"]);
+    trackChild(child);
+    await waitForExecutable(child.pid, process.execPath);
+
+    const procRoot = mkdtempSync(join(tmpdir(), "ezcorp-holder-guard-proc-"));
+    cleanups.push(() => rmSync(procRoot, { recursive: true, force: true }));
+    mkdirSync(join(procRoot, String(child.pid)));
+    writeFileSync(join(procRoot, String(child.pid), "cmdline"), "");
+
+    expect(isLiveHolder(child.pid, procRoot)).toBe(true);
+  });
+
 });
 
 describe("claimHolder / releaseHolder", () => {

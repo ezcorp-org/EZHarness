@@ -1,403 +1,122 @@
-/**
- * Comprehensive unit tests for defineExtension, stripFunctions (via loadManifest),
- * loadManifestFresh, and test helpers (configContent/writeConfig).
- *
- * Does NOT duplicate tests in manifest-loader.test.ts.
- */
+import { describe, expect, mock, test } from "bun:test";
+import { requestedReleaseGrants } from "../extensions/extension-control";
+import { createExtensionControlTools, getExtensionControlMetadata } from "../runtime/tools/extensions";
 
-import { test, expect, describe } from "bun:test";
-import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
+import { controlActor as actor, controlFixture as fixture, controlInstallation as installation, } from "./helpers/extension-control-fixture";
 
-import { loadManifest, loadManifestFresh } from "../extensions/loader";
-import { defineExtension } from "../extensions/sdk/define";
-import { configContent, writeConfig } from "./helpers/write-config";
-
-function at<T>(arr: readonly T[] | undefined, i: number, what: string): T {
-  const v = arr?.[i];
-  if (v === undefined) throw new Error(`expected ${what} at index ${i}`);
-  return v;
-}
-function need<T>(v: T | undefined, what: string): T {
-  if (v === undefined) throw new Error(`expected ${what}`);
-  return v;
-}
-
-async function makeTempDir(): Promise<string> {
-  return mkdtemp(join(tmpdir(), "define-ext-test-"));
-}
-
-const BASE = {
-  schemaVersion: 2 as const,
-  name: "test-ext",
-  version: "1.0.0",
-  description: "Test",
-  author: { name: "Test" },
-  permissions: {},
-};
-
-// ── defineExtension ─────────────────────────────────────────────────
-
-describe("defineExtension", () => {
-  test("returns exact same reference (identity)", () => {
-    const obj = { ...BASE };
-    expect(defineExtension(obj)).toBe(obj);
+describe("extension control", () => {
+  test("workspace control accepts bounded binary assets above the invocation frame limit", async () => {
+    const { control, lifecycle } = fixture();
+    const file = { encoding: "base64", data: "AAAA".repeat(400_000), executable: false };
+    await control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "assets/large.bin": file } });
+    expect(lifecycle.editWorkspace).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "assets/large.bin": file }, deletes: undefined });
+    await expect(control.execute(actor, "extensions_workspace", { action: "create", writes: { "asset.bin": { ...file, data: "AB==" } } })).rejects.toThrow("canonical");
+    await expect(control.execute(actor, "extensions_workspace", { action: "create", writes: { "extension.ts": file } })).rejects.toThrow("must be text");
+    expect(lifecycle.createWorkspace).not.toHaveBeenCalled();
   });
 
-  test("works with tools", () => {
-    const config = defineExtension({
-      ...BASE,
-      tools: [{ name: "t", description: "d", inputSchema: { type: "object", properties: {} } }],
-    });
-    expect(config.tools).toHaveLength(1);
+
+
+  test("lists, reads and revision-checks edits", async () => {
+    const { control, lifecycle } = fixture();
+    expect(await control.execute(actor, "extensions_workspace", { action: "list" })).toEqual([installation]);
+    await control.execute(actor, "extensions_workspace", { action: "read", installationId: "installation", workspaceId: "workspace" });
+    await control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "nested/file.ts": "text" }, deletes: ["old.ts"] });
+    expect(lifecycle.editWorkspace).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, writes: { "nested/file.ts": "text" }, deletes: ["old.ts"] });
   });
 
-  test("works with skills", () => {
-    const config = defineExtension({
-      ...BASE,
-      skills: [{ name: "s", description: "d", prompt: "do stuff" }],
-    });
-    expect(at(config.skills, 0, "skill").name).toBe("s");
+
+
+  test("resolves dependencies through revision-checked workspace action without building", async () => {
+    const { control, lifecycle } = fixture();
+    const input = { action: "resolveDependencies", installationId: "installation", workspaceId: "workspace", expectedRevision: 1 };
+    expect(await control.execute(actor, "extensions_workspace", input)).toMatchObject({ revision: 2 });
+    expect(lifecycle.resolveWorkspaceDependencies).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1 });
+    expect(lifecycle.build).not.toHaveBeenCalled();
+    await expect(control.execute(actor, "extensions_workspace", { action: input.action, installationId: input.installationId, workspaceId: input.workspaceId })).rejects.toThrow("expectedRevision");
   });
 
-  test("works with agent", () => {
-    const config = defineExtension({
-      ...BASE,
-      agent: { prompt: "be helpful", category: "general" },
-    });
-    expect(config.agent!.prompt).toBe("be helpful");
-  });
-
-  test("works with mcpServers", () => {
-    const config = defineExtension({
-      ...BASE,
-      mcpServers: [{ transport: "stdio", name: "m", description: "d", command: "node", args: ["./mcp.ts"] }],
-    });
-    const s = at(config.mcpServers, 0, "mcp server");
-    expect(s.transport).toBe("stdio");
-    expect(s.transport === "stdio" && s.command).toBe("node");
-  });
-
-  test("preserves function-valued handler properties at config level", () => {
-    const handler = () => "hello";
-    const config = defineExtension({
-      ...BASE,
-      tools: [{ name: "t", description: "d", inputSchema: { type: "object", properties: {} }, handler } as any],
-    });
-    expect((config.tools![0] as any).handler).toBe(handler);
-  });
-
-  test("works with empty config (just required fields)", () => {
-    const config = defineExtension({ ...BASE });
-    expect(config.name).toBe("test-ext");
-    expect((config as { tools?: unknown }).tools).toBeUndefined();
-  });
-
-  test("works with deeply nested config objects", () => {
-    const config = defineExtension({
-      ...BASE,
-      agent: {
-        prompt: "test",
-        modelRequirements: { tier: "powerful" },
-        exampleConversations: [{
-          title: "demo",
-          messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "hey" }],
-        }],
-      },
-    });
-    const agent = need(config.agent, "config.agent");
-    expect(need(agent.modelRequirements, "modelRequirements").tier).toBe("powerful");
-    expect(at(agent.exampleConversations, 0, "example conversation").messages).toHaveLength(2);
-  });
-});
-
-// ── stripFunctions (tested via loadManifest roundtrip) ──────────────
-
-describe("stripFunctions via loadManifest", () => {
-  test("strips functions from skills array items", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        skills: [{ name: "s", description: "d", onInvoke: () => {} }],
-      };\n`);
-      const m = await loadManifest(dir);
-      const skill = at(m.skills, 0, "skill");
-      expect((skill as any).onInvoke).toBeUndefined();
-      expect(skill.name).toBe("s");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
+  test("rejects extra input, invalid revisions, missing fields and approval attempts", async () => {
+    const { control, lifecycle } = fixture();
+    for (const input of [{ action: "approve", installationId: "installation" }, { action: "activate", installationId: "installation" }, { action: "disable", installationId: "installation", approved: true }]) {
+      await expect(control.execute(actor, "extensions_release", input)).rejects.toHaveProperty("code", "invalid_input");
     }
+    for (const expectedRevision of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) await expect(control.execute(actor, "extensions_build", { installationId: "installation", workspaceId: "workspace", expectedRevision, idempotencyKey: "key" })).rejects.toHaveProperty("code", "invalid_input");
+    await expect(control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", writes: { "file.ts": 1 } })).rejects.toHaveProperty("code", "invalid_input");
+    expect(lifecycle.activate).not.toHaveBeenCalled();
   });
 
-  test("strips functions from agent object", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        agent: { prompt: "hi", onMessage: () => {} },
-      };\n`);
-      const m = await loadManifest(dir);
-      expect((m.agent as any).onMessage).toBeUndefined();
-      expect(m.agent!.prompt).toBe("hi");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+
+
+  test("activation, rollback, disable and uninstall all use the same lifecycle", async () => {
+    const { control, lifecycle } = fixture();
+    for (const action of ["activate", "rollback"]) await control.execute(actor, "extensions_release", { action, installationId: "installation", approvalId: "approval", idempotencyKey: "key" });
+    for (const action of ["disable", "uninstall"]) await control.execute(actor, "extensions_release", { action, installationId: "installation" });
+    expect(lifecycle.activate).toHaveBeenCalledWith(actor, { installationId: "installation", approvalId: "approval", idempotencyKey: "key" });
+    expect(lifecycle.rollback).toHaveBeenCalledTimes(1);
+    expect(lifecycle.disable).toHaveBeenCalledWith(actor, "installation");
+    expect(lifecycle.uninstall).toHaveBeenCalledWith(actor, "installation");
   });
 
-  test("strips functions from mcpServers array items", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        mcpServers: [{ transport: "stdio", name: "m", description: "d", command: "node", args: ["./m.ts"], setup: () => {} }],
-      };\n`);
-      const m = await loadManifest(dir);
-      const server = at(m.mcpServers, 0, "mcp server");
-      expect((server as any).setup).toBeUndefined();
-      expect(server.name).toBe("m");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+  test("inspect is owner-scoped, bounded, and abortable", async () => {
+    const { control, state } = fixture();
+    expect(await control.execute(actor, "extensions_inspect", { installationId: "installation" })).toEqual(state);
+    await expect(control.execute(actor, "extensions_inspect", { installationId: "installation", operationId: "missing" })).rejects.toHaveProperty("code", "not_found");
+    await expect(control.execute(actor, "extensions_inspect", { installationId: "installation", waitMs: 300001 })).rejects.toHaveProperty("code", "invalid_input");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(control.execute(actor, "extensions_inspect", { installationId: "installation" }, controller.signal)).rejects.toBeDefined();
   });
 
-  test("preserves declared non-function properties", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        entrypoint: "./index.ts",
-        tools: [{
-          name: "tool1", description: "d",
-          inputSchema: { type: "object", properties: { x: { type: "number" } } },
-          cardLayout: "dock", suggestExamples: ["show tool one"],
-        }],
-      };\n`);
-      const m = await loadManifest(dir);
-      const tool = m.tools![0] as any;
-      expect(tool.cardLayout).toBe("dock");
-      expect(tool.suggestExamples).toEqual(["show tool one"]);
-      expect(tool.inputSchema.properties.x.type).toBe("number");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+
+  test("rejects unsupported tools and malformed workspace revisions before lifecycle calls", async () => {
+    const { control, lifecycle } = fixture();
+    await expect(control.execute(actor, "extensions_unknown" as never, {})).rejects.toMatchObject({ code: "unknown_tool" });
+    await expect(control.execute(actor, "extensions_workspace", null as never)).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "read", installationId: "installation" })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "edit", installationId: "installation", workspaceId: "workspace", expectedRevision: 1.5 })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "resolveDependencies", installationId: "installation", workspaceId: "workspace", expectedRevision: "stale" })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(control.execute(actor, "extensions_workspace", { action: "stale-action", installationId: "installation", workspaceId: "workspace" })).rejects.toMatchObject({ code: "invalid_input" });
+    expect(lifecycle.readWorkspace).not.toHaveBeenCalled();
+    expect(lifecycle.editWorkspace).not.toHaveBeenCalled();
+    expect(lifecycle.resolveWorkspaceDependencies).not.toHaveBeenCalled();
   });
 
-  test("handles empty tools/skills arrays", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        tools: [], skills: [],
-      };\n`);
-      const m = await loadManifest(dir);
-      expect(m.tools).toEqual([]);
-      expect(m.skills).toEqual([]);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+
+
+  test("approval requests bind all authority declarations, never caller-supplied grants", async () => {
+    const { control, lifecycle, state } = fixture();
+    const manifest = { schemaVersion: 4 as const, name: "test", version: "1", description: "test", author: { name: "test" }, permissions: { storage: true }, acceptsCallerCaps: true, escalateChildCaps: true };
+    state.releases.release = { id: "release", installationId: "installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", manifest, evidence: { protocolVersion: 4, validatorVersion: "4", tests: [], discoveryDigest: "discovery" }, runnerProfile: "podman", releaseDigest: "release-digest", policyDigest: "policy", createdAt: "now" };
+    const grants = requestedReleaseGrants(manifest);
+    expect(grants).toEqual(['["acceptsCallerCaps",true]', '["escalateChildCaps",true]', '["storage",true]']);
+    await expect(control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "missing", expectedActiveReleaseId: null })).rejects.toHaveProperty("code", "not_found");
+    await expect(control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "release" })).rejects.toHaveProperty("code", "invalid_input");
+    await expect(control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "release", expectedActiveReleaseId: null, grants: [] })).rejects.toHaveProperty("code", "invalid_input");
+    expect(lifecycle.requestApproval).not.toHaveBeenCalled();
+    await control.execute(actor, "extensions_release", { action: "requestApproval", installationId: "installation", releaseId: "release", expectedActiveReleaseId: null });
+    expect(lifecycle.requestApproval).toHaveBeenCalledWith(actor, { installationId: "installation", releaseId: "release", grants, expectedActiveReleaseId: null });
   });
 
-  test("handles missing tools/skills/agent keys", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-      };\n`);
-      const m = await loadManifest(dir);
-      // Phase 1's migrateManifestV2ToV3 normalizes missing `tools` to
-      // an empty array in the v3 shape. `skills` and `agent` aren't
-      // added by the migration, so they stay undefined.
-      expect(m.tools).toEqual([]);
-      expect(m.skills).toBeUndefined();
-      expect(m.agent).toBeUndefined();
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+  test("builtins preserve structured errors and force agent identity", async () => {
+    const { control } = fixture();
+    const execute = mock(control.execute.bind(control));
+    control.execute = execute;
+    const tools = createExtensionControlTools({ ...actor, kind: "human" }, async () => control);
+    expect(getExtensionControlMetadata()).toHaveLength(5);
+    const describe = tools.find((tool) => tool.name === "extensions_describe")!;
+    const result = await describe.execute("call", {}, undefined);
+    expect(result.content[0]).toHaveProperty("type", "text");
+    expect(execute.mock.calls[0]![0].kind).toBe("agent");
+    expect((await describe.execute("call", null, undefined)).details).toHaveProperty("isError", true);
+    expect((await describe.execute("call", { invalid: true }, undefined)).details).toMatchObject({ isError: true, code: "invalid_input" });
   });
 
-  test("handles multiple function properties on same tool", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        tools: [{
-          name: "t", description: "d",
-          inputSchema: { type: "object", properties: {} },
-          handler: () => {}, validate: () => {}, transform: () => {},
-        }],
-        entrypoint: "./index.ts",
-      };\n`);
-      const m = await loadManifest(dir);
-      const tool = m.tools![0] as any;
-      expect(tool.handler).toBeUndefined();
-      expect(tool.validate).toBeUndefined();
-      expect(tool.transform).toBeUndefined();
-      expect(tool.name).toBe("t");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+  test("queues an exact revision and returns before durable worker finishes", async () => {
+    const { control, lifecycle } = fixture();
+    expect(await control.execute(actor, "extensions_build", { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, idempotencyKey: "retry-key", entrypoint: "nested/start.ts" })).toMatchObject({ id: "operation" });
+    expect(lifecycle.runBuild).toHaveBeenCalledWith(actor, "installation", "operation");
+    expect(lifecycle.build).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, idempotencyKey: "retry-key", entrypoint: "nested/start.ts" });
   });
 
-  test("rejects an unknown top-level function", async () => {
-    const dir = await makeTempDir();
-    try {
-      // Only declared component handlers survive author evaluation. A
-      // top-level callback is neither executable nor part of the manifest.
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        onInstall: () => "installed",
-      };\n`);
-      await expect(loadManifest(dir)).rejects.toThrow("manifest.onInstall is not a recognized field");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ── loadManifest error paths ────────────────────────────────────────
-
-describe("loadManifest error paths", () => {
-  test("throws when no default export (named export only)", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export const config = { name: "x" };\n`);
-      await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when default export is null", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default null;\n`);
-      await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when default export is an array", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default [1, 2, 3];\n`);
-      // Arrays are typeof "object" so they pass the object check but fail validation
-      await expect(loadManifest(dir)).rejects.toThrow(/Invalid manifest/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("throws when default export is a number", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default 42;\n`);
-      await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("rejects extra unknown properties", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
-        schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
-        author: { name: "T" }, permissions: {},
-        customField: "hello", anotherExtra: 123,
-      };\n`);
-      await expect(loadManifest(dir)).rejects.toThrow("manifest.customField is not a recognized field");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ── loadManifestFresh ───────────────────────────────────────────────
-
-describe("loadManifestFresh", () => {
-  test("returns valid manifest (basic)", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify(BASE)};\n`);
-      const m = await loadManifestFresh(dir);
-      expect(m.name).toBe("test-ext");
-      // Phase 1: loadManifestFresh auto-promotes v2 → v3.
-      expect(m.schemaVersion).toBe(3);
-      expect((m as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("returns updated content after file rewrite (cache-busting)", async () => {
-    const dir = await makeTempDir();
-    try {
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify({ ...BASE, name: "original" })};\n`);
-      const m1 = await loadManifestFresh(dir);
-      expect(m1.name).toBe("original");
-
-      // Small delay to ensure Date.now() produces a different cache-bust param
-      await Bun.sleep(5);
-
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify({ ...BASE, name: "updated" })};\n`);
-      const m2 = await loadManifestFresh(dir);
-      expect(m2.name).toBe("updated");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ── configContent / writeConfig helpers ─────────────────────────────
-
-describe("configContent", () => {
-  test("generates valid TS export default", () => {
-    const content = configContent({ name: "test", version: "1.0.0" });
-    expect(content).toStartWith("export default ");
-    expect(content).toEndWith(";\n");
-    expect(content).toContain('"name": "test"');
-  });
-});
-
-describe("writeConfig", () => {
-  test("creates ezcorp.config.ts in target dir", async () => {
-    const dir = await makeTempDir();
-    try {
-      await writeConfig(dir, BASE);
-      const file = Bun.file(join(dir, "ezcorp.config.ts"));
-      expect(await file.exists()).toBe(true);
-      const text = await file.text();
-      expect(text).toContain("test-ext");
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("generated config is loadable by loadManifest", async () => {
-    const dir = await makeTempDir();
-    try {
-      await writeConfig(dir, BASE);
-      const m = await loadManifestFresh(dir);
-      expect(m.name).toBe("test-ext");
-      // Phase 1: loadManifestFresh auto-promotes v2 → v3.
-      expect(m.schemaVersion).toBe(3);
-      expect((m as { _inheritedFromV2?: boolean })._inheritedFromV2).toBe(true);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
 });

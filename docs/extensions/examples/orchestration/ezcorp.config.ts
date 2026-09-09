@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // Static manifest schema for the `invoke_agent` tool. The per-turn
 // `agentConfigId` enum is runtime-scoped (derived from the mentioned
@@ -103,7 +103,7 @@ const SEND_TO_AGENT_SCHEMA = {
 } as const;
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "orchestration",
   // Phase 2 of the ask-user migration: the legacy `ask_human` tool
   // and its `orchestrator:human_response` subscription have been
@@ -117,7 +117,7 @@ export default defineExtension({
   description:
     "Multi-agent orchestration primitives. Provides `invoke_agent` for delegating to a sub-agent within a conversation.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   tools: [
     {

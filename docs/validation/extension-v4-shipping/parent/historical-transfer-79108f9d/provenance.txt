@@ -1,0 +1,5 @@
+started_utc=2026-09-07T17:40:15Z
+transfer_source=native-podman-remote-false
+transfer_target=rootful-docker-default-context
+image_count=3
+image_deletions=0

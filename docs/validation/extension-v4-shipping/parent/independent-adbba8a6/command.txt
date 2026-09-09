@@ -1,0 +1,4 @@
+DOCKER_HOST=unix:///run/user/1001/podman/podman.sock
+CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=chromium EZCORP_E2E_EVIDENCE=1
+PLAYWRIGHT_BLOB_OUTPUT_FILE=.cache/terra-shipping/parent/independent-adbba8a6/chromium.zip
+bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts --project chromium

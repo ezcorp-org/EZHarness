@@ -40,10 +40,15 @@ import {
 // non-handler exports from +server.ts, and tests must be able to import
 // the real list to catch events that emit but never reach this pipe.
 
-export const GET: RequestHandler = async ({ locals, url, request }) => {
+export const GET: RequestHandler = async ({ locals, url, request, platform }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
+
+  // svelte-adapter-bun provides the live Bun server and original request here.
+  // This is a long-lived stream, so disable Bun's per-request idle timeout
+  // after authentication rather than weakening the timeout for every route.
+  if (platform?.server?.timeout && platform.request) platform.server.timeout(platform.request, 0);
 
   const bus = getBus();
 

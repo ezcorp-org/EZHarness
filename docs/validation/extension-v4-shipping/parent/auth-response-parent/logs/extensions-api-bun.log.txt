@@ -1,0 +1,53 @@
+bun test v1.3.14 (0d9b296a)
+
+web/src/__tests__/extensions-api.test.ts:
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"source":"local","path":"/tmp/ext"} without side effects [0.31ms]
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"source":"github","repo":"owner/repo"} without side effects [0.03ms]
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"source":"git","url":"https://evil.test/repo"} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"source":"unknown"} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"source":"github"} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"grantedPermissions":{"network":["evil.com","api.example.com.evil.com"],"shell":true}} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"grantedPermissions":{"filesystem":["/*"],"env":["SECRET"],"storage":true,"grantedAt":{"storage":1}}} without side effects
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {"grantedPermissions":{"storage":false,"grantedAt":{"shell":{}}}} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > install rejects legacy input {} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > install requires authentication and extensions scope [0.10ms]
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"source":"local","path":"/tmp/ext"} without side effects [0.07ms]
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"source":"github","repo":"owner/repo"} without side effects [0.02ms]
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"source":"git","url":"https://evil.test/repo"} without side effects [0.02ms]
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"source":"unknown"} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"source":"github"} without side effects
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"grantedPermissions":{"network":["evil.com","api.example.com.evil.com"],"shell":true}} without side effects
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"grantedPermissions":{"filesystem":["/*"],"env":["SECRET"],"storage":true,"grantedAt":{"storage":1}}} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {"grantedPermissions":{"storage":false,"grantedAt":{"shell":{}}}} without side effects [0.03ms]
+(pass) retired install and activation routes cannot grant authority > activate rejects legacy input {} without side effects [0.01ms]
+(pass) retired install and activation routes cannot grant authority > activate requires authentication and extensions scope [0.09ms]
+(pass) retired install and activation routes cannot grant authority > task-stack cannot auto-enable through a retired endpoint [0.06ms]
+(pass) retired install and activation routes cannot grant authority > property-intelligence-agent cannot auto-enable through a retired endpoint [0.01ms]
+(pass) retired install and activation routes cannot grant authority > substack-pipeline cannot auto-enable through a retired endpoint [0.01ms]
+(pass) retired install and activation routes cannot grant authority > excel cannot auto-enable through a retired endpoint
+(pass) retired install and activation routes cannot grant authority > substack-pilot cannot auto-enable through a retired endpoint [0.01ms]
+(pass) retired install and activation routes cannot grant authority > direct activation helper refuses all authority changes [0.08ms]
+(pass) PATCH /api/extensions/:id > direct enable is retired and points at release control [0.13ms]
+(pass) PATCH /api/extensions/:id > {enabled:false} → 200, disabled AND recorded as the user's choice [0.30ms]
+(pass) PATCH /api/extensions/:id > API key lacking 'extensions' scope → 403 [0.07ms]
+(pass) PATCH /api/extensions/:id > non-admin cookie user CANNOT disable an extension → 403 (was a back-door) [0.08ms]
+(pass) GET /api/extensions > admin → 200 with list [0.25ms]
+(pass) GET /api/extensions > empty list → 200 [] [0.06ms]
+(pass) GET /api/extensions > MCP transport secrets are stripped from the payload [0.16ms]
+(pass) GET /api/extensions > member (cookie) → 200 — handler has requireAuth but no role gate [0.08ms]
+(pass) GET /api/extensions > unauthenticated → returned 401 [0.06ms]
+(pass) GET /api/extensions > API key without 'read' scope → 403 [0.07ms]
+(pass) GET /api/extensions/:id > admin → 200 with extension fields [0.13ms]
+(pass) GET /api/extensions/:id > unknown id → 404 [0.08ms]
+(pass) GET /api/extensions/:id > unauthenticated → 401 [0.07ms]
+(pass) GET /api/extensions/:id > API key without 'read' scope → 403 [0.06ms]
+(pass) DELETE /api/extensions/:id > uninstall uses the scoped lifecycle and retains stored data [0.09ms]
+(pass) DELETE /api/extensions/:id > purge requires a separate retention review [0.06ms]
+(pass) DELETE /api/extensions/:id > missing installation is 404 [0.19ms]
+(pass) DELETE /api/extensions/:id > legacy projection cannot bypass migration [0.07ms]
+(pass) DELETE /api/extensions/:id > uninstall checks both role and API key scope [0.10ms]
+
+ 45 pass
+ 0 fail
+ 235 expect() calls
+Ran 45 tests across 1 file. [555.00ms]

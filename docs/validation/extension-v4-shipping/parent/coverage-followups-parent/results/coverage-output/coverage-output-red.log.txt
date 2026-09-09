@@ -1,0 +1,25 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/coverage-leg-lcov-guard.test.ts:
+435 |           FAKE_BUN_STATE: state,
+436 |         },
+437 |       });
+438 |       const output = proc.stdout.toString();
+439 |       expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+440 |       expect(output).toContain("FIRST_PASS_FAILURE_SENTINEL");
+                           ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "FIRST_PASS_FAILURE_SENTINEL"
+Received: "== host-shard mode (HOST_FILES_OVERRIDE, dev-only): 1 files ==\n\nCoverage recovery: src/__tests__/coverage-leg-lcov-guard.test.ts produced no lcov in the pooled run (crash before the reporter could flush?) — re-running isolated WITH --coverage, up to 2 attempt(s):\n  - src/__tests__/coverage-leg-lcov-guard.test.ts: recovered coverage on attempt 1/2\n\n  0 pass | 0 fail | 1 files (shard 0/1)\n\nRetry sweep: 1 failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):\n  - src/__tests__/coverage-leg-lcov-guard.test.ts: passed the isolated plain re-run (instrumentation/contention flake — tolerated)\n"
+
+      at <anonymous> (/home/dev/work/EZCorp/extension-v4-independent-audit/src/__tests__/coverage-leg-lcov-guard.test.ts:440:22)
+      at withTmp (/home/dev/work/EZCorp/extension-v4-independent-audit/src/__tests__/coverage-leg-lcov-guard.test.ts:64:12)
+      at <anonymous> (/home/dev/work/EZCorp/extension-v4-independent-audit/src/__tests__/coverage-leg-lcov-guard.test.ts:382:5)
+(fail) gate_host_failures: the shared host-pool pass/fail rule > the real wrapper prints the pooled failure before a clean retry [104.25ms]
+
+ 0 pass
+ 40 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [618.00ms]

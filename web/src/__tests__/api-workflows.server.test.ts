@@ -43,6 +43,10 @@ vi.mock("$server/db/queries/project-members", () => members);
 
 import { GET, POST } from "../routes/api/workflows/+server";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } from "$server/runtime/workflow/runtime-registry";
+import { releaseRuntimeFixture } from "$server/__tests__/helpers/release-runtime";
+import { releaseBinding } from "$server/extensions/release-process";
+vi.mock("$server/db/queries/users", () => ({ getUserById: async (id: string) => ({ id, status: "active", role: id === "u-admin" ? "admin" : "member" }) }));
 
 /** A `system` cache entry — what every row created through POST is. */
 function systemEntry(name: string) {
@@ -60,10 +64,14 @@ function systemEntry(name: string) {
 /** A YAML- or extension-shipped cache entry: an ownerless file on disk,
  *  `system` because it ships with the INSTALL and never a row. */
 function assetEntry(name: string, source: "yaml" | "extension") {
-  return { ...systemEntry(name), source, id: null };
+  if (source === "yaml") return { ...systemEntry(name), source, id: null };
+  const fixture = releaseRuntimeFixture("installation", { schemaVersion: 4, name: "fixture", version: "1.0.0", description: "Fixture", author: { name: "Owner" }, permissions: {} }, { ownerId: "u1" });
+  fixture.configure();
+  return { ...systemEntry(name), source, id: null, visibility: "private", userId: "u1", extensionRelease: { installationId: "installation", ownerId: "u1", scope: "global", binding: releaseBinding(fixture.snapshot) } };
 }
 
 beforeEach(() => {
+  _resetWorkflowRuntimeForTests();
   ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.createWorkflow.mockReset().mockImplementation(async (def: unknown) => def);
@@ -87,6 +95,27 @@ function makeEvent(opts: {
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "member" } };
+
+test("workflow creation does not disclose a private extension graph through cycle diagnostics", async () => {
+  const workflows = [
+    { name: "sealed:entry", description: "", steps: [{ name: "child", kind: "workflow" as const, workflow: "sealed:confidential-customer-export" }] },
+    { name: "sealed:confidential-customer-export", description: "", steps: [{ name: "loop", kind: "workflow" as const, workflow: "sealed:entry" }] },
+  ];
+  registerWorkflowRuntime({ workflowExecutor: {} as never, getWorkflows: () => workflows, getCachedWorkflows: () => workflows.map(definition => ({ definition, source: "extension", id: null, projectId: null, userId: "another-user", visibility: "private", forkedFrom: null })) });
+  const response = await POST(makeEvent({ locals: authedUser, body: { name: "probe", steps: [{ name: "read", kind: "workflow", workflow: "sealed:entry" }] } }));
+  const body = await response.text();
+  expect(body).not.toContain("confidential-customer-export");
+  expect(response.status).toBe(201);
+});
+
+test("workflow creation still detects cycles in the caller's own private graph", async () => {
+  const nested = { ...systemEntry("owned-child"), userId: "u1", visibility: "private", definition: { name: "owned-child", description: "", steps: [{ name: "back", kind: "workflow", workflow: "probe" }] } };
+  ctx.getCachedWorkflows.mockReturnValue([nested]);
+  const response = await POST(makeEvent({ locals: authedUser, body: { name: "probe", steps: [{ name: "child", kind: "workflow", workflow: "owned-child" }] } }));
+  expect(response.status).toBe(400);
+  expect(await response.text()).toContain("probe -> owned-child -> probe");
+  expect(queries.createWorkflow).not.toHaveBeenCalled();
+});
 
 describe("GET /api/workflows", () => {
   test("returns 403 when API-key scope missing 'read'", async () => {

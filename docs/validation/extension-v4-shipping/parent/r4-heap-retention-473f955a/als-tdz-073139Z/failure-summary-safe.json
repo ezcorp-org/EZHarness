@@ -1,0 +1,6 @@
+{
+  "exitCode": 1,
+  "failureKind": "temporal_dead_zone",
+  "messageContainsBeforeInitialization": true,
+  "resultJsonBytes": 0
+}

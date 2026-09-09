@@ -4,11 +4,11 @@
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import { join } from "node:path";
+import { sealPublishedRelease, validateWire } from "@ezcorp/extension-contract";
 import { getPublishToken } from "./config";
 import { generateSlug } from "../manifest";
-import { loadManifest } from "../loader";
-import { computePackageChecksums } from "../checksum";
+import { getCliExtensionRunner, verifyCliExtension } from "../cli-control";
+import { getUserById } from "../../db/queries/users";
 import { initDb } from "../../db/connection";
 import { createListing, getListingBySlug } from "../../db/queries/marketplace";
 import { createVersion, getVersion } from "../../db/queries/marketplace-versions";
@@ -19,7 +19,7 @@ const log = logger.child("ext-sdk");
 export interface PublishOptions {
   extDir?: string;     // defaults to cwd
   token?: string;      // --token flag override
-  skipTests?: boolean; // skip test run (for testing publish flow itself)
+  skipTests?: boolean;
 }
 
 /**
@@ -42,61 +42,21 @@ export async function publishExtension(opts?: PublishOptions): Promise<void> {
   await initDb();
   const userId = await verifyToken(token);
 
-  // 3. Read and validate manifest
-  const manifest = await loadManifest(extDir);
-
-  // 5. Check entrypoint exists (if declared)
-  if (manifest.entrypoint) {
-    const entrypointFile = Bun.file(join(extDir, manifest.entrypoint));
-    if (!(await entrypointFile.exists())) {
-      throw new Error(`Entrypoint file not found: ${manifest.entrypoint}`);
-    }
-  }
-
-  // 6. Run tests (unless skipped)
-  if (!opts?.skipTests) {
-    const { runExtensionTests } = await import("./test-runner");
-    const exitCode = await runExtensionTests({ extDir });
-    if (exitCode !== 0) {
-      throw new Error("Tests failed. Fix test failures before publishing.");
-    }
-  }
-
-  // 7. Check for existing version
+  if (opts?.skipTests) throw new Error("Release verification cannot be skipped");
+  const user = await getUserById(userId);
+  if (user?.status !== "active") throw new Error("An active publisher account is required");
+  const build = validateWire("buildResult", await verifyCliExtension(extDir));
+  if (build.state !== "succeeded" || !build.manifest || !build.artifactDigest) throw new Error("Isolated build or tests failed; nothing was published");
+  const artifacts = await getCliExtensionRunner().collectArtifacts(build.artifactDigest);
+  const release = await sealPublishedRelease(build, artifacts);
+  const manifest = build.manifest;
   const slug = generateSlug(manifest.name);
   let listing = await getListingBySlug(slug);
-
-  if (listing) {
-    const existingVersion = await getVersion(listing.id, manifest.version);
-    if (existingVersion) {
-      throw new Error(`Version ${manifest.version} already published. Bump version in ezcorp.config.ts.`);
-    }
-  }
-
-  // 8. Compute checksums
-  const packageChecksums = await computePackageChecksums(extDir);
-
-  // 9. Create listing if new
-  if (!listing) {
-    listing = await createListing({
-      authorId: userId,
-      name: manifest.name,
-      description: manifest.description,
-      category: (manifest as unknown as Record<string, unknown>).category as string ?? "Other",
-      tags: (manifest as unknown as Record<string, unknown>).tags as string[] ?? [],
-      latestVersion: manifest.version,
-    });
-  }
-
-  // 10. Create version record with checksums in manifest
-  const manifestWithChecksums = { ...manifest, packageChecksums };
-  await createVersion(
-    listing.id,
-    manifest.version,
-    manifestWithChecksums as ExtensionManifestV2,
-    (manifest as unknown as Record<string, unknown>).changelog as string | undefined,
-  );
-
+  if (listing && listing.authorId !== userId) throw new Error("Only the listing author can publish a version");
+  if (listing && await getVersion(listing.id, manifest.version)) throw new Error("Version already published. Bump the extension version.");
+  if (await verifyToken(token) !== userId || (await getUserById(userId))?.status !== "active") throw new Error("Publisher authorization changed during verification");
+  if (!listing) listing = await createListing({ authorId: userId, name: manifest.name, description: manifest.description, category: manifest.category ?? "Other", tags: manifest.tags ?? [], latestVersion: manifest.version });
+  await createVersion(listing.id, manifest.version, manifest as ExtensionManifestV2, undefined, release);
   // 11. Success
   log.info("Published extension", { name: manifest.name, version: manifest.version });
 }
@@ -128,6 +88,7 @@ async function verifyToken(token: string): Promise<string> {
 
   for (const [key, value] of Object.entries(allSettings)) {
     if (!key.startsWith("publish:token:")) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const stored = value as { tokenHash?: unknown; createdAt?: number };
     // Legacy plaintext rows ({ token }) have no tokenHash and are treated as
     // invalid -- re-issue the token at Settings > Developer.

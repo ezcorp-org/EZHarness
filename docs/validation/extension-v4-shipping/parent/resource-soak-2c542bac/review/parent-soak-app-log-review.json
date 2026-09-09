@@ -1,0 +1,127 @@
+{
+  "relativePath": "compose.log",
+  "origin": "current_candidate_soak",
+  "rawSha256": "0c7f06403ffe80bcf6ba5e701ec6d8d3408535333fceee3cde07cab77851294e",
+  "rawLineCount": 299,
+  "parsedStructuredJsonCount": 292,
+  "structuredJsonSourceCounts": {
+    "compose_prefixed": 292
+  },
+  "levelCounts": {
+    "info": 291,
+    "warn": 1
+  },
+  "warningErrorFatalSignatures": [
+    {
+      "level": "warn",
+      "subsystem": "embed-worker",
+      "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+      "code": "<missing>",
+      "count": 1,
+      "lines": [
+        20
+      ]
+    }
+  ],
+  "unknownLevelSignatures": [],
+  "embeddingTransitions": {
+    "not_ready": [
+      {
+        "level": "warn",
+        "subsystem": "embed-worker",
+        "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+        "code": "<missing>",
+        "count": 1,
+        "lines": [
+          20
+        ]
+      }
+    ],
+    "other_embedding": [
+      {
+        "level": "info",
+        "subsystem": "db",
+        "message": "Database mode: embedded PGlite",
+        "code": "<missing>",
+        "count": 1,
+        "lines": [
+          1
+        ]
+      }
+    ],
+    "ready": [
+      {
+        "level": "info",
+        "subsystem": "embed-worker",
+        "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts",
+        "code": "<missing>",
+        "count": 1,
+        "lines": [
+          22
+        ]
+      }
+    ],
+    "startup": [
+      {
+        "level": "info",
+        "subsystem": "startup.timers",
+        "message": "EmbedWorker started",
+        "code": "<missing>",
+        "count": 1,
+        "lines": [
+          13
+        ]
+      },
+      {
+        "level": "info",
+        "subsystem": "startup.timers",
+        "message": "Embedding warmup kicked",
+        "code": "<missing>",
+        "count": 1,
+        "lines": [
+          4
+        ]
+      }
+    ]
+  },
+  "unknownStructuredRecords": [],
+  "malformedJsonRecords": [],
+  "nonStructuredRecords": [
+    {
+      "line": 19,
+      "rawSha256": "014c4557f2d27f38383f87fd8b711ed5ec845f7586ff982247d540c79203deab",
+      "reason": "non_json_payload"
+    },
+    {
+      "line": 294,
+      "rawSha256": "42e5a62ab604d2c6578d6e771c0f4de89be8880a90cc679d6b9074d410ae47ae",
+      "reason": "missing_compose_prefix_and_non_json_payload"
+    },
+    {
+      "line": 295,
+      "rawSha256": "b9e246c5a2c7a8a5aefeb9a1c3f6329b2c4a3963528200fc142961eaefe3bbe6",
+      "reason": "missing_compose_prefix_and_non_json_payload"
+    },
+    {
+      "line": 296,
+      "rawSha256": "82b19481add2f132b1db3d0bb192291308033ac20f7c5c28fd5bbd9cfc5d1d8f",
+      "reason": "missing_compose_prefix_and_non_json_payload"
+    },
+    {
+      "line": 297,
+      "rawSha256": "4f49dab6c3191115cb8f2c8a6d3d6bdad2e8c4d0f5b56967f8c88421c79e05d3",
+      "reason": "missing_compose_prefix_and_non_json_payload"
+    },
+    {
+      "line": 298,
+      "rawSha256": "4b9a52036779757cb7aee6374a74961ecaad684eaa26b08ffaab0aef3a36f6cc",
+      "reason": "missing_compose_prefix_and_non_json_payload"
+    },
+    {
+      "line": 299,
+      "rawSha256": "bc0434bc298e6f8437d983f48931db7e1b9b85caa5cac2cb9857ba4310ee6227",
+      "reason": "missing_compose_prefix_and_non_json_payload"
+    }
+  ],
+  "boundary": "All nonstructured lines are shown separately for manual parent review; app_log_exit records collection only."
+}

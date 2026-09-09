@@ -1,0 +1,11 @@
+{
+  "private_receipt": ".cache/terra-shipping/parent/publish-auth-response-20260907T2155Z",
+  "controller_exit": 1,
+  "scanner_exit": 1,
+  "scanner_cleanup_exit": 0,
+  "classification": "two generic-api-key false positives caused by 64-character source SHA-256 strings in auth-response-parent/metadata/inputs.json",
+  "affected_file": "docs/validation/extension-v4-shipping/parent/auth-response-parent/metadata/inputs.json",
+  "fix": "format-only conversion from an object keyed by source paths to file/sha256 records; scanner configuration had no exception added",
+  "finding_values_retained": false,
+  "commit_or_push_performed": false
+}

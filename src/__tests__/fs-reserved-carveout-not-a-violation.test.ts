@@ -137,7 +137,7 @@ function prov(): CallProvenance {
     conversationId: "conv-A",
     runId: null,
     parentCallId: null,
-    actorExtensionId: EXT_NAME,
+    actorExtensionId: extensionId,
     kind: "tool",
     ownerless: false,
   };

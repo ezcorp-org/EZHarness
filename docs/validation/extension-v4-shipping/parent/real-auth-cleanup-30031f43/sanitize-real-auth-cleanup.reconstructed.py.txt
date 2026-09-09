@@ -1,0 +1,50 @@
+# Reconstructed after the original curation run from its sanitizer record and
+# recorded command transcript. It is not asserted to be the exact source bytes
+# used during the original run. It writes only to SANITIZE_OUTPUT_DIR.
+from pathlib import Path
+import hashlib
+import os
+import re
+
+out = Path(os.environ["SANITIZE_OUTPUT_DIR"])
+inputs = {
+    "original": Path("/tmp/real-auth-cleanup-base-20260907T105709Z"),
+    "fixed": Path("/tmp/real-auth-cleanup-fixed-20260907T110218Z"),
+}
+record = []
+for label, root in inputs.items():
+    raw = (root / "playwright.log").read_text()
+    source_hash = hashlib.sha256(raw.encode()).hexdigest()
+    text = raw
+    text = re.sub(r"/tmp/ezcorp-e2e-[A-Za-z0-9]+(?:/[^\s,;:)]+)?", "<owned-pglite-path>", text)
+    text = re.sub(r"(?i)(authorization:\s*(?:bearer\s+)?)[^\s,;]+", r"\1<redacted>", text)
+    text = re.sub(r"(?i)(set-cookie:\s*)[^\r\n]+", r"\1<redacted>", text)
+    text = re.sub(r"(?i)(cookie:\s*)[^\r\n]+", r"\1<redacted>", text)
+    text = re.sub(r"(?<![\w.-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w.-])", "<redacted-email>", text)
+    text = re.sub(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", "<redacted-jwt>", text)
+    target = out / f"{label}-playwright.log.txt"
+    target.write_text(text)
+    record.append(
+        f"{label} raw log: {root / 'playwright.log'}\n"
+        f"sha256={source_hash}\nbytes={len(raw.encode())}\n"
+        f"sanitized={target.name}\nsha256={hashlib.sha256(text.encode()).hexdigest()}\nbytes={len(text.encode())}\n"
+    )
+    for name in ("before.txt", "after.txt", "new.txt"):
+        entries = (root / name).read_text().splitlines()
+        redacted = []
+        serial = 0
+        for entry in entries:
+            if entry.startswith("ezcorp-e2e-"):
+                serial += 1
+                redacted.append(f"<owned-fixture-root-{serial}>")
+            else:
+                redacted.append(entry)
+        (out / f"{label}-{name}").write_text("\n".join(redacted) + ("\n" if redacted else ""))
+    (out / f"{label}-exit.txt").write_text((root / "exit").read_text())
+(out / "sanitizer-record.txt").write_text(
+    "Sanitizer: private Python stdlib script executed for this curation.\n"
+    "Rules: replace owned fixture paths, cookie/authorization header values, JWT-shaped values, and email-shaped values.\n"
+    "Listings: replace each random fixture-root suffix with an ordinal placeholder; retain all line counts.\n"
+    "No raw log, auth state, database, key, trace, or blob is copied into this directory.\n\n"
+    + "\n".join(record)
+)

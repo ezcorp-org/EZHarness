@@ -1,0 +1,27 @@
+[
+  {
+    "path": "docs/validation/extension-v4-independent/build/build-supplemental-receipts.tar.zst",
+    "compressedBytes": 38101,
+    "decompressedTarBytes": 184320
+  },
+  {
+    "path": "docs/validation/extension-v4-independent/build/final-coverage-curated-3a56a869.tar.zst",
+    "compressedBytes": 8716871,
+    "decompressedTarBytes": 1238722560
+  },
+  {
+    "path": "docs/validation/extension-v4-independent/build/final-replacement-validation-logs.tar.zst",
+    "compressedBytes": 30723,
+    "decompressedTarBytes": 225280
+  },
+  {
+    "path": "docs/validation/extension-v4-independent/build/build-validation-logs.tar.zst",
+    "compressedBytes": 79086,
+    "decompressedTarBytes": 778240
+  },
+  {
+    "path": "docs/validation/extension-v4-independent/build/final-coverage-curated-ea445e9e-plus4d.tar.zst",
+    "compressedBytes": 8825673,
+    "decompressedTarBytes": 1248184320
+  }
+]

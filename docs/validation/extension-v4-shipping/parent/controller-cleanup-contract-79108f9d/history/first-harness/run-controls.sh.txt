@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -u -o pipefail
+control=$(cd "$(dirname "$0")" && pwd)
+parser="$control/parser.awk"
+printf 'case\tparser_exit\tpolicy_exit\tparser_output\n' > "$control/results.tsv"
+main_rc=0
+for case in valid-zero verifier-nonzero missing duplicate malformed; do
+  output=$(awk -f "$parser" "$control/$case.command.log")
+  parser_rc=$?
+  policy_rc=1
+  if [[ "$parser_rc" -eq 0 ]]; then
+    read -r command app cleanup verifier <<< "$output"
+    [[ "$command" == 0 && "$app" == 0 && "$cleanup" == 0 && "$verifier" == 0 ]]
+    policy_rc=$?
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$case" "$parser_rc" "$policy_rc" "${output:-<none>}" >> "$control/results.tsv"
+  case "$case:$parser_rc:$policy_rc" in
+    valid-zero:0:0|verifier-nonzero:0:1|missing:1:1|duplicate:1:1|malformed:1:1) ;;
+    *) main_rc=1 ;;\n  esac
+done
+exit "$main_rc"

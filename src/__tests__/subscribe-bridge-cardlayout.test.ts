@@ -12,22 +12,23 @@
  */
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { createUnsubscribedBridgeDatabase } from "./helpers/subscribe-bridge-db";
+import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
+import { LifecycleError } from "../extensions/v4/types";
 
 // Capture-bag for persistToolCall calls.
 const persisted: Array<Record<string, unknown>> = [];
+let failPersistence = false;
 
 mock.module("../db/queries/tool-calls", () => ({
 	persistToolCall: async (row: Record<string, unknown>) => {
+		if (failPersistence) throw new LifecycleError("event_persist_failed", "test persistence failure");
 		persisted.push(row);
 	},
 	listToolCallOutputsForMessages: async () => [],
 	getToolCallConversationById: async () => null,
 }));
-mock.module("../db/connection", () => ({
-	getDb: () => ({
-		update: () => ({ set: () => ({ where: async () => {} }) }),
-	}),
-}));
+mock.module("../db/connection", () => ({ getDb: createUnsubscribedBridgeDatabase }));
 mock.module("../db/queries/extensions", () => ({
 	listExtensions: async () => [],
 }));
@@ -61,6 +62,7 @@ function makePiAgent() {
 
 beforeEach(() => {
 	persisted.length = 0;
+	failPersistence = false;
 	ExtensionRegistry.resetInstance();
 });
 
@@ -106,6 +108,8 @@ describe("validation: subscribeBridge — clarify-brief tool propagation", () =>
 		const host: StreamChatHost = {
 			bus,
 			persist: true,
+			errorMessagePersisted: new Set(),
+			permissionEngine: createStubPermissionEngine(),
 			pendingPermissions: new Map(),
 			controllers: new Map(),
 			runConversations: new Map(),
@@ -139,6 +143,7 @@ describe("validation: subscribeBridge — clarify-brief tool propagation", () =>
 			},
 		});
 
+		await ctx.dbQueue;
 		const startEvt = emits.find((e) => e.name === "tool:start");
 		const completeEvt = emits.find((e) => e.name === "tool:complete");
 		expect(startEvt).toBeDefined();
@@ -196,6 +201,8 @@ describe("subscribeBridge — cardLayout fan-out", () => {
 		const host: StreamChatHost = {
 			bus,
 			persist: true,
+			errorMessagePersisted: new Set(),
+			permissionEngine: createStubPermissionEngine(),
 			pendingPermissions: new Map(),
 			controllers: new Map(),
 			runConversations: new Map(),
@@ -229,6 +236,7 @@ describe("subscribeBridge — cardLayout fan-out", () => {
 			result: { content: [{ type: "text", text: "ok" }] },
 		});
 
+		await ctx.dbQueue;
 		const startEvt = emits.find((e) => e.name === "tool:start");
 		const completeEvt = emits.find((e) => e.name === "tool:complete");
 		expect(startEvt, "tool:start emitted").toBeDefined();
@@ -242,5 +250,10 @@ describe("subscribeBridge — cardLayout fan-out", () => {
 		const row = persisted.find((r) => r.providerToolCallId === "tc-1");
 		expect(row, "persistToolCall called for the tool").toBeDefined();
 		expect(row!.cardLayout).toBe("dock");
+		failPersistence = true;
+		piAgent.fire({ type: "tool_execution_end", toolCallId: "failed-write", toolName: "claude-design__open-canvas", isError: false, result: { content: [] } });
+		await ctx.dbQueue;
+		expect(ctx.domainEventFailure).toHaveProperty("code", "event_persist_failed");
+		expect(emits.filter(event => event.name === "tool:complete")).toHaveLength(1);
 	});
 });

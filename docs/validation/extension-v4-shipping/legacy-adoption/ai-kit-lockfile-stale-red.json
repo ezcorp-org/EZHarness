@@ -1,0 +1,37 @@
+{
+  "candidateSource": "e1178674c819fc3442a6ec1769f1ad035cea5aba",
+  "runnerCapacity": {
+    "bootstrapInstallations": 28,
+    "initialPending": 28,
+    "maximumPending": 28,
+    "terminalOperationStates": {
+      "verified": 27,
+      "failed": 1
+    },
+    "terminalOperations": [
+      {
+        "name": "ai-kit",
+        "installationId": "e183e28c-6439-43bd-97d1-0cc8533873af",
+        "operation": {
+          "id": "d83daad8-44c5-4709-a75c-43696e40dee5",
+          "kind": "build",
+          "state": "failed",
+          "diagnostics": [
+            {
+              "code": "lockfile_stale",
+              "stage": "dependencies",
+              "message": "Package dependencies differ from the frozen lockfile",
+              "retryable": false
+            },
+            {
+              "code": "build_failed",
+              "stage": "build",
+              "message": "The isolated build did not produce a valid release.",
+              "retryable": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+
+Running 13 tests using 1 worker
+
+cat: /app/.ezcorp/extension-data/file-organizer/config.json: No such file or directory
+
+  ✓   1 [chromium] › e2e/file-organizer-real.spec.ts:286:5 › file-organizer real-backend › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted (121ms)
+  ✓   2 [chromium] › e2e/file-organizer-real.spec.ts:315:5 › file-organizer real-backend › add-folder: a RELATIVE path is refused by the REAL validator with the exact message (22ms)
+  ✓   3 [chromium] › e2e/file-organizer-real.spec.ts:323:5 › file-organizer real-backend › add-folder: an UNREACHABLE absolute path is refused with the container-visibility message (78ms)
+  ✓   4 [chromium] › e2e/file-organizer-real.spec.ts:336:5 › file-organizer real-backend › add-folder: a DESCENDANT of an already-watched folder is refused as already-covered (20ms)
+  ✓   5 [chromium] › e2e/file-organizer-real.spec.ts:352:5 › file-organizer real-backend › add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error (23ms)
+  ✓   6 [chromium] › e2e/file-organizer-real.spec.ts:368:5 › file-organizer real-backend › config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config (1.0m)
+cat: /app/data/file-organizer-test/fo-test-watched/daemon-proof.tmp: No such file or directory
+
+  ✓   7 [chromium] › e2e/file-organizer-real.spec.ts:425:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk (1.9m)
+  ✓   8 [chromium] › e2e/file-organizer-real.spec.ts:506:5 › file-organizer real-backend › picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation) (12ms)
+  ✓   9 [chromium] › e2e/file-organizer-real.spec.ts:516:5 › file-organizer real-backend › UI: a refused add surfaces a real error toast in the browser (2.2s)
+  ✓  10 [chromium] › e2e/file-organizer-real.spec.ts:556:5 › file-organizer real-backend › add-folder: the added folder APPEARS in the Hub render (data dirs aligned) (723ms)
+  ✓  11 [chromium] › e2e/file-organizer-real.spec.ts:572:5 › file-organizer real-backend › config mutation REFLECTS in the Folders Hub render (data dirs aligned) (2.2s)
+  ✓  12 [chromium] › e2e/file-organizer-real.spec.ts:597:5 › file-organizer real-backend › Review Hub render loads against the live backend (data dirs aligned) (2.0s)
+
+  ✓  13 [chromium] › e2e/file-organizer-real.spec.ts:602:5 › file-organizer real-backend › lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import (15.2s)
+
+  13 passed (3.7m)

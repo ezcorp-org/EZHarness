@@ -1,0 +1,536 @@
+﻿2026-09-07T21:57:08.5188388Z Current runner version: '2.337.0'
+2026-09-07T21:57:08.5214130Z ##[group]Runner Image Provisioner
+2026-09-07T21:57:08.5215295Z Hosted Compute Agent
+2026-09-07T21:57:08.5215928Z Version: 20260828.587
+2026-09-07T21:57:08.5216667Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-07T21:57:08.5217482Z Build Date: 2026-08-28T16:44:25Z
+2026-09-07T21:57:08.5218189Z Worker ID: {d9c6896d-646e-4554-b3e6-c6055a9f33de}
+2026-09-07T21:57:08.5219058Z Azure Region: northcentralus
+2026-09-07T21:57:08.5219700Z ##[endgroup]
+2026-09-07T21:57:08.5221187Z ##[group]Operating System
+2026-09-07T21:57:08.5221872Z Ubuntu
+2026-09-07T21:57:08.5222406Z 24.04.4
+2026-09-07T21:57:08.5223019Z LTS
+2026-09-07T21:57:08.5223582Z ##[endgroup]
+2026-09-07T21:57:08.5224196Z ##[group]Runner Image
+2026-09-07T21:57:08.5225153Z Image: ubuntu-24.04
+2026-09-07T21:57:08.5225758Z Version: 20260831.293.1
+2026-09-07T21:57:08.5227152Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260831.293/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-07T21:57:08.5228741Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260831.293
+2026-09-07T21:57:08.5229788Z ##[endgroup]
+2026-09-07T21:57:08.5230992Z ##[group]GITHUB_TOKEN Permissions
+2026-09-07T21:57:08.5232925Z Contents: read
+2026-09-07T21:57:08.5233582Z Metadata: read
+2026-09-07T21:57:08.5234309Z ##[endgroup]
+2026-09-07T21:57:08.5236717Z Secret source: Actions
+2026-09-07T21:57:08.5237883Z Prepare workflow directory
+2026-09-07T21:57:08.5763417Z Prepare all required actions
+2026-09-07T21:57:08.5831911Z Getting action download info
+2026-09-07T21:57:08.7961047Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-09-07T21:57:08.9980839Z Complete job name: Svelte check
+2026-09-07T21:57:09.0798978Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-09-07T21:57:09.0800004Z with:
+2026-09-07T21:57:09.0800472Z   repository: ezcorp-org/EZHarness
+2026-09-07T21:57:09.0804428Z   token: ***
+2026-09-07T21:57:09.0805057Z   ssh-strict: true
+2026-09-07T21:57:09.0805519Z   ssh-user: git
+2026-09-07T21:57:09.0805987Z   persist-credentials: true
+2026-09-07T21:57:09.0806494Z   clean: true
+2026-09-07T21:57:09.0806955Z   sparse-checkout-cone-mode: true
+2026-09-07T21:57:09.0807488Z   fetch-depth: 1
+2026-09-07T21:57:09.0807931Z   fetch-tags: false
+2026-09-07T21:57:09.0808386Z   show-progress: true
+2026-09-07T21:57:09.0808844Z   lfs: false
+2026-09-07T21:57:09.0809271Z   submodules: false
+2026-09-07T21:57:09.0809733Z   set-safe-directory: true
+2026-09-07T21:57:09.0810260Z   allow-unsafe-pr-checkout: false
+2026-09-07T21:57:09.0810972Z env:
+2026-09-07T21:57:09.0811411Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:09.0811969Z ##[endgroup]
+2026-09-07T21:57:09.1815390Z Syncing repository: ezcorp-org/EZHarness
+2026-09-07T21:57:09.1818683Z ##[group]Getting Git version info
+2026-09-07T21:57:09.1819831Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+2026-09-07T21:57:09.1821494Z [command]/usr/bin/git version
+2026-09-07T21:57:09.1887647Z git version 2.55.0
+2026-09-07T21:57:09.1906853Z ##[endgroup]
+2026-09-07T21:57:09.1916990Z Temporarily overriding HOME='/home/runner/work/_temp/d0018ba4-c489-4558-add6-61a67406b375' before making global git config changes
+2026-09-07T21:57:09.1919379Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-07T21:57:09.1923207Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+2026-09-07T21:57:09.1978365Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+2026-09-07T21:57:09.1988365Z ##[group]Determining repository object format
+2026-09-07T21:57:09.1989786Z ##[endgroup]
+2026-09-07T21:57:09.1990904Z ##[group]Initializing the repository
+2026-09-07T21:57:09.2002019Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+2026-09-07T21:57:09.2069055Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-07T21:57:09.2070409Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-07T21:57:09.2071343Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-07T21:57:09.2072104Z hint: call:
+2026-09-07T21:57:09.2072518Z hint:
+2026-09-07T21:57:09.2073059Z hint: 	git config --global init.defaultBranch <name>
+2026-09-07T21:57:09.2073700Z hint:
+2026-09-07T21:57:09.2074284Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-07T21:57:09.2075773Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-07T21:57:09.2076735Z hint:
+2026-09-07T21:57:09.2077295Z hint: 	git branch -m <name>
+2026-09-07T21:57:09.2078023Z hint:
+2026-09-07T21:57:09.2078992Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-07T21:57:09.2080576Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+2026-09-07T21:57:09.2088683Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+2026-09-07T21:57:09.2135801Z ##[endgroup]
+2026-09-07T21:57:09.2136827Z ##[group]Disabling automatic garbage collection
+2026-09-07T21:57:09.2138939Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-07T21:57:09.2171679Z ##[endgroup]
+2026-09-07T21:57:09.2172699Z ##[group]Setting up auth
+2026-09-07T21:57:09.2173437Z Removing SSH command configuration
+2026-09-07T21:57:09.2178467Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-07T21:57:09.2212794Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-07T21:57:09.2547583Z Removing HTTP extra header
+2026-09-07T21:57:09.2554137Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-07T21:57:09.2598828Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-07T21:57:09.2849974Z Removing includeIf entries pointing to credentials config files
+2026-09-07T21:57:09.2855709Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-07T21:57:09.2892688Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-07T21:57:09.3136178Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-07T21:57:09.3177689Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:09.3211825Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:09.3249404Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:09.3292952Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:09.3341340Z ##[endgroup]
+2026-09-07T21:57:09.3342147Z ##[group]Fetching the repository
+2026-09-07T21:57:09.3348175Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +f4bc16e4933f2c73b100aee676072838d95d0187:refs/remotes/pull/246/merge
+2026-09-07T21:57:15.3943934Z From https://github.com/ezcorp-org/EZHarness
+2026-09-07T21:57:15.3946190Z  * [new ref]         f4bc16e4933f2c73b100aee676072838d95d0187 -> pull/246/merge
+2026-09-07T21:57:15.3951308Z ##[endgroup]
+2026-09-07T21:57:15.3952984Z ##[group]Determining the checkout info
+2026-09-07T21:57:15.3955318Z ##[endgroup]
+2026-09-07T21:57:15.3956457Z [command]/usr/bin/git sparse-checkout disable
+2026-09-07T21:57:15.4009533Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-07T21:57:15.4046590Z ##[group]Checking out the ref
+2026-09-07T21:57:15.4051000Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/246/merge
+2026-09-07T21:57:16.4227809Z Updating files:  52% (5391/10196)
+2026-09-07T21:57:16.4586070Z Updating files:  53% (5404/10196)
+2026-09-07T21:57:16.4932074Z Updating files:  54% (5506/10196)
+2026-09-07T21:57:16.5180021Z Updating files:  55% (5608/10196)
+2026-09-07T21:57:16.5257968Z Updating files:  56% (5710/10196)
+2026-09-07T21:57:16.5327916Z Updating files:  57% (5812/10196)
+2026-09-07T21:57:16.5401468Z Updating files:  58% (5914/10196)
+2026-09-07T21:57:16.5473218Z Updating files:  59% (6016/10196)
+2026-09-07T21:57:16.5542385Z Updating files:  60% (6118/10196)
+2026-09-07T21:57:16.5628596Z Updating files:  61% (6220/10196)
+2026-09-07T21:57:16.5705605Z Updating files:  62% (6322/10196)
+2026-09-07T21:57:16.5792410Z Updating files:  63% (6424/10196)
+2026-09-07T21:57:16.5877928Z Updating files:  64% (6526/10196)
+2026-09-07T21:57:16.5951975Z Updating files:  65% (6628/10196)
+2026-09-07T21:57:16.6031965Z Updating files:  66% (6730/10196)
+2026-09-07T21:57:16.6122055Z Updating files:  67% (6832/10196)
+2026-09-07T21:57:16.6202836Z Updating files:  68% (6934/10196)
+2026-09-07T21:57:16.6286110Z Updating files:  69% (7036/10196)
+2026-09-07T21:57:16.6371654Z Updating files:  70% (7138/10196)
+2026-09-07T21:57:16.6470534Z Updating files:  71% (7240/10196)
+2026-09-07T21:57:16.6544861Z Updating files:  72% (7342/10196)
+2026-09-07T21:57:16.6631716Z Updating files:  73% (7444/10196)
+2026-09-07T21:57:16.6729510Z Updating files:  74% (7546/10196)
+2026-09-07T21:57:16.6829955Z Updating files:  75% (7647/10196)
+2026-09-07T21:57:16.6922620Z Updating files:  76% (7749/10196)
+2026-09-07T21:57:16.7002587Z Updating files:  77% (7851/10196)
+2026-09-07T21:57:16.7090255Z Updating files:  78% (7953/10196)
+2026-09-07T21:57:16.7177340Z Updating files:  79% (8055/10196)
+2026-09-07T21:57:16.7248596Z Updating files:  80% (8157/10196)
+2026-09-07T21:57:16.7326669Z Updating files:  81% (8259/10196)
+2026-09-07T21:57:16.7401287Z Updating files:  82% (8361/10196)
+2026-09-07T21:57:16.7479435Z Updating files:  83% (8463/10196)
+2026-09-07T21:57:16.7546835Z Updating files:  84% (8565/10196)
+2026-09-07T21:57:16.7619375Z Updating files:  85% (8667/10196)
+2026-09-07T21:57:16.7690744Z Updating files:  86% (8769/10196)
+2026-09-07T21:57:16.7763580Z Updating files:  87% (8871/10196)
+2026-09-07T21:57:16.7835521Z Updating files:  88% (8973/10196)
+2026-09-07T21:57:16.7911579Z Updating files:  89% (9075/10196)
+2026-09-07T21:57:16.7994499Z Updating files:  90% (9177/10196)
+2026-09-07T21:57:16.8066422Z Updating files:  91% (9279/10196)
+2026-09-07T21:57:16.8141956Z Updating files:  92% (9381/10196)
+2026-09-07T21:57:16.8211396Z Updating files:  93% (9483/10196)
+2026-09-07T21:57:16.8279899Z Updating files:  94% (9585/10196)
+2026-09-07T21:57:16.8345294Z Updating files:  95% (9687/10196)
+2026-09-07T21:57:16.8441738Z Updating files:  96% (9789/10196)
+2026-09-07T21:57:16.8527456Z Updating files:  97% (9891/10196)
+2026-09-07T21:57:16.8623684Z Updating files:  98% (9993/10196)
+2026-09-07T21:57:16.8713187Z Updating files:  99% (10095/10196)
+2026-09-07T21:57:16.8713825Z Updating files: 100% (10196/10196)
+2026-09-07T21:57:16.8714287Z Updating files: 100% (10196/10196), done.
+2026-09-07T21:57:16.8829108Z Note: switching to 'refs/remotes/pull/246/merge'.
+2026-09-07T21:57:16.8829452Z 
+2026-09-07T21:57:16.8829682Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-09-07T21:57:16.8830325Z changes and commit them, and you can discard any commits you make in this
+2026-09-07T21:57:16.8830866Z state without impacting any branches by switching back to a branch.
+2026-09-07T21:57:16.8831143Z 
+2026-09-07T21:57:16.8831625Z If you want to create a new branch to retain commits you create, you may
+2026-09-07T21:57:16.8832075Z do so (now or later) by using -c with the switch command. Example:
+2026-09-07T21:57:16.8832330Z 
+2026-09-07T21:57:16.8832452Z   git switch -c <new-branch-name>
+2026-09-07T21:57:16.8832629Z 
+2026-09-07T21:57:16.8832737Z Or undo this operation with:
+2026-09-07T21:57:16.8832908Z 
+2026-09-07T21:57:16.8833004Z   git switch -
+2026-09-07T21:57:16.8833137Z 
+2026-09-07T21:57:16.8833353Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-09-07T21:57:16.8833663Z 
+2026-09-07T21:57:16.8834009Z HEAD is now at f4bc16e Merge 0733ca51daf570227bd801b14991700ad0ca0c12 into bd7364388d0106364864e18a3d321b13ba978c36
+2026-09-07T21:57:16.8863771Z ##[endgroup]
+2026-09-07T21:57:16.8918775Z [command]/usr/bin/git log -1 --format=%H
+2026-09-07T21:57:16.8951751Z f4bc16e4933f2c73b100aee676072838d95d0187
+2026-09-07T21:57:16.9300980Z Prepare all required actions
+2026-09-07T21:57:16.9301573Z Getting action download info
+2026-09-07T21:57:17.0189947Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+2026-09-07T21:57:17.3445059Z Download action repository 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' (SHA:55cc8345863c7cc4c66a329aec7e433d2d1c52a9)
+2026-09-07T21:57:17.4918957Z ##[group]Run ./.github/actions/setup
+2026-09-07T21:57:17.4919259Z with:
+2026-09-07T21:57:17.4919466Z   web: true
+2026-09-07T21:57:17.4919662Z   sync: true
+2026-09-07T21:57:17.4919872Z   playwright: false
+2026-09-07T21:57:17.4920096Z env:
+2026-09-07T21:57:17.4920316Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:17.4920589Z ##[endgroup]
+2026-09-07T21:57:17.4982751Z ##[start-action display=Isolate runtime configuration between Bun processes;id=__self.__run]
+2026-09-07T21:57:17.5071035Z ##[group]Run echo 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"
+2026-09-07T21:57:17.5071622Z [36;1mecho 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"[0m
+2026-09-07T21:57:17.5116816Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-07T21:57:17.5117188Z env:
+2026-09-07T21:57:17.5117428Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:17.5117713Z ##[endgroup]
+2026-09-07T21:57:17.5222992Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=23]
+2026-09-07T21:57:17.5226325Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__self.__oven-sh_setup-bun]
+2026-09-07T21:57:17.5300422Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+2026-09-07T21:57:17.5300813Z with:
+2026-09-07T21:57:17.5301048Z   bun-version-file: .bun-version
+2026-09-07T21:57:17.5301312Z   no-cache: false
+2026-09-07T21:57:17.5303822Z   token: ***
+2026-09-07T21:57:17.5304034Z env:
+2026-09-07T21:57:17.5304255Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:17.5304756Z ##[endgroup]
+2026-09-07T21:57:17.7040538Z Obtained version 1.3.14 from .bun-version
+2026-09-07T21:57:17.8272209Z Cache hit for: bun-fR4r1tsFeXfPQkusQwkKD2kGnsE=
+2026-09-07T21:57:18.4571639Z Received 33843766 of 33843766 (100.0%), 62.9 MBs/sec
+2026-09-07T21:57:18.4572248Z Cache Size: ~32 MB (33843766 B)
+2026-09-07T21:57:18.4699947Z [command]/usr/bin/tar -xf /home/runner/work/_temp/02018aa0-10b9-4bac-831e-af73d0fcb3f6/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+2026-09-07T21:57:18.6232949Z Cache restored successfully
+2026-09-07T21:57:18.6257612Z [command]/home/runner/.bun/bin/bun --revision
+2026-09-07T21:57:18.6315021Z 1.3.14+0d9b296af
+2026-09-07T21:57:18.6324380Z Using a cached version of Bun: 1.3.14+0d9b296af
+2026-09-07T21:57:18.6486467Z ##[end-action id=__self.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=1125]
+2026-09-07T21:57:18.6489790Z ##[start-action display=Cache bun global install cache;id=__self.__actions_cache]
+2026-09-07T21:57:18.8224148Z ##[group]Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+2026-09-07T21:57:18.8225171Z with:
+2026-09-07T21:57:18.8225400Z   path: ~/.bun/install/cache
+2026-09-07T21:57:18.8226095Z   key: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59
+2026-09-07T21:57:18.8227004Z   restore-keys: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-
+
+2026-09-07T21:57:18.8227497Z   enableCrossOsArchive: false
+2026-09-07T21:57:18.8227774Z   fail-on-cache-miss: false
+2026-09-07T21:57:18.8228030Z   lookup-only: false
+2026-09-07T21:57:18.8228258Z   save-always: false
+2026-09-07T21:57:18.8228480Z env:
+2026-09-07T21:57:18.8228702Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:18.8228980Z ##[endgroup]
+2026-09-07T21:57:19.0570204Z Cache hit for: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59
+2026-09-07T21:57:20.1585067Z Received 134217728 of 617178032 (21.7%), 127.9 MBs/sec
+2026-09-07T21:57:21.1625826Z Received 339738624 of 617178032 (55.0%), 161.8 MBs/sec
+2026-09-07T21:57:22.1602711Z Received 536870912 of 617178032 (87.0%), 170.5 MBs/sec
+2026-09-07T21:57:22.4796263Z Received 617178032 of 617178032 (100.0%), 177.3 MBs/sec
+2026-09-07T21:57:22.4805233Z Cache Size: ~589 MB (617178032 B)
+2026-09-07T21:57:22.4872496Z [command]/usr/bin/tar -xf /home/runner/work/_temp/a2c360ac-3399-4a2e-902f-aafd6b97aca5/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+2026-09-07T21:57:27.4862803Z Cache restored successfully
+2026-09-07T21:57:27.5230519Z Cache restored from key: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59
+2026-09-07T21:57:27.5376860Z ##[end-action id=__self.__actions_cache;outcome=success;conclusion=success;duration_ms=8888]
+2026-09-07T21:57:27.5380496Z ##[start-action display=Install root deps;id=__self.__run_2]
+2026-09-07T21:57:27.5406727Z ##[group]Run bun install --frozen-lockfile
+2026-09-07T21:57:27.5407284Z [36;1mbun install --frozen-lockfile[0m
+2026-09-07T21:57:27.5449699Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-07T21:57:27.5450073Z env:
+2026-09-07T21:57:27.5450310Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:27.5450596Z ##[endgroup]
+2026-09-07T21:57:27.5882931Z bun install v1.3.14 (0d9b296a)
+2026-09-07T21:57:27.5950297Z Resolving dependencies
+2026-09-07T21:57:27.7523728Z Resolved, downloaded and extracted [3]
+2026-09-07T21:57:31.6181838Z 
+2026-09-07T21:57:31.6182718Z $ bun run --cwd packages/@ezcorp/sdk build && bash scripts/setup-git-hooks.sh
+2026-09-07T21:57:31.6224219Z $ bunx tsc -b tsconfig.build.json
+2026-09-07T21:57:31.7323081Z 
+2026-09-07T21:57:31.7323800Z + @biomejs/biome@2.5.11
+2026-09-07T21:57:31.7324740Z + @types/bun@1.3.14
+2026-09-07T21:57:31.7325455Z + @types/js-yaml@4.0.9
+2026-09-07T21:57:31.7325820Z + @types/node@26.4.0 (v26.5.0 available)
+2026-09-07T21:57:31.7326136Z + drizzle-kit@0.31.10
+2026-09-07T21:57:31.7326423Z + @earendil-works/pi-agent-core@0.84.3
+2026-09-07T21:57:31.7326750Z + @earendil-works/pi-ai@0.84.3
+2026-09-07T21:57:31.7327035Z + @electric-sql/pglite@0.5.7
+2026-09-07T21:57:31.7327325Z + @electric-sql/pglite-pgvector@0.0.8
+2026-09-07T21:57:31.7327627Z + @huggingface/transformers@4.2.0
+2026-09-07T21:57:31.7327909Z + @modelcontextprotocol/sdk@1.30.0
+2026-09-07T21:57:31.7328192Z + @zxing/library@0.23.0
+2026-09-07T21:57:31.7328428Z + drizzle-orm@0.45.2
+2026-09-07T21:57:31.7328653Z + exceljs@4.4.0
+2026-09-07T21:57:31.7328875Z + fast-png@8.0.0
+2026-09-07T21:57:31.7329093Z + file-type@22.0.2
+2026-09-07T21:57:31.7329308Z + jpeg-js@0.4.4
+2026-09-07T21:57:31.7329527Z + pdf-parse@2.4.5
+2026-09-07T21:57:31.7329742Z + yaml@2.9.0
+2026-09-07T21:57:31.7329966Z + typescript@5.9.3 (v7.0.2 available)
+2026-09-07T21:57:31.7330158Z 
+2026-09-07T21:57:31.7330268Z 728 packages installed [4.15s]
+2026-09-07T21:57:31.7372055Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=4199]
+2026-09-07T21:57:31.7374890Z ##[start-action display=Install web deps;id=__self.__run_3]
+2026-09-07T21:57:31.7397965Z ##[group]Run cd web && bun install --frozen-lockfile
+2026-09-07T21:57:31.7398367Z [36;1mcd web && bun install --frozen-lockfile[0m
+2026-09-07T21:57:31.7438199Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-07T21:57:31.7438573Z env:
+2026-09-07T21:57:31.7438815Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:31.7439108Z ##[endgroup]
+2026-09-07T21:57:31.7535552Z bun install v1.3.14 (0d9b296a)
+2026-09-07T21:57:33.5045976Z 
+2026-09-07T21:57:33.5051986Z $ svelte-kit sync || echo ''
+2026-09-07T21:57:34.9696035Z 
+2026-09-07T21:57:34.9696560Z + @axe-core/playwright@4.13.0
+2026-09-07T21:57:34.9696938Z + @playwright/test@1.62.1
+2026-09-07T21:57:34.9697226Z + @sveltejs/kit@2.70.3
+2026-09-07T21:57:34.9697498Z + @sveltejs/vite-plugin-svelte@7.3.0
+2026-09-07T21:57:34.9697796Z + @tailwindcss/vite@4.3.3
+2026-09-07T21:57:34.9698462Z + @testing-library/jest-dom@7.0.1
+2026-09-07T21:57:34.9698752Z + @testing-library/svelte@5.4.2
+2026-09-07T21:57:34.9699026Z + @types/jsdom@30.0.0
+2026-09-07T21:57:34.9699272Z + @typescript/native@7.0.2
+2026-09-07T21:57:34.9699526Z + @vitest/coverage-v8@4.1.11
+2026-09-07T21:57:34.9699778Z + jsdom@30.0.1
+2026-09-07T21:57:34.9700014Z + rollup-plugin-visualizer@7.1.1
+2026-09-07T21:57:34.9700273Z + svelte@5.57.0
+2026-09-07T21:57:34.9700499Z + svelte-check@4.7.6
+2026-09-07T21:57:34.9700733Z + tailwindcss@4.3.3
+2026-09-07T21:57:34.9700962Z + typescript@6.0.3
+2026-09-07T21:57:34.9701186Z + vite@8.2.2
+2026-09-07T21:57:34.9701393Z + vitest@4.1.11
+2026-09-07T21:57:34.9701642Z + @electric-sql/pglite@0.5.7
+2026-09-07T21:57:34.9701941Z + @electric-sql/pglite-pgvector@0.0.8
+2026-09-07T21:57:34.9702240Z + @huggingface/transformers@4.2.0
+2026-09-07T21:57:34.9702506Z + ansi_up@6.0.6
+2026-09-07T21:57:34.9702732Z + diff2html@3.4.56
+2026-09-07T21:57:34.9702957Z + highlight.js@11.12.0
+2026-09-07T21:57:34.9703237Z + isomorphic-dompurify@3.22.0
+2026-09-07T21:57:34.9703503Z + kokoro-js@1.2.1
+2026-09-07T21:57:34.9703725Z + linkedom@0.18.13
+2026-09-07T21:57:34.9703956Z + lucide-svelte@1.0.1
+2026-09-07T21:57:34.9704180Z + marked@18.0.11
+2026-09-07T21:57:34.9704403Z + svelte-adapter-bun@1.0.1
+2026-09-07T21:57:34.9705099Z + svelte-dnd-action@0.9.79
+2026-09-07T21:57:34.9705340Z + zod@4.5.2
+2026-09-07T21:57:34.9705464Z 
+2026-09-07T21:57:34.9705566Z 315 packages installed [3.22s]
+2026-09-07T21:57:34.9817228Z ##[end-action id=__self.__run_3;outcome=success;conclusion=success;duration_ms=3244]
+2026-09-07T21:57:34.9820073Z ##[start-action display=SvelteKit sync;id=__self.__run_4]
+2026-09-07T21:57:34.9845917Z ##[group]Run cd web && bunx --bun svelte-kit sync
+2026-09-07T21:57:34.9846310Z [36;1mcd web && bunx --bun svelte-kit sync[0m
+2026-09-07T21:57:34.9886274Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-07T21:57:34.9886636Z env:
+2026-09-07T21:57:34.9886876Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:34.9887182Z ##[endgroup]
+2026-09-07T21:57:36.7573194Z ##[end-action id=__self.__run_4;outcome=success;conclusion=success;duration_ms=1775]
+2026-09-07T21:57:36.7577830Z ##[start-action display=Cache Playwright browsers;id=__self.pw-cache]
+2026-09-07T21:57:36.7589724Z ##[end-action id=__self.pw-cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:36.7591889Z ##[start-action display=Install Playwright chromium;id=__self.__run_5]
+2026-09-07T21:57:36.7596617Z ##[end-action id=__self.__run_5;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:36.7598695Z ##[start-action display=Install Playwright system deps (browser-cache miss only);id=__self.__run_6]
+2026-09-07T21:57:36.7605669Z ##[end-action id=__self.__run_6;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:36.7641486Z ##[group]Run cd web && bunx svelte-check --tsgo
+2026-09-07T21:57:36.7641883Z [36;1mcd web && bunx svelte-check --tsgo[0m
+2026-09-07T21:57:36.7682072Z shell: /usr/bin/bash -e {0}
+2026-09-07T21:57:36.7682360Z env:
+2026-09-07T21:57:36.7682593Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:36.7683067Z ##[endgroup]
+2026-09-07T21:57:51.2191814Z Loading svelte-check in workspace: /home/runner/work/EZHarness/EZHarness/web
+2026-09-07T21:57:51.2192579Z Getting Svelte diagnostics...
+2026-09-07T21:57:51.2192875Z 
+2026-09-07T21:57:51.2195099Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/+layout.svelte[39m:448:2
+2026-09-07T21:57:51.2202654Z [33mWarn[39m: noninteractive element cannot have nonnegative tabIndex value
+2026-09-07T21:57:51.2203395Z https://svelte.dev/e/a11y_no_noninteractive_tabindex (svelte)
+2026-09-07T21:57:51.2203992Z [36m	-->
+2026-09-07T21:57:51.2204326Z 	[35m<main
+2026-09-07T21:57:51.2205252Z 		class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+2026-09-07T21:57:51.2206071Z 		style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+2026-09-07T21:57:51.2206720Z 		tabindex={isChatRoute ? undefined : 0}
+2026-09-07T21:57:51.2207127Z 	>
+2026-09-07T21:57:51.2207581Z 		<!-- Mobile/tablet header (hidden on chat routes - chat has its own header).
+2026-09-07T21:57:51.2208283Z 		     Visible at `<lg` so tablets get the hamburger too (Phase 49.1).
+2026-09-07T21:57:51.2208920Z 		     Command Deck: graphite chrome via `data-deck-mobilebar`. -->
+2026-09-07T21:57:51.2209492Z 		{#if !isChatRoute}
+2026-09-07T21:57:51.2210504Z 		<div class="flex lg:hidden items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-secondary)] px-3 py-2" data-deck-mobilebar data-testid="mobile-header">
+2026-09-07T21:57:51.2211494Z 			<button
+2026-09-07T21:57:51.2211857Z 				onclick={() => (store.mobileMenuOpen = true)}
+2026-09-07T21:57:51.2212959Z 				class="flex items-center justify-center rounded-sm p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]"
+2026-09-07T21:57:51.2214129Z 				aria-label="Open menu"
+2026-09-07T21:57:51.2214774Z 				data-testid="mobile-menu-toggle"
+2026-09-07T21:57:51.2215285Z 				style="min-width: 44px; min-height: 44px;"
+2026-09-07T21:57:51.2215761Z 			>
+2026-09-07T21:57:51.2216238Z 				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+2026-09-07T21:57:51.2217174Z 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+2026-09-07T21:57:51.2217909Z 				</svg>
+2026-09-07T21:57:51.2218223Z 			</button>
+2026-09-07T21:57:51.2219296Z 			<a href="/" class="min-w-0 flex-1 truncate text-sm font-semibold hover:text-[var(--color-accent)] transition-colors" title="Go to Home" aria-label="Home">{activeProject?.name ?? "EZCorp"}</a>
+2026-09-07T21:57:51.2220485Z 			<button
+2026-09-07T21:57:51.2220877Z 				onclick={() => (commandPaletteOpen = true)}
+2026-09-07T21:57:51.2222082Z 				class="flex items-center justify-center rounded-sm p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)]"
+2026-09-07T21:57:51.2222961Z 				aria-label="Command palette"
+2026-09-07T21:57:51.2223258Z 				title="Command palette ({metaKey}+K)"
+2026-09-07T21:57:51.2223594Z 				style="min-width: 44px; min-height: 44px;"
+2026-09-07T21:57:51.2223898Z 			>
+2026-09-07T21:57:51.2224213Z 				<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+2026-09-07T21:57:51.2225107Z 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+2026-09-07T21:57:51.2225626Z 				</svg>
+2026-09-07T21:57:51.2225828Z 			</button>
+2026-09-07T21:57:51.2226045Z 			<ThemeToggle />
+2026-09-07T21:57:51.2226266Z 			<span
+2026-09-07T21:57:51.2226595Z 				class="h-2 w-2 rounded-full {store.connected ? 'bg-green-500' : 'bg-red-500'}"
+2026-09-07T21:57:51.2227544Z 				title={store.connected ? "Connected" : "Disconnected"}
+2026-09-07T21:57:51.2227871Z 			></span>
+2026-09-07T21:57:51.2228077Z 		</div>
+2026-09-07T21:57:51.2228271Z 		{/if}
+2026-09-07T21:57:51.2228691Z 		<!-- Desktop breadcrumb context strip (≥lg, non-chat routes). -->
+2026-09-07T21:57:51.2229080Z 		{#if !isChatRoute}
+2026-09-07T21:57:51.2229667Z 		<div class="hidden lg:flex deck-breadcrumb" data-deck-breadcrumb data-testid="deck-breadcrumb">
+2026-09-07T21:57:51.2230376Z 			<span class="text-[var(--color-text-muted)]">{isGlobalProject ? "global" : (activeProject?.name ?? "workspace")}</span>
+2026-09-07T21:57:51.2231236Z 			<span class="deck-breadcrumb__sep">/</span>
+2026-09-07T21:57:51.2231874Z 			<span class="text-[var(--color-text-secondary)]">{breadcrumbLabel}</span>
+2026-09-07T21:57:51.2232464Z 		</div>
+2026-09-07T21:57:51.2232742Z 		{/if}
+2026-09-07T21:57:51.2232948Z 		{#if isChatRoute}
+2026-09-07T21:57:51.2233210Z 			<div class="flex-1 relative">
+2026-09-07T21:57:51.2233649Z 				{@render children()}
+2026-09-07T21:57:51.2234030Z 			</div>
+2026-09-07T21:57:51.2234323Z 		{:else}
+2026-09-07T21:57:51.2234744Z 			<div class="p-6">
+2026-09-07T21:57:51.2234981Z 				{@render children()}
+2026-09-07T21:57:51.2235211Z 			</div>
+2026-09-07T21:57:51.2235402Z 		{/if}
+2026-09-07T21:57:51.2235651Z 	</main>[36m
+2026-09-07T21:57:51.2235877Z </div>[39m
+2026-09-07T21:57:51.2236094Z 
+2026-09-07T21:57:51.2236468Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/lib/components/ChatThread.svelte[39m:402:19
+2026-09-07T21:57:51.2237641Z [33mWarn[39m: This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+2026-09-07T21:57:51.2238309Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2238793Z [36m	// seed isn't clobbered by a `computeLatestLeaf` overwrite.
+2026-09-07T21:57:51.2239244Z 	const __seeded = [35mseedMessages[36m !== undefined;
+2026-09-07T21:57:51.2239649Z 	// svelte-ignore state_referenced_locally[39m
+2026-09-07T21:57:51.2239864Z 
+2026-09-07T21:57:51.2240302Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/lib/components/ChatThreadBehaviorHarness.svelte[39m:59:10
+2026-09-07T21:57:51.2241343Z [33mWarn[39m: This reference only captures the initial value of `initialMessages`. Did you mean to reference it inside a closure instead?
+2026-09-07T21:57:51.2241989Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2242343Z [36m	if (seedFn)
+2026-09-07T21:57:51.2242771Z 		seedFn([35minitialMessages[36m, { onInvalidate, onLoadMessages, onHydrate });[39m
+2026-09-07T21:57:51.2243112Z 
+2026-09-07T21:57:51.2243528Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/lib/components/ChatThreadBehaviorHarness.svelte[39m:59:29
+2026-09-07T21:57:51.2244897Z [33mWarn[39m: This reference only captures the initial value of `onInvalidate`. Did you mean to reference it inside a closure instead?
+2026-09-07T21:57:51.2245562Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2245926Z [36m	if (seedFn)
+2026-09-07T21:57:51.2246696Z 		seedFn(initialMessages, { [35monInvalidate[36m, onLoadMessages, onHydrate });[39m
+2026-09-07T21:57:51.2247240Z 
+2026-09-07T21:57:51.2247925Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/lib/components/ChatThreadBehaviorHarness.svelte[39m:59:43
+2026-09-07T21:57:51.2249109Z [33mWarn[39m: This reference only captures the initial value of `onLoadMessages`. Did you mean to reference it inside a closure instead?
+2026-09-07T21:57:51.2249758Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2250112Z [36m	if (seedFn)
+2026-09-07T21:57:51.2250526Z 		seedFn(initialMessages, { onInvalidate, [35monLoadMessages[36m, onHydrate });[39m
+2026-09-07T21:57:51.2250852Z 
+2026-09-07T21:57:51.2251409Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/lib/components/ChatThreadBehaviorHarness.svelte[39m:59:59
+2026-09-07T21:57:51.2252280Z [33mWarn[39m: This reference only captures the initial value of `onHydrate`. Did you mean to reference it inside a closure instead?
+2026-09-07T21:57:51.2253097Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2253441Z [36m	if (seedFn)
+2026-09-07T21:57:51.2253849Z 		seedFn(initialMessages, { onInvalidate, onLoadMessages, [35monHydrate[36m });[39m
+2026-09-07T21:57:51.2254212Z 
+2026-09-07T21:57:51.2254751Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/audit/+page.svelte[39m:19:32
+2026-09-07T21:57:51.2256776Z [33mWarn[39m: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+2026-09-07T21:57:51.2257380Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2257711Z [36m
+2026-09-07T21:57:51.2258007Z 	let entries = $state<Entry[]>([35mdata[36m.entries);
+2026-09-07T21:57:51.2258449Z 	let nextCursor = $state<string | null>(data.nextCursor);[39m
+2026-09-07T21:57:51.2258702Z 
+2026-09-07T21:57:51.2259049Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/audit/+page.svelte[39m:20:41
+2026-09-07T21:57:51.2260454Z [33mWarn[39m: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+2026-09-07T21:57:51.2261352Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2261782Z [36m	let entries = $state<Entry[]>(data.entries);
+2026-09-07T21:57:51.2262250Z 	let nextCursor = $state<string | null>([35mdata[36m.nextCursor);
+2026-09-07T21:57:51.2262673Z 	let stats = $state(data.stats);[39m
+2026-09-07T21:57:51.2262865Z 
+2026-09-07T21:57:51.2263209Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/audit/+page.svelte[39m:21:21
+2026-09-07T21:57:51.2265830Z [33mWarn[39m: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+2026-09-07T21:57:51.2266486Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2266954Z [36m	let nextCursor = $state<string | null>(data.nextCursor);
+2026-09-07T21:57:51.2267357Z 	let stats = $state([35mdata[36m.stats);
+2026-09-07T21:57:51.2267701Z 	let loading = $state(false);[39m
+2026-09-07T21:57:51.2267878Z 
+2026-09-07T21:57:51.2268213Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/audit/+page.svelte[39m:23:24
+2026-09-07T21:57:51.2272098Z [33mWarn[39m: This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+2026-09-07T21:57:51.2273174Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2273798Z [36m	let loading = $state(false);
+2026-09-07T21:57:51.2274443Z 	let extensionFacets = [35mdata[36m.extensionFacets;[39m
+2026-09-07T21:57:51.2275050Z 
+2026-09-07T21:57:51.2277181Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/extensions/[id]/audit/+page.svelte[39m:19:23
+2026-09-07T21:57:51.2283344Z [33mWarn[39m: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+2026-09-07T21:57:51.2284365Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2285102Z [36m
+2026-09-07T21:57:51.2285538Z 	let entries = $state([35mdata[36m.entries);
+2026-09-07T21:57:51.2286239Z 	let nextCursor = $state<string | null>(data.nextCursor);[39m
+2026-09-07T21:57:51.2286664Z 
+2026-09-07T21:57:51.2287354Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/extensions/[id]/audit/+page.svelte[39m:20:41
+2026-09-07T21:57:51.2289503Z [33mWarn[39m: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+2026-09-07T21:57:51.2290521Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2291145Z [36m	let entries = $state(data.entries);
+2026-09-07T21:57:51.2291839Z 	let nextCursor = $state<string | null>([35mdata[36m.nextCursor);
+2026-09-07T21:57:51.2292509Z 	let stats = $state(data.stats);[39m
+2026-09-07T21:57:51.2292810Z 
+2026-09-07T21:57:51.2293475Z /home/runner/work/EZHarness/EZHarness/web/[32msrc/routes/(app)/extensions/[id]/audit/+page.svelte[39m:21:21
+2026-09-07T21:57:51.2296018Z [33mWarn[39m: This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+2026-09-07T21:57:51.2297011Z https://svelte.dev/e/state_referenced_locally (svelte)
+2026-09-07T21:57:51.2297747Z [36m	let nextCursor = $state<string | null>(data.nextCursor);
+2026-09-07T21:57:51.2298570Z 	let stats = $state([35mdata[36m.stats);
+2026-09-07T21:57:51.2299099Z 	let loading = $state(false);[39m
+2026-09-07T21:57:51.2299391Z 
+2026-09-07T21:57:51.2304343Z ====================================
+2026-09-07T21:57:51.2305266Z [33msvelte-check found 0 errors and 13 warnings in 5 files
+2026-09-07T21:57:51.2655601Z [39m
+2026-09-07T21:57:51.2774472Z Post job cleanup.
+2026-09-07T21:57:51.2841693Z ##[start-action display=Cache bun global install cache;id=__d0e2f13c-704f-4620-aac9-c7911d754ce6.__actions_cache]
+2026-09-07T21:57:51.4511039Z Post job cleanup.
+2026-09-07T21:57:51.5768536Z Cache hit occurred on the primary key bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59, not saving cache.
+2026-09-07T21:57:51.5839538Z ##[end-action id=__d0e2f13c-704f-4620-aac9-c7911d754ce6.__actions_cache;outcome=success;conclusion=success;duration_ms=299]
+2026-09-07T21:57:51.5845229Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__d0e2f13c-704f-4620-aac9-c7911d754ce6.__oven-sh_setup-bun]
+2026-09-07T21:57:51.5907663Z Post job cleanup.
+2026-09-07T21:57:51.7630091Z ##[end-action id=__d0e2f13c-704f-4620-aac9-c7911d754ce6.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=178]
+2026-09-07T21:57:51.7732112Z Post job cleanup.
+2026-09-07T21:57:51.8636472Z [command]/usr/bin/git version
+2026-09-07T21:57:51.8680425Z git version 2.55.0
+2026-09-07T21:57:51.8713881Z Temporarily overriding HOME='/home/runner/work/_temp/2779e7f5-2663-40e6-b037-c3c246b35722' before making global git config changes
+2026-09-07T21:57:51.8715404Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-07T21:57:51.8718437Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+2026-09-07T21:57:51.8764292Z Removing SSH command configuration
+2026-09-07T21:57:51.8768059Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-07T21:57:51.8816592Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-07T21:57:51.9139040Z Removing HTTP extra header
+2026-09-07T21:57:51.9140204Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-07T21:57:51.9192261Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-07T21:57:51.9472221Z Removing includeIf entries pointing to credentials config files
+2026-09-07T21:57:51.9480083Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-07T21:57:51.9518508Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+2026-09-07T21:57:51.9519773Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+2026-09-07T21:57:51.9521100Z includeif.gitdir:/github/workspace/.git.path
+2026-09-07T21:57:51.9522146Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-07T21:57:51.9529163Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+2026-09-07T21:57:51.9559066Z /home/runner/work/_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:51.9570555Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-449bd7c7\-1810\-4fb2\-8cba\-850a1a913ed6\.config
+2026-09-07T21:57:51.9621313Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+2026-09-07T21:57:51.9663946Z /home/runner/work/_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:51.9674933Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-449bd7c7\-1810\-4fb2\-8cba\-850a1a913ed6\.config
+2026-09-07T21:57:51.9716577Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-07T21:57:51.9745049Z /github/runner_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:51.9752440Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-449bd7c7\-1810\-4fb2\-8cba\-850a1a913ed6\.config
+2026-09-07T21:57:51.9791046Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-07T21:57:51.9819142Z /github/runner_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config
+2026-09-07T21:57:51.9827730Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-449bd7c7\-1810\-4fb2\-8cba\-850a1a913ed6\.config
+2026-09-07T21:57:51.9868043Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-07T21:57:52.0119987Z Removing credentials config '/home/runner/work/_temp/git-credentials-449bd7c7-1810-4fb2-8cba-850a1a913ed6.config'
+2026-09-07T21:57:52.0270328Z Cleaning up orphan processes

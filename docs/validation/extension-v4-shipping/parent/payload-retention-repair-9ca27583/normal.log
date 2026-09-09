@@ -1,0 +1,18 @@
+bun test v1.3.14 (0d9b296a)
+
+web/src/lib/server/security/__tests__/payload.test.ts:
+(pass) bodyless request admission preserves the original request [0.15ms]
+(pass) admitted Bun server payload remains readable through the request event context [4.98ms]
+(pass) stream admission stays bounded across two Bun ALS request batches [563.97ms]
+(pass) getMaxPayload — prefix table > /api/extensions/<name>/uploads → 25MB [0.03ms]
+(pass) getMaxPayload — prefix table > any /api/extensions sub-path → 25MB (events branch) [0.02ms]
+(pass) getMaxPayload — prefix table > /api/conversations/<id>/messages → 100MB (regression guard) [0.03ms]
+(pass) getMaxPayload — prefix table > /api/knowledge-base/upload → 50MB (regression guard) [0.03ms]
+(pass) getMaxPayload — prefix table > unmatched path → 1MB default [0.02ms]
+(pass) payloadTooLarge — 413 response shape > returns 413 with structured JSON body that echoes maxBytes [0.14ms]
+(pass) payloadTooLarge — 413 response shape > no-arg call defaults maxBytes to 1MB [0.06ms]
+
+ 10 pass
+ 0 fail
+ 15 expect() calls
+Ran 10 tests across 1 file. [1021.00ms]

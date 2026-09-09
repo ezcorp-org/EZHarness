@@ -1,13 +1,6 @@
-/**
- * Server-handler unit tests for /api/extensions/[id]/activate (+server.ts).
- *
- * Covers the gates — admin-only, 404 when extension missing, 403 when
- * violations present, 400 when grantedPermissions payload is malformed.
- * Install/registry internals are mocked at the module boundary.
- */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
   getExtension: vi.fn(),
@@ -63,37 +56,40 @@ describe("POST /api/extensions/[id]/activate", () => {
   });
 
   test("unauthenticated request returns 401", async () => {
-    const res = await POST(makeEvent({ locals: {} }));
+    const res = await expectThrownResponse(() => POST(makeEvent({ locals: {} })), 401);
     expect(res.status).toBe(401);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Authentication required");
   });
 
-  test("non-admin authenticated user returns 403", async () => {
+  test("non-admin authenticated user receives a migration response", async () => {
     const res = await POST(makeEvent({ locals: { user: regularUser } }));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(410);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Insufficient permissions");
+    expect(body).toMatchObject({ code: "extension_v4_required" });
+    expect(updateExtension).not.toHaveBeenCalled();
   });
 
-  test("unknown extension id returns 404", async () => {
+  test("unknown extension id cannot bypass migration", async () => {
     vi.mocked(getExtension).mockResolvedValue(null as any);
     const res = await POST(makeEvent({ locals: { user: adminUser } }));
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(410);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("Not found");
+    expect(body).toMatchObject({ code: "extension_v4_required" });
+    expect(updateExtension).not.toHaveBeenCalled();
   });
 
-  test("extension with unresolved security violation returns 403", async () => {
+  test("extension with unresolved security violation receives a migration response", async () => {
     vi.mocked(getExtension).mockResolvedValue({
       id: "ext-1",
       manifest: { permissions: {} },
     } as any);
     vi.mocked(hasSecurityViolation).mockResolvedValue(true);
     const res = await POST(makeEvent({ locals: { user: adminUser } }));
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(410);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("security violations");
+    expect(body).toMatchObject({ code: "extension_v4_required" });
+    expect(updateExtension).not.toHaveBeenCalled();
   });
 
   test("grantedPermissions must be an object (array rejected)", async () => {
@@ -107,9 +103,10 @@ describe("POST /api/extensions/[id]/activate", () => {
         body: { grantedPermissions: ["not", "an", "object"] },
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe("grantedPermissions must be an object");
+    expect(body).toMatchObject({ code: "extension_v4_required" });
+    expect(updateExtension).not.toHaveBeenCalled();
   });
 
   test("grantedPermissions must be an object (null rejected)", async () => {
@@ -123,10 +120,10 @@ describe("POST /api/extensions/[id]/activate", () => {
         body: { grantedPermissions: null },
       }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(410);
   });
 
-  test("happy path: enables extension with no permissions change", async () => {
+  test("retired route never enables an extension", async () => {
     vi.mocked(getExtension).mockResolvedValue({
       id: "ext-1",
       manifest: { permissions: {} },
@@ -136,10 +133,7 @@ describe("POST /api/extensions/[id]/activate", () => {
       enabled: true,
     } as any);
     const res = await POST(makeEvent({ locals: { user: adminUser } }));
-    expect(res.status).toBe(200);
-    expect(vi.mocked(updateExtension)).toHaveBeenCalledWith(
-      "ext-1",
-      expect.objectContaining({ enabled: true }),
-    );
+    expect(res.status).toBe(410);
+    expect(updateExtension).not.toHaveBeenCalled();
   });
 });

@@ -26,7 +26,9 @@
 
 import { test, expect, describe } from "bun:test";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { openSeccompBpfFd, getSeccompBpfPath } from "../extensions/runtime/seccomp-loader";
 
 const PROFILE_PATH = resolve(import.meta.dir, "..", "extensions", "mcp-seccomp.json");
@@ -38,6 +40,67 @@ const DOCKERFILE_PATH = resolve(import.meta.dir, "..", "..", "Dockerfile");
 const BPF_PRESENT = existsSync(BPF_PATH);
 
 describe("seccomp profile shape", () => {
+  test("the C compiler adds every declared rule to a default-deny filter", async () => {
+    const root = await mkdtemp(join(tmpdir(), "seccomp-compiler-test-"));
+    try {
+      await Bun.write(join(root, "seccomp.h"), `
+#include <stddef.h>
+#include <stdint.h>
+typedef void *scmp_filter_ctx;
+#define SCMP_ACT_LOG 0x7ffc0000U
+#define SCMP_ACT_ALLOW 0x7fff0000U
+#define SCMP_ACT_KILL 0U
+#define SCMP_ACT_ERRNO(x) (0x00050000U | ((x) & 0xffffU))
+#define SCMP_FLTATR_ACT_BADARCH 2
+scmp_filter_ctx seccomp_init(uint32_t action);
+void seccomp_release(scmp_filter_ctx ctx);
+int seccomp_attr_set(scmp_filter_ctx ctx, int attr, uint32_t value);
+int seccomp_syscall_resolve_name(const char *name);
+int seccomp_rule_add(scmp_filter_ctx ctx, uint32_t action, int syscall, unsigned arg_cnt);
+int seccomp_export_bpf(scmp_filter_ctx ctx, int fd);
+`);
+      await Bun.write(join(root, "fake-seccomp.c"), `
+#include "seccomp.h"
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+static uint32_t default_action, last_action;
+static size_t rules;
+scmp_filter_ctx seccomp_init(uint32_t action){default_action=action;return &rules;}
+void seccomp_release(scmp_filter_ctx ctx){(void)ctx;}
+int seccomp_attr_set(scmp_filter_ctx ctx,int attr,uint32_t value){(void)ctx;(void)attr;(void)value;return 0;}
+int seccomp_syscall_resolve_name(const char *name){return strcmp(name,"read")==0?0:strcmp(name,"write")==0?1:-1;}
+int seccomp_rule_add(scmp_filter_ctx ctx,uint32_t action,int syscall,unsigned arg_cnt){(void)ctx;(void)syscall;(void)arg_cnt;rules++;last_action=action;return 0;}
+int seccomp_export_bpf(scmp_filter_ctx ctx,int fd){(void)ctx;return dprintf(fd,"default=%u rules=%zu last=%u\\n",default_action,rules,last_action)<0?-1:0;}
+`);
+      const profile = join(root, "profile.json");
+      await Bun.write(profile, JSON.stringify({
+        defaultAction: "SCMP_ACT_ERRNO",
+        defaultErrnoRet: 38,
+        syscalls: [{ names: ["read", "write"], action: "SCMP_ACT_LOG" }],
+      }));
+      const compiler = Bun.spawnSync({
+        cmd: ["gcc", "-O2", `-I${root}`, "build/compile-seccomp.c", join(root, "fake-seccomp.c"), "-o", join(root, "compile-seccomp")],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(compiler.exitCode, new TextDecoder().decode(compiler.stderr)).toBe(0);
+      const run = Bun.spawnSync({
+        cmd: [join(root, "compile-seccomp"), profile, join(root, "profile.bpf")],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const stderr = new TextDecoder().decode(run.stderr);
+      expect(run.exitCode, stderr).toBe(0);
+      expect(stderr).toContain("added=2, skipped=0");
+      expect(await Bun.file(join(root, "profile.bpf")).text()).toBe(
+        "default=327718 rules=2 last=2147221504\n",
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("mcp-seccomp.json: defaultAction is SCMP_ACT_ERRNO (post-Phase-58 enforce flip)", async () => {
     // Phase 55 shipped SCMP_ACT_LOG (observability mode). Phase 58 /
     // MCP-04 flipped to SCMP_ACT_ERRNO with defaultErrnoRet=38 (ENOSYS)

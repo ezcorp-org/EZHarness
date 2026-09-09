@@ -1,0 +1,86 @@
+{
+  "raw_blob_private": true,
+  "attachment_count": 10,
+  "attachments": [
+    {
+      "project": "mobile-chromium",
+      "test_id": "811ecbcf694dfeaf4075-5b5fdb96aeee81a1a158",
+      "label": "extension-detail-via-post-install-deep-link",
+      "sha256": "2b1d2d915043f1a6816f96f5d13edd3d2e50266931d54e7f5ed92e5a0f19898f",
+      "bytes": 32509,
+      "published_image": false
+    },
+    {
+      "project": "chromium",
+      "test_id": "811ecbcf694dfeaf4075-6691d2e2380bf15889ef",
+      "label": "extension-detail-verified-badge-dark",
+      "sha256": "8fa0221cd060af1ea9270525d893fcbc68e0836f2b65210c6c2acc1d07386106",
+      "bytes": 61894,
+      "published_image": true
+    },
+    {
+      "project": "chromium",
+      "test_id": "811ecbcf694dfeaf4075-95796d97bddee02a5462",
+      "label": "extension-detail-unsigned-violation-badges-light",
+      "sha256": "575938b11ff3857d598390ca84fd73ead9447333bf73a410807288853564d40e",
+      "bytes": 65983,
+      "published_image": true
+    },
+    {
+      "project": "mobile-chromium",
+      "test_id": "811ecbcf694dfeaf4075-98a7d716c3741227eb85",
+      "label": "extension-detail-unsigned-violation-badges-dark",
+      "sha256": "284759d2f454d8c9427349f6423d5f9e61eeb09cf9260ed45db1dc11899c04cd",
+      "bytes": 36320,
+      "published_image": false
+    },
+    {
+      "project": "chromium",
+      "test_id": "811ecbcf694dfeaf4075-13206b483e4b1ee531ce",
+      "label": "extension-detail-via-post-install-deep-link",
+      "sha256": "de79475fd96a64b1de064bb9bcb44df27e8d65241774fed634636ef5846df591",
+      "bytes": 61976,
+      "published_image": false
+    },
+    {
+      "project": "chromium",
+      "test_id": "811ecbcf694dfeaf4075-1cd3211d530d90655589",
+      "label": "extension-detail-verified-badge-light",
+      "sha256": "de79475fd96a64b1de064bb9bcb44df27e8d65241774fed634636ef5846df591",
+      "bytes": 61976,
+      "published_image": true
+    },
+    {
+      "project": "mobile-chromium",
+      "test_id": "811ecbcf694dfeaf4075-95f79e8ad6dd168b7218",
+      "label": "extension-detail-verified-badge-dark",
+      "sha256": "81fc9ef26cbf97819af2256ef02635db781d9b8ce746dfc6cf51838c3f2c2aa2",
+      "bytes": 32805,
+      "published_image": false
+    },
+    {
+      "project": "chromium",
+      "test_id": "811ecbcf694dfeaf4075-48f4836a4eabf50958c6",
+      "label": "extension-detail-unsigned-violation-badges-dark",
+      "sha256": "91895f3be6c00d02b5897c318204c7d4052fda49e9b2b21cdb25d45fbda52d0f",
+      "bytes": 66196,
+      "published_image": true
+    },
+    {
+      "project": "mobile-chromium",
+      "test_id": "811ecbcf694dfeaf4075-f68b273e8d52169b7258",
+      "label": "extension-detail-verified-badge-light",
+      "sha256": "2b1d2d915043f1a6816f96f5d13edd3d2e50266931d54e7f5ed92e5a0f19898f",
+      "bytes": 32509,
+      "published_image": false
+    },
+    {
+      "project": "mobile-chromium",
+      "test_id": "811ecbcf694dfeaf4075-380b02e11959d9569186",
+      "label": "extension-detail-unsigned-violation-badges-light",
+      "sha256": "9a07e004cd973e2044dda1339df48cf62656b1281c1b057aab0b24bfa2c6fb1c",
+      "bytes": 36027,
+      "published_image": false
+    }
+  ]
+}

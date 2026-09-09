@@ -1,0 +1,12 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/real-auth-fixture-cleanup.test.ts:
+(pass) real-auth fixture root cleanup > removes its default DB and encryption-key root after the preview command exits [21.83ms]
+(pass) real-auth fixture root cleanup > preserves a caller-supplied database path [4.56ms]
+(pass) real-auth fixture root cleanup > refuses a tampered owned marker instead of deleting the root [17.82ms]
+(pass) real-auth fixture root cleanup > keeps the preview failure visible after it cleans its owned root [17.82ms]
+
+ 4 pass
+ 0 fail
+ 15 expect() calls
+Ran 4 tests across 1 file. [473.00ms]

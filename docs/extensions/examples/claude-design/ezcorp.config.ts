@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // Load the bundled skill knowledge files at module init so the
 // content can be inlined into the agent prompt. Wrap each read in a
@@ -21,7 +21,7 @@ const aestheticPhilosophy = loadSkill("design-aesthetic-philosophy.md");
 const systemGuide = loadSkill("design-system-guide.md");
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "claude-design",
   version: "0.1.0",
   description:
@@ -30,7 +30,7 @@ export default defineExtension({
     "knob-based tweaks, and package a Claude-Code-ready handoff bundle. " +
     "First consumer of the @ezcorp/sdk canvas primitives.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   category: "Design",
   tags: ["design", "prototyping", "design-system", "demo"],
@@ -105,7 +105,7 @@ export default defineExtension({
       description:
         "Generate an HTML draft. The tool wraps your `bodyMarkup` with a head section " +
         "containing a <style id=\"design-tokens\"> block (CSS variables for every project " +
-        "token) and a Tailwind CDN link. You author the body markup; the tool is the " +
+        "token) and the pinned embedded Tailwind browser runtime. You author the body markup; the tool is the " +
         "scaffolder, not a model caller. Body MUST reference design tokens via " +
         "`var(--color-*)` and `calc(var(--space-unit) * N)` — that's what makes " +
         "subsequent knob tweaks (color/spacing/typography) a one-line CSS-var rewrite. " +
@@ -130,7 +130,7 @@ export default defineExtension({
             type: "string",
             description:
               "Body markup for the draft. This is everything that goes inside <body>...</body> — " +
-              "you may use Tailwind utility classes (the CDN is included) and inline styles, but " +
+              "you may use Tailwind utility classes (the pinned runtime is embedded) and inline styles, but " +
               "all colors/spacing/typography MUST go through the design tokens (var(--color-primary), " +
               "calc(var(--space-unit) * 4), var(--font-display), etc.). Tokens NOT referenced through " +
               "var() will not respond to tweak-design. When omitted, a labeled placeholder is rendered.",
@@ -339,7 +339,7 @@ export default defineExtension({
       "   (descriptor array matching the `var(--…)` references in your body) AND",
       "   `knobsTitle` (one-line description of the design — e.g. 'Hero & feature",
       "   grid knobs'). YOU author the body markup; the tool only wraps it with the",
-      "   <head>, design-tokens <style> block, and Tailwind CDN.",
+      "   <head>, design-tokens <style> block, and embedded Tailwind browser runtime.",
       "4. **Lint rules** (every value MUST satisfy these — `generate-design` rejects",
       "   markup that doesn't):",
       "   - Every color through `var(--color-*)` (inline style or `bg-[var(--…)]`",
@@ -468,11 +468,10 @@ export default defineExtension({
   },
 
   permissions: {
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
     storage: true,
     eventSubscriptions: ["claude-design:knob-change", "claude-design:brief-answer"],
-    network: ["cdn.jsdelivr.net"],
   },
 
   resources: {

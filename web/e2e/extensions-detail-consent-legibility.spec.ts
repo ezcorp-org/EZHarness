@@ -141,45 +141,39 @@ test.describe("Extensions detail — consent legibility", () => {
 	}, testInfo) => {
 		await openDetail(page, mockApi, mcpExt());
 
-		const pill = page.locator(`label:has-text("${LONG_HOST}")`);
-		await expect(pill).toBeVisible();
-
-		// The card is the pill's nearest bordered ancestor — the same box the
-		// measurement compared against.
-		const card = page.locator("div.rounded-lg", { has: page.getByText("Network Access") }).last();
-		const pillBox = await pill.boundingBox();
+		const card = page.getByTestId("release-permissions");
+		const code = card.locator("code").first();
+		await expect(code).toContainText(LONG_HOST);
+		await code.scrollIntoViewIfNeeded();
+		const measureHost = async (host: string) => code.evaluate((element, value) => {
+			const start = element.textContent!.indexOf(value);
+			if (start < 0) throw new Error("Permission host is missing");
+			const end = start + value.length;
+			const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+			const range = document.createRange();
+			let offset = 0;
+			while (walker.nextNode()) {
+				const node = walker.currentNode;
+				const length = node.textContent!.length;
+				if (start >= offset && start < offset + length) range.setStart(node, start - offset);
+				if (end > offset && end <= offset + length) { range.setEnd(node, end - offset); break; }
+				offset += length;
+			}
+			const bounds = range.getBoundingClientRect();
+			return { right: bounds.right, height: bounds.height };
+		}, host);
+		const longHost = await measureHost(LONG_HOST);
+		const shortHost = await measureHost(SHORT_HOST);
 		const cardBox = await card.boundingBox();
 		const viewport = page.viewportSize();
-		expect(pillBox).not.toBeNull();
 		expect(cardBox).not.toBeNull();
 		expect(viewport).not.toBeNull();
-
-		const pillRight = pillBox!.x + pillBox!.width;
-		const cardRight = cardBox!.x + cardBox!.width;
-		// Measured before the fix: pill right 1746 vs card right 1256 vs
-		// viewport 1280 — 490px of the hostname was unreachable.
-		expect(pillRight).toBeLessThanOrEqual(cardRight + 1);
-		expect(pillRight).toBeLessThanOrEqual(viewport!.width);
-
-		// Geometry alone is not enough: `max-w-full` clamps the BOX, so a pill
-		// whose text still refused to break would pass the two checks above
-		// while spilling visually. The positive signal that `break-all` engaged
-		// is that this pill is TALLER than a one-line pill in the same row —
-		// self-calibrating, so it survives a font or zoom change.
-		const shortPill = page.locator(`label:has-text("${SHORT_HOST}")`);
-		const shortBox = await shortPill.boundingBox();
-		expect(shortBox).not.toBeNull();
-		expect(pillBox!.height).toBeGreaterThan(shortBox!.height);
-
-		// And it is genuinely readable — the whole host, not an ellipsis.
-		await expect(pill).toContainText(LONG_HOST);
-
-		// Bring the Permissions card into frame before the shot. The default
-		// capture is a VIEWPORT screenshot, and this card sits below the fold —
-		// so without this the attachment was the top of the page, identical to
-		// every other capture in this file and showing nothing of the fix it is
-		// named after. A reviewer reads the picture, not the assertions.
-		await pill.scrollIntoViewIfNeeded();
+		expect(longHost.right).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
+		expect(longHost.right).toBeLessThanOrEqual(viewport!.width);
+		expect(longHost.height).toBeGreaterThan(shortHost.height);
+		expect(await card.locator("pre").first().evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+		await expect(card.getByRole("checkbox")).toHaveCount(0);
+		await expect(card.getByTestId("review-extension-release")).toBeVisible();
 		await captureEvidence(page, testInfo, "mcp-long-host-wraps-inside-card");
 	});
 
@@ -235,7 +229,8 @@ test.describe("Extensions detail — consent legibility", () => {
 		await expect(trail).toBeVisible();
 
 		// The copy now covers what the FIRST row on screen actually is.
-		await expect(trail).toContainText("MCP server lifecycle");
+		await expect(trail).toContainText("MCP operations");
+		await expect(trail).toContainText("Release approvals");
 
 		// Each row reads as a sentence, and the install row names WHICH server
 		// the credentialed connection points at (`metadata.newValue.target`,

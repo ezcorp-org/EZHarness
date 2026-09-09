@@ -1,0 +1,74 @@
+{
+  "cache-first-ownership-modes.tsv": {
+    "bytes": 334,
+    "sha256": "877f9f97a7f00b7e3ed98510582da62d4db1bc832ae14ccd9889e33f892f2d8d"
+  },
+  "cache-first-sha256.tsv": {
+    "bytes": 433,
+    "sha256": "c61f2c70231e387e347bd4afd30f4df4f027c2b21fd58498b46f3af3146f9969"
+  },
+  "cache-read-only-ownership-modes.tsv": {
+    "bytes": 334,
+    "sha256": "b6e786c307f76aa4ee2244211d78fc71f028c6a91b0346e261999be82535fe00"
+  },
+  "cache-second-sha256.tsv": {
+    "bytes": 433,
+    "sha256": "c61f2c70231e387e347bd4afd30f4df4f027c2b21fd58498b46f3af3146f9969"
+  },
+  "docker-build.log": {
+    "bytes": 210431,
+    "sha256": "1ae8457de65720dde6692359514bfd4e917c7a6bc44a29d3327fb493b56b8bef"
+  },
+  "first/controller.log": {
+    "bytes": 533,
+    "sha256": "9ee0be70ba29311cbaa9b06b186ae6fbbb65115ebd1ea083617e616ded573717"
+  },
+  "first/launcher-exits.txt": {
+    "bytes": 75,
+    "sha256": "532ad97161453af57c35615a3345e039cc7da7650aa1cecb2e42a4e4bb26d1e5"
+  },
+  "first/runtime/command.log": {
+    "bytes": 143,
+    "sha256": "cbc6e895da89b0484cb7d47419a801d82be1dc3b4f5487b6f1d8d867730b8327"
+  },
+  "first/runtime/compose.log": {
+    "bytes": 4088,
+    "sha256": "72092b7d042544ff7c1c7a940a2e9a6d43fde9be73190b0c84bfe6a038cb46ab"
+  },
+  "first/runtime/runner.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "first/runtime/verification.log": {
+    "bytes": 130,
+    "sha256": "ab7621fbfa8e1e02cc634c55e96b4b1b42192f8ad2e7bec2c12fbe1de258c97a"
+  },
+  "podman-load.log": {
+    "bytes": 3461,
+    "sha256": "79630907d70fe6aaf945fbd44b8fc6bb7d394712517c777ba6fe39e4a9c4fb92"
+  },
+  "second/controller.log": {
+    "bytes": 537,
+    "sha256": "f7584b689bae9e95215987f5acf6b860c4490e0dbd982a3424b18cd6158cd6ec"
+  },
+  "second/launcher-exits.txt": {
+    "bytes": 75,
+    "sha256": "532ad97161453af57c35615a3345e039cc7da7650aa1cecb2e42a4e4bb26d1e5"
+  },
+  "second/runtime/command.log": {
+    "bytes": 136,
+    "sha256": "4e6fec5415cdd64ee2aa73578acb750c1bc9cadc477f2acc5af92336eb47d60f"
+  },
+  "second/runtime/compose.log": {
+    "bytes": 13929,
+    "sha256": "2a8f9c7588512488287ac23fad60c7307357aa5f2b71b997e43f2d0da3bd83fe"
+  },
+  "second/runtime/runner.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "second/runtime/verification.log": {
+    "bytes": 128,
+    "sha256": "7def8f0e66c943106d482210b98bfb031547ebaaa90dc62c998fc74f883ea3d1"
+  }
+}

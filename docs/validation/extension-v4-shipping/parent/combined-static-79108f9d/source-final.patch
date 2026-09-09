@@ -1,0 +1,733 @@
+diff --git a/scripts/verify-production-image-lifecycle.sh b/scripts/verify-production-image-lifecycle.sh
+index 1e77c94b..e12ba335 100755
+--- a/scripts/verify-production-image-lifecycle.sh
++++ b/scripts/verify-production-image-lifecycle.sh
+@@ -39,13 +39,70 @@ external_state=0
+ [[ -n "${EZ_PRODUCTION_STATE_DIR:-}" ]] && external_state=1
+ compose="$run_root/compose.yml"
+ runner_pid=""
++verification_starter_pid=""
++verification_group_file="$run_root/verification-group.pid"
++verification_active=0
+ command_exit=1
+ compose_started=0
+ 
++verification_group_pid() {
++  local group_pid=""
++  [[ -s "$verification_group_file" ]] || return 1
++  read -r group_pid < "$verification_group_file"
++  [[ "$group_pid" =~ ^[1-9][0-9]*$ ]] && ((10#$group_pid > 1)) || return 1
++  printf '%s\n' "$group_pid"
++}
++
++signal_verification() {
++  local signal="$1" group_pid=""
++  group_pid="$(verification_group_pid 2>/dev/null)" || true
++  if [[ -n "$group_pid" ]]; then
++    kill -"$signal" -- "-$group_pid" 2>/dev/null || true
++  elif [[ -n "$verification_starter_pid" ]]; then
++    # Before the in-session shell records its group, this is our unreaped
++    # direct setsid child. It is safe to signal by PID during that short race.
++    kill -"$signal" "$verification_starter_pid" 2>/dev/null || true
++  fi
++}
++
++verification_running() {
++  local group_pid=""
++  group_pid="$(verification_group_pid 2>/dev/null)" || true
++  if [[ -n "$group_pid" ]]; then
++    kill -0 -- "-$group_pid" 2>/dev/null
++  elif [[ -n "$verification_starter_pid" ]]; then
++    kill -0 "$verification_starter_pid" 2>/dev/null
++  else
++    return 1
++  fi
++}
++
++wait_for_verification() {
++  local attempt
++  for ((attempt = 0; attempt < 40; attempt++)); do
++    verification_running || return 0
++    sleep 0.1
++  done
++  ! verification_running
++}
++
++stop_verification() {
++  [[ "$verification_active" -eq 1 ]] || return 0
++  signal_verification TERM
++  if ! wait_for_verification; then
++    signal_verification KILL
++    wait_for_verification || return 1
++  fi
++  [[ -z "$verification_starter_pid" ]] || wait "$verification_starter_pid" 2>/dev/null
++  verification_active=0
++}
++
+ cleanup() {
+   set +e
+   logs_exit=0
+   cleanup_exit=0
++  verification_cleanup_exit=0
++  stop_verification || verification_cleanup_exit=1
+   if [[ "$compose_started" -eq 1 ]]; then
+     docker compose -p "$project" -f "$compose" logs --no-color > "$receipt_dir/compose.log" 2>&1
+     logs_exit=$?
+@@ -56,9 +113,9 @@ cleanup() {
+     kill -TERM "$runner_pid" 2>/dev/null
+     wait "$runner_pid" 2>/dev/null
+   fi
+-  printf 'command_exit=%s\ncompose_started=%s\napp_log_exit=%s\nowned_cleanup_exit=%s\n' "$command_exit" "$compose_started" "$logs_exit" "$cleanup_exit" >> "$receipt_dir/command.log"
++  printf 'command_exit=%s\ncompose_started=%s\napp_log_exit=%s\nowned_cleanup_exit=%s\nverifier_cleanup_exit=%s\n' "$command_exit" "$compose_started" "$logs_exit" "$cleanup_exit" "$verification_cleanup_exit" >> "$receipt_dir/command.log"
+   rm -rf "$run_root"
+-  if [[ "$command_exit" -eq 0 && ( "$logs_exit" -ne 0 || "$cleanup_exit" -ne 0 ) ]]; then
++  if [[ "$command_exit" -eq 0 && ( "$logs_exit" -ne 0 || "$cleanup_exit" -ne 0 || "$verification_cleanup_exit" -ne 0 ) ]]; then
+     trap - EXIT
+     exit 1
+   fi
+@@ -162,10 +219,34 @@ printf 'setup_http=%s\nlogin_http=%s\nkey_http=%s\n' "$setup_code" "$login_code"
+ 
+ export EZ_PRODUCTION_ORIGIN="$origin" EZ_PRODUCTION_CONTAINER="$container" EZ_PRODUCTION_RUN_ROOT="$state_root"
+ export EZ_PRODUCTION_COOKIE_FILE="$cookie_file" EZ_PRODUCTION_API_KEY_FILE="$key_file" EZ_PRODUCTION_RUNNER_PID="$runner_pid"
++command -v setsid >/dev/null 2>&1 || { echo "setsid is required to stop the owned verifier group" >&2; exit 2; }
++# A newly backgrounded command must not become its own group before setsid
++# runs. Defer TERM while recording its direct PID, then honor it with the
++# owned cleanup state complete.
++set +m
++termination_requested=0
++trap 'termination_requested=1' INT TERM
++setsid bash -c '
++  group_file="$1"
++  receipt="$2"
++  shift 2
++  # setsid execs this shell as its session and process-group leader.
++  group_pid="$$"
++  [[ "$group_pid" =~ ^[1-9][0-9]*$ ]] && ((10#$group_pid > 1)) || exit 2
++  printf "%s\n" "$group_pid" > "$group_file"
++  set +e
++  "$@" 2>&1 | tee "$receipt"
++  verification_status=("${PIPESTATUS[@]}")
++  command_exit="${verification_status[0]}"
++  if [[ "$command_exit" -eq 0 && "${verification_status[1]}" -ne 0 ]]; then command_exit="${verification_status[1]}"; fi
++  exit "$command_exit"
++' verification-pipeline "$verification_group_file" "$receipt_dir/verification.log" "$@" & verification_starter_pid=$!
++verification_active=1
++trap 'exit 130' INT TERM
++if [[ "$termination_requested" -eq 1 ]]; then exit 130; fi
+ set +e
+-"$@" 2>&1 | tee "$receipt_dir/verification.log"
+-verification_status=("${PIPESTATUS[@]}")
+-command_exit="${verification_status[0]}"
+-if [[ "$command_exit" -eq 0 && "${verification_status[1]}" -ne 0 ]]; then command_exit="${verification_status[1]}"; fi
++wait "$verification_starter_pid"
++command_exit=$?
+ set -e
++# EXIT cleanup verifies that no verifier-group descendant survived the shell.
+ exit "$command_exit"
+diff --git a/src/__tests__/production-image-lifecycle-launch.integration.test.ts b/src/__tests__/production-image-lifecycle-launch.integration.test.ts
+index cafcfa22..6492b2ec 100644
+--- a/src/__tests__/production-image-lifecycle-launch.integration.test.ts
++++ b/src/__tests__/production-image-lifecycle-launch.integration.test.ts
+@@ -6,6 +6,19 @@ import { join, resolve } from "node:path";
+ 
+ const root = resolve(import.meta.dir, "../..");
+ 
++type LaunchFixture = {
++  bin: string;
++  commandEnvironment: string;
++  compose: string;
++  directory: string;
++  dockerLog: string;
++  receipt: string;
++  runnerTransport: string;
++  setsidRelease: string;
++  setsidStarter: string;
++  state: string;
++};
++
+ async function executable(path: string, source: string): Promise<void> {
+   await writeFile(path, source, { mode: 0o700 });
+ }
+@@ -21,17 +34,26 @@ async function launcherDiagnostics(receipt: string): Promise<string> {
+   return `runner.log:\n${await read("runner.log")}\ncommand.log:\n${await read("command.log")}`;
+ }
+ 
+-test("long persistent state keeps the authenticated runner transport below the Unix-path limit", async () => {
++async function makeFixture(): Promise<LaunchFixture> {
+   const directory = await mkdtemp(join(tmpdir(), "production-lifecycle-launch-"));
+   const bin = join(directory, "bin");
+   const state = await mkdtemp(join(tmpdir(), `ez-r4-runner-private-socket-regression-${"x".repeat(24)}-`));
+-  const receipt = join(directory, "receipt");
+-  const compose = join(directory, "compose.yml");
+-  const runnerTransport = join(directory, "runner-transport.txt");
+-  const commandEnvironment = join(directory, "command-environment.txt");
++  const fixture = {
++    bin,
++    commandEnvironment: join(directory, "command-environment.txt"),
++    compose: join(directory, "compose.yml"),
++    directory,
++    dockerLog: join(directory, "docker.log"),
++    receipt: join(directory, "receipt"),
++    runnerTransport: join(directory, "runner-transport.txt"),
++    setsidRelease: join(directory, "setsid-release"),
++    setsidStarter: join(directory, "setsid-starter.pid"),
++    state,
++  };
+   await mkdir(bin, { recursive: true });
+   await executable(join(bin, "docker"), `#!/bin/sh
+ set -eu
++printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
+ case "$1" in
+   container|network) exit 1 ;;
+   image) printf 'image_id=sha256:test revision=test\n'; exit 0 ;;
+@@ -69,40 +91,158 @@ esac
+ [ -z "$out" ] || printf '%s\n' "$body" > "$out"
+ printf '%s' "$code"
+ `);
+-  await executable(join(bin, "jq"), "#!/bin/sh\nprintf '%s\\n' test-api-key\n");
++  await executable(join(bin, "jq"), "#!/bin/sh\nprintf '%s\n' test-api-key\n");
++  const realSetsid = Bun.which("setsid");
++  if (!realSetsid) throw new Error("setsid is required for the launcher fixture");
++  await executable(join(bin, "setsid"), `#!/bin/sh
++set -eu
++child=""
++stop() {
++  [ -z "$child" ] || kill -TERM "$child" 2>/dev/null
++  [ -z "$child" ] || wait "$child" 2>/dev/null
++  exit 130
++}
++trap stop INT TERM
++printf '%s\n' "$$" > "$FAKE_SETSID_STARTER"
++while [ ! -f "$FAKE_SETSID_RELEASE" ]; do
++  sleep 0.01 & child=$!
++  wait "$child" || true
++  child=""
++done
++exec "$REAL_SETSID" "$@"
++`);
++  return fixture;
++}
++
++function launch(fixture: LaunchFixture, command: string[], environment: Record<string, string> = {}, detached = false) {
++  return Bun.spawn(["bash", "scripts/verify-production-image-lifecycle.sh", "--", ...command], {
++    cwd: root,
++    env: {
++      ...process.env,
++      PATH: `${fixture.bin}:${process.env.PATH}`,
++      EZ_PRODUCTION_IMAGE: "lifecycle-launch-test",
++      EZ_PRODUCTION_RECEIPT_DIR: fixture.receipt,
++      EZ_PRODUCTION_STATE_DIR: fixture.state,
++      EZ_PRODUCTION_PORT: "4999",
++      EZ_PRODUCTION_COMPOSE_PROJECT: "lifecycle-launch-test",
++      EZ_PRODUCTION_APP_CONTAINER: "lifecycle-launch-test-app",
++      EZ_PRODUCTION_APP_UID: "0",
++      EZ_PRODUCTION_APP_GID: "0",
++      FAKE_COMPOSE: fixture.compose,
++      FAKE_DOCKER_LOG: fixture.dockerLog,
++      FAKE_RUNNER_TRANSPORT: fixture.runnerTransport,
++      FAKE_SETSID_RELEASE: fixture.setsidRelease,
++      FAKE_SETSID_STARTER: fixture.setsidStarter,
++      PROBE_OUTPUT: fixture.commandEnvironment,
++      REAL_SETSID: Bun.which("setsid") ?? "",
++      ...environment,
++    },
++    detached,
++    stdout: "pipe",
++    stderr: "pipe",
++  });
++}
++
++async function removeFixture(fixture: LaunchFixture): Promise<void> {
++  await rm(fixture.state, { recursive: true, force: true });
++  await rm(fixture.directory, { recursive: true, force: true });
++}
++
++const cancellationObservationMs = 10_000;
++const sleep = (ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms));
++
++async function waitForFile(path: string, timeoutMs = 5_000): Promise<void> {
++  const deadline = Date.now() + timeoutMs;
++  while (!existsSync(path)) {
++    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${path}`);
++    await sleep(10);
++  }
++}
++
++async function readReadyFile(path: string, timeoutMs = 5_000): Promise<string> {
++  const deadline = Date.now() + timeoutMs;
++  while (Date.now() < deadline) {
++    try {
++      const value = (await readFile(path, "utf8")).trim();
++      if (value) return value;
++    } catch {
++      // The producer may have created the path before its first write.
++    }
++    await sleep(10);
++  }
++  throw new Error(`Timed out waiting for content in ${path}`);
++}
++
++type ProcessIdentity = {
++  processGroup: number;
++  startTime: string;
++};
++
++async function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
++  return await Promise.race([promise, sleep(timeoutMs).then(() => undefined)]);
++}
++
++async function processIdentity(pid: number): Promise<ProcessIdentity | undefined> {
++  if (!Number.isSafeInteger(pid) || pid <= 1) return undefined;
++  try {
++    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
++    const fields = stat.slice(stat.lastIndexOf(")") + 2).trim().split(/\s+/);
++    const processGroup = Number(fields[2]);
++    const startTime = fields[19];
++    return Number.isSafeInteger(processGroup) && processGroup > 1 && startTime ? { processGroup, startTime } : undefined;
++  } catch {
++    return undefined;
++  }
++}
++
++async function hasIdentity(pid: number, expected: ProcessIdentity): Promise<boolean> {
++  const current = await processIdentity(pid);
++  return current?.processGroup === expected.processGroup && current.startTime === expected.startTime;
++}
++
++async function stopOwnedProcessGroup(processGroup: number, owned: Array<{ pid: number; identity: ProcessIdentity }>): Promise<void> {
++  const liveOwned = async () => (await Promise.all(owned.map(async ({ pid, identity }) => (await hasIdentity(pid, identity)) ? { pid, identity } : undefined))).filter((process): process is { pid: number; identity: ProcessIdentity } => process !== undefined);
++  const send = (signal: "SIGTERM" | "SIGKILL") => {
++    try {
++      process.kill(-processGroup, signal);
++    } catch (error) {
++      if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error;
++    }
++  };
++  if (!(await liveOwned()).some(({ identity }) => identity.processGroup === processGroup)) return;
++  send("SIGTERM");
++  await sleep(200);
++  if ((await liveOwned()).some(({ identity }) => identity.processGroup === processGroup)) {
++    send("SIGKILL");
++    await sleep(200);
++  }
++}
+ 
++async function finishOwnedLauncher(
++  child: ReturnType<typeof Bun.spawn> | undefined,
++  owned: Array<{ pid: number; identity: ProcessIdentity }>,
++): Promise<void> {
++  if (!child) return;
++  const groups = [...new Set(owned.map(({ identity }) => identity.processGroup))];
++  for (const processGroup of groups) await stopOwnedProcessGroup(processGroup, owned);
++  if ((await settlesWithin(child.exited, 1_000)) === undefined) {
++    for (const processGroup of groups) await stopOwnedProcessGroup(processGroup, owned);
++  }
++}
++
++test("long persistent state keeps the authenticated runner transport below the Unix-path limit", async () => {
++  const fixture = await makeFixture();
+   let child: ReturnType<typeof Bun.spawn> | undefined;
+   let deadline: ReturnType<typeof setTimeout> | undefined;
+   let timedOut = false;
+   try {
+-    await writeFile(join(state, "persistent-sentinel.txt"), "retain persistent state");
+-    const launched = Bun.spawn([
+-      "bash",
+-      "scripts/verify-production-image-lifecycle.sh",
+-      "--",
++    await writeFile(join(fixture.state, "persistent-sentinel.txt"), "retain persistent state");
++    await writeFile(fixture.setsidRelease, "release");
++    const launched = launch(fixture, [
+       "bun",
+       "-e",
+       'const {inspectProductionRunner}=await import("./scripts/lib/production-lifecycle-client.ts");const inspection=await inspectProductionRunner("launcher-readiness");if(inspection.id!=="launcher-readiness"||inspection.state!=="unknown")throw new Error("Unexpected runner inspection: "+JSON.stringify(inspection));await Bun.write(process.env.PROBE_OUTPUT,JSON.stringify({stateRoot:process.env.EZ_PRODUCTION_RUN_ROOT,id:inspection.id,state:inspection.state})+"\\n");',
+-    ], {
+-      cwd: root,
+-      env: {
+-        ...process.env,
+-        PATH: `${bin}:${process.env.PATH}`,
+-        EZ_PRODUCTION_IMAGE: "lifecycle-launch-test",
+-        EZ_PRODUCTION_RECEIPT_DIR: receipt,
+-        EZ_PRODUCTION_STATE_DIR: state,
+-        EZ_PRODUCTION_PORT: "4999",
+-        EZ_PRODUCTION_COMPOSE_PROJECT: "lifecycle-launch-test",
+-        EZ_PRODUCTION_APP_CONTAINER: "lifecycle-launch-test-app",
+-        EZ_PRODUCTION_APP_UID: "0",
+-        EZ_PRODUCTION_APP_GID: "0",
+-        FAKE_COMPOSE: compose,
+-        FAKE_RUNNER_TRANSPORT: runnerTransport,
+-        PROBE_OUTPUT: commandEnvironment,
+-      },
+-      stdout: "pipe",
+-      stderr: "pipe",
+-    });
++    ]);
+     child = launched;
+     deadline = setTimeout(() => {
+       timedOut = true;
+@@ -113,12 +253,12 @@ printf '%s' "$code"
+       new Response(launched.stdout).text(),
+       new Response(launched.stderr).text(),
+     ]);
+-    const diagnostics = await launcherDiagnostics(receipt);
++    const diagnostics = await launcherDiagnostics(fixture.receipt);
+     expect(timedOut, `launcher exceeded the 20s deadline\n${diagnostics}\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(false);
+     expect(exit, `${stdout}\n${stderr}`).toBe(0);
+-    expect(await readFile(commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: state, id: "launcher-readiness", state: "unknown" })}\n`);
+-    const generatedCompose = await readFile(compose, "utf8");
+-    const [mountedRunnerRoot, mountedRunnerToken] = (await readFile(runnerTransport, "utf8")).trim().split("\n");
++    expect(await readFile(fixture.commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: fixture.state, id: "launcher-readiness", state: "unknown" })}\n`);
++    const generatedCompose = await readFile(fixture.compose, "utf8");
++    const [mountedRunnerRoot, mountedRunnerToken] = (await readFile(fixture.runnerTransport, "utf8")).trim().split("\n");
+     expect(mountedRunnerToken).toBeDefined();
+     expect(mountedRunnerRoot).toMatch(/^\/tmp\/ez-production-lifecycle-[^/]+\/s$/);
+     expect(`${mountedRunnerRoot}/.private-${"0".repeat(36)}/runner.sock`.length).toBeLessThan(108);
+@@ -126,14 +266,189 @@ printf '%s' "$code"
+     expect(generatedCompose).toContain("$" + "{RUN_ROOT}/app-data:/app/data");
+     expect(generatedCompose).toContain("$" + "{RUN_ROOT}/extension-state:/app/.ezcorp");
+     expect(generatedCompose).not.toContain("$" + "{RUN_ROOT}/socket:/run/ez-extension-runner:ro");
+-    expect(await readFile(join(state, "persistent-sentinel.txt"), "utf8")).toBe("retain persistent state");
++    expect(await readFile(join(fixture.state, "persistent-sentinel.txt"), "utf8")).toBe("retain persistent state");
+     expect(existsSync(mountedRunnerRoot!)).toBe(false);
+     expect(existsSync(mountedRunnerToken!)).toBe(false);
+   } finally {
+     if (deadline) clearTimeout(deadline);
+     if (child && child.exitCode === null) child.kill("SIGTERM");
+     if (child) await child.exited;
+-    await rm(state, { recursive: true, force: true });
+-    await rm(directory, { recursive: true, force: true });
++    await removeFixture(fixture);
+   }
+ }, 30_000);
++
++test("launcher cancellation reaps its verifier and runner before streams drain", async () => {
++  const fixture = await makeFixture();
++  const verifierReady = join(fixture.directory, "verifier-ready");
++  const verifierPidFile = join(fixture.directory, "verifier.pid");
++  const verifierDescendantPidFile = join(fixture.directory, "verifier-descendant.pid");
++  const runnerPidFile = join(fixture.directory, "runner.pid");
++  let child: ReturnType<typeof Bun.spawn> | undefined;
++  const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
++  try {
++    await writeFile(fixture.setsidRelease, "release");
++    const launched = launch(fixture, [
++      "bun",
++      "-e",
++      'const descendant=Bun.spawn([process.execPath,"-e",`process.on("SIGTERM",()=>{});setInterval(()=>{},1_000)`],{stdout:"ignore",stderr:"ignore"});await Bun.write(process.env.VERIFIER_PID_FILE,String(process.pid));await Bun.write(process.env.VERIFIER_DESCENDANT_PID_FILE,String(descendant.pid));await Bun.write(process.env.RUNNER_PID_FILE,process.env.EZ_PRODUCTION_RUNNER_PID);await Bun.write(process.env.VERIFIER_READY_FILE,"ready");setInterval(()=>{},1_000);',
++    ], {
++      RUNNER_PID_FILE: runnerPidFile,
++      VERIFIER_DESCENDANT_PID_FILE: verifierDescendantPidFile,
++      VERIFIER_PID_FILE: verifierPidFile,
++      VERIFIER_READY_FILE: verifierReady,
++    }, true);
++    child = launched;
++    const launcherIdentity = await processIdentity(launched.pid);
++    expect(launcherIdentity).toBeDefined();
++    owned.push({ pid: launched.pid, identity: launcherIdentity! });
++    expect(launcherIdentity!.processGroup).toBeGreaterThan(1);
++    const stdout = new Response(launched.stdout).text();
++    const stderr = new Response(launched.stderr).text();
++    try {
++      await waitForFile(verifierReady);
++    } catch (error) {
++      throw new Error(`${String(error)}\n${await launcherDiagnostics(fixture.receipt)}\nlauncher_exit=${await settlesWithin(child.exited, 100)}\nstdout=${await settlesWithin(stdout, 100)}\nstderr=${await settlesWithin(stderr, 100)}`);
++    }
++    const observedVerifierPid = Number(await readFile(verifierPidFile, "utf8"));
++    const verifierDescendantPid = Number(await readFile(verifierDescendantPidFile, "utf8"));
++    const runnerPid = Number(await readFile(runnerPidFile, "utf8"));
++    expect(observedVerifierPid).toBeGreaterThan(1);
++    expect(verifierDescendantPid).toBeGreaterThan(1);
++    expect(runnerPid).toBeGreaterThan(1);
++    const [runnerRoot] = (await readFile(fixture.runnerTransport, "utf8")).trim().split("\n");
++    const reportedGroupFile = join(runnerRoot!, "..", "verification-group.pid");
++    await waitForFile(reportedGroupFile);
++    const reportedVerifierGroup = Number(await readReadyFile(reportedGroupFile));
++    const verifierIdentity = await processIdentity(observedVerifierPid);
++    const verifierDescendantIdentity = await processIdentity(verifierDescendantPid);
++    const runnerIdentity = await processIdentity(runnerPid);
++    expect(verifierIdentity).toBeDefined();
++    expect(verifierDescendantIdentity).toBeDefined();
++    expect(runnerIdentity).toBeDefined();
++    owned.push(
++      { pid: observedVerifierPid, identity: verifierIdentity! },
++      { pid: verifierDescendantPid, identity: verifierDescendantIdentity! },
++      { pid: runnerPid, identity: runnerIdentity! },
++    );
++    expect(reportedVerifierGroup).toBe(verifierIdentity!.processGroup);
++    expect(await hasIdentity(observedVerifierPid, verifierIdentity!)).toBe(true);
++    expect(await hasIdentity(verifierDescendantPid, verifierDescendantIdentity!)).toBe(true);
++    expect(await hasIdentity(runnerPid, runnerIdentity!)).toBe(true);
++
++    child.kill("SIGTERM");
++    const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
++      settlesWithin(child.exited, cancellationObservationMs),
++      settlesWithin(stdout, cancellationObservationMs),
++      settlesWithin(stderr, cancellationObservationMs),
++    ]);
++    const stdoutDrained = stdoutResult !== undefined;
++    const stderrDrained = stderrResult !== undefined;
++    const dockerLog = await readFile(fixture.dockerLog, "utf8");
++    const result = {
++      composeDown: dockerLog.includes("down --volumes --remove-orphans"),
++      launcherExit,
++      runnerAlive: await hasIdentity(runnerPid, runnerIdentity!),
++      stderrDrained,
++      stdoutDrained,
++      verifierAlive: await hasIdentity(observedVerifierPid, verifierIdentity!),
++      verifierDescendantAlive: await hasIdentity(verifierDescendantPid, verifierDescendantIdentity!),
++    };
++    const diagnostics = await launcherDiagnostics(fixture.receipt);
++    expect(result, `${diagnostics}\n${dockerLog}`).toEqual({
++      composeDown: true,
++      launcherExit: 130,
++      runnerAlive: false,
++      stderrDrained: true,
++      stdoutDrained: true,
++      verifierAlive: false,
++      verifierDescendantAlive: false,
++    });
++  } finally {
++    await finishOwnedLauncher(child, owned);
++    await removeFixture(fixture);
++  }
++}, 25_000);
++
++test("launcher cancellation before verifier group readiness reaps its owned starter", async () => {
++  const fixture = await makeFixture();
++  let child: ReturnType<typeof Bun.spawn> | undefined;
++  const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
++  try {
++    const launched = launch(fixture, ["bun", "-e", 'throw new Error("verifier must not start before its group is ready");'], {}, true);
++    child = launched;
++    const launcherIdentity = await processIdentity(launched.pid);
++    expect(launcherIdentity).toBeDefined();
++    owned.push({ pid: launched.pid, identity: launcherIdentity! });
++    const stdout = new Response(launched.stdout).text();
++    const stderr = new Response(launched.stderr).text();
++    await waitForFile(fixture.setsidStarter);
++    const starterPid = Number(await readFile(fixture.setsidStarter, "utf8"));
++    expect(starterPid).toBeGreaterThan(1);
++    const starterIdentity = await processIdentity(starterPid);
++    expect(starterIdentity).toBeDefined();
++    owned.push({ pid: starterPid, identity: starterIdentity! });
++    expect(await hasIdentity(starterPid, starterIdentity!)).toBe(true);
++
++    child.kill("SIGTERM");
++    const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
++      settlesWithin(child.exited, cancellationObservationMs),
++      settlesWithin(stdout, cancellationObservationMs),
++      settlesWithin(stderr, cancellationObservationMs),
++    ]);
++    const stdoutDrained = stdoutResult !== undefined;
++    const stderrDrained = stderrResult !== undefined;
++    const dockerLog = await readFile(fixture.dockerLog, "utf8");
++    expect({
++      composeDown: dockerLog.includes("down --volumes --remove-orphans"),
++      launcherExit,
++      starterAlive: await hasIdentity(starterPid, starterIdentity!),
++      stderrDrained,
++      verifierGroupNeverReleased: !existsSync(fixture.setsidRelease),
++      verificationLogAbsent: !existsSync(join(fixture.receipt, "verification.log")),
++      stdoutDrained,
++    }, `${await launcherDiagnostics(fixture.receipt)}\n${dockerLog}`).toEqual({
++      composeDown: true,
++      launcherExit: 130,
++      starterAlive: false,
++      stderrDrained: true,
++      verifierGroupNeverReleased: true,
++      verificationLogAbsent: true,
++      stdoutDrained: true,
++    });
++  } finally {
++    await finishOwnedLauncher(child, owned);
++    await removeFixture(fixture);
++  }
++}, 25_000);
++
++test("launcher preserves verifier and tee failure exits", async () => {
++  for (const failure of [
++    { command: ["bun", "-e", "process.exit(17)"], expectedExit: 17, fakeTeeExit: undefined },
++    { command: ["bun", "-e", ""], expectedExit: 23, fakeTeeExit: "23" },
++  ]) {
++    const fixture = await makeFixture();
++    let child: ReturnType<typeof Bun.spawn> | undefined;
++    try {
++      await writeFile(fixture.setsidRelease, "release");
++      if (failure.fakeTeeExit) {
++        await executable(join(fixture.bin, "tee"), "#!/bin/sh\ncat >/dev/null\nexit \"$FAKE_TEE_EXIT\"\n");
++      }
++      const launched = launch(fixture, failure.command, failure.fakeTeeExit ? { FAKE_TEE_EXIT: failure.fakeTeeExit } : {});
++      child = launched;
++      const [exit, stdout, stderr] = await Promise.all([
++        child.exited,
++        new Response(launched.stdout).text(),
++        new Response(launched.stderr).text(),
++      ]);
++      expect(exit, `${stdout}\n${stderr}`).toBe(failure.expectedExit);
++      const commandLog = await readFile(join(fixture.receipt, "command.log"), "utf8");
++      expect(commandLog).toContain(`command_exit=${failure.expectedExit}`);
++      expect(commandLog).toContain("verifier_cleanup_exit=0");
++      expect(await readFile(fixture.dockerLog, "utf8")).toContain("down --volumes --remove-orphans");
++    } finally {
++      if (child && child.exitCode === null) child.kill("SIGTERM");
++      if (child) await child.exited;
++      await removeFixture(fixture);
++    }
++  }
++}, 25_000);
+diff --git a/web/e2e/extension-deep-links.spec.ts b/web/e2e/extension-deep-links.spec.ts
+index eb0820df..288f0d6f 100644
+--- a/web/e2e/extension-deep-links.spec.ts
++++ b/web/e2e/extension-deep-links.spec.ts
+@@ -39,6 +39,7 @@
+ import { test, expect } from "./fixtures/test-base.js";
+ import type { Page } from "@playwright/test";
+ import { captureEvidence } from "./fixtures/evidence.js";
++import { expectReadable, useDarkTheme, useLightTheme } from "./fixtures/readable.js";
+ import { makeProject, makeExtension } from "./fixtures/data.js";
+ 
+ const proj = makeProject({ id: "proj-1" });
+@@ -75,8 +76,10 @@ const USER_ME = {
+ async function mockExtensionApi(
+ 	page: Page,
+ 	detailReadResolves: "reference" | "idOnly",
++	options: { extension?: typeof ROW; violations?: boolean } = {},
+ ): Promise<string[]> {
+ 	const nameAddressed: string[] = [];
++	const extension = options.extension ?? ROW;
+ 
+ 	await page.route(/\/api\/extensions\/.+/, async (route) => {
+ 		const path = new URL(route.request().url()).pathname;
+@@ -88,14 +91,14 @@ async function mockExtensionApi(
+ 		// The detail read — the ONE reference-addressed endpoint in production.
+ 		if (sub === "") {
+ 			const found =
+-				ref === ROW.id || (detailReadResolves === "reference" && ref === ROW.name);
++				ref === extension.id || (detailReadResolves === "reference" && ref === extension.name);
+ 			return found
+-				? route.fulfill({ json: ROW })
++				? route.fulfill({ json: extension })
+ 				: route.fulfill({ status: 404, json: { error: "Not found" } });
+ 		}
+ 
+ 		// Everything else is id-only in production. A name here is the bug.
+-		if (ref !== ROW.id) {
++		if (ref !== extension.id) {
+ 			nameAddressed.push(path);
+ 			return route.fulfill({ status: 404, json: { error: "Not found" } });
+ 		}
+@@ -104,7 +107,11 @@ async function mockExtensionApi(
+ 				json: { schema: null, declaredDefaults: {}, userValues: {}, resolved: {}, secrets: {}, capabilities: [] },
+ 			});
+ 		}
+-		if (sub === "/violations") return route.fulfill({ json: [] });
++		if (sub === "/violations") {
++			return route.fulfill({
++				json: options.violations ? [{ reason: "Fixture violation", path: "index.ts", timestamp: "2026-09-07T00:00:00Z" }] : [],
++			});
++		}
+ 		if (sub === "/audit") return route.fulfill({ json: { entries: [] } });
+ 		if (sub === "/expired-grants") return route.fulfill({ json: { grants: [] } });
+ 		return route.fulfill({ json: {} });
+@@ -151,6 +158,58 @@ test.describe("extension detail page — resolving the route reference, canonica
+ 		await captureEvidence(page, testInfo, "extension-detail-via-post-install-deep-link");
+ 	});
+ 
++	for (const theme of ["light", "dark"] as const) {
++		test(`@evidence header status badges remain readable on ${theme}`, async ({ page, mockApi }, testInfo) => {
++			await (theme === "light" ? useLightTheme(page) : useDarkTheme(page));
++			const verified = { ...ROW, checksumVerified: true };
++			await mockApi({ projects: [proj], extensions: [verified], routes: { "/api/auth/me": () => USER_ME } });
++			const verifiedCalls = await mockExtensionApi(page, "reference", { extension: verified });
++
++			await page.goto(POST_INSTALL_LINK);
++			await expectDetailRendered(page, verifiedCalls);
++			const verifiedBadge = page.getByText("Verified", { exact: true });
++			await expect(verifiedBadge).toHaveText("Verified");
++			expect((await expectReadable(verifiedBadge, `Verified badge (${theme})`)).dark).toBe(theme === "dark");
++
++			await captureEvidence(page, testInfo, `extension-detail-verified-badge-${theme}`);
++		});
++
++		test(`@evidence unsigned and violation badges remain readable on ${theme}`, async ({ page, mockApi }, testInfo) => {
++			await (theme === "light" ? useLightTheme(page) : useDarkTheme(page));
++			const unsigned = { ...ROW, checksumVerified: false, enabled: false };
++			await mockApi({ projects: [proj], extensions: [unsigned], routes: { "/api/auth/me": () => USER_ME } });
++			const unsignedCalls = await mockExtensionApi(page, "reference", { extension: unsigned, violations: true });
++
++			await page.goto(POST_INSTALL_LINK);
++			await expectDetailRendered(page, unsignedCalls);
++			const unsignedBadge = page.getByText("Unsigned", { exact: true });
++			const violationBadge = page.locator('[title="Clear security violations first"]');
++			await expect(unsignedBadge).toHaveText("Unsigned");
++			await expect(violationBadge).toHaveText("Disabled");
++			await expect(violationBadge).toHaveAttribute("title", "Clear security violations first");
++			const violationHeading = page.getByText("Security Violations", { exact: true });
++			const violationBody = page.getByText(
++				"This extension was disabled due to security violations. Review and clear them to re-enable.",
++				{ exact: true },
++			);
++			const violationReason = page.getByText("Fixture violation", { exact: true });
++			const violationPath = page.getByText("index.ts", { exact: true });
++			expect((await expectReadable(unsignedBadge, `Unsigned badge (${theme})`)).dark).toBe(theme === "dark");
++			expect((await expectReadable(violationBadge, `Security-violation badge (${theme})`)).dark).toBe(theme === "dark");
++			for (const [target, label] of [
++				[violationHeading, "heading"],
++				[violationBody, "body"],
++				[violationReason, "reason"],
++				[violationPath, "path"],
++			] as const) {
++				await expect(target).toBeVisible();
++				expect((await expectReadable(target, `Security Violations ${label} (${theme})`)).dark).toBe(theme === "dark");
++			}
++
++			await captureEvidence(page, testInfo, `extension-detail-unsigned-violation-badges-${theme}`);
++		});
++	}
++
+ 	// NEGATIVE CONTROL. Drives the stub with the PRE-FIX server contract
+ 	// (id-equality only) and asserts the page falls into its not-found branch
+ 	// — what the user actually saw after every authored install. It does not
+diff --git a/web/src/routes/(app)/extensions/[id]/+page.svelte b/web/src/routes/(app)/extensions/[id]/+page.svelte
+index a6700303..558ea13f 100644
+--- a/web/src/routes/(app)/extensions/[id]/+page.svelte
++++ b/web/src/routes/(app)/extensions/[id]/+page.svelte
+@@ -687,12 +687,12 @@
+ 					Audit
+ 				</a>
+ 				{#if ext.checksumVerified}
+-					<span class="rounded-full bg-green-900/40 px-2 py-0.5 text-xs text-green-400">Verified</span>
++					<span class="rounded-full bg-green-300/40 px-2 py-0.5 text-xs text-green-900 dark:bg-green-900/40 dark:text-green-400">Verified</span>
+ 				{:else}
+-					<span class="rounded-full bg-amber-900/40 px-2 py-0.5 text-xs text-amber-400">Unsigned</span>
++					<span class="rounded-full bg-amber-300/40 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-400">Unsigned</span>
+ 				{/if}
+ 				<span
+-					class="rounded-full px-2 py-0.5 text-xs {hasViolations ? 'bg-red-900/40 text-red-400' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]'}"
++					class="rounded-full px-2 py-0.5 text-xs {hasViolations ? 'bg-red-300/40 text-red-900 dark:bg-red-900/40 dark:text-red-400' : 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-secondary)]'}"
+ 					title={hasViolations ? "Clear security violations first" : ""}
+ 				>
+ 					{ext.enabled ? "Enabled" : "Disabled"}
+@@ -725,16 +725,16 @@
+ 
+ 		<!-- Security Violations -->
+ 		{#if hasViolations}
+-			<div class="rounded-lg border border-red-800 bg-red-900/30 p-4">
+-				<h3 class="text-sm font-semibold text-red-300">Security Violations</h3>
+-				<p class="mt-1 text-xs text-red-400/80">
++			<div class="rounded-lg border border-red-800 bg-red-200/60 p-4 dark:bg-red-900/30">
++				<h3 class="text-sm font-semibold text-red-900 dark:text-red-300">Security Violations</h3>
++				<p class="mt-1 text-xs text-red-900 dark:text-red-400/80">
+ 					This extension was disabled due to security violations. Review and clear them to re-enable.
+ 				</p>
+ 				<ul class="mt-3 space-y-2">
+ 					{#each violations as v}
+-						<li class="rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm">
+-							<strong class="text-red-300">{v.reason}</strong>
+-							<span class="ml-2 font-mono text-xs text-red-400/70">{v.path}</span>
++						<li class="rounded-md border border-red-500 bg-red-200/60 px-3 py-2 text-sm dark:border-red-900/60 dark:bg-red-950/40">
++							<strong class="text-red-900 dark:text-red-300">{v.reason}</strong>
++							<span class="ml-2 font-mono text-xs text-red-800 dark:text-red-300">{v.path}</span>
+ 							<span class="ml-2 text-xs text-[var(--color-text-muted)]">{relativeTime(v.timestamp)}</span>
+ 						</li>
+ 					{/each}

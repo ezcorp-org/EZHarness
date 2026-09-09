@@ -1,0 +1,3 @@
+9225cdf07c5af2279233d3cad0dbbd8f39b0c67b5b50ed6e2beed6fa9dda8a81  src/__tests__/production-image-lifecycle-launch.integration.test.ts
+bcafade0d516cf60008c85e1ddba3c601e925f29d8b9be5fa410c5ec6b4d0a43  scripts/verify-production-image-lifecycle.sh
+0576bee4610d0bf4edd433e57e29992932aea017e7f2ca17ff4473560f92903d  scripts/start-extension-runner-e2e.sh

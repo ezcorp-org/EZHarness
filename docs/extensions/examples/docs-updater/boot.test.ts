@@ -15,8 +15,8 @@ import type { LoopRunState } from "@ezcorp/sdk/runtime";
 import {
   __resetLoopsForTests,
   _getRegisteredLoop,
-} from "../../../../packages/@ezcorp/sdk/src/runtime/loop";
-import { __resetChannelForTests } from "../../../../packages/@ezcorp/sdk/src/runtime/channel";
+} from "@ezcorp/sdk/test";
+import { __resetChannelForTests } from "@ezcorp/sdk/test";
 import { defineDocsUpdaterLoop, start, APPROVE_EVENT, DECLINE_EVENT, PAGE_ID } from "./index";
 
 beforeEach(() => __resetLoopsForTests());

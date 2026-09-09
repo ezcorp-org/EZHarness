@@ -1,0 +1,50 @@
+[
+  {
+    "label": "extension-uninstall-retains-data",
+    "testId": "557f2100665e96330d21-41a88e55e5d0807bb89f",
+    "bytes": 119716,
+    "sha256": "54b9eafd77e1f74cd25c631a26fb16227495f15cacad8a0da6b776d94e0025bf"
+  },
+  {
+    "label": "extension-lifecycle-review-desktop",
+    "testId": "db4a13fe03d4d80301ff-d8b769312c311ad8ef63",
+    "bytes": 94322,
+    "sha256": "513cf93d30ed4b972805c90190081423c9d05a1db3a37fa81976e0a993a5330d"
+  },
+  {
+    "label": "extension-lifecycle-live-output",
+    "testId": "db4a13fe03d4d80301ff-d8b769312c311ad8ef63",
+    "bytes": 99528,
+    "sha256": "7ee4a64699ff62469c97b016cfd6ad998163b767fe183bed78e7dd44800deccd"
+  },
+  {
+    "label": "extension-lifecycle-tool-selection-mobile-narrow",
+    "testId": "db4a13fe03d4d80301ff-d8b769312c311ad8ef63",
+    "bytes": 59391,
+    "sha256": "51817c799e181b0f1e2d4614606f3c98342b2e99202aaa0759be6ea52d1874d6"
+  },
+  {
+    "label": "extension-browser-build-diagnostics",
+    "testId": "db4a13fe03d4d80301ff-13a989a430d21f43d297",
+    "bytes": 77802,
+    "sha256": "f65c6b5839f8f2e09a5e9ac021ce7ff9f7e06d8f4486314727e0e8f03a6df82c"
+  },
+  {
+    "label": "extension-source-import-mobile",
+    "testId": "a78d884f59642ca3e7bc-a2ec8e1bc5e99d829712",
+    "bytes": 44317,
+    "sha256": "879f33a4e1aedf2a3cb161bc503255e4e02780642dabdc8fd764ede8a314395a"
+  },
+  {
+    "label": "extension-source-import-visible-output",
+    "testId": "a78d884f59642ca3e7bc-a2ec8e1bc5e99d829712",
+    "bytes": 91297,
+    "sha256": "455b39ef8a322ac80a721196079e2c55942da1eb0c634fbc504cb3cc6a187830"
+  },
+  {
+    "label": "extension-source-import-permission-update",
+    "testId": "a78d884f59642ca3e7bc-a2ec8e1bc5e99d829712",
+    "bytes": 90180,
+    "sha256": "905f07463a4b23ee34c041742061dcfdbdc0efc4a6deba5195f3e4f1be20c585"
+  }
+]

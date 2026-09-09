@@ -23,7 +23,8 @@ import type { HubPageListing, HubPageTree, PageAction } from "$lib/hub";
 // addToast is the single error/refusal surface — assert against the mock.
 // `vi.mock` factories are hoisted above all module code, so the mock fn must
 // live in the hoisted region too (it can't reference a normal top-level const).
-const { addToast } = vi.hoisted(() => ({ addToast: vi.fn() }));
+const { addToast, goto } = vi.hoisted(() => ({ addToast: vi.fn(), goto: vi.fn() }));
+vi.mock("$app/navigation", () => ({ goto }));
 vi.mock("$lib/toast.svelte.js", () => ({ addToast }));
 
 // Stub the shared format-widget registry. The real widgets (SharedFilePicker /
@@ -86,11 +87,14 @@ let fetchCalls: { url: string; method: string }[];
 
 // Handlers, overridable per test. Each returns a Response (or throws).
 let tabsHandler: () => Promise<Response> | Response;
+let extensionHandler: () => Promise<Response> | Response;
 let pageHandler: (id: string) => Promise<Response> | Response;
 let actionHandler: (url: string, body: unknown) => Promise<Response> | Response;
 
 beforeEach(() => {
 	addToast.mockClear();
+	goto.mockReset();
+	extensionHandler = () => jsonResponse({ id: "owned-installation" });
 	fetchCalls = [];
 	originalFetch = globalThis.fetch;
 
@@ -102,6 +106,7 @@ beforeEach(() => {
 		const url = typeof input === "string" ? input : input.toString();
 		const method = (init?.method ?? "GET").toUpperCase();
 		fetchCalls.push({ url, method });
+		if (url === "/api/extensions/file-organizer") return extensionHandler();
 		if (url === "/api/hub/pages") return tabsHandler();
 		if (url.startsWith("/api/hub/pages/")) {
 			const id = decodeURIComponent(url.slice("/api/hub/pages/".length));
@@ -971,4 +976,37 @@ describe("view prop (?view= alternate-surface variant)", () => {
 			expect(pulls.some((c) => c.url.includes("view=audit"))).toBe(true);
 		});
 	});
+});
+
+
+describe("File Organizer folder access", () => {
+  test.each([false, true])("opens the exact installation's review from the Hub (render failed: %s)", async (failedRender) => {
+    if (failedRender) pageHandler = () => jsonResponse({ error: "Project access required" }, 403);
+    const view = await renderView("ext:file-organizer:overview");
+    await waitFor(() => expect(view.queryByTestId(failedRender ? "hub-error-card" : "hub-page-title")).toBeInTheDocument());
+    expect(view.getAllByTestId("file-organizer-access-notice")).toHaveLength(1);
+    await fireEvent.click(view.getByRole("button", { name: "Review folder access" }));
+    await waitFor(() => expect(goto).toHaveBeenCalledWith("/extensions/author?installation=owned-installation#project-access"));
+    expect(fetchCalls.filter(call => call.url === "/api/extensions/file-organizer")).toEqual([{ url: "/api/extensions/file-organizer", method: "GET" }]);
+    expect(fetchCalls.some(call => call.method === "POST")).toBe(false);
+  });
+
+  test.each(["missing", "malformed", "network"])("a %s installation response leaves the Hub usable and reports the failure", async (failure) => {
+    extensionHandler = () => {
+      if (failure === "network") throw new Error("network down");
+      return failure === "missing" ? jsonResponse({}, 404) : jsonResponse({ id: 3 });
+    };
+    const view = await renderView("ext:file-organizer:overview");
+    const button = view.getByRole("button", { name: "Review folder access" });
+    await fireEvent.click(button);
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith({ type: "error", message: "Could not open folder access. Try again." }));
+    expect(goto).not.toHaveBeenCalled();
+    expect(button).toBeEnabled();
+  });
+
+  test("other extension pages have no File Organizer controls", async () => {
+    const view = await renderView();
+    expect(await view.findByTestId("hub-page-title")).toBeInTheDocument();
+    expect(view.queryByTestId("file-organizer-access-notice")).not.toBeInTheDocument();
+  });
 });

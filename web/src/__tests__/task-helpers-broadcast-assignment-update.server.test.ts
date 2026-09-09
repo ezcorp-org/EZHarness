@@ -14,6 +14,8 @@
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { TaskAssignment } from "$server/runtime/task-tracking-host";
+import { taskAssignmentPort } from "./helpers/task-state-port";
+vi.mock("$server/runtime/task-tracking-host", () => ({ writeTaskAssignmentForConversation: taskAssignmentPort }));
 
 const emit = vi.fn<(...args: unknown[]) => void>();
 
@@ -40,9 +42,9 @@ function makeAssignment(overrides: Partial<TaskAssignment> = {}): TaskAssignment
 }
 
 describe("broadcastAssignmentUpdate — event name and payload shape", () => {
-  test("emits 'task:assignment_update' with the canonical 3-field payload", () => {
+  test("emits 'task:assignment_update' with the canonical 3-field payload", async () => {
     const assignment = makeAssignment();
-    broadcastAssignmentUpdate("c1", "t1", assignment);
+    await broadcastAssignmentUpdate("c1", "t1", assignment);
 
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit).toHaveBeenCalledWith("task:assignment_update", {
@@ -52,18 +54,18 @@ describe("broadcastAssignmentUpdate — event name and payload shape", () => {
     });
   });
 
-  test("preserves assignment object identity (no clone) so callers can chain mutations", () => {
+  test("preserves assignment object identity (no clone) so callers can chain mutations", async () => {
     // The helper passes the assignment reference through verbatim — pin
     // it so a future "defensive clone" change is an explicit decision,
     // not an accidental break of the retry handler's reset-loop pattern.
     const assignment = makeAssignment({ id: "as-ref" });
-    broadcastAssignmentUpdate("c1", "t1", assignment);
+    await broadcastAssignmentUpdate("c1", "t1", assignment);
 
     const payload = emit.mock.calls[0]?.[1] as { assignment: TaskAssignment } | undefined;
     expect(payload?.assignment).toBe(assignment);
   });
 
-  test("preserves all assignment fields including optional ones (subConversationId, agentRunId, resultPreview)", () => {
+  test("preserves all assignment fields including optional ones (subConversationId, agentRunId, resultPreview)", async () => {
     // Assign POST adds an `assignedAt` timestamp; retry resets to "assigned"
     // and strips startedAt/completedAt; stop sets `failedAt`. The helper
     // must not filter — every consumer downstream relies on the full shape.
@@ -79,7 +81,7 @@ describe("broadcastAssignmentUpdate — event name and payload shape", () => {
       agentRunId: "run-1",
       resultPreview: "preview",
     };
-    broadcastAssignmentUpdate("c1", "t1", rich);
+    await broadcastAssignmentUpdate("c1", "t1", rich);
 
     expect(emit).toHaveBeenCalledWith("task:assignment_update", {
       conversationId: "c1",
@@ -90,16 +92,16 @@ describe("broadcastAssignmentUpdate — event name and payload shape", () => {
 });
 
 describe("broadcastAssignmentUpdate — fan-out usage", () => {
-  test("emits once per call (retry's reset-loop fans out N times)", () => {
+  test("emits once per call (retry's reset-loop fans out N times)", async () => {
     // Retry calls this once per failed assignment it resets — ensure
     // the helper itself doesn't deduplicate or batch.
     const a1 = makeAssignment({ id: "as-1" });
     const a2 = makeAssignment({ id: "as-2" });
     const a3 = makeAssignment({ id: "as-3" });
 
-    broadcastAssignmentUpdate("c1", "t1", a1);
-    broadcastAssignmentUpdate("c1", "t1", a2);
-    broadcastAssignmentUpdate("c1", "t1", a3);
+    await broadcastAssignmentUpdate("c1", "t1", a1);
+    await broadcastAssignmentUpdate("c1", "t1", a2);
+    await broadcastAssignmentUpdate("c1", "t1", a3);
 
     expect(emit).toHaveBeenCalledTimes(3);
     expect(emit).toHaveBeenNthCalledWith(1, "task:assignment_update", {

@@ -1,0 +1,2 @@
+app | {"level":"warn","msg":"embed-worker: embedding not ready — entering degraded mode"}
+app | {"level":"info","msg":"embedding ready"}

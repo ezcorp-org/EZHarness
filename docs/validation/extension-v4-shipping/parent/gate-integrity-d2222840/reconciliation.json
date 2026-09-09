@@ -1,0 +1,15 @@
+{
+  "current_source_commit_sha": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "prior_source_commit_sha": "d4ffe706c86049ee15515c79377234765ee86208",
+  "prior_log_sha256": "3af863ae9e58df99efdd63cc8e5379da762e55872b9d0357ecad5c774aa4f5ce",
+  "finding_count": 84,
+  "same_findings": true,
+  "new_findings": [],
+  "removed_findings": [],
+  "categories": {
+    "threshold_removed": 1,
+    "deleted": 28,
+    "renamed": 24,
+    "gutted": 31
+  }
+}

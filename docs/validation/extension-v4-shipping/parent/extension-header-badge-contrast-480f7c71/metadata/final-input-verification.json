@@ -1,0 +1,19 @@
+{
+  "source_base": "480f7c71bc9e23839a6b526ccbfe453ea426ce17",
+  "tested_patch_matches_integrated_diff": true,
+  "inputs": [
+    {
+      "path": "web/e2e/extension-deep-links.spec.ts",
+      "sha256": "913546acc47b2b54cf8978fa73200198e07dc8aff835a1cf5f1ceabf86ea04a4",
+      "parent_review_sha256": "913546acc47b2b54cf8978fa73200198e07dc8aff835a1cf5f1ceabf86ea04a4",
+      "matches_parent_review": true
+    },
+    {
+      "path": "web/src/routes/(app)/extensions/[id]/+page.svelte",
+      "sha256": "78a688a430f2085aabddd9e63e2e3590a25beb3a0da6933203ad2165bcf48528",
+      "parent_review_sha256": "78a688a430f2085aabddd9e63e2e3590a25beb3a0da6933203ad2165bcf48528",
+      "matches_parent_review": true
+    }
+  ],
+  "all_match": true
+}

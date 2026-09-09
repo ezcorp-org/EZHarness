@@ -1,0 +1,6 @@
+launcher_source=473f955aa1c8d4d8dfa4d8a73761bdae998c9151
+image=localhost/ezcorp-extension-v4:r4-trend-review-20260907t072500z
+project=ez-r4-trend-review-20260907t072500z
+container=ez-r4-trend-review-20260907t072500z-app
+port=4293
+image_id=sha256:1dbc6acbda6e80ccf4879cd73658dfe611c98e90dfa8c8c6d5a8193afcb0f3da revision=adbba8a693cdcd4410c51023dfca93517f9db1e8

@@ -103,11 +103,11 @@ describe("buildDashboard", () => {
     expect(stats.items.find((i) => i.label === "Last lookup")!.value).toBe("—");
   });
 
-  test("the scanner link points at the SPA index", () => {
+  test("the scanner link points at the trusted preview context picker", () => {
     const link = (buildDashboard([], emptyStats).nodes as Array<Record<string, unknown>>).find(
       (n) => n.type === "link",
     ) as { href: string; label: string };
-    expect(link.href).toBe("/api/extensions/graded-card-scanner/data/app/index.html");
+    expect(link.href).toBe("/extensions/graded-card-scanner/preview");
     expect(link.label).toBe("Open scanner");
   });
 });

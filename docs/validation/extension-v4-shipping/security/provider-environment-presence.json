@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-09-06T23:04:23.780Z",
+  "environmentPresence": {
+    "OPENAI_API_KEY": false,
+    "OPENAI_ACCESS_TOKEN": false,
+    "ANTHROPIC_API_KEY": false,
+    "GOOGLE_API_KEY": false,
+    "GEMINI_API_KEY": false,
+    "GITHUB_TOKEN": false,
+    "PSA_API_TOKEN": false,
+    "SUBSTACK_SESSION_TOKEN": false,
+    "GOOGLE_POLLEN_API_KEY": false
+  },
+  "authorization": "Presence alone does not authorize provider calls or credential use"
+}

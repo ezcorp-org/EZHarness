@@ -1,0 +1,42 @@
+{
+  "rawBrowserResults": {
+    "private-auth/firefox.blob.zip": {
+      "passed": 3
+    },
+    "private-auth/webkit.blob.zip": {
+      "passed": 3
+    }
+  },
+  "comparedPngAttachments": 24,
+  "uniqueImageHashes": 24,
+  "exactRawToPublishedBytes": true,
+  "reporterErrors": 0,
+  "repeatedTestIds": 0,
+  "exact825SourceInputs": 5,
+  "actualControllerExit": 0,
+  "newFixtureRootCounts": 0,
+  "parentVisualReview": {
+    "openedImages": [
+      "png/firefox-02-extension-lifecycle-review-desktop.png",
+      "png/firefox-03-extension-lifecycle-live-output.png",
+      "png/firefox-06-extension-lifecycle-tool-selection-mobile-narrow.png",
+      "png/firefox-08-extension-browser-build-diagnostics.png",
+      "png/firefox-12-extension-stale-tab-uninstall-release.png",
+      "png/webkit-02-extension-lifecycle-review-desktop.png",
+      "png/webkit-03-extension-lifecycle-live-output.png",
+      "png/webkit-06-extension-lifecycle-tool-selection-mobile-narrow.png",
+      "png/webkit-08-extension-browser-build-diagnostics.png",
+      "png/webkit-12-extension-stale-tab-uninstall-release.png"
+    ],
+    "openedCount": 10,
+    "observations": [
+      "Permission and release evidence is readable.",
+      "Transformed tool output is visible.",
+      "The narrow mobile selector remains within the viewport.",
+      "The intentional failed build shows readable diagnostics.",
+      "The removed release is marked Previously active and its approval is disabled."
+    ],
+    "visibleDefectsFound": 0,
+    "scope": "Ten selected images were opened; all 24 attachment bytes were independently verified."
+  }
+}

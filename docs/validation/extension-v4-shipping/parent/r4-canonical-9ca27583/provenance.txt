@@ -1,0 +1,9 @@
+source_commit_sha=9ca275838faf30666da5dba1c0eba141dd053050
+image=localhost/ezcorp-extension-v4:shipping-9ca27583
+outer_timeout_seconds=2500
+mode=duration
+minimum_duration_seconds=1800
+maximum_cycles=1440
+state_path_pattern=/tmp/r4-XXXXXX
+controller_work=/tmp/ez-r4-canonical-9ca27583-20260907T075231Z
+receipt=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/r4-canonical-9ca27583-20260907T075231Z

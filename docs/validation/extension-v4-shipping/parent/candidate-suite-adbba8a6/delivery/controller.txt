@@ -1,0 +1,7 @@
+ Network ezcorp-production-lifecycle-321919351_default Creating 
+ Network ezcorp-production-lifecycle-321919351_default Created 
+ Container ezcorp-production-lifecycle-321919351-app Creating 
+ Container ezcorp-production-lifecycle-321919351-app Created 
+ Container ezcorp-production-lifecycle-321919351-app Starting 
+ Container ezcorp-production-lifecycle-321919351-app Started 
+{"passed":true,"checks":["before-effect-positive-control","real-worker-sigkill-before-effect","real-worker-sigkill-after-effect","durable-outcome-unknown","same-key-no-repeat-after-restart","fresh-distinct-delivery"]}

@@ -1,0 +1,4 @@
+archived_image=localhost/ezcorp-extension-v4:shipping-60a3421b
+archived_source=60a3421b0a9c0b5fb569cb93b857ceb90a073500
+archived_build_log=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-60a3421b/candidate-archive-build.log
+archived_build_and_transfer_exit=0

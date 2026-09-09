@@ -1,12 +1,12 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "auto-note",
   version: "1.0.0",
   description: "Jot a quick note and watch it auto-organize into a linked vault — categorized, tagged, and connected",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: true,
   category: "Productivity",
   tags: ["notes", "vault", "organization", "productivity", "demo"],
@@ -350,7 +350,7 @@ export default defineExtension({
   },
 
   permissions: {
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
     storage: true,
   },

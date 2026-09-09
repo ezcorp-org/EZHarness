@@ -1,0 +1,7 @@
+{
+  "scripts/test-coverage.sh": "dc65290906d3476700976f02e17dbbb87689ea5e527a496b44351515114c9a06",
+  "src/__tests__/coverage-leg-lcov-guard.test.ts": "9a62297b65d3f30e7a85902847583904c23a430466469934c99031ec20cac885",
+  "src/__tests__/db-live-holder-guard.test.ts": "44832125e923fd0978a199e8c7e7c5734bac56164ec8576ea3da9c6f73540173",
+  "src/__tests__/chat-tools-integration.test.ts": "3285a4e917e9c3de06f7cc68c5f5acf18c478898651a93cad998051fc9ae7eca",
+  "src/extensions/first-party-integration/auto-note/legacy-subprocess.integration.test.ts": "ef72e0470cc978d9387538c9c0e2e5724381729d166cdae0fdaf9f8c2b43db01"
+}

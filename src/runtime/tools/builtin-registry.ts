@@ -16,6 +16,7 @@
  */
 
 import { getEzToolMetadata } from "./ez/index";
+import { getExtensionControlMetadata } from "./extensions";
 
 export type BuiltInCategory = string;
 
@@ -35,7 +36,7 @@ export interface BuiltInToolMeta {
  *  carry. The metadata listing here is parameter-only; the executable
  *  defs come from `runtime/tools/ez/index.ts#getEzToolDefs(ctx)`. */
 function buildToolList(): BuiltInToolMeta[] {
-  return getEzToolMetadata();
+  return [...getEzToolMetadata(), ...getExtensionControlMetadata()];
 }
 
 let _cachedTools: BuiltInToolMeta[] | undefined;

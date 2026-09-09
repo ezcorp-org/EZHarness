@@ -218,6 +218,9 @@ const CREDENTIAL_PATTERNS = [
 ];
 
 describe("mask completeness — derived from git, not from memory", () => {
+  test("real browser session credentials stay masked even between test runs", async () => {
+    expect(isCovered("/repo/web/e2e/.real-auth.json", allMaskedPaths(await parse("docker-compose.yml")))).toBe(true);
+  });
   test("every ignored credential path under /repo is masked", async () => {
     // THE POINT OF THIS TEST. Every other assertion in this file compares
     // one hand-written list against another, so all of them pass while the

@@ -224,3 +224,5 @@ describe("ToolExecutor shared variable injection", () => {
     expect(startEvent?.data.input).toEqual({ convention: "camelCase" });
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

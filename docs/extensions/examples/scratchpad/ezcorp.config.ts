@@ -1,13 +1,13 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "scratchpad",
   version: "1.0.0",
   description:
     "Ephemeral key-value store for sharing data between agents within a conversation",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   persistent: false,
   tools: [
     {

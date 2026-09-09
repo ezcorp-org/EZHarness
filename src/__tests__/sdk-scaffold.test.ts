@@ -1,75 +1,47 @@
-// Unit tests for the pure scaffolder.
-//
-// `scaffoldExtension({ name, type, description })` is consumed by:
-//   - `bun run ext:init` CLI (host's `src/extensions/sdk/init.ts`)
-//   - `extension-author` bundled extension's `create_extension` tool
-//
-// These tests pin the file set per type and validate that each
-// scaffolded manifest passes `validateManifestV2` — the same gate the
-// host's installer runs at install time. If this test goes red, the
-// CLI scaffold is broken AND the bundled extension produces drafts
-// that would fail at install.
-
 import { test, expect, describe } from "bun:test";
 import { scaffoldExtension, EXT_TYPES } from "@ezcorp/sdk";
-import { validateManifestV2 } from "../extensions/manifest";
+import { validateManifest } from "@ezcorp/extension-contract";
 
-// The TS template ships as TypeScript source. To validate it through
-// `validateManifestV2` we evaluate the manifest body to JS-equivalent
-// shape without an actual TS compile step — the `defineExtension`
-// import becomes a passthrough function. This mirrors the approach in
-// `ts-manifest-integration.test.ts` (which has been the source-of-truth
-// pattern since the v2 manifest landed).
-function evalManifestSrc(src: string): unknown {
-  // Replace the `defineExtension` and (for tool/multi templates) the
-  // `handleRequest` import with stubs so the IIFE evaluates.
-  const body = src
-    .replace(/^import \{ defineExtension \}.*$/m, "const defineExtension = (x) => x;")
-    .replace(/^import \{ handleRequest \}.*$/m, "const handleRequest = () => null;")
-    .replace(/^export default /m, "return ");
-  // eslint-disable-next-line no-new-func
-  return new Function(body)();
+function evalManifestSrc(src: string) {
+  const prefix = "export default validateManifest(";
+  return validateManifest(JSON.parse(src.slice(src.indexOf(prefix) + prefix.length, src.lastIndexOf(");"))));
 }
 
 describe("scaffoldExtension — file set per type", () => {
   test("tool produces manifest + index + test + readme + tsconfig + package.json + .gitignore", () => {
     const { files } = scaffoldExtension({ name: "weather", type: "tool", description: "x" });
     expect(Object.keys(files).sort()).toEqual(
-      [".gitignore", "README.md", "ezcorp.config.ts", "index.test.ts", "index.ts", "package.json", "tsconfig.json"].sort(),
+      [".gitignore", "README.md", "ezcorp.config.ts", "extension.test.ts", "extension.ts", "package.json", "tsconfig.json"].sort(),
     );
   });
 
-  test("skill omits index.ts (prompt-based)", () => {
+  test("skill serves isolated discovery (prompt-based)", () => {
     const { files } = scaffoldExtension({ name: "wisdom", type: "skill", description: "x" });
-    expect(files["index.ts"]).toBeUndefined();
+    expect(files["extension.ts"]).toContain("serve(extension)");
     expect(files["ezcorp.config.ts"]).toBeDefined();
-    expect(files["index.test.ts"]).toBeDefined();
+    expect(files["extension.test.ts"]).toBeDefined();
   });
 
-  test("agent omits index.ts (persona-only)", () => {
+  test("agent serves isolated discovery (persona-only)", () => {
     const { files } = scaffoldExtension({ name: "ducky", type: "agent", description: "x" });
-    expect(files["index.ts"]).toBeUndefined();
+    expect(files["extension.ts"]).toContain("serve(extension)");
     expect(files["ezcorp.config.ts"]).toBeDefined();
   });
 
-  test("multi includes index.ts (has tools)", () => {
+  test("multi includes extension.ts (has tools)", () => {
     const { files } = scaffoldExtension({ name: "combo", type: "multi", description: "x" });
-    expect(files["index.ts"]).toBeDefined();
+    expect(files["extension.ts"]).toBeDefined();
     expect(files["ezcorp.config.ts"]).toBeDefined();
   });
 });
 
 describe("scaffoldExtension — manifest validates", () => {
   for (const type of EXT_TYPES) {
-    test(`${type} manifest passes validateManifestV2`, () => {
+    test(`${type} manifest passes canonical v4 validation`, () => {
       const { files } = scaffoldExtension({ name: `ext-${type}`, type, description: "scaffold smoke" });
       const manifest = evalManifestSrc(files["ezcorp.config.ts"]!);
-      const result = validateManifestV2(manifest);
-      if (!result.valid) {
-        // Surface the errors in the failure message — easier to debug.
-        throw new Error(`${type} manifest invalid: ${result.errors.join(", ")}`);
-      }
-      expect(result.valid).toBe(true);
+      expect(manifest.schemaVersion).toBe(4);
+      expect(manifest.permissions).toEqual({});
     });
   }
 });
@@ -127,10 +99,11 @@ describe("scaffoldExtension — description handling", () => {
 });
 
 describe("scaffoldExtension — package.json shape", () => {
-  test("declares @ezcorp/sdk dependency", () => {
+  test("declares an exact trusted SDK peer", () => {
     const { files } = scaffoldExtension({ name: "x", type: "tool", description: "x" });
     const pkg = JSON.parse(files["package.json"]!);
-    expect(pkg.dependencies["@ezcorp/sdk"]).toBeDefined();
+    expect(pkg.dependencies).toBeUndefined();
+    expect(pkg.peerDependencies["@ezcorp/sdk"]).toBe("0.1.0");
   });
 
   test("name + description match scaffold inputs", () => {

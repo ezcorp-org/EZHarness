@@ -1,0 +1,5 @@
+FROM localhost/ezcorp-extension-v4:shipping-adbba8a6
+COPY --chown=bun:bun heap-preload.ts /opt/ez-r4-heap/heap-preload.ts
+ENV MIMALLOC_SHOW_STATS=1
+USER bun
+CMD ["bun", "--preload", "/opt/ez-r4-heap/heap-preload.ts", "web/build/index.js"]

@@ -1,0 +1,15 @@
+cea6153e670bc62d0d2a0228684d7c4d7f42903ee3301ea6be2df60557b3ffd7  docs/validation/extension-v4-flows/runtime/artifacts/import-storage-output-schema-contract-20260906.log
+fb5c4bca622669ec319100f5d27744cf38d78ca407114ae0a42d9555c408c86c  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.command.log
+ae66c5818ed0528508f1b02a4a36f1f6c0a6156700ef720ea01862e9e21f07be  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.compose.log.gz
+98fbbf2eda1218703a4242487585eca4f5864fff8a51332ad0988cccb9242af5  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.identity.txt
+35493f95b9b7efa820c7d185c0b293bd092da3cdd5685955865c73e0170225b0  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.playwright.log.gz
+ac0225928ad81597995dcea884e2851dc570c4d222d0956ce554debf484de44c  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.provenance.txt
+74cac6f53c160a2a573831ad16c8f38eacdcd93952265c78283e8617da6702d7  docs/validation/extension-v4-flows/runtime/artifacts/production-image-d4caa44d-green3.runner.log.gz
+342b1f3040f3845b7b4c26d21b5ee239f29904b041b740d970ebc4b655c0edc3  docs/validation/extension-v4-flows/runtime/artifacts/web-component-race-node22-vitest-20260906.log
+46e9d3cd059f5b4cdbb92458ecd218ae139e68c91995f5ecaa988f4f337de981  docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.compose.log.gz
+5111f45c4e70a592b450f13e4bb60032598c6e19f0407f1fe4c6ba8989d4401e  docs/validation/extension-v4-flows/runtime/artifacts/production-image-stale-binding-red.playwright.log.gz
+19b038c3de507d977f891fe90d2549265a02d7e8b1fa3582ad6d27de33116da8  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.command.log
+35b12a17e686d946a1bb33b750b4c4b2183eead53952c09a1165cb268cb1e92a  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.compose.log.gz
+1fd7352bc91c66baa3118d64e061a87960157cf75363772f988b748000062f9c  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.playwright.log.gz
+9fa6254ee16991d9b198d7888b0250eb5db634f777e0258cb460deb16a03e173  docs/validation/extension-v4-flows/runtime/artifacts/production-image-uninstalled-target-red.provenance.txt
+e3201dd2b0759d8c9b1a1bf6e93ce1c3d02d8d84feb82ecfd07f40e5c31a7053  docs/validation/extension-v4-flows/runtime/artifacts/production-image-runtime-events-idle-red-20260906.log

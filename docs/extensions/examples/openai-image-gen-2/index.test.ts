@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import { stubChannel } from "./test-channel-stub";
 
 afterAll(() => {

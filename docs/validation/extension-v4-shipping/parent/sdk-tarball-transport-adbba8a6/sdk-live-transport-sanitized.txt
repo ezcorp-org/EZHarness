@@ -1,0 +1,16 @@
+captured_at=2026-09-07T01:22:41-04:00
+process
+2791844 2789022 Sl         01:40 bun             do_epoll_wait
+cwd
+/tmp/phase3-tarball-fixture-DzNhDC
+fd_types
+      2 anon_inode:[eventfd]
+      2 anon_inode:[eventpoll]
+      2 anon_inode:[timerfd]
+      5 file
+environment_presence
+BUN_INSTALL_CACHE_DIR=/tmp/phase3-tarball-cache-WYko8U
+npm_lifecycle_event=test:coverage
+npm_lifecycle_script=bash scripts/test-coverage.sh
+registry_tls_connections_observed=56
+socket_fd_count=58

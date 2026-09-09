@@ -163,6 +163,7 @@ const toolCalls: Array<{
 // dispatch) that per-call arrays can't express.
 const executorOps: string[] = [];
 let toolResultMode: "success" | "isError" | "throw" = "success";
+let onPreprocessDispatch: ((signal?: AbortSignal) => Promise<void>) | undefined;
 
 mock.module("../extensions/tool-executor", () => ({
   ToolExecutor: class {
@@ -182,9 +183,11 @@ mock.module("../extensions/tool-executor", () => ({
       input: Record<string, unknown>,
       conversationId: string,
       messageId: string | null,
+      options?: { signal?: AbortSignal },
     ) {
       executorOps.push(`executeToolCall:${toolName}`);
       toolCalls.push({ toolName, input, conversationId, messageId });
+      await onPreprocessDispatch?.(options?.signal);
       if (toolResultMode === "throw") throw new Error("simulated PDP denial");
       if (toolResultMode === "isError") {
         return { content: [{ type: "text", text: "decode failed" }], isError: true };
@@ -579,6 +582,25 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     expect(toolCalls).toHaveLength(0);
     const rows = await getMessages(conv.id);
     expect(rows.filter((m) => m.role === PREPROCESS_RESULT_ROLE)).toHaveLength(0);
+  });
+
+  test("cancelling a run aborts its in-flight attachment preprocessor", async () => {
+    const { executor, bus } = createExecutor();
+    const { conv, userMsg, attRow } = await seedTurn();
+    let runId = "";
+    bus.on("run:start", event => { runId = event.runId; });
+    let aborted = false;
+    onPreprocessDispatch = async signal => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      const outcome = new Promise<void>((_resolve, reject) => signal!.addEventListener("abort", () => { aborted = true; reject(signal!.reason); }, { once: true }));
+      expect(executor.cancelRun(runId)).toBe(true);
+      await outcome;
+    };
+    try {
+      const run = await executor.streamChat(conv.id, "cancel preprocessing", { projectId, parentMessageId: userMsg.id, attachments: stagedFor(attRow) });
+      expect(aborted).toBe(true);
+      expect(run.status).toBe("cancelled");
+    } finally { onPreprocessDispatch = undefined; }
   });
 
   test("acting user: setCurrentUserId(<conversation owner>) is threaded BEFORE the preprocess dispatch", async () => {

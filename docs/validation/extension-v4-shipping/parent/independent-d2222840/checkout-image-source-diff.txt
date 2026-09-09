@@ -1,0 +1,4 @@
+M	scripts/lib/production-lifecycle-client.ts
+M	scripts/verify-shipping-runtime.ts
+M	src/__tests__/production-image-lifecycle-launch.integration.test.ts
+M	web/src/lib/server/security/__tests__/payload.test.ts

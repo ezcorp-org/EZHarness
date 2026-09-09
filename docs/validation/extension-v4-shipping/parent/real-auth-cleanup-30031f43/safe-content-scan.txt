@@ -1,0 +1,4 @@
+Private sanitizer verification over retained text only; values are never printed.
+jwt-shaped	0
+email-shaped	0
+cookie-header-value	0

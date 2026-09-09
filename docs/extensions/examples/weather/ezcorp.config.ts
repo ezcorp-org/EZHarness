@@ -1,13 +1,13 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "weather",
   version: "0.1.0",
   description:
     "Fetch current weather + a short forecast from Open-Meteo and render it inline with a custom weather web component card.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Utilities",
   tags: ["weather", "forecast", "open-meteo", "demo", "ui"],
 

@@ -66,6 +66,7 @@ mock.module("../db/queries/active-runs", () => ({
 mock.module("../db/queries/runs", () => ({
   finalizeRunRow: async (runId: string, status: string, error?: string) => {
     finalizeRunRowCalls.push({ runId, status, error });
+    if (markInterruptedShouldReject) throw new Error("terminal transaction failed");
     return 1;
   },
   terminalizeOrphanedRuns: async () => {
@@ -174,7 +175,7 @@ const CONV_ID = "conv-wd-1";
 // ── (a) watchdog-interrupt terminalizes the runs row ───────────────────
 
 describe("watchdog interrupt → runs row terminalized (the orphan-row bug)", () => {
-  test("idle kill writes BOTH active_runs (markInterrupted) AND runs (finalizeRunRow error)", async () => {
+  test("idle kill delegates both run states to one terminal transaction", async () => {
     const h = makeHarness();
     const run = makeRun(RUN_ID);
     h.runs.set(RUN_ID, run);
@@ -184,8 +185,7 @@ describe("watchdog interrupt → runs row terminalized (the orphan-row bug)", ()
     // No activity for > WATCHDOG_IDLE_MS (90s) and no deferral → kill.
     await advanceAndTick(95_000);
 
-    // Pre-fix this was the ONLY write — `runs` stayed status='running'.
-    expect(markInterruptedCalls).toEqual([RUN_ID]);
+    expect(markInterruptedCalls).toEqual([]);
 
     // The fix: the `runs` mirror is terminalized in the same tick.
     expect(finalizeRunRowCalls).toHaveLength(1);
@@ -236,7 +236,7 @@ describe("watchdog fire-and-forget writes self-catch (defensive)", () => {
     expect(() => h.manager.destroy()).not.toThrow();
   });
 
-  test("a watchdog trip swallows a markInterrupted rejection", async () => {
+  test("a watchdog trip catches a terminal transaction rejection without an independent active write", async () => {
     const h = makeHarness();
     const run = makeRun(RUN_ID);
     h.runs.set(RUN_ID, run);
@@ -246,10 +246,9 @@ describe("watchdog fire-and-forget writes self-catch (defensive)", () => {
     await advanceAndTick(95_000); // idle kill → trip → markInterrupted rejects
     await new Promise<void>((r) => queueMicrotask(r));
     await new Promise<void>((r) => queueMicrotask(r));
-    // The trip still terminalized the run despite the DB write rejecting —
-    // the fire-and-forget .catch swallowed it.
     expect(run.status).toBe("error");
-    expect(markInterruptedCalls).toContain(RUN_ID);
+    expect(markInterruptedCalls).toEqual([]);
+    expect(finalizeRunRowCalls).toHaveLength(1);
   });
 });
 

@@ -1,0 +1,6 @@
+{
+  "reviewed_utc": "2026-09-07T20:00:31.302991+00:00",
+  "exact_inputs_verified": 3,
+  "private_raw_hashes_verified": 12,
+  "independent_replay": "Parent ran both retained controls; all22 expansion outcomes expected, pinned positive exit1 github-pat in expanded member only, clean exit0 and no new temporary roots."
+}

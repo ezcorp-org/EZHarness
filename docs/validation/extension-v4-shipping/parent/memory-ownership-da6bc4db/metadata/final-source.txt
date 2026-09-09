@@ -1,0 +1,4 @@
+da6bc4db6326696347d76a2225677954b31d3a2b
+be66104272e97354db0f54d8aa5e614ddff5d0ba
+2026-09-07 11:54:20 -0400
+fix(memory): restore consistent ownership after main merge

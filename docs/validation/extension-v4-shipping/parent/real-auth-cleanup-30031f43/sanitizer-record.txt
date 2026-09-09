@@ -1,0 +1,18 @@
+Sanitizer: private Python stdlib script executed for this curation.
+Rules: replace owned fixture paths, cookie/authorization header values, JWT-shaped values, and email-shaped values.
+Listings: replace each random fixture-root suffix with an ordinal placeholder; retain all line counts.
+No raw log, auth state, database, key, trace, or blob is copied into this directory.
+
+original raw log: /tmp/real-auth-cleanup-base-20260907T105709Z/playwright.log
+sha256=f90ee939aac8b13a39f158e02ac642270ba43024f5645a3539e2420d42479ebb
+bytes=22203
+sanitized=original-playwright.log.txt
+sha256=280c31700a213a73363dd7bc3f9968cd5243f8a4d18986d641ac5069e48e9899
+bytes=22200
+
+fixed raw log: /tmp/real-auth-cleanup-fixed-20260907T110218Z/playwright.log
+sha256=74bc2c609923e334abf7a84560f67e3e2e708b433284bbeaadacd500b8f360cf
+bytes=22212
+sanitized=fixed-playwright.log.txt
+sha256=48cb372275bc806e7863fa6b5868942403a5c71d059d1a74dce4998785acab3c
+bytes=22200

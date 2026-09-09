@@ -1,0 +1,128 @@
+{
+  "expansion_control": {
+    "observed_utc": "2026-09-07T19:55:56Z",
+    "private_receipt": ".cache/terra-shipping/parent/parent-scanner-controls-20260907T195556Z",
+    "controller_exit": 0,
+    "helper_sha256": "04f9b20aad11634bfc1f58a3df0d36c381a048200f83ef32dc23e470feb505bc",
+    "controller_sha256": "c949bb2625d2932eab14f61ead5a5ba7a5e46eedd08531b0ef316efabad405e4",
+    "existing_controls": {
+      "count": 16,
+      "accepted": 3,
+      "expected_rejections": 13,
+      "names": [
+        "nested-and-duplicate",
+        "corrupt-gzip",
+        "tar-traversal",
+        "corrupt-zip",
+        "nested-zstd",
+        "corrupt-zstd",
+        "zstd-traversal",
+        "tar-hardlink",
+        "tar-hardlink-byte-limit",
+        "tar-hardlink-missing",
+        "tar-hardlink-forward",
+        "tar-hardlink-traversal",
+        "tar-symlink",
+        "zstd-byte-limit",
+        "tar-directory-limit",
+        "zip-directory-limit"
+      ]
+    },
+    "classification_controls": {
+      "count": 6,
+      "accepted": 5,
+      "expected_rejections": 1,
+      "names": [
+        "neutral-gzip",
+        "neutral-tar",
+        "neutral-tar-gzip",
+        "neutral-zstd-nested",
+        "misleading-tar-gzip-suffix",
+        "unsupported-bzip2-magic"
+      ]
+    }
+  },
+  "pinned_gitleaks_control": {
+    "observed_utc": "2026-09-07T19:56:47Z",
+    "private_receipt": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z",
+    "controller_exit": 0,
+    "image": "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+    "helper_sha256": "04f9b20aad11634bfc1f58a3df0d36c381a048200f83ef32dc23e470feb505bc",
+    "positive": {
+      "exit": 1,
+      "finding_count": 1,
+      "rule_ids": [
+        "github-pat"
+      ],
+      "paths": [
+        "expanded-validation-review/archive-000001/member-000001/nested/control.txt"
+      ]
+    },
+    "negative": {
+      "exit": 0,
+      "finding_count": 0
+    }
+  },
+  "raw_hashes": {
+    "parent_expansion_provenance": {
+      "private_path": ".cache/terra-shipping/parent/parent-scanner-controls-20260907T195556Z/provenance.txt",
+      "sha256": "f6bfd3b348613ca4b09dee6bebcd091386d486e130b743eb51331419c5bfac5f",
+      "bytes": 210
+    },
+    "parent_expansion_verdict": {
+      "private_path": ".cache/terra-shipping/parent/parent-scanner-controls-20260907T195556Z/verdict.txt",
+      "sha256": "f26cb09c2c3c9a78eb207ecec4c4d3010bf37548b025fdfae08eb384763888e9",
+      "bytes": 44
+    },
+    "parent_expansion_controller_exit": {
+      "private_path": ".cache/terra-shipping/parent/parent-scanner-controls-20260907T195556Z/controller.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "parent_expansion_existing_results": {
+      "private_path": ".cache/terra-shipping/parent/parent-scanner-controls-20260907T195556Z/existing-16/results.json",
+      "sha256": "010892e5c4ed886fd361506a1bcffebbc43588d73661a9ac3d730fbe21d734d2",
+      "bytes": 1169
+    },
+    "parent_expansion_classification_results": {
+      "private_path": ".cache/terra-shipping/parent/parent-scanner-controls-20260907T195556Z/classification-v2/results.json",
+      "sha256": "b39a406b0a5d4fc28dc58e530bb1af509490a4fce92c303568739d25daf8dae1",
+      "bytes": 640
+    },
+    "parent_gitleaks_provenance": {
+      "private_path": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z/provenance.txt",
+      "sha256": "8c62e5540bc06622e6bf11c4ea5f3c3a3b59bbb229474ca5dea26200c22ce084",
+      "bytes": 183
+    },
+    "parent_gitleaks_verdict": {
+      "private_path": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z/verdict.txt",
+      "sha256": "c1a4d9e386e5b090509dea8547a30e3eeeeb953b63fb787769b8dc0e66385ac0",
+      "bytes": 54
+    },
+    "parent_gitleaks_controller_exit": {
+      "private_path": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z/controller.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "parent_gitleaks_positive_exit": {
+      "private_path": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z/positive/exit",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    "parent_gitleaks_negative_exit": {
+      "private_path": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z/negative/exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "parent_gitleaks_positive_findings": {
+      "private_path": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z/positive/findings.json",
+      "sha256": "aee056c29532c4239bacc10c6cd89bef2949e73d3a95f40ad02e354cb88e1e2f",
+      "bytes": 636
+    },
+    "parent_gitleaks_negative_findings": {
+      "private_path": ".cache/terra-shipping/parent/parent-gitleaks-controls-20260907T195647Z/negative/findings.json",
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "bytes": 3
+    }
+  }
+}

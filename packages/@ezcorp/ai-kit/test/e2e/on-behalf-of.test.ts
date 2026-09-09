@@ -1,6 +1,7 @@
+// @ezcorp-host-integration
 import { beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient, onBehalfOfContext } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
+import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "./_guard";
 
 /** End-to-end assertion of the on-behalf-of chain against a live server.
  *  The test pretends to be the ai-kit subprocess: it already has an
@@ -17,14 +18,10 @@ import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
  *  via a full subprocess-bundled boot, which is out of scope for this
  *  package's tests). */
 
-let ready = false;
-beforeAll(async () => {
-  ready = (await e2eReady()) && Boolean(E2E_API_KEY);
-});
-
 describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: on-behalf-of header", () => {
+  beforeAll(requireE2eReady);
+
   test("user-issued keys ignore X-Ezcorp-On-Behalf-Of (no privilege bypass)", async () => {
-    if (!ready) return;
     // A user key holder setting OBO should NOT get their conversation
     // re-attributed to another user. The server's bearer-auth only
     // honors OBO for internal-auth principals.

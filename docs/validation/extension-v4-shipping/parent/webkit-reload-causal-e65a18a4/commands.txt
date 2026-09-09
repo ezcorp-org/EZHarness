@@ -1,0 +1,8 @@
+Strict red and repaired WebKit:
+CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=webkit EZCORP_E2E_EVIDENCE=1 bunx playwright test --config playwright.real.config.ts --project=webkit e2e/real-auth/extension-lifecycle-flow.spec.ts --grep "reloads an observed pending browser build"
+
+All browser lifecycle cases, separately:
+CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=<chromium|firefox|webkit> EZCORP_E2E_EVIDENCE=1 bunx playwright test --config playwright.real.config.ts --project=<engine> e2e/real-auth/extension-lifecycle-flow.spec.ts
+
+Canonical E2E typecheck:
+bash scripts/typecheck.sh

@@ -17,6 +17,7 @@ import { mkdtemp, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { workspaceFileBytes, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
@@ -69,15 +70,11 @@ let installCalls: any[] = [];
 let installImpl: (d: string) => Promise<{ id: string }> = async () => ({
   id: "ext-installed",
 });
-mock.module("$server/extensions/installer", () => ({
-  installFromLocal: async (
-    dir: string,
-    _perms: unknown,
-    _enabled: boolean,
-    _opts: unknown,
-  ) => {
-    installCalls.push({ dir, _opts });
-    return installImpl(dir);
+mock.module("$server/extensions/source-import", () => ({
+  stageExtensionSourceFiles: async (actor: unknown, files: WorkspaceFiles, provenance: { name: string }) => {
+    installCalls.push({ files, actor, provenance });
+    const installation = await installImpl(provenance.name);
+    return { installation, operation: { id: "build-operation" }, openUrl: "/extensions/author?installation=ext-installed" };
   },
 }));
 
@@ -118,7 +115,7 @@ beforeEach(async () => {
   projectRoot = await mkdtemp(join(tmpdir(), "imp-commit-proj-"));
 });
 
-function evt(body: unknown, user: typeof MEMBER_USER | null = MEMBER_USER): any {
+function evt(body: unknown, user: typeof MEMBER_USER | null = { ...MEMBER_USER, role: "admin" }): any {
   const request = new Request("http://localhost/api/import/commit", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -127,13 +124,13 @@ function evt(body: unknown, user: typeof MEMBER_USER | null = MEMBER_USER): any 
   return {
     request,
     url: new URL(request.url),
-    locals: { user: user ?? undefined },
+    locals: { user: user ?? undefined, authMethod: "session" },
   };
 }
 
 // Materialise a real staging session containing one command + one
 // skill, returning the sessionId + the ids the wizard would select.
-async function stageFixture(): Promise<{
+async function stageFixture(binary = false): Promise<{
   sessionId: string;
   commandId: string;
   skillId: string;
@@ -145,11 +142,13 @@ async function stageFixture(): Promise<{
       F("---\ndescription: Foo\n---\nfoo body", "foo.md"),
       F("---\nname: Baz\ndescription: Baz skill\n---\ninstr", "SKILL.md"),
       F("echo hi", "run.sh"),
+      ...(binary ? [new File([new Uint8Array([255, 254])], "image.png")] : []),
     ],
     paths: [
       ".claude/commands/foo.md",
       ".claude/skills/baz/SKILL.md",
       ".claude/skills/baz/run.sh",
+      ...(binary ? [".claude/skills/baz/image.png"] : []),
     ],
   });
   return {
@@ -160,6 +159,15 @@ async function stageFixture(): Promise<{
 }
 
 describe("commit — guards", () => {
+  test("skills require an administrator browser session, not a member or API key", async () => {
+    const { sessionId, skillId } = await stageFixture();
+    const body = { projectId: "proj-1", sessionId, skills: [skillId] };
+    expect((await POST(evt(body, MEMBER_USER))).status).toBe(403);
+    const apiEvent = evt(body);
+    apiEvent.locals.authMethod = "api-key";
+    expect((await POST(apiEvent)).status).toBe(403);
+    expect(installCalls).toHaveLength(0);
+  });
   test("scope gate", async () => {
     scopeResponse = new Response("no", { status: 403 });
     expect((await POST(evt({}))).status).toBe(403);
@@ -216,15 +224,18 @@ describe("commit — happy path", () => {
     expect(skill.status).toBe("ok");
     expect(skill.finalName).toBe("baz");
     expect(skill.extId).toBe("ext-installed");
-    expect(installCalls[0].dir).toBe(
-      join(projectRoot, ".ezcorp/extensions", "baz"),
-    );
+    expect(installCalls[0].provenance).toEqual({ kind: "skill", name: "baz" });
+    expect(installCalls[0].files["extension.ts"]).toContain("createRuntimeExtension");
+    expect(installCalls[0].files["skill/SKILL.md"]).toContain("instr");
     expect(
       existsSync(join(projectRoot, ".ezcorp/extensions/baz/ezcorp.config.ts")),
-    ).toBe(true);
+    ).toBe(false);
 
     expect(invalidatedFor).toBe(MEMBER_USER.id);
-    expect(reloadCalled).toBe(true);
+    expect(reloadCalled).toBe(false);
+    expect(skill.operationId).toBe("build-operation");
+    expect(skill.openUrl).toContain("/extensions/author");
+    expect(installCalls[0].actor).toEqual({ principalId: MEMBER_USER.id, scope: "global", kind: "human" });
 
     // Staging removed in finally.
     let gone = false;
@@ -252,6 +263,19 @@ describe("commit — happy path", () => {
 });
 
 describe("commit — collisions + failures", () => {
+  test("binary skill assets preserve exact bytes in an unapproved workspace", async () => {
+    const { sessionId, skillId } = await stageFixture(true);
+    const response = await POST(evt({ projectId: "proj-1", sessionId, skills: [skillId] }));
+    const { results } = await response.json();
+    expect(results[0].status).toBe("ok");
+    expect(installCalls).toHaveLength(1);
+    const asset = installCalls[0].files["skill/image.png"];
+    expect(asset).toEqual({ encoding: "base64", data: "//4=", executable: false });
+    expect(workspaceFileBytes(asset)).toEqual(new Uint8Array([255, 254]));
+    expect(results[0].operationId).toBe("build-operation");
+    expect(results[0].openUrl).toContain("/extensions/author");
+    expect(reloadCalled).toBe(false);
+  });
   test("suffixes a skill whose name is taken", async () => {
     existingExtNames = new Set(["baz"]);
     const { sessionId, skillId } = await stageFixture();
@@ -260,9 +284,7 @@ describe("commit — collisions + failures", () => {
     );
     const { results } = await res.json();
     expect(results[0].finalName).toBe("baz-2");
-    expect(installCalls[0].dir).toBe(
-      join(projectRoot, ".ezcorp/extensions", "baz-2"),
-    );
+    expect(installCalls[0].provenance).toEqual({ kind: "skill", name: "baz-2" });
   });
 
   test("install failure rolls back the synthesized dir", async () => {

@@ -153,6 +153,19 @@ describe("backgroundFetch", () => {
 });
 
 describe("userFetch", () => {
+	test("extension action keys are unique per action and preserved on explicit retries", async () => {
+		const url = "/api/extensions/probe/events/save";
+		await userFetch(url, { method: "POST" });
+		await userFetch(url, { method: "POST" });
+		const first = new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("Idempotency-Key");
+		const second = new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get("Idempotency-Key");
+		expect(first).toBeTruthy();
+		expect(second).not.toBe(first);
+		await userFetch(url, { method: "POST", headers: { "Idempotency-Key": first! } });
+		expect(new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get("Idempotency-Key")).toBe(first);
+		await userFetch("https://other.example/api/extensions/probe/events/save", { method: "POST" });
+		expect(new Headers(fetchMock.mock.calls[3]?.[1]?.headers).has("Idempotency-Key")).toBe(false);
+	});
 	test("always calls fetch, never throttled, never deduped", async () => {
 		await userFetch("/api/x");
 		await userFetch("/api/x");

@@ -1,25 +1,14 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
+import manifest from "./ezcorp.config";
 
-test("manifest parses as valid JSON with schemaVersion 2", async () => {
-  const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
-  expect(manifest.schemaVersion).toBe(2);
-  expect(manifest.name).toBe("multi-agent-orchestrator");
-});
-
-test("manifest has agent field", async () => {
-  const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
-  expect(manifest.agent).toBeDefined();
-  expect(manifest.agent.prompt).toContain("ordered plans");
+test("preserves planner and executor guidance in supported agent metadata", () => {
+  expect(manifest.schemaVersion).toBe(4);
   expect(manifest.agent.category).toBe("Development");
-});
-
-test("manifest has only the supported agent declaration", async () => {
-  const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
+  expect(manifest.agent.prompt).toContain("Planner instructions");
+  expect(manifest.agent.prompt).toContain("Executor instructions");
+  expect(manifest.agent.prompt).toContain("project-analyzer.listFiles");
+  expect(manifest.agent.prompt).toContain("code-quality.analyzeFile");
   expect("subAgents" in manifest).toBe(false);
+  expect(manifest.entrypoint).toBe("./extension.ts");
   expect(manifest.permissions).toEqual({});
-});
-
-test("manifest has no entrypoint (manifest-only extension)", async () => {
-  const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
-  expect(manifest.entrypoint).toBeUndefined();
 });

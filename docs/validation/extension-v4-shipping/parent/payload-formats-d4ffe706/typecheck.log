@@ -1,0 +1,20 @@
+$ bash scripts/typecheck.sh
+→ Typechecking backend (src/)...
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__lib__production-lifecycle-client.ts(6,30): error TS2307: Cannot find module '../../src/db/datadir-upgrade' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__lib__production-lifecycle-client.ts(7,116): error TS2307: Cannot find module '../../src/extensions/v4/types' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__lib__shipping-runtime-cycle-conversation.ts(1,37): error TS2307: Cannot find module './production-lifecycle-client' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__verify-shipping-runtime-resources.ts(10,62): error TS2307: Cannot find module './lib/production-lifecycle-client' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__verify-shipping-runtime-resources.ts(11,38): error TS2307: Cannot find module './lib/shipping-runtime-helpers' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__verify-shipping-runtime-resources.ts(12,61): error TS2307: Cannot find module './lib/shipping-runtime-resource-config' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__verify-shipping-runtime-resources.ts(13,56): error TS2307: Cannot find module './lib/shipping-runtime-cycle-conversation' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/scripts__verify-shipping-runtime-resources.ts(14,180): error TS2307: Cannot find module './lib/shipping-runtime-resource-accounting' or its corresponding type declarations.
+docs/validation/extension-v4-shipping/parent/r4-canonical-9ca27583/committed-inputs/web__src__lib__server__security__payload.ts(69,5): error TS2578: Unused '@ts-expect-error' directive.
+
+→ Typechecking web (SvelteKit)...
+
+→ Typechecking backend-tests (36 ratcheted file(s) excluded)...
+→ Typechecking web-e2e (15 ratcheted file(s) excluded)...
+✓ tests-typecheck passed (backend tests + web/e2e).
+
+✗ Backend (src/) typecheck failed.
+error: script "typecheck" exited with code 1

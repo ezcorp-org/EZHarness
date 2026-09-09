@@ -1,0 +1,83 @@
+{
+  "tested_source_commit": "a4a4a9e1e60dc6456c7ab3267766121c7b24f340",
+  "versions": [
+    "1.3.14",
+    "v22.22.2"
+  ],
+  "visual_selection": "__ALL__",
+  "commands": {
+    "visual": "CI=1 PI_E2E_REAL_BASE_URL=http://localhost:4285 bun scripts/run-visual-evidence.ts <canonical-selection-file>",
+    "real_auth": "CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BASE_URL=http://localhost:4285 EZCORP_E2E_EVIDENCE=1 ./node_modules/.bin/playwright test --config playwright.real.config.ts",
+    "mock": "Generate anchored arguments with bun scripts/e2e-lane-args.ts mock-gate; in web run CI=1 ./node_modules/.bin/playwright test --project=chromium with those exact arguments"
+  },
+  "results": {
+    "visual_mock": {
+      "passed": 180,
+      "failed": 0,
+      "duration": "1.4m"
+    },
+    "visual_real_auth": {
+      "passed": 9,
+      "failed": 0,
+      "duration": "3.4m"
+    },
+    "full_real_auth": {
+      "passed": 57,
+      "failed": 0,
+      "duration": "5.0m"
+    },
+    "mock_gate": {
+      "passed": 210,
+      "failed": 0,
+      "docker_only_skips": 13,
+      "duration": "1.5m"
+    }
+  },
+  "exits": {
+    "visual_evidence": 0,
+    "real_auth": 0,
+    "mock_gate": 0
+  },
+  "logs": [
+    {
+      "artifact": "raw/visual-evidence.log.gz",
+      "raw_sha256": "2192ae48e7a704e88d084e3b004e0bd443f5ecb865fff704aa4ccde055508fdf"
+    },
+    {
+      "artifact": "raw/real-auth-full.log.gz",
+      "raw_sha256": "f78efc939bdec17cb6021a3ce54ceb9521f978b842512d2bd04b2e63fcc9939a"
+    },
+    {
+      "artifact": "raw/mock-gate.log.gz",
+      "raw_sha256": "39dd6fbbeab057ad929ed8c7bd2cb65a248f32f0f872a31b0be70f79a54fc1d2"
+    }
+  ],
+  "screenshots": "screenshots/",
+  "notes": [
+    "Product and test source stayed unchanged during this serial run. Later edits add lane/map registration, validation receipts, and an E2E-only response barrier/marker refinement. Parent repeated that exact final test separately.",
+    "The visual and full real-auth lifecycle diagnostics each contain four empty error arrays.",
+    "The 13 Docker-only cases are verified by the separate production image replay.",
+    "Parent inspected all four published screenshots for preview visibility, desktop space, control contrast, and mobile fit.",
+    "Raw blobs and authenticated traces remain in ignored local storage. Only safe screenshots, logs, hashes, and empty diagnostic arrays are published.",
+    "The scanner interpreted checksum values beside auth-named archive keys as API keys. Each value was verified against the local archive and relabeled archive_sha256 in an explicit record; no values or scanner rules changed.",
+    "The three live-preview screenshots are refreshed by the later final-focused-checks.json replay; the complete-run stale-slot screenshot is unchanged."
+  ],
+  "local_blob_checksums": [
+    {
+      "artifact_filename": "mock.zip",
+      "archive_sha256": "b784b44468c25cfb36b15df90aed34a26297cb7e5f049f14e8f38708643e558a"
+    },
+    {
+      "artifact_filename": "real-auth.zip",
+      "archive_sha256": "2c169a7637e9c2a81e8859d62b5b3c6ec43d37386c8ff47cb4c6027a3f168ab0"
+    },
+    {
+      "artifact_filename": "real-auth-full.zip",
+      "archive_sha256": "d3836af949b60fbb05c8bd9af0666786cf8a793d4265d7d00a280cee23716330"
+    },
+    {
+      "artifact_filename": "mock-gate.zip",
+      "archive_sha256": "d3836af949b60fbb05c8bd9af0666786cf8a793d4265d7d00a280cee23716330"
+    }
+  ]
+}

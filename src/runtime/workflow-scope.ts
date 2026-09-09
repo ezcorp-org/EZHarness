@@ -79,6 +79,7 @@
  * still the tier a create DEFAULTS to, remains open to anyone.
  */
 import type { WorkflowDefinition, WorkflowVisibility } from "../types";
+export { workflowDelegationReleaseBinding, workflowDelegationReleaseAllows } from "./workflow-release-consent";
 
 /** Where a cached workflow came from. */
 export type WorkflowSource = "extension" | "yaml" | "db";
@@ -91,6 +92,7 @@ export type WorkflowSource = "extension" | "yaml" | "db";
  * DB-only provenance does not belong on the graph type.
  */
 export interface CachedWorkflow {
+  extensionRelease?: { installationId: string; binding: string; ownerId: string; scope: string };
   definition: WorkflowDefinition;
   source: WorkflowSource;
   /** DB rows only — `null` for yaml/extension, which have no row. */
@@ -138,6 +140,7 @@ export type WorkflowAction = "read" | "run" | "edit";
  * {@link authorizeWorkflow}, not a new signature.
  */
 export interface WorkflowCaller {
+  extensionReleaseBinding?: string | null;
   /** `null` for a principal with no user identity (the CLI). */
   userId: string | null;
   role: "admin" | "member";

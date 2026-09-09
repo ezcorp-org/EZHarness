@@ -159,7 +159,7 @@ function route(overrides: {
     }
     if (url.includes("air-quality-api")) return (overrides.air ?? (() => json(AIR_BODY)))();
     return (overrides.forecast ?? (() => json(FORECAST_BODY)))();
-  }) as typeof fetch);
+  }) as unknown as typeof fetch);
 }
 
 beforeEach(() => {
@@ -282,7 +282,7 @@ describe("geocodeCity", () => {
   test("a transport failure is UPSTREAM_UNAVAILABLE and keeps the cause", async () => {
     _setFetchImplForTests((async () => {
       throw new Error("getaddrinfo ENOTFOUND");
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
     const err = await geocodeCity("Austin").catch((e: unknown) => e);
     expect((err as ConditionsError).code).toBe("UPSTREAM_UNAVAILABLE");
     expect((err as ConditionsError).message).toContain("ENOTFOUND");
@@ -291,7 +291,7 @@ describe("geocodeCity", () => {
   test("a non-Error transport throw still surfaces a readable reason", async () => {
     _setFetchImplForTests((async () => {
       throw "socket closed";
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
     const err = await geocodeCity("Austin").catch((e: unknown) => e);
     expect((err as ConditionsError).message).toContain("socket closed");
   });
@@ -345,7 +345,7 @@ describe("fetchCurrentWeather", () => {
     _setFetchImplForTests((async (input: string | URL | Request) => {
       seen = String(input);
       return json(FORECAST_BODY);
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
     await fetchCurrentWeather(1, 2);
     expect(seen).toContain("temperature_unit=celsius");
     expect(seen).toContain("wind_speed_unit=kmh");
@@ -421,7 +421,7 @@ describe("allergen providers", () => {
     _setFetchImplForTests((async (input: string | URL | Request) => {
       seen = String(input);
       return json(GOOGLE_POLLEN_BODY);
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
     await fetchGooglePollen(30.267, -97.743, "secret-key");
     const url = new URL(seen);
     expect(url.hostname).toBe("pollen.googleapis.com");
@@ -758,7 +758,7 @@ describe("city_conditions", () => {
       await new Promise((r) => setTimeout(r, 5));
       inFlight -= 1;
       return json(url.includes("air-quality-api") ? AIR_BODY : FORECAST_BODY);
-    }) as typeof fetch);
+    }) as unknown as typeof fetch);
     await tools.city_conditions!({ city: "Austin" });
     expect(maxInFlight).toBe(2);
   });
@@ -813,7 +813,7 @@ describe("city_conditions", () => {
         throw "socket detached";
       },
     } as unknown as Response;
-    _setFetchImplForTests((async () => hostile) as typeof fetch);
+    _setFetchImplForTests((async () => hostile) as unknown as typeof fetch);
     const env = envelope(await tools.city_conditions!({ city: "Austin" }));
     expect(env.ok).toBe(false);
     expect(env.code).toBe("UPSTREAM_UNAVAILABLE");

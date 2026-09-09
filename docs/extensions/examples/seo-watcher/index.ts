@@ -36,11 +36,9 @@
 
 import {
   approveRun,
-  createToolDispatcher,
   declineRun,
   defineLoop,
   getChannel,
-  getLoopTools,
   PageBuilder,
   type ActResult,
   type CheckResult,
@@ -660,7 +658,6 @@ export function defineSeoWatcherLoop(): void {
  */
 export function start(): void {
   defineSeoWatcherLoop();
-  createToolDispatcher({ ...getLoopTools() });
   getChannel().start();
 }
 

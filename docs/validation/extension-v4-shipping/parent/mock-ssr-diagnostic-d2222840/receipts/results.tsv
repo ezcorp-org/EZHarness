@@ -1,0 +1,5 @@
+label	exit	qualification
+initial-symlinked-dependencies	1	setup failure before test: Vite temporary config resolved through another worktree
+frozen-local-dependencies	0	isolated root and web frozen installs
+anchored-grep	1	command selected no full Playwright title; no test executed
+observed-chat-graph	0	one chat-graph test passed and emitted one observed GET /api/extensions 500

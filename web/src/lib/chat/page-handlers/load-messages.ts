@@ -349,6 +349,9 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 	async function doHydrate(): Promise<void> {
 		const cid = host.convId();
 		try {
+			// The response is a snapshot at this client-local stream boundary.
+			// A tool event received while it is in flight may not appear in it.
+			const requestLiveRevision = inlineToolStore.liveRevision;
 			// Throttled + deduped by fetch-policy. Key is semantic
 			// (messages-tools:<cid>) so querystring reshuffles or new callers
 			// still collapse to one request.
@@ -363,7 +366,7 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 			const bundle = hydrateToolCallsFromApiData(data);
 
 			host.historicalToolCalls.set(bundle.historicalToolCalls);
-			inlineToolStore.hydrateToolCalls(cid, bundle.hydrateInput);
+			inlineToolStore.hydrateToolCalls(cid, bundle.hydrateInput, requestLiveRevision);
 
 			if (bundle.subConversations) {
 				host.subConversations.set(bundle.subConversations);
@@ -374,7 +377,7 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 			// the parent's edits. Keyed by sub id — each call to
 			// hydrateToolCalls(subId, …) replaces only that sub's entries.
 			for (const [subId, calls] of Object.entries(bundle.subToolCalls)) {
-				inlineToolStore.hydrateToolCalls(subId, calls);
+				inlineToolStore.hydrateToolCalls(subId, calls, requestLiveRevision);
 			}
 		} catch {
 			/* non-critical */

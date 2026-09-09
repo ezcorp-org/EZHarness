@@ -361,7 +361,7 @@ describe("get-draft", () => {
     expect(expectText(out)).toContain("draft not found");
   });
 
-  test("returns full html + meta for an existing draft", async () => {
+  test("default read keeps editable tokens and authored body before the runtime truncation", async () => {
     seedDesignSystem();
     const draftId = await generateDraft();
     const out = await _internals.tools["get-draft"]!(
@@ -376,6 +376,20 @@ describe("get-draft", () => {
     };
     expect(parsed.draftId).toBe(draftId);
     expect(parsed.html).toContain("design-tokens");
+    expect(parsed.html).toContain(FIXTURE_BODY);
+    expect(parsed.html).toContain("TRUNCATED");
+    expect(parsed.fullSize).toBeGreaterThan(parsed.html.length);
+  });
+
+  test("an explicit large limit returns the complete standalone document", async () => {
+    seedDesignSystem();
+    const draftId = await generateDraft();
+    const out = await _internals.tools["get-draft"]!(
+      { draftId, maxChars: 512_000 },
+      undefined as never,
+    );
+    const parsed = JSON.parse(expectText(out)) as { html: string; fullSize: number };
+    expect(parsed.html).toContain(FIXTURE_BODY);
     expect(parsed.html).not.toContain("TRUNCATED");
     expect(parsed.fullSize).toBe(parsed.html.length);
   });

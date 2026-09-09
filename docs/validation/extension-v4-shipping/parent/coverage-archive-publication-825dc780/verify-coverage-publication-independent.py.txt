@@ -1,0 +1,49 @@
+from pathlib import Path
+import hashlib,itertools,json,re,subprocess,sys,tarfile
+repo=Path.cwd()
+private=repo/'.cache/terra-shipping/parent/quarantined-coverage-archives/docs/validation/extension-v4-independent/build'
+public=repo/'docs/validation/extension-v4-independent/build'
+target='final-coverage-curated-19d/host/result_1423'
+fields=['name','type','linkname','mode','uid','gid','size','mtime','uname','gname','devmajor','devminor','pax_headers']
+results=[]
+for old in sorted(private.glob('final-coverage-curated-*.tar.zst')):
+ new=public/old.name
+ expected_original=subprocess.check_output(['git','show','825dc780:docs/validation/extension-v4-independent/build/'+old.name])
+ assert old.read_bytes()==expected_original,'private archive differs from original committed bytes'
+ processes=[subprocess.Popen(['zstd','-dcq','--',str(p)],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL) for p in [old,new]]
+ counters={'headersCompared':0,'regularPayloadsCompared':0,'hardlinksCompared':0,'changedMembers':0}
+ try:
+  with tarfile.open(fileobj=processes[0].stdout,mode='r|') as before,tarfile.open(fileobj=processes[1].stdout,mode='r|') as after:
+   for a,b in itertools.zip_longest(before,after):
+    assert a is not None and b is not None,'member count mismatch'
+    counters['headersCompared']+=1
+    for field in fields:
+     if a.name==target and field=='size':continue
+     assert getattr(a,field)==getattr(b,field),f'header mismatch in {a.name}: {field}'
+    if a.isreg():
+     av=before.extractfile(a).read();bv=after.extractfile(b).read();counters['regularPayloadsCompared']+=1
+     if a.name==target:
+      lines=av.splitlines(keepends=True);row=json.loads(lines[11]);value=row['tokenActorExtensionId']
+      assert re.fullmatch(r'[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}',value),'expected UUID field absent'
+      needle=b'"tokenActorExtensionId":"'+value.encode()+b'"'
+      assert lines[11].count(needle)==1
+      lines[11]=lines[11].replace(needle,b'"tokenActorExtensionId":"<fixture-extension-id>"',1)
+      assert b''.join(lines)==bv,'change exceeds the one declared field'
+      assert len(bv)==b.size
+      counters['changedMembers']+=1
+     else:assert av==bv,f'undeclared payload change in {a.name}'
+    if a.islnk():counters['hardlinksCompared']+=1
+  for process in processes:
+   while process.stdout.read(1024*1024):pass
+   process.stdout.close();assert process.wait()==0,'decompressor failed'
+ except BaseException:
+  for process in processes:
+   if process.poll() is None:process.kill()
+   process.wait()
+  raise
+ assert counters['changedMembers']==1
+ results.append({'archive':old.name,'originalArchiveSha256':hashlib.sha256(old.read_bytes()).hexdigest(),'publicArchiveSha256':hashlib.sha256(new.read_bytes()).hexdigest(),**counters})
+assert len(results)==2
+out={'allMemberBytesAndMetadataCompared':True,'onlyDeclaredFieldChanged':True,'archives':results}
+Path(sys.argv[1]).write_text(json.dumps(out,indent=2)+'\n')
+print(json.dumps(out))

@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /run/current-system/sw/bin/podman --conmon /tmp/ez-audit-ci-conmon/conmon-2.2.1 "$@"

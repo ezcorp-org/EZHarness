@@ -123,3 +123,5 @@ describe("ToolExecutor namespace stripping", () => {
     expect(completeEvent?.data.toolName).toBe("weather.getForecast");
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

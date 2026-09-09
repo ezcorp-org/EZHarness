@@ -76,7 +76,8 @@ const MAX_STEP_PARAM_LENGTH = 128;
  *  extension, which parses + validates it (unknown → empty state, never error). */
 const MAX_VIEW_PARAM_LENGTH = 160;
 
-export const GET: RequestHandler = async ({ locals, params, url }) => {
+export const GET: RequestHandler = async ({ locals, params, url, setHeaders }) => {
+  setHeaders({ "cache-control": "private, no-store", vary: "Cookie, Authorization" });
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);

@@ -1,0 +1,12 @@
+source=2c542bace8f13c58eefa2db715fe54aab4111a62
+image=ezcorp:embedding-cache-final-2c542bace8f1
+expected_docker_id=sha256:c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95
+expected_podman_id=sha256:c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95
+expected_revision=2c542bace8f13c58eefa2db715fe54aab4111a62
+started_utc=2026-09-07T18:14:50Z
+independent_boundary=rootless-native-podman-userns-keep-id-uid1000
+soak_boundary=production-http-app-and-runner-uid-gid-1001
+soak_minimum_seconds=1800
+soak_maximum_cycles=1440
+soak_grace_seconds=600
+soak_memory_bound=64MiB

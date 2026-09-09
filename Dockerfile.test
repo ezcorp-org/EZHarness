@@ -3,6 +3,7 @@
 # 1.x push invalidated every layer below — including the Playwright
 # `--with-deps` install, which is the most expensive step in this file.
 FROM oven/bun:1.3.14
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
 # Install git (for extension installer tests) and Node.js (for Playwright)
@@ -18,6 +19,8 @@ COPY package.json bun.lock ./
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
+COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
+COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
 # `--ignore-scripts`: SDK source + tsconfig haven't been COPY'd yet (only
 # the package.json), so the `prepare` script's tsc build can't succeed.
 # Skip lifecycle here; the SDK is rebuilt as needed once `COPY . .` lands.

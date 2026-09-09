@@ -1,0 +1,5 @@
+663054280419154d13991da5d230eb9ca894adcaa4ad143b014083b9a33bda31  src/auth/middleware.ts
+306507e3cd4ee668287f7a13b968e358ef276301a5c5db218bd3cca2c717446b  src/__tests__/auth-middleware.test.ts
+5e2371c4f2c037fcc908276ef34277bdff85098c7a4018bd248b22095dcfde82  web/src/routes/api/extensions/+server.ts
+1ded2dce3c89d91eb760ded707313b841603832859ccb85cf0b27b534357c2a7  web/src/__tests__/api-extensions.server.test.ts
+ee936e8ccaa846cb2db494ea87682f6dc7e72047150714607027fceab7932f2c  web/src/__tests__/extensions-api.test.ts

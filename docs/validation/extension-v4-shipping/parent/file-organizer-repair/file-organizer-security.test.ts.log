@@ -1,0 +1,61 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/security/file-organizer-security.test.ts:
+(pass) file-organizer: no calls home (no network grant) > fetch() is denied in the sandbox (the extension declares no network) [24.06ms]
+(pass) file-organizer: no calls home (no network grant) > require('http') is denied in the sandbox [22.96ms]
+(pass) file-organizer: no calls home (no network grant) > require('dns') is denied (no DNS lookups either) [24.60ms]
+(pass) host applier: destination containment (only the host touches host folders) > a move whose destination escapes the watched root is BLOCKED [2.13ms]
+(pass) host applier: destination containment (only the host touches host folders) > a move targeting .ezcorp/data is BLOCKED (never write the DB/JWT dir) [1.81ms]
+{"ts":"2026-09-07T01:20:05.280Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-Ph3HWM/watched/sub/a.txt","reason":"deny"}
+(pass) host applier: destination containment (only the host touches host folders) > engine deny ⇒ blocked (every apply re-authorizes; no stale-auth write) [1.05ms]
+{"ts":"2026-09-07T01:20:05.285Z","level":"warn","msg":"file-organizer watch root unreachable — skipping (fail-closed)","subsystem":"ext.file-organizer-daemon","path":"/tmp/fo-sec-GU9Bgq/watched"}
+(pass) daemon: fail-closed (degraded mount never mass-quarantines) > a vanished watch root yields ZERO proposals (not a mass-delete) [4.67ms]
+{"ts":"2026-09-07T01:20:05.286Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-GmD0lE/.ezcorp/extension-data/file-organizer/.trash/p/junk.tmp","reason":"deny"}
+(pass) daemon: fail-closed (degraded mount never mass-quarantines) > an unwritable / missing trash root holds the delete (engine deny ⇒ blocked, file kept) [1.07ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a delete-quarantine whose src is inside .ezcorp/data is BLOCKED [0.63ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a delete-quarantine whose src is OUTSIDE the watched root is BLOCKED [0.58ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a move whose src climbs out with `..` is BLOCKED (no exfil into the watched root) [0.46ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a move whose src traverses a SYMLINKED ancestor is BLOCKED [0.67ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a lying snapshot (isSymlink:false on a real link) is still SKIPPED [0.89ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > an in-root move and an in-root quarantine still APPLY (guard is not a wall) [8.31ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a SYMLINKED watched root still applies an in-root move (canonical anchor) [6.44ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a symlinked watched root also applies into a not-yet-created subdir [7.08ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > an unresolvable watched root refuses the apply (fail-closed anchor) [0.80ms]
+(pass) host applier: SOURCE containment (a proposal's src is not a free read/delete) > a src whose PARENT is gone is stale-source, not a crash [0.47ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > a traversing quarantineId is BLOCKED before it can be recorded [0.79ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > an unresolvable trash root fails the quarantine (no anchor, no write) [0.60ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > first quarantine creates the private trash root and preserves bytes [1.15ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > a symlinked extension data root still creates only its canonical private trash root [1.10ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > a planted private trash-root symlink is blocked before the source moves [0.87ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > a file at the private trash root fails without moving the source [0.76ms]
+(pass) host applier: quarantine id containment (nothing escaping reaches the manifest) > a planted quarantine-id symlink is blocked before the source moves [0.85ms]
+{"ts":"2026-09-07T01:20:05.319Z","level":"warn","msg":"file-organizer prune refused: invalid quarantine id","subsystem":"ext.file-organizer-applier","quarantineId":"../../../.."}
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a traversing id does NOT recursively delete the project root [0.54ms]
+{"ts":"2026-09-07T01:20:05.320Z","level":"warn","msg":"file-organizer prune refused: invalid quarantine id","subsystem":"ext.file-organizer-applier","quarantineId":"hop/victimdir"}
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a `..`-free id that escapes through a planted symlink is REFUSED [0.53ms]
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a trash entry that IS a symlink unlinks the LINK, never its target [0.59ms]
+{"ts":"2026-09-07T01:20:05.321Z","level":"warn","msg":"file-organizer prune refused: trash root unresolvable","subsystem":"ext.file-organizer-applier","trashRoot":"/tmp/fo-sec-JiZjzc/no-such-trash"}
+(pass) host applier: hardDeleteTrash (the one recursive rm) > an unresolvable trash root refuses the prune [0.43ms]
+(pass) host applier: hardDeleteTrash (the one recursive rm) > a real quarantine dir is still removed, and an absent one is idempotent [0.73ms]
+(pass) host applier: restore containment (the manifest is a file, not a trust root) > a trashPath outside the trash root is BLOCKED [0.75ms]
+(pass) host applier: restore containment (the manifest is a file, not a trust root) > an unresolvable trash root refuses the restore [0.35ms]
+(pass) host applier: restore containment (the manifest is a file, not a trust root) > a genuine quarantine entry still restores [0.71ms]
+{"ts":"2026-09-07T01:20:05.324Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-AsThjr/outside/victim.txt"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > an out-of-anchor src is REFUSED and the file survives [1.11ms]
+{"ts":"2026-09-07T01:20:05.325Z","level":"warn","msg":"journal replay entry refused (destination outside every anchor)","subsystem":"ext.file-organizer-applier","dst":"/tmp/fo-sec-VOm50A/outside/victim.txt"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > an out-of-anchor dst is REFUSED (copy-pending never rm's it) [0.93ms]
+{"ts":"2026-09-07T01:20:05.327Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-tjTfwa/watched/a.txt"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > EMPTY anchors refuse everything (a journal we cannot anchor is not replayed) [1.51ms]
+{"ts":"2026-09-07T01:20:05.327Z","level":"warn","msg":"journal replay entry refused (source outside every anchor)","subsystem":"ext.file-organizer-applier","src":"/tmp/fo-sec-P9P2T7/.ezcorp/data/ez-corp-db"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > an in-anchor src inside .ezcorp/data is REFUSED [0.72ms]
+(pass) journal replay: boot-time containment (no UI required to reach it) > an in-anchor copy-done still finishes the unlink [1.03ms]
+(pass) journal replay: boot-time containment (no UI required to reach it) > an in-anchor copy-pending still rolls the partial dst back [1.07ms]
+{"ts":"2026-09-07T01:20:05.330Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-sIo2DA/watched/completed.txt","reason":"deny"}
+{"ts":"2026-09-07T01:20:05.331Z","level":"warn","msg":"file-organizer filesystem mutation denied by engine","subsystem":"ext.file-organizer-applier","value":"/tmp/fo-sec-sIo2DA/watched/sub/partial.txt","reason":"deny"}
+(pass) journal replay: boot-time containment (no UI required to reach it) > a denied replay preserves both completed and partial operation files [1.51ms]
+(pass) daemon: fail-closed on unset EZCORP_PROJECT_ROOT (host-side data dir) > a non-existent data dir ⇒ tick is a safe no-op [0.73ms]
+
+ 41 pass
+ 0 fail
+ 108 expect() calls
+Ran 41 tests across 1 file. [621.00ms]

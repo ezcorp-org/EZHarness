@@ -56,14 +56,14 @@ describe("POST /api/extensions/[id]/reopen", () => {
     expect(res.status).toBe(401);
   });
 
-  test("owner + modifiable → 200 { draftId, name }", async () => {
+  test("owner + modifiable → immutable workspace and review location", async () => {
     vi.mocked(reopenInstalledAsDraft).mockResolvedValue({
-      draftId: "draft-9",
+      installationId: "ext-1", workspaceId: "workspace-9", revision: 1, openUrl: "/extensions/author?installation=ext-1&workspace=workspace-9",
       name: "weather",
     });
     const res = await POST(makeEvent({ locals: { user: owner } }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ draftId: "draft-9", name: "weather" });
+    expect(await res.json()).toEqual({ installationId: "ext-1", workspaceId: "workspace-9", revision: 1, openUrl: "/extensions/author?installation=ext-1&workspace=workspace-9", name: "weather" });
     expect(vi.mocked(reopenInstalledAsDraft)).toHaveBeenCalledWith(
       "ext-1",
       owner.id,
@@ -80,7 +80,7 @@ describe("POST /api/extensions/[id]/reopen", () => {
 
   test("other ReopenError code → 409", async () => {
     vi.mocked(reopenInstalledAsDraft).mockRejectedValue(
-      new ReopenError("NO_INSTALL_PATH", "no on-disk source"),
+      new ReopenError("NO_VERIFIED_RELEASE", "no immutable source"),
     );
     const res = await POST(makeEvent({ locals: { user: owner } }));
     expect(res.status).toBe(409);

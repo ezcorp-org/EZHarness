@@ -1,0 +1,10 @@
+cd web
+npx vitest run --testTimeout=30000 \
+  src/__tests__/api-conversations.server.test.ts \
+  src/__tests__/api-mcp-servers-id-put.server.test.ts \
+  src/__tests__/api-admin-scope-gate.server.test.ts \
+  --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
+  --coverage.cleanOnRerun=false \
+  --coverage.reportsDirectory=../.cache/terra-shipping/parent/vitest-generated-exclusion-adbba8a6-1788755775/coverage \
+  --coverage.include='**/api/conversations/+server.ts' \
+  --coverage.include='**/mcp-servers/*/+server.ts'

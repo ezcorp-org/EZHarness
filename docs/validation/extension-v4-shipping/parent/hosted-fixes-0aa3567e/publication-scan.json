@@ -1,0 +1,9 @@
+{
+  "scannedTextFiles": 30,
+  "patterns": [
+    "jwt_like",
+    "authorization_value",
+    "set_cookie_value"
+  ],
+  "matches": []
+}

@@ -1998,3 +1998,5 @@ describe("ToolExecutor", () => {
     });
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

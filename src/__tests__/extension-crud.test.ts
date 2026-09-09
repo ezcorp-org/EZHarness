@@ -1,290 +1,99 @@
-import { test, expect, describe, beforeEach, mock, afterAll } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { useTempProjectRoot } from "./helpers/temp-project-root";
-import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
-import { join } from "path";
-import { tmpdir } from "os";
-import { mkdtemp, rm } from "fs/promises";
-import { writeConfig } from "./helpers/write-config";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
+import { validateManifest, sealPublishedRelease, validatePublishedRelease, type BuildResult } from "@ezcorp/extension-contract";
+import { PodmanRunner, buildLimits, filesDigest, provisionToolchain } from "@ezcorp/extension-runner";
+import { computeChecksum, verifyChecksum } from "../extensions/checksum";
+import { collectGitHubSource } from "../extensions/source-import";
+import { snapshotExtensionSource } from "../../scripts/migrate-extension-v4";
 
-// ── Mock DB queries (must precede imports that touch these modules) ──
-import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
-
-const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
-const mockExtensions = extStore.store;
-let createExtensionCalled: any = null;
-
-mock.module("../db/queries/extensions", () => ({
-  createExtension: async (data: any) => {
-    const ext = await extStore.createExtension(data);
-    createExtensionCalled = ext;
-    return ext;
-  },
-  getExtension: extStore.getExtension,
-  getExtensionByName: async () => null,
-  listExtensions: extStore.listExtensions,
-}));
-
-// The install base is the RELATIVE `data/extensions`, resolved against
-// `process.cwd()` — the checkout, for a test. Run from a throwaway root so
-// no install lands in the working tree.
-const TMP_ROOT = useTempProjectRoot("extension-crud-");
-
-afterAll(() => {
-  restoreModuleMocks();
-  TMP_ROOT.cleanup();
-});
-
-// Import AFTER mock.module so the mock is in place when modules load
-const { computeChecksum, verifyChecksum } = await import("../extensions/checksum");
-const { installFromLocal, installFromGitHub } = await import("../extensions/installer");
-const { validateManifestV2: validateManifest } = await import("../extensions/manifest");
-
-// ── Checksum Tests ──────────────────────────────────────────────────
+let root: string;
+let runner: PodmanRunner;
+let built: Promise<BuildResult> | undefined;
+const files: Record<string, string> = { ...scaffoldWorkspace({ name: "crud-extension", description: "Source lifecycle" }).files, "ezcorp.config.ts": "throw new Error('config must not execute on host');" };
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), "extension-crud-v4-"));
+  runner = new PodmanRunner({ root: join(root, "runner"), ...await provisionToolchain() });
+  await runner.initialize();
+  for (const [path, source] of Object.entries(files)) await Bun.write(join(root, "source", path), source);
+}, 60000);
+afterAll(async () => { await runner?.close(); if (root) await rm(root, { recursive: true, force: true }); });
+function build() {
+  return built ??= runner.build({ operationId: crypto.randomUUID(), sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits });
+}
 
 describe("checksum", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "ext-checksum-"));
-  });
-
-  // cleanup handled by OS temp dir
-
   test("computeChecksum returns SHA-256 hex string", async () => {
-    const filePath = join(tempDir, "test.txt");
-    await Bun.write(filePath, "hello world");
-    const hash = await computeChecksum(filePath);
-    expect(hash).toMatch(/^[a-f0-9]{64}$/);
-    // Known SHA-256 of "hello world"
-    expect(hash).toBe("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    expect(await computeChecksum(join(root, "source/extension.ts"))).toMatch(/^[a-f0-9]{64}$/);
   });
-
-  test("verifyChecksum returns true for matching hash", async () => {
-    const filePath = join(tempDir, "test2.txt");
-    await Bun.write(filePath, "hello world");
-    const result = await verifyChecksum(filePath, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
-    expect(result).toBe(true);
+  test("verifyChecksum accepts matching file bytes", async () => {
+    const path = join(root, "source/extension.ts");
+    expect(await verifyChecksum(path, await computeChecksum(path))).toBe(true);
   });
-
-  test("verifyChecksum returns false for mismatched hash", async () => {
-    const filePath = join(tempDir, "test3.txt");
-    await Bun.write(filePath, "hello world");
-    const result = await verifyChecksum(filePath, "0000000000000000000000000000000000000000000000000000000000000000");
-    expect(result).toBe(false);
+  test("verifyChecksum rejects mismatched file bytes", async () => {
+    expect(await verifyChecksum(join(root, "source/extension.ts"), "0".repeat(64))).toBe(false);
   });
 });
 
-// ── Manifest Validation Tests ──────────────────────────────────────
-
-describe("validateManifest (v2)", () => {
-  const validManifest = {
-    schemaVersion: 2,
-    name: "test-ext",
-    version: "1.0.0",
-    description: "A test extension",
-    author: { name: "Test" },
-    entrypoint: "index.ts",
-    tools: [
-      {
-        name: "test_tool",
-        description: "A test tool",
-        inputSchema: { type: "object", properties: {} },
-      },
-    ],
-    permissions: { network: ["api.example.com"] },
-  };
-
-  test("accepts valid manifest", () => {
-    const result = validateManifest(validManifest);
-    expect(result.valid).toBe(true);
-    expect(result.errors).toEqual([]);
-  });
-
-  test("rejects manifest missing name", () => {
-    const { name, ...rest } = validManifest;
-    const result = validateManifest(rest);
-    expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("name"))).toBe(true);
-  });
-
-  test("rejects manifest missing version", () => {
-    const { version, ...rest } = validManifest;
-    const result = validateManifest(rest);
-    expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("version"))).toBe(true);
-  });
-
-  test("rejects manifest with tools but missing entrypoint", () => {
-    const { entrypoint, ...rest } = validManifest;
-    const result = validateManifest(rest);
-    expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("entrypoint"))).toBe(true);
-  });
-
-  test("rejects manifest with invalid tool (missing name)", () => {
-    const result = validateManifest({
-      ...validManifest,
-      tools: [{ description: "no name", inputSchema: {} }],
-    });
-    expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("tools"))).toBe(true);
-  });
-
-  test("rejects non-object input", () => {
-    const result = validateManifest("not an object");
-    expect(result.valid).toBe(false);
-  });
+describe("canonical v4 manifest validation", () => {
+  const valid = { schemaVersion: 4, name: "valid-extension", version: "1.0.0", description: "Valid", author: { name: "Tests" }, entrypoint: "./extension.ts", tools: [{ name: "echo", description: "Echo", inputSchema: { type: "string" }, outputSchema: { type: "string" } }], permissions: { network: ["api.example.com"] } };
+  test("accepts valid data with exact input and output schemas", () => { expect(validateManifest(valid)).toEqual({ ...valid, schemaVersion: 4 as const }); });
+  test("rejects missing name", () => { const { name, ...rest } = valid; expect(() => validateManifest(rest)).toThrow(); });
+  test("rejects missing version", () => { const { version, ...rest } = valid; expect(() => validateManifest(rest)).toThrow(); });
+  test("a source snapshot without its runtime entrypoint cannot build", async () => {
+    const files = { "README.md": "No entrypoint" };
+    await expect(runner.build({ operationId: crypto.randomUUID(), sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits })).rejects.toMatchObject({ code: "missing_entrypoint" });
+  }, 120000);
+  test("rejects a tool without a name and output contract", () => { expect(() => validateManifest({ ...valid, tools: [{ description: "Missing name", inputSchema: {} }] })).toThrow(); });
+  test("rejects non-object input", () => { expect(() => validateManifest("not a manifest")).toThrow(); });
 });
 
-// ── Local Installer Tests ───────────────────────────────────────────
-
-describe("installFromLocal", () => {
-  let tempDir: string;
-
-  beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "ext-install-"));
-    createExtensionCalled = null;
-    mockExtensions.clear();
-  });
-
-  test("reads manifest, validates, computes checksum, creates DB record", async () => {
-    // Set up a minimal extension directory
-    const manifest: ExtensionManifestV2 = {
-      schemaVersion: 2,
-      name: "local-ext",
-      version: "1.0.0",
-      description: "A local extension",
-      author: { name: "Test" },
-      entrypoint: "index.ts",
-      tools: [{ name: "greet", description: "Say hello", inputSchema: { type: "object" } }],
-      permissions: { network: ["api.example.com"] },
-    };
-    await writeConfig(tempDir, manifest);
-    await Bun.write(join(tempDir, "index.ts"), 'console.log("hello");');
-
-    const granted: ExtensionPermissions = {
-      network: ["api.example.com"],
-      grantedAt: { network: Date.now() },
-    };
-
-    const result = await installFromLocal(tempDir, granted);
-    expect(result.name).toBe("local-ext");
-    expect(result.source).toContain("local:");
-    expect(createExtensionCalled).not.toBeNull();
-    expect(createExtensionCalled.checksumVerified).toBe(true);
-  });
-
-  test("rejects if manifest is invalid", async () => {
-    await writeConfig(tempDir, { bad: true });
-
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    await expect(installFromLocal(tempDir, granted)).rejects.toThrow();
-  });
+describe("local source collection", () => {
+  test("collects nested source and builds immutable evidence without granting execution", async () => {
+    const snapshot = await snapshotExtensionSource(root, { name: "crud-extension", directory: "source", entrypoint: "extension.ts" });
+    expect(snapshot.files).toEqual(files);
+    const result = await build();
+    expect(result.diagnostics).toEqual([]);
+    expect(result.state).toBe("succeeded");
+    expect(result.sourceDigest).toBe(filesDigest(snapshot.files));
+    expect(result.manifest?.permissions).toEqual({});
+    expect(Object.hasOwn(result, "approvalId")).toBe(false);
+  }, 120000);
+  test("invalid discovered metadata fails the isolated build", async () => {
+    const invalid = { ...files, "extension.ts": files["extension.ts"]!.replace('"schemaVersion": 4', '"schemaVersion": 2') };
+    const result = await runner.build({ operationId: crypto.randomUUID(), sourceDigest: filesDigest(invalid), files: invalid, entrypoint: "extension.ts", limits: buildLimits });
+    expect(result.state).toBe("failed");
+    expect(result.artifactDigest).toBeUndefined();
+  }, 120000);
 });
 
-// ── GitHub Installer Tests ──────────────────────────────────────────
-
-describe("installFromGitHub", () => {
-  beforeEach(() => {
-    createExtensionCalled = null;
-    mockExtensions.clear();
-  });
-
-  test("fetches release tarball, extracts manifest, creates DB record", async () => {
-    // Create a temporary tarball with a manifest inside
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-"));
-    const extDir = join(tempDir, "ext-content");
-    await writeConfig(extDir, {
-      schemaVersion: 2,
-      name: "gh-ext",
-      version: "2.0.0",
-      description: "GitHub extension",
-      author: { name: "Test" },
-      entrypoint: "index.ts",
-      tools: [{ name: "fetch_data", description: "Fetch data", inputSchema: { type: "object" } }],
-      permissions: {},
-    });
-    await Bun.write(join(extDir, "index.ts"), 'console.log("github ext");');
-
-    // Create tarball
-    const tarPath = join(tempDir, "release.tar.gz");
-    const proc = Bun.spawnSync(["tar", "-czf", tarPath, "-C", tempDir, "ext-content"]);
-    expect(proc.exitCode).toBe(0);
-
-    const tarData = await Bun.file(tarPath).arrayBuffer();
-
-    // Mock fetch to return our tarball
-    const originalFetch = globalThis.fetch;
-    const mockFetch = async (input: any, _init?: any) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("api.github.com/repos/test/repo/releases/latest")) {
-        return new Response(JSON.stringify({
-          tag_name: "v2.0.0",
-          assets: [{ name: "extension.tar.gz", browser_download_url: "https://example.com/release.tar.gz" }],
-        }));
-      }
-      if (url.includes("example.com/release.tar.gz")) {
-        return new Response(tarData);
-      }
-      return originalFetch(input, _init);
-    };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
-
-    try {
-      const granted: ExtensionPermissions = { grantedAt: {} };
-      const result = await installFromGitHub("test/repo", granted);
-      expect(result.name).toBe("gh-ext");
-      expect(result.source).toContain("github:");
-      expect(createExtensionCalled).not.toBeNull();
-    } finally {
-      globalThis.fetch = originalFetch;
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
-
-  test("rejects if checksum mismatch", async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-bad-"));
-    const extDir = join(tempDir, "ext-content");
-    await writeConfig(extDir, {
-      schemaVersion: 2,
-      name: "gh-ext-bad",
-      version: "1.0.0",
-      description: "Bad checksum",
-      author: { name: "Test" },
-      entrypoint: "index.ts",
-      tools: [{ name: "tool", description: "Tool", inputSchema: {} }],
-      permissions: {},
-      checksum: "0000000000000000000000000000000000000000000000000000000000000000",
-    });
-    await Bun.write(join(extDir, "index.ts"), 'console.log("bad");');
-
-    const tarPath = join(tempDir, "release.tar.gz");
-    Bun.spawnSync(["tar", "-czf", tarPath, "-C", tempDir, "ext-content"]);
-    const tarData = await Bun.file(tarPath).arrayBuffer();
-
-    const originalFetch = globalThis.fetch;
-    const mockFetch = async (input: any, _init?: any) => {
-      const url = typeof input === "string" ? input : input.toString();
-      if (url.includes("api.github.com/repos/bad/repo/releases/latest")) {
-        return new Response(JSON.stringify({
-          tag_name: "v1.0.0",
-          assets: [{ name: "ext.tar.gz", browser_download_url: "https://example.com/bad.tar.gz" }],
-        }));
-      }
-      if (url.includes("example.com/bad.tar.gz")) {
-        return new Response(tarData);
-      }
-      return originalFetch(input, _init);
-    };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
-
-    try {
-      const granted: ExtensionPermissions = { grantedAt: {} };
-      await expect(installFromGitHub("bad/repo", granted)).rejects.toThrow(/checksum/i);
-    } finally {
-      globalThis.fetch = originalFetch;
-      await rm(tempDir, { recursive: true, force: true });
-    }
-  });
+describe("GitHub immutable source and publication", () => {
+  test("fetches an immutable tree and preserves every source byte", async () => {
+    const entries = Object.entries(files).map(([path, source], index) => ({ path, source, sha: String(index + 1).repeat(40) }));
+    const calls: string[] = [];
+    const fetcher = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.includes("/commits/")) return Response.json({ commit: { tree: { sha: "a".repeat(40) } } });
+      if (url.includes("/git/trees/")) return Response.json({ truncated: false, tree: entries.map(({ path, source, sha }) => ({ path, sha, type: "blob", mode: "100644", size: Buffer.byteLength(source) })) });
+      const entry = entries.find(entry => url.endsWith(entry.sha))!;
+      return Response.json({ encoding: "base64", content: Buffer.from(entry.source).toString("base64") });
+    }) as typeof fetch;
+    const collected = await collectGitHubSource({ kind: "github", repository: "owner/repo", ref: "v1.0.0" }, { fetch: fetcher, resolveHost: async () => ["93.184.216.34"] });
+    expect(collected).toEqual(files);
+    expect(calls.some(url => url.includes("/commits/v1.0.0"))).toBe(true);
+    expect(calls.some(url => url.includes("/git/trees/" + "a".repeat(40)))).toBe(true);
+    expect(filesDigest(collected)).toBe((await build()).sourceDigest);
+  }, 120000);
+  test("tampered published artifacts fail content-address verification", async () => {
+    const result = await build();
+    const artifactFiles = await runner.collectArtifacts(result.artifactDigest!);
+    const published = await sealPublishedRelease(result, artifactFiles);
+    expect(await validatePublishedRelease(published)).toEqual(published);
+    const changed = structuredClone(published);
+    changed.sourceFiles["extension.ts"] = "tampered";
+    await expect(validatePublishedRelease(changed)).rejects.toThrow();
+  }, 120000);
 });

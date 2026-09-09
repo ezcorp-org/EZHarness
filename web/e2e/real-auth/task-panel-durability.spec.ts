@@ -4,23 +4,24 @@
  * The mock-tier spec (`task-panel-cold-start.spec.ts`) proves the client
  * behaviour against stubbed routes. This one proves the same thing against
  * the real stack — real PGlite, the real `extension_storage` row, the real
- * task-tracking extension subprocess, the real SSE stream — because both
+ * isolated task-tracking workers, the real SSE stream — because both
  * bugs this feature fixes live in the seams BETWEEN those pieces:
  *
  *   1. Cold start: the panel is rendered from a real persisted snapshot on a
  *      brand-new page load, with no live event ever delivered. That is the
  *      "vanishes on refresh / in a second tab" report.
  *   2. Lost updates: concurrent tool calls each do a read-modify-write over
- *      ONE storage row through the SDK's fire-and-forget channel. Before the
- *      lock, an interleaved pair silently dropped one write. Only a REAL
- *      subprocess exercises that channel — an in-process fake can't.
+ *      ONE storage row through separate isolated workers. Host-owned locks
+ *      and transactional revision checks must preserve every successful
+ *      write; an in-process fake cannot prove that boundary.
  *
- * Gated on the sandbox probe like the other extension-spawn specs: without
- * kernel caps the extension subprocess can't start at all.
+ * The real server setup requires a working rootless runner. This suite
+ * imports source, builds, and explicitly approves its release before use.
  */
 import type { APIRequestContext } from "@playwright/test";
 import { test, expect } from "../fixtures/hydration.js";
-import { sandboxSpawnAvailable } from "./sandbox-probe";
+import { importAndActivateBundledExtension } from "../fixtures/extension-v4";
+import type { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
 
 test.describe.configure({ mode: "serial" });
 
@@ -41,49 +42,44 @@ async function readSnapshot(
 	return (await res.json()) as { tasks: TrackedTask[]; activeTaskId?: string };
 }
 
-/** Invoke a task-tracking tool against the real extension subprocess. */
-let invocationSeq = 0;
+/** Invoke a task-tracking tool against a real isolated worker. */
+let client: HarnessClient;
 async function invokeTaskTool(
-	request: APIRequestContext,
 	conversationId: string,
 	toolName: string,
 	input: Record<string, unknown>,
 ) {
-	return request.post("/api/tool-invoke", {
-		data: {
-			extensionName: "task-tracking",
-			toolName,
-			input,
-			conversationId,
-			// Required by the route; unique per call so concurrent invokes in
-			// the burst below are distinct tool calls, not one deduped call.
-			invocationId: `e2e-task-${++invocationSeq}-${process.pid}`,
-		},
-	});
+	return client.invokeExtensionTool(conversationId, "task-tracking", toolName, input);
 }
 
 test.describe("task panel — real persistence + concurrent writes", () => {
-	test.skip(
-		() => !sandboxSpawnAvailable(),
-		"extension sandbox needs kernel caps (prlimit/Landlock) not available on this runner",
-	);
-
 	let conversationId = "";
+
+	test.beforeAll(async ({ browser, request, baseURL }) => {
+		test.setTimeout(300_000);
+		const context = await browser.newContext({ baseURL, storageState: await request.storageState() });
+		try {
+			({ client } = await importAndActivateBundledExtension({ page: await context.newPage(), request, baseURL: baseURL!, name: "task-tracking" }));
+		} finally {
+			await context.close();
+		}
+	});
 
 	test.beforeEach(async ({ request }) => {
 		const seed = await request.post("/api/__test/seed", { data: { title: "e2e-task-durability" } });
 		expect(seed.status(), await seed.text()).toBe(201);
 		conversationId = ((await seed.json()) as { conversationId: string }).conversationId;
+		expect((await client.wireExtensions(conversationId, ["task-tracking"])).wired).toEqual(["task-tracking"]);
 	});
 
 	test("tasks planned through the real extension survive a fresh page load", async ({
 		page,
 		request,
 	}) => {
-		const planned = await invokeTaskTool(request, conversationId, "task_plan", {
+		const planned = await invokeTaskTool(conversationId, "task_plan", {
 			tasks: [{ title: "Design the schema" }, { title: "Write the migration" }],
 		});
-		expect(planned.status(), await planned.text()).toBe(200);
+		expect(planned.success, JSON.stringify(planned)).toBe(true);
 
 		// The extension persisted to its real storage row — read it back
 		// through the very route the panel hydrates from.
@@ -110,21 +106,21 @@ test.describe("task panel — real persistence + concurrent writes", () => {
 
 	test("concurrent task_add calls all survive — no lost updates", async ({ request }) => {
 		// Seed one task so the snapshot row exists before the burst.
-		const seeded = await invokeTaskTool(request, conversationId, "task_plan", {
+		const seeded = await invokeTaskTool(conversationId, "task_plan", {
 			tasks: [{ title: "seed" }],
 		});
-		expect(seeded.status(), await seeded.text()).toBe(200);
+		expect(seeded.success, JSON.stringify(seeded)).toBe(true);
 
-		// Fire N adds with NO await between them. Each is a separate
-		// `tools/call` frame; the SDK channel dispatches them fire-and-forget,
-		// so before the lock their load→mutate→save cycles interleaved and the
-		// last writer clobbered the rest.
+		// Two calls overlap in separate workers, below the four-worker cap.
+		// Their load→mutate→save cycles must serialize through the host lock.
 		const titles = ["alpha", "bravo", "charlie", "delta", "echo"];
-		const responses = await Promise.all(
-			titles.map((title) => invokeTaskTool(request, conversationId, "task_add", { title })),
-		);
-		for (const res of responses) {
-			expect(res.status(), await res.text()).toBe(200);
+		for (let offset = 0; offset < titles.length; offset += 2) {
+			const responses = await Promise.all(
+				titles.slice(offset, offset + 2).map((title) => invokeTaskTool(conversationId, "task_add", { title })),
+			);
+			for (const res of responses) {
+				expect(res.success, JSON.stringify(res)).toBe(true);
+			}
 		}
 
 		// Every single add must be present. Any missing title IS the lost
@@ -141,22 +137,21 @@ test.describe("task panel — real persistence + concurrent writes", () => {
 
 	test("a live tool call updates an already-open panel, and the update is durable", async ({
 		page,
-		request,
 	}) => {
-		const planned = await invokeTaskTool(request, conversationId, "task_plan", {
+		const planned = await invokeTaskTool(conversationId, "task_plan", {
 			tasks: [{ title: "First task" }],
 		});
-		expect(planned.status(), await planned.text()).toBe(200);
+		expect(planned.success, JSON.stringify(planned)).toBe(true);
 
 		await page.goto(`/project/global/chat/${conversationId}`);
 		await expect(page.getByText("First task")).toBeVisible();
 
 		// Mutate while the page is open — the panel picks it up over the live
 		// SSE stream, with no reload.
-		const added = await invokeTaskTool(request, conversationId, "task_add", {
+		const added = await invokeTaskTool(conversationId, "task_add", {
 			title: "Added while watching",
 		});
-		expect(added.status(), await added.text()).toBe(200);
+		expect(added.success, JSON.stringify(added)).toBe(true);
 
 		await expect(page.getByText("Added while watching")).toBeVisible({ timeout: 15_000 });
 

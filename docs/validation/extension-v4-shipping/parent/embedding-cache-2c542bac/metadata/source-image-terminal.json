@@ -1,0 +1,31 @@
+{
+  "controller": {
+    "bytes": 14658,
+    "sha256": "6373fb65955fe27aa2bd9e8b81dea4bd16b2fea452ebd5d82c388c2fc034daa7"
+  },
+  "controller_sha256": "6373fb65955fe27aa2bd9e8b81dea4bd16b2fea452ebd5d82c388c2fc034daa7",
+  "docker_image_id": "sha256:c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95",
+  "frozen_input_hash_receipt": {
+    "bytes": 1781,
+    "sha256": "d94316e82edce787c3eb5cbb9b1d06a54a4fec08205f2d23ea2bdbcea8c17771"
+  },
+  "image": "ezcorp:embedding-cache-final-2c542bace8f1",
+  "image_revision": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "podman_image_id": "c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95",
+  "retained_images": [
+    "docker",
+    "id=sha256:c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95 revision=2c542bace8f13c58eefa2db715fe54aab4111a62 user=bun",
+    "podman",
+    "id=c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95 revision=2c542bace8f13c58eefa2db715fe54aab4111a62 user=bun"
+  ],
+  "second_start_with_read_only_cache": "passed",
+  "source_tree": "f66603d69561df42bfdb237cb024aef8a351ee47",
+  "started_at": "2026-09-07T18:06:23Z",
+  "terminal": {
+    "cleanup_exit": "0",
+    "final_exit": "0",
+    "finished_at": "2026-09-07T18:13:27Z",
+    "main_exit": "0",
+    "started_at": "2026-09-07T18:06:23Z"
+  }
+}

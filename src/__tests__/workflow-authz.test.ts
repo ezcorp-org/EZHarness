@@ -148,10 +148,10 @@ describe("canRunWorkflow", () => {
 
   // ── Rule 1: extension liveness ──────────────────────────────────
 
-  test("allows an extension workflow while its extension is installed and enabled", async () => {
+  test("an enabled projection cannot authorize an extension workflow without a release binding", async () => {
     await seedExtension("my-ext", true);
     const ext = entry({ name: "my-ext:deploy", source: "extension", id: null });
-    expect(await canRunWorkflow(ext, stranger)).toEqual({ allowed: true });
+    expect(await canRunWorkflow(ext, stranger)).toEqual({ allowed: false, reason: "Workflow release is not available to this user." });
   });
 
   test("denies an extension workflow when the extension is disabled", async () => {

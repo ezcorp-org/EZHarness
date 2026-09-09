@@ -66,7 +66,8 @@ export function extensionToAgentTool(
     label: extTool.name,
     description: extTool.description,
     parameters: Type.Unsafe(schemaOverride ?? extTool.inputSchema),
-    execute: async (toolCallId, params, _signal) => {
+    execute: async (toolCallId, params, signal) => {
+      signal?.throwIfAborted();
       // Per-call merge: thread the host-minted `toolCallId` into the
       // invocation metadata so handlers can use it as a stable gate
       // key (e.g. `ask-user`'s pending-answer map). Additive —
@@ -82,8 +83,9 @@ export function extensionToAgentTool(
       // like AskUserQuestionCard.
       const result = await toolExecutor.executeToolCall(
         dispatchName, params as Record<string, unknown>, conversationId, messageId,
-        { metadata: { invocationId: toolCallId } }, callMetadata,
+        { metadata: { invocationId: toolCallId }, ...(signal ? { signal } : {}) }, callMetadata,
       );
+      signal?.throwIfAborted();
       return {
         content: result.content.map(c => ({ type: "text" as const, text: c.text })),
         details: { isError: result.isError },

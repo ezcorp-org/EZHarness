@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+test -n "$EZ_PRODUCTION_RECEIPT_DIR"
+test -n "$EZ_PRODUCTION_CONTAINER"
+test -n "$EZ_PRODUCTION_RUN_ROOT"
+bun=/tmp/ez-extension-bun-1.3.14/bun-linux-x64/bun
+driver=/tmp/ez-r4-trend-review-20260907T072500Z/driver/verify-shipping-runtime-resources.ts
+unset EZ_RUNTIME_RESOURCE_CYCLES
+export EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS=1800
+export EZ_RUNTIME_RESOURCE_MAX_CYCLES=1440
+"$bun" "$driver" > "$EZ_PRODUCTION_RECEIPT_DIR/r4-driver.log" 2>&1 &
+driver_pid=$!
+set +e
+wait "$driver_pid"
+driver_result=$?
+set -e
+printf 'driver_exit=%s\n' "$driver_result" > "$EZ_PRODUCTION_RECEIPT_DIR/r4-driver.exit"
+set +e
+"$bun" -e 'const p=process.argv[1];const x=JSON.parse(await Bun.file(p).text());if(x.mode!=="duration"||x.requestedMinimumDurationMs!==1800000||x.actualDurationMs<1800000||x.completedCycles<10)throw new Error("R4 duration controller receipt is invalid");' "$EZ_PRODUCTION_RECEIPT_DIR/r4-resource-samples.json" > "$EZ_PRODUCTION_RECEIPT_DIR/duration-assertion.log" 2>&1
+duration_result=$?
+set -e
+printf 'duration_assertion_exit=%s\n' "$duration_result" > "$EZ_PRODUCTION_RECEIPT_DIR/duration-assertion.exit"
+snapshot_result=0
+if [[ "$duration_result" -eq 0 ]]; then
+  set +e
+  pid="$(docker inspect "$EZ_PRODUCTION_CONTAINER" --format '{{.State.Pid}}')"
+  inspect_result=$?
+  set -e
+  printf 'post_duration_snapshot_inspect_exit=%s\n' "$inspect_result" > "$EZ_PRODUCTION_RECEIPT_DIR/post-duration-snapshot-inspect.exit"
+  if [[ "$inspect_result" -eq 0 && "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    set +e
+    kill -USR2 "$pid"
+    signal_result=$?
+    set -e
+    printf 'post_duration_snapshot_signal_pid=%s\npost_duration_snapshot_signal_exit=%s\n' "$pid" "$signal_result" > "$EZ_PRODUCTION_RECEIPT_DIR/post-duration-snapshot-signal.txt"
+    if [[ "$signal_result" -eq 0 ]]; then
+      for _ in $(seq 1 120); do
+        [[ -s "$EZ_PRODUCTION_RUN_ROOT/app-data/r4-post-duration.done.json" || -s "$EZ_PRODUCTION_RUN_ROOT/app-data/r4-post-duration.error.json" ]] && break
+        sleep 1
+      done
+    fi
+  else
+    signal_result=1
+    printf 'post_duration_snapshot_signal_exit=%s\n' "$signal_result" > "$EZ_PRODUCTION_RECEIPT_DIR/post-duration-snapshot-signal.txt"
+  fi
+  set +e
+  "$bun" -e 'const root=process.argv[1];const done=Bun.file(root+"/app-data/r4-post-duration.done.json");const error=Bun.file(root+"/app-data/r4-post-duration.error.json");if(await error.exists())throw new Error("R4 post-duration snapshot reported an error");const marker=JSON.parse(await done.text());const file=Bun.file(root+"/app-data/r4-post-duration.heapsnapshot");if(!Number.isSafeInteger(marker.bytes)||marker.bytes<1||!Number.isSafeInteger(marker.snapshotBytes)||marker.snapshotBytes<1||marker.bytes!==marker.snapshotBytes||!(await file.exists())||(await file.size)!==marker.bytes)throw new Error("R4 post-duration snapshot marker is incomplete");' "$EZ_PRODUCTION_RUN_ROOT" > "$EZ_PRODUCTION_RECEIPT_DIR/post-duration-snapshot-assertion.log" 2>&1
+  snapshot_result=$?
+  set -e
+  printf 'post_duration_snapshot_exit=%s\n' "$snapshot_result" > "$EZ_PRODUCTION_RECEIPT_DIR/post-duration-snapshot.exit"
+  if [[ "$snapshot_result" -eq 0 ]]; then
+    sha256sum "$EZ_PRODUCTION_RUN_ROOT/app-data/r4-post-duration.heapsnapshot" > "$EZ_PRODUCTION_RECEIPT_DIR/post-duration-snapshot.sha256"
+    stat --format='post_duration_snapshot_bytes=%s' "$EZ_PRODUCTION_RUN_ROOT/app-data/r4-post-duration.heapsnapshot" > "$EZ_PRODUCTION_RECEIPT_DIR/post-duration-snapshot-size.txt"
+  fi
+fi
+if [[ "$driver_result" -ne 0 ]]; then exit "$driver_result"; fi
+if [[ "$duration_result" -ne 0 ]]; then exit "$duration_result"; fi
+exit "$snapshot_result"

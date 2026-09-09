@@ -16,6 +16,10 @@ import { extractPopoutUrl } from "../lib/components/tool-cards/iframe-card-logic
 const ORIGIN = "https://app.example.com";
 
 describe("validation: extractPopoutUrl", () => {
+  test("primitive output cannot become a document URL", () => {
+    expect(extractPopoutUrl(42, ORIGIN)).toBeNull();
+    expect(extractPopoutUrl(true, ORIGIN)).toBeNull();
+  });
   test("same-origin relative path → returns absolute same-origin URL", () => {
     const url = extractPopoutUrl(
       { iframeSrc: "/api/extensions/claude-design/data/preview.html" },
@@ -75,27 +79,27 @@ describe("validation: extractPopoutUrl", () => {
 
   test("string form (JSON-stringified) → accepted", () => {
     const url = extractPopoutUrl(
-      JSON.stringify({ iframeSrc: "/x.html" }),
+      JSON.stringify({ iframeSrc: "/api/extensions/example/data/x.html" }),
       ORIGIN,
     );
-    expect(url).toBe("https://app.example.com/x.html");
+    expect(url).toBe("https://app.example.com/api/extensions/example/data/x.html");
   });
 
   test("MCP envelope { content: [{ type: 'text', text: '<json>' }] } → accepted", () => {
     const url = extractPopoutUrl(
       {
         content: [
-          { type: "text", text: JSON.stringify({ iframeSrc: "/y.html" }) },
+          { type: "text", text: JSON.stringify({ iframeSrc: "/api/extensions/example/data/y.html" }) },
         ],
       },
       ORIGIN,
     );
-    expect(url).toBe("https://app.example.com/y.html");
+    expect(url).toBe("https://app.example.com/api/extensions/example/data/y.html");
   });
 
   test("already-parsed object form → accepted", () => {
-    const url = extractPopoutUrl({ iframeSrc: "/z.html" }, ORIGIN);
-    expect(url).toBe("https://app.example.com/z.html");
+    const url = extractPopoutUrl({ iframeSrc: "/api/extensions/example/data/z.html" }, ORIGIN);
+    expect(url).toBe("https://app.example.com/api/extensions/example/data/z.html");
   });
 
   test("missing iframeSrc field → null", () => {

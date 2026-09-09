@@ -1,0 +1,17 @@
+{
+  "utc": "2026-09-06T03:12:31.498755+00:00",
+  "local_head": "b1043e2fcb7e3ca258dcb2ea2ed00ec9f665fc8e",
+  "local_tree": "b0304935553873caf78e9ab5b5ac5913c8e38ea9",
+  "fetched_main": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "fetched_pr": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
+  "merge_base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "live_pr_head": "2c73e6bac85cd8f288056250ff032f613bfc15cd",
+  "live_pr_base_commit_sha": "65edc5bc0e36c6147219631e9cf73f89529bdef3",
+  "draft": true,
+  "reviews": 0,
+  "hosted_conclusions": {
+    "SUCCESS": 32,
+    "FAILURE": 1
+  },
+  "limit": "Remote PR is still the starting candidate; no hosted result applies to unpushed audit repairs. API base may lag fetched main."
+}

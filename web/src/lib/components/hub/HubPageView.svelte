@@ -13,11 +13,13 @@
 -->
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { goto } from "$app/navigation";
 	import HubComponentRenderer from "$lib/components/hub/HubComponentRenderer.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import LucideIcon from "$lib/components/LucideIcon.svelte";
 	import { formatComponentMap, getFormatComponent } from "$lib/components/ui/format-map";
 	import { addToast } from "$lib/toast.svelte.js";
+	import { userFetch } from "$lib/utils/fetch-policy";
 	import {
 		parseHubPageId,
 		buildActionRequest,
@@ -60,6 +62,24 @@
 	let stale = $state(false);
 	let errorMsg = $state("");
 	let actionPending = $state(false);
+	const activePage = $derived(parseHubPageId(pageId));
+	const isFileOrganizer = $derived(activePage?.kind === "ext" && activePage.extension === "file-organizer");
+
+	async function reviewFileOrganizerAccess() {
+		if (actionPending) return;
+		actionPending = true;
+		try {
+			const response = await fetch("/api/extensions/file-organizer");
+			if (!response.ok) throw new Error("File Organizer is unavailable");
+			const extension = await response.json() as { id?: string };
+			if (typeof extension.id !== "string" || !extension.id) throw new Error("File Organizer is unavailable");
+			await goto(`/extensions/author?installation=${encodeURIComponent(extension.id)}#project-access`);
+		} catch {
+			addToast({ type: "error", message: "Could not open folder access. Try again." });
+		} finally {
+			actionPending = false;
+		}
+	}
 
 	// Host-rendered confirm dialog (never extension content beyond the
 	// validated, truncated `confirm` string).
@@ -225,7 +245,7 @@
 		if (!request) return;
 		actionPending = true;
 		try {
-			const res = await fetch(request.url, {
+			const res = await userFetch(request.url, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(request.body),
@@ -286,6 +306,7 @@
 		// just the refetch.
 		function onExtensionsChanged() {
 			void loadTabs();
+			void loadPage(pageId);
 		}
 		window.addEventListener("extensions:changed", onExtensionsChanged);
 
@@ -349,12 +370,19 @@
 		</div>
 	{/if}
 
+	{#if isFileOrganizer}
+		<div class="rounded-lg border border-[var(--color-border)] p-3 text-sm text-[var(--color-text-secondary)]" data-testid="file-organizer-access-notice">
+			<p>File changes need approved project folders.</p>
+			<button type="button" class="mt-2 rounded-md border border-[var(--color-border)] px-3 py-1.5 font-medium hover:bg-[var(--color-surface-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)] disabled:opacity-50" disabled={actionPending} onclick={reviewFileOrganizerAccess}>Review folder access</button>
+		</div>
+	{/if}
+
 	<!-- Page body -->
 	{#if loading}
 		<SkeletonLoader type="lines" lines={6} statusText="Loading page…" />
 	{:else if errorMsg}
 		<div class="rounded-lg border border-red-500/30 bg-red-500/10 p-4" data-testid="hub-error-card">
-			<div class="text-sm font-medium text-red-300">Couldn't load this page</div>
+			<div class="text-sm font-medium text-red-700 dark:text-red-300" data-testid="hub-error-title">Couldn't load this page</div>
 			<p class="mt-1 text-xs text-[var(--color-text-muted)]">{errorMsg}</p>
 			<button
 				type="button"

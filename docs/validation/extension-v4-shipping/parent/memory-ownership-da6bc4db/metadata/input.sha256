@@ -1,0 +1,10 @@
+8eabb34d96ac19ec06c52e54c215a72ebe992ede8b82358b44c68382954afb6a  src/db/queries/memories.ts
+d80f0a5ad3bdf4c8e388c5924340a76a6fb29b138cfef439be188468dbec2b7d  src/__tests__/memory-list-derived-owner.integration.test.ts
+4763372570ada1798150b31407cf819558cd1dbd63dbca3a4e6ad15a7585f4fd  src/__tests__/security/h3-conversations-memories-idor.test.ts
+c61a893b5551a6384b6d95532b996565bf085108f332acdf0f06359e5599c893  web/src/routes/api/memories/+server.ts
+cc531bbcc944cfef724587d417ad07a2f985b26f112908634b2cf1f3cb3e8945  web/src/routes/api/memories/[id]/+server.ts
+dd1ee1f6aadf1c22372864ddb67edb985e9ea847e249ca770bc0719717721f7e  web/src/__tests__/api-memories-patch.server.test.ts
+046ab04da9f50f8e96d79861df92668430052bb6a377353daf85c4fdf5e457e8  web/e2e/real-auth/audit-web-regressions.spec.ts
+10cb0375c6c0558a1b434dc5d07edfdb107aadf33a4a36e6a980f0ae42cb3f61  web/src/lib/components/MemoryItem.svelte
+ddc8369340a9409b1d1ce3782eef055b14ae6045a56e7aff8eea11028c495521  docs/extension-v4-independent-validation-report.md
+b54fffe294053a9fd0d654f6df90c7fd2118b97375660e7ea1bc0c0232b7771b  docs/plans/extension-v4-independent-validation-handoff.md

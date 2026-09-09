@@ -1,0 +1,25 @@
+{
+  "source_commit_sha": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "curated_files_byte_verified": [
+    "source.patch",
+    "green.exit",
+    "restored-input-check.txt",
+    "controlled-old-path-helper.ts.txt",
+    "provenance.txt",
+    "old-path-red.exit",
+    "typecheck.exit",
+    "controller.sh.txt",
+    "old-path-red.log",
+    "final-input-check.txt",
+    "final-inputs.sha256",
+    "controller.exit",
+    "typecheck.log",
+    "green.log",
+    "preliminary-hook-note.txt",
+    "committed-inputs/scripts__lib__production-lifecycle-client.ts.txt",
+    "committed-inputs/scripts__verify-shipping-runtime.ts.txt",
+    "committed-inputs/src____tests____production-image-lifecycle-launch.integration.test.ts.txt"
+  ],
+  "committed_frozen_source_files": 4,
+  "private_frozen_controllers_byte_verified": 5
+}

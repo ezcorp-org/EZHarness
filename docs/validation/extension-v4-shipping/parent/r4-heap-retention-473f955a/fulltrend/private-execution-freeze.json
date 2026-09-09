@@ -1,0 +1,79 @@
+{
+  "schema": "private fulltrend execution freeze",
+  "files": [
+    {
+      "file": "private-fulltrend-driver.ts.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/driver/verify-shipping-runtime-resources.ts",
+      "capturedExpectedSha256": "59f1e6a9187238e9532cd1425ecc03f8e0e9ed215fd0dbe502a8d6a7eec9e600",
+      "actualSha256": "59f1e6a9187238e9532cd1425ecc03f8e0e9ed215fd0dbe502a8d6a7eec9e600",
+      "matchesCapturedIndex": true
+    },
+    {
+      "file": "private-production-lifecycle-client.ts.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/driver/lib/production-lifecycle-client.ts",
+      "capturedExpectedSha256": null,
+      "actualSha256": "63a84134f96f3cdfdfc098955c9129cbd2f11347e5b36bc75be62fb20e6d1826",
+      "matchesCapturedIndex": null,
+      "provenance": "Restored from run-start commit 473f955a; imported through a mutable symlink; no pre-execution per-file hash was captured.",
+      "restoredFromGitPath": "scripts/lib/production-lifecycle-client.ts"
+    },
+    {
+      "file": "private-runtime-helpers.ts.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/driver/lib/shipping-runtime-helpers.ts",
+      "capturedExpectedSha256": null,
+      "actualSha256": "9bc805c6f5f47e73bdef61e7491e4c7e86afacc568b3cea256860c992d1795bc",
+      "matchesCapturedIndex": null,
+      "provenance": "Restored from run-start commit 473f955a; imported through a mutable symlink; no pre-execution per-file hash was captured.",
+      "restoredFromGitPath": "scripts/lib/shipping-runtime-helpers.ts"
+    },
+    {
+      "file": "private-resource-config.ts.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/driver/lib/shipping-runtime-resource-config.ts",
+      "capturedExpectedSha256": null,
+      "actualSha256": "0919d3b9f4b57297151d4aa4b063279a183f161df0942272f814b72697a885d4",
+      "matchesCapturedIndex": null,
+      "provenance": "Restored from run-start commit 473f955a; imported through a mutable symlink; no pre-execution per-file hash was captured.",
+      "restoredFromGitPath": "scripts/lib/shipping-runtime-resource-config.ts"
+    },
+    {
+      "file": "private-resource-accounting.ts.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/driver/lib/shipping-runtime-resource-accounting.ts",
+      "capturedExpectedSha256": null,
+      "actualSha256": "3587978021d26c6dac628815ace0a999025ff0e564f543b2b3a70eef83f6e3ed",
+      "matchesCapturedIndex": null,
+      "provenance": "Restored from run-start commit 473f955a; imported through a mutable symlink; no pre-execution per-file hash was captured.",
+      "restoredFromGitPath": "scripts/lib/shipping-runtime-resource-accounting.ts"
+    },
+    {
+      "file": "private-heap-preload.ts.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/heap-preload.ts",
+      "capturedExpectedSha256": "4c14d204e1b3748819b04a425df0e91932d690d395e4809ee8b78bfbe6a418ca",
+      "actualSha256": "4c14d204e1b3748819b04a425df0e91932d690d395e4809ee8b78bfbe6a418ca",
+      "matchesCapturedIndex": true,
+      "capturedIndex": "final-controller-inputs.sha256"
+    },
+    {
+      "file": "private-Dockerfile.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/Dockerfile",
+      "capturedExpectedSha256": "5178ae5865f3fcc47213b3dd4ad5b78bc9db30b69a05b25f76a58a1133adb8ba",
+      "actualSha256": "5178ae5865f3fcc47213b3dd4ad5b78bc9db30b69a05b25f76a58a1133adb8ba",
+      "matchesCapturedIndex": true
+    },
+    {
+      "file": "private-run-r4-trend.sh.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/run-r4-trend.sh",
+      "capturedExpectedSha256": "a1994dcfa75916fe066196743b1ab916ac5c37fe82a693a49e97066a27d0aebe",
+      "actualSha256": "a1994dcfa75916fe066196743b1ab916ac5c37fe82a693a49e97066a27d0aebe",
+      "matchesCapturedIndex": true,
+      "capturedIndex": "final-controller-inputs.sha256"
+    },
+    {
+      "file": "private-execute.sh.txt",
+      "capturedPath": "/tmp/ez-r4-trend-review-20260907T072500Z/execute.sh",
+      "capturedExpectedSha256": "23d23a7965a22187c71015a2140b3e6923699d36e8c741e88592a8220e39de90",
+      "actualSha256": "23d23a7965a22187c71015a2140b3e6923699d36e8c741e88592a8220e39de90",
+      "matchesCapturedIndex": true,
+      "capturedIndex": "final-controller-inputs.sha256"
+    }
+  ]
+}

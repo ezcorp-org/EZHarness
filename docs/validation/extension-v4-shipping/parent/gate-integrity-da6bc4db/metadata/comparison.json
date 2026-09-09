@@ -1,0 +1,41 @@
+{
+  "method": "Extract two-space-indented finding lines; remove only the two-space presentation prefix for comparison.json strings and ordered-findings.txt. Preserve the rest of each line and its order. Raw hashes below retain the two spaces.",
+  "prior_checkpoint": "docs/validation/extension-v4-shipping/parent/gate-integrity-825dc780/gate-integrity.log",
+  "prior_source": "825dc780bb6e407ef29408fc3b31757d55336048",
+  "prior_base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "current_source": "da6bc4db6326696347d76a2225677954b31d3a2b",
+  "current_base": "bd7364388d0106364864e18a3d321b13ba978c36",
+  "prior_count": 84,
+  "current_count": 83,
+  "common_order_equal": true,
+  "only_prior": [
+    {
+      "finding": "docs/extensions/examples/github-stats/index.test.ts: test file GUTTED in place: removes 19 assertion/test line(s), adds 9 (net -10 of 19 at base \u2014 >50% loss) \u2014 hollowing out a surviving test file needs the gate-change-approved label",
+      "classification": "removed_by_new_main_base"
+    },
+    {
+      "finding": "docs/extensions/examples/multi-agent-orchestrator/index.test.ts: test file GUTTED in place: removes 21 assertion/test line(s), adds 8 (net -13 of 22 at base \u2014 >50% loss) \u2014 hollowing out a surviving test file needs the gate-change-approved label",
+      "classification": "removed_by_new_main_base"
+    },
+    {
+      "finding": "src/__tests__/define-extension-unit.test.ts: test file GUTTED in place: removes 49 assertion/test line(s), adds 7 (net -42 of 75 at base \u2014 >50% loss) \u2014 hollowing out a surviving test file needs the gate-change-approved label",
+      "classification": "changed_line_count"
+    }
+  ],
+  "only_current": [
+    {
+      "finding": "src/__tests__/define-extension-unit.test.ts: test file GUTTED in place: removes 48 assertion/test line(s), adds 7 (net -41 of 74 at base \u2014 >50% loss) \u2014 hollowing out a surviving test file needs the gate-change-approved label",
+      "classification": "changed_line_count"
+    },
+    {
+      "finding": "src/__tests__/scaffold-deterministic-gate.test.ts: test file GUTTED in place: removes 33 assertion/test line(s), adds 11 (net -22 of 32 at base \u2014 >50% loss) \u2014 hollowing out a surviving test file needs the gate-change-approved label",
+      "classification": "added_against_new_main_base"
+    }
+  ],
+  "prior_ordered_sha256": "d129f7feeb19a29765ea7490f67c15ca407e03c8410e9d8d2059b25d2d85e4d7",
+  "current_ordered_sha256": "51ffc980a10fa5f74f5156244e32a359b0d2dc05d131ae70c62dbd50189f3636",
+  "manual_policy_review_required": true,
+  "approval_applied": false,
+  "prior_raw_ordered_sha256": "36f3837536cb8847f880bfa0fd78a8beebce0b4440942d1c96e0bf1d1bb262ac",
+  "current_raw_ordered_sha256": "380014e3593917f595975427169ef313e2f9fcf6f0c11ed7a934893b24431458"
+}

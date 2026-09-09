@@ -20,6 +20,7 @@
 // does the watching. Here we only read state for display + write config.
 
 import { join } from "node:path";
+import { getInvocationContext } from "@ezcorp/sdk/v4";
 import {
   getChannel,
   definePage,
@@ -75,17 +76,11 @@ import type { QuarantineEntry } from "./lib/quarantine";
 // daemon own that); we only read/write existing files through the
 // host-mediated fs helpers.
 
-const PROJECT_ROOT =
-  process.env.EZCORP_EXTENSION_DATA_ROOT ?? process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
-const DATA_DIR = join(PROJECT_ROOT, ".ezcorp", "extension-data", "file-organizer");
-
-const PATHS = {
-  proposals: join(DATA_DIR, "proposals.json"),
-  config: join(DATA_DIR, "config.json"),
-  badge: join(DATA_DIR, "badge.json"),
-  manifest: join(DATA_DIR, ".trash", "manifest.json"),
-  pidLock: join(DATA_DIR, ".daemon.pid"),
-};
+function dataPath(file: string): string {
+  if (getInvocationContext()) return join("/data", file);
+  const root = process.env.EZCORP_EXTENSION_DATA_ROOT ?? process.env.EZCORP_PROJECT_ROOT ?? process.cwd();
+  return join(root, ".ezcorp", "extension-data", "file-organizer", file);
+}
 
 // ── Test seam: override the fs layer so render/tool tests don't need a
 // live host channel. ────────────────────────────────────────────────
@@ -141,7 +136,7 @@ export function _hostFsForTests(): FsLayer {
 // ── State readers ───────────────────────────────────────────────────
 
 async function readProposals(): Promise<ProposalsFile> {
-  const text = await fs.read(PATHS.proposals);
+  const text = await fs.read(dataPath("proposals.json"));
   if (text === null) return emptyProposalsFile();
   try {
     const parsed = JSON.parse(text) as Partial<ProposalsFile>;
@@ -155,7 +150,7 @@ async function readProposals(): Promise<ProposalsFile> {
 }
 
 async function readConfig(): Promise<Config> {
-  const text = await fs.read(PATHS.config);
+  const text = await fs.read(dataPath("config.json"));
   if (text === null) return emptyConfig();
   try {
     return validateConfig(JSON.parse(text));
@@ -165,7 +160,7 @@ async function readConfig(): Promise<Config> {
 }
 
 async function readBadge(): Promise<{ pending: number; unclassified: number; lastScanAt: string | null }> {
-  const text = await fs.read(PATHS.badge);
+  const text = await fs.read(dataPath("badge.json"));
   if (text === null) return { pending: 0, unclassified: 0, lastScanAt: null };
   try {
     const b = JSON.parse(text);
@@ -176,7 +171,7 @@ async function readBadge(): Promise<{ pending: number; unclassified: number; las
 }
 
 async function readQuarantine(): Promise<QuarantineEntry[]> {
-  const text = await fs.read(PATHS.manifest);
+  const text = await fs.read(dataPath(".trash/manifest.json"));
   if (text === null) return [];
   try {
     const m = JSON.parse(text);
@@ -188,11 +183,11 @@ async function readQuarantine(): Promise<QuarantineEntry[]> {
 
 /** The daemon is "running" iff its PID lockfile exists. */
 async function daemonRunning(): Promise<boolean> {
-  return fs.exists(PATHS.pidLock);
+  return fs.exists(dataPath(".daemon.pid"));
 }
 
 async function writeConfig(config: Config): Promise<void> {
-  await fs.write(PATHS.config, JSON.stringify(config, null, 2));
+  await fs.write(dataPath("config.json"), JSON.stringify(config, null, 2));
 }
 
 // ── Page renders ────────────────────────────────────────────────────
@@ -413,7 +408,7 @@ const tools: Record<string, ToolHandler> = {
       });
       added++;
     }
-    await fs.write(PATHS.proposals, JSON.stringify(file, null, 2));
+    await fs.write(dataPath("proposals.json"), JSON.stringify(file, null, 2));
     return toolResult(`Queued ${added} proposal(s) for review in the Hub.`);
   },
 

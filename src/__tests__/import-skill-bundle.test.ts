@@ -2,6 +2,8 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, symlink, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { FramedExecution } from "@ezcorp/extension-runner";
 import {
   skillExtensionName,
   scanSkillBundles,
@@ -15,8 +17,7 @@ import {
   commandFor,
 } from "../runtime/import/skill-runner.template";
 import { useTempProjectRoot } from "./helpers/temp-project-root";
-import { loadManifest } from "../extensions/loader";
-import { validateManifestV2 } from "../extensions/manifest";
+import { validateManifest } from "@ezcorp/extension-contract";
 
 async function bundle(
   root: string,
@@ -238,11 +239,14 @@ describe("buildSkillManifestSource / synthesizeSkillExtension", () => {
       expect(await Bun.file(join(destDir, "skill/SKILL.md")).exists()).toBe(true);
       expect(await Bun.file(join(destDir, "skill/run.sh")).exists()).toBe(true);
 
-      const manifest = await loadManifest(destDir);
+      const manifest = (await import(join(destDir, "ezcorp.config.ts"))).default;
       expect(manifest.name).toBe("quote-2");
       expect(manifest.tools?.length).toBe(3);
-      const v = validateManifestV2({ ...manifest, schemaVersion: 2 });
-      expect(v.valid).toBe(true);
+      expect(validateManifest(manifest).schemaVersion).toBe(4);
+      const tests = Bun.spawn([process.execPath, "test", "./extension.test.ts"], { cwd: destDir, stdout: "pipe", stderr: "pipe" });
+      const testOutput = await new Response(tests.stderr).text();
+      expect(await tests.exited).toBe(0);
+      expect(testOutput).toContain("2 pass");
     } finally {
       tmpRoot.cleanup();
     }
@@ -401,6 +405,15 @@ describe("skill-runner: handleRequest", () => {
     expect((res.result as { isError: boolean }).isError).toBe(true);
   });
 
+  test("run_script drains concurrently and stops excessive output", async () => {
+    await writeFile(join(skillDir, "noisy.ts"), 'process.stdout.write("x".repeat(200_000));', "utf8");
+    const response = await call("run_script", { script: "noisy.ts" });
+    const result = response.result as { content: Array<{ text: string }>; isError: boolean };
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("output limit exceeded");
+    expect(result.content[0]!.text.length).toBeLessThan(66_000);
+  });
+
   test("unknown tool errors", async () => {
     const res = await call("nope");
     expect(res.error?.code).toBe(-32601);
@@ -417,8 +430,9 @@ describe("skill-runner: handleRequest", () => {
 });
 
 describe("skill-runner: subprocess smoke", () => {
-  test("synthesized extension answers JSON-RPC over stdio", async () => {
-    const work = await mkdtemp(join(tmpdir(), "imp-spawn-"));
+  test("synthesized v4 entrypoint discovers and invokes its bundled script", async () => {
+    const project = useTempProjectRoot("imp-spawn-");
+    const work = project.root;
     try {
       const dir = await bundle(work, "skills/echo", "name: Echo", "do things");
       await writeFile(join(dir, "say.sh"), "#!/bin/bash\necho spoke\n", "utf8");
@@ -427,33 +441,19 @@ describe("skill-runner: subprocess smoke", () => {
       const destDir = join(work, "ext");
       await synthesizeSkillExtension({ bundle: b!, destDir, name: "echo" });
 
-      const proc = Bun.spawn(["bun", join(destDir, "index.ts")], {
-        stdin: "pipe",
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      proc.stdin.write(
-        JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) +
-          "\n" +
-          "not json\n" +
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 2,
-            method: "tools/call",
-            params: { name: "run_script", arguments: { script: "say.sh" } },
-          }) +
-          "\n",
-      );
-      await proc.stdin.end();
-      const out = await new Response(proc.stdout).text();
-      await proc.exited;
-      const lines = out.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
-      const list = lines.find((l) => l.id === 1);
-      const run = lines.find((l) => l.id === 2);
-      expect(list.result.tools).toHaveLength(3);
-      expect(run.result.content[0].text).toContain("spoke");
+      const proc = spawn(process.execPath, [join(destDir, "extension.ts")], { cwd: destDir, stdio: "pipe" });
+      const execution = new FramedExecution("skill-test", proc, async () => { throw new Error("Unexpected host call"); }, async () => { proc.kill(); }, 1024 * 1024, 10_000);
+      try {
+        const manifest = await execution.request("extension/discover", {}) as { tools: unknown[] };
+        const run = await execution.request("extension/invoke", {
+          name: "run_script", input: { script: "say.sh" },
+          context: { invocationId: "skill-test", workerId: "worker", releaseId: "release", principalId: "user", scopeId: "scope", token: "test", deadline: Date.now() + 10_000 },
+        }) as { content: Array<{ text: string }> };
+        expect(manifest.tools).toHaveLength(3);
+        expect(run.content[0]!.text).toContain("spoke");
+      } finally { await execution.close(); }
     } finally {
-      await rm(work, { recursive: true, force: true });
+      project.cleanup();
     }
   });
 });

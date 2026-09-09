@@ -1,0 +1,443 @@
+{
+  "schema_version": 1,
+  "checkpoint_kind": "hosted_backend_coverage_db_dependencies",
+  "repository": "ezcorp-org/EZHarness",
+  "head_sha": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "runs": [
+    {
+      "workflow": "CI",
+      "run_id": 34164945893,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893"
+    },
+    {
+      "workflow": "External Postgres",
+      "run_id": 34164945886,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945886"
+    },
+    {
+      "workflow": "Dependency audit",
+      "run_id": 34164945915,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945915"
+    }
+  ],
+  "scope": "Backend coverage shards 0-11, coverage extras, residual, backend critical, per-file coverage gate, External Postgres, and dependency audit. Web security coverage is owned separately.",
+  "jobs": [
+    {
+      "job_id": 101874032844,
+      "name": "Coverage shard 0",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:00:21Z",
+      "terminal_summary": "2391 pass | 0 fail | 129 files (shard 0/12)",
+      "private_log_file": "job-101874032844.log",
+      "private_log_bytes": 40199,
+      "private_log_sha256": "956d249f4ce97b2d0148d00ecc965130d0315c612d5dcdbb3d2468ba4a830dbf",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032844"
+    },
+    {
+      "job_id": 101874032780,
+      "name": "Coverage shard 1",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:09Z",
+      "completed_at": "2026-09-07T22:02:02Z",
+      "terminal_summary": "1890 pass | 0 fail | 130 files (shard 1/12)",
+      "private_log_file": "job-101874032780.log",
+      "private_log_bytes": 42079,
+      "private_log_sha256": "47473c761e73a938dee463db801977f842a5952207a18a86ffa70c4811e16ed4",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032780"
+    },
+    {
+      "job_id": 101874032759,
+      "name": "Coverage shard 2",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:01:39Z",
+      "terminal_summary": "2045 pass | 0 fail | 130 files (shard 2/12)",
+      "private_log_file": "job-101874032759.log",
+      "private_log_bytes": 42124,
+      "private_log_sha256": "47467723f7725be5b7088c457f6baf8e1898b23f0a9df6d5b2d1728db689d8f6",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032759"
+    },
+    {
+      "job_id": 101874032799,
+      "name": "Coverage shard 3",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:01:05Z",
+      "terminal_summary": "2146 pass | 0 fail | 131 files (shard 3/12)",
+      "private_log_file": "job-101874032799.log",
+      "private_log_bytes": 41893,
+      "private_log_sha256": "667cb3b5247c6baaf695f8f198583c2af57eaa5146e25d6b082faef1963384ed",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032799"
+    },
+    {
+      "job_id": 101874032837,
+      "name": "Coverage shard 4",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:01:17Z",
+      "terminal_summary": "1990 pass | 0 fail | 130 files (shard 4/12)",
+      "private_log_file": "job-101874032837.log",
+      "private_log_bytes": 41704,
+      "private_log_sha256": "98de2e5008ef1afe1cb21d0339b9edb21ba210dff9ec063c01c1cdb6a268fc06",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032837"
+    },
+    {
+      "job_id": 101874032791,
+      "name": "Coverage shard 5",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:00:15Z",
+      "terminal_summary": "2426 pass | 0 fail | 131 files (shard 5/12)",
+      "private_log_file": "job-101874032791.log",
+      "private_log_bytes": 39388,
+      "private_log_sha256": "5fb18c242d64df0045f498ad1cafa7244d4eb92742d5df56e28737b70c2d9052",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032791"
+    },
+    {
+      "job_id": 101874032859,
+      "name": "Coverage shard 6",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:00:35Z",
+      "terminal_summary": "1737 pass | 0 fail | 131 files (shard 6/12)",
+      "private_log_file": "job-101874032859.log",
+      "private_log_bytes": 39133,
+      "private_log_sha256": "2dc0ac38e1e80f113517fa2c6881c12caa3e6ba85286778a8d72ebbf196a86e8",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032859"
+    },
+    {
+      "job_id": 101874032812,
+      "name": "Coverage shard 7",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:01:22Z",
+      "terminal_summary": "2079 pass | 0 fail | 130 files (shard 7/12)",
+      "private_log_file": "job-101874032812.log",
+      "private_log_bytes": 42159,
+      "private_log_sha256": "67173a87e924280cedc2bc1e4577dc054741df7ef09708dbb544754cbb9321d2",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032812"
+    },
+    {
+      "job_id": 101874032846,
+      "name": "Coverage shard 8",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:01:33Z",
+      "terminal_summary": "1843 pass | 0 fail | 130 files (shard 8/12)",
+      "private_log_file": "job-101874032846.log",
+      "private_log_bytes": 41767,
+      "private_log_sha256": "6b26ff62b3df074e753ae9b2e22fe42f837e291be6b6480132e10bf91a4a717d",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032846"
+    },
+    {
+      "job_id": 101874032823,
+      "name": "Coverage shard 9",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:01:03Z",
+      "terminal_summary": "2061 pass | 0 fail | 131 files (shard 9/12)",
+      "private_log_file": "job-101874032823.log",
+      "private_log_bytes": 41893,
+      "private_log_sha256": "28f2e61f9d2ebf67d4cd0611a9dd113b579fd704af16f25fceb737c0ce7473bc",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032823"
+    },
+    {
+      "job_id": 101874032841,
+      "name": "Coverage shard 10",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:01:43Z",
+      "terminal_summary": "1925 pass | 0 fail | 130 files (shard 10/12)",
+      "private_log_file": "job-101874032841.log",
+      "private_log_bytes": 42377,
+      "private_log_sha256": "419cd730ffcda1ce24778241c7f761c8bb5cdcdaa8f5d56c748dbe6a88e95d63",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032841"
+    },
+    {
+      "job_id": 101874032826,
+      "name": "Coverage shard 11",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:01:03Z",
+      "terminal_summary": "2071 pass | 0 fail | 130 files (shard 11/12)",
+      "private_log_file": "job-101874032826.log",
+      "private_log_bytes": 41541,
+      "private_log_sha256": "6607454c215ad21318530d1c16f03c8ab9bddc2a674f303008585d1e93abec51",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032826"
+    },
+    {
+      "job_id": 101874032730,
+      "name": "Coverage extras (legs)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:19Z",
+      "completed_at": "2026-09-07T22:03:07Z",
+      "terminal_summary": "Vitest: 291 files | 4708 tests passed; tolerated suggest leg exit=0; aggregate legs: 1435 pass | 0 fail.",
+      "private_log_file": "job-101874032730.log",
+      "private_log_bytes": 352303,
+      "private_log_sha256": "e1f949cd14a47500b39a8c167c8da7116c139164ab0bb4bc9118f59e66329322",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032730"
+    },
+    {
+      "job_id": 101874032787,
+      "name": "Residual integration tests",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T21:58:44Z",
+      "terminal_summary": "182 pass | 0 fail | 15 files",
+      "private_log_file": "job-101874032787.log",
+      "private_log_bytes": 38934,
+      "private_log_sha256": "ca98063394183e885e5260e4bed760f1682313f9c4f71c56a9f3e79c032aaaa0",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032787"
+    },
+    {
+      "job_id": 101874032802,
+      "name": "Backend critical (strict pass/fail)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:00:10Z",
+      "terminal_summary": "662 pass | 0 fail | 38 files",
+      "private_log_file": "job-101874032802.log",
+      "private_log_bytes": 30087,
+      "private_log_sha256": "d6921031330fd552cc5195feb3b10b35e25e0fea0dbdbd4a9c136d83b8a11a02",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032802"
+    },
+    {
+      "job_id": 101875033851,
+      "name": "Per-file coverage gate",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T22:03:09Z",
+      "completed_at": "2026-09-07T22:03:31Z",
+      "terminal_summary": "coverage: 1260 threshold files; new-file: 134 files; patch: 395 files",
+      "private_log_file": "job-101875033851.log",
+      "private_log_bytes": 43294,
+      "private_log_sha256": "81c94ef521e72ec031bf397e17710f8d798d1aa0f5bb02fa6159392df8002cf5",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101875033851"
+    },
+    {
+      "job_id": 101874032295,
+      "name": "External Postgres (Bun.sql)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T21:57:55Z",
+      "terminal_summary": "24 pass | 0 fail | 93 assertions | 1 file",
+      "private_log_file": "job-101874032295.log",
+      "private_log_bytes": 46441,
+      "private_log_sha256": "0ed321f41d9b7d50a18972750cb0413358c16c1fb45ac90d3091edeaf4a51d19",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945886/job/101874032295"
+    },
+    {
+      "job_id": 101874032347,
+      "name": "Dependency audit",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T21:57:22Z",
+      "terminal_summary": "dependency audit clean at high floor: 4 allowlisted, 6 below floor",
+      "private_log_file": "job-101874032347.log",
+      "private_log_bytes": 17264,
+      "private_log_sha256": "4c8b28771fac708721cbd1028bb480da3e93638c56804a022aa114dd16245cb1",
+      "first_pass": true,
+      "retry_observed": false,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945915/job/101874032347"
+    }
+  ],
+  "coverage_gate": {
+    "conclusion": "success",
+    "threshold_files": 1260,
+    "new_source_files": 134,
+    "patch_files": 395,
+    "evidence_job_id": 101875033851,
+    "terminal_messages": [
+      "Coverage gate PASSED: 1260 enforced file(s) at or above threshold.",
+      "New-file coverage gate PASSED: 134 new source file(s) gated.",
+      "Patch coverage gate PASSED: all changed executable lines covered (395 file(s))."
+    ]
+  },
+  "coverage_extras": {
+    "job_id": 101874032730,
+    "bun": [
+      {
+        "tests": 1018,
+        "files": 55
+      },
+      {
+        "tests": 93,
+        "files": 1
+      },
+      {
+        "tests": 104,
+        "files": 8
+      },
+      {
+        "tests": 220,
+        "files": 17
+      }
+    ],
+    "bun_total": {
+      "tests": 1435,
+      "files": 81,
+      "failed": 0
+    },
+    "vitest": {
+      "files_passed": 291,
+      "tests_passed": 4708,
+      "failed": 0
+    },
+    "tolerated_suggest_exit": 0,
+    "lcov_shards_emitted": 5
+  },
+  "first_pass_retry_classification": {
+    "all_18_assigned_jobs_first_pass_success": true,
+    "retry_sweep_observed": false,
+    "note": "Expected negative-path diagnostic output in the extras log and an expected duplicate-key record in the Postgres log are test assertions, not failed runs."
+  },
+  "private_log_integrity": [
+    {
+      "file": "job-101874032844.log",
+      "bytes": 40199,
+      "sha256": "956d249f4ce97b2d0148d00ecc965130d0315c612d5dcdbb3d2468ba4a830dbf"
+    },
+    {
+      "file": "job-101874032780.log",
+      "bytes": 42079,
+      "sha256": "47473c761e73a938dee463db801977f842a5952207a18a86ffa70c4811e16ed4"
+    },
+    {
+      "file": "job-101874032759.log",
+      "bytes": 42124,
+      "sha256": "47467723f7725be5b7088c457f6baf8e1898b23f0a9df6d5b2d1728db689d8f6"
+    },
+    {
+      "file": "job-101874032799.log",
+      "bytes": 41893,
+      "sha256": "667cb3b5247c6baaf695f8f198583c2af57eaa5146e25d6b082faef1963384ed"
+    },
+    {
+      "file": "job-101874032837.log",
+      "bytes": 41704,
+      "sha256": "98de2e5008ef1afe1cb21d0339b9edb21ba210dff9ec063c01c1cdb6a268fc06"
+    },
+    {
+      "file": "job-101874032791.log",
+      "bytes": 39388,
+      "sha256": "5fb18c242d64df0045f498ad1cafa7244d4eb92742d5df56e28737b70c2d9052"
+    },
+    {
+      "file": "job-101874032859.log",
+      "bytes": 39133,
+      "sha256": "2dc0ac38e1e80f113517fa2c6881c12caa3e6ba85286778a8d72ebbf196a86e8"
+    },
+    {
+      "file": "job-101874032812.log",
+      "bytes": 42159,
+      "sha256": "67173a87e924280cedc2bc1e4577dc054741df7ef09708dbb544754cbb9321d2"
+    },
+    {
+      "file": "job-101874032846.log",
+      "bytes": 41767,
+      "sha256": "6b26ff62b3df074e753ae9b2e22fe42f837e291be6b6480132e10bf91a4a717d"
+    },
+    {
+      "file": "job-101874032823.log",
+      "bytes": 41893,
+      "sha256": "28f2e61f9d2ebf67d4cd0611a9dd113b579fd704af16f25fceb737c0ce7473bc"
+    },
+    {
+      "file": "job-101874032841.log",
+      "bytes": 42377,
+      "sha256": "419cd730ffcda1ce24778241c7f761c8bb5cdcdaa8f5d56c748dbe6a88e95d63"
+    },
+    {
+      "file": "job-101874032826.log",
+      "bytes": 41541,
+      "sha256": "6607454c215ad21318530d1c16f03c8ab9bddc2a674f303008585d1e93abec51"
+    },
+    {
+      "file": "job-101874032730.log",
+      "bytes": 352303,
+      "sha256": "e1f949cd14a47500b39a8c167c8da7116c139164ab0bb4bc9118f59e66329322"
+    },
+    {
+      "file": "job-101874032787.log",
+      "bytes": 38934,
+      "sha256": "ca98063394183e885e5260e4bed760f1682313f9c4f71c56a9f3e79c032aaaa0"
+    },
+    {
+      "file": "job-101874032802.log",
+      "bytes": 30087,
+      "sha256": "d6921031330fd552cc5195feb3b10b35e25e0fea0dbdbd4a9c136d83b8a11a02"
+    },
+    {
+      "file": "job-101875033851.log",
+      "bytes": 43294,
+      "sha256": "81c94ef521e72ec031bf397e17710f8d798d1aa0f5bb02fa6159392df8002cf5"
+    },
+    {
+      "file": "job-101874032295.log",
+      "bytes": 46441,
+      "sha256": "0ed321f41d9b7d50a18972750cb0413358c16c1fb45ac90d3091edeaf4a51d19"
+    },
+    {
+      "file": "job-101874032347.log",
+      "bytes": 17264,
+      "sha256": "4c8b28771fac708721cbd1028bb480da3e93638c56804a022aa114dd16245cb1"
+    }
+  ],
+  "limitations": [
+    "Hosted raw logs are deliberately private because they can contain credentials or other sensitive runtime data.",
+    "This checkpoint covers the assigned backend, coverage, Postgres, and dependency jobs. Web-security coverage is separately owned and is outside this evidence set.",
+    "A successful assigned scope does not by itself establish completion of every workflow or publication requirement."
+  ]
+}

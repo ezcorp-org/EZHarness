@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Check retained evidence hashes without executing archived code.
+
+Run from the repository root: python3 <this file>.
+"""
+import hashlib
+from collections import Counter
+import io
+import json
+from pathlib import Path
+import re
+import subprocess
+import tarfile
+
+ROOT = Path.cwd()
+EVIDENCE = ROOT / "docs/validation/extension-v4-independent"
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def check_index(index):
+    count = 0
+    for line in index.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        match = re.fullmatch(r"([0-9a-f]{64})\s+\*?(.+)", line)
+        assert match, (index, line)
+        digest, name = match.groups()
+        target = ROOT / name if name.startswith("docs/") else index.parent / name
+        assert target.resolve().is_relative_to(ROOT), target
+        assert sha(target.read_bytes()) == digest, target
+        count += 1
+    return count
+
+
+def check_archive(path, records, name_key, allow_subset=False):
+    raw = subprocess.check_output(["zstd", "-dc", str(path)]) if path.suffix == ".zst" else path.read_bytes()
+    with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
+        files = [m for m in archive.getmembers() if m.isfile()]
+        members = {Path(m.name).name: m for m in files}
+        assert len(members) == len(files), "Duplicate raw log names"
+        selected = [record for record in records if record[name_key] in members]
+        assert allow_subset or len(selected) == len(records)
+        for record in selected:
+            data = archive.extractfile(members[record[name_key]]).read()
+            assert sha(data) == record["sha256"], record[name_key]
+    return len(selected)
+
+
+def main():
+    counts = {}
+    for index in sorted(EVIDENCE.rglob("*SHA256SUMS")):
+        if "parent" in index.relative_to(EVIDENCE).parts:
+            continue  # The coordinator creates this index after its review.
+        counts[str(index.relative_to(ROOT))] = check_index(index)
+
+    build = EVIDENCE / "build"
+    receipts = json.loads((build / "receipt-index.json").read_text())
+    for artifact in receipts["artifacts"].values():
+        assert sha((build / artifact["file"]).read_bytes()) == artifact["sha256"]
+    raw_receipts = sum(
+        check_archive(build / receipts["artifacts"][key]["file"], receipts["receipts"], "log", True)
+        for key in ["logs_archive", "replacement_logs"]
+    )
+    assert raw_receipts == len(receipts["receipts"])
+    supplemental = json.loads((build / "supplemental-receipt-index.json").read_text())
+    assert sha((build / supplemental["archive"]).read_bytes()) == supplemental["archive_sha256"]
+    supplemental_receipts = check_archive(
+        build / supplemental["archive"], supplemental["records"], "file"
+    )
+
+    result = {
+        "method": "Read every indexed byte; compare SHA-256; inspect each indexed raw build log inside its archive.",
+        "indexes": counts,
+        "indexed_files": sum(counts.values()),
+        "build_raw_receipts": raw_receipts,
+        "supplemental_raw_receipts": supplemental_receipts,
+        "limit": "Integrity verifies retained bytes. Behavioral assertions and raw verdicts are reviewed separately.",
+    }
+    coordinator = json.loads((EVIDENCE / "parent/coordinator-log-index.json").read_text())
+    result["coordinator_raw_logs"] = check_archive(
+        EVIDENCE / "parent" / coordinator["archive"], coordinator["records"], "file"
+    )
+    ledger = EVIDENCE / "policy/reconciliation.md"
+    rows = re.findall(r"^\| (\d+) \| ([^|]+) \|", ledger.read_text(), re.M)
+    assert [int(number) for number, _ in rows] == list(range(1, 85))
+    result["migration_ledger"] = dict(Counter(status.strip() for _, status in rows))
+    (EVIDENCE / "parent/final-agent-artifact-review.json").write_text(
+        json.dumps(result, indent=2) + "\n"
+    )
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == "__main__":
+    main()

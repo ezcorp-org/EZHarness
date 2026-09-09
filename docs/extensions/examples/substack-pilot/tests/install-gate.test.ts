@@ -1,3 +1,4 @@
+// @ezcorp-host-integration
 // ── Install-gate verification ───────────────────────────────────
 //
 // Proves the env-leak install fix actually works by running the real host

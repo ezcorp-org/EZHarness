@@ -39,6 +39,7 @@
  * and the read is a single indexed query.
  */
 import { listProjectIdsForUser } from "../db/queries/project-members";
+import { workflowReleaseCanAccess, workflowReleaseCanExecute } from "./workflow-release-assets";
 import {
   NO_PROJECT_MEMBERSHIPS,
   resolveWorkflowForCaller,
@@ -92,8 +93,13 @@ export function makeNestedWorkflowResolver(
 ): NestedWorkflowResolver {
   return async (name, ctx) => {
     const userId = ctx.userId ?? null;
+    const entries = getEntries();
+    if (ctx.authority?.runAsKind === "service") {
+      const entry = entries.find(entry => entry.definition.name === name);
+      if (entry?.source === "extension") return await workflowReleaseCanExecute(entry, { ...ctx.authority, userId, projectId: ctx.projectId }) ? entry.definition : undefined;
+    }
     const resolved = resolveWorkflowForCaller(
-      getEntries(),
+      entries,
       name,
       {
         userId,
@@ -106,6 +112,8 @@ export function makeNestedWorkflowResolver(
     // `undefined` for BOTH "no such workflow" and "not yours", deliberately:
     // the executor turns this into one message, and distinguishing them would
     // make a nested step an existence oracle for private workflow names.
-    return resolved.ok ? resolved.entry.definition : undefined;
+    if (!resolved.ok) return undefined;
+    if (resolved.entry.source === "extension" && !await workflowReleaseCanAccess(resolved.entry, userId, ctx.projectId)) return undefined;
+    return resolved.entry.definition;
   };
 }

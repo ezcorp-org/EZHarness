@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "index_tree": "aa18ac61ab491d110af8f98209491fa208f00bfd",
+  "controller_exit": 0,
+  "checks": {
+    "sdk-build": { "exit": 0, "seconds": 0 },
+    "typecheck-all": { "exit": 0, "seconds": 28 },
+    "focused-tests": { "exit": 0, "seconds": 23, "passed": 657, "files": 36 },
+    "lint-boundaries": { "exit": 0, "seconds": 1 },
+    "manifest-lock": { "exit": 0, "seconds": 1 }
+  },
+  "private_log_hashes": {
+    "sdk-build.log": "781a10af5b6d2c1214f2be00467fa8dde4ce30fefcc5665279ba2750a69a0754",
+    "typecheck-all.log": "beadd1fb90b6cf5a09d66010d09d9db6a86bb5a963505d7a6b7748813f2b80be",
+    "focused-tests.log": "9d70753fa045578483a36008ba34338453806411cd502ee51c26a04ad3b566ee",
+    "lint-boundaries.log": "0e3daf008ade9138d16daf3ac843ef6204607371f91b031b0923dc8a30c08ae7",
+    "manifest-lock.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

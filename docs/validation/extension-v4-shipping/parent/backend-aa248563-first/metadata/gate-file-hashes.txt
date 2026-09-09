@@ -1,0 +1,4 @@
+dd2999a6f4d6f6e9e990adab07039a9147353b35f72d312693859ba87510ef4e  scripts/test-coverage.sh
+048189c755f7a88bd0e84740fe834cdbbc867cbfcc1702d3fc08be7068416d8c  scripts/test.sh
+5ea8808e6bb82539d645b8e8df88cc75cedfae0145cbc417e1df8c59401377db  scripts/check-new-file-coverage.ts
+4890a471168f75eba535142a20224050707692b2c40c4c76165ceef69c5d30e7  scripts/check-patch-coverage.ts

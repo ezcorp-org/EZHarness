@@ -1,0 +1,97 @@
+{
+  "source_commit": "64a8f0f31d553b3c41b6b81a0e391b8395d2dc2d",
+  "image_tag": "localhost/ezcorp-extension-v4:terra-final-64a8f0f3",
+  "image_id": "dd6a0e24efe872dff23b260202e0ae3e79050066402393baf1d87cd1fa2098aa",
+  "image_digest": "sha256:bb453db03915504e72a9b7bad08e827d9cae2697c670d5e44789250474d4a347",
+  "healthcheck": {
+    "Test": [
+      "CMD-SHELL",
+      "bun -e \"const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)\" || exit 1"
+    ],
+    "StartPeriod": 60000000000,
+    "Interval": 30000000000,
+    "Timeout": 5000000000,
+    "Retries": 3
+  },
+  "exits": {
+    "build": "0",
+    "verifier": "0",
+    "browser": "0"
+  },
+  "verifier": {
+    "passed": true,
+    "profile": "rootless-podman-v4",
+    "checks": [
+      "production-boot",
+      "file-credential",
+      "real-isolated-build",
+      "human-approval",
+      "activation",
+      "tool-invocation",
+      "disable-denial",
+      "retained-history"
+    ]
+  },
+  "production_browser": {
+    "passed": 13,
+    "failed": 0,
+    "duration": "3.5m",
+    "bun": "1.3.14",
+    "node": "v22.22.2",
+    "setup_http": 201,
+    "app_log_exit": 0,
+    "owned_cleanup_exit": 0
+  },
+  "artifact_receipts": {
+    "final-image-build.log": {
+      "raw_sha256": "b6064bd91e1c9066c993c6b0d5b2b32b6dac4532dd375235feb0a23846734fc6",
+      "artifact": "raw/final-image-build.log.gz"
+    },
+    "final-image-verifier.log": {
+      "raw_sha256": "e02ba99ba1284900564d9298c9d55bf969c850ef68e3207e0be0c72b42437410",
+      "artifact": "raw/final-image-verifier.log.gz"
+    },
+    "registration-meta-final.log": {
+      "raw_sha256": "f6dbf4c0ebd4f03e403e6472d2b7065fc8c6171cbb67c41b974badc8b631b7a0",
+      "artifact": "raw/registration-meta-final.log.gz"
+    },
+    "evidence-map-final.log": {
+      "raw_sha256": "71ebdeff5bf92c3719212029db089d2422f2fb634fa34124e538093d169440dd",
+      "artifact": "raw/evidence-map-final.log.gz"
+    },
+    "web-bun.log": {
+      "raw_sha256": "7cf3a2d06af24d549b7976908e88fe7fb36588c3b8bc348e980d1bcada8eb8ff",
+      "artifact": "raw/web-bun.log.gz"
+    },
+    "web-vitest-final.log": {
+      "raw_sha256": "c53ed9e4892c449f57fd1b40aed7d4ccf622f1c1c2551e5162bd380002dde088",
+      "artifact": "raw/web-vitest-final.log.gz"
+    },
+    "runtime-final/playwright.log": {
+      "raw_sha256": "0a9dd38212ddffb587e8241ff7b2e62248674867e2ac71845789ee57d8d5b18a",
+      "artifact": "raw/runtime-final-playwright.log.gz"
+    },
+    "runtime-final/compose.log": {
+      "raw_sha256": "e9ce5c7f835370c192565123369b01c7748739f5a914df4ee48001b2752476cd",
+      "artifact": "raw/runtime-final-compose.log.gz"
+    },
+    "runtime-final/runner.log": {
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "artifact": "raw/runtime-final-runner.log.gz"
+    },
+    "runtime-final/command.log": {
+      "raw_sha256": "fb5c4bca622669ec319100f5d27744cf38d78ca407114ae0a42d9555c408c86c",
+      "artifact": "raw/runtime-final-command.log.gz"
+    },
+    "runtime-final/provenance.txt": {
+      "raw_sha256": "605ac5dce14139f5c336d1f22b49c8122f0e2c54f86a630abe4f5f07b5ecf966",
+      "artifact": "raw/runtime-final-provenance.txt.gz"
+    }
+  },
+  "notes": [
+    "Checkpoint: predates the final sidebar flex-shrink fix. See final-image.json for the final committed-source image.",
+    "This is the final production source image. Later coverage-registration and test-only changes do not alter production code.",
+    "The app log has existing missing-local-embedding-model startup warnings. No extension lifecycle error was logged.",
+    "Raw setup responses and authenticated browser traces are not published."
+  ]
+}

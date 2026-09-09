@@ -1,0 +1,16 @@
+{
+  "date": "2026-09-06",
+  "production_source_commit": "26541024f2ebefc0822e3bc908c0c99625ce5027",
+  "secret_scan": {
+    "status": "passed",
+    "image": "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f",
+    "scope": "Staged tracked source in an isolated export, plus decompressed extension-v4-flows logs. Existing .gitleaks.toml unchanged.",
+    "exit": 0,
+    "log": "canvas-followup/raw/secret-scan.log.gz",
+    "raw_log_sha256": "e059ab06b41e90ff45dba7162bc90c54e67408282186ff71a644f03fc619c37b",
+    "normalization": "Two checksum values beside auth-named archive keys were falsely identified as API keys. Every value was verified against its archive, then represented as artifact_filename plus archive_sha256. Values and scanner rules are unchanged."
+  },
+  "evidence_manifest": "../SHA256SUMS",
+  "publication": "Remote head, final staged export scan, and hosted results are verified after this receipt is prepared.",
+  "evidence_checksum_exit": 0
+}

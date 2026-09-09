@@ -591,6 +591,10 @@ export async function shouldDeliverEvent(
   getConversation: (id: string) => Promise<ConversationScopeRow | null>,
   getRunScope?: GetRunScope,
 ): Promise<boolean> {
+  if (eventType === "ext:state") {
+    const userId = (payload as { userId?: unknown } | null)?.userId;
+    return typeof userId === "string" && userId.length > 0 && userId === subscriber.userId;
+  }
   // Not a direct-carrier event → pass through. Client-side filtering
   // handles any conversation-identity resolution via `runId`.
   // Both platform (`DIRECT_CARRIER_EVENT_TYPES`) and extension-declared

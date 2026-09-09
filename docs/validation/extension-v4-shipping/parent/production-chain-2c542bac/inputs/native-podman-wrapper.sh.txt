@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /tmp/ez-audit-ci-conmon/podman --remote=false "$@"

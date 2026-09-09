@@ -19,8 +19,8 @@ import {
 // ── SANDBOX_FLAGS_STRICT ────────────────────────────────────────────
 
 describe("SANDBOX_FLAGS_STRICT", () => {
-  test("equals 'allow-scripts allow-same-origin'", () => {
-    expect(SANDBOX_FLAGS_STRICT).toBe("allow-scripts allow-same-origin");
+  test("equals 'allow-scripts'", () => {
+    expect(SANDBOX_FLAGS_STRICT).toBe("allow-scripts");
   });
 
   test("does NOT include any escape-hatch flags", () => {

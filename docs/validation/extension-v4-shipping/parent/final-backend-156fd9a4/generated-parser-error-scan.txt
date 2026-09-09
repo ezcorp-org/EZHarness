@@ -1,0 +1,2 @@
+pattern=generated.{0,80}(parse|parser)|(?:parse|parser).{0,80}generated
+match_count=0

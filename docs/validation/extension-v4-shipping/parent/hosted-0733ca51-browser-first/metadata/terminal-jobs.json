@@ -1,0 +1,96 @@
+{
+  "head": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "run_id": 34164945893,
+  "jobs": [
+    {
+      "id": 101874032590,
+      "name": "E2E mock lane",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:01:43Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032590"
+    },
+    {
+      "id": 101874032625,
+      "name": "Web tests shard 2",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:00:00Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032625"
+    },
+    {
+      "id": 101874032654,
+      "name": "Web tests (bun-leg orphans)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T21:57:56Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032654"
+    },
+    {
+      "id": 101874032749,
+      "name": "Web security coverage",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T21:57:48Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032749"
+    },
+    {
+      "id": 101874032777,
+      "name": "Extension lifecycle (firefox)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T22:01:18Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032777"
+    },
+    {
+      "id": 101874032800,
+      "name": "Extension lifecycle (webkit)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:01:57Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032800"
+    },
+    {
+      "id": 101874032872,
+      "name": "Visual evidence",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:09:00Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032872"
+    },
+    {
+      "id": 101874032879,
+      "name": "Web tests shard 1",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:08Z",
+      "completed_at": "2026-09-07T22:00:02Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032879"
+    },
+    {
+      "id": 101874032881,
+      "name": "E2E (real auth + real DB)",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T21:59:34Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032881"
+    },
+    {
+      "id": 101874032905,
+      "name": "Web tests shard 3",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-09-07T21:57:07Z",
+      "completed_at": "2026-09-07T21:59:50Z",
+      "html_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34164945893/job/101874032905"
+    }
+  ]
+}

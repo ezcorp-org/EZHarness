@@ -1,0 +1,6 @@
+source=scripts/lib/shipping-runtime-resource-accounting.ts
+line_total=30
+line_hit=30
+line_percent=100.00
+function_total=0
+function_hit=0

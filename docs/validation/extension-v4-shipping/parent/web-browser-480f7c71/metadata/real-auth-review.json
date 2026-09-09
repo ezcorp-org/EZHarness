@@ -1,0 +1,203 @@
+{
+  "raw_blob_sha256": "364c010a9fabc1318f6feadce6665f1c7d7b08aced0f0346fab1e9f28f740085",
+  "passed": 62,
+  "errors": 0,
+  "retries": 0,
+  "png": [
+    {
+      "name": "member-onboarding-handoff",
+      "sha256": "c4cbaf6b35d515eb9bdc431e1a41faad0fd18f3293187e8a538c5540d2eddbd4",
+      "bytes": 45564
+    },
+    {
+      "name": "member-chat-provider-handoff",
+      "sha256": "63627ea416cdd25584623aeda6ef97ba8f09830dd1df549e6ba1af0fbe4d169d",
+      "bytes": 63698
+    },
+    {
+      "name": "memory-owner-ui-edited-and-excluded-light",
+      "sha256": "99555e67182fdf9ca2c90903935e03bcdbcba7d9975e5b8c5f02b9642b94ed3b",
+      "bytes": 74880
+    },
+    {
+      "name": "memory-owner-ui-edited-and-excluded-dark",
+      "sha256": "7caf1d9716a2ceaf090123765a4ee0772ae723ea2a4245274d04d735e4c7c8c6",
+      "bytes": 74964
+    },
+    {
+      "name": "memory-owner-ui-deleted",
+      "sha256": "afa07cbdc51abbb7d49e8fba8e6f82d3dea7a5236e341d21230efa2f941fdb23",
+      "bytes": 66485
+    },
+    {
+      "name": "quickstart-provider-refreshed",
+      "sha256": "1d26d9384d5002a28d1ebb53e618187189c2c676cb69ebac94baffb57311bc03",
+      "bytes": 111499
+    },
+    {
+      "name": "extension-release-desktop",
+      "sha256": "852ab10950c892e0b68c420e78ed1c749cdcedfa309ace6b3afb7077c543a00f",
+      "bytes": 77491
+    },
+    {
+      "name": "extension-release-mobile",
+      "sha256": "479e959e70c10cd104e5650931c7ed46e01cfa4f3677dcd494abda6fc390790f",
+      "bytes": 40808
+    },
+    {
+      "name": "extensions-approved-installation-list",
+      "sha256": "9e20617cb61a2cc090c614830d428dbc4d12768ba71ab8dfaab014c696d1f795",
+      "bytes": 84374
+    },
+    {
+      "name": "extension-detail-release-permissions",
+      "sha256": "ef749eba9399cfbf41a6f593075f4e3390f88ace3584d9754dc1d513fa03d4d9",
+      "bytes": 81898
+    },
+    {
+      "name": "extension-uninstall-retains-data",
+      "sha256": "1e0014c80f667fac07891d98b62faf1ca7543e385596265aacc3467d9020fd9c",
+      "bytes": 121169
+    },
+    {
+      "name": "extension-binary-assets-desktop",
+      "sha256": "cc1ccb28fabf24be8c2b5e270cbe054f3fd919a953c033a583a697fe6287f094",
+      "bytes": 75341
+    },
+    {
+      "name": "extension-binary-assets-mobile",
+      "sha256": "426e2d81a7e1789d3c6f4e5edf67bdffa02ca4e7a06e0323084e0276cb4dee38",
+      "bytes": 42086
+    },
+    {
+      "name": "extension-lifecycle-sidebar-720",
+      "sha256": "9ffde070cf252b209a03d9a91a32a5028936a5acf3df56198435020d366b8706",
+      "bytes": 78584
+    },
+    {
+      "name": "extension-lifecycle-review-desktop",
+      "sha256": "eb8f56a573e97ad790f278efe7c047e2aba804f17fc75bd02b32a5bea20c82a4",
+      "bytes": 97561
+    },
+    {
+      "name": "extension-lifecycle-live-output",
+      "sha256": "14e56accb7ffc4f763442cfaee3ef3161ecaebb1da74bc0e4e6a983d53f1cc22",
+      "bytes": 100575
+    },
+    {
+      "name": "extension-lifecycle-revoked-mention-list",
+      "sha256": "cd8723bee1471cfeaab95bd04ba5259e5d8cc0c07d55910d84e133146eb96d5f",
+      "bytes": 115319
+    },
+    {
+      "name": "extension-lifecycle-tool-selection-mobile",
+      "sha256": "cd71ad0e04a65718415c804dec6ffae5b91abbae08bb0061288a274a919a4d6d",
+      "bytes": 59725
+    },
+    {
+      "name": "extension-lifecycle-tool-selection-mobile-narrow",
+      "sha256": "a24bef3d01b13f288e791b4331d2e5e1d20bd62c2c8140672d9ce0cf4b58c260",
+      "bytes": 55562
+    },
+    {
+      "name": "extension-lifecycle-tool-selection-desktop-after-mobile",
+      "sha256": "f7f7547b2911adde0708044fe53923f5130e19a8b68efe9f669047fd553bffe8",
+      "bytes": 128018
+    },
+    {
+      "name": "extension-browser-build-diagnostics",
+      "sha256": "d644ce4ef8a79d969842a9338ca125b70934d07e4bf5884785e06dd9e1f5d054",
+      "bytes": 80140
+    },
+    {
+      "name": "extension-browser-repaired-output",
+      "sha256": "75aa4c072fdc11648eeb8f391b84564787b589753c301606137adb2bdaa473ec",
+      "bytes": 79292
+    },
+    {
+      "name": "extension-stale-tab-denial",
+      "sha256": "cea50f42d85c672a9213c375d3c8f184d128d6e5105ee389bdb77a6a5dca9b7e",
+      "bytes": 82140
+    },
+    {
+      "name": "extension-stale-tab-uninstall",
+      "sha256": "0446d819ac017f7754717de05c705a532716d95e40272c3820ec90e8dddc2678",
+      "bytes": 81173
+    },
+    {
+      "name": "extension-stale-tab-uninstall-release",
+      "sha256": "75a3775f301519ab6f740a362ddaa8f0f255e3f592e29651730fc816fae8a5fb",
+      "bytes": 115566
+    },
+    {
+      "name": "extension-project-review-desktop",
+      "sha256": "e5b02d4fa3a8abaf9920d1da1c9852223531b650400e07e89e70dfb3647818f9",
+      "bytes": 96034
+    },
+    {
+      "name": "extension-project-review-mobile",
+      "sha256": "ec4621616cc22d84af8f35aca578a60bcacc00872200223224a0ae10086dcf0b",
+      "bytes": 49213
+    },
+    {
+      "name": "extension-real-repeated-output",
+      "sha256": "057524ca287876ed88415525f3e3f0a7581bd218a82acfcde0adc04ac1bf5ca8",
+      "bytes": 77964
+    },
+    {
+      "name": "extension-real-upgraded-output",
+      "sha256": "48dab7e718ded34ce1f03a40ba9c7b6e7b34c8bb9febf869ce1150562f8b56a9",
+      "bytes": 72909
+    },
+    {
+      "name": "extension-source-import-form",
+      "sha256": "3f84168c3b53327d2e47290fa7af315145685799cd4cd14e7aa20d66e813ca6d",
+      "bytes": 121717
+    },
+    {
+      "name": "extension-source-import-mobile",
+      "sha256": "0c9b22b498ebcd2548bbb2eb73687df24fb7d8f80d0b5b1c60a526611e8788df",
+      "bytes": 44601
+    },
+    {
+      "name": "extension-source-import-review",
+      "sha256": "ce4ced57779b80092c25816883b9de3de7ca0d797fb265ba48b87bed31dcbeb5",
+      "bytes": 148603
+    },
+    {
+      "name": "extension-source-import-visible-output",
+      "sha256": "7fb97c108ddf41545bf066add0d764fabfcb0b9dacea7dec4b9b2a39e24ca56a",
+      "bytes": 93682
+    },
+    {
+      "name": "extension-source-import-permission-update",
+      "sha256": "59954f888b302fac540ee3b796269df75cb8d9edfd22620a2120e4a8fd52cb1c",
+      "bytes": 93277
+    },
+    {
+      "name": "extension-source-import-local-form",
+      "sha256": "92f1b6624db21907b20e21f5c1a584bb6318205d588e8107188ed1123f649831",
+      "bytes": 107242
+    },
+    {
+      "name": "service-workflow-exact-release-review",
+      "sha256": "7cff639837f309b4e3bed6a896360261c593473733d4d2734606e86a10d33fec",
+      "bytes": 71580
+    },
+    {
+      "name": "extension-scanner-trusted-camera",
+      "sha256": "f64c0b0176ed897304972dd203dc2487cede8306fc4b6d118c0688071dae483f",
+      "bytes": 80113
+    },
+    {
+      "name": "extension-scanner-protected-mobile",
+      "sha256": "07dcece1307736da796559d52979f1cf6377a2d8329482d5d16f179a9612f5b0",
+      "bytes": 29968
+    },
+    {
+      "name": "extension-scanner-mobile-final",
+      "sha256": "e31b9e9af390acd29bc9cedfdcc111cb1c74ffd6ea7c3d282093d161765b4939",
+      "bytes": 29941
+    }
+  ]
+}

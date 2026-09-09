@@ -221,9 +221,10 @@ run_legs() {
   # CONCURRENTLY — cov-extras wall clock = max(legs), not their sum. Each
   # leg's combined stdout/stderr is captured to its own file and printed
   # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
-  # semantics: the SDK + suggest legs are pass/fail-TOLERATED
-  # (coverage-only), the harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
-  # node-vitest (VITEST_EXIT) legs gate. A leg that dies without writing its
+  # semantics: the suggest leg is pass/fail-tolerated here because its tests
+  # also gate in the residual job. The SDK (SDK_LEG_EXIT), harness-client
+  # (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest (VITEST_EXIT) legs gate. A
+  # leg that dies without writing its
   # exit-code file counts as exit 1 for the gating legs (fail-closed).
   local legs="$TMPDIR/legs"
   mkdir -p "$legs"
@@ -247,7 +248,8 @@ run_legs() {
   # SDK: top-level test/ + co-located entities/__tests__/ (the canonical
   # coverage for entities/{validate,tools,storage,slug}.ts). mock.module-free,
   # so bundling preserves the 100% module-load instrumentation parity.
-  # Pass/fail tolerated (coverage-only).
+  # Pass/fail gates. SDK tests include runtime and rootless isolation contracts;
+  # coverage output is not a substitute for their assertions passing.
   # DIR args are LOAD-BEARING: bun discovers test/ before entities/__tests__
   # here; feeding the same files as a sorted explicit list reorders entities
   # first and 12 entities tests fail (order-dependent state in the bundled
@@ -256,7 +258,7 @@ run_legs() {
   (
     set +e
     bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
-      ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ \
+      ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ ./packages/@ezcorp/sdk/src/v4/ ./packages/@ezcorp/sdk/src/browser/ \
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
   ) &
@@ -362,6 +364,35 @@ run_legs() {
   (
   set +e
   ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
+      src/__tests__/bounded-json.server.test.ts \
+      src/__tests__/api-tool-invoke.server.test.ts \
+      src/__tests__/api-conversations-id-active-run.server.test.ts \
+      src/__tests__/api-marketplace-id-install.server.test.ts \
+      src/__tests__/api-marketplace-export-v4.server.test.ts \
+      src/__tests__/task-helpers-load-snapshot.server.test.ts \
+      src/__tests__/task-helpers-write-and-broadcast.server.test.ts \
+      src/__tests__/task-helpers-find-assignment.server.test.ts \
+      src/__tests__/task-helpers-pick-spawn-agent-config.server.test.ts \
+      src/__tests__/task-helpers-broadcast-assignment-update.server.test.ts \
+      src/__tests__/extension-author-page-server-load.server.test.ts \
+      src/__tests__/extension-author-page.component.test.ts \
+      src/lib/components/extensions/ExtensionBrowser.component.test.ts \
+      'src/routes/(app)/extensions/[id]/preview/page.component.test.ts' \
+      src/__tests__/extension-control-routes.server.test.ts \
+      src/__tests__/api-extensions-id-permissions.server.test.ts \
+      src/__tests__/extension-project-binding.server.test.ts \
+      src/__tests__/project-proposal-fixture.server.test.ts \
+      src/__tests__/marketplace-release-fixture.server.test.ts \
+      src/__tests__/project-proposal-review.server.test.ts \
+      src/__tests__/project-proposal-review.component.test.ts \
+      src/__tests__/extension-review-location.server.test.ts \
+      src/__tests__/mcp-control-request.server.test.ts \
+      src/__tests__/mcp-staging-client.unit.test.ts \
+      src/__tests__/extension-credential-resolver.server.test.ts \
+      src/__tests__/extension-host-api-transport.server.test.ts \
+      src/__tests__/extension-legacy-cutover.server.test.ts \
+      src/__tests__/extension-source-import-page.server.test.ts \
+      src/__tests__/extension-source-import-page.component.test.ts \
       src/__tests__/api-workflows.server.test.ts \
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
@@ -470,7 +501,6 @@ run_legs() {
       src/__tests__/RunPayload.component.test.ts \
       src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
       src/lib/components/__tests__/UsesList.component.test.ts \
-      "src/routes/(app)/extensions/author/__tests__/page.component.test.ts" \
       src/__tests__/api-users.server.test.ts \
       src/lib/audit-log-view.unit.test.ts \
       src/lib/settings-models.unit.test.ts \
@@ -529,6 +559,8 @@ run_legs() {
       src/__tests__/stores-pending-permission-tray.integration.component.test.ts \
       src/__tests__/pending-decisions-tray.component.test.ts \
       src/__tests__/stores-pending-approval-tray.integration.component.test.ts \
+      src/__tests__/inline-tool-store.test.ts \
+      src/lib/components/tool-cards/DockHost.component.test.ts \
       src/lib/components/tool-cards/PendingApprovalCard.component.test.ts \
       src/__tests__/stores-ask-user-dedup.integration.component.test.ts \
       src/__tests__/composer-suggest-logic.unit.test.ts \
@@ -573,6 +605,7 @@ run_legs() {
       src/__tests__/api-models-capabilities.server.test.ts \
       src/__tests__/provider-availability.server.test.ts \
       src/lib/chat/page-handlers/__tests__/send-message.test.ts \
+      src/lib/chat/page-handlers/__tests__/load-messages.test.ts \
       src/lib/command-registry.unit.test.ts \
       src/lib/components/DiffSummaryPanel.component.test.ts \
       src/__tests__/api-write-scope-gates.server.test.ts \
@@ -592,6 +625,7 @@ run_legs() {
       src/__tests__/api-ez-actions-distill.server.test.ts \
       src/__tests__/api-ez-actions-generic.server.test.ts \
       src/__tests__/api-audit.server.test.ts \
+      src/__tests__/api-extensions-id-audit.server.test.ts \
       src/__tests__/api-extensions-id-audit-stats.server.test.ts \
       src/__tests__/api-extensions-id-confirm.server.test.ts \
       src/__tests__/extensions-reapprove-route.server.test.ts \
@@ -623,6 +657,25 @@ run_legs() {
       src/__tests__/api-conversations-id-agent-chat.server.test.ts \
       src/__tests__/api-settings-developer-api-keys.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
+      --coverage.include='src/lib/server/security/bounded-json.ts' \
+      --coverage.include='src/lib/server/security/payload.ts' \
+      --coverage.include='src/lib/server/task-helpers.ts' \
+      --coverage.include='src/routes/api/tool-invoke/+server.ts' \
+      --coverage.include='**/api/marketplace/*/install/+server.ts' \
+      --coverage.include='**/api/marketplace/export/*/+server.ts' \
+      --coverage.include='src/lib/server/extensions/*.ts' \
+      --coverage.include='**/extensions/author/+page.svelte' \
+      --coverage.include='**/extensions/author/+page.server.ts' \
+      --coverage.include='**/extensions/project-proposals/**/+page.server.ts' \
+      --coverage.include='**/extensions/project-proposals/**/+page.svelte' \
+      --coverage.include='**/extensions/import-source/+page.server.ts' \
+      --coverage.include='**/extensions/import-source/+page.svelte' \
+      --coverage.include='**/api/extensions/*/audit/+server.ts' \
+      --coverage.include='src/routes/api/__test/project-proposal/+server.ts' \
+      --coverage.include='src/routes/api/__test/marketplace-release/+server.ts' \
+      --coverage.include='src/routes/api/extensions/control/+server.ts' \
+      --coverage.include='src/routes/api/extensions/releases/**/+server.ts' \
+      --coverage.include='src/routes/api/extensions/import-source/+server.ts' \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
       --coverage.include='src/lib/hub.ts' \
@@ -714,6 +767,7 @@ run_legs() {
       --coverage.include='src/routes/api/models/capabilities/+server.ts' \
       --coverage.include='src/lib/server/provider-availability.ts' \
       --coverage.include='src/lib/chat/page-handlers/send-message.ts' \
+      --coverage.include='src/lib/chat/page-handlers/load-messages.ts' \
       --coverage.include='src/lib/model-selector-logic.ts' \
       --coverage.include='src/lib/save-flash.svelte.ts' \
       --coverage.include='src/lib/admin-guard.ts' \
@@ -823,6 +877,14 @@ run_legs() {
       --coverage.include='src/routes/api/workflows/delegations/preview/+server.ts' \
       --coverage.include='src/routes/api/workflows/delegated-runs/+server.ts' \
       --coverage.include='src/lib/workflow-delegations-logic.ts' \
+      --coverage.include='src/lib/extensions/canvas-bridge.ts' \
+      --coverage.include='src/lib/extensions/browser-invocation.ts' \
+      --coverage.include='src/lib/server/extension-browser.ts' \
+      --coverage.include='src/lib/server/extension-document.ts' \
+      --coverage.include='src/lib/components/extensions/ExtensionBrowser.svelte' \
+      --coverage.include='src/routes/api/extensions/[[]name]/preview/+server.ts' \
+      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.server.ts' \
+      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.svelte' \
       --coverage.include='src/lib/server/workflow-access.ts' \
       --coverage.include='src/routes/**/pipelines/+page.server.ts' \
       --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
@@ -861,6 +923,7 @@ run_legs() {
       --coverage.include='src/lib/tool-output.ts' \
       --coverage.include='src/lib/components/ui/format-map.ts' \
       --coverage.include='src/lib/inline-tool-store.svelte.ts' \
+      --coverage.include='src/lib/chat/historical-tool-calls.ts' \
       --coverage.include='src/routes/api/agent-configs/+server.ts' \
       --coverage.include='src/routes/api/agent-configs/[id]/+server.ts' \
       --coverage.include='src/routes/api/agent-configs/generate/+server.ts' \
@@ -885,6 +948,12 @@ run_legs() {
     tally "$(cat "$legs/$leg.out" 2>/dev/null)"
   done
 
+  SDK_LEG_EXIT=$(cat "$legs/sdk.code" 2>/dev/null || echo 1)
+  if [ "$SDK_LEG_EXIT" != "0" ]; then
+    FAILED_FILES+=("sdk coverage leg")
+    echo "--- FAIL: sdk coverage leg (exit $SDK_LEG_EXIT) ---"
+  fi
+
   HC_EXIT=$(cat "$legs/hc.code" 2>/dev/null || echo 1)
   if [ "$HC_EXIT" != "0" ]; then
     FAILED_FILES+=("harness-client coverage leg")
@@ -897,13 +966,10 @@ run_legs() {
     echo "--- FAIL: ai-kit coverage leg (exit $AIKIT_EXIT) ---"
   fi
 
-  # Tolerated legs: their exit codes are LOGGED, never gated — sdk + suggest
-  # are coverage-only here (thresholds are their gate; suggest additionally
-  # pass/fail-gates via the residual job). Printing the codes keeps the
-  # tolerance VISIBLE instead of silently discarding the written .code files.
-  SDK_LEG_EXIT=$(cat "$legs/sdk.code" 2>/dev/null || echo "?")
+  # The suggest leg is pass/fail-gated by the residual job. Keep its local
+  # tolerance visible instead of silently discarding the written exit code.
   SUGGEST_LEG_EXIT=$(cat "$legs/suggest.code" 2>/dev/null || echo "?")
-  echo "tolerated leg exit codes (not gated): sdk=$SDK_LEG_EXIT suggest=$SUGGEST_LEG_EXIT"
+  echo "tolerated leg exit code (not gated here): suggest=$SUGGEST_LEG_EXIT"
 
   VITEST_EXIT=$(cat "$legs/vitest.code" 2>/dev/null || echo 1)
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
@@ -997,8 +1063,8 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   echo "== coverage legs-only mode =="
   run_legs
   # Every leg that ran must have produced an lcov. This matters MOST for the
-  # two pass/fail-TOLERATED legs (sdk, suggest): a gating leg that dies also
-  # reds via its exit code below, but a tolerated one used to exit 0 with no
+  # historically pass/fail-tolerated legs: a gating leg that dies also reds
+  # via its exit code below, but a tolerated one used to exit 0 with no
   # lcov — cov-extras went green, the `Per-file coverage gate` job then merged
   # an artifact silently missing that leg's files, and blamed the PR with one
   # "listed in thresholds but no lcov data" violation per orphaned file.
@@ -1006,12 +1072,16 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   check_leg_lcov || LEG_LCOV_EXIT=1
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
-  # The harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest
-  # (VITEST_EXIT) legs GATE here — the SDK + suggest legs stay
-  # pass/fail-tolerant (coverage-only; suggest also gates via the residual
-  # job). A MISSING LCOV gates for every leg regardless: pass/fail tolerance
+  # The SDK (SDK_LEG_EXIT), harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
+  # node-vitest (VITEST_EXIT) legs GATE here. Suggest stays pass/fail-tolerant
+  # because it also gates via the residual job. A MISSING LCOV gates for every
+  # leg regardless: pass/fail tolerance
   # is about assertions, never about a producer that didn't produce. This is
   # the exit status the cov-extras CI job reports.
+  if [ "$SDK_LEG_EXIT" != "0" ]; then
+    echo "::error::sdk coverage leg failed (exit $SDK_LEG_EXIT)"
+    exit 1
+  fi
   if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
      [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
@@ -1069,6 +1139,16 @@ for ((i = 0; i < HOST_COUNT; i++)); do
   # not slip past the P-gate).
   FILE_FAIL=$(summary_count "$OUTPUT" fail)
   if [ "$CODE" != "0" ] || [ "${FILE_FAIL:-0}" != "0" ]; then
+    # Print the pooled failure before either recovery path can hide it. A clean
+    # instrumented or plain retry may tolerate the flake, but its first error
+    # is the only evidence needed to diagnose the original CI failure.
+    echo ""
+    echo "--- pooled coverage failure: ${FILES[$i]} (exit $CODE) ---"
+    if [ -n "$OUTPUT" ]; then
+      printf '%s\n' "$OUTPUT"
+    else
+      echo "(no pooled output captured)"
+    fi
     FAILED_FILES+=("${FILES[$i]}")
     HOST_FAILED_FILES+=("${FILES[$i]}")
   fi
@@ -1261,7 +1341,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # 1 means no existing consumer's meaning changes. Both verdicts are always
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
-if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
+if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
    [ "$AIKIT_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
@@ -1275,11 +1355,11 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT vitest=$VITEST_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi
-echo "  tolerated (not gated here): sdk=$SDK_LEG_EXIT suggest=$SUGGEST_LEG_EXIT leg exit codes; host files outside P"
+echo "  tolerated (not gated here): suggest=$SUGGEST_LEG_EXIT leg exit code; host files outside P"
 echo "================================"
 
 if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi

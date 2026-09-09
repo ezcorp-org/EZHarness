@@ -1,0 +1,163 @@
+{
+  "query_red": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/memory-derived-owner-red-20260907T152746Z/exit.txt",
+      "sha256": "cf205dbb8cea84897b488abcc281bf96698d5e94b1096b16657b4caba9082a22",
+      "bytes": 7,
+      "text": "exit=1"
+    },
+    "result": {
+      "passed": 2,
+      "failed": 1,
+      "assertions": 7
+    },
+    "raw_log": {
+      "private_path": ".cache/terra-shipping/parent/memory-derived-owner-red-20260907T152746Z/test.log",
+      "sha256": "b6689176f8fa7dab33c5a0de03105ee3f5780583d895abbdabcd85693ddae368",
+      "bytes": 1028
+    }
+  },
+  "query_green": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/memory-derived-owner-green-20260907T152848Z/exit.txt",
+      "sha256": "19eaf43821a7660ec323a87c8457bf74823beb296c39f5e01aa8a683aa50f061",
+      "bytes": 7,
+      "text": "exit=0"
+    },
+    "result": {
+      "passed": 4,
+      "failed": 0,
+      "assertions": 11
+    },
+    "raw_log": {
+      "private_path": ".cache/terra-shipping/parent/memory-derived-owner-green-20260907T152848Z/test.log",
+      "sha256": "5403a77e0afe2240ca19dfa762484de9a808a1245e1a7411e1dff91d11307f6a",
+      "bytes": 499
+    }
+  },
+  "item_red": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/memory-item-derived-owner-red-20260907T153314Z/exit.txt",
+      "sha256": "cf205dbb8cea84897b488abcc281bf96698d5e94b1096b16657b4caba9082a22",
+      "bytes": 7,
+      "text": "exit=1"
+    },
+    "result": {
+      "passed": 6,
+      "failed": 2,
+      "assertions": 34
+    },
+    "raw_log": {
+      "private_path": ".cache/terra-shipping/parent/memory-item-derived-owner-red-20260907T153314Z/test.log",
+      "sha256": "3c7b89fda7ecc139909cf88a4cfb86ed0cc36fbc26ec91e369e45ffef45b64f2",
+      "bytes": 2710
+    }
+  },
+  "item_final_validated": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/memory-item-derived-owner-final-validated-20260907T153748Z/exit.txt",
+      "sha256": "19eaf43821a7660ec323a87c8457bf74823beb296c39f5e01aa8a683aa50f061",
+      "bytes": 7,
+      "text": "exit=0"
+    },
+    "result_source": "metadata/parent-review.json",
+    "raw_log": {
+      "private_path": ".cache/terra-shipping/parent/memory-item-derived-owner-final-validated-20260907T153748Z/validation.log",
+      "sha256": "b1206e2158a4748358c411c8a1bcd630a4a96a24b7fcd615aadbd06a7d8d2e6a",
+      "bytes": 7267
+    }
+  },
+  "final_static": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/merged-memory-final-source-check-20260907T1553Z/controller.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "text": "0"
+    },
+    "results_tsv_sha256": "38b5bc53e4acce02179c8e42feb1df5231138ed4dc8e3a0ef6e501ab95f60778",
+    "raw_logs": {
+      "authored-whitespace.log": {
+        "private_path": ".cache/terra-shipping/parent/merged-memory-final-source-check-20260907T1553Z/authored-whitespace.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "lint-boundaries.log": {
+        "private_path": ".cache/terra-shipping/parent/merged-memory-final-source-check-20260907T1553Z/lint-boundaries.log",
+        "sha256": "e18b655d1ca10f15658f0ab9356dbb84c0d758e3d0ebc77a3b1f4db8848c8dbe",
+        "bytes": 16605
+      },
+      "manifest-lock.log": {
+        "private_path": ".cache/terra-shipping/parent/merged-memory-final-source-check-20260907T1553Z/manifest-lock.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      "typecheck-all.log": {
+        "private_path": ".cache/terra-shipping/parent/merged-memory-final-source-check-20260907T1553Z/typecheck-all.log",
+        "sha256": "beadd1fb90b6cf5a09d66010d09d9db6a86bb5a963505d7a6b7748813f2b80be",
+        "bytes": 304
+      }
+    }
+  },
+  "browser_first_red": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154213Z/exits.txt",
+      "sha256": "856811c307a742724524b617673576761c230c6e99970aeccda8abb65c25112a",
+      "bytes": 25,
+      "text": "runner_exit=1\ntee_exit=0"
+    },
+    "result": {
+      "passed": 2,
+      "failed": 1,
+      "failure": "strict locator did not find the edited row"
+    },
+    "raw_log": {
+      "private_path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154213Z/playwright.log",
+      "sha256": "999cfa4e1bee483d9f768d799a3f26fb39e77bf8b526f2ad9b908e3d34083f1b",
+      "bytes": 188487
+    }
+  },
+  "browser_rerun_green": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154349Z-rerun/exits.txt",
+      "sha256": "cef98c8852e5a193e547a2afc781f4023c817eecfa2cb848af635c5be15e4fc3",
+      "bytes": 25,
+      "text": "runner_exit=0\ntee_exit=0"
+    },
+    "result": {
+      "passed": 3,
+      "failed": 0
+    },
+    "raw_log": {
+      "private_path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T154349Z-rerun/playwright.log",
+      "sha256": "651c604cc62533062aa7644787691068556f8e80909970c9f58a62175e8e933c",
+      "bytes": 185034
+    }
+  },
+  "browser_theme_green": {
+    "source_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+    "terminal": {
+      "private_path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/exits.txt",
+      "sha256": "cef98c8852e5a193e547a2afc781f4023c817eecfa2cb848af635c5be15e4fc3",
+      "bytes": 25,
+      "text": "runner_exit=0\ntee_exit=0"
+    },
+    "result": {
+      "passed": 3,
+      "failed": 0,
+      "reviewed_pngs": 6
+    },
+    "raw_log": {
+      "private_path": ".cache/terra-shipping/parent/real-auth-memory-flow-20260907T155059Z-theme/playwright.log",
+      "sha256": "4dd3ef137d4fb175e8106f6a2d963b9da82570a0c5daf6987da38c1c499cefaa",
+      "bytes": 185035
+    },
+    "cleanup_inventory": "not recorded by this focused controller"
+  }
+}

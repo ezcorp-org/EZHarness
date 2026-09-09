@@ -1,0 +1,50 @@
+# Service workflow effects
+
+- [x] Reproduce approved service workflow tool dispatch through the real workflow executor, tool executor and SQL state.
+- [x] Preserve a distinct service principal; never replace it with the consenting user.
+- [x] Prove valid tool and agent effects, and deny wrong or revoked delegation authority.
+- [x] Run actual rootless service workflow and focused regression tests.
+
+## Checkpoint
+
+`/tmp/lifecycle-service-effects-red.log` reproduces the missing service identity through actual WorkflowExecutor, ToolExecutor, ReleaseProcess and SQL. The runner is not started: the service call is misclassified as ownerless. `/tmp/ez-service-release-real-tool-red.log` independently reproduces the same error through authenticated HTTP and a rootless worker.
+
+The first implementation adds only host-issued branded service proof and transport. The proof retains a null human identity, checks the persisted run and current sealed delegation, and expires at workflow cleanup. Direct proof tests exercise JSON forgery, wrong run/service/delegation/project, revocation, and cleanup while an admission is pending. The module has 100% line coverage. Downstream capability ceilings, agent scope plumbing and actual rootless success remain separate required gates; this checkpoint is not a complete service-effect authorization claim.
+
+Independent review found that initial issuance checks alone did not deny a later durable run cancellation. `/tmp/lifecycle-service-run-revocation-red.log` proves that failure. The corrected proof intrinsically checks the exact execution hash and persisted running identity on every admission, using `FOR SHARE` in the supplied effect transaction and a second read after asynchronous checks outside a transaction. `/tmp/lifecycle-service-run-guard.log`: 12 SQL tests, 44 assertions, 100% proof-module line coverage. TypeScript and scoped lint pass. These tests also deny changed hashes, service/user/delegation identities, and terminalization while a guard is pending.
+
+## Coherent service checkpoint
+
+The proof now derives its source from the canonical verified delegation origin, not from an assumed extension stamp on the executing workflow. This permits a host workflow or resumed host child without inventing a human principal. Every admission verifies that the origin remains unchanged. Service worker tokens must also carry the host's exact forward capability guard; ReleaseProcess applies it even when no caller option supplies a guard.
+
+`/tmp/lifecycle-service-coherent.log`: 50 tests and 204 assertions pass across service proof, actual workflow tool/agent dispatch, canonical delegation authority and the service capability broker. The resumed YAML child executes its first step, then refuses the next step after parent revocation. Positive tool/agent tests use real SQL and PermissionEngine, require exactly one controlled worker and a nonempty policy trace, and inspect the live null-human service token. The proof module retains 100% line coverage. `/tmp/lifecycle-service-coherent-types.log` is empty; scoped lint passes.
+
+## Merged source database and worker proof
+
+Product snapshot `a2d2c7d9`, merged locally as `f02276a6`, passes `EXTENSION_TEST_POSTGRES_URL=... bun scripts/verify-extension-postgres.ts` with the new proof-only script additions. `/tmp/lifecycle-service-postgres-final.log` records the result. Two independent PostgreSQL connections verify seven revocation fences: release, publication, user, membership, service, delegation and running workflow. The service and delegation cases call the actual `workflowReleaseCanExecute` with the effect transaction. PostgreSQL reports the revoking connection blocked by that transaction; after commit, revocation completes and the next guard denies execution. The run case uses the shared transaction-aware running-row reader. Existing lifecycle, event, receipt, browser cancellation and migration checks remain enabled.
+
+`bun test ./src/extensions/runtime-locks-postgres.test.ts` passes 2 tests and 4 assertions at the same snapshot; log `/tmp/lifecycle-runtime-locks-postgres-final.log`. Both commands use the pinned PostgreSQL image in `scripts/test-images.json` and remove their own disposable containers. This is ordering of admitted database effects, not a claim of rollback or exactly-once behavior for external effects.
+
+The runner agent reports the actual authenticated rootless service storage and `/data` browser test passes in `/tmp/ez-service-storage-real1.log`: one test, exact service identity, storage set/get, file write/read, and no changed state or second run after revocation. Broader final-suite and PR gates remain the parent task's responsibility.
+
+## Frozen runtime proof
+
+Final product tree `beaa01d3b2a58bab7ed4ea9e95e049b3cc17e723` retains the nominal host-only service boundary and removes one duplicate release-binding check before ordinary reverse-RPC effects. The effect admission callback still checks the live release, service proof, cancellation state and supplied transaction immediately before the effect. Lock acquire and release keep their explicit check because they do not use ordinary effect admission.
+
+`/tmp/ez-release-dedup-coverage.log` passes 27 release-lifetime and runtime-lock tests with 142 assertions. `/tmp/ez-release-dedup-lines.log` records execution of every changed `release-process.ts` line: lines 166 through 169 have 308, 181, 78 and 103 hits. The unchanged authenticated rootless service test passes in `/tmp/ez-service-storage-releaseprocess1.log`. It uses a null-human service principal, performs storage get/set and `/data` write/read, then proves revocation prevents changed state and a second run.
+
+`/tmp/ez-sol-runtime-postgres-final.log` passes the lifecycle script against the pinned disposable PostgreSQL image. Two independent database clients prove seven ordered fences: release, publication, user, membership, service account, delegation and running workflow. PostgreSQL reports the revoking client blocked by the admitted effect transaction. After that transaction commits, revocation completes and the next canonical authority check denies execution. The service and delegation fences call `workflowReleaseCanExecute` with the exact effect transaction. `/tmp/ez-sol-runtime-locks-postgres-final.log` passes 2 runtime-lock tests with 4 assertions. The owned container was removed after both commands.
+
+These SQL results prove transaction ordering and denial of later admissions. They do not promise rollback, cancellation or exactly-once behavior for a network, shell, file or other external effect that was already admitted.
+
+## Dependency baseline repeat
+
+Tree `e162e8e87900ea25092d9db6b49c1f43e0af5974` updates the Pi packages to 0.84.3 and pins Bun types to the Bun 1.3.14 runtime. `bun install --frozen-lockfile` passes in `/tmp/ez-runtime-final-frozen-install.log`. The resolved lock contains one 0.84.3 version for Pi agent core, Pi AI and Pi telemetry; the SDK default suite passes 1,022 tests with 2,325 assertions and its one explicit rootless opt-in skip (`/tmp/ez-runtime-sdk-default-final.log`). The opt-in MCP file then passes all 7 tests with 32 assertions in a networkless rootless container (`/tmp/ez-runtime-sdk-mcp-optin-final.log`). Harness client passes 93 tests with 276 assertions, the extension contract passes 23 tests with 291 assertions, schema parity passes 1 test, and the extension runner passes 48 tests with 307 assertions (`/tmp/ez-runtime-harness-client.log`, `/tmp/ez-runtime-contract.log`, `/tmp/ez-runtime-contract-schema.log`, `/tmp/ez-runtime-extension-runner-final.log`).
+
+The actual PostgreSQL lifecycle script passes again on this dependency tree (`/tmp/ez-runtime-postgres-pi-final.log`). Separate clients retain the seven release, publication, user, membership, service, delegation and running-workflow ordering fences. `/tmp/ez-runtime-locks-postgres-pi-final.log` passes 2 tests with 4 assertions. The disposable pinned PostgreSQL container was removed after the run. The same external-effect limits stated above still apply.
+
+## Consolidated dependency repeat
+
+Tree `faa5d8acfa594c151144100e2a351211b9161854` resolves MCP SDK 1.30.0 and Zod 4.5.2 once across the root, SDK and AI kit. Forced frozen installs pass for the root and web trees (`/tmp/ez-runtime-second-force-frozen-root.log`, `/tmp/ez-runtime-second-force-frozen-web.log`); the MCP package's resolved Zod real path is 4.5.2. SDK default passes 1,022 tests with 2,325 assertions and one explicit opt-in skip; its rootless MCP opt-in passes 7 tests with 32 assertions. Harness client passes 93 tests with 276 assertions, AI kit passes 218 tests with 537 assertions, the extension contract passes 23 tests with 291 assertions, schema parity passes 1 test, and the rootless runner passes 48 tests with 308 assertions. Evidence: `/tmp/ez-runtime-second-sdk-default.log`, `/tmp/ez-runtime-second-sdk-mcp.log`, `/tmp/ez-runtime-second-harness.log`, `/tmp/ez-runtime-second-ai-kit.log`, `/tmp/ez-runtime-second-contract.log`, `/tmp/ez-runtime-second-schema.log`, and `/tmp/ez-runtime-second-runner.log`.
+
+The actual PostgreSQL lifecycle proof passes again at this tree (`/tmp/ez-runtime-second-postgres.log`). Two clients retain all seven ordered authority fences. Runtime locks pass 2 tests with 4 assertions (`/tmp/ez-runtime-second-pg-locks.log`). The disposable pinned PostgreSQL container was removed. These results retain the external-effect limits above.

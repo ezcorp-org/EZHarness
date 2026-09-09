@@ -1,0 +1,3886 @@
+{
+  "schema": "allowlisted timed heap observations",
+  "rowCount": 111,
+  "rows": [
+    {
+      "capturedAt": "2026-09-07T07:18:32.110Z",
+      "jsc": {
+        "extraMemorySize": 12526,
+        "heapCapacity": 1061102,
+        "objectCount": 2628,
+        "heapSize": 176142,
+        "protectedObjectCount": 3,
+        "objectTypeCounts": {
+          "ArrayBuffer": 2,
+          "Function": 1089,
+          "Promise": 29,
+          "Object": 200
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 0,
+        "heapUsed": 175502,
+        "external": 12526,
+        "rss": 33587200
+      },
+      "resourceUsage": {
+        "maxRssBytes": 33587200,
+        "maxRssKiB": 32800
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 45809664
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:18:37.126Z",
+      "jsc": {
+        "extraMemorySize": 1612366118,
+        "heapCapacity": 1668577798,
+        "objectCount": 414584,
+        "heapSize": 1645843846,
+        "protectedObjectCount": 637,
+        "objectTypeCounts": {
+          "ArrayBuffer": 191,
+          "DataView": 68,
+          "Function": 35790,
+          "ReadableStream": 27,
+          "Response": 12,
+          "Promise": 2393,
+          "Uint8Array": 1935,
+          "Request": 13,
+          "Object": 36501
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 1032946461,
+        "heapUsed": 1642144374,
+        "external": 1612366118,
+        "rss": 817967104
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 217055232
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:18:42.131Z",
+      "jsc": {
+        "extraMemorySize": 1145792774,
+        "heapCapacity": 1234087110,
+        "objectCount": 380477,
+        "heapSize": 1176022710,
+        "protectedObjectCount": 723,
+        "objectTypeCounts": {
+          "ArrayBuffer": 37,
+          "DataView": 12,
+          "Function": 36180,
+          "ReadableStream": 52,
+          "Response": 2,
+          "Promise": 1931,
+          "Uint8Array": 1705,
+          "Request": 37,
+          "Object": 33004
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 621514871,
+        "heapUsed": 1173908950,
+        "external": 1145792774,
+        "rss": 815853568
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:18:47.130Z",
+      "jsc": {
+        "extraMemorySize": 911780641,
+        "heapCapacity": 970141409,
+        "objectCount": 391679,
+        "heapSize": 942741969,
+        "protectedObjectCount": 762,
+        "objectTypeCounts": {
+          "ArrayBuffer": 119,
+          "DataView": 120,
+          "Function": 37171,
+          "ReadableStream": 91,
+          "Response": 20,
+          "Promise": 2100,
+          "Uint8Array": 1701,
+          "Request": 66,
+          "Object": 34282
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 486449824,
+        "heapUsed": 942741969,
+        "external": 911780641,
+        "rss": 900378624
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:18:52.134Z",
+      "jsc": {
+        "extraMemorySize": 945987634,
+        "heapCapacity": 1004626930,
+        "objectCount": 400290,
+        "heapSize": 977350018,
+        "protectedObjectCount": 807,
+        "objectTypeCounts": {
+          "ArrayBuffer": 237,
+          "DataView": 260,
+          "Function": 38206,
+          "ReadableStream": 130,
+          "Response": 37,
+          "Promise": 2364,
+          "Uint8Array": 1730,
+          "Request": 93,
+          "Object": 35583
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 515190951,
+        "heapUsed": 977350018,
+        "external": 945987634,
+        "rss": 912539648
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:18:57.134Z",
+      "jsc": {
+        "extraMemorySize": 899749957,
+        "heapCapacity": 957914117,
+        "objectCount": 389150,
+        "heapSize": 930372997,
+        "protectedObjectCount": 841,
+        "objectTypeCounts": {
+          "ArrayBuffer": 53,
+          "DataView": 48,
+          "Function": 37318,
+          "ReadableStream": 157,
+          "Response": 10,
+          "Promise": 2049,
+          "Uint8Array": 1701,
+          "Request": 114,
+          "Object": 34591
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 477893568,
+        "heapUsed": 930372997,
+        "external": 899749957,
+        "rss": 914857984
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:02.139Z",
+      "jsc": {
+        "extraMemorySize": 935041337,
+        "heapCapacity": 995249689,
+        "objectCount": 397015,
+        "heapSize": 966067449,
+        "protectedObjectCount": 874,
+        "objectTypeCounts": {
+          "ArrayBuffer": 571,
+          "DataView": 433,
+          "Function": 39571,
+          "ReadableStream": 188,
+          "Response": 25,
+          "Promise": 2776,
+          "Uint8Array": 2306,
+          "Request": 135,
+          "Object": 38670
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 508239083,
+        "heapUsed": 965346181,
+        "external": 935041337,
+        "rss": 918192128
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:07.142Z",
+      "jsc": {
+        "extraMemorySize": 902258758,
+        "heapCapacity": 960422918,
+        "objectCount": 391080,
+        "heapSize": 932984406,
+        "protectedObjectCount": 894,
+        "objectTypeCounts": {
+          "ArrayBuffer": 43,
+          "DataView": 32,
+          "Function": 37763,
+          "ReadableStream": 199,
+          "Response": 10,
+          "Promise": 2046,
+          "Uint8Array": 1715,
+          "Request": 145,
+          "Object": 35084
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 481693980,
+        "heapUsed": 932984406,
+        "external": 902258758,
+        "rss": 916635648
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:12.144Z",
+      "jsc": {
+        "extraMemorySize": 940084406,
+        "heapCapacity": 999592054,
+        "objectCount": 400709,
+        "heapSize": 971292886,
+        "protectedObjectCount": 941,
+        "objectTypeCounts": {
+          "ArrayBuffer": 146,
+          "DataView": 156,
+          "Function": 38749,
+          "ReadableStream": 240,
+          "Response": 26,
+          "Promise": 2278,
+          "Uint8Array": 1740,
+          "Request": 176,
+          "Object": 36651
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 514250664,
+        "heapUsed": 971292886,
+        "external": 940084406,
+        "rss": 934096896
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:17.143Z",
+      "jsc": {
+        "extraMemorySize": 899774418,
+        "heapCapacity": 957758354,
+        "objectCount": 393728,
+        "heapSize": 930561362,
+        "protectedObjectCount": 970,
+        "objectTypeCounts": {
+          "ArrayBuffer": 50,
+          "DataView": 44,
+          "Function": 38171,
+          "ReadableStream": 260,
+          "Response": 7,
+          "Promise": 2072,
+          "Uint8Array": 1728,
+          "Request": 187,
+          "Object": 35873
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 480385081,
+        "heapUsed": 930561362,
+        "external": 899774418,
+        "rss": 909815808
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:22.145Z",
+      "jsc": {
+        "extraMemorySize": 942264097,
+        "heapCapacity": 1001870049,
+        "objectCount": 404622,
+        "heapSize": 973617185,
+        "protectedObjectCount": 1016,
+        "objectTypeCounts": {
+          "ArrayBuffer": 162,
+          "DataView": 176,
+          "Function": 39251,
+          "ReadableStream": 301,
+          "Response": 26,
+          "Promise": 2351,
+          "Uint8Array": 1758,
+          "Request": 221,
+          "Object": 37675
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 515261523,
+        "heapUsed": 973617022,
+        "external": 942264097,
+        "rss": 925638656
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:27.145Z",
+      "jsc": {
+        "extraMemorySize": 893801225,
+        "heapCapacity": 952489673,
+        "objectCount": 392511,
+        "heapSize": 924498841,
+        "protectedObjectCount": 1050,
+        "objectTypeCounts": {
+          "ArrayBuffer": 22,
+          "DataView": 12,
+          "Function": 38468,
+          "ReadableStream": 316,
+          "Response": 3,
+          "Promise": 2053,
+          "Uint8Array": 1737,
+          "Request": 229,
+          "Object": 35784
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 476429433,
+        "heapUsed": 924498841,
+        "external": 893801225,
+        "rss": 924499968
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:32.147Z",
+      "jsc": {
+        "extraMemorySize": 938546702,
+        "heapCapacity": 997071310,
+        "objectCount": 404151,
+        "heapSize": 969917438,
+        "protectedObjectCount": 1086,
+        "objectTypeCounts": {
+          "ArrayBuffer": 132,
+          "DataView": 144,
+          "Function": 39456,
+          "ReadableStream": 355,
+          "Response": 19,
+          "Promise": 2312,
+          "Uint8Array": 1761,
+          "Request": 260,
+          "Object": 37534
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 512854450,
+        "heapUsed": 969917438,
+        "external": 938546702,
+        "rss": 924602368
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:37.148Z",
+      "jsc": {
+        "extraMemorySize": 973160052,
+        "heapCapacity": 1031832116,
+        "objectCount": 414209,
+        "heapSize": 1004987908,
+        "protectedObjectCount": 1128,
+        "objectTypeCounts": {
+          "ArrayBuffer": 236,
+          "DataView": 268,
+          "Function": 40366,
+          "ReadableStream": 394,
+          "Response": 35,
+          "Promise": 2547,
+          "Uint8Array": 1786,
+          "Request": 289,
+          "Object": 39301
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 544060223,
+        "heapUsed": 1004987908,
+        "external": 973160052,
+        "rss": 924233728
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:42.150Z",
+      "jsc": {
+        "extraMemorySize": 1016958184,
+        "heapCapacity": 1075876008,
+        "objectCount": 424726,
+        "heapSize": 1049236920,
+        "protectedObjectCount": 1174,
+        "objectTypeCounts": {
+          "ArrayBuffer": 351,
+          "DataView": 396,
+          "Function": 41421,
+          "ReadableStream": 433,
+          "Response": 52,
+          "Promise": 2785,
+          "Uint8Array": 1820,
+          "Request": 316,
+          "Object": 41230
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 582386883,
+        "heapUsed": 1049236920,
+        "external": 1016958184,
+        "rss": 935469056
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:47.153Z",
+      "jsc": {
+        "extraMemorySize": 925637286,
+        "heapCapacity": 984161894,
+        "objectCount": 404276,
+        "heapSize": 957003894,
+        "protectedObjectCount": 1201,
+        "objectTypeCounts": {
+          "ArrayBuffer": 74,
+          "DataView": 76,
+          "Function": 39794,
+          "ReadableStream": 448,
+          "Response": 10,
+          "Promise": 2270,
+          "Uint8Array": 1773,
+          "Request": 327,
+          "Object": 37881
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 501082107,
+        "heapUsed": 957003894,
+        "external": 925637286,
+        "rss": 924467200
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:52.153Z",
+      "jsc": {
+        "extraMemorySize": 906738343,
+        "heapCapacity": 964968039,
+        "objectCount": 400522,
+        "heapSize": 937926423,
+        "protectedObjectCount": 1236,
+        "objectTypeCounts": {
+          "ArrayBuffer": 38,
+          "DataView": 36,
+          "Function": 39731,
+          "ReadableStream": 469,
+          "Response": 1,
+          "Promise": 2156,
+          "Uint8Array": 1772,
+          "Request": 349,
+          "Object": 37324
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 487383075,
+        "heapUsed": 937926423,
+        "external": 906738343,
+        "rss": 912490496
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:19:57.155Z",
+      "jsc": {
+        "extraMemorySize": 954147225,
+        "heapCapacity": 1012802905,
+        "objectCount": 412690,
+        "heapSize": 985918217,
+        "protectedObjectCount": 1281,
+        "objectTypeCounts": {
+          "ArrayBuffer": 147,
+          "DataView": 164,
+          "Function": 40764,
+          "ReadableStream": 509,
+          "Response": 18,
+          "Promise": 2393,
+          "Uint8Array": 1801,
+          "Request": 378,
+          "Object": 39463
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 528053743,
+        "heapUsed": 985918217,
+        "external": 954147225,
+        "rss": 931614720
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:02.163Z",
+      "jsc": {
+        "extraMemorySize": 905677632,
+        "heapCapacity": 964644608,
+        "objectCount": 402188,
+        "heapSize": 936805776,
+        "protectedObjectCount": 1326,
+        "objectTypeCounts": {
+          "ArrayBuffer": 17,
+          "DataView": 8,
+          "Function": 40293,
+          "ReadableStream": 536,
+          "Response": 1,
+          "Promise": 2200,
+          "Uint8Array": 1789,
+          "Request": 397,
+          "Object": 38001
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 490720958,
+        "heapUsed": 1033554372,
+        "external": 905677632,
+        "rss": 945963008
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:07.156Z",
+      "jsc": {
+        "extraMemorySize": 960105667,
+        "heapCapacity": 1018941571,
+        "objectCount": 416232,
+        "heapSize": 992050483,
+        "protectedObjectCount": 1362,
+        "objectTypeCounts": {
+          "ArrayBuffer": 131,
+          "DataView": 144,
+          "Function": 41300,
+          "ReadableStream": 576,
+          "Response": 17,
+          "Promise": 2433,
+          "Uint8Array": 1817,
+          "Request": 426,
+          "Object": 40265
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 532028281,
+        "heapUsed": 992050483,
+        "external": 960105667,
+        "rss": 939507712
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:12.158Z",
+      "jsc": {
+        "extraMemorySize": 1008469265,
+        "heapCapacity": 1068402897,
+        "objectCount": 429195,
+        "heapSize": 1040957681,
+        "protectedObjectCount": 1408,
+        "objectTypeCounts": {
+          "ArrayBuffer": 254,
+          "DataView": 284,
+          "Function": 42386,
+          "ReadableStream": 615,
+          "Response": 36,
+          "Promise": 2722,
+          "Uint8Array": 1851,
+          "Request": 453,
+          "Object": 42726
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 574867391,
+        "heapUsed": 1040957681,
+        "external": 1008469265,
+        "rss": 952946688
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:17.157Z",
+      "jsc": {
+        "extraMemorySize": 952428621,
+        "heapCapacity": 1012345869,
+        "objectCount": 418074,
+        "heapSize": 984435069,
+        "protectedObjectCount": 1425,
+        "objectTypeCounts": {
+          "ArrayBuffer": 75,
+          "DataView": 68,
+          "Function": 41677,
+          "ReadableStream": 628,
+          "Response": 17,
+          "Promise": 2456,
+          "Uint8Array": 1828,
+          "Request": 463,
+          "Object": 40866
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 526259933,
+        "heapUsed": 984435069,
+        "external": 952428621,
+        "rss": 946470912
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:22.155Z",
+      "jsc": {
+        "extraMemorySize": 999188348,
+        "heapCapacity": 1058138940,
+        "objectCount": 429570,
+        "heapSize": 1031672380,
+        "protectedObjectCount": 1464,
+        "objectTypeCounts": {
+          "ArrayBuffer": 180,
+          "DataView": 196,
+          "Function": 42535,
+          "ReadableStream": 659,
+          "Response": 29,
+          "Promise": 2688,
+          "Uint8Array": 1850,
+          "Request": 484,
+          "Object": 43103
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 566827880,
+        "heapUsed": 1031672380,
+        "external": 999188348,
+        "rss": 959266816
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:27.163Z",
+      "jsc": {
+        "extraMemorySize": 959250358,
+        "heapCapacity": 1020147894,
+        "objectCount": 419118,
+        "heapSize": 991253302,
+        "protectedObjectCount": 1485,
+        "objectTypeCounts": {
+          "ArrayBuffer": 1443,
+          "DataView": 754,
+          "Function": 50574,
+          "ReadableStream": 676,
+          "Response": 11,
+          "Promise": 3050,
+          "Uint8Array": 3488,
+          "Request": 499,
+          "Object": 59491
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 534021699,
+        "heapUsed": 990462061,
+        "external": 959250358,
+        "rss": 968429568
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:32.163Z",
+      "jsc": {
+        "extraMemorySize": 996393136,
+        "heapCapacity": 1055376496,
+        "objectCount": 432332,
+        "heapSize": 1029006192,
+        "protectedObjectCount": 1535,
+        "objectTypeCounts": {
+          "ArrayBuffer": 208,
+          "DataView": 240,
+          "Function": 42835,
+          "ReadableStream": 715,
+          "Response": 24,
+          "Promise": 2652,
+          "Uint8Array": 1859,
+          "Request": 528,
+          "Object": 43725
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 566527150,
+        "heapUsed": 1029006192,
+        "external": 996393136,
+        "rss": 954314752
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:37.164Z",
+      "jsc": {
+        "extraMemorySize": 926359396,
+        "heapCapacity": 985129764,
+        "objectCount": 414051,
+        "heapSize": 958196708,
+        "protectedObjectCount": 1558,
+        "objectTypeCounts": {
+          "ArrayBuffer": 32,
+          "DataView": 24,
+          "Function": 42131,
+          "ReadableStream": 729,
+          "Response": 4,
+          "Promise": 2382,
+          "Uint8Array": 1842,
+          "Request": 541,
+          "Object": 40141
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 504672643,
+        "heapUsed": 958196708,
+        "external": 926359396,
+        "rss": 934375424
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:42.165Z",
+      "jsc": {
+        "extraMemorySize": 982083792,
+        "heapCapacity": 1041149072,
+        "objectCount": 427933,
+        "heapSize": 1014554672,
+        "protectedObjectCount": 1605,
+        "objectTypeCounts": {
+          "ArrayBuffer": 141,
+          "DataView": 156,
+          "Function": 43076,
+          "ReadableStream": 768,
+          "Response": 18,
+          "Promise": 2632,
+          "Uint8Array": 1868,
+          "Request": 568,
+          "Object": 42736
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 551704204,
+        "heapUsed": 1014554672,
+        "external": 982083792,
+        "rss": 947699712
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:47.166Z",
+      "jsc": {
+        "extraMemorySize": 941273323,
+        "heapCapacity": 1000322219,
+        "objectCount": 417899,
+        "heapSize": 973334731,
+        "protectedObjectCount": 1639,
+        "objectTypeCounts": {
+          "ArrayBuffer": 87,
+          "DataView": 96,
+          "Function": 42811,
+          "ReadableStream": 793,
+          "Response": 9,
+          "Promise": 2490,
+          "Uint8Array": 1858,
+          "Request": 594,
+          "Object": 41075
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 518912589,
+        "heapUsed": 973334731,
+        "external": 941273323,
+        "rss": 933421056
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:52.165Z",
+      "jsc": {
+        "extraMemorySize": 933689781,
+        "heapCapacity": 992460149,
+        "objectCount": 417349,
+        "heapSize": 965749125,
+        "protectedObjectCount": 1678,
+        "objectTypeCounts": {
+          "ArrayBuffer": 35,
+          "DataView": 32,
+          "Function": 42817,
+          "ReadableStream": 825,
+          "Response": 1,
+          "Promise": 2423,
+          "Uint8Array": 1861,
+          "Request": 613,
+          "Object": 41028
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 511125910,
+        "heapUsed": 965749125,
+        "external": 933689781,
+        "rss": 925425664
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:20:57.168Z",
+      "jsc": {
+        "extraMemorySize": 989780231,
+        "heapCapacity": 1049124039,
+        "objectCount": 431836,
+        "heapSize": 1022448727,
+        "protectedObjectCount": 1723,
+        "objectTypeCounts": {
+          "ArrayBuffer": 146,
+          "DataView": 164,
+          "Function": 43808,
+          "ReadableStream": 864,
+          "Response": 17,
+          "Promise": 2683,
+          "Uint8Array": 1889,
+          "Request": 640,
+          "Object": 43862
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 561428937,
+        "heapUsed": 1022448727,
+        "external": 989780231,
+        "rss": 941039616
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:02.168Z",
+      "jsc": {
+        "extraMemorySize": 928609087,
+        "heapCapacity": 987690751,
+        "objectCount": 418562,
+        "heapSize": 960561583,
+        "protectedObjectCount": 1758,
+        "objectTypeCounts": {
+          "ArrayBuffer": 26,
+          "DataView": 20,
+          "Function": 43387,
+          "ReadableStream": 889,
+          "Response": 1,
+          "Promise": 2469,
+          "Uint8Array": 1877,
+          "Request": 661,
+          "Object": 41699
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 514782210,
+        "heapUsed": 960561583,
+        "external": 928609087,
+        "rss": 937799680
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:07.168Z",
+      "jsc": {
+        "extraMemorySize": 994599419,
+        "heapCapacity": 1054370267,
+        "objectCount": 435374,
+        "heapSize": 1027446987,
+        "protectedObjectCount": 1803,
+        "objectTypeCounts": {
+          "ArrayBuffer": 667,
+          "DataView": 383,
+          "Function": 44967,
+          "ReadableStream": 928,
+          "Response": 18,
+          "Promise": 2893,
+          "Uint8Array": 2542,
+          "Request": 690,
+          "Object": 46715
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 565744780,
+        "heapUsed": 1027112887,
+        "external": 994599419,
+        "rss": 948510720
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:12.168Z",
+      "jsc": {
+        "extraMemorySize": 1052161786,
+        "heapCapacity": 1112324794,
+        "objectCount": 450313,
+        "heapSize": 1085613018,
+        "protectedObjectCount": 1848,
+        "objectTypeCounts": {
+          "ArrayBuffer": 245,
+          "DataView": 280,
+          "Function": 45383,
+          "ReadableStream": 967,
+          "Response": 34,
+          "Promise": 2988,
+          "Uint8Array": 1933,
+          "Request": 717,
+          "Object": 47749
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 617708708,
+        "heapUsed": 1085613018,
+        "external": 1052161786,
+        "rss": 960647168
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 218234880
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:17.170Z",
+      "jsc": {
+        "extraMemorySize": 991035369,
+        "heapCapacity": 1050837929,
+        "objectCount": 438429,
+        "heapSize": 1024002521,
+        "protectedObjectCount": 1882,
+        "objectTypeCounts": {
+          "ArrayBuffer": 98,
+          "DataView": 100,
+          "Function": 44923,
+          "ReadableStream": 991,
+          "Response": 17,
+          "Promise": 2768,
+          "Uint8Array": 1921,
+          "Request": 736,
+          "Object": 45466
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 562571472,
+        "heapUsed": 1024002521,
+        "external": 991035369,
+        "rss": 952983552
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:22.170Z",
+      "jsc": {
+        "extraMemorySize": 945739636,
+        "heapCapacity": 1005345588,
+        "objectCount": 425167,
+        "heapSize": 978072484,
+        "protectedObjectCount": 1917,
+        "objectTypeCounts": {
+          "ArrayBuffer": 32,
+          "DataView": 28,
+          "Function": 44535,
+          "ReadableStream": 1016,
+          "Response": 2,
+          "Promise": 2601,
+          "Uint8Array": 1910,
+          "Request": 757,
+          "Object": 43101
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 529682060,
+        "heapUsed": 978072484,
+        "external": 945739636,
+        "rss": 951857152
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:27.172Z",
+      "jsc": {
+        "extraMemorySize": 1013560238,
+        "heapCapacity": 1074722670,
+        "objectCount": 443292,
+        "heapSize": 1046770014,
+        "protectedObjectCount": 1964,
+        "objectTypeCounts": {
+          "ArrayBuffer": 157,
+          "DataView": 176,
+          "Function": 45634,
+          "ReadableStream": 1055,
+          "Response": 21,
+          "Promise": 2906,
+          "Uint8Array": 1942,
+          "Request": 787,
+          "Object": 46513
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 584507390,
+        "heapUsed": 1046770014,
+        "external": 1013560238,
+        "rss": 965656576
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:32.174Z",
+      "jsc": {
+        "extraMemorySize": 999552645,
+        "heapCapacity": 1059387973,
+        "objectCount": 441586,
+        "heapSize": 1032682565,
+        "protectedObjectCount": 1977,
+        "objectTypeCounts": {
+          "ArrayBuffer": 120,
+          "DataView": 120,
+          "Function": 45574,
+          "ReadableStream": 1067,
+          "Response": 16,
+          "Promise": 2768,
+          "Uint8Array": 1945,
+          "Request": 793,
+          "Object": 46405
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 568898853,
+        "heapUsed": 1032682565,
+        "external": 999552645,
+        "rss": 967249920
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:37.173Z",
+      "jsc": {
+        "extraMemorySize": 1062016476,
+        "heapCapacity": 1122195868,
+        "objectCount": 457922,
+        "heapSize": 1095805180,
+        "protectedObjectCount": 2025,
+        "objectTypeCounts": {
+          "ArrayBuffer": 237,
+          "DataView": 256,
+          "Function": 46561,
+          "ReadableStream": 1106,
+          "Response": 31,
+          "Promise": 3025,
+          "Uint8Array": 1976,
+          "Request": 820,
+          "Object": 49764
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 624489174,
+        "heapUsed": 1095805180,
+        "external": 1062016476,
+        "rss": 988430336
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:42.173Z",
+      "jsc": {
+        "extraMemorySize": 960793364,
+        "heapCapacity": 1020530388,
+        "objectCount": 440487,
+        "heapSize": 993774244,
+        "protectedObjectCount": 2048,
+        "objectTypeCounts": {
+          "ArrayBuffer": 32,
+          "DataView": 24,
+          "Function": 45589,
+          "ReadableStream": 1125,
+          "Response": 5,
+          "Promise": 2687,
+          "Uint8Array": 1941,
+          "Request": 835,
+          "Object": 46640
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 540856923,
+        "heapUsed": 993774244,
+        "external": 960793364,
+        "rss": 954982400
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:47.176Z",
+      "jsc": {
+        "extraMemorySize": 1029503060,
+        "heapCapacity": 1089813524,
+        "objectCount": 458709,
+        "heapSize": 1063310564,
+        "protectedObjectCount": 2094,
+        "objectTypeCounts": {
+          "ArrayBuffer": 147,
+          "DataView": 160,
+          "Function": 46658,
+          "ReadableStream": 1164,
+          "Response": 23,
+          "Promise": 2957,
+          "Uint8Array": 1971,
+          "Request": 864,
+          "Object": 50295
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 598718651,
+        "heapUsed": 1063310564,
+        "external": 1029503060,
+        "rss": 969248768
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:52.176Z",
+      "jsc": {
+        "extraMemorySize": 1094275296,
+        "heapCapacity": 1156945056,
+        "objectCount": 475528,
+        "heapSize": 1128739584,
+        "protectedObjectCount": 2143,
+        "objectTypeCounts": {
+          "ArrayBuffer": 265,
+          "DataView": 304,
+          "Function": 47602,
+          "ReadableStream": 1203,
+          "Response": 37,
+          "Promise": 3208,
+          "Uint8Array": 1998,
+          "Request": 891,
+          "Object": 53840
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 657853802,
+        "heapUsed": 1128739584,
+        "external": 1094275296,
+        "rss": 1005998080
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:21:57.176Z",
+      "jsc": {
+        "extraMemorySize": 977387325,
+        "heapCapacity": 1037370109,
+        "objectCount": 442570,
+        "heapSize": 1010583517,
+        "protectedObjectCount": 2159,
+        "objectTypeCounts": {
+          "ArrayBuffer": 90,
+          "DataView": 100,
+          "Function": 46411,
+          "ReadableStream": 1212,
+          "Response": 5,
+          "Promise": 2788,
+          "Uint8Array": 1964,
+          "Request": 901,
+          "Object": 46497
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 551954118,
+        "heapUsed": 1010583517,
+        "external": 977387325,
+        "rss": 961400832
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:02.178Z",
+      "jsc": {
+        "extraMemorySize": 966114336,
+        "heapCapacity": 1026195424,
+        "objectCount": 436724,
+        "heapSize": 998989504,
+        "protectedObjectCount": 2200,
+        "objectTypeCounts": {
+          "ArrayBuffer": 39,
+          "DataView": 36,
+          "Function": 46557,
+          "ReadableStream": 1241,
+          "Response": 2,
+          "Promise": 2756,
+          "Uint8Array": 1968,
+          "Request": 925,
+          "Object": 45464
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 545088117,
+        "heapUsed": 998989504,
+        "external": 966114336,
+        "rss": 972193792
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:07.179Z",
+      "jsc": {
+        "extraMemorySize": 1038708895,
+        "heapCapacity": 1099347039,
+        "objectCount": 464577,
+        "heapSize": 1072833231,
+        "protectedObjectCount": 2244,
+        "objectTypeCounts": {
+          "ArrayBuffer": 166,
+          "DataView": 188,
+          "Function": 47559,
+          "ReadableStream": 1281,
+          "Response": 20,
+          "Promise": 3037,
+          "Uint8Array": 1999,
+          "Request": 954,
+          "Object": 51992
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 605666483,
+        "heapUsed": 1072829022,
+        "external": 1038708895,
+        "rss": 987451392
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:12.181Z",
+      "jsc": {
+        "extraMemorySize": 980827501,
+        "heapCapacity": 1041105197,
+        "objectCount": 443249,
+        "heapSize": 1014135853,
+        "protectedObjectCount": 2279,
+        "objectTypeCounts": {
+          "ArrayBuffer": 79,
+          "DataView": 84,
+          "Function": 47317,
+          "ReadableStream": 1305,
+          "Response": 9,
+          "Promise": 2872,
+          "Uint8Array": 1987,
+          "Request": 978,
+          "Object": 46372
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 557248939,
+        "heapUsed": 1014135853,
+        "external": 980827501,
+        "rss": 971841536
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:17.181Z",
+      "jsc": {
+        "extraMemorySize": 970076770,
+        "heapCapacity": 1030239778,
+        "objectCount": 442626,
+        "heapSize": 1003347122,
+        "protectedObjectCount": 2318,
+        "objectTypeCounts": {
+          "ArrayBuffer": 47,
+          "DataView": 48,
+          "Function": 47308,
+          "ReadableStream": 1339,
+          "Response": 1,
+          "Promise": 2810,
+          "Uint8Array": 1990,
+          "Request": 997,
+          "Object": 46406
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 546773057,
+        "heapUsed": 1003347122,
+        "external": 970076770,
+        "rss": 974639104
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:22.183Z",
+      "jsc": {
+        "extraMemorySize": 1040695309,
+        "heapCapacity": 1101415373,
+        "objectCount": 461675,
+        "heapSize": 1074729197,
+        "protectedObjectCount": 2365,
+        "objectTypeCounts": {
+          "ArrayBuffer": 162,
+          "DataView": 180,
+          "Function": 48384,
+          "ReadableStream": 1378,
+          "Response": 20,
+          "Promise": 3092,
+          "Uint8Array": 2020,
+          "Request": 1029,
+          "Object": 50406
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 610281089,
+        "heapUsed": 1074729197,
+        "external": 1040695309,
+        "rss": 985997312
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:27.184Z",
+      "jsc": {
+        "extraMemorySize": 1026326676,
+        "heapCapacity": 1087161428,
+        "objectCount": 471510,
+        "heapSize": 1060751700,
+        "protectedObjectCount": 2401,
+        "objectTypeCounts": {
+          "ArrayBuffer": 98,
+          "DataView": 104,
+          "Function": 48478,
+          "ReadableStream": 1407,
+          "Response": 16,
+          "Promise": 3055,
+          "Uint8Array": 2022,
+          "Request": 1052,
+          "Object": 53704
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 599129308,
+        "heapUsed": 1060751700,
+        "external": 1026326676,
+        "rss": 984281088
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:32.185Z",
+      "jsc": {
+        "extraMemorySize": 1099364072,
+        "heapCapacity": 1160870568,
+        "objectCount": 490532,
+        "heapSize": 1134538072,
+        "protectedObjectCount": 2446,
+        "objectTypeCounts": {
+          "ArrayBuffer": 220,
+          "DataView": 248,
+          "Function": 49509,
+          "ReadableStream": 1446,
+          "Response": 33,
+          "Promise": 3314,
+          "Uint8Array": 2051,
+          "Request": 1079,
+          "Object": 57789
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 663787262,
+        "heapUsed": 1134538072,
+        "external": 1099364072,
+        "rss": 998895616
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:37.186Z",
+      "jsc": {
+        "extraMemorySize": 1044551467,
+        "heapCapacity": 1105271531,
+        "objectCount": 467105,
+        "heapSize": 1078830891,
+        "protectedObjectCount": 2482,
+        "objectTypeCounts": {
+          "ArrayBuffer": 147,
+          "DataView": 164,
+          "Function": 49166,
+          "ReadableStream": 1471,
+          "Response": 18,
+          "Promise": 3138,
+          "Uint8Array": 2043,
+          "Request": 1096,
+          "Object": 51551
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 615021869,
+        "heapUsed": 1078830891,
+        "external": 1044551467,
+        "rss": 988696576
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:42.189Z",
+      "jsc": {
+        "extraMemorySize": 1117636556,
+        "heapCapacity": 1178897292,
+        "objectCount": 486656,
+        "heapSize": 1152692716,
+        "protectedObjectCount": 2527,
+        "objectTypeCounts": {
+          "ArrayBuffer": 263,
+          "DataView": 300,
+          "Function": 50198,
+          "ReadableStream": 1510,
+          "Response": 35,
+          "Promise": 3396,
+          "Uint8Array": 2072,
+          "Request": 1123,
+          "Object": 55771
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 681337590,
+        "heapUsed": 1152692716,
+        "external": 1117636556,
+        "rss": 1002864640
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:47.189Z",
+      "jsc": {
+        "extraMemorySize": 1051448906,
+        "heapCapacity": 1113725450,
+        "objectCount": 491673,
+        "heapSize": 1086693306,
+        "protectedObjectCount": 2562,
+        "objectTypeCounts": {
+          "ArrayBuffer": 140,
+          "DataView": 152,
+          "Function": 49813,
+          "ReadableStream": 1535,
+          "Response": 20,
+          "Promise": 3191,
+          "Uint8Array": 2059,
+          "Request": 1146,
+          "Object": 58985
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 620285746,
+        "heapUsed": 1086693306,
+        "external": 1051448906,
+        "rss": 1004535808
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:52.187Z",
+      "jsc": {
+        "extraMemorySize": 1039363969,
+        "heapCapacity": 1100624705,
+        "objectCount": 470289,
+        "heapSize": 1073788769,
+        "protectedObjectCount": 2576,
+        "objectTypeCounts": {
+          "ArrayBuffer": 115,
+          "DataView": 116,
+          "Function": 49723,
+          "ReadableStream": 1544,
+          "Response": 15,
+          "Promise": 3129,
+          "Uint8Array": 2064,
+          "Request": 1153,
+          "Object": 52414
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 608819340,
+        "heapUsed": 1073788769,
+        "external": 1039363969,
+        "rss": 996732928
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:22:57.187Z",
+      "jsc": {
+        "extraMemorySize": 1114228128,
+        "heapCapacity": 1176045920,
+        "objectCount": 490653,
+        "heapSize": 1149434896,
+        "protectedObjectCount": 2623,
+        "objectTypeCounts": {
+          "ArrayBuffer": 237,
+          "DataView": 264,
+          "Function": 50709,
+          "ReadableStream": 1584,
+          "Response": 31,
+          "Promise": 3403,
+          "Uint8Array": 2091,
+          "Request": 1182,
+          "Object": 56830
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 676889928,
+        "heapUsed": 1149434896,
+        "external": 1114228128,
+        "rss": 1016033280
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:02.199Z",
+      "jsc": {
+        "extraMemorySize": 1176691396,
+        "heapCapacity": 1240203396,
+        "objectCount": 509730,
+        "heapSize": 1212619204,
+        "protectedObjectCount": 2658,
+        "objectTypeCounts": {
+          "ArrayBuffer": 2243,
+          "DataView": 1205,
+          "Function": 53563,
+          "ReadableStream": 1616,
+          "Response": 47,
+          "Promise": 4251,
+          "Uint8Array": 4435,
+          "Request": 1203,
+          "Object": 69273
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 734649596,
+        "heapUsed": 1208256313,
+        "external": 1176691396,
+        "rss": 1029357568
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:07.201Z",
+      "jsc": {
+        "extraMemorySize": 1246449189,
+        "heapCapacity": 1312182757,
+        "objectCount": 530056,
+        "heapSize": 1283152741,
+        "protectedObjectCount": 2707,
+        "objectTypeCounts": {
+          "ArrayBuffer": 466,
+          "DataView": 536,
+          "Function": 52471,
+          "ReadableStream": 1655,
+          "Response": 60,
+          "Promise": 3877,
+          "Uint8Array": 2147,
+          "Request": 1230,
+          "Object": 65523
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 798654090,
+        "heapUsed": 1283152741,
+        "external": 1246449189,
+        "rss": 1045303296
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:12.207Z",
+      "jsc": {
+        "extraMemorySize": 1050238988,
+        "heapCapacity": 1114562572,
+        "objectCount": 482876,
+        "heapSize": 1085207196,
+        "protectedObjectCount": 2721,
+        "objectTypeCounts": {
+          "ArrayBuffer": 7247,
+          "DataView": 3088,
+          "Function": 56414,
+          "ReadableStream": 1666,
+          "Response": 17,
+          "Promise": 4647,
+          "Uint8Array": 10496,
+          "Request": 1239,
+          "Object": 82421
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 619285996,
+        "heapUsed": 1080533410,
+        "external": 1050238988,
+        "rss": 1009512448
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:17.209Z",
+      "jsc": {
+        "extraMemorySize": 1029141855,
+        "heapCapacity": 1091041567,
+        "objectCount": 473105,
+        "heapSize": 1063733487,
+        "protectedObjectCount": 2763,
+        "objectTypeCounts": {
+          "ArrayBuffer": 116,
+          "DataView": 124,
+          "Function": 50826,
+          "ReadableStream": 1687,
+          "Response": 10,
+          "Promise": 3226,
+          "Uint8Array": 2089,
+          "Request": 1264,
+          "Object": 52587
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 599830211,
+        "heapUsed": 1063733487,
+        "external": 1029141855,
+        "rss": 1008439296
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:22.210Z",
+      "jsc": {
+        "extraMemorySize": 1009302174,
+        "heapCapacity": 1070759518,
+        "objectCount": 473578,
+        "heapSize": 1043904334,
+        "protectedObjectCount": 2798,
+        "objectTypeCounts": {
+          "ArrayBuffer": 77,
+          "DataView": 84,
+          "Function": 50767,
+          "ReadableStream": 1721,
+          "Response": 3,
+          "Promise": 3178,
+          "Uint8Array": 2093,
+          "Request": 1285,
+          "Object": 52959
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 585042063,
+        "heapUsed": 1043904334,
+        "external": 1009302174,
+        "rss": 1001836544
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:27.209Z",
+      "jsc": {
+        "extraMemorySize": 1088809033,
+        "heapCapacity": 1151283241,
+        "objectCount": 495174,
+        "heapSize": 1124235705,
+        "protectedObjectCount": 2843,
+        "objectTypeCounts": {
+          "ArrayBuffer": 1131,
+          "DataView": 603,
+          "Function": 52481,
+          "ReadableStream": 1760,
+          "Response": 19,
+          "Promise": 3605,
+          "Uint8Array": 3219,
+          "Request": 1312,
+          "Object": 60989
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 658805304,
+        "heapUsed": 1123624243,
+        "external": 1088809033,
+        "rss": 1010335744
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:32.209Z",
+      "jsc": {
+        "extraMemorySize": 1055460300,
+        "heapCapacity": 1117410220,
+        "objectCount": 497778,
+        "heapSize": 1091004748,
+        "protectedObjectCount": 2880,
+        "objectTypeCounts": {
+          "ArrayBuffer": 1059,
+          "DataView": 501,
+          "Function": 52477,
+          "ReadableStream": 1787,
+          "Response": 14,
+          "Promise": 3495,
+          "Uint8Array": 3232,
+          "Request": 1338,
+          "Object": 62646
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 629242535,
+        "heapUsed": 1090382565,
+        "external": 1055460300,
+        "rss": 1008132096
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:37.212Z",
+      "jsc": {
+        "extraMemorySize": 1017025740,
+        "heapCapacity": 1078728844,
+        "objectCount": 470099,
+        "heapSize": 1051571820,
+        "protectedObjectCount": 2919,
+        "objectTypeCounts": {
+          "ArrayBuffer": 57,
+          "DataView": 60,
+          "Function": 51613,
+          "ReadableStream": 1816,
+          "Response": 4,
+          "Promise": 3233,
+          "Uint8Array": 2111,
+          "Request": 1360,
+          "Object": 51605
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 593003795,
+        "heapUsed": 1051571820,
+        "external": 1017025740,
+        "rss": 1011302400
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:42.211Z",
+      "jsc": {
+        "extraMemorySize": 1098452307,
+        "heapCapacity": 1160810771,
+        "objectCount": 492656,
+        "heapSize": 1133867123,
+        "protectedObjectCount": 2964,
+        "objectTypeCounts": {
+          "ArrayBuffer": 180,
+          "DataView": 208,
+          "Function": 52607,
+          "ReadableStream": 1855,
+          "Response": 20,
+          "Promise": 3494,
+          "Uint8Array": 2140,
+          "Request": 1387,
+          "Object": 56557
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 668651974,
+        "heapUsed": 1133867123,
+        "external": 1098452307,
+        "rss": 1016328192
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:47.219Z",
+      "jsc": {
+        "extraMemorySize": 1181510798,
+        "heapCapacity": 1244065870,
+        "objectCount": 515323,
+        "heapSize": 1217782142,
+        "protectedObjectCount": 3009,
+        "objectTypeCounts": {
+          "ArrayBuffer": 298,
+          "DataView": 348,
+          "Function": 53610,
+          "ReadableStream": 1894,
+          "Response": 37,
+          "Promise": 3769,
+          "Uint8Array": 2169,
+          "Request": 1414,
+          "Object": 61584
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 744850073,
+        "heapUsed": 1217782142,
+        "external": 1181510798,
+        "rss": 1030750208
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:52.212Z",
+      "jsc": {
+        "extraMemorySize": 1265142100,
+        "heapCapacity": 1328123156,
+        "objectCount": 538187,
+        "heapSize": 1302286228,
+        "protectedObjectCount": 3054,
+        "objectTypeCounts": {
+          "ArrayBuffer": 421,
+          "DataView": 496,
+          "Function": 54604,
+          "ReadableStream": 1933,
+          "Response": 53,
+          "Promise": 4030,
+          "Uint8Array": 2198,
+          "Request": 1441,
+          "Object": 66672
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 822677337,
+        "heapUsed": 1302286228,
+        "external": 1265142100,
+        "rss": 1048981504
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:23:57.214Z",
+      "jsc": {
+        "extraMemorySize": 1068345580,
+        "heapCapacity": 1130687660,
+        "objectCount": 507345,
+        "heapSize": 1104311164,
+        "protectedObjectCount": 3059,
+        "objectTypeCounts": {
+          "ArrayBuffer": 99,
+          "DataView": 96,
+          "Function": 53204,
+          "ReadableStream": 1937,
+          "Response": 16,
+          "Promise": 3428,
+          "Uint8Array": 2162,
+          "Request": 1441,
+          "Object": 61510
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 637661228,
+        "heapUsed": 1104311164,
+        "external": 1068345580,
+        "rss": 1029693440
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:02.213Z",
+      "jsc": {
+        "extraMemorySize": 1068264018,
+        "heapCapacity": 1131998738,
+        "objectCount": 495586,
+        "heapSize": 1103804754,
+        "protectedObjectCount": 3098,
+        "objectTypeCounts": {
+          "ArrayBuffer": 86,
+          "DataView": 88,
+          "Function": 53283,
+          "ReadableStream": 1961,
+          "Response": 12,
+          "Promise": 3426,
+          "Uint8Array": 2160,
+          "Request": 1465,
+          "Object": 57589
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 638425158,
+        "heapUsed": 1103804754,
+        "external": 1068264018,
+        "rss": 1040642048
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:07.215Z",
+      "jsc": {
+        "extraMemorySize": 1131146767,
+        "heapCapacity": 1193996751,
+        "objectCount": 517373,
+        "heapSize": 1167499887,
+        "protectedObjectCount": 3137,
+        "objectTypeCounts": {
+          "ArrayBuffer": 199,
+          "DataView": 228,
+          "Function": 54019,
+          "ReadableStream": 1994,
+          "Response": 24,
+          "Promise": 3612,
+          "Uint8Array": 2181,
+          "Request": 1490,
+          "Object": 62558
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 697472579,
+        "heapUsed": 1167499887,
+        "external": 1131146767,
+        "rss": 1039454208
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:12.215Z",
+      "jsc": {
+        "extraMemorySize": 1194418109,
+        "heapCapacity": 1257481085,
+        "objectCount": 523714,
+        "heapSize": 1231059709,
+        "protectedObjectCount": 3169,
+        "objectTypeCounts": {
+          "ArrayBuffer": 313,
+          "DataView": 364,
+          "Function": 54813,
+          "ReadableStream": 2022,
+          "Response": 38,
+          "Promise": 3819,
+          "Uint8Array": 2203,
+          "Request": 1511,
+          "Object": 63448
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 755422492,
+        "heapUsed": 1231059709,
+        "external": 1194418109,
+        "rss": 1037672448
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:17.214Z",
+      "jsc": {
+        "extraMemorySize": 1093008930,
+        "heapCapacity": 1155678690,
+        "objectCount": 516308,
+        "heapSize": 1129368306,
+        "protectedObjectCount": 3203,
+        "objectTypeCounts": {
+          "ArrayBuffer": 134,
+          "DataView": 152,
+          "Function": 54121,
+          "ReadableStream": 2050,
+          "Response": 15,
+          "Promise": 3558,
+          "Uint8Array": 2184,
+          "Request": 1527,
+          "Object": 63180
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 662723285,
+        "heapUsed": 1129368306,
+        "external": 1093008930,
+        "rss": 1040191488
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:22.217Z",
+      "jsc": {
+        "extraMemorySize": 1076592124,
+        "heapCapacity": 1139212732,
+        "objectCount": 506371,
+        "heapSize": 1112573836,
+        "protectedObjectCount": 3241,
+        "objectTypeCounts": {
+          "ArrayBuffer": 114,
+          "DataView": 124,
+          "Function": 54315,
+          "ReadableStream": 2073,
+          "Response": 14,
+          "Promise": 3571,
+          "Uint8Array": 2189,
+          "Request": 1557,
+          "Object": 59812
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 648784484,
+        "heapUsed": 1112573836,
+        "external": 1076592124,
+        "rss": 1030369280
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 222429184
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:27.221Z",
+      "jsc": {
+        "extraMemorySize": 1066207041,
+        "heapCapacity": 1128811265,
+        "objectCount": 496594,
+        "heapSize": 1101873073,
+        "protectedObjectCount": 3279,
+        "objectTypeCounts": {
+          "ArrayBuffer": 99,
+          "DataView": 108,
+          "Function": 54444,
+          "ReadableStream": 2110,
+          "Response": 11,
+          "Promise": 3540,
+          "Uint8Array": 2194,
+          "Request": 1573,
+          "Object": 57140
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 639762471,
+        "heapUsed": 1101873073,
+        "external": 1066207041,
+        "rss": 1030246400
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:32.220Z",
+      "jsc": {
+        "extraMemorySize": 1015811092,
+        "heapCapacity": 1077841876,
+        "objectCount": 476933,
+        "heapSize": 1050625540,
+        "protectedObjectCount": 3317,
+        "objectTypeCounts": {
+          "ArrayBuffer": 38,
+          "DataView": 36,
+          "Function": 54289,
+          "ReadableStream": 2134,
+          "Response": 1,
+          "Promise": 3404,
+          "Uint8Array": 2188,
+          "Request": 1597,
+          "Object": 54753
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 599075845,
+        "heapUsed": 1050625540,
+        "external": 1015811092,
+        "rss": 1031987200
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:37.223Z",
+      "jsc": {
+        "extraMemorySize": 1113686444,
+        "heapCapacity": 1176700268,
+        "objectCount": 533001,
+        "heapSize": 1150834588,
+        "protectedObjectCount": 3364,
+        "objectTypeCounts": {
+          "ArrayBuffer": 168,
+          "DataView": 192,
+          "Function": 55345,
+          "ReadableStream": 2173,
+          "Response": 19,
+          "Promise": 3681,
+          "Uint8Array": 2218,
+          "Request": 1629,
+          "Object": 69740
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 682707340,
+        "heapUsed": 1150834588,
+        "external": 1113686444,
+        "rss": 1040031744
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:42.222Z",
+      "jsc": {
+        "extraMemorySize": 1062316225,
+        "heapCapacity": 1125182593,
+        "objectCount": 493498,
+        "heapSize": 1097954225,
+        "protectedObjectCount": 3400,
+        "objectTypeCounts": {
+          "ArrayBuffer": 63,
+          "DataView": 64,
+          "Function": 55146,
+          "ReadableStream": 2203,
+          "Response": 8,
+          "Promise": 3581,
+          "Uint8Array": 2213,
+          "Request": 1648,
+          "Object": 58149
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 637656622,
+        "heapUsed": 1097954225,
+        "external": 1062316225,
+        "rss": 1036886016
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:47.223Z",
+      "jsc": {
+        "extraMemorySize": 1043490154,
+        "heapCapacity": 1105881386,
+        "objectCount": 484746,
+        "heapSize": 1078841722,
+        "protectedObjectCount": 3438,
+        "objectTypeCounts": {
+          "ArrayBuffer": 40,
+          "DataView": 36,
+          "Function": 55259,
+          "ReadableStream": 2233,
+          "Response": 4,
+          "Promise": 3553,
+          "Uint8Array": 2215,
+          "Request": 1669,
+          "Object": 56034
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 619304176,
+        "heapUsed": 1078841722,
+        "external": 1043490154,
+        "rss": 1050443776
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:52.221Z",
+      "jsc": {
+        "extraMemorySize": 1119213143,
+        "heapCapacity": 1182112279,
+        "objectCount": 508472,
+        "heapSize": 1155461367,
+        "protectedObjectCount": 3457,
+        "objectTypeCounts": {
+          "ArrayBuffer": 147,
+          "DataView": 164,
+          "Function": 55996,
+          "ReadableStream": 2252,
+          "Response": 17,
+          "Promise": 3740,
+          "Uint8Array": 2237,
+          "Request": 1681,
+          "Object": 61635
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 689062666,
+        "heapUsed": 1155461367,
+        "external": 1119213143,
+        "rss": 1048489984
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:24:57.224Z",
+      "jsc": {
+        "extraMemorySize": 1091410305,
+        "heapCapacity": 1157051905,
+        "objectCount": 536474,
+        "heapSize": 1128659521,
+        "protectedObjectCount": 3489,
+        "objectTypeCounts": {
+          "ArrayBuffer": 6186,
+          "DataView": 2534,
+          "Function": 67191,
+          "ReadableStream": 2277,
+          "Response": 12,
+          "Promise": 4734,
+          "Uint8Array": 9438,
+          "Request": 1702,
+          "Object": 106079
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 662798630,
+        "heapUsed": 1123840365,
+        "external": 1091410305,
+        "rss": 1074921472
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:02.223Z",
+      "jsc": {
+        "extraMemorySize": 1033531254,
+        "heapCapacity": 1096446774,
+        "objectCount": 495956,
+        "heapSize": 1069271526,
+        "protectedObjectCount": 3528,
+        "objectTypeCounts": {
+          "ArrayBuffer": 18,
+          "DataView": 8,
+          "Function": 55843,
+          "ReadableStream": 2302,
+          "Response": 2,
+          "Promise": 3542,
+          "Uint8Array": 2233,
+          "Request": 1723,
+          "Object": 59007
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 609569294,
+        "heapUsed": 1069271526,
+        "external": 1033531254,
+        "rss": 1071833088
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:07.225Z",
+      "jsc": {
+        "extraMemorySize": 1104660970,
+        "heapCapacity": 1168133546,
+        "objectCount": 502660,
+        "heapSize": 1140737994,
+        "protectedObjectCount": 3562,
+        "objectTypeCounts": {
+          "ArrayBuffer": 132,
+          "DataView": 140,
+          "Function": 56641,
+          "ReadableStream": 2330,
+          "Response": 16,
+          "Promise": 3759,
+          "Uint8Array": 2260,
+          "Request": 1744,
+          "Object": 59900
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 672852557,
+        "heapUsed": 1140737994,
+        "external": 1104660970,
+        "rss": 1053741056
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:12.227Z",
+      "jsc": {
+        "extraMemorySize": 1099496802,
+        "heapCapacity": 1162772770,
+        "objectCount": 503909,
+        "heapSize": 1135631698,
+        "protectedObjectCount": 3601,
+        "objectTypeCounts": {
+          "ArrayBuffer": 119,
+          "DataView": 132,
+          "Function": 56805,
+          "ReadableStream": 2362,
+          "Response": 13,
+          "Promise": 3762,
+          "Uint8Array": 2260,
+          "Request": 1765,
+          "Object": 60172
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 670670986,
+        "heapUsed": 1135631698,
+        "external": 1099496802,
+        "rss": 1060220928
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:17.229Z",
+      "jsc": {
+        "extraMemorySize": 1035752922,
+        "heapCapacity": 1098488218,
+        "objectCount": 489262,
+        "heapSize": 1071162314,
+        "protectedObjectCount": 3636,
+        "objectTypeCounts": {
+          "ArrayBuffer": 47,
+          "DataView": 48,
+          "Function": 56524,
+          "ReadableStream": 2389,
+          "Response": 1,
+          "Promise": 3597,
+          "Uint8Array": 2252,
+          "Request": 1789,
+          "Object": 57430
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 618773696,
+        "heapUsed": 1071162314,
+        "external": 1035752922,
+        "rss": 1047715840
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:22.232Z",
+      "jsc": {
+        "extraMemorySize": 1040719388,
+        "heapCapacity": 1103536604,
+        "objectCount": 492101,
+        "heapSize": 1076414828,
+        "protectedObjectCount": 3678,
+        "objectTypeCounts": {
+          "ArrayBuffer": 29,
+          "DataView": 24,
+          "Function": 56813,
+          "ReadableStream": 2425,
+          "Response": 1,
+          "Promise": 3622,
+          "Uint8Array": 2261,
+          "Request": 1813,
+          "Object": 57778
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 617024820,
+        "heapUsed": 1076414828,
+        "external": 1040719388,
+        "rss": 1050202112
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:27.231Z",
+      "jsc": {
+        "extraMemorySize": 1139658606,
+        "heapCapacity": 1203049262,
+        "objectCount": 519867,
+        "heapSize": 1176433598,
+        "protectedObjectCount": 3725,
+        "objectTypeCounts": {
+          "ArrayBuffer": 148,
+          "DataView": 164,
+          "Function": 57870,
+          "ReadableStream": 2464,
+          "Response": 19,
+          "Promise": 3900,
+          "Uint8Array": 2292,
+          "Request": 1843,
+          "Object": 64070
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 709269866,
+        "heapUsed": 1176433598,
+        "external": 1139658606,
+        "rss": 1060782080
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:32.234Z",
+      "jsc": {
+        "extraMemorySize": 1238715954,
+        "heapCapacity": 1302778354,
+        "objectCount": 547522,
+        "heapSize": 1276528754,
+        "protectedObjectCount": 3770,
+        "objectTypeCounts": {
+          "ArrayBuffer": 277,
+          "DataView": 320,
+          "Function": 58906,
+          "ReadableStream": 2504,
+          "Response": 37,
+          "Promise": 4189,
+          "Uint8Array": 2322,
+          "Request": 1872,
+          "Object": 70432
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 802353049,
+        "heapUsed": 1276528754,
+        "external": 1238715954,
+        "rss": 1072766976
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:37.238Z",
+      "jsc": {
+        "extraMemorySize": 1066055530,
+        "heapCapacity": 1129495338,
+        "objectCount": 498759,
+        "heapSize": 1102050250,
+        "protectedObjectCount": 3802,
+        "objectTypeCounts": {
+          "ArrayBuffer": 54,
+          "DataView": 52,
+          "Function": 57971,
+          "ReadableStream": 2528,
+          "Response": 9,
+          "Promise": 3790,
+          "Uint8Array": 2292,
+          "Request": 1890,
+          "Object": 59111
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 644140051,
+        "heapUsed": 1102050250,
+        "external": 1066055530,
+        "rss": 1063739392
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 226623488
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:42.238Z",
+      "jsc": {
+        "extraMemorySize": 1091768771,
+        "heapCapacity": 1156961667,
+        "objectCount": 511624,
+        "heapSize": 1128278307,
+        "protectedObjectCount": 3838,
+        "objectTypeCounts": {
+          "ArrayBuffer": 54,
+          "DataView": 52,
+          "Function": 58213,
+          "ReadableStream": 2555,
+          "Response": 8,
+          "Promise": 3844,
+          "Uint8Array": 2302,
+          "Request": 1909,
+          "Object": 62188
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 664018230,
+        "heapUsed": 1128278307,
+        "external": 1091768771,
+        "rss": 1076183040
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:47.239Z",
+      "jsc": {
+        "extraMemorySize": 1047881122,
+        "heapCapacity": 1112123746,
+        "objectCount": 499249,
+        "heapSize": 1083943298,
+        "protectedObjectCount": 3857,
+        "objectTypeCounts": {
+          "ArrayBuffer": 17,
+          "DataView": 8,
+          "Function": 58052,
+          "ReadableStream": 2561,
+          "Response": 1,
+          "Promise": 3724,
+          "Uint8Array": 2295,
+          "Request": 1921,
+          "Object": 59304
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 623422494,
+        "heapUsed": 1083943298,
+        "external": 1047881122,
+        "rss": 1075367936
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:52.239Z",
+      "jsc": {
+        "extraMemorySize": 1132243494,
+        "heapCapacity": 1197475814,
+        "objectCount": 525910,
+        "heapSize": 1169290374,
+        "protectedObjectCount": 3887,
+        "objectTypeCounts": {
+          "ArrayBuffer": 2977,
+          "DataView": 1289,
+          "Function": 61171,
+          "ReadableStream": 2594,
+          "Response": 14,
+          "Promise": 4537,
+          "Uint8Array": 5731,
+          "Request": 1944,
+          "Object": 76837
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 703848416,
+        "heapUsed": 1164265905,
+        "external": 1132243494,
+        "rss": 1077424128
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:25:57.241Z",
+      "jsc": {
+        "extraMemorySize": 1080737851,
+        "heapCapacity": 1146160123,
+        "objectCount": 542479,
+        "heapSize": 1118321819,
+        "protectedObjectCount": 3930,
+        "objectTypeCounts": {
+          "ArrayBuffer": 39,
+          "DataView": 32,
+          "Function": 58835,
+          "ReadableStream": 2628,
+          "Response": 6,
+          "Promise": 3833,
+          "Uint8Array": 2319,
+          "Request": 1963,
+          "Object": 71334
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 657725879,
+        "heapUsed": 1118321819,
+        "external": 1080737851,
+        "rss": 1080897536
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:02.242Z",
+      "jsc": {
+        "extraMemorySize": 1158656534,
+        "heapCapacity": 1222997462,
+        "objectCount": 567345,
+        "heapSize": 1197332854,
+        "protectedObjectCount": 3963,
+        "objectTypeCounts": {
+          "ArrayBuffer": 149,
+          "DataView": 164,
+          "Function": 59653,
+          "ReadableStream": 2656,
+          "Response": 21,
+          "Promise": 4052,
+          "Uint8Array": 2342,
+          "Request": 1986,
+          "Object": 77922
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 726168140,
+        "heapUsed": 1197332854,
+        "external": 1158656534,
+        "rss": 1075154944
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:07.245Z",
+      "jsc": {
+        "extraMemorySize": 1058630129,
+        "heapCapacity": 1122479537,
+        "objectCount": 519030,
+        "heapSize": 1095441281,
+        "protectedObjectCount": 3997,
+        "objectTypeCounts": {
+          "ArrayBuffer": 33,
+          "DataView": 28,
+          "Function": 59120,
+          "ReadableStream": 2680,
+          "Response": 1,
+          "Promise": 3837,
+          "Uint8Array": 2328,
+          "Request": 2005,
+          "Object": 64245
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 634089082,
+        "heapUsed": 1095441281,
+        "external": 1058630129,
+        "rss": 1072492544
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:12.246Z",
+      "jsc": {
+        "extraMemorySize": 1062595874,
+        "heapCapacity": 1126445282,
+        "objectCount": 506707,
+        "heapSize": 1099003842,
+        "protectedObjectCount": 4038,
+        "objectTypeCounts": {
+          "ArrayBuffer": 35,
+          "DataView": 32,
+          "Function": 59337,
+          "ReadableStream": 2713,
+          "Response": 1,
+          "Promise": 3839,
+          "Uint8Array": 2333,
+          "Request": 2029,
+          "Object": 60796
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 638058647,
+        "heapUsed": 1099003842,
+        "external": 1062595874,
+        "rss": 1071308800
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:17.248Z",
+      "jsc": {
+        "extraMemorySize": 1168526487,
+        "heapCapacity": 1233096791,
+        "objectCount": 536463,
+        "heapSize": 1206057847,
+        "protectedObjectCount": 4083,
+        "objectTypeCounts": {
+          "ArrayBuffer": 158,
+          "DataView": 180,
+          "Function": 60355,
+          "ReadableStream": 2753,
+          "Response": 18,
+          "Promise": 4104,
+          "Uint8Array": 2362,
+          "Request": 2058,
+          "Object": 67685
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 737936954,
+        "heapUsed": 1206057847,
+        "external": 1168526487,
+        "rss": 1074823168
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:22.249Z",
+      "jsc": {
+        "extraMemorySize": 1116363248,
+        "heapCapacity": 1180966320,
+        "objectCount": 562243,
+        "heapSize": 1154889680,
+        "protectedObjectCount": 4120,
+        "objectTypeCounts": {
+          "ArrayBuffer": 84,
+          "DataView": 88,
+          "Function": 60360,
+          "ReadableStream": 2777,
+          "Response": 12,
+          "Promise": 4046,
+          "Uint8Array": 2361,
+          "Request": 2082,
+          "Object": 76804
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 690606303,
+        "heapUsed": 1154889680,
+        "external": 1116363248,
+        "rss": 1078620160
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:27.252Z",
+      "jsc": {
+        "extraMemorySize": 1118360234,
+        "heapCapacity": 1183176298,
+        "objectCount": 526892,
+        "heapSize": 1155578362,
+        "protectedObjectCount": 4159,
+        "objectTypeCounts": {
+          "ArrayBuffer": 76,
+          "DataView": 76,
+          "Function": 60635,
+          "ReadableStream": 2812,
+          "Response": 12,
+          "Promise": 4072,
+          "Uint8Array": 2371,
+          "Request": 2101,
+          "Object": 65262
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 691463880,
+        "heapUsed": 1155578362,
+        "external": 1118360234,
+        "rss": 1082023936
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:32.253Z",
+      "jsc": {
+        "extraMemorySize": 1118608721,
+        "heapCapacity": 1185423633,
+        "objectCount": 528621,
+        "heapSize": 1155893793,
+        "protectedObjectCount": 4199,
+        "objectTypeCounts": {
+          "ArrayBuffer": 70,
+          "DataView": 68,
+          "Function": 60908,
+          "ReadableStream": 2840,
+          "Response": 12,
+          "Promise": 4088,
+          "Uint8Array": 2378,
+          "Request": 2128,
+          "Object": 65629
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 691745158,
+        "heapUsed": 1155893793,
+        "external": 1118608721,
+        "rss": 1097981952
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:37.253Z",
+      "jsc": {
+        "extraMemorySize": 1102457319,
+        "heapCapacity": 1167256999,
+        "objectCount": 528158,
+        "heapSize": 1139728135,
+        "protectedObjectCount": 4212,
+        "objectTypeCounts": {
+          "ArrayBuffer": 44,
+          "DataView": 36,
+          "Function": 60885,
+          "ReadableStream": 2855,
+          "Response": 8,
+          "Promise": 4036,
+          "Uint8Array": 2379,
+          "Request": 2134,
+          "Object": 65654
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 673564094,
+        "heapUsed": 1139728135,
+        "external": 1102457319,
+        "rss": 1100967936
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:42.256Z",
+      "jsc": {
+        "extraMemorySize": 1071719305,
+        "heapCapacity": 1136305993,
+        "objectCount": 527480,
+        "heapSize": 1108921209,
+        "protectedObjectCount": 4245,
+        "objectTypeCounts": {
+          "ArrayBuffer": 23,
+          "DataView": 12,
+          "Function": 60915,
+          "ReadableStream": 2877,
+          "Response": 4,
+          "Promise": 3977,
+          "Uint8Array": 2379,
+          "Request": 2155,
+          "Object": 65687
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 647347376,
+        "heapUsed": 1108921209,
+        "external": 1071719305,
+        "rss": 1085419520
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:47.257Z",
+      "jsc": {
+        "extraMemorySize": 1085466316,
+        "heapCapacity": 1152346764,
+        "objectCount": 542888,
+        "heapSize": 1123265532,
+        "protectedObjectCount": 4287,
+        "objectTypeCounts": {
+          "ArrayBuffer": 24,
+          "DataView": 16,
+          "Function": 61195,
+          "ReadableStream": 2912,
+          "Response": 3,
+          "Promise": 4023,
+          "Uint8Array": 2385,
+          "Request": 2179,
+          "Object": 69674
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 660080391,
+        "heapUsed": 1123265532,
+        "external": 1085466316,
+        "rss": 1110396928
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:52.259Z",
+      "jsc": {
+        "extraMemorySize": 1163952954,
+        "heapCapacity": 1228900090,
+        "objectCount": 549089,
+        "heapSize": 1202037386,
+        "protectedObjectCount": 4321,
+        "objectTypeCounts": {
+          "ArrayBuffer": 135,
+          "DataView": 148,
+          "Function": 62127,
+          "ReadableStream": 2940,
+          "Response": 18,
+          "Promise": 4246,
+          "Uint8Array": 2425,
+          "Request": 2200,
+          "Object": 70806
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 734257539,
+        "heapUsed": 1202036413,
+        "external": 1163952954,
+        "rss": 1091198976
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:26:57.260Z",
+      "jsc": {
+        "extraMemorySize": 1119731890,
+        "heapCapacity": 1185221810,
+        "objectCount": 568754,
+        "heapSize": 1158526130,
+        "protectedObjectCount": 4359,
+        "objectTypeCounts": {
+          "ArrayBuffer": 3133,
+          "DataView": 1287,
+          "Function": 63773,
+          "ReadableStream": 2968,
+          "Response": 11,
+          "Promise": 4503,
+          "Uint8Array": 5941,
+          "Request": 2226,
+          "Object": 90432
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 693967288,
+        "heapUsed": 1156486711,
+        "external": 1119731890,
+        "rss": 1098797056
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:02.264Z",
+      "jsc": {
+        "extraMemorySize": 1145004866,
+        "heapCapacity": 1210230530,
+        "objectCount": 538016,
+        "heapSize": 1182732466,
+        "protectedObjectCount": 4398,
+        "objectTypeCounts": {
+          "ArrayBuffer": 113,
+          "DataView": 124,
+          "Function": 62294,
+          "ReadableStream": 3003,
+          "Response": 11,
+          "Promise": 4231,
+          "Uint8Array": 2419,
+          "Request": 2245,
+          "Object": 67561
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 715866804,
+        "heapUsed": 1182732466,
+        "external": 1145004866,
+        "rss": 1097871360
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:07.263Z",
+      "jsc": {
+        "extraMemorySize": 1137997377,
+        "heapCapacity": 1203075585,
+        "objectCount": 538961,
+        "heapSize": 1175744017,
+        "protectedObjectCount": 4438,
+        "objectTypeCounts": {
+          "ArrayBuffer": 97,
+          "DataView": 108,
+          "Function": 62450,
+          "ReadableStream": 3029,
+          "Response": 9,
+          "Promise": 4214,
+          "Uint8Array": 2421,
+          "Request": 2272,
+          "Object": 67770
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 712671905,
+        "heapUsed": 1175744017,
+        "external": 1137997377,
+        "rss": 1096163328
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:12.268Z",
+      "jsc": {
+        "extraMemorySize": 1254397925,
+        "heapCapacity": 1320229797,
+        "objectCount": 571530,
+        "heapSize": 1293366213,
+        "protectedObjectCount": 4486,
+        "objectTypeCounts": {
+          "ArrayBuffer": 226,
+          "DataView": 256,
+          "Function": 63528,
+          "ReadableStream": 3069,
+          "Response": 28,
+          "Promise": 4490,
+          "Uint8Array": 2456,
+          "Request": 2304,
+          "Object": 75388
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 819934744,
+        "heapUsed": 1293366213,
+        "external": 1254397925,
+        "rss": 1111498752
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:17.274Z",
+      "jsc": {
+        "extraMemorySize": 1195079164,
+        "heapCapacity": 1261287868,
+        "objectCount": 599258,
+        "heapSize": 1235153324,
+        "protectedObjectCount": 4526,
+        "objectTypeCounts": {
+          "ArrayBuffer": 132,
+          "DataView": 144,
+          "Function": 63539,
+          "ReadableStream": 3108,
+          "Response": 21,
+          "Promise": 4379,
+          "Uint8Array": 2452,
+          "Request": 2327,
+          "Object": 85451
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 763221547,
+        "heapUsed": 1235153324,
+        "external": 1195079164,
+        "rss": 1106710528
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:22.271Z",
+      "jsc": {
+        "extraMemorySize": 1178904757,
+        "heapCapacity": 1244507253,
+        "objectCount": 556326,
+        "heapSize": 1217361989,
+        "protectedObjectCount": 4561,
+        "objectTypeCounts": {
+          "ArrayBuffer": 83,
+          "DataView": 80,
+          "Function": 63622,
+          "ReadableStream": 3134,
+          "Response": 16,
+          "Promise": 4350,
+          "Uint8Array": 2455,
+          "Request": 2344,
+          "Object": 72427
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 748009739,
+        "heapUsed": 1217361989,
+        "external": 1178904757,
+        "rss": 1125703680
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:27.270Z",
+      "jsc": {
+        "extraMemorySize": 1086596326,
+        "heapCapacity": 1152870566,
+        "objectCount": 527468,
+        "heapSize": 1124002806,
+        "protectedObjectCount": 4582,
+        "objectTypeCounts": {
+          "ArrayBuffer": 25,
+          "DataView": 16,
+          "Function": 63214,
+          "ReadableStream": 3144,
+          "Response": 3,
+          "Promise": 4177,
+          "Uint8Array": 2443,
+          "Request": 2353,
+          "Object": 65418
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 663874698,
+        "heapUsed": 1124002806,
+        "external": 1086596326,
+        "rss": 1121148928
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:32.295Z",
+      "jsc": {
+        "extraMemorySize": 1182608154,
+        "heapCapacity": 1250614650,
+        "objectCount": 558776,
+        "heapSize": 1221171082,
+        "protectedObjectCount": 4611,
+        "objectTypeCounts": {
+          "ArrayBuffer": 8761,
+          "DataView": 3589,
+          "Function": 70501,
+          "ReadableStream": 3176,
+          "Response": 16,
+          "Promise": 5777,
+          "Uint8Array": 12637,
+          "Request": 2374,
+          "Object": 106991
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 752679127,
+        "heapUsed": 1215623943,
+        "external": 1182608154,
+        "rss": 1118740480
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:37.298Z",
+      "jsc": {
+        "extraMemorySize": 1148304479,
+        "heapCapacity": 1216446495,
+        "objectCount": 579848,
+        "heapSize": 1187602687,
+        "protectedObjectCount": 4653,
+        "objectTypeCounts": {
+          "ArrayBuffer": 101,
+          "DataView": 112,
+          "Function": 63989,
+          "ReadableStream": 3205,
+          "Response": 8,
+          "Promise": 4304,
+          "Uint8Array": 2466,
+          "Request": 2398,
+          "Object": 79981
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 721442130,
+        "heapUsed": 1187602687,
+        "external": 1148304479,
+        "rss": 1124159488
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    },
+    {
+      "capturedAt": "2026-09-07T07:27:42.298Z",
+      "jsc": {
+        "extraMemorySize": 1094132864,
+        "heapCapacity": 1159292992,
+        "objectCount": 531136,
+        "heapSize": 1131697216,
+        "protectedObjectCount": 4678,
+        "objectTypeCounts": {
+          "ArrayBuffer": 29,
+          "DataView": 20,
+          "Function": 63950,
+          "ReadableStream": 3225,
+          "Response": 4,
+          "Promise": 4237,
+          "Uint8Array": 2465,
+          "Request": 2413,
+          "Object": 66266
+        }
+      },
+      "processMemory": {
+        "arrayBuffers": 669175458,
+        "heapUsed": 1131697216,
+        "external": 1094132864,
+        "rss": 1114251264
+      },
+      "resourceUsage": {
+        "maxRssBytes": 1232769024,
+        "maxRssKiB": 1203876
+      },
+      "mimalloc": {
+        "reservedCurrent": 1076166656,
+        "commitCurrent": 230817792
+      }
+    }
+  ]
+}

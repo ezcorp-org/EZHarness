@@ -206,7 +206,7 @@ test("generate-morning-briefing produces a dollar-headlined markdown report", as
 
 test("manifest declares the expected tools, agent, and skill", async () => {
   const manifest = (await import(import.meta.dir + "/ezcorp.config.ts")).default;
-  expect(manifest.schemaVersion).toBe(2);
+  expect(manifest.schemaVersion).toBe(4);
   expect(manifest.name).toBe("cash-recovery-agent");
   expect(manifest.persistent).toBe(true);
   const toolNames = (manifest.tools as Array<{ name: string }>).map((t) => t.name);

@@ -1,0 +1,1426 @@
+{
+  "candidate_error_fatal_count": 0,
+  "checkout_source_commit_sha": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "composeLogCount": 11,
+  "image_source_commit_sha": "9ca275838faf30666da5dba1c0eba141dd053050",
+  "inputRoot": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-final-d2222840-20260907T091448Z/canonical-eight/runtime",
+  "logs": [
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "warn",
+            "lines": [
+              20
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 3,
+            "level": "info",
+            "lines": [
+              1,
+              39,
+              104
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 3,
+            "level": "info",
+            "lines": [
+              13,
+              78,
+              143
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 3,
+            "level": "info",
+            "lines": [
+              4,
+              69,
+              134
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 138,
+        "warn": 5
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 19,
+          "rawSha256": "455b993c5e1d5bdb88e535ce256a9547a5ab3d62d2e76e172ce6146dbd4b06ad",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 23,
+          "rawSha256": "270ead2f9884b056a92bf6b344b668bf4b2508e1e474e870cee37ea03eb591d6",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 24,
+          "rawSha256": "f60516686c999de8f20ed04ca75b01847e7333c4620cc6de049eb1289d75a9e5",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 84,
+          "rawSha256": "455b993c5e1d5bdb88e535ce256a9547a5ab3d62d2e76e172ce6146dbd4b06ad",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 88,
+          "rawSha256": "270ead2f9884b056a92bf6b344b668bf4b2508e1e474e870cee37ea03eb591d6",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 89,
+          "rawSha256": "f60516686c999de8f20ed04ca75b01847e7333c4620cc6de049eb1289d75a9e5",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 149,
+          "rawSha256": "455b993c5e1d5bdb88e535ce256a9547a5ab3d62d2e76e172ce6146dbd4b06ad",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 151,
+          "rawSha256": "249750b643446d389b2bd29afe95d00a2594b3d712f885d7a5486ef854124b69",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 152,
+          "rawSha256": "1f4f285c4fcd3e91093296bc1c99a0b6aa222072c0cf4cb8e0fbdc6ad80160c9",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 153,
+          "rawSha256": "27d60934d17dd2e419d9c7f20899481906030792b63517a6762d388154be57e5",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 154,
+          "rawSha256": "04ebbb1e0783f1ede4810377182bd0d340a01a0e6c54a7d3d2658291c061b54c",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 155,
+          "rawSha256": "c834c30b960824e8b77765a94a956dfc521ce19374cd466a8957aaeba48ef326",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 156,
+          "rawSha256": "c55fdad88bc2a5ecbbc15b3c8cc8abaddd0ec77e20f31399f64f6d29960e00bc",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "Four dispatch warnings occur in the intentional killed-worker delivery cases; all six outcome/effect predicates pass. No embedding-ready transition is retained for this leaf.",
+      "parsedStructuredJsonCount": 143,
+      "rawLineCount": 156,
+      "rawSha256": "dc85cc9ee0f43d220424a0801f736d22991f3bb00524eccddaef40f323f88814",
+      "relativePath": "delivery/runtime/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 143
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "warn",
+          "lines": [
+            20
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        },
+        {
+          "code": "<missing>",
+          "count": 4,
+          "level": "warn",
+          "lines": [
+            21,
+            85,
+            86,
+            150
+          ],
+          "message": "hub action subprocess dispatch failed",
+          "subsystem": "ext-events"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "warn",
+            "lines": [
+              20
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              1
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              13
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              4
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 18,
+        "warn": 1
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 19,
+          "rawSha256": "b7bb8cf8d35534ff75117298a7b70b2a05339d7c12909d0e385e226e72028b2d",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 21,
+          "rawSha256": "b59acf7331f7cd3cc4793e6f2a6338c1d4fbb7b8a62d22b4726d32341b7be0e2",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 22,
+          "rawSha256": "a36a09de242213275a7554b49709dfec2e038d817c92932f991a8f73b57fb301",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 23,
+          "rawSha256": "68343f76815fd1265e32ae38504bf6fe6bbe9dcdcd52be748d9a083b058ef78b",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 24,
+          "rawSha256": "fcda997b41f79bb3f070b847e93f839ed1e528d422955d06b4c9711051bebf7e",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 25,
+          "rawSha256": "52fc3fc3d3e77e05f1d507c63e0f1918d350f43297e6a79db2eba9d05eef9497",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 26,
+          "rawSha256": "76fd3939bbec3fe8cb9b600667ab368df4ac8a25faa54fa4692ad360fb6398b8",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "HTTP assertions independently prove a stored normalized 384-value vector and ready health. No later background-worker resume event is retained before cleanup.",
+      "parsedStructuredJsonCount": 19,
+      "rawLineCount": 26,
+      "rawSha256": "1a13dcc93b7f0ca3098b376a4dc4399291de5b990563f1dff468513ab5b2b4d9",
+      "relativePath": "embeddings/runtime/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 19
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "warn",
+          "lines": [
+            20
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "warn",
+            "lines": [
+              20
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              1
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              21
+            ],
+            "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              13
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              4
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 23,
+        "warn": 1
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 19,
+          "rawSha256": "2d8797b37e257fd5db30c11490d7cb11636aa9e80234d61124b073c666c90093",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 26,
+          "rawSha256": "e78d0ca781f5c692bd5cbaa52e47113e207b231e20f74639f7b072437e36acd6",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 27,
+          "rawSha256": "2ea337e2b0c2cb33fc2bda49d3bd0fa98a846fed9cfba8819c741aea01be2e2e",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 28,
+          "rawSha256": "bea949fee3f0637427549a8c67e823780fbc9e9aee8a6b7e16af5a6129524c51",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 29,
+          "rawSha256": "9e5b919492e4f76d13312b991d50cb0750cb0852cc8d58202d774469951a7ce1",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 30,
+          "rawSha256": "a31e3610b905a8565473ebe54c9ef043bbfebbddb149901c07f3d97d74469441",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 31,
+          "rawSha256": "ad38b385ff3a01051cd56eb6cd388dfbf9c3953ae7da194685cb1e60ac5b6e46",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "A background embedding-ready event is retained. Initial not-ready warnings remain visible. Current-candidate error/fatal count is zero.",
+      "parsedStructuredJsonCount": 24,
+      "rawLineCount": 31,
+      "rawSha256": "f03ea7392b0daf029b5c22c927a8b0adefbcbda207971f825faa8814f9c5b190",
+      "relativePath": "file-organizer/runtime/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 24
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "warn",
+          "lines": [
+            20
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              2
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              41
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              32
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 46
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 47,
+          "rawSha256": "a9dfa8523360bcd5066c2c9fd661fb66dbad5b51346b4fc4d83065355b13e998",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 48,
+          "rawSha256": "4069daab3d0cda1e8538b0d9824cbe36d540ba269e9e698c8e01b60a32cfa324",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 49,
+          "rawSha256": "b4fdf584e91745b4c5e44ac94f482f3b2607c98bc921c32d5ba8598fc3ab6a68",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 50,
+          "rawSha256": "d4c7b4ffa11902cb026d8783ff5e1bde7628c98fbe652530ac8334ceab12ced1",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 51,
+          "rawSha256": "e6ec20a24380699b389ac4e85b49569aa57a2442c8fd62dbe08e51dedc29bc2d",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 52,
+          "rawSha256": "4d879affce0086cd1d887b99cc1cc1dd4a0881561000b407dec7eb9227658947",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 53,
+          "rawSha256": "dfdf4d8503aef2e5b49391c4e39edacb91affea87fe936e46a582bfc0388f4a3",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "No structured warning, error, or fatal record. This phase asserts exact lifecycle data, not embedding readiness.",
+      "parsedStructuredJsonCount": 46,
+      "rawLineCount": 53,
+      "rawSha256": "03ca453f4edacce3c510b47c90d351d3076afc82b6a3ef28bc2a058a73af0d8f",
+      "relativePath": "historical-upgrade/upgrade/assert-candidate/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 46
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": []
+    },
+    {
+      "embeddingTransitions": {
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              2
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              41
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              32
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 46
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 47,
+          "rawSha256": "b6fbd56fc0de82a1940615c0e4af8970cd9be83c4f5340f6d90d3d01d1d6da2d",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 48,
+          "rawSha256": "55e315a629beec26ad082322a0cc4b539343fdac15978bcf4857ed021db25e2b",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 49,
+          "rawSha256": "a1f56c46c0cd44c9d30876cf8d6ed7c7614124bbebad887200d2b7de0e85a98d",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 50,
+          "rawSha256": "a1132d2e39679db711da838f741f1b3e8ba3d5671665bec970ad58f37afb26a9",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 51,
+          "rawSha256": "710e3664f375b7d26f41dba55ce74508ec8afc78b8fbf96d79d7773c66d3bdd8",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 52,
+          "rawSha256": "87506a7c30fde3750fc78eccb24b9edcb93153f7bc962efa19110cc836047a16",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 53,
+          "rawSha256": "fa22b1ec34fc633083827766c40d658df766f6114cc53c56b8d4292a3ce54c73",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "No structured warning, error, or fatal record. This phase asserts exact lifecycle data, not embedding readiness.",
+      "parsedStructuredJsonCount": 46,
+      "rawLineCount": 53,
+      "rawSha256": "98cc137a933d83a7dbbbc668a88edc783faa7429d69bcc02a595dafb0d576fa8",
+      "relativePath": "historical-upgrade/upgrade/assert-restore/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 46
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": []
+    },
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "warn",
+            "lines": [
+              25
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              1
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              16
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              4
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/tokenizer.json\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/tokenizer_config.json\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/config.json\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/onnx/model.onnx\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to determine content-length from response headers. Will expand buffer when needed."
+      ],
+      "levelCounts": {
+        "info": 18,
+        "warn": 1
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 7,
+          "rawSha256": "206925d9386093e542eaf9ce31bda394e814646439d7ef8f1d3fd1e0ca9952c3",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 8,
+          "rawSha256": "cf23d601fdffa24fdbf00e59555d4e38fb3e95d509bce0b8ec38024e20096f63",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 9,
+          "rawSha256": "fdba2b76ff8327c28fc9505f77c1cb8aac1152593b512aecd3376350fc0d61a6",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 22,
+          "rawSha256": "3c3eccc4099083f8ad4b27e0172fe2c10e05244eec62ee35100a08ab813d64f7",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 23,
+          "rawSha256": "2c23b49fb5d4ac84207d5eac1270eaaf4f7928d0c74e79fe99b73c0fcda4e7fd",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 24,
+          "rawSha256": "13dafcf452dc27664b94105a8a3d45b9c221cc6b64b5388d8ff1f1b9805878aa",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 26,
+          "rawSha256": "28da4bf63ef1e77aaf074091646b515bd8f22b39b1cccd5b62ad5d4e1f72bab0",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 27,
+          "rawSha256": "52de69a92cbeba1ce0ac7561bf66dcc22f42da7342945ad09c767affdbf091a3",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 28,
+          "rawSha256": "0dda285d7445ae404019348ef92eeb62d46b9f4355054662d6f62bc6fe389139",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 29,
+          "rawSha256": "d6456f0771d455555fc8e2d4dea10c65afa85106fa8ec4c11d936dcaadba30ac",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 30,
+          "rawSha256": "6a3bf83f41149fea7ed6e74bea62de1ef2ea99308222897d07fd9ee456aefad5",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 31,
+          "rawSha256": "c801fc5632b755f691865be37bd2d99ba5275dfe2f233be4e8f430e925c94f2d",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "prior_v4_candidate_seed",
+      "parentInterpretation": "Prior v4 candidate 3ec53eaa, not a published release. Local model URL/content-length warnings and initial degraded embedding state are retained. Upgrade data assertions do not establish old-image embedding readiness.",
+      "parsedStructuredJsonCount": 19,
+      "rawLineCount": 31,
+      "rawSha256": "6578e3ccdd2cea0e2f6b9155ba315dfa88f74562bf7e6e1f5b3d55a04337c6a1",
+      "relativePath": "historical-upgrade/upgrade/seed-previous/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 19
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "warn",
+          "lines": [
+            25
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "warn",
+            "lines": [
+              48
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              2
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              49
+            ],
+            "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              41
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              32
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 47,
+        "warn": 1
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 47,
+          "rawSha256": "e67452fa56dd2551d5f5ac0e03d78ff637fc145ecf8ea5fe0300a104bfb62d7b",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 50,
+          "rawSha256": "4012cc66bfe5c5073232dea512c9e0d6d1b46905b4c87ae60a6e0a98a1fdd3f3",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 51,
+          "rawSha256": "5b08e4c75e884c01226afad036ee2cd6c02bbd0182e5b1f6d06810f6da0b70c2",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 52,
+          "rawSha256": "778d9d5b07349d95f908cf00558082094f28f4d2d98d02f9851746484f13d395",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 53,
+          "rawSha256": "fe58ed3a831a50b61847a32434cca02c0c21467fca55cb84b18edbc4918450ec",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 54,
+          "rawSha256": "fa7ea8941f17686c0615e1b0dfac9a193880e75995ff5930f4fd4965edf5ff96",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 55,
+          "rawSha256": "13b9f6e525a10e71d27f4be82e5c8c079deedb158b883ff321be35d9240f460e",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "A background embedding-ready event is retained. Initial not-ready warnings remain visible. Current-candidate error/fatal count is zero.",
+      "parsedStructuredJsonCount": 48,
+      "rawLineCount": 55,
+      "rawSha256": "fd0e2ea9f9ff675b490e5cbe78ff29e632405f442fc02e57c5b49e159803d95c",
+      "relativePath": "legacy-adoption/legacy/adopt/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 48
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "warn",
+          "lines": [
+            48
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              1
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              55
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              43
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/tokenizer.json\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/tokenizer_config.json\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/config.json\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to load from local path \"/models/Xenova/all-MiniLM-L6-v2/onnx/model.onnx\": \"TypeError [ERR_INVALID_URL]: fetch() URL is invalid\"",
+        "Unable to determine content-length from response headers. Will expand buffer when needed."
+      ],
+      "levelCounts": {
+        "error": 1,
+        "info": 57
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 46,
+          "rawSha256": "91ffef6de2f37d2a04b7e02348a58c6a3dc739d11b87326e0f6a57b39afc5591",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 47,
+          "rawSha256": "34206b7d3a682c677883487a65cf2c02aae5c4932afdc3c8aea43c813e33e314",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 48,
+          "rawSha256": "0b28aae290b6a70abca4bc7504b90a732dfcb899b907f31d9e35a5b3f70d9f50",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 62,
+          "rawSha256": "aa6d8a032114bc957508d572616e072463e98ae0becf5b8ff1d78a5e6db62c7f",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 63,
+          "rawSha256": "fe9adba0cea40be25b02de2c583539b03b604ae730211cc7d68def439b0d79d3",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 64,
+          "rawSha256": "f6eebe57d441d7aa5ad4c2fc7f870d5adbe6c4ea86c2b30569e923386ce55857",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 65,
+          "rawSha256": "53665ae0a398324935bd32c9f8261171aedb9e509f5e1d6e89c27ddff19c27ba",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 66,
+          "rawSha256": "2aa71d04f06e952b970c687ae6c0c44568486936e8f189f81a3ec419740496ad",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 67,
+          "rawSha256": "a3faf0591f85cf96f8446aa8e372136ea34e92423caf36256db9d2d395e153af",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 68,
+          "rawSha256": "01bd5dc4fd0bc7a1e8fbfb043b05eb81589ce9dd3c732a9def786f79b0ee60eb",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 69,
+          "rawSha256": "e6cf02c19420820d468836c703b3f0850ddfd242973eb460c93325f8608d769e",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 70,
+          "rawSha256": "e3e86ca845f2b1da3b1ada2297837cddbf6a7a147874b17284003fffb328b36c",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "historical_main_seed",
+      "parentInterpretation": "Historical main seed: its existing GitHub Stats credential-shaped manifest is refused. Four local model URL warnings and one content-length warning also belong to this old seed. This log is not current-candidate failure evidence.",
+      "parsedStructuredJsonCount": 58,
+      "rawLineCount": 70,
+      "rawSha256": "ce5904a20c8876e988c06cda2179c579110894a4590a1d80e50bb97072e4814f",
+      "relativePath": "legacy-adoption/legacy/seed/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 58
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "error",
+          "lines": [
+            9
+          ],
+          "message": "Failed to install extension",
+          "subsystem": "extensions"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "warn",
+            "lines": [
+              20
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              1
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              21
+            ],
+            "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              13
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              4
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 35,
+        "warn": 1
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 19,
+          "rawSha256": "a9f0c392666db750e201a47447f0e86d30d6035062d9348a9786828efd76ecdf",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 25,
+          "rawSha256": "32d6362a234414ed8f2de6214fd391e7b01c78f2c404379c4c4c3a6b1e1d3f75",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 26,
+          "rawSha256": "cbcd58177f08c3c952837f8174ca67f16ff891134ff0f817044aad2a45ed1974",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 40,
+          "rawSha256": "0cb188ea796647c448614055c13266aa5e3b17e2284fffd5853ff2fbd4750491",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 41,
+          "rawSha256": "d1194f12bfdceb3630162431c7760d921bdbe8939433d51fe1da0fdbfe447b0f",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 42,
+          "rawSha256": "7e423134713d82a18d326bcb2c9db35c5541975aaf6b8ad01a964a789ab15482",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 43,
+          "rawSha256": "058c0975fea2c46b50d52deb05ba0ca859c2b0bd0f956fbf69adbdcf69cf46fe",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 44,
+          "rawSha256": "ca041cb3131caa6421f0a10527b76785f09053cb8ced27eb38c854cef792109d",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 45,
+          "rawSha256": "2566d8eadca70585c0708b2563984bf10e7812e86d0d68feed236ab2fd55cac6",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "A background embedding-ready event is retained. Initial not-ready warnings remain visible. Current-candidate error/fatal count is zero.",
+      "parsedStructuredJsonCount": 36,
+      "rawLineCount": 45,
+      "rawSha256": "a4dab0ed9c17f1aae4e068bc0bac7abc35b796fc0020b96229c56c5eb5fc5dfb",
+      "relativePath": "revocation/runtime/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 36
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "warn",
+          "lines": [
+            20
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 2,
+            "level": "warn",
+            "lines": [
+              20,
+              69
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 2,
+            "level": "info",
+            "lines": [
+              1,
+              23
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              70
+            ],
+            "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 2,
+            "level": "info",
+            "lines": [
+              13,
+              62
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 2,
+            "level": "info",
+            "lines": [
+              4,
+              53
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 66,
+        "warn": 2
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 19,
+          "rawSha256": "3c9cb297686ca3cdd283dac7fbd756644d45f6bca1db330f886b17713cc32ace",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 68,
+          "rawSha256": "3c9cb297686ca3cdd283dac7fbd756644d45f6bca1db330f886b17713cc32ace",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 71,
+          "rawSha256": "d350bbdf1099b6dab3d19cfe7d87f9ae370106a55fbf959e1f252e1c3cf237b6",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 72,
+          "rawSha256": "889759a51ba7d3e7cd335d5043ee5c7f27faae5f00e2ccb5e201adf7d2c5b6cc",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 73,
+          "rawSha256": "74c147e330eceda86b3c2cdad816312d1f58d71a8b1869843abf10ebe90dd1b0",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 74,
+          "rawSha256": "5f465f2577ff5f26f128d68a27720bf60059a87b6e6207d48694212f70b99f31",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 75,
+          "rawSha256": "4e0f7f4460195e14a37369d2dc235f281b20c7168e1fe29cf0b225404eb6efcc",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 76,
+          "rawSha256": "271eb44ae78c4c2869ca9ddc3b50f2111a7a68ad825219fc5cc0730ea76cd6a9",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "A background embedding-ready event is retained. Initial not-ready warnings remain visible. Current-candidate error/fatal count is zero.",
+      "parsedStructuredJsonCount": 68,
+      "rawLineCount": 76,
+      "rawSha256": "0068a27b361a0b14048bfc129e2d3a70f2d9298c2a077d911f8cb0802e46f3ad",
+      "relativePath": "runtime/runtime/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 68
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 2,
+          "level": "warn",
+          "lines": [
+            20,
+            69
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    },
+    {
+      "embeddingTransitions": {
+        "not_ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "warn",
+            "lines": [
+              20
+            ],
+            "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "other_embedding": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              1
+            ],
+            "message": "Database mode: embedded PGlite",
+            "subsystem": "db"
+          }
+        ],
+        "ready": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              22
+            ],
+            "message": "embed-worker: embedding ready \u2014 resuming drain, resetting pending attempts",
+            "subsystem": "embed-worker"
+          }
+        ],
+        "startup": [
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              13
+            ],
+            "message": "EmbedWorker started",
+            "subsystem": "startup.timers"
+          },
+          {
+            "code": "<missing>",
+            "count": 1,
+            "level": "info",
+            "lines": [
+              4
+            ],
+            "message": "Embedding warmup kicked",
+            "subsystem": "startup.timers"
+          }
+        ]
+      },
+      "historicalModelLoadWarnings": [],
+      "levelCounts": {
+        "info": 29,
+        "warn": 1
+      },
+      "malformedJsonRecords": [],
+      "nonStructuredRecords": [
+        {
+          "line": 19,
+          "rawSha256": "2ac814c3a8276a3a7ec28776fbc756144f81d471c6e8b1ff83f6043e314e2b63",
+          "reason": "non_json_payload"
+        },
+        {
+          "line": 32,
+          "rawSha256": "a0d0aba6b9bf6b8da9e4e64ae947422c3449a151fac0609ce8dd6c21770b5e78",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 33,
+          "rawSha256": "92cc5c02e562302aa3486c61c94785ac9bfb4ec1b9bf8d4eec3553059a151d3f",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 34,
+          "rawSha256": "74d05f5db321e748c55c6d3d869d3e027912546cfd20fb63b8fbd662838b7650",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 35,
+          "rawSha256": "4ec7f5ec9f9e830f56adc6f5ee764ed4f426aac183fd0cf7b1bf1b9b998f470c",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 36,
+          "rawSha256": "f65261e71f7820831b560079656390ff33240e36882f2019ab8957ef8d1eb7a8",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        },
+        {
+          "line": 37,
+          "rawSha256": "f95a850495e4cf5a318e47af1c3c72202faee0dd18b038314deff1d81bac3a14",
+          "reason": "missing_compose_prefix_and_non_json_payload"
+        }
+      ],
+      "origin": "candidate",
+      "parentInterpretation": "A background embedding-ready event is retained. Initial not-ready warnings remain visible. Current-candidate error/fatal count is zero.",
+      "parsedStructuredJsonCount": 30,
+      "rawLineCount": 37,
+      "rawSha256": "d6b7bc493cc40b82f18f61ae97cc4a6d70b1aff40bb3d841253ba16271e47a45",
+      "relativePath": "runtime-resources/runtime/compose.log",
+      "structuredJsonSourceCounts": {
+        "compose_prefixed": 30
+      },
+      "unknownLevelSignatures": [],
+      "unknownStructuredRecords": [],
+      "warningErrorFatalSignatures": [
+        {
+          "code": "<missing>",
+          "count": 1,
+          "level": "warn",
+          "lines": [
+            20
+          ],
+          "message": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    }
+  ],
+  "nonstructured_lines_reviewed": true,
+  "parser_scope": "Read-only parsing after all eight leaves completed; parser is review tooling, not a pre-launch runtime input.",
+  "reviewRequired": "Warnings, errors, fatals, malformed JSON, non-structured lines, unknown levels, and unknown structured records are retained for review; no record is auto-approved.",
+  "reviewer": "parent",
+  "roleCounts": {
+    "candidate": 9,
+    "historical_main_seed": 1,
+    "prior_v4_candidate_seed": 1
+  },
+  "suite_exit": 0
+}

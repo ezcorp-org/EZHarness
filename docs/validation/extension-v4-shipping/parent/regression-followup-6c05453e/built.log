@@ -1,0 +1,11 @@
+ 5 | if (mode === 'source') {
+ 6 |   ({generateEmbedding: embed}=await import('/app/src/memory/embeddings.ts'));
+ 7 | } else {
+ 8 |   const dir='/app/web/build/server/chunks';
+ 9 |   const hits=readdirSync(dir).filter(f=>f.endsWith('.js')).map(f=>({file:join(dir,f),text:readFileSync(join(dir,f),'utf8')})).filter(f=>/async function generateEmbedding\(/.test(f.text));
+10 |   if(hits.length!==1) throw new Error(`Expected one embedding chunk, got ${hits.length}`);
+                                     ^
+error: Expected one embedding chunk, got 3
+      at /tmp/probe-built-embedding.ts:10:33
+
+Bun v1.3.14 (Linux x64 baseline)

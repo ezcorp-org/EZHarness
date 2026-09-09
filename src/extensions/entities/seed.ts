@@ -41,8 +41,12 @@ import {
 import { readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, normalize, resolve, sep } from "node:path";
 import { createHostEntityStore } from "./host-store";
+import { validateWorkspacePath, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { StorageDatabase } from "../../db/queries/extension-storage";
 
 export interface EntitySeedOptions {
+  sourceFiles?: WorkspaceFiles;
+  database?: StorageDatabase;
   extensionId: string;
   /** Manifest's `entities[]` block. Empty / undefined ⇒ no-op. */
   entities: readonly EntityDeclaration[] | undefined;
@@ -178,23 +182,30 @@ function readPlaceholderFile(rawPath: string, sourceDir: string): string {
  * embedded `Hello {file:./x.md} world` would NOT trigger resolution
  * (matches the substack-pilot prior contract).
  */
-export function resolveFilePlaceholders<T>(data: T, sourceDir: string): T {
-  return walkPlaceholders(data, sourceDir) as T;
+export function resolveFilePlaceholders<T>(data: T, sourceDir: string, sourceFiles?: WorkspaceFiles): T {
+  return walkPlaceholders(data, sourceDir, sourceFiles) as T;
 }
 
-function walkPlaceholders(value: unknown, sourceDir: string): unknown {
+function walkPlaceholders(value: unknown, sourceDir: string, sourceFiles?: WorkspaceFiles): unknown {
   if (typeof value === "string") {
     const m = FILE_PLACEHOLDER_REGEX.exec(value);
     if (!m) return value;
-    return readPlaceholderFile(m[1]!.trim(), sourceDir);
+    const rawPath = m[1]!.trim();
+    if (sourceFiles) {
+      const path = rawPath.startsWith("./") ? rawPath.slice(2) : rawPath;
+      try { validateWorkspacePath(path); } catch { throw new FilePlaceholderError("Invalid immutable source path", rawPath); }
+      if (!Object.hasOwn(sourceFiles, path)) throw new FilePlaceholderError("Immutable source file is missing", rawPath);
+      return sourceFiles[path];
+    }
+    return readPlaceholderFile(rawPath, sourceDir);
   }
   if (Array.isArray(value)) {
-    return value.map((v) => walkPlaceholders(v, sourceDir));
+    return value.map((v) => walkPlaceholders(v, sourceDir, sourceFiles));
   }
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = walkPlaceholders(v, sourceDir);
+      out[k] = walkPlaceholders(v, sourceDir, sourceFiles);
     }
     return out;
   }
@@ -243,6 +254,7 @@ export async function runEntitySeed(
       extensionId: opts.extensionId,
       scope,
       scopeId: opts.userId,
+      database: opts.database,
     });
 
     // Read existing index once to detect already-seeded slugs.
@@ -277,9 +289,10 @@ export async function runEntitySeed(
 
       let resolved: Record<string, unknown>;
       try {
-        resolved = resolveFilePlaceholders(seed.data, opts.sourceDir);
+        resolved = resolveFilePlaceholders(seed.data, opts.sourceDir, opts.sourceFiles);
       } catch (err) {
         if (err instanceof FilePlaceholderError) {
+          if (opts.sourceFiles) throw err;
           // Soft-fail: skip this seed record, continue with the rest.
           // The install proceeds; the operator sees a clean warning.
           console.warn(

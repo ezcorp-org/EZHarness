@@ -1,0 +1,29 @@
+{
+  "head": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "production_job": 101874032709,
+  "production_exit": 0,
+  "synthetic_merge": "f4bc16e4933f2c73b100aee676072838d95d0187",
+  "parents": [
+    "bd7364388d0106364864e18a3d321b13ba978c36",
+    "0733ca51daf570227bd801b14991700ad0ca0c12"
+  ],
+  "tree": "dc7f9056855707518f0d02b299b47422811f765e",
+  "tree_equal": true,
+  "image_id": "sha256:f29bac75b1e5388526ab84ec54e67131756e14b9340f8004d37b4dbfdd28146d",
+  "proofs": 8,
+  "proof_exits": 0,
+  "launcher_quartets": 11,
+  "embedding_guard": [
+    "runtime_exit=0",
+    "embedding_log_guard_exit=0"
+  ],
+  "r4": {
+    "samples": 11,
+    "cycles": 10,
+    "reconnects": 100
+  },
+  "e2e_aggregate": {
+    "job": 101880801222,
+    "exit": 0
+  }
+}

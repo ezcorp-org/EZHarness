@@ -124,16 +124,13 @@ beforeEach(() => {
 });
 
 describe("POST /api/conversations/[id]/rewind", () => {
-	test("owned + flag ON + no run + valid body → 200 tree; emits conversation:tree-changed", async () => {
+	test("owned + flag ON + no run + valid body → 200 tree; source writer owns the event", async () => {
 		const res = await run(() => POST(makeEvent({ targetMessageId: VALID_TARGET, summary: "went sideways" }) as never));
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { currentLeaf: string };
 		expect(body.currentLeaf).toBe(VALID_TARGET);
-		expect(rewindSession).toHaveBeenCalledWith("conv-owned", VALID_TARGET, "went sideways");
-		expect(emit).toHaveBeenCalledWith("conversation:tree-changed", {
-			conversationId: "conv-owned",
-			currentLeaf: VALID_TARGET,
-		});
+		expect(rewindSession).toHaveBeenCalledWith("conv-owned", VALID_TARGET, "went sideways", { emit });
+		expect(emit).not.toHaveBeenCalled();
 	});
 
 	test("flag OFF → 409 session_producer_disabled; rewind never attempted", async () => {

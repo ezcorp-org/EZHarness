@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+lock=<audit-worktree>/.cache/validation-heavy.lock
+if [[ "${1:-}" != --locked ]]; then exec flock --close "$lock" "$0" --locked; fi
+repo=/home/dev/work/EZCorp/extension-v4-hosted-stage2-fix
+source_sha=a6f3036b1996ceb056e8062fe1160d64c6b8e611
+receipt=<audit-worktree>/.cache/terra-shipping/parent/final-publication-825dc780/stage2-failure/fixed-a6f3036b-$(date -u +%Y%m%dT%H%M%SZ)
+image=ezcorp:stage2-fixed-a6f3036b
+mkdir -p "$receipt"
+cleanup() { docker image rm -f "$image" >/dev/null 2>&1 || true; /tmp/ez-audit-ci-conmon/podman image rm -f "$image" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+cd "$repo"
+[[ "$(git rev-parse HEAD)" == "$source_sha" ]]
+[[ -z "$(git status --porcelain)" ]]
+printf 'source=%s\n' "$(git rev-parse HEAD)" > "$receipt/provenance.txt"
+printf 'parent_source=0728184bfec77d6b3a8dba2b38b431bfed2ad5ef\n' >> "$receipt/provenance.txt"
+printf 'stage2_script_sha256=%s\n' "$(sha256sum scripts/stage2-raw-network-proof.sh | awk '{print $1}')" >> "$receipt/provenance.txt"
+printf 'launcher_sha256=%s\n' "$(sha256sum src/extensions/mcp-launcher.sh | awk '{print $1}')" >> "$receipt/provenance.txt"
+printf 'bun=%s\n' "$(bun --version)" >> "$receipt/provenance.txt"
+printf 'host_conmon_sha256=%s\n' "$(sha256sum /tmp/ez-audit-ci-conmon/conmon-2.2.1 | awk '{print $1}')" >> "$receipt/provenance.txt"
+printf 'host_podman_info=%s\n' "$(/tmp/ez-audit-ci-conmon/podman --remote=false info --format 'conmon={{.Host.Conmon.Path}} event_logger={{.Host.EventLogger}} default_log_driver={{.Host.LogDriver}} rootless={{.Host.Security.Rootless}}')" >> "$receipt/provenance.txt"
+printf 'controller_sha256=%s\n' "$(sha256sum "$0" | awk '{print $1}')" >> "$receipt/provenance.txt"
+docker build --load --build-arg VERSION=stage2-fixed-a6f3036b --build-arg REVISION="$source_sha" --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$image" . >"$receipt/build.log" 2>&1
+docker save "$image" | /tmp/ez-audit-ci-conmon/podman load >"$receipt/podman-load.log" 2>&1
+actual_revision=$(/tmp/ez-audit-ci-conmon/podman image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+[[ "$actual_revision" == "$source_sha" ]]
+printf 'image=%s\nimage_revision=%s\n' "$image" "$actual_revision" >> "$receipt/provenance.txt"
+set +e
+env PATH="/tmp/ez-audit-ci-conmon:$PATH" EZCORP_STAGE2_PROOF=1 EZCORP_STAGE2_PROOF_IMAGE="$image" bun test ./src/__tests__/mcp-netns-raw-socket-blocked.test.ts ./src/__tests__/mcp-stage2-ipv6-disabled.test.ts ./src/__tests__/mcp-stage2-conntrack-soak.test.ts >"$receipt/stage2-fixed-proof.log" 2>&1
+proof_rc=$?
+set -e
+printf 'stage2_fixed_proof_exit=%s\n' "$proof_rc" > "$receipt/exits.tsv"
+[[ "$proof_rc" == 0 ]]
+/tmp/ez-audit-ci-conmon/podman ps -aq --filter 'label=ezcorp.stage2-proof' > "$receipt/remaining-owned-containers.txt"
+[[ ! -s "$receipt/remaining-owned-containers.txt" ]]
+printf 'remaining_owned_containers=0\n' >> "$receipt/exits.tsv"
+printf '%s\n' "$receipt" > <audit-worktree>/.cache/terra-shipping/parent/final-publication-825dc780/stage2-failure/latest-fixed-path.txt

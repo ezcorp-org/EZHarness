@@ -1,99 +1,10 @@
-import { json } from "@sveltejs/kit";
-import { installMcpExtension } from "$server/db/queries/extensions";
-import { ExtensionRegistry } from "$server/extensions/registry";
-import { McpClient } from "$server/mcp/client";
-import {
-  MCP_CONNECT_FAILED_MESSAGE,
-  MCP_CONNECT_FAILED_STATUS,
-  reportMcpConnectFailure,
-} from "$server/mcp/connect-failure";
-import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
-import { validationError } from "$lib/server/security/validation";
-import { errorJson } from "$lib/server/http-errors";
-import { insertAuditEntry } from "$server/db/queries/audit-log";
-import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
-import { buildMcpAuditMetadata, describeMcpServerForAudit } from "$server/extensions/mcp-audit";
+import { stageMcpExtension } from "$server/extensions/mcp-control";
+import { mcpControlRequest } from "$lib/server/extensions/mcp-request";
 import { installMcpServerSchema } from "./schema";
 import type { RequestHandler } from "./$types";
 
-export const POST: RequestHandler = async ({ request, locals }) => {
-  // F2: BOTH axes — `requireAdmin` for the ROLE, `requireScope("admin")` for
-  // the API-key SCOPE. An MCP server config is instance state (command lines,
-  // URLs, auth headers), so a key minted `--scopes read --role admin` must not
-  // install one. Cookie sessions carry no `apiKeyScopes` and pass on role
-  // alone. Both RETURN their denial (#84); role first so a non-admin gets the
-  // uniform 403 "Admin role required".
-  const adminErr = requireAdmin(locals);
-  if (adminErr) return adminErr;
-  const scopeErr = requireScope(locals, "admin");
-  if (scopeErr) return scopeErr;
-
-  const parsed = installMcpServerSchema.safeParse(await request.json());
-  if (!parsed.success) return validationError(parsed.error);
-
-  const { name, description, server } = parsed.data;
-
-  // Open a throwaway client to verify connectivity + pull the live tool list
-  // before persisting. `client.connect()` runs the SSRF target guard first,
-  // so an http/sse URL aimed at cloud metadata or an internal service never
-  // reaches a socket.
-  //
-  // Every failure returns the SAME 502 body — see `connect-failure.ts`. A
-  // per-error message here was a port-scan oracle, and a distinguishable
-  // "blocked" answer would rebuild it across the private/public boundary.
-  // The real cause is recorded server-side instead.
-  const client = new McpClient(server);
-  let cachedTools: Awaited<ReturnType<typeof client.listTools>>;
-  try {
-    await client.connect();
-    cachedTools = await client.listTools();
-  } catch (e) {
-    await reportMcpConnectFailure(e, {
-      route: "POST /api/mcp-servers",
-      extension: name,
-      transport: server.transport,
-    });
-    return errorJson(MCP_CONNECT_FAILED_STATUS, MCP_CONNECT_FAILED_MESSAGE);
-  } finally {
-    await client.close().catch(() => {});
-  }
-
-  try {
-    // `creatorUserId` is the cross-gate stitch: the wire gate
-    // (`canWireExtension`) reads this column to decide whether a non-admin may
-    // attach this MCP row to a conversation. Stamping it here is what makes
-    // the installing admin the row's owner instead of leaving it NULL —
-    // and NULL matches nobody, so an unstamped row stays admin-only forever.
-    // It is the same principal the audit row below records as the actor.
-    const ext = await installMcpExtension({
-      name,
-      description,
-      server,
-      cachedTools,
-      creatorUserId: locals.user?.id ?? null,
-    });
-    await ExtensionRegistry.getInstance().reload();
-    // Audit AFTER the row exists, so the trail never claims an install that
-    // did not happen. `insertAuditEntry` never throws by contract; the guard
-    // matches the sibling install route and keeps an audit hiccup from
-    // failing a completed install.
-    try {
-      await insertAuditEntry(
-        locals.user?.id ?? null,
-        EXT_AUDIT_ACTIONS.MCP_SERVER_INSTALLED,
-        ext.id,
-        buildMcpAuditMetadata({
-          extensionName: ext.name,
-          actorUserId: locals.user?.id ?? "unknown",
-          reason: "mcp-install",
-          before: null,
-          after: describeMcpServerForAudit(server, cachedTools),
-        }),
-      );
-    } catch { /* non-fatal — audit is observability, not a gate */ }
-    return json(ext, { status: 201 });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "MCP install failed";
-    return errorJson(400, message);
-  }
-};
+export const POST: RequestHandler = async ({ request, locals }) => mcpControlRequest(locals, request, async (actor, body) => {
+  const parsed = installMcpServerSchema.safeParse(body);
+  if (!parsed.success) throw Object.assign(new Error("Invalid MCP source declaration"), { code: "invalid_input" });
+  return stageMcpExtension(actor, parsed.data);
+});

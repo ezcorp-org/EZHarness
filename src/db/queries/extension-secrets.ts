@@ -1,5 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { Database, DbTransaction } from "../connection";
 import { extensionSecrets } from "../schema";
 import type { ExtensionSecret } from "../schema";
 
@@ -51,14 +52,14 @@ function scopeWhere(scope: SecretScope) {
   );
 }
 
-export async function getSecretRow(scope: SecretScope): Promise<ExtensionSecret | undefined> {
-  const rows = await getDb().select().from(extensionSecrets).where(scopeWhere(scope));
+export async function getSecretRow(scope: SecretScope, database: Database | DbTransaction = getDb()): Promise<ExtensionSecret | undefined> {
+  const rows = await database.select().from(extensionSecrets).where(scopeWhere(scope));
   return rows[0];
 }
 
 /** Rotation write: replace the row's ciphertext and stamp `rotatedAt`. */
-async function replaceCiphertext(id: string, ciphertext: string): Promise<void> {
-  await getDb()
+async function replaceCiphertext(id: string, ciphertext: string, database: Database | DbTransaction): Promise<void> {
+  await database
     .update(extensionSecrets)
     .set({ ciphertext, rotatedAt: new Date() })
     .where(eq(extensionSecrets.id, id));
@@ -71,14 +72,14 @@ async function replaceCiphertext(id: string, ciphertext: string): Promise<void> 
  *  insert failure we retry ONCE: re-select the winner's row and convert this
  *  write into the rotation update. Any other insert error re-selects nothing
  *  and rethrows unchanged. */
-export async function insertOrReplaceSecret(scope: SecretScope, ciphertext: string): Promise<void> {
-  const existing = await getSecretRow(scope);
+export async function insertOrReplaceSecret(scope: SecretScope, ciphertext: string, database: Database | DbTransaction = getDb()): Promise<void> {
+  const existing = await getSecretRow(scope, database);
   if (existing) {
-    await replaceCiphertext(existing.id, ciphertext);
+    await replaceCiphertext(existing.id, ciphertext, database);
     return;
   }
   try {
-    await getDb().insert(extensionSecrets).values({
+    await database.insert(extensionSecrets).values({
       extensionId: scope.extensionId,
       projectId: scope.projectId,
       userId: scope.userId,
@@ -86,9 +87,9 @@ export async function insertOrReplaceSecret(scope: SecretScope, ciphertext: stri
       ciphertext,
     });
   } catch (err) {
-    const winner = await getSecretRow(scope);
+    const winner = await getSecretRow(scope, database);
     if (!winner) throw err; // not the unique-violation race — surface it
-    await replaceCiphertext(winner.id, ciphertext);
+    await replaceCiphertext(winner.id, ciphertext, database);
   }
 }
 

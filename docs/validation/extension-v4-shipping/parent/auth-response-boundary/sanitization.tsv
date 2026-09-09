@@ -1,0 +1,7 @@
+output	input	transform
+logs/e2e-baseline-red-excerpt.txt	current-chat-graph-replay-4/run.log	kept only test start/name, structured hooks record, and terminal pass count
+logs/route-red-excerpt.txt	route-status-red/run.log	kept route test names, failure headings, and thrown Response status fields
+logs/final-*.log	final targeted test logs	copied only non-auth route/unit/browser output; no browser archive/state was read or copied
+profiles/mock-gate-terminal.txt	mock-gate-status-profile/run.log	kept only 255-pass and 13-skip terminal lines
+profiles/visual-mock-terminal.txt	visual-mock-status-profile/run.log	kept terminal count and linked deliberate 404 diagnostic lines
+inputs/*.txt	isolated final source files	byte-for-byte copies with non-executable extension

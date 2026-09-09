@@ -68,6 +68,8 @@ function installFsStub(): void {
 
 beforeAll(() => {
   process.env.EZCORP_FS_ALLOWED = "1";
+  mkdirSync(join(TMP_DIR, ".git"), { recursive: true });
+  mkdirSync(join(TMP_DIR, "web", "src", "lib", "components"), { recursive: true });
 });
 
 afterAll(() => {
@@ -105,22 +107,22 @@ async function callAndParse(name: string, args: Record<string, unknown> = {}): P
 
 describe("resolveProjectRoot", () => {
   test("finds git root from project root", () => {
-    const root = resolveProjectRoot(process.cwd());
-    expect(Bun.file(join(root, ".git")).size).toBeGreaterThan(0);
+    const root = resolveProjectRoot(TMP_DIR);
+    expect(root).toBe(TMP_DIR);
   });
 
   test("finds git root from a subdirectory", () => {
-    const subdir = join(process.cwd(), "web", "src");
+    const subdir = join(TMP_DIR, "web", "src");
     const root = resolveProjectRoot(subdir);
     // Should walk up to the same project root, not stay in web/src
     expect(root).not.toBe(subdir);
-    expect(Bun.file(join(root, ".git")).size).toBeGreaterThan(0);
+    expect(root).toBe(TMP_DIR);
   });
 
   test("finds git root from deeply nested subdirectory", () => {
-    const deep = join(process.cwd(), "web", "src", "lib", "components");
+    const deep = join(TMP_DIR, "web", "src", "lib", "components");
     const root = resolveProjectRoot(deep);
-    expect(root).toBe(resolveProjectRoot(process.cwd()));
+    expect(root).toBe(TMP_DIR);
   });
 
   test("falls back to given dir when no .git found", () => {
@@ -210,14 +212,14 @@ describe("resolveProjectRoot env-var path", () => {
     // so any empty value is a malformed-test-env case. The implementation
     // uses `fromEnv.length > 0` to gate the fast path.
     process.env.EZCORP_PROJECT_ROOT = "";
+    const fixture = mkdtempSync(join(tmpdir(), "task-stack-empty-env-"));
     try {
-      // Falls through to the lazy require-fs walk; from cwd it should
-      // find this repo's `.git` ancestor (cwd itself is a worktree).
-      const root = resolveProjectRoot(process.cwd());
-      expect(root).not.toBe(""); // didn't return the empty env value
-      // Repo root must contain a .git entry (worktree's `.git` is a file).
+      writeFileSync(join(fixture, ".git"), "gitdir: /fixture\n");
+      const root = resolveProjectRoot(fixture);
+      expect(root).toBe(fixture);
       expect(Bun.file(join(root, ".git")).size).toBeGreaterThan(0);
     } finally {
+      rmSync(fixture, { recursive: true, force: true });
       if (ORIG === undefined) delete process.env.EZCORP_PROJECT_ROOT;
       else process.env.EZCORP_PROJECT_ROOT = ORIG;
     }

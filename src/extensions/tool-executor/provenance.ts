@@ -23,10 +23,10 @@ export function resolveCallToken(
   const rawMeta = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
   const ezCallId = typeof rawMeta?.ezCallId === "string" ? rawMeta.ezCallId : undefined;
   const prov = resolveCallProvenance(ezCallId);
-  if (!prov) {
+  if (!prov || prov.actorExtensionId !== extensionId) {
     log.error(
       "reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast",
-      { method: req.method, extensionId, ezCallId: ezCallId ?? null },
+      { method: req.method, extensionId, tokenActorExtensionId: prov?.actorExtensionId ?? null },
     );
     return {
       ok: false,
@@ -89,28 +89,6 @@ export function resolveReverseRpcMeta(
         error: { code: -32106, message: "No owner scope for this background fire — capability unavailable" },
       },
     };
-  }
-  // Defense-in-depth tripwire (NOT a hard gate). The token is opaque,
-  // single-use, host-issued, and only ever delivered to the one
-  // subprocess it was minted for — a different extension cannot
-  // observe or guess it (independent reviewer confirmed: 122-bit
-  // UUID, per-subprocess stdin). In correct operation the resolving
-  // extension always equals the token's `actorExtensionId`. We do NOT
-  // hard-reject a mismatch because the cross-extension `ezcorp/invoke`
-  // path's exact token/extension correspondence is subtle and a false
-  // reject would break legitimate chained calls. Instead we log loud
-  // so any real divergence (a regression, or an actual confusion
-  // attempt) is caught in observability without functional risk.
-  if (prov.actorExtensionId !== extensionId) {
-    log.warn(
-      "reverse-RPC token actorExtensionId != resolving extension — unexpected; proceeding (tripwire, not enforced)",
-      {
-        method: req.method,
-        resolvingExtensionId: extensionId,
-        tokenActorExtensionId: prov.actorExtensionId,
-        kind: prov.kind,
-      },
-    );
   }
   const rpcMeta: Record<string, unknown> = { ezOnBehalfOf: prov.onBehalfOf };
   if (prov.conversationId) rpcMeta.ezConversationId = prov.conversationId;
@@ -235,21 +213,6 @@ function resolveOwnerlessTolerantProvenance(
   const token = resolveCallToken(extensionId, req);
   if (!token.ok) return token;
   const prov = token.prov;
-  // Defense-in-depth tripwire (log, not enforced) — parity with
-  // `resolveReverseRpcMeta`. See its comment for why a mismatch is logged
-  // rather than rejected (the cross-ext `ezcorp/invoke` correspondence is
-  // subtle and a false reject would break legitimate chained calls).
-  if (prov.actorExtensionId !== extensionId) {
-    log.warn(
-      "reverse-RPC token actorExtensionId != resolving extension — unexpected; proceeding (tripwire, not enforced)",
-      {
-        method: req.method,
-        resolvingExtensionId: extensionId,
-        tokenActorExtensionId: prov.actorExtensionId,
-        kind: prov.kind,
-      },
-    );
-  }
   return {
     ok: true,
     onBehalfOf: prov.ownerless ? null : prov.onBehalfOf,

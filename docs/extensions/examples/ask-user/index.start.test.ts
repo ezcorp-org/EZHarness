@@ -8,7 +8,7 @@
 // Pattern mirrors openai-image-gen-2/index.test.ts's `start` test.
 
 import { afterAll, describe, expect, test, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
+import { restoreModuleMocks } from "@ezcorp/sdk/test";
 
 mock.module("@ezcorp/sdk/runtime", () => ({
   toolResult: (t: string, opts?: { isError?: boolean }) => ({

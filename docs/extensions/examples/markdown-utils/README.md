@@ -5,7 +5,7 @@ A multi-component extension with formatting tools, a style guide skill, and a wr
 ## Install
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/markdown-utils
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/markdown-utils
 ```
 
 ## Manifest Walkthrough

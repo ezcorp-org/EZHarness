@@ -1,0 +1,9 @@
+# Full mock gate
+mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
+cd web && CI=1 EZCORP_E2E_EVIDENCE=1 bunx playwright test --project=chromium "${ARGS[@]}"
+
+# Full real-auth gate
+cd web && CI=1 PI_E2E_REAL=1 EZCORP_E2E_EVIDENCE=1 bunx playwright test --config playwright.real.config.ts
+
+# CI-selected visual controller
+CI=1 BASE_REF=origin/main bun scripts/run-visual-evidence.ts visual-selection.txt

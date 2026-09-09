@@ -1,3 +1,5 @@
+// @ezcorp-host-integration
+const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url: import.meta.url };
 /**
  * E2E: Full on-behalf-of chain validated with a REAL spawned subprocess.
  *
@@ -221,7 +223,7 @@ describe.skipIf(SKIP)("e2e subprocess: full OBO chain with real stdio MCP", () =
     // ── 4 + 5. Spawn real subprocess + connect MCP Client over stdio ─────────
     // StdioClientTransport spawns and owns the subprocess lifecycle.
     // rawKey is passed ONLY to the subprocess env — never to this process's env.
-    const serverScript = resolve(import.meta.dir, "../../src/mcp/server.ts");
+    const serverScript = resolve(fixtureImportMeta.dir, "../../src/mcp/server.ts");
 
     mcpTransport = new StdioClientTransport({
       command: BUN_BIN,

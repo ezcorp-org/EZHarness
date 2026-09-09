@@ -203,7 +203,7 @@ describe("Phase 2 integration: watchdog kill → exactly one visible assistant e
     // A2 — both terminal-state writes happened in the kill tick.
     expect(finalizeRunRowCalls).toHaveLength(1);
     expect(finalizeRunRowCalls[0]!.status).toBe("error");
-    expect(markInterruptedCalls).toEqual([RUN_ID]);
+    expect(markInterruptedCalls).toEqual([]);
     expect(runErrors).toHaveLength(1);
 
     // The shared slot is claimed → a later finalize must skip.

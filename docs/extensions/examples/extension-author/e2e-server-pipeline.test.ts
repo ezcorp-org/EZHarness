@@ -1,966 +1,204 @@
-/**
- * E2E test for the bundled `extension-author` extension.
- *
- * Spawns the extension as a real subprocess via `ExtensionProcess` (the
- * same class the host uses in `ExtensionRegistry.getProcess`) and
- * exercises the round-trip: scaffold → write draft files → read →
- * patch → validate → discard.
- *
- * Reverse-RPC stubs at the subprocess boundary:
- *   - `ezcorp/drafts` — synthesized response with an in-memory store.
- *   - `ezcorp/fs.*`   — implemented over `node:fs/promises` against the
- *     test's tmp dir. Production wires the real fs-handler against the
- *     extension's filesystem grant; the unit test for the host-side
- *     fs-handler covers that path. This e2e exists to verify the
- *     EXTENSION subprocess's behavior — what files it writes, in what
- *     order, with what content.
- */
-import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
+// @ezcorp-host-integration
+import { expect, test } from "bun:test";
+import { mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { mkdirSync, existsSync, rmSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../../../src/__tests__/helpers/test-pglite";
+import { actor, harness, human } from "../../../../src/__tests__/helpers/durable-lifecycle-fixture";
+import { users } from "../../../../src/db/schema";
+import { createDatabaseLifecycleRepository } from "../../../../src/db/queries/extension-releases";
+import { ExtensionControl } from "../../../../src/extensions/extension-control";
+import { getExtensionDeliveryQueue, getExtensionLifecycle, getExtensionReleaseArtifacts, reconcileExtensionLifecycle, recoverExtensionLifecycle } from "../../../../src/extensions/extension-lifecycle-service";
+import { ReleaseProcess } from "../../../../src/extensions/release-process";
+import { FileBlobStore, putFiles } from "../../../../src/extensions/v4/blobs";
+import type { InstallationRecord, LifecycleOperation, WorkspaceRecord } from "../../../../src/extensions/v4/types";
+import { releaseRuntimeFixture } from "../../../../src/__tests__/helpers/release-runtime";
+import { loadReleaseWorkflowEntries } from "../../../../src/runtime/workflow-release-assets";
 
-// DB stubs — same pattern as auto-note's e2e test. Must come BEFORE
-// importing ExtensionProcess.
-let _incrementCalls = 0;
-let _resetCalls = 0;
-let _disableCalls = 0;
-let _simulatedConsecutiveFailures = 0;
-mock.module("../../../../src/db/queries/extensions", () => ({
-  incrementFailures: async () => {
-    _incrementCalls++;
-    _simulatedConsecutiveFailures++;
-    return _simulatedConsecutiveFailures;
-  },
-  resetFailures: async () => {
-    _resetCalls++;
-    _simulatedConsecutiveFailures = 0;
-  },
-  disableExtension: async () => {
-    _disableCalls++;
-  },
-}));
+mockDbConnection();
 
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-// Host-side acceptance gate — the real `ezcorp/drafts.verify` runs this
-// against the materialized draft dir (drafts-handler.ts → verifyExtension).
-import { verifyExtension } from "../../../../src/extensions/sdk/verify";
-import type { JsonRpcRequest, JsonRpcResponse } from "../../../../src/extensions/types";
-
-const ENTRYPOINT = join(import.meta.dir, "index.ts");
-// Root the per-test draft dirs under the repo's gitignored `.ezcorp/` rather
-// than the OS tmpdir: the host-side `verifyExtension` (run by the `verify`
-// drafts stub) dynamically imports the scaffolded `ezcorp.config.ts`, whose
-// `import { defineExtension } from "@ezcorp/sdk"` only resolves when the draft
-// lives inside the workspace (walks up to the repo's node_modules). This also
-// matches production, where drafts live under `<projectRoot>/.ezcorp/`.
-const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
-const TEST_TMP_ROOT = join(REPO_ROOT, ".ezcorp", `e2e-extension-author-${Date.now()}`);
-
-function buildAllowedEnvLike(extensionId: string): Record<string, string> {
-  const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
-  mkdirSync(extTmpDir, { recursive: true });
-  return {
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: process.env.NODE_ENV ?? "test",
-    TMPDIR: extTmpDir,
-    // The SDK's ensureFsAllowed() checks this flag before round-tripping
-    // to the host. Without it, fsRead/fsWrite/etc throw before the
-    // reverse-RPC even leaves the subprocess.
-    EZCORP_FS_ALLOWED: "1",
-  };
+function createdWorkspace(value: unknown): { installation: InstallationRecord; workspace: WorkspaceRecord } {
+  if (!value || typeof value !== "object" || !("installation" in value) || !("workspace" in value)) throw new Error("Workspace creation returned no installation and workspace.");
+  return value as { installation: InstallationRecord; workspace: WorkspaceRecord };
 }
 
-interface FakeDraftStore {
-  drafts: Map<string, { userId: string; kind: string; payload: Record<string, unknown>; createdAt: number }>;
-  nextId: number;
+function queuedOperation(value: unknown): LifecycleOperation {
+  if (!value || typeof value !== "object" || !("id" in value) || typeof value.id !== "string") throw new Error("Build returned no operation ID.");
+  return value as LifecycleOperation;
 }
 
-// Per-test override for the `install` reverse-RPC. The real host runs
-// `installAuthoredDraft` and maps an `AuthorInstallError` to
-// `rpcError(id,-32603,"${code}: ${msg}", { code, details? })`. Tests
-// set this to drive the bundled `install_draft` tool's success vs.
-// structured-failure branches end-to-end through a real subprocess.
-let installStub:
-  | ((draftId: string) => JsonRpcResponse["error"] | { result: unknown })
-  | null = null;
+function approvalId(value: unknown): string {
+  if (!value || typeof value !== "object" || !("approval" in value) || !value.approval || typeof value.approval !== "object" || !("id" in value.approval) || typeof value.approval.id !== "string") throw new Error("Review request returned no approval ID.");
+  return value.approval.id;
+}
 
-// Per-test override for the `reopen` reverse-RPC (modify_extension).
-let reopenStub: (() => JsonRpcResponse["error"] | { result: unknown }) | null = null;
-
-// When set, `ezcorp/fs.read` fails for any path ending in this name —
-// drives `read_draft`'s unreadable-file reporting, which used to drop
-// the file from the map silently.
-let failReadForFile: string | null = null;
-
-async function handleFsRpc(req: JsonRpcRequest): Promise<JsonRpcResponse> {
-  const params = (req.params ?? {}) as Record<string, unknown>;
-  const path = params.path as string;
+test("production lifecycle edits and empty delivery polling work offline while builds fail closed", async () => {
+  const previous = { socket: process.env.EZCORP_EXTENSION_RUNNER_SOCKET, token: process.env.EZCORP_EXTENSION_RUNNER_TOKEN, blobs: process.env.EZCORP_EXTENSION_BLOB_ROOT };
+  const directory = await mkdtemp(join(tmpdir(), "offline-extension-"));
+  delete process.env.EZCORP_EXTENSION_RUNNER_SOCKET;
+  delete process.env.EZCORP_EXTENSION_RUNNER_TOKEN;
+  process.env.EZCORP_EXTENSION_BLOB_ROOT = directory;
+  await setupTestDb();
   try {
-    switch (req.method) {
-      case "ezcorp/fs.read": {
-        if (failReadForFile && path.endsWith(failReadForFile)) {
-          return {
-            jsonrpc: "2.0",
-            id: req.id,
-            error: { code: -32603, message: `EACCES: permission denied, open '${path}'` },
-          };
-        }
-        const buf = await readFile(path);
-        const body = btoa(String.fromCharCode(...buf));
-        return {
-          jsonrpc: "2.0",
-          id: req.id,
-          result: { encoding: params.encoding ?? "utf-8", body, bytes: buf.byteLength, resolvedPath: path },
-        };
-      }
-      case "ezcorp/fs.write": {
-        const content = params.content as string;
-        const encoding = (params.encoding as string) ?? "utf-8";
-        const buf =
-          encoding === "binary"
-            ? Uint8Array.from(atob(content), (c) => c.charCodeAt(0))
-            : new TextEncoder().encode(content);
-        await writeFile(path, buf);
-        return { jsonrpc: "2.0", id: req.id, result: { bytes: buf.byteLength, resolvedPath: path } };
-      }
-      case "ezcorp/fs.exists": {
-        return { jsonrpc: "2.0", id: req.id, result: { exists: existsSync(path) } };
-      }
-      case "ezcorp/fs.mkdir": {
-        await mkdir(path, { recursive: params.recursive === true });
-        return { jsonrpc: "2.0", id: req.id, result: { resolvedPath: path } };
-      }
-      case "ezcorp/fs.list": {
-        const ents = await readdir(path, { withFileTypes: true });
-        const entries = ents.map((e) => ({
-          name: e.name,
-          isFile: e.isFile(),
-          isDirectory: e.isDirectory(),
-        }));
-        return { jsonrpc: "2.0", id: req.id, result: { entries } };
-      }
-      case "ezcorp/fs.stat": {
-        const s = await stat(path);
-        return {
-          jsonrpc: "2.0",
-          id: req.id,
-          result: {
-            size: s.size,
-            mtimeMs: s.mtimeMs,
-            isFile: s.isFile(),
-            isDirectory: s.isDirectory(),
-            resolvedPath: path,
-          },
-        };
-      }
-      case "ezcorp/fs.unlink": {
-        // Accept directory or file unlinks (best-effort to mirror the
-        // host's POSIX-faithful implementation in the simple cases the
-        // bundled extension uses).
-        try {
-          const s = await stat(path);
-          if (s.isDirectory()) {
-            // node:fs.rmdir requires empty dir. The bundled extension
-            // recurses into entries first.
-            await import("node:fs/promises").then((m) => m.rmdir(path));
-          } else {
-            await unlink(path);
-          }
-        } catch (err) {
-          return {
-            jsonrpc: "2.0",
-            id: req.id,
-            error: { code: -32603, message: `unlink failed: ${(err as Error).message}` },
-          };
-        }
-        return { jsonrpc: "2.0", id: req.id, result: { resolvedPath: path } };
-      }
-      default:
-        return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `Unknown method: ${req.method}` } };
+    await reconcileExtensionLifecycle();
+    const [user] = await getTestDb().insert(users).values({ email: `${crypto.randomUUID()}@example.test`, name: "Owner", passwordHash: "unused" }).returning();
+    const offlineActor = { principalId: user!.id, scope: "global", kind: "agent" as const };
+    const lifecycle = await getExtensionLifecycle();
+    const created = await lifecycle.createWorkspace(offlineActor, { files: { "extension.ts": "original" } });
+    await lifecycle.editWorkspace(offlineActor, { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: 1, writes: { "extension.ts": "edited" } });
+    expect((await lifecycle.readWorkspace(offlineActor, created.installation.id, created.workspace.id)).files).toEqual({ "extension.ts": "edited" });
+    expect((await lifecycle.inspect(offlineActor, created.installation.id)).installation.enabled).toBe(false);
+    expect(await (await getExtensionDeliveryQueue()).claim()).toBeNull();
+    const operation = await lifecycle.build(offlineActor, { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: 2, idempotencyKey: "offline-build" });
+    const result = await lifecycle.runBuild(offlineActor, created.installation.id, operation.id);
+    expect(result.state).toBe("failed");
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "runner_unconfigured" }));
+    expect(Object.keys((await lifecycle.inspect(offlineActor, created.installation.id)).releases)).toHaveLength(0);
+    await recoverExtensionLifecycle();
+    expect((await lifecycle.inspect(offlineActor, created.installation.id)).operations[operation.id]?.state).toBe("failed");
+    await expect(new ReleaseProcess(created.installation.id).call("tools/list", {})).rejects.toMatchObject({ code: "RELEASE_NOT_ACTIVE" });
+    await expect(new ReleaseProcess(created.installation.id).sendNotification("ezcorp/trigger-fire")).rejects.toMatchObject({ code: "invalid_delivery" });
+    const active = releaseRuntimeFixture(crypto.randomUUID(), { schemaVersion: 4, name: "offline-catalog", version: "1.0.0", description: "Fixture", author: { name: "Test" }, permissions: {}, tools: [{ name: "read", description: "Read", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] }, { ownerId: user!.id }).snapshot;
+    const files = { "review.workflow.yaml": "name: review\ndescription: Review\nsteps:\n  - name: emit\n    kind: transform\n    output:\n      approved: 'false'\n" };
+    active.release.artifactDigest = await putFiles(new FileBlobStore(directory), files, "artifact");
+    const repository = await createDatabaseLifecycleRepository();
+    await repository.create({ installation: active.installation, releases: { [active.release.id]: active.release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
+    expect((await new ReleaseProcess(active.installation.id).call("tools/list", {})).result).toEqual({ tools: active.release.manifest.tools });
+    const readArtifacts = () => getExtensionReleaseArtifacts(active.installation.id, active.release.id);
+    expect(await readArtifacts()).toEqual(files);
+    const registry = { getAllManifests: () => new Map([[active.installation.id, active.release.manifest]]).entries() };
+    const [workflow] = await loadReleaseWorkflowEntries(registry);
+    expect(workflow).toMatchObject({ source: "extension", visibility: "private", userId: user!.id, projectId: null, definition: { name: "offline-catalog:review" }, extensionRelease: { installationId: active.installation.id, ownerId: user!.id, scope: "global" } });
+    await expect(getExtensionReleaseArtifacts("missing", active.release.id)).rejects.toMatchObject({ code: "release_not_active" });
+    await expect(getExtensionReleaseArtifacts(active.installation.id, "missing")).rejects.toMatchObject({ code: "release_not_active" });
+    for (const mutation of [{ enabled: false }, { uninstalled: true }, { activeReleaseId: null }]) {
+      await repository.transact(active.installation.id, state => { state.installation = { ...active.installation, ...mutation }; });
+      await expect(readArtifacts()).rejects.toMatchObject({ code: "release_not_active" });
     }
-  } catch (err) {
-    return {
-      jsonrpc: "2.0",
-      id: req.id,
-      error: { code: -32603, message: (err as Error).message },
-    };
+    await repository.transact(active.installation.id, state => { state.installation = { ...active.installation, status: "reconciling", acknowledgedGeneration: active.installation.generation - 1 }; });
+    expect(await readArtifacts()).toEqual(files);
+    expect(await loadReleaseWorkflowEntries(registry)).toHaveLength(1);
+    for (const mutation of [null, { id: "foreign-release" }, { installationId: "foreign-installation" }]) {
+      const installationId = crypto.randomUUID();
+      await repository.create({ installation: { ...active.installation, id: installationId }, releases: mutation ? { [active.release.id]: { ...active.release, installationId, ...mutation } } : {}, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
+      await expect(getExtensionReleaseArtifacts(installationId, active.release.id)).rejects.toMatchObject({ code: "release_not_active" });
+    }
+    const artifactPath = join(directory, active.release.artifactDigest);
+    await unlink(artifactPath);
+    await writeFile(artifactPath, JSON.stringify({ "workflows/review.yaml": "tampered" }));
+    await expect(readArtifacts()).rejects.toMatchObject({ code: "artifact_corrupt" });
+  } finally {
+    for (const [key, value] of [["EZCORP_EXTENSION_RUNNER_SOCKET", previous.socket], ["EZCORP_EXTENSION_RUNNER_TOKEN", previous.token], ["EZCORP_EXTENSION_BLOB_ROOT", previous.blobs]] as const) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    await closeTestDb();
+    await rm(directory, { recursive: true, force: true });
   }
-}
-
-function getDraftDirForUser(rootCwd: string, userId: string, draftId: string): string {
-  return join(rootCwd, ".ezcorp/extension-data/extension-author/drafts", userId, draftId);
-}
-
-function makeProc(
-  store: FakeDraftStore,
-  rootCwd: string,
-  userId: string = "user-a",
-): ExtensionProcess {
-  const extId = `extension-author-test-${Math.random().toString(36).slice(2, 8)}`;
-  const env = buildAllowedEnvLike(extId);
-  const proc = new ExtensionProcess(extId, ENTRYPOINT, env, {
-    persistent: true,
-    callTimeoutMs: 15_000,
-  });
-  proc.setRequestHandler(async (req: JsonRpcRequest): Promise<JsonRpcResponse> => {
-    if (req.method.startsWith("ezcorp/fs.")) {
-      return handleFsRpc(req);
-    }
-    if (req.method === "ezcorp/drafts") {
-      const params = (req.params ?? {}) as Record<string, unknown>;
-      if (params.action === "create") {
-        const id = `draft-${++store.nextId}`;
-        const payload = (params.payload as Record<string, unknown>) ?? {};
-        const draftDir = getDraftDirForUser(rootCwd, userId, id);
-        // Mirror prod (drafts-handler.ts → writeExtensionAuthorDraftFiles):
-        // the HOST materializes the `files` map to disk on create — the
-        // subprocess does NO fs on the create path. Without this the
-        // scaffold never lands and every downstream read/validate/discard
-        // test fails. Materialize before persisting the row.
-        // NOTE: prod's `writeExtensionAuthorDraftFiles` also enforces the
-        // scaffold allowlist + flat-basename/no-`..` validation BEFORE writing.
-        // Omitted here intentionally: the subprocess only ever sends
-        // `scaffoldExtension().files` (trusted, flat, allowlisted keys), so the
-        // happy path is identical. A traversal-key regression would NOT be
-        // caught by this stub — it's covered by the host-side ez-drafts tests.
-        const files = (params.files as Record<string, string> | undefined) ?? {};
-        mkdirSync(draftDir, { recursive: true });
-        for (const [name, content] of Object.entries(files)) {
-          writeFileSync(join(draftDir, name), content);
-        }
-        // Mirror prod: stamp draftDir into the payload post-insert.
-        store.drafts.set(id, {
-          userId,
-          kind: params.kind as string,
-          payload: { ...payload, draftDir },
-          createdAt: Date.now(),
-        });
-        return {
-          jsonrpc: "2.0",
-          id: req.id,
-          result: { draftId: id, openUrl: `/extensions/author?prefill=${id}` },
-        };
-      }
-      if (params.action === "consume") {
-        const id = params.draftId as string;
-        const row = store.drafts.get(id);
-        if (!row || row.userId !== userId) {
-          return { jsonrpc: "2.0", id: req.id, result: { ok: false } };
-        }
-        store.drafts.delete(id);
-        return { jsonrpc: "2.0", id: req.id, result: { ok: true } };
-      }
-      if (params.action === "resolveDir") {
-        const id = params.draftId as string;
-        const row = store.drafts.get(id);
-        // Opacity: same -32603 for missing / wrong-owner.
-        if (!row || row.userId !== userId) {
-          return {
-            jsonrpc: "2.0",
-            id: req.id,
-            error: { code: -32603, message: "Draft not found" },
-          };
-        }
-        return {
-          jsonrpc: "2.0",
-          id: req.id,
-          result: { draftDir: getDraftDirForUser(rootCwd, userId, id) },
-        };
-      }
-      if (params.action === "verify") {
-        const id = params.draftId as string;
-        const row = store.drafts.get(id);
-        if (!row || row.userId !== userId) {
-          return { jsonrpc: "2.0", id: req.id, error: { code: -32603, message: "Draft not found" } };
-        }
-        // Mirror prod (drafts-handler.ts verify → verifyExtension): run the
-        // real host-side acceptance gate against the materialized draft dir.
-        // Returns `{ pass, steps }`; the subprocess maps it to `{ ok, pass, steps }`.
-        const draftDir = getDraftDirForUser(rootCwd, userId, id);
-        const result = await verifyExtension({ extDir: draftDir });
-        return { jsonrpc: "2.0", id: req.id, result: { pass: result.pass, steps: result.steps } };
-      }
-      if (params.action === "listForUser") {
-        const drafts = Array.from(store.drafts.entries())
-          .filter(([_id, r]) => r.userId === userId)
-          .map(([id, r]) => ({
-            draftId: id,
-            name: typeof r.payload.name === "string" ? r.payload.name : undefined,
-            type: typeof r.payload.type === "string" ? r.payload.type : undefined,
-            createdAt: r.createdAt,
-          }));
-        return { jsonrpc: "2.0", id: req.id, result: { drafts } };
-      }
-      if (params.action === "discard") {
-        const id = params.draftId as string;
-        const row = store.drafts.get(id);
-        if (!row || row.userId !== userId) {
-          return {
-            jsonrpc: "2.0",
-            id: req.id,
-            error: { code: -32603, message: "Draft not found" },
-          };
-        }
-        const dir = getDraftDirForUser(rootCwd, userId, id);
-        try {
-          if (existsSync(dir)) {
-            await import("node:fs/promises").then((m) => m.rm(dir, { recursive: true, force: true }));
-          }
-        } catch {
-          // best-effort
-        }
-        store.drafts.delete(id);
-        return { jsonrpc: "2.0", id: req.id, result: { ok: true } };
-      }
-      if (params.action === "reopen") {
-        const out = reopenStub
-          ? reopenStub()
-          : ({ code: -32602, message: "stub: reopen not configured" } as const);
-        if (out && "result" in out) {
-          return { jsonrpc: "2.0", id: req.id, result: out.result };
-        }
-        return { jsonrpc: "2.0", id: req.id, error: out as JsonRpcResponse["error"] };
-      }
-      if (params.action === "install") {
-        const id = params.draftId as string;
-        const out = installStub
-          ? installStub(id)
-          : ({ code: -32602, message: "stub: install not configured" } as const);
-        if (out && "result" in out) {
-          return { jsonrpc: "2.0", id: req.id, result: out.result };
-        }
-        return { jsonrpc: "2.0", id: req.id, error: out as JsonRpcResponse["error"] };
-      }
-      return { jsonrpc: "2.0", id: req.id, error: { code: -32602, message: "stub: unknown drafts action" } };
-    }
-    return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Method not found in stub" } };
-  });
-  return proc;
-}
-
-describe("extension-author e2e — server pipeline round-trip", () => {
-  let cwd: string;
-  let originalCwd: string;
-  let store: FakeDraftStore;
-  const procs: ExtensionProcess[] = [];
-
-  beforeEach(() => {
-    cwd = join(TEST_TMP_ROOT, `cwd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-    mkdirSync(join(cwd, ".git"), { recursive: true });
-    originalCwd = process.cwd();
-    process.chdir(cwd);
-    store = { drafts: new Map(), nextId: 0 };
-  });
-
-  afterEach(() => {
-    for (const p of procs.splice(0)) {
-      try { p.kill(); } catch { /* swallow */ }
-    }
-    try { process.chdir(originalCwd); } catch { /* swallow */ }
-    installStub = null;
-    reopenStub = null;
-    failReadForFile = null;
-  });
-
-  test("create_extension scaffolds files + creates draft + returns openUrl", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    const result = await proc.callTool("create_extension", {
-      name: "weather",
-      type: "tool",
-      description: "Returns current weather",
-    });
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content[0]!.text);
-    expect(payload.draftId).toMatch(/^draft-\d+$/);
-    expect(payload.openUrl).toBe(`/extensions/author?prefill=${payload.draftId}`);
-    expect(payload.name).toBe("weather");
-    expect(payload.type).toBe("tool");
-
-    // On-disk files exist
-    const draftDir = join(cwd, ".ezcorp/extension-data/extension-author/drafts", "user-a", payload.draftId);
-    expect(existsSync(join(draftDir, "ezcorp.config.ts"))).toBe(true);
-    expect(existsSync(join(draftDir, "index.ts"))).toBe(true);
-    expect(existsSync(join(draftDir, "README.md"))).toBe(true);
-    expect(existsSync(join(draftDir, "package.json"))).toBe(true);
-    // Skill type omits index.ts — verify a separate scaffold path too.
-    expect(store.drafts.has(payload.draftId)).toBe(true);
-  }, 30_000);
-
-  test("create_extension scaffold for skill omits index.ts", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const result = await proc.callTool("create_extension", {
-      name: "trivia",
-      type: "skill",
-      description: "x",
-    });
-    expect(result.isError).toBe(false);
-    const payload = JSON.parse(result.content[0]!.text);
-    const dir = join(cwd, ".ezcorp/extension-data/extension-author/drafts", "user-a", payload.draftId);
-    expect(existsSync(join(dir, "index.ts"))).toBe(false);
-    expect(existsSync(join(dir, "ezcorp.config.ts"))).toBe(true);
-  }, 30_000);
-
-  test("create_extension validates name regex (UPPERCASE rejected)", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    const bad = await proc.callTool("create_extension", {
-      name: "BadName",
-      type: "tool",
-      description: "x",
-    });
-    expect(bad.isError).toBe(true);
-    expect(bad.content[0]!.text).toMatch(/Scaffold failed|NAME_REGEX|match/);
-    // No draft row created on validation failure.
-    expect(store.drafts.size).toBe(0);
-  }, 30_000);
-
-  test("create_extension rejects invalid type", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    const bad = await proc.callTool("create_extension", {
-      name: "x",
-      type: "weird",
-      description: "x",
-    });
-    expect(bad.isError).toBe(true);
-    expect(bad.content[0]!.text).toMatch(/type.*must be one of/);
-  }, 30_000);
-
-  test("read_draft returns full file map for a created draft", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "x1", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-    const read = await proc.callTool("read_draft", { draftId: create.draftId });
-    expect(read.isError).toBe(false);
-    const payload = JSON.parse(read.content[0]!.text);
-    expect(payload.draftId).toBe(create.draftId);
-    expect(typeof payload.files["ezcorp.config.ts"]).toBe("string");
-    expect(payload.files["ezcorp.config.ts"]).toContain("name: \"x1\"");
-    expect(typeof payload.files["index.ts"]).toBe("string");
-  }, 30_000);
-
-  test("write_draft_file patches a known file", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "x2", type: "skill", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const newReadme = "# Patched README\n\nedited by test";
-    const write = await proc.callTool("write_draft_file", {
-      draftId: create.draftId,
-      path: "README.md",
-      content: newReadme,
-    });
-    expect(write.isError).toBe(false);
-
-    const read = await proc.callTool("read_draft", { draftId: create.draftId });
-    const payload = JSON.parse(read.content[0]!.text);
-    expect(payload.files["README.md"]).toBe(newReadme);
-  }, 30_000);
-
-  test("write_draft_file rejects path traversal", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "x3", type: "skill", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const traverse = await proc.callTool("write_draft_file", {
-      draftId: create.draftId,
-      path: "../../etc/passwd",
-      content: "evil",
-    });
-    expect(traverse.isError).toBe(true);
-    expect(traverse.content[0]!.text).toMatch(/allowlist|relative|\.\./);
-  }, 30_000);
-
-  test("write_draft_file rejects path not in scaffolder allowlist", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "x4", type: "skill", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const bad = await proc.callTool("write_draft_file", {
-      draftId: create.draftId,
-      path: "secret.key",
-      content: "abc",
-    });
-    expect(bad.isError).toBe(true);
-    expect(bad.content[0]!.text).toMatch(/allowlist/);
-  }, 30_000);
-
-  test("validate_extension returns ok for fresh scaffold", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "x5", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const validate = await proc.callTool("validate_extension", { draftId: create.draftId });
-    expect(validate.isError).toBe(false);
-    const payload = JSON.parse(validate.content[0]!.text);
-    // validate_extension surfaces the host VerifyResult ({ ok, pass, steps }).
-    // The fresh scaffold produces a structurally valid manifest: the
-    // load-manifest + validate-manifest steps pass. We assert THOSE rather
-    // than overall `pass`, because `verifyExtension`'s smoke-test round-trip
-    // spawns the scaffold in a nested sandbox — that step is verifyExtension's
-    // own concern (covered by its dedicated tests) and is environment-sensitive
-    // inside this test process; gating extension-author on it would couple this
-    // suite to the smoke harness rather than the validate_extension contract.
-    const stepOk = (name: string): boolean | undefined =>
-      payload.steps.find((s: { name: string; ok: boolean }) => s.name === name)?.ok;
-    expect(stepOk("load-manifest")).toBe(true);
-    expect(stepOk("validate-manifest")).toBe(true);
-  }, 30_000);
-
-  test("validate_extension reports errors after manifest corruption", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "x6", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    // Patch the manifest to be invalid (drop required `name`).
-    const corrupted = `import { defineExtension } from "@ezcorp/sdk";\nexport default defineExtension({ schemaVersion: 2, version: "0.1.0", description: "x", author: { name: "x" }, permissions: {} });\n`;
-    await proc.callTool("write_draft_file", {
-      draftId: create.draftId,
-      path: "ezcorp.config.ts",
-      content: corrupted,
-    });
-
-    const validate = await proc.callTool("validate_extension", { draftId: create.draftId });
-    expect(validate.isError).toBe(false);
-    const payload = JSON.parse(validate.content[0]!.text);
-    // Corrupt manifest (missing top-level `name`) → verify fails: ok/pass
-    // false with at least one failing step.
-    expect(payload.ok).toBe(false);
-    expect(payload.pass).toBe(false);
-    expect(payload.steps.some((s: { ok: boolean }) => !s.ok)).toBe(true);
-  }, 30_000);
-
-  test("install_draft success → parseable {ok:true,extensionId,name,openUrl}", async () => {
-    installStub = (draftId) => ({
-      result: {
-        ok: true,
-        extensionId: `ext-${draftId}`,
-        name: "weather",
-        openUrl: "/extensions/weather",
-      },
-    });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const res = await proc.callTool("install_draft", { draftId: create.draftId });
-    expect(res.isError).toBe(false);
-    expect(JSON.parse(res.content[0]!.text)).toEqual({
-      ok: true,
-      extensionId: `ext-${create.draftId}`,
-      name: "weather",
-      openUrl: "/extensions/weather",
-    });
-  }, 30_000);
-
-  test("install_draft NAME_COLLISION → toolError with parseable {ok:false,code} so the agent stops & asks", async () => {
-    installStub = () => ({
-      code: -32603,
-      message: 'NAME_COLLISION: Extension "weather" is already installed',
-      data: { code: "NAME_COLLISION" },
-    });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const res = await proc.callTool("install_draft", { draftId: create.draftId });
-    // Stays an errored tool call (card UX), but the body is structured
-    // so the LLM branches on `code` instead of regex-parsing prose.
-    expect(res.isError).toBe(true);
-    const body = JSON.parse(res.content[0]!.text);
-    expect(body.ok).toBe(false);
-    expect(body.code).toBe("NAME_COLLISION");
-    expect(body.error).toContain("NAME_COLLISION");
-  }, 30_000);
-
-  test("install_draft failure without structured data → still parseable {ok:false} (code omitted)", async () => {
-    installStub = () => ({ code: -32603, message: "Install failed: kaboom" });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const res = await proc.callTool("install_draft", { draftId: create.draftId });
-    expect(res.isError).toBe(true);
-    const body = JSON.parse(res.content[0]!.text);
-    expect(body.ok).toBe(false);
-    expect("code" in body).toBe(false);
-    expect(body.error).toContain("kaboom");
-  }, 30_000);
-
-  // `?? ""` turned a shape-broken host response into
-  // `{ok:true, extensionId:"", name:""}` — a green install card for an
-  // extension that may not exist, and empty ids the model then quotes
-  // back to the user.
-  test("install_draft with a shape-broken host result → BAD_HOST_RESPONSE, never ok:true", async () => {
-    installStub = () => ({ result: { ok: true } as Record<string, unknown> });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const res = await proc.callTool("install_draft", { draftId: create.draftId });
-    expect(res.isError).toBe(true);
-    const body = JSON.parse(res.content[0]!.text);
-    expect(body.ok).toBe(false);
-    expect(body.code).toBe("BAD_HOST_RESPONSE");
-    // The state really is unknown — the message must say so rather than
-    // inviting a blind retry.
-    expect(body.error).toContain("may or may not have");
-  }, 30_000);
-
-  test("install_draft with ok:false from the host → BAD_HOST_RESPONSE, not a success", async () => {
-    installStub = () => ({
-      result: { ok: false, extensionId: "ext-1", name: "weather" } as Record<string, unknown>,
-    });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-    const res = await proc.callTool("install_draft", { draftId: create.draftId });
-    expect(res.isError).toBe(true);
-    expect(JSON.parse(res.content[0]!.text).ok).toBe(false);
-  }, 30_000);
-
-  // `modify_extension` used to HARDCODE `ok:true` with `draftId ?? ""`.
-  // A shape-broken response therefore told the model the reopen worked,
-  // and its next call — read_draft("") — failed with "Invalid draftId",
-  // an error about the wrong thing that masks the real fault.
-  test("modify_extension with a draftId-less host result → BAD_HOST_RESPONSE, never ok:true", async () => {
-    reopenStub = () => ({ result: { name: "weather" } as Record<string, unknown> });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    const res = await proc.callTool("modify_extension", { name: "weather" });
-    expect(res.isError).toBe(true);
-    const body = JSON.parse(res.content[0]!.text);
-    expect(body.ok).toBe(false);
-    expect(body.code).toBe("BAD_HOST_RESPONSE");
-    // Explicitly steers the model away from the masking follow-up call.
-    expect(body.error).toContain("do not");
-    expect(body.error).toContain("read_draft");
-  }, 30_000);
-
-  test("modify_extension success → {ok:true, draftId, name}", async () => {
-    reopenStub = () => ({ result: { draftId: "draft-77", name: "weather" } });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const res = await proc.callTool("modify_extension", { name: "weather" });
-    expect(res.isError).toBe(false);
-    expect(JSON.parse(res.content[0]!.text)).toEqual({
-      ok: true,
-      draftId: "draft-77",
-      name: "weather",
-    });
-  }, 30_000);
-
-  test("modify_extension structured host error passes the code through", async () => {
-    reopenStub = () => ({
-      code: -32603,
-      message: "NOT_FOUND_OR_NOT_MODIFIABLE: nope",
-      data: { code: "NOT_FOUND_OR_NOT_MODIFIABLE" },
-    });
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const res = await proc.callTool("modify_extension", { name: "weather" });
-    expect(res.isError).toBe(true);
-    expect(JSON.parse(res.content[0]!.text).code).toBe("NOT_FOUND_OR_NOT_MODIFIABLE");
-  }, 30_000);
-
-  // A file that exists but cannot be read used to vanish from the map,
-  // so the model "read" the draft, never saw index.ts, and then
-  // rewrote a file it had never looked at.
-  test("read_draft reports unreadable files instead of dropping them", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    failReadForFile = "index.ts";
-    const res = await proc.callTool("read_draft", { draftId: create.draftId });
-    expect(res.isError).toBe(false);
-    const body = JSON.parse(res.content[0]!.text);
-    // Still returns what it COULD read…
-    expect(body.files["ezcorp.config.ts"]).toBeDefined();
-    expect(body.files["index.ts"]).toBeUndefined();
-    // …and says out loud what it could not.
-    expect(body.unreadable).toEqual([
-      { path: "index.ts", error: expect.stringContaining("EACCES") },
-    ]);
-  }, 30_000);
-
-  test("read_draft omits `unreadable` entirely when everything read cleanly", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "weather", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-    const body = JSON.parse(
-      (await proc.callTool("read_draft", { draftId: create.draftId })).content[0]!.text,
-    );
-    expect("unreadable" in body).toBe(false);
-  }, 30_000);
-
-  test("list_drafts surfaces known directories", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    await proc.callTool("create_extension", { name: "ld-1", type: "tool", description: "x" });
-    await proc.callTool("create_extension", { name: "ld-2", type: "skill", description: "x" });
-
-    const list = await proc.callTool("list_drafts", {});
-    expect(list.isError).toBe(false);
-    const payload = JSON.parse(list.content[0]!.text);
-    expect(payload.drafts.length).toBe(2);
-    for (const d of payload.drafts) {
-      expect(typeof d.draftId).toBe("string");
-      expect(typeof d.createdAt).toBe("number");
-    }
-  }, 30_000);
-
-  test("discard_draft removes dir + marks row consumed", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "d1", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-    const dir = join(cwd, ".ezcorp/extension-data/extension-author/drafts", "user-a", create.draftId);
-    expect(existsSync(dir)).toBe(true);
-
-    const discard = await proc.callTool("discard_draft", { draftId: create.draftId });
-    expect(discard.isError).toBe(false);
-    expect(existsSync(dir)).toBe(false);
-    expect(store.drafts.has(create.draftId)).toBe(false);
-  }, 30_000);
-
-  test("read_draft on unknown id returns error", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const r = await proc.callTool("read_draft", { draftId: "nonexistent" });
-    expect(r.isError).toBe(true);
-    // resolveDir-based gate: missing/wrong-owner both return the same
-    // opaque "not accessible" / "not found" error per reviewer C1.
-    expect(r.content[0]!.text).toMatch(/not accessible|not found|does not exist/);
-  }, 30_000);
-
-  test("read_draft rejects malformed draftId", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const r = await proc.callTool("read_draft", { draftId: "../escape" });
-    expect(r.isError).toBe(true);
-    expect(r.content[0]!.text).toMatch(/Invalid/);
-  }, 30_000);
-
-  test("scaffolded ezcorp.config.ts contains @ezcorp/sdk import", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "x9", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-    const dir = join(cwd, ".ezcorp/extension-data/extension-author/drafts", "user-a", create.draftId);
-    const cfg = readFileSync(join(dir, "ezcorp.config.ts"), "utf8");
-    expect(cfg).toContain('from "@ezcorp/sdk"');
-  }, 30_000);
-
-  // ── Cross-user owner-isolation (reviewer C1 regression) ──────────────
-  //
-  // Spawn two subprocesses with different `userId` contexts; verify that
-  // user B cannot read, write, or discard a draft owned by user A, and
-  // that B's list_drafts only surfaces B's own drafts.
-
-  test("user B cannot read user A's draft (read_draft → error)", async () => {
-    const procA = makeProc(store, cwd, "user-a");
-    const procB = makeProc(store, cwd, "user-b");
-    procs.push(procA, procB);
-
-    const create = JSON.parse(
-      (await procA.callTool("create_extension", { name: "a-1", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const read = await procB.callTool("read_draft", { draftId: create.draftId });
-    expect(read.isError).toBe(true);
-    expect(read.content[0]!.text).toMatch(/not accessible|not found/i);
-  }, 30_000);
-
-  test("user B cannot write to user A's draft (write_draft_file → error)", async () => {
-    const procA = makeProc(store, cwd, "user-a");
-    const procB = makeProc(store, cwd, "user-b");
-    procs.push(procA, procB);
-
-    const create = JSON.parse(
-      (await procA.callTool("create_extension", { name: "a-2", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const write = await procB.callTool("write_draft_file", {
-      draftId: create.draftId,
-      path: "README.md",
-      content: "owned",
-    });
-    expect(write.isError).toBe(true);
-    expect(write.content[0]!.text).toMatch(/not accessible|not found/i);
-  }, 30_000);
-
-  test("user B cannot discard user A's draft (discard_draft → error, dir survives)", async () => {
-    const procA = makeProc(store, cwd, "user-a");
-    const procB = makeProc(store, cwd, "user-b");
-    procs.push(procA, procB);
-
-    const create = JSON.parse(
-      (await procA.callTool("create_extension", { name: "a-3", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const dir = join(cwd, ".ezcorp/extension-data/extension-author/drafts", "user-a", create.draftId);
-    expect(existsSync(dir)).toBe(true);
-
-    const discard = await procB.callTool("discard_draft", { draftId: create.draftId });
-    expect(discard.isError).toBe(true);
-    expect(discard.content[0]!.text).toMatch(/not found|discard failed/i);
-
-    // The draft + its on-disk dir survive — B's discard was a no-op.
-    expect(store.drafts.has(create.draftId)).toBe(true);
-    expect(existsSync(dir)).toBe(true);
-  }, 30_000);
-
-  test("user B's list_drafts excludes user A's drafts", async () => {
-    const procA = makeProc(store, cwd, "user-a");
-    const procB = makeProc(store, cwd, "user-b");
-    procs.push(procA, procB);
-
-    const aCreate = JSON.parse(
-      (await procA.callTool("create_extension", { name: "a-4", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-    const bCreate = JSON.parse(
-      (await procB.callTool("create_extension", { name: "b-1", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-
-    const list = await procB.callTool("list_drafts", {});
-    expect(list.isError).toBe(false);
-    const payload = JSON.parse(list.content[0]!.text);
-    const ids = payload.drafts.map((d: { draftId: string }) => d.draftId);
-    expect(ids).toContain(bCreate.draftId);
-    expect(ids).not.toContain(aCreate.draftId);
-  }, 30_000);
-
-  // Spec line 257: smoke-spawn verification + dir-removal contract for
-  // discard_draft (formerly leaked the dir via fsUnlink-on-dir; reviewer
-  // C2). Confirms `Bun.file(...).exists()` returns false after discard.
-  test("discard_draft truly removes the dir from disk (no fsUnlink-EISDIR leak)", async () => {
-    const proc = makeProc(store, cwd);
-    procs.push(proc);
-
-    const create = JSON.parse(
-      (await proc.callTool("create_extension", { name: "d2", type: "tool", description: "x" }))
-        .content[0]!.text,
-    );
-    const dir = join(cwd, ".ezcorp/extension-data/extension-author/drafts", "user-a", create.draftId);
-    expect(existsSync(dir)).toBe(true);
-
-    const discard = await proc.callTool("discard_draft", { draftId: create.draftId });
-    expect(discard.isError).toBe(false);
-
-    // Bun-native exists check (per spec line ~261). False = the dir was
-    // recursively removed (not just emptied).
-    expect(await Bun.file(dir).exists()).toBe(false);
-    expect(existsSync(dir)).toBe(false);
-  }, 30_000);
 });
 
-// The extension that gates every OTHER extension has to clear the same
-// bar. `verifyExtension` requires a smokeTest for any non-mcp manifest
-// declaring tools, and this one declares eight — for a long time it
-// would have failed its own gate. This runs the real gate against the
-// real directory: no stubs, no fixtures.
-describe("extension-author — passes its own deterministic gate", () => {
-  // Deliberately NO `process.chdir` here (unlike the round-trip suite
-  // above): the shipped extension imports `@ezcorp/sdk/runtime`, which
-  // only resolves while the process sits inside the workspace.
+test("author control drives an owned durable lifecycle without granting an agent approval authority", async () => {
+  const setup = harness();
+  const control = new ExtensionControl(setup.lifecycle);
+  const created = createdWorkspace(await control.execute(actor, "extensions_workspace", { action: "create", name: "durable-author", description: "Durable author journey" }));
+  expect(created.installation).toMatchObject({ ownerId: actor.principalId, scope: actor.scope, enabled: false, activeReleaseId: null });
+  expect(created.workspace.revision).toBe(1);
+  expect((await setup.lifecycle.list(actor)).map((installation) => installation.id)).toEqual([created.installation.id]);
+  expect((await setup.lifecycle.readWorkspace(actor, created.installation.id, created.workspace.id)).files["extension.ts"]).toContain("defineExtension");
+  expect((await setup.lifecycle.readWorkspace(actor, created.installation.id, created.workspace.id)).files["src/echo.test.ts"]).toContain("expect");
 
-  test("verifyExtension against the shipped directory ⇒ pass", async () => {
-    const result = await verifyExtension({ extDir: import.meta.dir });
-    const failed = result.steps.filter((s) => !s.ok);
-    expect(failed.map((s) => `${s.name}: ${s.detail}`)).toEqual([]);
-    expect(result.pass).toBe(true);
-    // The round-trip actually happened — a manifest-only pass would
-    // mean the smokeTest silently stopped being required.
-    const roundTrip = result.steps.find((s) => s.name === "smoke-test-roundtrip");
-    expect(roundTrip?.ok).toBe(true);
-  }, 60_000);
+  const edited = await control.execute(actor, "extensions_workspace", {
+    action: "edit", installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision,
+    writes: { "src/author-tool.ts": "export const authorTool = 'durable';" },
+  });
+  expect(edited).toMatchObject({ id: created.workspace.id, revision: 2 });
+  const editedSource = await setup.lifecycle.readWorkspace(actor, created.installation.id, created.workspace.id);
+  expect(editedSource.workspace.sourceDigest).not.toBe(created.workspace.sourceDigest);
+  expect(editedSource.files["src/author-tool.ts"]).toBe("export const authorTool = 'durable';");
+  expect(editedSource.files["extension.ts"]).toContain("defineExtension");
 
-  test("the smokeTest probe is a pure in-process path (no host round-trip)", async () => {
-    // If the probe ever targeted a tool that reverse-RPCs to the host,
-    // verify would hang forever (verify spawns the extension with no
-    // host on the other end of the channel). Assert the declared probe
-    // still resolves entirely inside the subprocess.
-    const manifest = (await import("./ezcorp.config")).default as {
-      smokeTest?: { tool: string; input: Record<string, unknown> };
-    };
-    expect(manifest.smokeTest?.tool).toBe("create_extension");
-    const proc = makeProc({ drafts: new Map(), nextId: 0 }, TEST_TMP_ROOT);
-    try {
-      const r = await proc.callTool(
-        "create_extension",
-        manifest.smokeTest!.input,
-      );
-      expect(r.isError).toBe(true);
-      expect(r.content[0]!.text).toContain("must be one of tool|skill|agent|multi");
-    } finally {
-      proc.kill();
-    }
-  }, 30_000);
-});
+  const foreignOwner = { ...actor, principalId: "foreign-owner" };
+  const foreignScope = { ...actor, scope: "project:other" };
+  for (const forbiddenActor of [foreignOwner, foreignScope]) {
+    await expect(control.execute(forbiddenActor, "extensions_workspace", {
+      action: "edit", installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: 2,
+      writes: { "src/author-tool.ts": "export const authorTool = 'foreign';" },
+    })).rejects.toMatchObject({ code: "not_found" });
+  }
+  await expect(control.execute(actor, "extensions_workspace", {
+    action: "edit", installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: 1,
+    writes: { "src/author-tool.ts": "export const authorTool = 'stale';" },
+  })).rejects.toMatchObject({ code: "revision_conflict" });
 
-// Cleanup TEST_TMP_ROOT after the suite.
-import { afterAll } from "bun:test";
-afterAll(() => {
-  try { rmSync(TEST_TMP_ROOT, { recursive: true }); } catch { /* swallow */ }
+  const queued = queuedOperation(await control.execute(actor, "extensions_build", {
+    installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: 2, idempotencyKey: "author-build-v1",
+  }));
+  const built = await control.execute(actor, "extensions_inspect", { installationId: created.installation.id, operationId: queued.id, waitMs: 30_000 });
+  expect(built).toMatchObject({ operations: { [queued.id]: { state: "verified", workspaceRevision: 2 } } });
+  const verified = await setup.lifecycle.inspect(actor, created.installation.id);
+  const releaseId = verified.operations[queued.id]?.releaseId;
+  expect(releaseId).toBeDefined();
+  expect(verified.operations[queued.id]?.events.map((event) => event.state)).toEqual(["queued", "building", "verifying", "verified"]);
+  expect(verified.releases[releaseId!]).toMatchObject({ installationId: created.installation.id, workspaceId: created.workspace.id, workspaceRevision: 2, manifest: { schemaVersion: 4, entrypoint: "extension.js" } });
+  expect(setup.builds).toHaveLength(1);
+  expect(setup.builds[0]?.["src/author-tool.ts"]).toBe("export const authorTool = 'durable';");
+
+  const requested = await control.execute(actor, "extensions_release", {
+    action: "requestApproval", installationId: created.installation.id, releaseId: releaseId!, expectedActiveReleaseId: null,
+  });
+  const pendingApprovalId = approvalId(requested);
+  expect(requested).toMatchObject({ openUrl: `/extensions/author?installation=${created.installation.id}`, approval: { status: "pending", releaseId } });
+  expect(verified.installation.activeReleaseId).toBeNull();
+  await expect(setup.lifecycle.approve(actor, created.installation.id, pendingApprovalId, true)).rejects.toMatchObject({ code: "human_approval_required" });
+  expect(await setup.lifecycle.approve(human, created.installation.id, pendingApprovalId, true)).toMatchObject({ status: "approved", approvedBy: human.principalId });
+  const approvedState = await setup.lifecycle.inspect(actor, created.installation.id);
+  expect(approvedState.approvals[pendingApprovalId]).toMatchObject({ principalId: actor.principalId, scope: actor.scope, expectedActiveReleaseId: null, expectedGeneration: 0, grants: [] });
+
+  const activated = await control.execute(actor, "extensions_release", {
+    action: "activate", installationId: created.installation.id, approvalId: pendingApprovalId, idempotencyKey: "author-activate-v1",
+  });
+  expect(activated).toMatchObject({ state: "active", releaseId });
+  const active = await setup.lifecycle.inspect(actor, created.installation.id);
+  expect(active.installation).toMatchObject({ activeReleaseId: releaseId, enabled: true, status: "active", generation: 1 });
+  expect(active.approvals[pendingApprovalId]).toMatchObject({ status: "consumed", approvedBy: human.principalId });
+  expect(active.operations[queued.id]).toMatchObject({ state: "verified", releaseId });
+  expect(setup.published).toEqual([1]);
+
+  const next = createdWorkspace(await control.execute(actor, "extensions_workspace", {
+    action: "fork", installationId: created.installation.id, releaseId: releaseId!,
+  }));
+  expect(next.installation.id).toBe(created.installation.id);
+  const candidate = await control.execute(actor, "extensions_workspace", {
+    action: "edit", installationId: next.installation.id, workspaceId: next.workspace.id, expectedRevision: 1,
+    writes: { "src/author-tool.ts": "export const authorTool = 'failed-candidate';" },
+  });
+  expect(candidate).toMatchObject({ id: next.workspace.id, revision: 2 });
+  expect((await setup.lifecycle.readWorkspace(actor, next.installation.id, next.workspace.id)).files["src/author-tool.ts"]).toBe("export const authorTool = 'failed-candidate';");
+  const healthyBuild = setup.dependencies.runner.build;
+  setup.dependencies.runner.build = async () => { throw new Error("controlled candidate runner failure"); };
+  const failedQueued = queuedOperation(await control.execute(actor, "extensions_build", {
+    installationId: next.installation.id, workspaceId: next.workspace.id, expectedRevision: 2, idempotencyKey: "author-build-failed-candidate",
+  }));
+  const failedState = await control.execute(actor, "extensions_inspect", { installationId: next.installation.id, operationId: failedQueued.id, waitMs: 30_000 });
+  expect(failedState).toMatchObject({ installation: { activeReleaseId: releaseId, enabled: true }, operations: { [failedQueued.id]: { state: "failed" } } });
+  const stateAfterFailure = await setup.lifecycle.inspect(actor, created.installation.id);
+  expect(Object.keys(stateAfterFailure.releases)).toEqual([releaseId]);
+  expect(stateAfterFailure.operations[failedQueued.id]?.diagnostics).toContainEqual(expect.objectContaining({ code: "operation_failed", stage: "build" }));
+  expect(stateAfterFailure.operations[failedQueued.id]?.events.map((event) => event.state)).toEqual(["queued", "building", "failed"]);
+  setup.dependencies.runner.build = healthyBuild;
+
+  await control.execute(actor, "extensions_release", { action: "disable", installationId: created.installation.id });
+  const disabled = await setup.lifecycle.inspect(actor, created.installation.id);
+  expect(disabled.installation).toMatchObject({ activeReleaseId: releaseId, enabled: false, uninstalled: false, status: "disabled" });
+  expect(disabled.installation).toMatchObject({ generation: 2, acknowledgedGeneration: 2, grants: [] });
+  await control.execute(actor, "extensions_release", { action: "uninstall", installationId: created.installation.id });
+  const uninstalled = await setup.lifecycle.inspect(actor, created.installation.id);
+  expect(uninstalled.installation).toMatchObject({ activeReleaseId: releaseId, enabled: false, uninstalled: true, status: "disabled" });
+  expect(uninstalled.releases[releaseId!]).toBeDefined();
+  expect(uninstalled.approvals[pendingApprovalId]).toMatchObject({ status: "consumed" });
+  expect(uninstalled.operations[queued.id]).toMatchObject({ state: "verified" });
+  expect(uninstalled.installation).toMatchObject({ generation: 3, acknowledgedGeneration: 3, grants: [] });
+  expect(uninstalled.workspaces[next.workspace.id]).toMatchObject({ revision: 2 });
+
+  // The durable repository, blobs, and lifecycle are real. The fixture injects
+  // a deterministic runner, so this test does not claim an isolated-container build.
+  expect(setup.builds).toHaveLength(1);
+  expect(setup.published).toEqual([1, 2, 3]);
 });

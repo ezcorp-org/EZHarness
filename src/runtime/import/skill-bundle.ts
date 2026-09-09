@@ -7,8 +7,8 @@
  * the import wizard turns each bundle into a **runnable tool
  * extension**: a synthesized `ezcorp.config.ts` declaring the generic
  * three-tool shim (`skill_info` / `list_scripts` / `run_script`) plus
- * the verbatim bundle copied under `./skill/`, handed to the existing
- * `installFromLocal` pipeline by the commit endpoint.
+ * the verbatim bundle copied under `./skill/`, staged through the
+ * reviewed release lifecycle by the commit endpoint.
  *
  * The runner entrypoint is shipped as a sibling `.template.ts` and
  * copied verbatim — keeping it real, type-checked code instead of an
@@ -97,7 +97,7 @@ export interface SkillBundle {
  * `/^[a-z0-9][a-z0-9-_.]{0,63}$/`, no `..`.
  */
 export function skillExtensionName(raw: string): string {
-  let s = raw
+  const name = raw
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[^a-z0-9._-]+/g, "-")
@@ -106,7 +106,7 @@ export function skillExtensionName(raw: string): string {
     .replace(/[-_.]+$/g, "")
     .slice(0, 64)
     .replace(/[-_.]+$/g, "");
-  return s.length > 0 ? s : "skill";
+  return name.length > 0 ? name : "skill";
 }
 
 /**
@@ -224,17 +224,17 @@ export function buildSkillManifestSource(
   name: string,
   description: string,
 ): string {
-  return `import { defineExtension } from "@ezcorp/sdk";
+  return `import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: ${JSON.stringify(name)},
   version: "0.1.0",
   description: ${JSON.stringify(description)},
   author: { name: "Imported skill" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: ${JSON.stringify(SKILL_TOOLS, null, 2)},
-  permissions: { shell: true, filesystem: ["."] },
+  permissions: { shell: true },
 });
 `;
 }
@@ -269,4 +269,28 @@ export async function synthesizeSkillExtension(opts: {
   );
   const runner = await Bun.file(RUNNER_TEMPLATE_PATH).text();
   await writeFile(join(destDir, "index.ts"), runner, "utf8");
+  await writeFile(join(destDir, "extension.ts"), `import { createRuntimeExtension, serve, unwrapToolResponse } from "@ezcorp/sdk/v4";
+import { createToolDispatcher, type ToolCallResult } from "@ezcorp/sdk/runtime";
+import manifest from "./ezcorp.config";
+const extension = await createRuntimeExtension({ manifest, register: async () => {
+  const { handleRequest } = await import("./index");
+  createToolDispatcher(Object.fromEntries(manifest.tools.map(tool => [tool.name, async (input: Record<string, unknown>) => unwrapToolResponse(await handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool.name, arguments: input } })) as ToolCallResult])));
+} });
+await serve(extension);
+`, "utf8");
+  await writeFile(join(destDir, "extension.test.ts"), `import { expect, test } from "bun:test";
+import { verifyExtensionEntrypoint } from "@ezcorp/sdk/test";
+import { handleRequest } from "./index";
+test("registers the actual imported skill entrypoint", async () => {
+  await verifyExtensionEntrypoint(() => import("./extension"), ${JSON.stringify(name)});
+});
+test("reads bundled instructions and enumerates scripts without executing them", async () => {
+  const info = await handleRequest({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "skill_info", arguments: {} } });
+  expect(info.error).toBeUndefined();
+  expect(info.result).toMatchObject({ content: [{ type: "text", text: expect.stringContaining(${JSON.stringify(bundle.instructions.slice(0, 100))}) }] });
+  const scripts = await handleRequest({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_scripts", arguments: {} } });
+  expect(scripts.error).toBeUndefined();
+  expect(scripts.result).toMatchObject({ content: [{ type: "text", text: expect.any(String) }] });
+});
+`, "utf8");
 }

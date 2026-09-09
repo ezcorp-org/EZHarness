@@ -1,0 +1,4 @@
+source=29eefc057be55c114761762a1fd4d3b9aa55c1fc
+bun=1.3.14
+command=PATH=<pinned> bun -e import { fetchLockedDependencies } from ./packages/@ezcorp/extension-runner/src/dependencies.ts ...
+{"lockEntries":129,"root":{"@modelcontextprotocol/sdk":"1.30.0","zod":"4.5.2"},"zod":"4.5.2","jose":"6.2.12","binaryFiles":4040,"executables":1}

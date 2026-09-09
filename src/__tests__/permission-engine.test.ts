@@ -17,7 +17,7 @@
  * `auditLog` row with `action='ext:perm:allowed'` exists.
  */
 
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test, spyOn } from "bun:test";
 import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb, getTestDb } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -92,6 +92,24 @@ beforeEach(async () => {
 });
 
 // ── Construction guard (fail-closed) ────────────────────────────────
+
+test("live v4 grant lookup failure denies cached authority and commits a denial audit", async () => {
+  const queries = await import("../db/queries/extensions");
+  const lookup = spyOn(queries, "getExtension").mockRejectedValue(new Error("private database failure"));
+  const registry = Object.assign(makeFakeRegistry({ granted: { network: ["example.com"], grantedAt: {} } }), { getManifest: () => ({ schemaVersion: 4 }) });
+  _resetPermissionEngineForTests();
+  const engine = createPermissionEngine({ registry, bus: makeFakeBus(), db: {} });
+  try {
+    const result = await engine.authorize({ extensionId: HELLO_EXT, userId: HELLO_USER, conversationId: null }, [{ kind: "network", value: "example.com" }]);
+    expect(result).toMatchObject({ decision: "deny", reason: "live-release-grant-unavailable" });
+    expect(lookup).toHaveBeenCalledWith(HELLO_EXT);
+    const rows = await getTestDb().select().from(auditLog).where(eq(auditLog.action, "ext:perm:denied"));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.action).toBe("ext:perm:denied");
+    expect(rows[0]!.metadata).toMatchObject({ auditId: result.auditId, reason: "live-release-grant-unavailable" });
+    expect(JSON.stringify(rows)).not.toContain("private database failure");
+  } finally { lookup.mockRestore(); }
+});
 
 describe("createPermissionEngine — fail-closed dep contract", () => {
   test("throws when registry is missing", () => {

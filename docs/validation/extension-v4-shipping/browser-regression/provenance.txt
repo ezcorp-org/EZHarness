@@ -1,0 +1,5 @@
+source=e121969eac2f39fda4ed56e9ac640d90e888df36
+branch=extension-v4-independent-audit
+bun=1.3.14
+node=v22.22.2
+raw_receipt_local=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/browser/regression-5133652d6ba7-20260907T000055Z

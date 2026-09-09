@@ -1,0 +1,187 @@
+{
+  "shots": 67,
+  "manifest_head": "19d9da92f771a5771d491234c9cff75eb104660b",
+  "reports": {
+    "mock.zip": {
+      "counts": {
+        "passed": 42
+      },
+      "end": {
+        "result": {
+          "status": "passed",
+          "startTime": 1788656993897,
+          "duration": 57596.831
+        }
+      },
+      "sha256": "d2efc1ac9698af8ad1c33b6906ad2b11a61c6977652d92801b39c972fb9f75e6"
+    },
+    "real-auth.zip": {
+      "counts": {
+        "passed": 7
+      },
+      "end": {
+        "result": {
+          "status": "passed",
+          "startTime": 1788657053402,
+          "duration": 157727.474
+        }
+      },
+      "sha256": "8da1598cf4204965f79d3d51f846f197bb06df280c8b4d9718ccca8cc273c5b5"
+    }
+  },
+  "hash_indexes": [
+    {
+      "index": "docs/validation/extension-v4-independent/web/artifacts/RAW-ARCHIVE-SHA256SUMS",
+      "verified": 3
+    },
+    {
+      "index": "docs/validation/extension-v4-independent/web/artifacts/final3-blob/SHA256SUMS",
+      "verified": 70
+    },
+    {
+      "index": "docs/validation/extension-v4-independent/web/screenshots/final3/SHA256SUMS",
+      "verified": 67
+    }
+  ],
+  "parent_visual_inspection": [
+    {
+      "image": "docs/validation/extension-v4-independent/web/screenshots/final3/extension-disable-hides-hub-page.spec.ts__hub-tab-bar-after-disable.png",
+      "sha256": "dc1da5f672c74a038152a7b69dd0903171b838324db92ebabd3c4e2f783526c2",
+      "width": 1280,
+      "height": 720,
+      "observation": "Briefing is the sole tab; old Notes content is absent. Unavailable-page title and body are readable in the light main panel."
+    },
+    {
+      "image": "docs/validation/extension-v4-independent/web/screenshots/final3/extension-author-flow.spec.ts__extension-release-mobile.png",
+      "sha256": "344840caffbbd56393425a14b617229e4f9917dbc9506e048dfc3e6e89733a93",
+      "width": 390,
+      "height": 844,
+      "observation": "Exact-release review fits390px. Review checkbox, disabled approval, and reject control are clear; no horizontal overflow."
+    },
+    {
+      "image": "docs/validation/extension-v4-independent/web/screenshots/final3/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-light.png",
+      "sha256": "5a744fe4f968b1a25b056ed67c410fa68d81ea99cfad1d9a624aaee727170e76",
+      "width": 1280,
+      "height": 720,
+      "observation": "Seeded purple/cyan colors are visible. Labels, controls, editable panel, and authored preview are aligned and readable."
+    },
+    {
+      "image": "docs/validation/extension-v4-independent/web/screenshots/final3/canvas-dock-open-close.spec.ts__extension-iframe-live-dock-mobile-dark.png",
+      "sha256": "d1f55e18d7a56a336f406e98ad7390368e5843303616e06689e9a23a7e775bf9",
+      "width": 393,
+      "height": 851,
+      "observation": "Stacked preview and dark controls fit393px. Popout/close and apply action remain visible; authored canvas retains its own light styling."
+    },
+    {
+      "image": "docs/validation/extension-v4-independent/web/screenshots/final3/extension-disable-hides-hub-page.spec.ts__uninstall-dialog-data-choice.png",
+      "sha256": "dda25e821142d36af9b1b1cf648f5b55600138bff2cf318e72220027bc1fd25b",
+      "width": 1280,
+      "height": 720,
+      "observation": "Dialog clearly states tools/permissions stop while history/settings/secrets/data/files are kept. Cancel/uninstall fit and are readable."
+    }
+  ],
+  "visual_source": "19d9da92f771a5771d491234c9cff75eb104660b",
+  "visual_tree": "5bf40268df5184c05cbdc1298e16fefc5fd33883",
+  "historical_production": [
+    {
+      "receipt": {
+        "metadata": {
+          "source_commit": "19d9da92f771a5771d491234c9cff75eb104660b",
+          "source_tree": "5bf40268df5184c05cbdc1298e16fefc5fd33883",
+          "image": "localhost/ezcorp-extension-v4:audit-final-19d9da92-docker",
+          "image_id": "sha256:2d069cc64bc0bf06d5216517b0ee6724a865fe88ead28850f31219c2e2ade4de",
+          "image_digest": "sha256:11fec71d2a4f6cb0613499b528c6b262d2c14d3a4915a7cbcfba8ca77dd85297",
+          "healthcheck": "interval=30s timeout=5s start_period=60s retries=3",
+          "playwright": "12 passed, 0 failed, 0 skipped",
+          "command_exit": "0",
+          "owned_cleanup_exit": "0",
+          "app_restart": "none",
+          "reporter": "list (raw stdout/stderr in file-organizer-real-production.log)",
+          "blob_report": "not enabled"
+        },
+        "archive_members": [
+          "file-organizer-compose-command.txt",
+          "file-organizer-compose-fixture.yml.txt",
+          "file-organizer-compose.log",
+          "file-organizer-real-production.log",
+          "file-organizer-runner.log",
+          "metadata.txt"
+        ],
+        "daemon_start_records": 1,
+        "raw_pass": 12,
+        "raw_exit": 0,
+        "limit": "List-reporter raw output and metadata; blob reporter was not enabled. Mislabeled historical nested receipt was removed."
+      },
+      "archive": "docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production-19d9-historical.zip",
+      "archive_sha256": "26d2179df91fd0bcf28edcf95b5e5c9dbdb6e4ae1f748fe09a94461c574e0ea4"
+    },
+    {
+      "image_source": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+      "image_id": "8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be",
+      "archive": "docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production-3ec53-historical.zip",
+      "archive_sha256": "46200582e02347e4a68c1ac146ec2d7543e2891d0dbd528d62c566cba78ee9ec",
+      "passed": 12,
+      "command_exit": 0,
+      "daemon_start_records": 1,
+      "reporter": "list; no blob claimed",
+      "metadata": {
+        "source_commit": "3ec53eaa66409a39d66b502f79d74139ec94dcf2",
+        "source_tree": "2ccafce2b65a9af89482e85e7168a5f01980051a",
+        "image": "localhost/ezcorp-extension-v4:audit-final-3ec53eaa",
+        "image_id": "sha256:8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be",
+        "image_digest": "not supplied; immutable local image ID recorded",
+        "healthcheck": "present (verified by build owner)",
+        "production_verifier": "8 passed (verified by build owner)",
+        "playwright": "12 passed, 0 failed, 0 skipped",
+        "command_exit": "0",
+        "owned_cleanup_exit": "0",
+        "app_restart": "none",
+        "reporter": "list (raw stdout/stderr in file-organizer-real-production.log)",
+        "blob_report": "not enabled"
+      }
+    }
+  ],
+  "production": {
+    "image_source": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+    "image_tree": "801704279706828fa0b9f958ae4446237f38e451",
+    "image_id": "abc3644405188068cb2b0397f85199799b76d51336cb8d17e0a0d83492189962",
+    "archive": "docs/validation/extension-v4-independent/web/artifacts/file-organizer-real-production.zip",
+    "archive_sha256": "8c778e01c63d3a51a56fa5fb42be9d08ca28fb3c37debadb6b909290c8d0cbb9",
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0,
+    "command_exit": 0,
+    "cleanup_exit": 0,
+    "daemon_start_records": 1,
+    "reporter": "list; no blob claimed",
+    "metadata": {
+      "source": "ea445e9e48bbaffa337452d2254a6b2b2d1dc778",
+      "tree": "801704279706828fa0b9f958ae4446237f38e451",
+      "image": "localhost/ezcorp-extension-v4:audit-final-ea445e9e",
+      "immutable_image_id": "sha256:abc3644405188068cb2b0397f85199799b76d51336cb8d17e0a0d83492189962",
+      "healthcheck": "present",
+      "production_build_verifier": "8_pass",
+      "playwright": "12_pass_0_fail_0_skip",
+      "application_restart_after_activation": "false",
+      "command_exit": "0",
+      "owned_cleanup_exit": "0",
+      "reporter": "list",
+      "blob_report": "false"
+    },
+    "parent_cleanup_inspection": {
+      "compose_project": "extension-v4-web-audit-docker",
+      "containers": [],
+      "networks": [],
+      "raw_cleanup_exit": 0
+    }
+  },
+  "production_receipt_sha256": "8c778e01c63d3a51a56fa5fb42be9d08ca28fb3c37debadb6b909290c8d0cbb9",
+  "checked_utc": "2026-09-06T03:03:30.118191+00:00",
+  "publication_quarantine": {
+    "recorded_utc": "2026-09-07T11:00:30Z",
+    "status": "removed-from-current-published-tree-private-unpublished",
+    "inventory": "docs/validation/extension-v4-shipping/parent/evidence-quarantine-d2222840/private-artifact-inventory.json",
+    "scope": "raw browser report/trace archives and browser server-state attachments",
+    "history": "Earlier repository history may retain these files; this action does not erase history."
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "runtime_r1": {
+    "bootstrapInstallations": 28,
+    "initialPending": 0,
+    "maximumPending": 0,
+    "terminalOperationStates": {
+      "verified": 28
+    }
+  },
+  "delivery_r2": {
+    "bootstrapInstallations": 28,
+    "initialPending": 28,
+    "maximumPending": 28,
+    "terminalOperationStates": {
+      "verified": 28
+    }
+  },
+  "historical_upgrade": {
+    "verification_catalog": "verified",
+    "verification_smoke": "passed",
+    "storage_sentinel_round_trip": true
+  },
+  "legacy_adoption": {
+    "legacy_source": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+    "candidate_source": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+    "runner_bootstrap_installations": 28,
+    "runner_terminal_operation_states": {
+      "verified": 28
+    }
+  }
+}

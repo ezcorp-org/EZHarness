@@ -1,0 +1,88 @@
+{
+  "parent_checked_at": "2026-09-05T21:38Z",
+  "source_head": "ac53921ce07db8569eb8895456eda8271d6aab3f",
+  "runtime_command_head": "b7a299bf6c1d4d0ede4659e7da4922d306777af2",
+  "raw_sha256": "33c9a422afd44c2470af1f13d2a0562e176a9cbbfc2e23b8467b68946c4c7c01",
+  "unique_extensions": 50,
+  "states": {
+    "verified": 50
+  },
+  "smoke": {
+    "not_declared": 46,
+    "passed": 4
+  },
+  "capability_rows": 117,
+  "capability_states": {
+    "unexercised": 116,
+    "tested": 1
+  },
+  "summary": {
+    "total": 50,
+    "passed": 50,
+    "failed": 0,
+    "untested": 0
+  },
+  "command_exit": 0,
+  "extension_names": [
+    "ai-kit",
+    "ask-user",
+    "auto-note",
+    "cash-recovery-agent",
+    "city-conditions",
+    "claude-design",
+    "code-quality",
+    "code-review-delegator",
+    "cron-dashboard",
+    "docs-updater",
+    "excel",
+    "extension-author",
+    "ez-code",
+    "ez-factory",
+    "file-organizer",
+    "file-refactor",
+    "github-projects",
+    "github-stats",
+    "graded-card-scanner",
+    "harness-smoke-test",
+    "kokoro-tts",
+    "lessons-distiller",
+    "log-analyzer",
+    "markdown-utils",
+    "memory-extractor",
+    "multi-agent-orchestrator",
+    "openai-image-gen-2",
+    "orchestration",
+    "ping-loop",
+    "price-chart",
+    "project-analyzer",
+    "property-intelligence-agent",
+    "repo-activity-notify",
+    "research-agent",
+    "sample-loop",
+    "scratchpad",
+    "seo-watcher",
+    "substack-engagement",
+    "substack-pilot",
+    "substack-pipeline",
+    "task-stack",
+    "task-tracking",
+    "test-agent-configs",
+    "test-event-subscriber",
+    "test-spawn-assignment",
+    "test-task-events",
+    "todo-tracker",
+    "weather",
+    "web-search",
+    "webhook-ticket-loop"
+  ],
+  "tested_capabilities": [
+    [
+      "substack-engagement",
+      {
+        "capability": "storage",
+        "state": "tested",
+        "calls": 1
+      }
+    ]
+  ]
+}

@@ -1,0 +1,571 @@
+{
+  "attachments": [
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-release-desktop",
+      "file": "png/full/extension-author-flow.spec.ts__extension-release-desktop.png",
+      "sha256": "040dc2642398e21e0ca85c6cb9960c74f0459154dfa5aa57fe671ca306992cfa",
+      "bytes": 77155
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-release-mobile",
+      "file": "png/full/extension-author-flow.spec.ts__extension-release-mobile.png",
+      "sha256": "83435286bfd71f37c1e3153193083d142e4caf16a713ed3c8a24122ae523317c",
+      "bytes": 40943
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extensions-approved-installation-list",
+      "file": "png/full/extension-author-flow.spec.ts__extensions-approved-installation-list.png",
+      "sha256": "423195196c176bd6421f61c51229eea66716057a05a53bf206c34c4de766b4c3",
+      "bytes": 84261
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-detail-release-permissions",
+      "file": "png/full/extension-author-flow.spec.ts__extension-detail-release-permissions.png",
+      "sha256": "ee0754657faf20fb11ffaa3a8b3c6f979e76923bc20b0922deccce8901d25562",
+      "bytes": 81897
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-uninstall-retains-data",
+      "file": "png/full/extension-author-flow.spec.ts__extension-uninstall-retains-data.png",
+      "sha256": "09159e8c1023965ed98929608a89aadb81439ec2a36adff67997698f1342a182",
+      "bytes": 121751
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-binary-assets.spec.ts",
+      "label": "extension-binary-assets-desktop",
+      "file": "png/full/extension-binary-assets.spec.ts__extension-binary-assets-desktop.png",
+      "sha256": "ed0c027df95e3e157c5182e7c17768d2d96971b186ddb788b8aa1086c831e20a",
+      "bytes": 68578
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-binary-assets.spec.ts",
+      "label": "extension-binary-assets-mobile",
+      "file": "png/full/extension-binary-assets.spec.ts__extension-binary-assets-mobile.png",
+      "sha256": "233223003e216ac5a4e8c725d3191af0e9207da76d20b7a2f2657fdc8655e903",
+      "bytes": 38299
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-sidebar-720",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-lifecycle-sidebar-720.png",
+      "sha256": "44728cef7f9bd378ed427c0ecc4c28a479a354ead7f438a7cb815393834ed156",
+      "bytes": 79110
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-review-desktop",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-lifecycle-review-desktop.png",
+      "sha256": "7506b4d2d155ff5e95d149fb7f1e0bd6a121163dad2173769fae256716d0b1e9",
+      "bytes": 96980
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-live-output",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-lifecycle-live-output.png",
+      "sha256": "2fc6a17ca25ea50500ea14ea721da84802104a36b4b2c18cdc1d05be8da560fd",
+      "bytes": 101115
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-revoked-mention-list",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-lifecycle-revoked-mention-list.png",
+      "sha256": "f3347b631ee1bdf6509422749097298d507119d49b8f4321be3533b2bde495b4",
+      "bytes": 115819
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-tool-selection-mobile",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-lifecycle-tool-selection-mobile.png",
+      "sha256": "9a0d18ea63b067c5a4f1e7d1cee530ed9e57c5fe8061cc458430a4da82175e0f",
+      "bytes": 60139
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-tool-selection-mobile-narrow",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-lifecycle-tool-selection-mobile-narrow.png",
+      "sha256": "fe8252abc3568f63a7d04edfa1b0084865515606756cbc6bf740499dfe55e6ed",
+      "bytes": 55674
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-tool-selection-desktop-after-mobile",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-lifecycle-tool-selection-desktop-after-mobile.png",
+      "sha256": "b8a8fd3d90865db01ceed676c3e966311bede26ad6762f9a7b04afdaf560eefb",
+      "bytes": 129027
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-browser-build-diagnostics",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-browser-build-diagnostics.png",
+      "sha256": "2d948199aa6d090e0adbc3723e73c199249a48e6a93123a5f7ea3ceaa385de3c",
+      "bytes": 80436
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-browser-repaired-output",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-browser-repaired-output.png",
+      "sha256": "d1b145e697b76e9e138be6e99c24b9db264443ea0937fc1eeeb3280896fe66a7",
+      "bytes": 80298
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-stale-tab-denial",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-stale-tab-denial.png",
+      "sha256": "c06d4917ae5d6023dba407472712016db103da40e960b17eaaf1e12169de74ab",
+      "bytes": 82009
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-stale-tab-uninstall",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-stale-tab-uninstall.png",
+      "sha256": "31c5ee8c1756250021743f1e7ca9bc9f3006152545324f79e42601f5283be747",
+      "bytes": 81044
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-stale-tab-uninstall-release",
+      "file": "png/full/extension-lifecycle-flow.spec.ts__extension-stale-tab-uninstall-release.png",
+      "sha256": "dbf9c2d847023263fa8101d08e62b08cc6219da74d9a16151d24e6961f060ddb",
+      "bytes": 115279
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-project-authority.spec.ts",
+      "label": "extension-project-review-desktop",
+      "file": "png/full/extension-project-authority.spec.ts__extension-project-review-desktop.png",
+      "sha256": "8b9b4ff03c9ba43162dccdb59b5ab0a71cc8d8a429f9a6de806ab721ff170c55",
+      "bytes": 96005
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-project-authority.spec.ts",
+      "label": "extension-project-review-mobile",
+      "file": "png/full/extension-project-authority.spec.ts__extension-project-review-mobile.png",
+      "sha256": "ec4621616cc22d84af8f35aca578a60bcacc00872200223224a0ae10086dcf0b",
+      "bytes": 49213
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-release-gate.spec.ts",
+      "label": "extension-real-repeated-output",
+      "file": "png/full/extension-release-gate.spec.ts__extension-real-repeated-output.png",
+      "sha256": "a7f2db7f9de0198f21bb05eb599c0d276d9e0a8670f5de025b361378ccc157a8",
+      "bytes": 77923
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-release-gate.spec.ts",
+      "label": "extension-real-upgraded-output",
+      "file": "png/full/extension-release-gate.spec.ts__extension-real-upgraded-output.png",
+      "sha256": "c093c1c860ac4294301c0a49996d1b5d9be654e715fc4f6b3d2fca62d242f2b9",
+      "bytes": 72453
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-form",
+      "file": "png/full/extension-source-import.spec.ts__extension-source-import-form.png",
+      "sha256": "e02cf11b54cefc784229fcbeae56aab0b777c360239f20706695443578177ee4",
+      "bytes": 121424
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-mobile",
+      "file": "png/full/extension-source-import.spec.ts__extension-source-import-mobile.png",
+      "sha256": "8ddc059b9b17be879ff1f7f4fcde46bf12de2e23153a2c3344069732237db424",
+      "bytes": 44235
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-review",
+      "file": "png/full/extension-source-import.spec.ts__extension-source-import-review.png",
+      "sha256": "d74aa2f34a3bd4df6f3cfecc67e42459fcad103791ad2d33ccb5eef14d1bc53e",
+      "bytes": 147176
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-visible-output",
+      "file": "png/full/extension-source-import.spec.ts__extension-source-import-visible-output.png",
+      "sha256": "b04a615adacae6cef97af711671d3ca1f7d417a3d8930585d21123640199799f",
+      "bytes": 94591
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-permission-update",
+      "file": "png/full/extension-source-import.spec.ts__extension-source-import-permission-update.png",
+      "sha256": "20015f302a8d8e392ed342b675af9b8c4dcc36647b6ff1e3f3708db15dcee048",
+      "bytes": 91145
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-local-form",
+      "file": "png/full/extension-source-import.spec.ts__extension-source-import-local-form.png",
+      "sha256": "7d905bd598c3144c30fe6069606f6ef740c9f5646327ddbbec7ff8c388db9250",
+      "bytes": 107086
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "workflow-service-release-flow.spec.ts",
+      "label": "service-workflow-exact-release-review",
+      "file": "png/full/workflow-service-release-flow.spec.ts__service-workflow-exact-release-review.png",
+      "sha256": "d454acba324bda5788a91c8b9b80be90d113a0f1198c034408fca34bd14d27ff",
+      "bytes": 72643
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-trusted-camera",
+      "file": "png/full/extension-browser-scanner.spec.ts__extension-scanner-trusted-camera.png",
+      "sha256": "083ba3bf97a808abcc66a410de20eaf499c2e8422a43737b94f64447e8afbb37",
+      "bytes": 79415
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-protected-mobile",
+      "file": "png/full/extension-browser-scanner.spec.ts__extension-scanner-protected-mobile.png",
+      "sha256": "07dcece1307736da796559d52979f1cf6377a2d8329482d5d16f179a9612f5b0",
+      "bytes": 29968
+    },
+    {
+      "sourceBlob": "full",
+      "sourceBlobSha256": "821cd933dfd1bce696c6925c2446638f5f373ba057b7e9ed761f3c9a5ac1d5ee",
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-mobile-final",
+      "file": "png/full/extension-browser-scanner.spec.ts__extension-scanner-mobile-final.png",
+      "sha256": "e31b9e9af390acd29bc9cedfdcc111cb1c74ffd6ea7c3d282093d161765b4939",
+      "bytes": 29941
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-release-desktop",
+      "file": "png/visual/extension-author-flow.spec.ts__extension-release-desktop.png",
+      "sha256": "29f60f6fc6b5f8238fdc45cda23e16bd830ab926cee2765c34ca184db99077c1",
+      "bytes": 75568
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-release-mobile",
+      "file": "png/visual/extension-author-flow.spec.ts__extension-release-mobile.png",
+      "sha256": "28b5f893c70735c3bb0e3ba183c000e163136cb0c9eeee632601f69cd96925c2",
+      "bytes": 41029
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extensions-approved-installation-list",
+      "file": "png/visual/extension-author-flow.spec.ts__extensions-approved-installation-list.png",
+      "sha256": "dd33f2833d0cfe2627271d2f3e1f4f2a1fd0ebe7b6956ebd521221b58b109c9b",
+      "bytes": 76580
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-detail-release-permissions",
+      "file": "png/visual/extension-author-flow.spec.ts__extension-detail-release-permissions.png",
+      "sha256": "457544b6ea872dee28d2ae43b6f4c45748afa53b16d55447027e0c1b0da6e544",
+      "bytes": 79940
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-author-flow.spec.ts",
+      "label": "extension-uninstall-retains-data",
+      "file": "png/visual/extension-author-flow.spec.ts__extension-uninstall-retains-data.png",
+      "sha256": "54b9eafd77e1f74cd25c631a26fb16227495f15cacad8a0da6b776d94e0025bf",
+      "bytes": 119716
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-binary-assets.spec.ts",
+      "label": "extension-binary-assets-desktop",
+      "file": "png/visual/extension-binary-assets.spec.ts__extension-binary-assets-desktop.png",
+      "sha256": "761ee0e4969257a743dbb7cc9e7b8f864fffc91409cb6bfba1bd8c86588d4095",
+      "bytes": 66597
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-binary-assets.spec.ts",
+      "label": "extension-binary-assets-mobile",
+      "file": "png/visual/extension-binary-assets.spec.ts__extension-binary-assets-mobile.png",
+      "sha256": "233223003e216ac5a4e8c725d3191af0e9207da76d20b7a2f2657fdc8655e903",
+      "bytes": 38299
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-sidebar-720",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-lifecycle-sidebar-720.png",
+      "sha256": "6570fc617953baa2c492071e7a4f1619777b1fbd1fcf09e9cc847bff09f99712",
+      "bytes": 71312
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-review-desktop",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-lifecycle-review-desktop.png",
+      "sha256": "513cf93d30ed4b972805c90190081423c9d05a1db3a37fa81976e0a993a5330d",
+      "bytes": 94322
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-live-output",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-lifecycle-live-output.png",
+      "sha256": "7ee4a64699ff62469c97b016cfd6ad998163b767fe183bed78e7dd44800deccd",
+      "bytes": 99528
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-revoked-mention-list",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-lifecycle-revoked-mention-list.png",
+      "sha256": "3a2abe1222dad63e3cb87d787412ff30f2bb45c05bb9b1b5c6f13427e51201f6",
+      "bytes": 111148
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-tool-selection-mobile",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-lifecycle-tool-selection-mobile.png",
+      "sha256": "d9b657da51ef9d6ed67edf37dc041ac7ac474a901a0449f2f87d1030b014a09d",
+      "bytes": 60206
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-tool-selection-mobile-narrow",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-lifecycle-tool-selection-mobile-narrow.png",
+      "sha256": "51817c799e181b0f1e2d4614606f3c98342b2e99202aaa0759be6ea52d1874d6",
+      "bytes": 59391
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-lifecycle-tool-selection-desktop-after-mobile",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-lifecycle-tool-selection-desktop-after-mobile.png",
+      "sha256": "2d75091a70bda4dcded7778ed2fa8d87083f9d2d6929831b7550bb99eb621106",
+      "bytes": 121577
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-browser-build-diagnostics",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-browser-build-diagnostics.png",
+      "sha256": "f65c6b5839f8f2e09a5e9ac021ce7ff9f7e06d8f4486314727e0e8f03a6df82c",
+      "bytes": 77802
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-lifecycle-flow.spec.ts",
+      "label": "extension-browser-repaired-output",
+      "file": "png/visual/extension-lifecycle-flow.spec.ts__extension-browser-repaired-output.png",
+      "sha256": "32e59284c928303f63be050866c5ba797399d04614e2f9934f96b34789e18c2b",
+      "bytes": 77259
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-project-authority.spec.ts",
+      "label": "extension-project-review-desktop",
+      "file": "png/visual/extension-project-authority.spec.ts__extension-project-review-desktop.png",
+      "sha256": "37392c6d4c7615bf63716ce6c460bfb610eadd4aa6f2ee51293941ae500f708b",
+      "bytes": 93643
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-project-authority.spec.ts",
+      "label": "extension-project-review-mobile",
+      "file": "png/visual/extension-project-authority.spec.ts__extension-project-review-mobile.png",
+      "sha256": "ec4621616cc22d84af8f35aca578a60bcacc00872200223224a0ae10086dcf0b",
+      "bytes": 49213
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-release-gate.spec.ts",
+      "label": "extension-real-repeated-output",
+      "file": "png/visual/extension-release-gate.spec.ts__extension-real-repeated-output.png",
+      "sha256": "589b9d268f843c8f2b9d980e411b32fa2229125313579eaa32a4da43d1e05e4b",
+      "bytes": 77001
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-release-gate.spec.ts",
+      "label": "extension-real-upgraded-output",
+      "file": "png/visual/extension-release-gate.spec.ts__extension-real-upgraded-output.png",
+      "sha256": "e79fa4e4c666a2ad1d630fe58258a9aa5bbd4bc3d613c22e031c5cdd6fda318a",
+      "bytes": 71271
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-form",
+      "file": "png/visual/extension-source-import.spec.ts__extension-source-import-form.png",
+      "sha256": "0d7d315e9deb664332d5f5f13db5c48978f25178e2bbe1fe53f848bc43b75584",
+      "bytes": 118366
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-mobile",
+      "file": "png/visual/extension-source-import.spec.ts__extension-source-import-mobile.png",
+      "sha256": "879f33a4e1aedf2a3cb161bc503255e4e02780642dabdc8fd764ede8a314395a",
+      "bytes": 44317
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-review",
+      "file": "png/visual/extension-source-import.spec.ts__extension-source-import-review.png",
+      "sha256": "268047025dc877376e110e27979d5dff19cddfc55358b2306b6e876f2162e982",
+      "bytes": 143526
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-visible-output",
+      "file": "png/visual/extension-source-import.spec.ts__extension-source-import-visible-output.png",
+      "sha256": "455b39ef8a322ac80a721196079e2c55942da1eb0c634fbc504cb3cc6a187830",
+      "bytes": 91297
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-permission-update",
+      "file": "png/visual/extension-source-import.spec.ts__extension-source-import-permission-update.png",
+      "sha256": "905f07463a4b23ee34c041742061dcfdbdc0efc4a6deba5195f3e4f1be20c585",
+      "bytes": 90180
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-source-import.spec.ts",
+      "label": "extension-source-import-local-form",
+      "file": "png/visual/extension-source-import.spec.ts__extension-source-import-local-form.png",
+      "sha256": "b0ebe1e83e5fac42c49c6d1caefbfbe4361ad362f54417fdf24ac47b8628a042",
+      "bytes": 105403
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "workflow-service-release-flow.spec.ts",
+      "label": "service-workflow-exact-release-review",
+      "file": "png/visual/workflow-service-release-flow.spec.ts__service-workflow-exact-release-review.png",
+      "sha256": "06db674647e9df7ba4fa634e38f3ef71aadcefadf19ccc91f7717fe21b081e6f",
+      "bytes": 71392
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-trusted-camera",
+      "file": "png/visual/extension-browser-scanner.spec.ts__extension-scanner-trusted-camera.png",
+      "sha256": "b1ef249c7ebd6803e17daae6caa928a749e7ef14c96d2f7e46c9e3dea490fb18",
+      "bytes": 78743
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-protected-mobile",
+      "file": "png/visual/extension-browser-scanner.spec.ts__extension-scanner-protected-mobile.png",
+      "sha256": "07dcece1307736da796559d52979f1cf6377a2d8329482d5d16f179a9612f5b0",
+      "bytes": 29968
+    },
+    {
+      "sourceBlob": "visual",
+      "sourceBlobSha256": "414493c5b6e221a6e76392a33541aa13ec2e5f4af3cf44190e61dfce947e32a4",
+      "spec": "extension-browser-scanner.spec.ts",
+      "label": "extension-scanner-mobile-final",
+      "file": "png/visual/extension-browser-scanner.spec.ts__extension-scanner-mobile-final.png",
+      "sha256": "e31b9e9af390acd29bc9cedfdcc111cb1c74ffd6ea7c3d282093d161765b4939",
+      "bytes": 29941
+    }
+  ]
+}

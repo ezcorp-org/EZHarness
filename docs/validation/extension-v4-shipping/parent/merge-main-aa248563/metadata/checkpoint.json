@@ -1,0 +1,15 @@
+{
+  "kind": "historical_merge_checkpoint",
+  "status": "final_premerge_green_with_retained_prior_failure",
+  "merge_commit": "aa2485639e052569f997a30ff36a93d3436e1daa",
+  "merge_tree": "aa18ac61ab491d110af8f98209491fa208f00bfd",
+  "first_parent": "860177681f5ca2eb5b4c2a58cfa32cdb63bcf155",
+  "second_parent": "bd7364388d0106364864e18a3d321b13ba978c36",
+  "second_parent_role": "latest_main_pr248_squash_merge_commit",
+  "private_receipt": ".cache/terra-shipping/parent/merge-main-bd736438",
+  "first_index_tree": "048cfb25a998d70a7a740f83cf908445c1c95bea",
+  "second_index_tree": "aa18ac61ab491d110af8f98209491fa208f00bfd",
+  "first_controller_exit": 1,
+  "second_controller_exit": 0,
+  "second_focused_tests": { "passed": 657, "files": 36 }
+}

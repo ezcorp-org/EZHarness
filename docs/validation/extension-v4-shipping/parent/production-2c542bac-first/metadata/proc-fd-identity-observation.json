@@ -1,0 +1,30 @@
+{
+  "observed_utc": "2026-09-07T18:36:02.329332+00:00",
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "owned_container": "ezcorp-legacy-adoption-v4-38d06002da39-app",
+  "pid": "2544812",
+  "observer_uid": 1001,
+  "observer_gid": 100,
+  "target_credentials": [
+    "Uid:\t1001\t1001\t1001\t1001",
+    "Gid:\t1001\t1001\t1001\t1001",
+    "Groups:\t1001 "
+  ],
+  "normal_readlink_errno": 13,
+  "normal_readlink_error": "[Errno 13] Permission denied: '/proc/2544812/fd/0'",
+  "matched_gid_argv": [
+    "sudo",
+    "-n",
+    "setpriv",
+    "--reuid",
+    "1001",
+    "--regid",
+    "1001",
+    "--clear-groups",
+    "readlink",
+    "/proc/2544812/fd/0"
+  ],
+  "matched_gid_readlink_exit": 0,
+  "matched_gid_stdout": "/dev/null\n",
+  "matched_gid_stderr": ""
+}

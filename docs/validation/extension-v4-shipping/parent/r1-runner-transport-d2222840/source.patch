@@ -1,0 +1,189 @@
+diff --git a/scripts/lib/production-lifecycle-client.ts b/scripts/lib/production-lifecycle-client.ts
+index bb62637b..f210d19d 100644
+--- a/scripts/lib/production-lifecycle-client.ts
++++ b/scripts/lib/production-lifecycle-client.ts
+@@ -1,6 +1,7 @@
+ import { strict as assert } from "node:assert";
+ import { readFile } from "node:fs/promises";
+ import { join } from "node:path";
++import { validateWire, type RunnerInspection } from "@ezcorp/extension-contract";
+ import type { PGlite } from "@electric-sql/pglite";
+ import { HarnessClient } from "@ezcorp/harness-client";
+ import { APP_DATABASE } from "../../src/db/datadir-upgrade";
+@@ -31,6 +32,24 @@ export async function readSessionCookie(file: string): Promise<string> {
+   return cookies.join("; ");
+ }
+ 
++/** Inspect the launcher's real authenticated runner transport. */
++export async function inspectProductionRunner(operationId: string): Promise<RunnerInspection> {
++  const token = (await readFile(required("EZ_EXTENSION_RUNNER_TOKEN_FILE"), "utf8")).trim();
++  assert(token, "The launcher must provide a runner credential");
++  const response = await fetch("http://localhost/v4/inspect", {
++    unix: required("EZ_EXTENSION_RUNNER_SOCKET"),
++    method: "POST",
++    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
++    body: JSON.stringify({ id: operationId }),
++    signal: AbortSignal.timeout(5_000),
++  });
++  const value: unknown = await response.json();
++  if (!response.ok) throw new Error(`Runner inspection returned HTTP ${response.status}`);
++  const inspection = validateWire("inspection", value);
++  if (inspection.id !== operationId) throw new Error("Runner inspection returned an unexpected operation");
++  return inspection;
++}
++
+ /** Read only the launcher's owned database after its app has stopped. */
+ export async function readStoppedProductionDatabase<T>(read: (database: PGlite) => Promise<T>): Promise<T> {
+   const container = required("EZ_PRODUCTION_CONTAINER");
+diff --git a/scripts/verify-shipping-runtime.ts b/scripts/verify-shipping-runtime.ts
+index 0df162ac..1fc87c64 100644
+--- a/scripts/verify-shipping-runtime.ts
++++ b/scripts/verify-shipping-runtime.ts
+@@ -5,11 +5,12 @@
+  * launcher's exact app container.
+  */
+ import { createHash } from "node:crypto";
+-import { readFile, writeFile } from "node:fs/promises";
++import { writeFile } from "node:fs/promises";
+ import { join } from "node:path";
+ import type { HarnessClient } from "@ezcorp/harness-client";
++import type { RunnerInspection } from "@ezcorp/extension-contract";
+ import type { InstallationRecord, InstallationState, LifecycleOperation, WorkspaceRecord } from "../src/extensions/v4/types";
+-import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
++import { command, inspectProductionRunner, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
+ import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
+ import { requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
+ 
+@@ -23,39 +24,33 @@ async function podman(args: string[]): Promise<string> {
+   return command("podman", args);
+ }
+ 
+-type RunnerEvidence = { id: string; state: string; diagnosticCodes: string[]; diagnostics: unknown } | { error: string };
++type RunnerEvidence = RunnerInspection | { error: string };
+ 
+-function requireRunnerState(evidence: RunnerEvidence, expected: readonly string[], point: string): void {
++function safeRunnerError(error: unknown): string {
++  if (error && typeof error === "object" && typeof (error as { code?: unknown }).code === "string") return (error as { code: string }).code;
++  return error instanceof Error ? error.name : "runner_inspect_failed";
++}
++
++function requireRunnerState(evidence: RunnerEvidence, expected: readonly RunnerInspection["state"][], point: string): void {
+   if ("error" in evidence) throw new Error(`Owned runner inspect failed ${point}: ${evidence.error}`);
+   if (!expected.includes(evidence.state)) throw new Error(`Owned runner state ${evidence.state} ${point}; expected ${expected.join(", ")}.`);
+ }
+ 
+-async function ownedRunnerState(runRoot: string, operationId: string): Promise<RunnerEvidence> {
++async function ownedRunnerState(operationId: string): Promise<RunnerEvidence> {
+   try {
+-    const token = (await readFile(join(runRoot, "token"), "utf8")).trim();
+-    const response = await fetch("http://localhost/v4/inspect", {
+-      unix: join(runRoot, "socket", "runner.sock"),
+-      method: "POST",
+-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+-      body: JSON.stringify({ id: operationId }),
+-      signal: AbortSignal.timeout(5_000),
+-    });
+-    const value = await response.json() as { id?: unknown; state?: unknown; diagnostics?: unknown };
+-    if (!response.ok || typeof value.id !== "string" || typeof value.state !== "string") throw new Error(`runner inspect ${response.status}`);
+-    const diagnosticCodes = Array.isArray(value.diagnostics) ? value.diagnostics.flatMap((diagnostic) => diagnostic && typeof diagnostic === "object" && typeof (diagnostic as { code?: unknown }).code === "string" ? [(diagnostic as { code: string }).code] : []) : [];
+-    return { id: value.id, state: value.state, diagnosticCodes, diagnostics: value.diagnostics ?? [] };
++    return await inspectProductionRunner(operationId);
+   } catch (error) {
+-    return { error: error instanceof Error ? error.name : "runner_inspect_failed" };
++    return { error: safeRunnerError(error) };
+   }
+ }
+ 
+-async function captureBuildFailure(runRoot: string, installationId: string, state: InstallationState, operationId: string): Promise<void> {
++async function captureBuildFailure(installationId: string, state: InstallationState, operationId: string): Promise<void> {
+   const operation = state.operations[operationId];
+   const evidence = {
+     installationId,
+     operationId,
+     lifecycle: { state: operation?.state, releaseId: operation?.releaseId, lease: operation?.lease, events: operation?.events ?? [], diagnostics: operation?.diagnostics ?? [] },
+-    runner: operation?.lease?.holder ? await ownedRunnerState(runRoot, operation.lease.holder) : { error: "runner_operation_missing" },
++    runner: operation?.lease?.holder ? await ownedRunnerState(operation.lease.holder) : { error: "runner_operation_missing" },
+   };
+   await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "failed-build-evidence.json"), JSON.stringify(evidence) + "\n", { mode: 0o600 });
+ }
+@@ -131,7 +126,7 @@ const workspaceId = created.workspace.id;
+ const v1 = await client.extensionControl<{ id: string; revision: number }>("extensions_workspace", { action: "edit", installationId, workspaceId, expectedRevision: revision, writes: echoSource(name, "1.0.0", "echo-v1:", "R1 production restart echo") });
+ revision = v1.revision;
+ const originalBuild = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId, workspaceId, expectedRevision: revision, idempotencyKey: crypto.randomUUID() });
+-const originalState = await waitForVerified(client, installationId, originalBuild.id, 12, state => captureBuildFailure(runRoot, installationId, state, originalBuild.id));
++const originalState = await waitForVerified(client, installationId, originalBuild.id, 12, state => captureBuildFailure(installationId, state, originalBuild.id));
+ const originalRelease = originalState.releases[originalState.operations[originalBuild.id]!.releaseId!]!;
+ await approveAndActivate(installationId, originalRelease.id, null);
+ const conversation = await client.createConversation({ title: "R1 retained active release" });
+@@ -143,24 +138,39 @@ const v2 = await client.extensionControl<{ id: string; revision: number }>("exte
+ revision = v2.revision;
+ const build = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId, workspaceId, expectedRevision: revision, idempotencyKey: crypto.randomUUID() });
+ const paused = await pauseOwnedBuild(client, installationId, build.id, join(runRoot, "store"));
+-const runnerEvidence = { beforeRestart: await ownedRunnerState(runRoot, paused.runnerOperationId), afterUnpause: undefined as Awaited<ReturnType<typeof ownedRunnerState>> | undefined, afterRecovery: undefined as Awaited<ReturnType<typeof ownedRunnerState>> | undefined };
++const runnerEvidence: { beforeRestart?: RunnerEvidence; afterUnpause?: RunnerEvidence; afterRecovery?: RunnerEvidence } = {};
+ const writeRunnerEvidence = () => writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "runner-evidence.json"), JSON.stringify(runnerEvidence) + "\n", { mode: 0o600 });
+-requireRunnerState(runnerEvidence.beforeRestart, ["building"], "when the build was paused");
++const failures: unknown[] = [];
+ try {
++  const beforeRestart = await ownedRunnerState(paused.runnerOperationId);
++  runnerEvidence.beforeRestart = beforeRestart;
++  await writeRunnerEvidence();
++  requireRunnerState(beforeRestart, ["building"], "when the build was paused");
+   await command("docker", ["kill", "--signal", "KILL", appContainer]);
+   await command("docker", ["start", appContainer]);
+   await waitForHealth(origin);
+-} finally {
++} catch (error) {
++  failures.push(error);
++}
++try {
+   const state = await podman(["inspect", "--format", "{{.State.Status}}", paused.container]);
+   if (state === "paused") await podman(["unpause", paused.container]);
+-  runnerEvidence.afterUnpause = await ownedRunnerState(runRoot, paused.runnerOperationId);
++} catch (error) {
++  failures.push(error);
++}
++try {
++  runnerEvidence.afterUnpause = await ownedRunnerState(paused.runnerOperationId);
+   await writeRunnerEvidence();
++} catch (error) {
++  failures.push(error);
+ }
++if (failures.length === 1) throw failures[0];
++if (failures.length > 1) throw new AggregateError(failures, "R1 restart and cleanup failed");
+ if (echoText(await client.invokeExtensionTool(conversation.id, name, "echo", { text: marker })) !== `echo-v1:${marker}`) throw new Error("Old active echo changed immediately after app restart and worker unpause.");
+ // One lease may expire while the app is down. Bounded long-polls let the
+ // recovered isolated build complete verification.
+-const recovered = await waitForVerified(client, installationId, build.id, 24, state => captureBuildFailure(runRoot, installationId, state, build.id));
+-runnerEvidence.afterRecovery = await ownedRunnerState(runRoot, paused.runnerOperationId);
++const recovered = await waitForVerified(client, installationId, build.id, 24, state => captureBuildFailure(installationId, state, build.id));
++runnerEvidence.afterRecovery = await ownedRunnerState(paused.runnerOperationId);
+ await writeRunnerEvidence();
+ requireRunnerState(runnerEvidence.afterRecovery, ["succeeded", "failed", "cancelled"], "after lifecycle recovery");
+ const bundledBootstrap = await waitForBundledBootstrap(client, { requireObservedPending: false });
+diff --git a/src/__tests__/production-image-lifecycle-launch.integration.test.ts b/src/__tests__/production-image-lifecycle-launch.integration.test.ts
+index 832ed0ad..e1808032 100644
+--- a/src/__tests__/production-image-lifecycle-launch.integration.test.ts
++++ b/src/__tests__/production-image-lifecycle-launch.integration.test.ts
+@@ -69,9 +69,9 @@ printf '%s' "$code"
+       "bash",
+       "scripts/verify-production-image-lifecycle.sh",
+       "--",
+-      "bash",
+-      "-c",
+-      'printf "%s\\n" "$EZ_PRODUCTION_RUN_ROOT" > "$PROBE_OUTPUT"',
++      "bun",
++      "-e",
++      'const {inspectProductionRunner}=await import("./scripts/lib/production-lifecycle-client.ts");const inspection=await inspectProductionRunner("launcher-readiness");if(inspection.id!=="launcher-readiness"||inspection.state!=="unknown")throw new Error("Unexpected runner inspection: "+JSON.stringify(inspection));await Bun.write(process.env.PROBE_OUTPUT,JSON.stringify({stateRoot:process.env.EZ_PRODUCTION_RUN_ROOT,id:inspection.id,state:inspection.state})+"\\n");',
+     ], {
+       cwd: root,
+       env: {
+@@ -104,7 +104,7 @@ printf '%s' "$code"
+     ]);
+     expect(timedOut).toBe(false);
+     expect(exit, `${stdout}\n${stderr}`).toBe(0);
+-    expect(await readFile(commandEnvironment, "utf8")).toBe(`${state}\n`);
++    expect(await readFile(commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: state, id: "launcher-readiness", state: "unknown" })}\n`);
+     const generatedCompose = await readFile(compose, "utf8");
+     const [mountedRunnerRoot, mountedRunnerToken] = (await readFile(runnerTransport, "utf8")).trim().split("\n");
+     expect(mountedRunnerToken).toBeDefined();

@@ -1,65 +1,47 @@
-/**
- * M5 — the gatekeeper must pass its own gate.
- *
- * `extension-author` declares eight tools, and `verifyExtension` HARD-
- * REQUIRES a `smokeTest` block for any non-mcp manifest that declares
- * tools (`sdk/verify.ts:107-118`). For a while it shipped without one:
- * the extension that gates everyone else's extensions would have failed
- * its own acceptance gate, and nothing in the suite noticed because
- * every test that touches the gate mocks `verifyExtension` away
- * (`author-acceptance-gate.test.ts:44`).
- *
- * This runs the REAL `verifyExtension` against the REAL on-disk
- * extension-author directory. It spawns the extension as a sandboxed
- * subprocess with NO host on the other end of the reverse-RPC channel,
- * which is exactly the constraint the smokeTest is designed around: the
- * probe targets `create_extension`'s argument validation, the one path
- * that completes entirely inside the subprocess. A future edit that
- * drops the smokeTest, breaks the probe, or makes it round-trip to the
- * host (which would hang forever) fails here.
- */
-
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { verifyExtension } from "../extensions/sdk/verify";
-import { loadManifestFresh } from "../extensions/loader";
-import { getProjectRoot } from "../extensions/bundled";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { PodmanRunner, buildLimits, executionLimits, filesDigest, provisionToolchain } from "@ezcorp/extension-runner";
+import type { BuildResult } from "@ezcorp/extension-contract";
+import { snapshotFirstPartyExtension } from "../../scripts/migrate-extension-v4";
+import { getProjectRoot } from "../extensions/project-root";
 
-const EXT_DIR = join(getProjectRoot(), "docs/extensions/examples/extension-author");
+let root: string;
+let runner: PodmanRunner;
+let build: BuildResult;
 
-describe("extension-author passes its own acceptance gate", () => {
-  test("its manifest declares tools AND a smokeTest targeting one of them", async () => {
-    const manifest = await loadManifestFresh(EXT_DIR);
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), "author-own-gate-"));
+  runner = new PodmanRunner({ root, ...await provisionToolchain() });
+  await runner.initialize();
+  const { files } = await snapshotFirstPartyExtension(getProjectRoot(), "extension-author");
+  build = await runner.build({ operationId: crypto.randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+}, 120000);
+afterAll(async () => { await runner?.close(); if (root) await rm(root, { recursive: true, force: true }); });
 
-    expect(manifest.name).toBe("extension-author");
-    expect((manifest.tools ?? []).length).toBeGreaterThan(0);
-    // The condition that makes the smokeTest mandatory.
-    expect(manifest.kind).not.toBe("mcp");
-
-    const smoke = manifest.smokeTest;
-    expect(smoke).toBeDefined();
-    // The probe must name a tool the manifest actually serves, or the
-    // round-trip below dies on "unknown tool" instead of exercising it.
-    const toolNames = (manifest.tools ?? []).map((t) => t.name);
-    expect(toolNames).toContain(smoke!.tool);
+describe("extension-author passes isolated acceptance", () => {
+  test("the diagnostic manifest declares a served smoke tool and no authoring authority", () => {
+    expect(build.diagnostics).toEqual([]);
+    expect(build.state).toBe("succeeded");
+    expect(build.manifest?.name).toBe("extension-author");
+    expect(build.manifest?.permissions).toEqual({});
+    expect(build.manifest?.tools?.map(tool => tool.name)).toEqual(["migration_status"]);
+    expect(build.manifest?.smokeTest?.tool).toBe("migration_status");
+    expect(build.evidence.tests.every(check => check.passed)).toBe(true);
   });
 
-  test("verifyExtension round-trips it through a real sandboxed subprocess", async () => {
-    const result = await verifyExtension({ extDir: EXT_DIR });
-
-    const failed = result.steps.filter((s) => !s.ok);
-    // Name the failing steps in the message — a bare `false` here is
-    // useless when the subprocess died on a module-load error.
-    expect(
-      failed.map((s) => `${s.name}: ${s.detail}`).join(" | "),
-    ).toBe("");
-    expect(result.pass).toBe(true);
-
-    // The round-trip step specifically must have RUN, not been skipped
-    // as "not required for this kind" — that skip is what would hide a
-    // regression back to no-smokeTest.
-    const roundTrip = result.steps.find((s) => s.name === "smoke-test-roundtrip");
-    expect(roundTrip).toBeDefined();
-    expect(roundTrip!.ok).toBe(true);
-  }, 120_000);
+  test("its declared smoke runs in a rootless worker without host capabilities", async () => {
+    const workerId = crypto.randomUUID();
+    const context = { workerId, invocationId: crypto.randomUUID(), releaseId: build.artifactDigest!, principalId: "test-owner", scopeId: "test", token: "author-gate", deadline: Date.now() + 30000 };
+    const calls: string[] = [];
+    const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async method => { calls.push(method); throw new Error("Diagnostic must not request host capabilities"); });
+    try {
+      expect(await worker.request("extension/discover", {})).toEqual(build.manifest);
+      const smoke = build.manifest!.smokeTest!;
+      const result = await worker.request("extension/invoke", { name: smoke.tool, input: smoke.input, context });
+      expect(JSON.stringify(result)).toContain("EXTENSION_AUTHOR_MOVED_TO_HOST");
+      expect(calls).toEqual([]);
+    } finally { await worker.close(); }
+  }, 120000);
 });

@@ -1,0 +1,28 @@
+{
+  "actualScanExit": 1,
+  "actualCleanupExit": 0,
+  "findings": [
+    {
+      "sourceArchive": "docs/validation/extension-v4-independent/build/final-coverage-curated-3a56a869.tar.zst",
+      "member": "final-coverage-curated-19d/host/result_1423",
+      "memberSha256": "29a8054fc53111152b41012381170a3e9ed0be95aed7104cb5e1c231b364ed39",
+      "rule": "generic-api-key",
+      "line": 12,
+      "field": "tokenActorExtensionId",
+      "classification": "test extension UUID; not an authentication credential"
+    },
+    {
+      "sourceArchive": "docs/validation/extension-v4-independent/build/final-coverage-curated-ea445e9e-plus4d.tar.zst",
+      "member": "final-coverage-curated-19d/host/result_1423",
+      "memberSha256": "29a8054fc53111152b41012381170a3e9ed0be95aed7104cb5e1c231b364ed39",
+      "rule": "generic-api-key",
+      "line": 12,
+      "field": "tokenActorExtensionId",
+      "classification": "test extension UUID; not an authentication credential"
+    }
+  ],
+  "expandedMembers": 15943,
+  "archiveHeaders": 18844,
+  "expandedBytes": 7445289388,
+  "rulesChanged": false
+}

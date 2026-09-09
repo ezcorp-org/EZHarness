@@ -303,6 +303,9 @@ export async function handlePiInvoke(
       messageIdForCross,
       {
         callerExtensionId: callerExtId,
+        ...(upstreamRuntimeCtx?.signal ? { signal: upstreamRuntimeCtx.signal } : {}),
+        ...(upstreamRuntimeCtx?.invocationGuard ? { invocationGuard: upstreamRuntimeCtx.invocationGuard } : {}),
+        ...(upstreamRuntimeCtx?.serviceInvocation ? { serviceInvocation: upstreamRuntimeCtx.serviceInvocation } : {}),
         _callDepth: depth + 1,
         ...(capContext !== undefined ? { capContext } : {}),
         // Phase 4 §M2 — chain the audit id from the upstream

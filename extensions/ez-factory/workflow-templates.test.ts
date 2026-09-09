@@ -1,3 +1,5 @@
+// @ezcorp-host-integration
+const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url: import.meta.url };
 /**
  * The three shipped `*.workflow.yaml` templates, put through the SAME
  * validator the boot loader uses.
@@ -86,7 +88,7 @@ const grantedNames = (
 /** Read one asset exactly as the loader does: parse the YAML, take it at
  *  face value, no schema coercion. */
 async function readTemplate(file: string): Promise<WorkflowDefinition> {
-  const text = await Bun.file(`${import.meta.dir}/${file}`).text();
+  const text = await Bun.file(`${fixtureImportMeta.dir}/${file}`).text();
   return parse(text) as WorkflowDefinition;
 }
 
@@ -296,7 +298,7 @@ const misplacedLoopRefs = (defs: WorkflowDefinition[]): string[] =>
 describe("ez-factory templates — identity and the manifest grant", () => {
   test("exactly three *.workflow.yaml assets ship", async () => {
     const found = await Array.fromAsync(
-      new Bun.Glob("*.workflow.yaml").scan({ cwd: import.meta.dir }),
+      new Bun.Glob("*.workflow.yaml").scan({ cwd: fixtureImportMeta.dir }),
     );
     expect(found.sort()).toEqual([...TEMPLATE_FILES].sort());
   });
@@ -345,7 +347,7 @@ describe("ez-factory templates — the shared validator accepts every one", () =
     // so a template that fails validation is simply ABSENT from this list,
     // which is exactly how the failure would present in production.
     const loaded = await loadExtensionWorkflows([
-      { extensionName: EZ_FACTORY_EXTENSION_NAME, installPath: import.meta.dir },
+      { extensionName: EZ_FACTORY_EXTENSION_NAME, installPath: fixtureImportMeta.dir },
     ]);
     expect(loaded.map((d) => d.name).sort()).toEqual([
       "ez-factory:docs-factory",
@@ -974,7 +976,7 @@ describe("ez-factory templates — write_file publishes a document, not an envel
     const etl = byBareName.get("etl-factory")!;
     const ref = stepNamed(etl, "write").input?.content;
     expect(ref).toBe("$steps.report.output.document");
-    expect(hasTemplate(stepNamed(etl, "report").output!.document)).toBe(true);
+    expect(hasTemplate(stepNamed(etl, "report").output!.document!)).toBe(true);
 
     const producers = resolveProducers(lookupOf(templates), etl, ref as string);
     expect(producers.map((p) => `${p.step.name}:${p.fields.join(".")}`)).toEqual([
@@ -1978,7 +1980,7 @@ describe("ez-factory templates — an agent step is handed what its RECEIVER's c
     // ref at a receiver whose prompt asks for neither and it is reported.
     const shipped = stepNamed(byBareName.get("docs-factory")!, "draft");
     expect(shipped.input!.facts).toBe("$steps.extract.output");
-    expect(bareStepOutput(shipped.input!.facts)).toBe("extract");
+    expect(bareStepOutput(shipped.input!.facts!)).toBe("extract");
 
     const mutant = mutantOf("docs-factory");
     stepNamed(mutant, "draft").agent = VALIDATOR;
@@ -2038,7 +2040,7 @@ describe("ez-factory templates — an agent step is handed what its RECEIVER's c
     expect(stepKindOf(compose)).toBe("agent");
     expect(compose.agent).toBe(WRITER);
     expect(compose.input!.facts).toBe("$steps.classify.output");
-    expect(bareStepOutput(compose.input!.facts)).toBe("classify");
+    expect(bareStepOutput(compose.input!.facts!)).toBe("classify");
     expect(stepNamed(etl, "classify").agent).toBe(EXTRACTOR);
     // The same SHAPE as the sibling that already carries a written
     // rationale — writer, key `facts`, a bare whole-output ref off an
@@ -2049,7 +2051,7 @@ describe("ez-factory templates — an agent step is handed what its RECEIVER's c
     expect(docsDraft.agent).toBe(WRITER);
     expect(Object.keys(docsDraft.input!)).toEqual(Object.keys(compose.input!));
     expect(
-      stepNamed(byBareName.get("docs-factory")!, bareStepOutput(docsDraft.input!.facts)!).agent,
+      stepNamed(byBareName.get("docs-factory")!, bareStepOutput(docsDraft.input!.facts!)!).agent,
     ).toBe(EXTRACTOR);
     // …and the document published from it addresses the writer's own
     // declared prose key, the cross-file tie `ez-factory-agents.ts` breaks.
@@ -2090,7 +2092,7 @@ describe("ez-factory templates — an agent step is handed what its RECEIVER's c
     // 2. `revise.priorVerdict` is how that object reaches an agent, and it
     //    is excluded twice over — a SUB-PATH, off a TRANSFORM.
     const priorVerdict = stepNamed(dav, "revise").input!.priorVerdict;
-    expect(bareStepOutput(priorVerdict)).toBeNull();
+    expect(bareStepOutput(priorVerdict!)).toBeNull();
     expect(stepKindOf(stepNamed(dav, "prior"))).toBe("transform");
 
     // 3. `docs-factory.review-loop` is the nested-workflow boundary, which

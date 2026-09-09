@@ -58,10 +58,17 @@ export interface TrackedTask {
   completionSummary?: string;
 }
 
+export interface TaskSnapshotOptions {
+  assignments?: Array<{ taskId: string; assignment: unknown }>;
+  expectedRevision?: string;
+}
+
 export class TaskEvents {
-  async emitSnapshot(tasks: TrackedTask[], activeTaskId?: string): Promise<void> {
-    const payload: { tasks: TrackedTask[]; activeTaskId?: string } = { tasks };
+  async emitSnapshot(tasks: TrackedTask[], activeTaskId?: string, options?: TaskSnapshotOptions): Promise<void> {
+    const payload: TaskSnapshotOptions & { tasks: TrackedTask[]; activeTaskId?: string } = { tasks };
     if (activeTaskId !== undefined) payload.activeTaskId = activeTaskId;
+    if (options?.assignments !== undefined) payload.assignments = options.assignments;
+    if (options?.expectedRevision !== undefined) payload.expectedRevision = options.expectedRevision;
     await getChannel().request<{ ok: true }>("ezcorp/emit-task-event", {
       v: 1,
       type: "snapshot",

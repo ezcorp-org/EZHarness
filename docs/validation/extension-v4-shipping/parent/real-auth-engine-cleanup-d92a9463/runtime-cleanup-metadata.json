@@ -1,0 +1,22 @@
+{
+  "fixtureRootMetadata": [
+    {
+      "phase": "after-firefox",
+      "newRootCount": 0,
+      "newSidecarCount": 0,
+      "emptyFileSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "phase": "after-webkit",
+      "newRootCount": 0,
+      "newSidecarCount": 0,
+      "emptyFileSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "storageStatePath": "web/e2e/.real-auth.json",
+  "storageStatePresentAfterRun": false,
+  "terminalCleanupRows": {
+    "firefox-cleanup": 0,
+    "webkit-cleanup": 0
+  }
+}

@@ -179,8 +179,15 @@ export async function buildPromptInput(
   try {
     const { applyWorkflowExpansion } = await import("../mention-wiring");
     const { getWorkflowRuntime } = await import("../workflow/runtime-registry");
+    const { workflowReleaseCanAccess } = await import("../workflow-release-assets");
+    const runtime = getWorkflowRuntime();
+    const entries = runtime?.getCachedWorkflows?.() ?? [];
+    const allowed = new Map<string, (typeof entries)[number]["definition"]>();
+    for (const entry of entries) {
+      if (entry.extensionRelease && await workflowReleaseCanAccess(entry, options.ownerId ?? null, options.projectId)) allowed.set(entry.definition.name, entry.definition);
+    }
     const note = applyWorkflowExpansion(userMessage, (name) => {
-      const workflow = getWorkflowRuntime()?.getWorkflows().find((w) => w.name === name);
+      const workflow = allowed.get(name) ?? runtime?.getWorkflows().find((w) => w.name === name && w.source !== "extension");
       if (!workflow) return null;
       return { description: workflow.description, inputSchema: workflow.inputSchema };
     });

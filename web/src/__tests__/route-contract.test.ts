@@ -297,6 +297,8 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     "api/extensions/[id]/violations/+server.ts",
     "api/fs/list/+server.ts",
     "api/fs/mkdir/+server.ts",
+    "api/import/commit/+server.ts",
+    "api/marketplace/[id]/install/+server.ts",
   ];
 
   test("the set of inline-admin-gated routes is EXACTLY the frozen list", () => {
@@ -321,9 +323,9 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     // DISCRIMINATION is the number that matters: of every route file that
     // compares a role against "admin", only a small minority are gates.
     const population = bypass.length + gates.size;
-    expect(gates.size).toBe(3);
+    expect(gates.size).toBe(KNOWN_INLINE_ADMIN_GATES.length);
     expect(population).toBeGreaterThanOrEqual(35);
-    expect(bypass.length).toBe(population - 3);
+    expect(bypass.length).toBe(population - KNOWN_INLINE_ADMIN_GATES.length);
   });
 
   test("known bypass sites are classified as bypasses, by name", () => {
@@ -335,6 +337,17 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     // inside `callerOwnsRun`. Rule half (2) is the only thing separating this
     // from a gate — half (1) alone would misclassify it.
     expect(bypass).toContain("api/runs/[id]/+server.ts");
+    expect(bypass).toContain("api/extensions/import-source/+server.ts");
+  });
+
+  test("source imports retain the explicit target-owner policy instead of a blanket administrator gate", () => {
+    const route = readFileSync(`${routesDir}/api/extensions/import-source/+server.ts`, "utf8");
+    expect(route).toContain("requireSessionAuth(locals)");
+    expect(route).toContain("parseExtensionSourceInput");
+    expect(route).toContain("!source.targetInstallationId");
+    expect(route).toContain('source.kind === "local"');
+    expect(route).toContain('source.kind === "bundled"');
+    expect(route).toContain("importExtensionSource");
   });
 
   test("the rule's two halves are each necessary (self-check)", () => {
@@ -444,7 +457,7 @@ describe("thrown-Response denials (500-instead-of-403 regression guard)", () => 
 
 describe("registry ⇄ filesystem parity", () => {
   const controlDisk = disk.filter((r) => !r.path.startsWith("/api/__test/"));
-  const diskKeys = new Set(controlDisk.map((r) => `${r.method} ${r.path}`));
+  const allDiskKeys = new Set(disk.map((r) => `${r.method} ${r.path}`));
   const registeredKeys = apiRegistry.map((e) => `${e.method} ${e.path}`);
 
   // KNOWN_STALE is GONE. It held four registry entries that described no
@@ -458,7 +471,7 @@ describe("registry ⇄ filesystem parity", () => {
   test("no stale registry entry — every registered route exists on disk", () => {
     // Keeps the generated OpenAPI contract honest — a registry entry with no
     // matching handler advertises a route that 404s.
-    const stale = registeredKeys.filter((k) => !diskKeys.has(k)).sort();
+    const stale = registeredKeys.filter((k) => !allDiskKeys.has(k)).sort();
     expect(stale).toEqual([]);
   });
 
@@ -579,7 +592,7 @@ describe("registry ⇄ filesystem parity", () => {
   // the count test fails if the baseline no longer matches the list (so the
   // ratchet cannot be loosened by deleting lines). Both failures name what to
   // do. This list may only SHRINK. Sorted; keep it sorted.
-  const BASELINE_SCOPELESS = 78;
+  const BASELINE_SCOPELESS = 77;
   const KNOWN_SCOPELESS: ReadonlySet<string> = new Set([
     "DELETE /api/agent-configs/:id",
     "DELETE /api/extensions/:id/settings/user",
@@ -641,7 +654,6 @@ describe("registry ⇄ filesystem parity", () => {
     "POST /api/extensions/:id/modifiable",
     "POST /api/marketplace",
     "POST /api/marketplace/:id/flag",
-    "POST /api/marketplace/:id/install",
     "POST /api/marketplace/:id/rate",
     "POST /api/marketplace/import",
     "POST /api/onboarding/complete",
@@ -741,16 +753,28 @@ describe("registry ⇄ filesystem parity", () => {
     const SESSION_ONLY = [
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
+      "GET /api/extensions/:name/preview",
       "GET /api/service-accounts",
       "GET /api/workflows/delegated-runs",
       "GET /api/workflows/delegations",
       "PATCH /api/service-accounts/:id",
       "PATCH /api/service-accounts/:id/daily-cap",
       "PATCH /api/workflows/delegations/:id",
+      "POST /api/__test/marketplace-release",
+      "POST /api/__test/project-proposal",
+      "POST /api/extensions/:name/preview",
+      "POST /api/extensions/import-source",
+      "POST /api/extensions/releases/:installationId/approve",
+      "POST /api/extensions/releases/:installationId/project",
+      "POST /api/import/commit",
+      "POST /api/marketplace/:id/install",
+      "POST /api/mcp-servers",
+      "POST /api/mcp-servers/:id/refresh",
       "POST /api/service-accounts",
       "POST /api/workflows/approvals/:id",
       "POST /api/workflows/delegations",
       "POST /api/workflows/delegations/preview",
+      "PUT /api/mcp-servers/:id",
       "PUT /api/projects/:id/tool-permission-mode",
     ];
     const declared = apiRegistry

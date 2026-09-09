@@ -1,64 +1,40 @@
-/**
- * Phase 58 / MCP-05 — Plan 58-03 — Conntrack soak CI proxy (RC#2).
- *
- * Scaled 5-minute synthetic load: 4 concurrent fixture instances × 100
- * sequential `fetch('http://example.com')` calls each, polling
- * /proc/sys/net/netfilter/nf_conntrack_count every 10s.
- *
- * Proportional scaling rationale:
- *   The absolute criterion is "24h × 20 concurrent × 1000 requests, max
- *   count < 50% of conntrack_max, zero `nf_conntrack: table full` lines
- *   in dmesg." That's covered by the operator-run `scripts/mcp-conntrack-
- *   soak-24h.sh` manual fallback. This CI proxy uses 4×100 = 400 connection-
- *   events vs 20×1000 = 20000 — same density, much shorter, regresses on
- *   a netns-leak. On a host with nf_conntrack_max=262144, 400 << 131072
- *   = 50%, so a netns that ISN'T leaking trivially passes.
- *
- * Default-skipped to avoid 5-min CI bloat. Opt-in via:
- *   EZCORP_RUN_CONNTRACK_SOAK=1 bun test src/__tests__/mcp-stage2-conntrack-soak.test.ts
- *
- * SKIP gates:
- *   - process.platform === "linux"
- *   - EZCORP_RUN_CONNTRACK_SOAK === "1"
- */
+import { describe, expect, test } from "bun:test";
+import { resolve } from "node:path";
+import { stage2Enabled } from "./helpers/stage2-proof";
 
-import { test, describe } from "bun:test";
-
-const HAS_LINUX = process.platform === "linux";
-const OPTED_IN = process.env.EZCORP_RUN_CONNTRACK_SOAK === "1";
-
-const SKIP_REASON = !HAS_LINUX
-  ? "not linux"
-  : !OPTED_IN
-    ? "EZCORP_RUN_CONNTRACK_SOAK!=1 (opt-in only)"
-    : null;
-
-if (SKIP_REASON !== null) {
-  console.warn(`[mcp-stage2-conntrack-soak] SKIPPING — ${SKIP_REASON}`);
+function runSoak(seconds: number, workers: number, requests: number, killWorker = false) {
+  const result = Bun.spawnSync({
+    cmd: ["node", resolve(import.meta.dir, "../../scripts/stage2-conntrack-soak.mjs")],
+    env: { ...process.env, EZCORP_STAGE2_SOAK_SECONDS: String(seconds),
+      EZCORP_STAGE2_SOAK_WORKERS: String(workers), EZCORP_STAGE2_SOAK_REQUESTS: String(requests),
+      EZCORP_STAGE2_KILL_WORKER: killWorker ? "1" : "0" },
+    stdout: "pipe", stderr: "pipe",
+  });
+  const stdout = new TextDecoder().decode(result.stdout);
+  const stderr = new TextDecoder().decode(result.stderr);
+  return { exit: result.exitCode, stderr, stdout };
 }
 
-describe.skipIf(SKIP_REASON !== null)(
-  "Stage 2 conntrack soak (RC#2 CI proxy)",
-  () => {
-    test.todo(
-      "scaled 4×100 synthetic load: max(count) < 0.5 * max + zero `nf_conntrack: table full` in dmesg",
-      () => {
-        // PSEUDOCODE for GREEN on a Linux+NET_ADMIN+CI runner with full
-        // Stage 2 stack operational:
-        //
-        //   1. Baseline:
-        //      - max = parseInt(readFileSync('/proc/sys/net/netfilter/nf_conntrack_max'))
-        //      - dmesg_baseline_lines = (await dmesg()).split('\n').length
-        //   2. Spawn 4 concurrent Bun.spawn instances, each running
-        //      tests/fixtures/synthetic-mcp/loop.ts 100 — fixture loops
-        //      `fetch('http://example.com')` via the per-MCP proxy.
-        //   3. Every 10s for the duration, snapshot the count file into
-        //      a samples array.
-        //   4. Wait for all 4 fixtures to exit (or test.setTimeout(360_000)).
-        //   5. Assert max(samples) < 0.5 * max.
-        //   6. Assert dmesg lines AFTER baseline contain ZERO matches
-        //      for /nf_conntrack:.+table full/.
-      },
-    );
-  },
-);
+describe.skipIf(!stage2Enabled)("Stage2 measured connection tracking", () => {
+  test("four workers complete 400 real proxy requests over five minutes and leave no owned containers", () => {
+    const result = runSoak(300, 4, 100);
+    expect(result.exit, result.stdout + result.stderr).toBe(0);
+    expect(result.stderr).toBe("");
+    const receipt = JSON.parse(result.stdout);
+    console.info(result.stdout.trim());
+    expect(receipt).toMatchObject({ workers: 4, requestsPerWorker: 100, expectedLoadRequests: 400,
+      seconds: 300, tableFull: 0, finalOwnedContainers: 0, failures: [] });
+    expect(receipt.results).toHaveLength(4);
+    expect(receipt.elapsedMs).toBeGreaterThanOrEqual(300_000);
+  }, 370_000);
+
+  test("a killed worker fails the same controller despite low connection counts", () => {
+    const result = runSoak(2, 1, 4, true);
+    expect(result.exit, result.stdout + result.stderr).toBe(1);
+    expect(result.stderr).toContain("CONNTRACK_SOAK_FAILED: worker 0: worker failed");
+    expect(result.stderr).toContain("SIGKILL");
+    const receipt = JSON.parse(result.stdout);
+    expect(receipt.finalOwnedContainers).toBe(0);
+    expect(receipt.failures).toHaveLength(1);
+  }, 60_000);
+});

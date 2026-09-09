@@ -15,11 +15,12 @@
 
 import { test, expect, describe, afterEach, mock } from "bun:test";
 import type { LoopRunState, PageActionEvent } from "@ezcorp/sdk/runtime";
+import type { PingOutcome } from "./index";
 
 // Mutable test seams the delegating stub reads.
 let capturedFire: Array<Record<string, unknown>> = [];
 let toolMap: Record<string, (args: Record<string, unknown>) => unknown> = {};
-let storeRuns: LoopRunState[] = [];
+let storeRuns: LoopRunState<PingOutcome>[] = [];
 
 const real = await import("@ezcorp/sdk/runtime");
 mock.module("@ezcorp/sdk/runtime", () => ({
@@ -39,7 +40,7 @@ const EVT: PageActionEvent = {
   userId: "u1",
 };
 
-function makeRun(id: string): LoopRunState {
+function makeRun(id: string): LoopRunState<PingOutcome> {
   return {
     id,
     loopId: "ping",

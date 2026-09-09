@@ -1,3 +1,5 @@
+// @ezcorp-host-integration
+const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url: import.meta.url };
 /**
  * E2E: the web-search SHIM through a real ExtensionProcess subprocess.
  *
@@ -28,9 +30,9 @@ import { tmpdir } from "os";
 import { join } from "path";
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-import type { JsonRpcResponse } from "../../../../src/extensions/types";
+import type { JsonRpcResponse } from "@ezcorp/sdk";
 
-const ENTRYPOINT = join(import.meta.dir, "index.ts");
+const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
 // ── Host-side ezcorp/search stub ────────────────────────────────────
 
@@ -52,7 +54,7 @@ let nextSearchResult: () => JsonRpcResponse["result"] | { error: { code: number;
 function wireHostRpc(proc: ExtensionProcess): void {
   proc.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
     if (req.method === "ezcorp/search") {
-      const params = (req.params ?? {}) as SearchCall;
+      const params = (req.params ?? {}) as unknown as SearchCall;
       searchCalls.push(params);
       const out = nextSearchResult();
       if (out && typeof out === "object" && "error" in out) {

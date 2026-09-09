@@ -42,15 +42,10 @@ const previewPort = new URL(baseURL).port || "4173";
 // explicitly (loopback host so the server's self-call passes the bypass).
 const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/__test/mock-llm/v1`;
 
-// The outer runner owns generated DB lifecycle. Requiring its explicit path
-// prevents globalTeardown from deleting a PGlite directory while Playwright's
-// webServer plugin still has the preview process alive.
+// The outer runner owns a supplied database path. Direct Playwright use has no
+// supplied path, so the fixture wrapper creates and removes its own root only
+// after preview shutdown. A caller-supplied path always remains caller-owned.
 const DB_DIR = process.env.PI_E2E_REAL_DB_PATH;
-if (!DB_DIR) {
-  throw new Error(
-    "PI_E2E_REAL_DB_PATH is required. Run `bun scripts/run-real-e2e.ts <real-auth|fresh-setup>` from the repository root.",
-  );
-}
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
 // default config: `captureEvidence` owns screenshotting so Playwright's own
@@ -59,6 +54,26 @@ if (!DB_DIR) {
 // (`EZCORP_E2E_EVIDENCE_VIDEO=1`). The real-auth isolation/auth setup below
 // is untouched.
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
+
+const browserProjects = {
+  chromium: { browserName: "chromium" as const, channel: "chromium" },
+  firefox: { browserName: "firefox" as const },
+  webkit: { browserName: "webkit" as const },
+};
+
+// The complete real-auth tier remains Chromium by default. Shipping jobs can
+// opt into the supported engine set without multiplying every real-auth test:
+// PI_E2E_REAL_BROWSER_PROJECTS=chromium,firefox,webkit.
+// Fail closed for a misspelled project; silently falling back to Chromium
+// would make an engine claim meaningless.
+const requestedBrowserProjects = (process.env.PI_E2E_REAL_BROWSER_PROJECTS ?? "chromium")
+  .split(",")
+  .map(project => project.trim())
+  .filter(Boolean);
+
+if (requestedBrowserProjects.length === 0 || requestedBrowserProjects.some(project => !(project in browserProjects))) {
+  throw new Error(`PI_E2E_REAL_BROWSER_PROJECTS must contain only ${Object.keys(browserProjects).join(", ")}.`);
+}
 
 export default defineConfig({
   testDir: "./e2e/real-auth",
@@ -81,37 +96,11 @@ export default defineConfig({
     ...(process.env.EZCORP_E2E_EVIDENCE_VIDEO === "1" && { video: "on" }),
     storageState: "./e2e/.real-auth.json",
   },
-  // `channel: "chromium"` runs the FULL Chromium binary instead of
-  // `chrome-headless-shell`, which is what Playwright picks by default for a
-  // headless `browserName: "chromium"` project.
-  //
-  // Why: the headless shell crashed this suite repeatedly on CI — always the
-  // same way. `browser.newContext` for the FIRST test of
-  // extension-author-flow.spec.ts died with
-  //
-  //     Error: browser.newContext: Target page, context or browser has been closed
-  //     [pid=…][err] Received signal 11 SEGV_MAPERR 0000000001b0
-  //
-  // i.e. a null-deref INSIDE the browser process, before a single line of the
-  // spec ran. Same fault address, same test slot, on runs 30232207318,
-  // 30302723973 and both attempts of 30407225727 — so it is a recurring
-  // browser-binary fault, not a flaky assertion and not app code. It is always
-  // the third test, which is the first `newContext` after the one test that
-  // loads the full chat page (auth-fixture.spec.ts) and therefore the only one
-  // whose context is torn down with a live `/api/runtime-events` EventSource
-  // and its reconnect timer still attached (see web/src/lib/ws.ts).
-  //
-  // The headless shell is a separate, stripped-down binary; the full Chromium
-  // headless path is the maintained one. `bunx playwright install chromium`
-  // (see .github/actions/setup) already fetches BOTH, so this costs no extra
-  // download — it only selects the other binary.
-  //
-  // NB: this is a mitigation, not a root-cause fix. The upstream null-deref is
-  // not ours to fix and does not reproduce on a fast dev machine (15 clean
-  // local runs); it only shows up on the 4-vCPU CI runner.
-  projects: [
-    { name: "chromium", use: { browserName: "chromium", channel: "chromium" } },
-  ],
+  // Select full Chromium for the real browser journeys. Revision 1234 has
+  // crashed after context teardown in both full and headless-shell runs.
+  // Keep zero retries and failure traces: a browser/version change alone does
+  // not establish the cause or prove that the intermittent crash is resolved.
+  projects: requestedBrowserProjects.map(name => ({ name, use: browserProjects[name as keyof typeof browserProjects] })),
   webServer: {
     // Use Vite preview against the production build, identical to the
     // default config — but WITHOUT `PI_SKIP_INIT`, so the DB layer
@@ -131,7 +120,7 @@ export default defineConfig({
     // (validated to contain `docs/extensions/examples/`) before any
     // fallback, so bundled-extension lookups land at the worktree
     // root regardless of preview's cwd.
-    command: `bun run build && bun run preview -- --port ${previewPort} --strictPort`,
+    command: "bash e2e/run-real-auth-fixture.sh bash ../scripts/start-real-extension-preview.sh",
     cwd: join(PROJECT_ROOT, "web"),
     url: baseURL,
     // Preserve preview stdout in CI so a startup timeout retains its last
@@ -142,10 +131,17 @@ export default defineConfig({
     // globalSetup's idempotent contract. Always start a fresh server.
     reuseExistingServer: false,
     timeout: 180_000,
+    // Let the fixture wrapper run its owned database cleanup before
+    // Playwright ends the preview process.
+    gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
     env: {
       // Propagate-or-default — child inherits the parent's full env
       // automatically; these overrides win.
-      EZCORP_DB_PATH: DB_DIR,
+      ...(DB_DIR ? { EZCORP_DB_PATH: DB_DIR } : {}),
+      // The preview wrapper receives a supplied DB path above, or creates an
+      // owned default fixture root when none is supplied.
+      EZCORP_PORT: previewPort,
+      ORIGIN: new URL(baseURL).origin,
       // The real harness is PGlite-only. A caller can run this wrapper from a
       // Postgres test shell, so clear its alternate driver selection here.
       DATABASE_URL: "",

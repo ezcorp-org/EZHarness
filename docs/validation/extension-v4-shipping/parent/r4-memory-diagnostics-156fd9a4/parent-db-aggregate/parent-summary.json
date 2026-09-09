@@ -1,0 +1,8 @@
+{
+  "record_count": 116,
+  "payload_bytes": 96452,
+  "public_table_and_index_bytes": 3440640,
+  "public_sequence_bytes": 32768,
+  "actual_query_exit": 0,
+  "remaining_owned_copy_directories": []
+}

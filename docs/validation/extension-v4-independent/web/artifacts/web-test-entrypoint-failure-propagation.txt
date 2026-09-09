@@ -1,0 +1,5 @@
+Command: PATH=<stub-bash>:$PATH <real-bash> web/scripts/test.sh
+Stub behavior: record argv, exit 37
+Recorded argv: /home/dev/work/EZCorp/extension-v4-audit-web/scripts/test-web.sh
+Observed wrapper exit: 37
+Result: canonical path delegation and unchanged failure propagation verified.

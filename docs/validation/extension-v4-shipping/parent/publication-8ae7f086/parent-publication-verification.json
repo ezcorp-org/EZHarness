@@ -1,0 +1,10 @@
+{
+  "head": "8ae7f0860728741c0918729452a8ec846cf6ed29",
+  "exact_scanned_tree": "ab9e26fb316a3a2e0761ebdb745f6dc1437e3048",
+  "expanded_bytes": 7445289360,
+  "payload_members": 15943,
+  "headers": 18844,
+  "findings": 0,
+  "all_required_exits_zero": true,
+  "clean_worktree": true
+}

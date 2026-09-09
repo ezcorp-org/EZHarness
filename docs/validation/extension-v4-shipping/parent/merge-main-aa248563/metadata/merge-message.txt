@@ -1,0 +1,5 @@
+Merge latest main into extension v4
+
+Integrate bd736438 audit fixes while retaining v4 source builds, grants, browser engines and required lifecycle gates. Share author types through the canonical contract and preserve host v4 compatibility. Ensure setup failures release local resources even when durable terminal persistence fails.
+
+Validation: all four typecheck sections, 657 focused tests in 36 files, SDK build, lint/source boundaries and regenerated source lock pass. Complete merged-source regression and production-image validation follow.

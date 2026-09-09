@@ -1,0 +1,22 @@
+[
+  {
+    "case": "nested-and-duplicate",
+    "exit": 0,
+    "entries": 6
+  },
+  {
+    "case": "corrupt-gzip",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "tar-traversal",
+    "exit": 1,
+    "entries": 0
+  },
+  {
+    "case": "corrupt-zip",
+    "exit": 1,
+    "entries": 0
+  }
+]

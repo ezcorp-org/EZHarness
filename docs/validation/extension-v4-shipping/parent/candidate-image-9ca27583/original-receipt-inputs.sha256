@@ -1,0 +1,4 @@
+2d16c02105df22d72e0da80cc9e16bb497256833298fecc0084514275ec57428  build-archive/candidate-archive-build.log
+bb3d753af42169b7ec54a9eeea1b0de9779b0cfa85d2449c1fc660451f87d4ec  docker-image-inspect.json
+0a12569171c70665704a71a688a8c234e2d29da8c990805b47827f5679cf2f15  native-podman-image-inspect.json
+036a3d2a8cc64eb44ee6c7044074ea699f9672e34efbd7242b60a6dffd68d040  docker-to-native-transfer.log

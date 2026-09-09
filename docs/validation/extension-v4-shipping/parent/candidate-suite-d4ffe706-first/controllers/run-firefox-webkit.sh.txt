@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+source_sha=${1:?full source SHA required}
+image=${2:?candidate image required}
+receipt=${3:?new receipt directory required}
+image_source_sha=${4:-$source_sha}
+[[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ "$image_source_sha" =~ ^[0-9a-f]{40}$ ]]
+[[ ! -e "$receipt" ]] || { echo "Receipt directory already exists: $receipt" >&2; exit 2; }
+cd "$repo"
+mkdir -p "$receipt/private-auth"
+receipt=$(realpath "$receipt")
+source "$repo/.cache/terra-shipping/parent/new-payload-final/verify-checkout-image-source.sh" || exit $?
+assert_checkout_and_image_source "$source_sha" "$image_source_sha" "$receipt" || exit $?
+assert_tracked_product_inputs_clean "$source_sha" "$receipt" || exit $?
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon DOCKER_HOST=unix:///run/user/1001/podman/podman.sock
+native_revision=$(podman --remote=false image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+[[ "$native_revision" == "$image_source_sha" ]] || { echo "Native candidate revision did not match requested source" >&2; exit 1; }
+podman --remote=false image inspect "$image" > "$receipt/native-podman-image-inspect.json"
+sha256sum web/e2e/real-auth/extension-lifecycle-flow.spec.ts web/playwright.real.config.ts > "$receipt/source-files.sha256"
+printf 'checkout_source_sha=%s\nimage_source_sha=%s\nimage=%s\nnative_revision=%s\n' "$source_sha" "$image_source_sha" "$image" "$native_revision" > "$receipt/provenance.txt"
+failed=0
+for engine in firefox webkit; do
+  extra=()
+  if [[ "$engine" == webkit ]]; then
+    podman --remote=false ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}' > "$receipt/webkit-remote-container-check.txt"
+    curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3333/ > "$receipt/webkit-remote-browser-health.txt" || { printf 'webkit\t2\n' >> "$receipt/exits.tsv"; exit 2; }
+    grep --quiet '^Running$' "$receipt/webkit-remote-browser-health.txt" || { printf 'webkit\t2\n' >> "$receipt/exits.tsv"; exit 2; }
+    extra=(PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:3333/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>')
+  fi
+  if (
+    cd web
+    env "${extra[@]}" CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS="$engine" EZCORP_E2E_EVIDENCE=1 \
+      PLAYWRIGHT_BLOB_OUTPUT_FILE="$receipt/private-auth/$engine.blob.zip" \
+      bunx playwright test --config playwright.real.config.ts extension-lifecycle-flow.spec.ts --project="$engine" --output="$receipt/$engine-test-results"
+  ) > "$receipt/$engine.log" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
+  printf '%s\t%s\n' "$engine" "$rc" >> "$receipt/exits.tsv"
+  [[ "$rc" == 0 ]] || failed=1
+done
+printf '%s\n' "$failed" > "$receipt/exit"
+exit "$failed"

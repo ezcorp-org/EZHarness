@@ -1,0 +1,290 @@
+{
+  "status": 200,
+  "value": {
+    "installation": {
+      "id": "96cfa65a-d957-438d-b6a5-6717e95525e5",
+      "ownerId": "409c4695-ea2e-4078-9a85-6591c142fcaf",
+      "scope": "global",
+      "activeReleaseId": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7",
+      "generation": 4,
+      "enabled": false,
+      "uninstalled": true,
+      "status": "disabled",
+      "grants": [],
+      "acknowledgedGeneration": 4
+    },
+    "workspaces": {
+      "2e9cd5b0-099e-408c-b162-6d0f3de24e0c": {
+        "id": "2e9cd5b0-099e-408c-b162-6d0f3de24e0c",
+        "installationId": "96cfa65a-d957-438d-b6a5-6717e95525e5",
+        "revision": 2,
+        "sourceDigest": "6a8f8e8328b063d29bbc7ad20f647984251ffc681ee008d2dcd6d21467a17247",
+        "createdAt": "2026-09-06T16:25:04.681Z"
+      }
+    },
+    "revisions": {
+      "2e9cd5b0-099e-408c-b162-6d0f3de24e0c:1": {
+        "id": "2e9cd5b0-099e-408c-b162-6d0f3de24e0c",
+        "installationId": "96cfa65a-d957-438d-b6a5-6717e95525e5",
+        "revision": 1,
+        "sourceDigest": "fde7aeaed738dc5b1e5d7001f74af1cdbd4264e01f2c9dcb6a277022d5cab43c",
+        "createdAt": "2026-09-06T16:25:04.681Z"
+      },
+      "2e9cd5b0-099e-408c-b162-6d0f3de24e0c:2": {
+        "id": "2e9cd5b0-099e-408c-b162-6d0f3de24e0c",
+        "installationId": "96cfa65a-d957-438d-b6a5-6717e95525e5",
+        "revision": 2,
+        "sourceDigest": "6a8f8e8328b063d29bbc7ad20f647984251ffc681ee008d2dcd6d21467a17247",
+        "createdAt": "2026-09-06T16:25:04.681Z"
+      }
+    },
+    "operations": {
+      "cde62958-8863-4c17-a3c6-2fc815a7379e": {
+        "id": "cde62958-8863-4c17-a3c6-2fc815a7379e",
+        "kind": "build",
+        "state": "verified",
+        "operationDeduplicationUuid": "a90fbd3b-5177-49b7-bdf6-eda89b54a200",
+        "inputDigest": "66f994f27297bcf4c968e4d24bb508c43bcb1f885375c352bc812f8176b99e91",
+        "diagnostics": [],
+        "events": [
+          {
+            "sequence": 1,
+            "state": "queued",
+            "at": "2026-09-06T16:25:04.867Z"
+          },
+          {
+            "sequence": 2,
+            "state": "building",
+            "at": "2026-09-06T16:25:04.870Z"
+          },
+          {
+            "sequence": 3,
+            "state": "verifying",
+            "at": "2026-09-06T16:25:07.958Z"
+          },
+          {
+            "sequence": 4,
+            "state": "verified",
+            "at": "2026-09-06T16:25:08.591Z"
+          }
+        ],
+        "createdAt": "2026-09-06T16:25:04.867Z",
+        "updatedAt": "2026-09-06T16:25:08.591Z",
+        "workspaceId": "2e9cd5b0-099e-408c-b162-6d0f3de24e0c",
+        "workspaceRevision": 2,
+        "sourceDigest": "6a8f8e8328b063d29bbc7ad20f647984251ffc681ee008d2dcd6d21467a17247",
+        "entrypoint": "extension.ts",
+        "lease": {
+          "holder": "37a9980c-af1a-415a-bbe0-52d827f2dab3",
+          "fence": 1,
+          "until": 1788712264870
+        },
+        "releaseId": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7"
+      },
+      "799fc58d-70f9-4eb2-955b-49e3d3d60bba": {
+        "id": "799fc58d-70f9-4eb2-955b-49e3d3d60bba",
+        "kind": "activate",
+        "state": "active",
+        "operationDeduplicationUuid": "6d56731f-16ae-4897-8119-1053a2d336d6",
+        "inputDigest": "4b97bc1aa6d9f743a1c546879cdc65171cb79f4fe07efe713dcdfdd6ad888222",
+        "diagnostics": [],
+        "events": [
+          {
+            "sequence": 1,
+            "state": "awaiting_approval",
+            "at": "2026-09-06T16:25:10.717Z"
+          },
+          {
+            "sequence": 2,
+            "state": "activating",
+            "at": "2026-09-06T16:25:10.720Z"
+          },
+          {
+            "sequence": 3,
+            "state": "reconciling",
+            "at": "2026-09-06T16:25:11.375Z"
+          },
+          {
+            "sequence": 4,
+            "state": "active",
+            "at": "2026-09-06T16:25:11.439Z"
+          }
+        ],
+        "createdAt": "2026-09-06T16:25:10.717Z",
+        "updatedAt": "2026-09-06T16:25:11.439Z",
+        "rollback": false,
+        "approvalId": "fcfbcf84-d14a-4626-af09-c8c4d1725102",
+        "releaseId": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7",
+        "lease": {
+          "holder": "2098fb3f-7870-4955-9355-731ce3642133",
+          "fence": 1,
+          "until": 1788712270720
+        }
+      },
+      "5145db48-b001-481e-8d35-40e9d17d9b78": {
+        "id": "5145db48-b001-481e-8d35-40e9d17d9b78",
+        "kind": "activate",
+        "state": "active",
+        "operationDeduplicationUuid": "44ab5402-56d8-4fb8-845a-0a86a93d9650",
+        "inputDigest": "a1dcb1a61feeb4d0dd6f9e26f87f45ef92866e7237f0483fb98744939162ec38",
+        "diagnostics": [],
+        "events": [
+          {
+            "sequence": 1,
+            "state": "awaiting_approval",
+            "at": "2026-09-06T16:25:15.917Z"
+          },
+          {
+            "sequence": 2,
+            "state": "activating",
+            "at": "2026-09-06T16:25:15.922Z"
+          },
+          {
+            "sequence": 3,
+            "state": "reconciling",
+            "at": "2026-09-06T16:25:16.544Z"
+          },
+          {
+            "sequence": 4,
+            "state": "active",
+            "at": "2026-09-06T16:25:16.612Z"
+          }
+        ],
+        "createdAt": "2026-09-06T16:25:15.917Z",
+        "updatedAt": "2026-09-06T16:25:16.612Z",
+        "rollback": false,
+        "approvalId": "e85bf50d-81d8-4dec-a8fb-1ae47491f38e",
+        "releaseId": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7",
+        "lease": {
+          "holder": "fd5506a7-f043-4ca9-98aa-c3c813fd3cdf",
+          "fence": 1,
+          "until": 1788712275922
+        }
+      }
+    },
+    "releases": {
+      "e30f8b48-a182-4ec2-b6aa-63b10f3562f7": {
+        "installationId": "96cfa65a-d957-438d-b6a5-6717e95525e5",
+        "workspaceId": "2e9cd5b0-099e-408c-b162-6d0f3de24e0c",
+        "workspaceRevision": 2,
+        "sourceDigest": "6a8f8e8328b063d29bbc7ad20f647984251ffc681ee008d2dcd6d21467a17247",
+        "artifactDigest": "452c07c181e3b3ac6b566e23938c0866da20aef3d06d86a5ca96f9078d417d42",
+        "imageDigest": "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834",
+        "manifest": {
+          "schemaVersion": 4,
+          "name": "ui-lifecycle-mtq0vuda",
+          "version": "1.0.0",
+          "description": "A new extension",
+          "author": {
+            "name": "Extension author"
+          },
+          "permissions": {},
+          "tools": [
+            {
+              "name": "echo",
+              "description": "Return the supplied text",
+              "inputSchema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "additionalProperties": false
+              },
+              "outputSchema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            }
+          ],
+          "smokeTest": {
+            "tool": "echo",
+            "input": {
+              "text": "hello"
+            },
+            "expect": {
+              "textIncludes": "hello"
+            }
+          }
+        },
+        "evidence": {
+          "protocolVersion": 4,
+          "validatorVersion": "runner-v4.1",
+          "tests": [
+            {
+              "name": "typecheck",
+              "passed": true
+            },
+            {
+              "name": "compile",
+              "passed": true
+            },
+            {
+              "name": "feature:src/echo.test.ts",
+              "passed": true
+            },
+            {
+              "name": "metadata-discovery",
+              "passed": true
+            }
+          ],
+          "discoveryDigest": "07741de9e1d570d66e10ece17247f220fcb135fefab3340fa435c65945b74580"
+        },
+        "runnerProfile": "rootless-podman-v4",
+        "policyDigest": "e9a0e3a32ed9e73c824fbcbf55c925adcc975e9637d180241ec956398d1f11e2",
+        "id": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7",
+        "releaseDigest": "fa6189e0cc1e91897575022e5ac0c8c09d6568c5371f372106ebc5fa90ed3450",
+        "createdAt": "2026-09-06T16:25:07.956Z",
+        "verification": {
+          "catalog": "verified",
+          "smoke": "passed",
+          "capabilities": []
+        }
+      }
+    },
+    "approvals": {
+      "fcfbcf84-d14a-4626-af09-c8c4d1725102": {
+        "id": "fcfbcf84-d14a-4626-af09-c8c4d1725102",
+        "installationId": "96cfa65a-d957-438d-b6a5-6717e95525e5",
+        "releaseId": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7",
+        "releaseDigest": "fa6189e0cc1e91897575022e5ac0c8c09d6568c5371f372106ebc5fa90ed3450",
+        "principalId": "409c4695-ea2e-4078-9a85-6591c142fcaf",
+        "scope": "global",
+        "grants": [],
+        "runnerProfile": "rootless-podman-v4",
+        "expectedActiveReleaseId": null,
+        "expectedGeneration": 0,
+        "status": "consumed",
+        "createdAt": "2026-09-06T16:25:10.509Z",
+        "approvedBy": "409c4695-ea2e-4078-9a85-6591c142fcaf"
+      },
+      "e85bf50d-81d8-4dec-a8fb-1ae47491f38e": {
+        "id": "e85bf50d-81d8-4dec-a8fb-1ae47491f38e",
+        "installationId": "96cfa65a-d957-438d-b6a5-6717e95525e5",
+        "releaseId": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7",
+        "releaseDigest": "fa6189e0cc1e91897575022e5ac0c8c09d6568c5371f372106ebc5fa90ed3450",
+        "principalId": "409c4695-ea2e-4078-9a85-6591c142fcaf",
+        "scope": "global",
+        "grants": [],
+        "runnerProfile": "rootless-podman-v4",
+        "expectedActiveReleaseId": "e30f8b48-a182-4ec2-b6aa-63b10f3562f7",
+        "expectedGeneration": 2,
+        "status": "consumed",
+        "createdAt": "2026-09-06T16:25:15.773Z",
+        "approvedBy": "409c4695-ea2e-4078-9a85-6591c142fcaf"
+      }
+    }
+  }
+}

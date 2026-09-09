@@ -192,12 +192,25 @@
 	let bannerText = $state<string>("");
 	let bannerError = $state<string>("");
 	let dismissTimer: ReturnType<typeof setTimeout> | null = null;
+	// Keep object outputs raw so identity comparisons do not compare a Svelte
+	// proxy with the original tool result and repeatedly reseed edited values.
+	let lastSeededOutput: unknown = $state.raw(undefined);
 
 	// When the tool output arrives (history hydration / first render),
 	// seed the live state. This effect runs whenever the parsed payload
 	// changes — typically once on mount.
 	$effect(() => {
-		if (payload.knobValues) liveAppliedValues = payload.knobValues;
+		if (toolCall.output === lastSeededOutput) return;
+		lastSeededOutput = toolCall.output;
+		if (payload.knobValues) {
+			liveAppliedValues = payload.knobValues;
+			const initial: Record<string, string> = {};
+			for (const knob of knobs) {
+				const wire = payload.knobValues[knob.key];
+				if (wire !== undefined) initial[knob.key] = stripUnit(wire, knob);
+			}
+			values = initial;
+		}
 		if (payload.tokensBlock !== undefined) liveTokensBlock = payload.tokensBlock;
 		if (payload.revisions) liveRevisions = payload.revisions;
 	});
@@ -456,7 +469,7 @@
 			{#each knobs as k (k.key)}
 				<label class="knob">
 					<span>
-						{k.label}{#if k.kind === "range"} ({values[k.key] ?? k.current ?? ""}{k.unit ?? ""}){/if}
+						{k.label}{#if k.kind === "range"}{" "}({values[k.key] ?? k.current ?? ""}{k.unit ?? ""}){/if}
 						{#if dirtyKeys.has(k.key)}
 							<span
 								class="dirty-dot"
@@ -562,7 +575,7 @@
 		font-weight: 600;
 		font-size: 0.875rem;
 		margin-bottom: 0.5rem;
-		color: var(--color-text, #e0e0e0);
+		color: var(--color-text-primary, #e0e0e0);
 	}
 
 	.knob {
@@ -632,7 +645,7 @@
 
 	.banner-success {
 		background: var(--color-surface-secondary, rgba(74, 114, 255, 0.1));
-		color: var(--color-text, #e0e0e0);
+		color: var(--color-text-primary, #e0e0e0);
 	}
 
 	.banner-error {

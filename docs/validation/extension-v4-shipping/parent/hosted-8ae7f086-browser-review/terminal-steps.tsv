@@ -1,0 +1,89 @@
+job_id	step_number	step_name	status	conclusion	started_at	completed_at
+101863432221	1	Set up job	completed	success	2026-09-07T20:56:18Z	2026-09-07T20:56:18Z
+101863432221	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:19Z	2026-09-07T20:56:26Z
+101863432221	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:26Z	2026-09-07T20:56:48Z
+101863432221	4	Run mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)	completed	success	2026-09-07T20:56:48Z	2026-09-07T21:02:05Z
+101863432221	5	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	completed	skipped	2026-09-07T21:02:05Z	2026-09-07T21:02:05Z
+101863432221	9	Post Run ./.github/actions/setup	completed	success	2026-09-07T21:02:05Z	2026-09-07T21:02:05Z
+101863432221	10	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T21:02:06Z	2026-09-07T21:02:06Z
+101863432221	11	Complete job	completed	success	2026-09-07T21:02:06Z	2026-09-07T21:02:06Z
+101863432265	1	Set up job	completed	success	2026-09-07T20:56:19Z	2026-09-07T20:56:20Z
+101863432265	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:20Z	2026-09-07T20:56:28Z
+101863432265	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:28Z	2026-09-07T20:57:00Z
+101863432265	4	Run bash scripts/setup-extension-runner-ci.sh --install	completed	success	2026-09-07T20:57:00Z	2026-09-07T20:57:24Z
+101863432265	5	Verify fresh real-auth setup without committed storage state	completed	success	2026-09-07T20:57:24Z	2026-09-07T20:58:48Z
+101863432265	6	Run bun scripts/run-real-e2e.ts real-auth	completed	success	2026-09-07T20:58:48Z	2026-09-07T21:07:33Z
+101863432265	7	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	completed	skipped	2026-09-07T21:07:33Z	2026-09-07T21:07:33Z
+101863432265	13	Post Run ./.github/actions/setup	completed	success	2026-09-07T21:07:33Z	2026-09-07T21:07:33Z
+101863432265	14	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T21:07:33Z	2026-09-07T21:07:34Z
+101863432265	15	Complete job	completed	success	2026-09-07T21:07:34Z	2026-09-07T21:07:34Z
+101863432389	1	Set up job	completed	success	2026-09-07T20:56:19Z	2026-09-07T20:56:19Z
+101863432389	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:19Z	2026-09-07T20:56:27Z
+101863432389	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:27Z	2026-09-07T20:56:51Z
+101863432389	4	Install the selected browser and its system dependencies	completed	success	2026-09-07T20:56:51Z	2026-09-07T20:57:11Z
+101863432389	5	Run bash scripts/setup-extension-runner-ci.sh --install	completed	success	2026-09-07T20:57:11Z	2026-09-07T20:57:27Z
+101863432389	6	Verify actual extension lifecycle, stale tabs, and build recovery	completed	success	2026-09-07T20:57:27Z	2026-09-07T21:00:33Z
+101863432389	7	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	completed	success	2026-09-07T21:00:33Z	2026-09-07T21:00:34Z
+101863432389	13	Post Run ./.github/actions/setup	completed	success	2026-09-07T21:00:34Z	2026-09-07T21:00:35Z
+101863432389	14	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T21:00:35Z	2026-09-07T21:00:35Z
+101863432389	15	Complete job	completed	success	2026-09-07T21:00:35Z	2026-09-07T21:00:35Z
+101863432147	1	Set up job	completed	success	2026-09-07T20:56:18Z	2026-09-07T20:56:18Z
+101863432147	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:18Z	2026-09-07T20:56:27Z
+101863432147	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:27Z	2026-09-07T20:56:55Z
+101863432147	4	Install the selected browser and its system dependencies	completed	success	2026-09-07T20:56:55Z	2026-09-07T20:57:33Z
+101863432147	5	Run bash scripts/setup-extension-runner-ci.sh --install	completed	success	2026-09-07T20:57:33Z	2026-09-07T20:57:53Z
+101863432147	6	Verify actual extension lifecycle, stale tabs, and build recovery	completed	success	2026-09-07T20:57:53Z	2026-09-07T21:01:15Z
+101863432147	7	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	completed	success	2026-09-07T21:01:15Z	2026-09-07T21:01:16Z
+101863432147	13	Post Run ./.github/actions/setup	completed	success	2026-09-07T21:01:16Z	2026-09-07T21:01:16Z
+101863432147	14	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T21:01:16Z	2026-09-07T21:01:16Z
+101863432147	15	Complete job	completed	success	2026-09-07T21:01:16Z	2026-09-07T21:01:16Z
+101863432355	1	Set up job	completed	success	2026-09-07T20:56:17Z	2026-09-07T20:56:18Z
+101863432355	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:18Z	2026-09-07T20:56:25Z
+101863432355	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:25Z	2026-09-07T20:56:39Z
+101863432355	4	Run git fetch --no-tags origin "main"	completed	success	2026-09-07T20:56:39Z	2026-09-07T20:56:40Z
+101863432355	5	Visual-evidence gate	completed	success	2026-09-07T20:56:40Z	2026-09-07T20:56:41Z
+101863432355	6	Cache Playwright browsers	completed	success	2026-09-07T20:56:41Z	2026-09-07T20:56:44Z
+101863432355	7	Capture visual evidence	completed	success	2026-09-07T20:56:44Z	2026-09-07T21:07:49Z
+101863432355	8	Build evidence manifest	completed	success	2026-09-07T21:07:49Z	2026-09-07T21:07:49Z
+101863432355	9	Upload visual evidence	completed	success	2026-09-07T21:07:49Z	2026-09-07T21:07:52Z
+101863432355	10	Enforce credited @evidence pass	completed	skipped	2026-09-07T21:07:52Z	2026-09-07T21:07:52Z
+101863432355	18	Post Cache Playwright browsers	completed	success	2026-09-07T21:07:52Z	2026-09-07T21:07:52Z
+101863432355	19	Post Run ./.github/actions/setup	completed	success	2026-09-07T21:07:52Z	2026-09-07T21:07:53Z
+101863432355	20	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T21:07:53Z	2026-09-07T21:07:53Z
+101863432355	21	Complete job	completed	success	2026-09-07T21:07:53Z	2026-09-07T21:07:53Z
+101863432179	1	Set up job	completed	success	2026-09-07T20:56:20Z	2026-09-07T20:56:20Z
+101863432179	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:20Z	2026-09-07T20:56:26Z
+101863432179	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:26Z	2026-09-07T20:56:58Z
+101863432179	4	Run bash scripts/test-web.sh	completed	success	2026-09-07T20:56:58Z	2026-09-07T20:57:11Z
+101863432179	7	Post Run ./.github/actions/setup	completed	success	2026-09-07T20:57:11Z	2026-09-07T20:57:12Z
+101863432179	8	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:57:12Z	2026-09-07T20:57:12Z
+101863432179	9	Complete job	completed	success	2026-09-07T20:57:12Z	2026-09-07T20:57:12Z
+101863432249	1	Set up job	completed	success	2026-09-07T20:56:18Z	2026-09-07T20:56:19Z
+101863432249	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:19Z	2026-09-07T20:56:27Z
+101863432249	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:27Z	2026-09-07T20:57:00Z
+101863432249	4	Run cd web && bunx --bun vitest run --shard=1/3	completed	success	2026-09-07T20:57:00Z	2026-09-07T20:59:11Z
+101863432249	7	Post Run ./.github/actions/setup	completed	success	2026-09-07T20:59:11Z	2026-09-07T20:59:12Z
+101863432249	8	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:59:12Z	2026-09-07T20:59:12Z
+101863432249	9	Complete job	completed	success	2026-09-07T20:59:12Z	2026-09-07T20:59:12Z
+101863432197	1	Set up job	completed	success	2026-09-07T20:56:18Z	2026-09-07T20:56:19Z
+101863432197	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:19Z	2026-09-07T20:56:29Z
+101863432197	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:29Z	2026-09-07T20:57:00Z
+101863432197	4	Run cd web && bunx --bun vitest run --shard=2/3	completed	success	2026-09-07T20:57:00Z	2026-09-07T20:59:22Z
+101863432197	7	Post Run ./.github/actions/setup	completed	success	2026-09-07T20:59:22Z	2026-09-07T20:59:22Z
+101863432197	8	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:59:22Z	2026-09-07T20:59:22Z
+101863432197	9	Complete job	completed	success	2026-09-07T20:59:22Z	2026-09-07T20:59:22Z
+101863432322	1	Set up job	completed	success	2026-09-07T20:56:19Z	2026-09-07T20:56:20Z
+101863432322	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:20Z	2026-09-07T20:56:26Z
+101863432322	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:26Z	2026-09-07T20:56:52Z
+101863432322	4	Run cd web && bunx --bun vitest run --shard=3/3	completed	success	2026-09-07T20:56:52Z	2026-09-07T20:59:06Z
+101863432322	7	Post Run ./.github/actions/setup	completed	success	2026-09-07T20:59:06Z	2026-09-07T20:59:06Z
+101863432322	8	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:59:06Z	2026-09-07T20:59:06Z
+101863432322	9	Complete job	completed	success	2026-09-07T20:59:06Z	2026-09-07T20:59:07Z
+101863432278	1	Set up job	completed	success	2026-09-07T20:56:17Z	2026-09-07T20:56:18Z
+101863432278	2	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:18Z	2026-09-07T20:56:26Z
+101863432278	3	Run ./.github/actions/setup	completed	success	2026-09-07T20:56:26Z	2026-09-07T20:56:47Z
+101863432278	4	Run security coverage	completed	success	2026-09-07T20:56:47Z	2026-09-07T20:56:49Z
+101863432278	5	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	completed	success	2026-09-07T20:56:49Z	2026-09-07T20:56:50Z
+101863432278	9	Post Run ./.github/actions/setup	completed	success	2026-09-07T20:56:50Z	2026-09-07T20:56:50Z
+101863432278	10	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	completed	success	2026-09-07T20:56:50Z	2026-09-07T20:56:51Z
+101863432278	11	Complete job	completed	success	2026-09-07T20:56:51Z	2026-09-07T20:56:51Z

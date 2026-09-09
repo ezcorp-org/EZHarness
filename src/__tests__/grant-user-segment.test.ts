@@ -173,26 +173,17 @@ describe("PDP grant→capability flattening honours the $USER partition", () => 
   });
 });
 
-describe("the shipped extension-author grant is user-partitioned", () => {
-  test("bundled entry, ceiling, and on-disk manifest all agree", async () => {
-    const { resolveBundledExtensions, getProjectRoot } = await import("../extensions/bundled");
+describe("the retired extension-author has no draft write authority", () => {
+  test("bundled entry, ceiling, and v4 manifest cannot write another user's sources", async () => {
+    const { resolveBundledExtensions } = await import("../extensions/bundled");
     const { getCeiling } = await import("../extensions/bundled-ceiling");
-    const { loadManifestFresh } = await import("../extensions/loader");
-
-    const EXPECTED = "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER";
-
+    const { default: manifest } = await import("../../docs/extensions/examples/extension-author/ezcorp.config");
     const entry = resolveBundledExtensions({}).find((e) => e.name === "extension-author");
-    expect(entry?.permissions.filesystem).toEqual([EXPECTED]);
-
-    // The ceiling is the hard bound — if it still listed the wide path
-    // the clamp would keep granting the whole tree.
-    expect(getCeiling("extension-author")?.filesystem).toEqual([EXPECTED]);
-
-    // The on-disk manifest must match too, or the S6 drift check fires
-    // on every boot.
-    const manifest = await loadManifestFresh(
-      join(getProjectRoot(), "docs/extensions/examples/extension-author"),
-    );
-    expect(manifest.permissions?.filesystem).toEqual([EXPECTED]);
+    expect(entry).toBeDefined();
+    for (const permissions of [entry!.permissions, getCeiling("extension-author"), manifest.permissions]) {
+      expect(permissions?.filesystem ?? []).toEqual([]);
+      expect(permissions?.custom?.drafts).toBeUndefined();
+    }
+    expect(manifest.schemaVersion).toBe(4);
   });
 });

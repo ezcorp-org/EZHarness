@@ -13,10 +13,9 @@
  * ladder in `runForDelegation` never asks the question: it reads
  * `row.workflowName` verbatim, resolves it through the SHARED read/run
  * ladder (`authorizeDelegationConsent` → `resolveWorkflowForCaller` →
- * `authorizeWorkflow`), and an extension-shipped entry is
- * `systemCachedWorkflow(w, "extension")` — `visibility: "system"`, whose
- * run audience is `"anyone"`. Nothing compares the name's namespace to
- * `ctx.extensionName`.
+ * `authorizeWorkflow`). Extension assets now carry private owner-bound
+ * release provenance. Delegation must retain that authority rather than
+ * treating a self-shipped workflow as a public system asset.
  *
  * These tests EXECUTE the path with an extension-shipped workflow so the
  * answer is behaviour rather than reading. The population deliberately
@@ -68,7 +67,7 @@ import { createWorkflowDelegation } from "../../db/queries/workflow-delegations"
 import { computeDelegationConsentRecord } from "../../runtime/workflow-delegation-record";
 import { delegationPrincipal } from "../../runtime/workflow-delegation-consent";
 import {
-  extensions, projects, sdkCapabilityCalls, auditLog,
+  extensions, projects, projectMembers, sdkCapabilityCalls, auditLog,
   workflowDelegations, workflowRuns, workflowStepRuns, messages, errorLogs,
 } from "../../db/schema";
 import type {
@@ -77,7 +76,8 @@ import type {
   JsonRpcRequest,
 } from "../types";
 import type { AgentDefinition, WorkflowDefinition, WorkflowRun } from "../../types";
-import { systemCachedWorkflow, type CachedWorkflow } from "../../runtime/workflow-scope";
+import { systemCachedWorkflow, workflowDelegationReleaseBinding, type CachedWorkflow } from "../../runtime/workflow-scope";
+import { workflowReleaseFixture } from "../../__tests__/helpers/workflow-release";
 
 /** The calling extension. Stands in for `ez-factory`. */
 const EXT_NAME = "delegated-ext";
@@ -225,6 +225,7 @@ async function delegate(spec: {
     // row to version, which is the documented unversioned path
     // (`resolveDelegationVersionPin`).
     definitionVersionId: null,
+    extensionReleaseBinding: entry ? workflowDelegationReleaseBinding(entry) : null,
     projectId: spec.projectId ?? null,
     triggerKind: "cron",
     triggerSpec: { expr: "0 3 * * *" },
@@ -262,6 +263,7 @@ beforeAll(async () => {
   const [proj] = await getTestDb().insert(projects)
     .values({ name: "selfship-proj", path: "/tmp/selfship" }).returning({ id: projects.id });
   projectId = proj!.id;
+  await getTestDb().insert(projectMembers).values({ projectId, userId: ownerUserId, role: "owner" });
   const account = await createServiceAccount({
     name: "selfship-runner",
     description: "",
@@ -286,9 +288,7 @@ beforeEach(async () => {
   _resetWorkflowRuntimeForTests();
   started = [];
   cachedEntries = [
-    // Exactly how `buildWorkflowCache` wraps an extension asset
-    // (`web/src/lib/server/context.ts:557`).
-    systemCachedWorkflow(SELF_SHIPPED_WF, "extension"),
+    workflowReleaseFixture(SELF_SHIPPED_WF, ownerUserId, extensionId).entry,
     systemCachedWorkflow(DEAD_EXT_WF, "extension"),
     {
       definition: FOREIGN_WF, source: "db", id: "def-org-nightly",
@@ -362,9 +362,6 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
   });
 
   test("a SERVICE-kind delegation on the extension's own shipped workflow also fires", async () => {
-    // `systemCachedWorkflow` stamps `visibility: "system"`, whose run
-    // audience is "anyone" — so the userless service principal clears the
-    // same rung a human does. This is the fully-unattended shape.
     await delegate({
       ownerKind: "service",
       ownerId: serviceAccountId,
@@ -436,10 +433,15 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
     const asUser = authorizeDelegationConsent(
       cachedEntries, SELF_SHIPPED_WF.name, "user", ownerUserId,
     );
-    const asService = authorizeDelegationConsent(
+    const unboundService = authorizeDelegationConsent(
       cachedEntries, SELF_SHIPPED_WF.name, "service", serviceAccountId,
     );
+    const asService = authorizeDelegationConsent(
+      cachedEntries, SELF_SHIPPED_WF.name, "service", serviceAccountId,
+      workflowDelegationReleaseBinding(cachedEntries.find(entry => entry.definition.name === SELF_SHIPPED_WF.name)!),
+    );
     expect(asUser.ok).toBe(true);
+    expect(unboundService.ok).toBe(false);
     expect(asService.ok).toBe(true);
   });
 });

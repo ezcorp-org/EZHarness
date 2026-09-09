@@ -1,33 +1,34 @@
 # multi-agent-orchestrator Extension
 
-A manifest-only extension that declares a planning agent persona. It is useful
-when an extension needs instructions and model requirements but has no tools or
-subprocess entrypoint.
+A schema-version-4 extension that supplies a planning and execution persona for
+complex development work. Its `extension.ts` entrypoint serves the manifest
+through the isolated v4 runner. The package has no callable tools, but it is
+still a verified release with a runtime wrapper.
 
-## Install
+## Install for review
 
-```bash
-ezcorp ext install ./docs/extensions/examples/multi-agent-orchestrator
+Run this from the repository root as the active administrator:
+
+```sh
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/multi-agent-orchestrator
 ```
 
-## Manifest Walkthrough
+The command stages and verifies source. It does not activate the extension.
+Open the returned author page, have an administrator approve the verified
+release, then activate it. `--yes` cannot approve a release.
 
-### Agent Definition
+## Manifest
 
-The top-level `agent` defines the extension's planning persona. Its prompt,
-category, capabilities, and model requirements guide the host when it selects
-the extension for a conversation.
-
-### No Entrypoint
-
-This extension has no `entrypoint` field. The agent declaration is consumed by
-the host; there is no extension subprocess to spawn.
+`ezcorp.config.ts` uses `defineRuntimeManifest` from `@ezcorp/sdk/v4` and
+schema version 4. Its `agent` contribution contains the planner and executor
+guidance. It has no `subAgents` field. `extension.ts` creates the v4 runtime
+extension and serves that manifest; it does not register callable tools.
 
 ## Testing
 
-```bash
-bun test docs/extensions/examples/multi-agent-orchestrator/index.test.ts
+```sh
+bun test docs/extensions/examples/multi-agent-orchestrator/index.test.ts \
+  docs/extensions/examples/multi-agent-orchestrator/extension.test.ts
 ```
 
-Tests validate the supported manifest structure: schema version, agent field,
-empty permissions, and no entrypoint.
+The tests check the v4 manifest contract and the runtime entrypoint.

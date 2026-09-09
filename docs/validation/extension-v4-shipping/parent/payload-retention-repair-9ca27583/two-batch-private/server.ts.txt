@@ -1,0 +1,88 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import * as jsc from "bun:jsc";
+import { admitRequestPayload, readBoundedBody } from "/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/server/security/payload";
+import { readBoundedJson } from "/home/dev/work/EZCorp/extension-v4-independent-audit/web/src/lib/server/security/bounded-json";
+
+const mode = required("EZ_REPRO_MODE") as Mode;
+const snapshotPath = required("EZ_REPRO_SNAPSHOT");
+const maxBytes = 128 * 1024 * 1024;
+const als = new AsyncLocalStorage<{ event: RequestEvent }>();
+type Mode = "noals-single" | "als-single" | "noals-admit-read" | "als-admit-read" | "noals-admit-jsstream-read" | "als-admit-jsstream-read" | "als-response-only";
+type RequestEvent = { request: Request; platform: { server: unknown; request: Request } };
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error("Missing " + name);
+  return value;
+}
+function oneChunkBody(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+async function admitRequestPayloadJsStream(request: Request): Promise<Request> {
+  if (!request.body) return request;
+  const bytes = await readBoundedBody(request, maxBytes);
+  const headers = new Headers(request.headers);
+  headers.set("content-length", String(bytes.byteLength));
+  return new Request(request, {
+    headers,
+    body: oneChunkBody(bytes),
+    // @ts-expect-error — Bun/undici requires this for a ReadableStream body.
+    duplex: "half",
+  });
+}
+
+function adapterEvent(rawRequest: Request, server: unknown): RequestEvent {
+  const rawUrl = new URL(rawRequest.url);
+  const request = new Request(rawUrl.origin + rawUrl.pathname + rawUrl.search, rawRequest);
+  return { request, platform: { server, request: rawRequest } };
+}
+async function settle(): Promise<Record<string, unknown>> {
+  jsc.fullGC();
+  await Bun.sleep(100);
+  jsc.fullGC();
+  const stats = jsc.heapStats();
+  return {
+    mode, rss: process.memoryUsage().rss,
+    heapStats: {
+      heapSize: stats.heapSize, heapCapacity: stats.heapCapacity,
+      extraMemorySize: stats.extraMemorySize, objectCount: stats.objectCount,
+      protectedObjectCount: stats.protectedObjectCount,
+      objectTypeCounts: { Request: stats.objectTypeCounts.Request ?? 0, ReadableStream: stats.objectTypeCounts.ReadableStream ?? 0, Response: stats.objectTypeCounts.Response ?? 0 },
+      protectedObjectTypeCounts: { Request: stats.protectedObjectTypeCounts.Request ?? 0, ReadableStream: stats.protectedObjectTypeCounts.ReadableStream ?? 0, Response: stats.protectedObjectTypeCounts.Response ?? 0 },
+    },
+  };
+}
+const server = Bun.serve({
+  port: 0,
+  async fetch(rawRequest) {
+    const url = new URL(rawRequest.url);
+    if (url.pathname === "/__metrics") return Response.json(await settle());
+    if (url.pathname === "/__snapshot") {
+      const metrics = await settle();
+      await Bun.write(snapshotPath, Bun.generateHeapSnapshot("v8", "arraybuffer"));
+      return Response.json(metrics);
+    }
+    if (url.pathname !== "/api/extensions/control") return new Response("not found", { status: 404 });
+    const event = adapterEvent(rawRequest, server);
+    if (mode === "als-response-only") return als.run({ event }, () => Response.json({ ok: true, mode }));
+    if (rawRequest.method !== "POST") return new Response("method", { status: 405 });
+    const execute = async () => {
+      if (mode.endsWith("single")) {
+        await readBoundedJson(event.request, maxBytes);
+      } else {
+        event.request = mode.includes("jsstream")
+          ? await admitRequestPayloadJsStream(event.request)
+          : await admitRequestPayload(event.request, "/api/extensions/control");
+        await readBoundedJson(event.request, maxBytes);
+      }
+      return Response.json({ ok: true, mode });
+    };
+    return mode.startsWith("als-") ? als.run({ event }, execute) : execute();
+  },
+});
+console.log(JSON.stringify({ kind: "ready", port: server.port, mode }));

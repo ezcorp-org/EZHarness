@@ -1,0 +1,22 @@
+{
+  "files": [
+    {
+      "bytes": 595,
+      "path": "README.txt",
+      "sha256": "37e18caf0e7f7228151c4e7116e0f612fa36a187a8971cd0a6070499b9b9cfee",
+      "source": "curated from terminal summary"
+    },
+    {
+      "bytes": 680,
+      "path": "failure/chromium-context-crash.txt",
+      "sha256": "1eb4269ddbb83006aa09ecb7b5e67243c9a9423fa02fababd7293027e05fd22b",
+      "source": "private log and trace reduced to phase-level facts"
+    },
+    {
+      "bytes": 1301,
+      "path": "metadata/terminal-summary.json",
+      "sha256": "0ea8e6c8d81c798250c4e1258ccdcaa7fd1392106b585a3b3091214e4487b25c",
+      "source": "private terminal job metadata and input hashes"
+    }
+  ]
+}

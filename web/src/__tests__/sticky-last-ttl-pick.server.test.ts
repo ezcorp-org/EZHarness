@@ -262,59 +262,13 @@ describe("sticky last-pick — read-on-mount enrichment on /expired-grants", () 
 
 // ── Write-on-submit (positive) ─────────────────────────────────────
 
-describe("sticky last-pick — write-on-submit (positive ttlOverrideMs)", () => {
-	test("POST reapprove with ttlOverrideMs: 7d writes user:<id>:reapprove:lastTtl:shell = 7d exactly once", async () => {
-		// Plan 56-03 wires this write into the reapprove POST success
-		// path. The settings store starts empty; after the request, the
-		// per-kind KV row is written.
-		const res = await expectThrownOrResponse(() =>
-			reapprovePOST(
-				makePostEvent({
-					capability: "shell",
-					scope: "conversation",
-					ttlOverrideMs: 7 * DAY_MS,
-				}) as never,
-			),
-		);
-		expect(res.status).toBe(200);
 
-		const writes = settingCalls.filter(
-			(c) =>
-				c.op === "upsert" &&
-				c.key === `user:${HELLO_USER}:reapprove:lastTtl:shell`,
-		);
-		expect(writes).toHaveLength(1);
-		expect(writes[0]?.value).toBe(7 * DAY_MS);
-	});
-});
-
-// ── Never-suppression ──────────────────────────────────────────────
-
-describe("sticky last-pick — Never suppresses the write (CONTEXT.md decision)", () => {
-	test("POST reapprove with ttlOverrideMs: null does NOT write the lastTtl key", async () => {
-		// CONTEXT.md locked decision: "Never is NOT sticky — when a user
-		// picks Never, the last-pick record is *not* updated — next
-		// time the same kind expires, the default returns to the
-		// previous sticky value (or 30d first-use fallback). Never is
-		// an explicit escape hatch, not a habit."
-		const res = await expectThrownOrResponse(() =>
-			reapprovePOST(
-				makePostEvent({
-					capability: "shell",
-					scope: "conversation",
-					ttlOverrideMs: null,
-				}) as never,
-			),
-		);
-		expect(res.status).toBe(200);
-
-		const writes = settingCalls.filter(
-			(c) =>
-				c.op === "upsert" &&
-				c.key === `user:${HELLO_USER}:reapprove:lastTtl:shell`,
-		);
-		expect(writes).toHaveLength(0);
-	});
+describe("retired reapprove never writes TTL preferences", () => {
+  for (const ttlOverrideMs of [7 * DAY_MS, null]) test(`does not persist ${ttlOverrideMs}`, async () => {
+    const response = await expectThrownOrResponse(() => reapprovePOST(makePostEvent({ capability: "shell", scope: "conversation", ttlOverrideMs }) as never));
+    expect(response.status).toBe(410);
+    expect(settingCalls.filter((entry) => entry.op === "upsert")).toHaveLength(0);
+  });
 });
 
 // ── Chat-side surface parity (cross-plan contract) ─────────────────

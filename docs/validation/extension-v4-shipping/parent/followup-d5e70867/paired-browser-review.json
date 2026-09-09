@@ -1,0 +1,109 @@
+{
+  "run": "https://github.com/ezcorp-org/EZHarness/actions/runs/34170523160",
+  "source": "4f2355b960ec98aecdc55aeb420c79e7f4bf0045",
+  "review": [
+    {
+      "variant": "current",
+      "identity": "playwright=1.62.1\nsource=4f2355b960ec98aecdc55aeb420c79e7f4bf0045\nbun=1.3.14\nnode=v22.23.2\ncpu_count=4\nmemory_bytes=16766414848\nGoogle Chrome for Testing 151.0.7922.34 \n0b20b130e7edd9dd51873be867761295fe0cfad490c2b9a64f95bd3cfc08fa71  /home/runner/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome\n8f774efd5682b05071d51c318fe49504e53ed7ad3e5a89476de7f7f9edc6652f  web/package.json\n6330f504510171d4dbbf8a3fb4769b2660141e5ef92828dadc04a1c838a5bce4  web/bun.lock\nbuild_id=5f6e1a6835b28b53be4483a0c48063fd3fcb3108\n",
+      "files": [
+        {
+          "file": "authenticated.exit",
+          "bytes": 26,
+          "sha256": "19ec29b20936e98ec1666435735f6464aee831de5b939c12be58a851474a0359"
+        },
+        {
+          "file": "authenticated.log",
+          "bytes": 249439,
+          "sha256": "a1591157f90022ca92501cd32dd12cafd5e6e5df9cba6c5855e3b74307b3ce6d"
+        },
+        {
+          "file": "contexts.exit",
+          "bytes": 26,
+          "sha256": "19ec29b20936e98ec1666435735f6464aee831de5b939c12be58a851474a0359"
+        },
+        {
+          "file": "contexts.log",
+          "bytes": 187618,
+          "sha256": "b930214cf24e3b0ba5716b98d363a706ef55d0d896fac071acd20c2e992cf955"
+        },
+        {
+          "file": "identity.txt",
+          "bytes": 517,
+          "sha256": "fc08481002d8fe39d784f8b017d3c436b391e4455360b6ebf28c420148066a19"
+        },
+        {
+          "file": "setup.exit",
+          "bytes": 26,
+          "sha256": "19ec29b20936e98ec1666435735f6464aee831de5b939c12be58a851474a0359"
+        },
+        {
+          "file": "setup.log",
+          "bytes": 186678,
+          "sha256": "486ebe466c1a8516845884e06fbec40458e669f771172426e1d2ade5e3ed8ac8"
+        }
+      ],
+      "suite_counts": [
+        1,
+        3,
+        62
+      ],
+      "browser_and_log_exits": [
+        0,
+        0
+      ],
+      "scope": "One loop test passed; no independent per-context phase count asserted."
+    },
+    {
+      "variant": "candidate",
+      "identity": "playwright=1.63.0\nsource=4f2355b960ec98aecdc55aeb420c79e7f4bf0045\nbun=1.3.14\nnode=v22.23.2\ncpu_count=4\nmemory_bytes=16766410752\nGoogle Chrome for Testing 153.0.8010.12 \n8c599d43aec53f2460a31ae2f4af6bd863f8258b34ff519564bc5d4726bfaa1e  /home/runner/.cache/ms-playwright/chromium-1243/chrome-linux64/chrome\n0245f7662f4d97e15914b8b9b9cd28d21fd94525b8fc93ff198ca11d7d91fc48  web/package.json\n5d7d928b5dded335d8830ef2d6e2ee0b042a222eb43a81b30776989d77f9d584  web/bun.lock\nbuild_id=801e223ae2df0c3aa4d000dd388ed8048a864b9e\n",
+      "files": [
+        {
+          "file": "authenticated.exit",
+          "bytes": 26,
+          "sha256": "19ec29b20936e98ec1666435735f6464aee831de5b939c12be58a851474a0359"
+        },
+        {
+          "file": "contexts.exit",
+          "bytes": 26,
+          "sha256": "19ec29b20936e98ec1666435735f6464aee831de5b939c12be58a851474a0359"
+        },
+        {
+          "file": "authenticated.log",
+          "bytes": 250254,
+          "sha256": "888bb1b6c89be484724b22b12f3e120446927f7a65129355fdf6f24684b1fc6d"
+        },
+        {
+          "file": "contexts.log",
+          "bytes": 187580,
+          "sha256": "71fc92de2e6cce1709c1fb5fdd0fadfc4f2b1e0c4d69921757845a8938c55b94"
+        },
+        {
+          "file": "identity.txt",
+          "bytes": 517,
+          "sha256": "15422affb2ee0f995ce091cf59e03f5f87a2e1348382f538aafc9d13012f6d4a"
+        },
+        {
+          "file": "setup.exit",
+          "bytes": 26,
+          "sha256": "19ec29b20936e98ec1666435735f6464aee831de5b939c12be58a851474a0359"
+        },
+        {
+          "file": "setup.log",
+          "bytes": 186376,
+          "sha256": "543f27902726a91acfc315c4067f409196bd96ec94788d18910524bf170b0120"
+        }
+      ],
+      "suite_counts": [
+        1,
+        3,
+        62
+      ],
+      "browser_and_log_exits": [
+        0,
+        0
+      ],
+      "scope": "One loop test passed; no independent per-context phase count asserted."
+    }
+  ],
+  "limit": "Both browser pairs pass one loop test, three setup cases and 62 authenticated cases. No causal crash fix or independently counted loop phases is established."
+}

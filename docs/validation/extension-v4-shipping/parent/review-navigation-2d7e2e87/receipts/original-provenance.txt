@@ -1,0 +1,14 @@
+base_source=d2222840cf3d2b4963075ffc0f5cf0bdec5ef621
+repair_source=2f942dab4bd2f5eeec0ee816e7437c8ac327964a
+bun=1.3.14
+node=22.22.2
+lock=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock
+red_command=PI_SKIP_INIT=1 bunx playwright test e2e/extension-install-granted-caps.spec.ts --project=chromium
+red_input=red/destination-assertion.patch
+red_exit=red/targeted.exit
+green_review_command=PI_SKIP_INIT=1 bunx playwright test e2e/extension-install-granted-caps.spec.ts e2e/extensions-bundled-drift-reapproval.spec.ts e2e/extensions-mcp-permissions.spec.ts e2e/extensions-workflows-grant.spec.ts --project=chromium --grep '(captures evidence|opens release review|network permission is granted|workflow permissions)'
+green_mcp_command=PI_SKIP_INIT=1 bunx playwright test e2e/extensions-mcp-permissions.spec.ts --project=chromium --grep 'shows the derived host'
+green_source_gate_command=PI_SKIP_INIT=1 bunx playwright test e2e/extensions-install-gate.spec.ts --project=chromium
+green_source_release_command=PI_SKIP_INIT=1 bunx playwright test e2e/extensions.spec.ts --project=chromium --grep 'GitHub candidate requires exact review'
+typecheck_command=bun run typecheck
+lint_command=bunx biome check web/e2e/extension-install-granted-caps.spec.ts web/e2e/extensions-bundled-drift-reapproval.spec.ts web/e2e/extensions-mcp-permissions.spec.ts web/e2e/extensions-workflows-grant.spec.ts web/e2e/fixtures/extension-source-import.ts

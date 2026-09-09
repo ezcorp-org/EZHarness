@@ -1,0 +1,5 @@
+job_id	artifact	artifact_id	reported_sha256	reported_bytes	scope
+101853766428	extension-lifecycle-webkit	10031715463	e7c36a757a1ddb92c734ef4bab364ba51ea8d45f469eef02b175f78517f6c0c9	1345908	raw archive private; mapping only
+101853766560	extension-lifecycle-firefox	10031698450	cf3e456e8153c936dc60c9ac9626a125d48eea183f809d506e1020cca126be36	1351367	raw archive private; mapping only
+101853766498	visual-evidence	10031823458	d34fc5c3e2fc0d9818fa1725bce789e7287d1e7dd46c8ec455f55e9a219bc2ec	42009374	raw archive private; mapping only
+101853766464					no finalized artifact mapping in job log

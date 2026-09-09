@@ -1,3 +1,5 @@
+// @ezcorp-host-integration
+const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url: import.meta.url };
 /**
  * E2E test: exercises the REAL server pipeline for todo-tracker.
  *
@@ -27,7 +29,7 @@ import { tmpdir } from "os";
 // ── DB stubs ────────────────────────────────────────────────────
 let incrementCalls = 0;
 let resetCalls = 0;
-let disableCalls = 0;
+let _disableCalls = 0;
 let simulatedConsecutiveFailures = 0;
 
 mock.module("../../../../src/db/queries/extensions", () => ({
@@ -41,15 +43,15 @@ mock.module("../../../../src/db/queries/extensions", () => ({
     simulatedConsecutiveFailures = 0;
   },
   disableExtension: async () => {
-    disableCalls++;
+    _disableCalls++;
   },
 }));
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
-import { buildHarnessEnv, wireFsHandler } from "../_harness/pipeline-harness";
+import { buildHarnessEnv, makeFsRpcHandler, wireFsHandler } from "@ezcorp/sdk/test";
 
-const TODO_TRACKER_ENTRYPOINT = join(import.meta.dir, "index.ts");
+const TODO_TRACKER_ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 const TEST_TMP_ROOT = join(tmpdir(), `todo-tracker-e2e-pipeline-${Date.now()}`);
 
 // Filesystem grant + host-mediated `ezcorp/fs.*` wiring (scoped to tmpdir,
@@ -78,7 +80,7 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
     process.chdir(cwd);
     incrementCalls = 0;
     resetCalls = 0;
-    disableCalls = 0;
+    _disableCalls = 0;
     simulatedConsecutiveFailures = 0;
   });
 
@@ -99,7 +101,7 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
     const r = await proc.callTool("scan-todos", {});
     expect(r.isError).toBe(false);
     const first = r.content[0];
-    if (!first || first.type !== "text") throw new Error("expected text content");
+    if (first?.type !== "text") throw new Error("expected text content");
     expect(first.text).toContain("No TODO");
   }, 30_000);
 
@@ -113,7 +115,7 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
     const r = await proc.callTool("scan-todos", {});
     expect(r.isError).toBe(false);
     const first = r.content[0];
-    if (!first || first.type !== "text") throw new Error("expected text content");
+    if (first?.type !== "text") throw new Error("expected text content");
     expect(first.text).toContain("finish integration");
     expect(first.text).toContain("edge case");
     expect(first.text).toContain("temporary workaround");
@@ -127,9 +129,67 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
     const r = await proc.callTool("scan-todos", { priority: "high" });
     expect(r.isError).toBe(false);
     const first = r.content[0];
-    if (!first || first.type !== "text") throw new Error("expected text content");
+    if (first?.type !== "text") throw new Error("expected text content");
     expect(first.text).toContain("critical one");
     expect(first.text).not.toContain("low-priority chore");
+  }, 30_000);
+
+  test("searchQuery filters seeded markers through JSON-RPC args end-to-end", async () => {
+    writeFileSync(
+      join(cwd, "search.ts"),
+      "// TODO: needle only result\n// FIXME: unrelated result\n",
+    );
+    const proc = makeProc();
+    procs.push(proc);
+
+    const result = await proc.callTool("scan-todos", { searchQuery: "NEEDLE" });
+    expect(result.isError).toBe(false);
+    const first = result.content[0];
+    if (first?.type !== "text") throw new Error("expected text content");
+    expect(first.text).toContain("needle only result");
+    expect(first.text).not.toContain("unrelated result");
+    expect(proc.isRunning).toBe(true);
+  }, 30_000);
+
+  test("root filesystem denial returns an error without project data, then the same process recovers", async () => {
+    writeFileSync(join(cwd, "secret.ts"), "// TODO: must-not-cross-denied-boundary\n");
+    const extId = "todo-tracker-denial-" + Math.random().toString(36).slice(2, 8);
+    const proc = new ExtensionProcess(
+      extId,
+      TODO_TRACKER_ENTRYPOINT,
+      buildHarnessEnv(extId, { filesystem: true }),
+      { persistent: true, callTimeoutMs: 15_000 },
+    );
+    procs.push(proc);
+
+    const filesystem = makeFsRpcHandler(tmpdir());
+    let deny = true;
+    let deniedCalls = 0;
+    proc.setRequestHandler(async (request) => {
+      if (request.method.startsWith("ezcorp/fs.") && deny) {
+        deniedCalls++;
+        return { jsonrpc: "2.0", id: request.id, error: { code: -32001, message: "filesystem permission denied" } };
+      }
+      return filesystem(request) ?? {
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32601, message: `Method not found: ${request.method}` },
+      };
+    });
+
+    const denied = await proc.callTool("scan-todos", {});
+    expect(denied.isError).toBe(true);
+    expect(denied.content[0]).toMatchObject({ type: "text" });
+    const deniedText = denied.content[0]?.type === "text" ? denied.content[0].text : "";
+    expect(deniedText).toContain("filesystem permission denied");
+    expect(deniedText).not.toContain("must-not-cross-denied-boundary");
+    expect(deniedCalls).toBe(1);
+
+    deny = false;
+    const allowed = await proc.callTool("scan-todos", {});
+    expect(allowed.isError).toBe(false);
+    expect(allowed.content[0]?.type === "text" ? allowed.content[0].text : "").toContain("must-not-cross-denied-boundary");
+    expect(proc.isRunning).toBe(true);
   }, 30_000);
 
   test("3 sequential scan-todos calls on same persistent process — resetFailures counter rises", async () => {
@@ -141,7 +201,7 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
       const r = await proc.callTool("scan-todos", {});
       expect(r.isError).toBe(false);
       const first = r.content[0];
-      if (!first || first.type !== "text") throw new Error("expected text content");
+      if (first?.type !== "text") throw new Error("expected text content");
       expect(first.text).toContain("persistent-call");
     }
     expect(proc.isRunning).toBe(true);

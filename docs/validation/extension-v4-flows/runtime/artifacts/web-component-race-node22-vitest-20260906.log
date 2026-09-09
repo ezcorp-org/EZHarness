@@ -1,0 +1,6 @@
+command=flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock env PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH bash -lc 'cd web && bunx vitest run src/__tests__/setup-page.component.test.ts src/lib/components/__tests__/KnowledgeBaseTab.sharing.component.test.ts'
+bun_version=1.3.14
+node_version=v22.22.2
+test_files=2 passed
+tests=21 passed
+exit=0

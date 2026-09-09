@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, afterEach } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, afterEach, spyOn } from "bun:test";
 import { createGrepTool } from "../runtime/tools/grep";
 import { TOOL_OUTPUT_LIMITS } from "../runtime/tools/output-limits";
 import { mkdtemp, mkdir, writeFile, rm } from "fs/promises";
@@ -14,6 +14,79 @@ function det(result: any): any {
 }
 
 const HAS_RG = Bun.which("rg") !== null;
+const ORIGINAL_GREP_CAP = TOOL_OUTPUT_LIMITS.grep;
+
+/**
+ * Keep the child real while making its stdout delivery deterministic. This
+ * reproduces the hosted boundary where the first read was exactly the cap.
+ */
+function splitStdoutEvery(
+  stream: ReadableStream<Uint8Array>,
+  chunkBytes: number,
+): ReadableStream<Uint8Array> {
+  let pending = new Uint8Array();
+  return stream.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        const joined = new Uint8Array(pending.byteLength + chunk.byteLength);
+        joined.set(pending);
+        joined.set(chunk, pending.byteLength);
+        let offset = 0;
+        while (joined.byteLength - offset >= chunkBytes) {
+          controller.enqueue(joined.slice(offset, offset + chunkBytes));
+          offset += chunkBytes;
+        }
+        pending = joined.slice(offset);
+      },
+      flush(controller) {
+        if (pending.byteLength > 0) controller.enqueue(pending);
+      },
+    }),
+  );
+}
+
+function withSplitGrepStdout(chunkBytes: number) {
+  const realSpawn = Bun.spawn;
+  let childExited = false;
+  const spy = spyOn(Bun, "spawn").mockImplementation(((
+    command: string[] | string,
+    options?: Parameters<typeof Bun.spawn>[1],
+  ) => {
+    const child = realSpawn(command as string[], options);
+    if (!Array.isArray(command) || command[0] !== "grep" || !(child.stdout instanceof ReadableStream)) return child;
+    void child.exited.then(() => {
+      childExited = true;
+    });
+    const stdout = splitStdoutEvery(child.stdout, chunkBytes);
+    return new Proxy(child, {
+      get(target, property) {
+        return property === "stdout" ? stdout : Reflect.get(target, property);
+      },
+    });
+  }) as typeof Bun.spawn);
+  return { spy, childExited: () => childExited };
+}
+
+async function withForcedFirstChunk(
+  content: string,
+  check: (result: any, childExited: boolean) => void | Promise<void>,
+): Promise<void> {
+  TOOL_OUTPUT_LIMITS.grep = 4 * 1024;
+  process.env.EZCORP_GREP_BACKEND = "grep";
+  const split = withSplitGrepStdout(4 * 1024);
+  const filename = resolve(projectPath, "forced-first-cap.txt");
+  try {
+    await writeFile(filename, content);
+    const result = await createGrepTool(projectPath).execute("1", {
+      pattern: "needle",
+      path: "forced-first-cap.txt",
+    });
+    await check(result, split.childExited());
+  } finally {
+    split.spy.mockRestore();
+    await rm(filename, { force: true });
+  }
+}
 
 let projectPath: string;
 
@@ -40,6 +113,8 @@ afterAll(async () => {
 afterEach(() => {
   delete process.env.EZCORP_GREP_BACKEND;
   delete process.env.EZCORP_GREP_TIMEOUT_MS;
+  if (ORIGINAL_GREP_CAP === undefined) delete TOOL_OUTPUT_LIMITS.grep;
+  else TOOL_OUTPUT_LIMITS.grep = ORIGINAL_GREP_CAP;
 });
 
 describe("createGrepTool", () => {
@@ -77,7 +152,6 @@ describe("createGrepTool", () => {
     const content = Array.from({ length: 50 }, () => longLine).join("\n");
     await writeFile(resolve(projectPath, "hits.txt"), content);
 
-    const originalCap = TOOL_OUTPUT_LIMITS.grep;
     TOOL_OUTPUT_LIMITS.grep = 4 * 1024; // 4 KB
     try {
       const tool = createGrepTool(projectPath);
@@ -88,10 +162,46 @@ describe("createGrepTool", () => {
       expect(det(result).truncated).toBe(true);
       expect(det(result).matchCount).toBeGreaterThan(0);
     } finally {
-      if (originalCap === undefined) delete TOOL_OUTPUT_LIMITS.grep;
-      else TOOL_OUTPUT_LIMITS.grep = originalCap;
       await rm(resolve(projectPath, "hits.txt"), { force: true });
     }
+  });
+
+  test("marks an exact-cap first stdout chunk as truncated without mocking grep", async () => {
+    // One finite real grep result is larger than two 4 KiB chunks. The spy
+    // changes only stdout chunking; argv, stderr, exit and child stay real.
+    await withForcedFirstChunk(`needle ${"x".repeat(9 * 1024)}\n`, (result, childExited) => {
+      expect(getText(result)).toContain("[output truncated:");
+      expect(det(result).truncated).toBe(true);
+      expect(childExited).toBe(true);
+    });
+  });
+
+  test("does not mark an exact-cap EOF as truncated", async () => {
+    const cap = 4 * 1024;
+    // GNU grep prints `1:` for this one file, then the matching line and LF.
+    const prefix = "1:needle ";
+    await withForcedFirstChunk(`needle ${"x".repeat(cap - prefix.length - 1)}\n`, (result, childExited) => {
+      expect(getText(result).length).toBe(cap - 1);
+      expect(getText(result)).not.toContain("[output truncated:");
+      expect(det(result).truncated).toBeUndefined();
+      expect(childExited).toBe(true);
+    });
+  });
+
+  test("keeps a valid UTF-8 prefix when truncation splits a code point", async () => {
+    const cap = 4 * 1024;
+    const prefix = "1:needle ";
+    // The first byte of é is at the cap boundary; the reader must not emit a
+    // replacement character when it cancels the overflowing stream.
+    await withForcedFirstChunk(
+      `needle ${"x".repeat(cap - prefix.length - 1)}é trailing\n`,
+      (result, childExited) => {
+        expect(getText(result)).toContain("[output truncated:");
+        expect(getText(result)).not.toContain("\uFFFD");
+        expect(det(result).truncated).toBe(true);
+        expect(childExited).toBe(true);
+      },
+    );
   });
 
   test("surfaces a real search error (invalid regex) instead of masking it as no-match", async () => {

@@ -1,0 +1,84 @@
+{
+  "head": "ac53921ce07db8569eb8895456eda8271d6aab3f",
+  "tree": "ead56e1b614b215f7790eab41195f7c6a6d901d1",
+  "bun": "1.3.14",
+  "raw_sha256": "726af58f17c7d5c65f1ae401aa9dd8564dba34bb4410d07af39a398beb0b50dc",
+  "commands": [
+    {
+      "command": "bun test ./src/__tests__/run-visual-evidence.test.ts --timeout 30000",
+      "pass": 7,
+      "fail": 0,
+      "assertions": 23,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./src/__tests__/coverage-leg-lcov-guard.test.ts --timeout 30000",
+      "pass": 40,
+      "fail": 0,
+      "assertions": 152,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./packages/@ezcorp/sdk/src/v4/serve.test.ts --timeout 30000",
+      "pass": 11,
+      "fail": 0,
+      "assertions": 36,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./packages/@ezcorp/sdk/src/v4/invocation-channel.test.ts --timeout 30000",
+      "pass": 5,
+      "fail": 0,
+      "assertions": 15,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./docs/extensions/examples/todo-tracker/index.test.ts --timeout 30000",
+      "pass": 22,
+      "fail": 0,
+      "assertions": 78,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./src/extensions/first-party-integration/todo-tracker/e2e-server-pipeline.test.ts --timeout 30000",
+      "pass": 6,
+      "fail": 0,
+      "assertions": 29,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./src/__tests__/event-subscription.integration.test.ts --timeout 30000",
+      "pass": 2,
+      "fail": 0,
+      "assertions": 9,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./src/extensions/first-party-integration/repo-activity-notify/index.integration.test.ts --timeout 30000",
+      "pass": 2,
+      "fail": 0,
+      "assertions": 26,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./docs/extensions/examples/claude-design/lib/generator.test.ts --timeout 30000",
+      "pass": 17,
+      "fail": 0,
+      "assertions": 36,
+      "exit": 0
+    },
+    {
+      "command": "bun test ./docs/extensions/examples/claude-design/index.coverage.test.ts --timeout 30000",
+      "pass": 47,
+      "fail": 0,
+      "assertions": 124,
+      "exit": 0
+    }
+  ],
+  "totals": {
+    "pass": 159,
+    "fail": 0,
+    "assertions": 528
+  },
+  "wrapper_exit": 0
+}

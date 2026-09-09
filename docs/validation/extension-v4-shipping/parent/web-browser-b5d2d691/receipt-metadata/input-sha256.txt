@@ -1,0 +1,10 @@
+06fa9cef2e829d66079b8c5ef41b9e3f8b896dc2e5fc65a6dbeed685b48dc6e1  src/__tests__/real-auth-fixture-cleanup.test.ts
+406c884f6cec88074d52f4011e1265e7bce8c28901d55a83ed503089e4381356  web/e2e/extension-install-granted-caps.spec.ts
+8541332ae1f2bdeacbb35d0023bc25256d645245507a4bdcc36d25414470e252  web/e2e/extensions-bundled-drift-reapproval.spec.ts
+a8590a7de0bf228c6db46ea4b3b304eca7b35d78d5f6f6d094e8350cf7904312  web/e2e/extensions-mcp-permissions.spec.ts
+b54ff740644b2adc6fd240ae61f82c43bd1ead49d45bdfe0492fd1d917b9f150  web/e2e/extensions-workflows-grant.spec.ts
+d3c1d46d8d83b4f1844decd0dcd1c9345b387bcfc0e7a121e69f328d6db94341  web/e2e/fixtures/extension-source-import.ts
+1ae6ec6a25df6e0a8a8a6577c79d32b204a4953bfbfcad1d26170454c2603bd4  web/e2e/lanes.json
+1be673098d391e0d296f2312f7416cafc1f35afd653ea473c996c70e7e6f5f50  web/e2e/real-auth-teardown.ts
+3c9204b1326711b82b87cdcbe166a059d96135ca8c8ede936c75e821cf6431bc  web/e2e/run-real-auth-fixture.sh
+ce64e8b55f51a7cf04e1c80a8d611d89eea411f3c94234d18d774c1ad3a0c244  web/playwright.real.config.ts

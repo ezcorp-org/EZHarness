@@ -1,0 +1,20 @@
+{
+  "raw_samples_sha256": "bc6fd85c6b1ad42a250a33e0eb07b384abc8274f125539a203548fb17d85ed3c",
+  "mode": "cycles",
+  "cycles": 10,
+  "reconnects": 100,
+  "actual_duration_ms": 65599,
+  "last_sample_receipt_duration_ms": 65597,
+  "required_minimum_ms": 0,
+  "samples_verified": 11,
+  "relation_descriptor_rows_verified": 3672,
+  "runner_fds_each": 24,
+  "owned_workers_each": 0,
+  "remaining_sse_connections_each_cycle": 0,
+  "warm_memory_bytes": 858049741,
+  "maximum_post_warm_memory_bytes": 868116070,
+  "post_warm_growth_bytes": 10066329,
+  "final_memory_bytes": 857001165,
+  "memory_bound_bytes": 67108864,
+  "all_four_launcher_exits": 0
+}

@@ -15,7 +15,7 @@
  * AgentExecutor + a hanging code-based agent (the leaked-promise case).
  */
 
-import { mock, test, expect, describe, afterAll } from "bun:test";
+import { mock, test, expect, describe, afterAll, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
@@ -24,6 +24,7 @@ afterAll(() => restoreModuleMocks());
 
 interface FinalizeCall { runId: string; status: string; error?: string }
 const finalizeRunRowCalls: FinalizeCall[] = [];
+let finalizeFailure: Error | undefined;
 
 mock.module("../db/queries/runs", () => ({
   insertRun: async () => {},
@@ -33,6 +34,7 @@ mock.module("../db/queries/runs", () => ({
   getRunWithLogs: async () => null,
   toAgentRun: (r: any) => r,
   finalizeRunRow: async (runId: string, status: string, error?: string) => {
+    if (finalizeFailure) throw finalizeFailure;
     finalizeRunRowCalls.push({ runId, status, error });
     return 1;
   },
@@ -91,6 +93,41 @@ afterAll(() => {
 });
 
 describe("cancelRun terminalizes the runs row (orphan-row safety net)", () => {
+  test("failed durable cancellation is logged without publishing a successful terminal event", async () => {
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const logged = Promise.withResolvers<string>();
+    const originalWrite = process.stderr.write.bind(process.stderr);
+    const output = spyOn(process.stderr, "write").mockImplementation((chunk: any, ...args: any[]) => {
+      if (String(chunk).includes("cancelRun finalization failed")) logged.resolve(String(chunk));
+      return originalWrite(chunk, ...args);
+    });
+    const bus = new EventBus<AgentEvents>();
+    const cancelled = mock(() => {});
+    bus.on("run:cancel", cancelled);
+    const executor = new AgentExecutor(loadAgentsStatic([makeAgent("cancel-failure", async () => {
+      started.resolve();
+      await release.promise;
+      return { success: true, output: null };
+    })]), bus, { persist: true });
+    executors.push(executor);
+    const running = executor.runAgent("cancel-failure", {});
+    try {
+      await started.promise;
+      const [active] = await executor.listRuns();
+      finalizeFailure = new Error("durable cancellation unavailable");
+      expect(executor.cancelRun(active!.id)).toBe(true);
+      expect(await logged.promise).toContain("durable cancellation unavailable");
+      expect(cancelled).not.toHaveBeenCalled();
+      expect(active!.status).toBe("cancelled");
+    } finally {
+      finalizeFailure = undefined;
+      release.resolve();
+      await running;
+      output.mockRestore();
+    }
+  });
+
   test("persist=true: cancelRun emits run:cancel AND calls finalizeRunRow('cancelled')", async () => {
     finalizeRunRowCalls.length = 0;
 
@@ -119,14 +156,12 @@ describe("cancelRun terminalizes the runs row (orphan-row safety net)", () => {
     const ok = exec.cancelRun(active!.id);
     expect(ok).toBe(true);
 
-    // run:cancel still fires (existing behavior preserved).
-    expect(cancelEvents).toEqual([active!.id]);
+    expect(cancelEvents).toEqual([]);
     // In-memory terminal state set by cancelRun (sanity).
     expect(active!.status).toBe("cancelled");
 
-    // The fix: the `runs` row is terminalized directly, independent of
-    // whether finalizeCleanup ever runs. Fire-and-forget — drain it.
     await new Promise<void>((r) => queueMicrotask(r));
+    expect(cancelEvents).toEqual([active!.id]);
     expect(finalizeRunRowCalls).toHaveLength(1);
     expect(finalizeRunRowCalls[0]!.runId).toBe(active!.id);
     expect(finalizeRunRowCalls[0]!.status).toBe("cancelled");

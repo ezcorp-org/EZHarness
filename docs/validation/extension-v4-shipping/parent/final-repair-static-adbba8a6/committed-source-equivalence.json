@@ -1,0 +1,39 @@
+{
+  "checked_source_commit_sha": "adbba8a693cdcd4410c51023dfca93517f9db1e8",
+  "base_source_commit_sha": "6c05453edbb4148d53cbc37b67d05907b5459c67",
+  "files": [
+    {
+      "path": "packages/@ezcorp/sdk/test/integration/tarball.test.ts",
+      "sha256": "e5ce0f96cd85f48a25fd3f1b03b3ceeb68045a69d4952c6e533f48cb8eaafee1"
+    },
+    {
+      "path": "scripts/verify-shipping-embeddings.sh",
+      "sha256": "72bdf166c98f6b5b68bed69e0691058619c3941a06168f5ac5b75c290268c88e"
+    },
+    {
+      "path": "scripts/verify-shipping-embeddings.ts",
+      "sha256": "ae5bbd48d61a4d9814ee7a18aa002b5d7e4741084917fa26b76a147500378ad9"
+    },
+    {
+      "path": "scripts/verify-shipping-production-suite.sh",
+      "sha256": "a98c5d180e39c1306f94ecdd5c544551586c11ebecef4fd81c0ef98ad46d5c78"
+    },
+    {
+      "path": "src/__tests__/shipping-production-suite-wiring.test.ts",
+      "sha256": "c30dfab3f4314b261bbd890b7beaa207cda6f73eb36c058302f3da4b3cfb7655"
+    },
+    {
+      "path": "web/bun.lock",
+      "sha256": "6330f504510171d4dbbf8a3fb4769b2660141e5ef92828dadc04a1c838a5bce4"
+    },
+    {
+      "path": "web/package.json",
+      "sha256": "5f9fc72154474e72715d20f5d5e520f038c067c11a3309bfb72f2e67a0fdeb7d"
+    },
+    {
+      "path": "web/src/__tests__/file-organizer-events-route.server.test.ts",
+      "sha256": "97a61417ea7a85843bcc522c9cec6f2887c93505d729020ce5e9ef11434ccfa6"
+    }
+  ],
+  "notes": "Static and full Vitest ran before commit on these exact bytes. The later wrapper mode commit changes permissions only. repair.patch omits the then-untracked verifier; its committed bytes are hashed here."
+}

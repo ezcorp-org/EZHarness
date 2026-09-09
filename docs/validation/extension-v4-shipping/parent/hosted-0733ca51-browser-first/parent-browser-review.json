@@ -1,0 +1,170 @@
+{
+  "head_sha": "0733ca51daf570227bd801b14991700ad0ca0c12",
+  "raw_logs": [
+    {
+      "name": "firefox",
+      "job_id": 101874032777,
+      "raw_sha256": "76d3f2811e36665f2a0321ec30d2049aa7203972ee682072a83493110c6d4e73",
+      "bytes_verified": 279471,
+      "structured_hook_records": 0
+    },
+    {
+      "name": "mock",
+      "job_id": 101874032590,
+      "raw_sha256": "38b8b6adb9e038982817eb36991eb9743d409e7a2f5324a264e593d2547adf79",
+      "bytes_verified": 113479,
+      "structured_hook_records": 0
+    },
+    {
+      "name": "real_auth",
+      "job_id": 101874032881,
+      "raw_sha256": "6691c915af89b7c44d6899475f96a7022a66618abe1eb24c2f01f8cd6f89a512",
+      "bytes_verified": 274188,
+      "structured_hook_records": 0
+    },
+    {
+      "name": "visual",
+      "job_id": 101874032872,
+      "raw_sha256": "e17ee667cc9e820cd401ae7bb5f0cce9bb695f97273aa92f8ae4147b7ec7a9c9",
+      "bytes_verified": 352224,
+      "structured_hook_records": 1
+    },
+    {
+      "name": "web_bun",
+      "job_id": 101874032654,
+      "raw_sha256": "006a5f74c683d7fa48db1e734eccb244fe19346b44712738f0c3b7738f81ccc2",
+      "bytes_verified": 32491,
+      "structured_hook_records": 0
+    },
+    {
+      "name": "web_security",
+      "job_id": 101874032749,
+      "raw_sha256": "cfbb8982679900a4561fa0494476286cec7952910a010595cebaab3ce89ed5ec",
+      "bytes_verified": 30417,
+      "structured_hook_records": 0
+    },
+    {
+      "name": "web_shard1",
+      "job_id": 101874032879,
+      "raw_sha256": "6d55b230d2fbb35ae0400072a1fbea9827affcadf679b28a34b63a469fb53d03",
+      "bytes_verified": 83112,
+      "structured_hook_records": 1
+    },
+    {
+      "name": "web_shard2",
+      "job_id": 101874032625,
+      "raw_sha256": "5745af9d0c7a93be49912a9078f2ab1f1e24171a9e4a6a94176b74c916571e72",
+      "bytes_verified": 94736,
+      "structured_hook_records": 0
+    },
+    {
+      "name": "web_shard3",
+      "job_id": 101874032905,
+      "raw_sha256": "8c8778acb7930532b690dbd8bef8134d6d008211fee433d90093ce96fc664215",
+      "bytes_verified": 103583,
+      "structured_hook_records": 0
+    },
+    {
+      "name": "webkit",
+      "job_id": 101874032800,
+      "raw_sha256": "7dfebeaaeb120922489fa06526066681b17b56b8d4ffbb0000d580352384454f",
+      "bytes_verified": 379139,
+      "structured_hook_records": 0
+    }
+  ],
+  "trace_before_actions": [
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "hook",
+      "title": "Before Hooks",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"context\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "pw:api",
+      "title": "Create context",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "hook",
+      "title": "After Hooks",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"context\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "test.attach",
+      "title": "Attach \"error-context\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"baseURL\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"storageState\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "hook",
+      "title": "Worker Cleanup",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"browser\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"browserName\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"screenshot\"",
+      "apiName": null
+    },
+    {
+      "type": "before",
+      "class": "Test",
+      "method": "fixture",
+      "title": "Fixture \"channel\"",
+      "apiName": null
+    }
+  ],
+  "no_goto_action": true,
+  "original_crash_cause_established": false
+}

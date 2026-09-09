@@ -1,0 +1,170 @@
+{
+  "browser_jobs": [
+    {
+      "conclusion": "success",
+      "job_id": 101756645552,
+      "log_sha256": "3763f548088830fa94f70b9f4e1b3a3a69e008ae60e6026185f5b5a23192c3c5",
+      "name": "Extension lifecycle (firefox)",
+      "passed": 3,
+      "passed_by_phase": [
+        3
+      ],
+      "skipped": 0,
+      "skipped_by_phase": [
+        0
+      ],
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101756645552"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 101756645537,
+      "log_sha256": "fae9634d41b826a858eaaf921f0c17d57231f7350771781bf76716e4e376fadf",
+      "name": "Extension lifecycle (webkit)",
+      "passed": 3,
+      "passed_by_phase": [
+        3
+      ],
+      "skipped": 0,
+      "skipped_by_phase": [
+        0
+      ],
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101756645537"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 101756645427,
+      "log_sha256": "ab9e40e817ac96eca26b05438a842b8b3ffb2bafee55cb28271995fefd2e39ef",
+      "name": "E2E (real auth + real DB)",
+      "passed": 59,
+      "passed_by_phase": [
+        59
+      ],
+      "skipped": 0,
+      "skipped_by_phase": [
+        0
+      ],
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101756645427"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 101756645053,
+      "log_sha256": "e9ac458e677d703186e4e14d3d9d00bb4e19dd3a37ff38d52536800b08059abc",
+      "name": "E2E mock lane",
+      "passed": 220,
+      "passed_by_phase": [
+        220
+      ],
+      "skipped": 13,
+      "skipped_by_phase": [
+        13
+      ],
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101756645053"
+    },
+    {
+      "conclusion": "success",
+      "job_id": 101756645590,
+      "log_sha256": "0f6d94d2b15bae79860746759f9dd1be2e43f405c8607033b1987d1721c208ce",
+      "name": "Visual evidence",
+      "passed": 191,
+      "passed_by_phase": [
+        181,
+        10
+      ],
+      "skipped": 0,
+      "skipped_by_phase": [
+        0,
+        0
+      ],
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101756645590"
+    }
+  ],
+  "candidate_image": {
+    "artifact_id": 10021996108,
+    "oci_id": "sha256:870c4c4cc52bafc01bd6ecc9e3c86119379e83615d112df3e42290144c03d290",
+    "revision": "df82bdf844ec53938963262bae443c5c45ab4863"
+  },
+  "ci": {
+    "conclusion": "failure",
+    "failed_jobs": [
+      {
+        "job_id": 101756645307,
+        "name": "Production image extension lifecycle",
+        "reason": "Candidate embeddings leaf failed with an EACCES cache-directory error.",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101756645307"
+      },
+      {
+        "job_id": 101770385142,
+        "name": "E2E (mock, no Docker)",
+        "reason": "Aggregate consequence of the production image lifecycle failure; not a separate mock browser failure.",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101770385142"
+      },
+      {
+        "job_id": 101756645209,
+        "name": "Gate integrity",
+        "reason": "Unchanged 84 policy findings with approval unset.",
+        "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100/job/101756645209"
+      }
+    ],
+    "run_id": 34126606100,
+    "successful_jobs": 32,
+    "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606100"
+  },
+  "gate_integrity": {
+    "approval": "unset",
+    "findings": 84,
+    "findings_sha256": "36f3837536cb8847f880bfa0fd78a8beebce0b4440942d1c96e0bf1d1bb262ac",
+    "job_id": 101756645209,
+    "ordered_findings_equal_prior": true
+  },
+  "head_commit_sha": "8a47c37eb62773ed8ad72d632bc6a65f878c98dd",
+  "kind": "historical_failed_hosted_production_checkpoint",
+  "not_final_success": true,
+  "production_artifact": {
+    "app_log_collection_exit_all": 0,
+    "command_exit_nonzero_leaves": [
+      "embeddings"
+    ],
+    "command_receipts": 11,
+    "failed_leaf": "embeddings",
+    "leaf_failures": 1,
+    "leaf_successes": 7,
+    "leaves": {
+      "delivery": 0,
+      "embeddings": 1,
+      "file-organizer": 0,
+      "historical-upgrade": 0,
+      "legacy-adoption": 0,
+      "revocation": 0,
+      "runtime": 0,
+      "runtime-resources": 0
+    },
+    "owned_cleanup_exit_all": 0,
+    "structured_log_observations": {
+      "candidate_embeddings": "embedding cache EACCES",
+      "historical_seed_only": "legacy seed GITHUB_TOKEN manifest refusal"
+    }
+  },
+  "separate_workflows": {
+    "dependency_audit": {
+      "conclusion": "success",
+      "job_id": 101756644779,
+      "job_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606175/job/101756644779",
+      "run_id": 34126606175,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606175"
+    },
+    "external_postgres": {
+      "conclusion": "success",
+      "job_id": 101756644024,
+      "job_url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606103/job/101756644024",
+      "run_id": 34126606103,
+      "url": "https://github.com/ezcorp-org/EZHarness/actions/runs/34126606103"
+    }
+  },
+  "source_identity": {
+    "github_synthetic_merge": "df82bdf844ec53938963262bae443c5c45ab4863",
+    "pushed_head": "8a47c37eb62773ed8ad72d632bc6a65f878c98dd",
+    "tree": "fb4771465c8b195204710b7cd2147a6c30502cc5",
+    "tree_equals_pushed_head": true,
+    "verified_by": "parent read-only fetch and tree comparison"
+  }
+}

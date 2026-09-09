@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { PublishedExtensionRelease } from "@ezcorp/extension-contract";
 import type {
   AgentResult,
   WorkflowCursor,
@@ -454,6 +455,7 @@ export type MessageEmbedOutbox = typeof messageEmbedOutbox.$inferSelect;
 
 export const agentConfigs = pgTable("agent_configs", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  managedByExtensionId: text("managed_by_extension_id"),
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   capabilities: jsonb("capabilities").notNull().$type<string[]>().default(["llm"]),
@@ -730,6 +732,7 @@ export const workflowDelegations = pgTable("workflow_delegations", {
   // which routes that row through the widening test on its first fire and
   // heals it there.
   definitionHash: text("definition_hash"),
+  extensionReleaseBinding: text("extension_release_binding"),
   // The capability set as consented, kept alongside the hash so the
   // re-consent dialog can render a DIFF rather than "something changed" —
   // and so the fire-time widening test has something to compare against.
@@ -1866,6 +1869,7 @@ export const marketplaceVersions = pgTable("marketplace_versions", {
   listingId: text("listing_id").notNull().references(() => marketplaceListings.id, { onDelete: "cascade" }),
   version: text("version").notNull(),
   manifest: jsonb("manifest").notNull().$type<ExtensionManifestV2>(),
+  release: jsonb("release").$type<PublishedExtensionRelease>(),
   changelog: text("changelog"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -2511,6 +2515,14 @@ export type NewPreviewSession = typeof previewSessions.$inferInsert;
 // stable, but the run pipeline only consumes it in Phase 3 (web-search
 // section).
 
+export const runDomainEventIntents = pgTable("run_domain_event_intents", {
+  runId: text("run_id").primaryKey(),
+  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const briefingConfigs = pgTable("briefing_configs", {
   userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   enabled: boolean("enabled").notNull().default(false),
@@ -2838,3 +2850,32 @@ export const savedContexts = pgTable("saved_contexts", {
 
 export type SavedContext = typeof savedContexts.$inferSelect;
 export type NewSavedContext = typeof savedContexts.$inferInsert;
+
+export const extensionBrowserRequests = pgTable("extension_browser_requests", {
+  id: text("id").primaryKey(),
+  principalId: text("principal_id").notNull(),
+  installationId: text("installation_id").notNull(),
+  releaseBinding: text("release_binding").notNull(),
+  conversationId: text("conversation_id"),
+  payloadDigest: text("payload_digest").notNull(),
+  deadline: bigint("deadline", { mode: "number" }).notNull(),
+  retainUntil: bigint("retain_until", { mode: "number" }).notNull(),
+  state: text("state").notNull(),
+  executionId: text("execution_id"),
+});
+
+export const extensionRuntimeLocks = pgTable("extension_runtime_locks", {
+  installationId: text("installation_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
+  key: text("lock_key").notNull(),
+  fence: text("fence").notNull(),
+  invocationId: text("invocation_id").notNull(),
+  workerId: text("worker_id").notNull(),
+  releaseId: text("release_id").notNull(),
+  generation: integer("generation").notNull(),
+  principalId: text("principal_id").notNull(),
+  scopeId: text("scope_id").notNull(),
+  deadline: timestamp("deadline", { withTimezone: true }).notNull(),
+  state: text("state").notNull().$type<"held" | "quarantined">(),
+  effects: integer("effects").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.installationId, table.key] })]);

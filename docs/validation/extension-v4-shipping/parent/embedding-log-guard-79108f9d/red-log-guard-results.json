@@ -1,0 +1,19 @@
+{
+  "command": "bun scripts/verify-shipping-embedding-log.ts <private-compose-log>",
+  "results": [
+    {
+      "phase": "first",
+      "rawSha256": "72092b7d042544ff7c1c7a940a2e9a6d43fde9be73190b0c84bfe6a038cb46ab",
+      "rawBytes": 4088,
+      "exit": 1,
+      "safeDiagnostic": "embedding compose log has 1 failure record(s): native-cache@20"
+    },
+    {
+      "phase": "second",
+      "rawSha256": "2a8f9c7588512488287ac23fad60c7307357aa5f2b71b997e43f2d0da3bd83fe",
+      "rawBytes": 13929,
+      "exit": 1,
+      "safeDiagnostic": "embedding compose log has 1 failure record(s): native-cache@48"
+    }
+  ]
+}

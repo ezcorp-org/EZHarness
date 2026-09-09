@@ -1,0 +1,101 @@
+{
+  "base": "d5e7086743e9c0d3610584e605ff25cdf0298dd8",
+  "inputs": [
+    {
+      "file": "src/runtime/tools/grep.ts",
+      "bytes": 11431,
+      "sha256": "c6b0813225dcad86438f8d23fe0484cc7567c154620afbb0481e2bdad45cefef"
+    },
+    {
+      "file": "src/__tests__/runtime-tools-grep.test.ts",
+      "bytes": 13417,
+      "sha256": "8673708b21ebeb7869a724d4b0ac3d7e641e40d1a6164971aae6bf526b3a1ed9"
+    },
+    {
+      "file": "src/__tests__/emit-task-event.integration.test.ts",
+      "bytes": 10496,
+      "sha256": "3da1487a94dcc9053ddb82be724a91af01f0b141740582636a1aab7cc599decf"
+    }
+  ],
+  "cases": {
+    "grep": 17,
+    "grep_args": 35,
+    "event": 1
+  },
+  "types": "all four sections pass",
+  "lint": "exit0;98 existing warnings and11 info records remain visible",
+  "grep_coverage": {
+    "coverage": [
+      "SF:src/runtime/tools/grep.ts",
+      "FNF:0",
+      "FNH:0",
+      "LF:189",
+      "LH:189"
+    ],
+    "misses": []
+  },
+  "controls": [
+    "Old grep fails the exact-cap first-chunk notice assertion with real GNU grep and controlled stdout delivery.",
+    "An early-reply handler mutation fails the event-before-response assertion; handler restored byte-identically."
+  ],
+  "private_logs": [
+    {
+      "check": "grep",
+      "file": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/grep-truncation-d5e70867/parent-final-checks/grep.log",
+      "bytes": 1847,
+      "sha256": "fcb77b63a21362a6aa54dc17fa0d4c96481e371f38583dca8f746a6b2e5dd535"
+    },
+    {
+      "check": "grep-args",
+      "file": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/grep-truncation-d5e70867/parent-affected-checks/grep-args.log",
+      "bytes": 2936,
+      "sha256": "1fa59a43b1261c8c3bbb75c306fcc9251728f1ab311895c97d4ab3fc66997744"
+    },
+    {
+      "check": "event",
+      "file": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/grep-truncation-d5e70867/parent-affected-checks/event.log",
+      "bytes": 322,
+      "sha256": "7f5e64e1d7cba28a8e390e6b4c0792a05cd30fa0f923cbcdbf033c79fd4caa48"
+    },
+    {
+      "check": "types",
+      "file": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/grep-truncation-d5e70867/parent-final-checks/types.log",
+      "bytes": 304,
+      "sha256": "beadd1fb90b6cf5a09d66010d09d9db6a86bb5a963505d7a6b7748813f2b80be"
+    },
+    {
+      "check": "lint",
+      "file": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/grep-truncation-d5e70867/parent-final-checks/lint.log",
+      "bytes": 15124,
+      "sha256": "e920202b39849b2c1f5f8c252ec89af18d3be3353ca99dbda5d8c4907ca07a33"
+    },
+    {
+      "check": "grep-old-red",
+      "file": "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/grep-drainer-red-d5/red.log",
+      "bytes": 4938,
+      "sha256": "e20cb9755aa82b61eba81695c257f3651a56db98b1e939d5b2d262814fd8d42f"
+    },
+    {
+      "check": "event-mutant-red",
+      "file": "/home/dev/work/EZCorp/extension-v4-emit-task-event-flake/.cache/emit-task-event-flake/integrated-early-reply-mutant-20260908T001658Z/output.log",
+      "bytes": 915,
+      "sha256": "ac9b9d0ef92dd57661ad8e814c2a62e5ea26856c39ffb602d90adf944852954a"
+    }
+  ],
+  "limits": [
+    "The initial test typecheck fails on a stream-or-file-descriptor union; the final stream guard passes.",
+    "The exact-cap transport regression controls stdout chunks; child process, arguments, stderr and exit are real.",
+    "The native FIFO experiments did not reproduce the hosted boundary and are not positive evidence."
+  ],
+  "publication": {
+    "commit": "bb80bd21de2eb6c9dbe33454b227ff6887a35563",
+    "tree": "572bfff1c50c894748acce60dc9abe4b4932d48d",
+    "base": "d5e7086743e9c0d3610584e605ff25cdf0298dd8",
+    "main": "bd7364388d0106364864e18a3d321b13ba978c36",
+    "branch": "feat/extension-v4",
+    "expanded_scan_exit": 0,
+    "commit_exit": 0,
+    "push_exit": 0,
+    "hooks": "normal; no bypass"
+  }
+}

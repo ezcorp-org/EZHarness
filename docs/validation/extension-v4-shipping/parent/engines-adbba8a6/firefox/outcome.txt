@@ -1,0 +1,5 @@
+firefox=0
+3 tests passed:
+- human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension
+- reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable
+- same-session stale tabs cannot replace a new active release or restore an uninstall

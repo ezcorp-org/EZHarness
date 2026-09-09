@@ -2,8 +2,9 @@
 // markdown-utils - Markdown formatting tools (persistent process)
 
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
+import { getChannel } from "@ezcorp/sdk/runtime";
+import { unwrapToolResponse } from "@ezcorp/sdk/v4";
 
-const decoder = new TextDecoder();
 
 // `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
 // WriteStream constructor for stdio init. Phase 3 sandbox-preload
@@ -12,12 +13,6 @@ const decoder = new TextDecoder();
 // is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
 // its writer survives the sandbox. Cached lazily so we don't pay
 // the writer-creation cost on every JSON-RPC frame.
-let stdoutWriter: ReturnType<typeof Bun.stdout.writer> | null = null;
-function writeStdout(s: string): void {
-  if (!stdoutWriter) stdoutWriter = Bun.stdout.writer();
-  stdoutWriter.write(s);
-  void stdoutWriter.flush();
-}
 
 function errorResponse(id: number | string, code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
@@ -98,30 +93,14 @@ function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
 // would lock stdin's reader the moment anything imported this file, hanging
 // `index.test.ts` on a read that never resolves. Same shape as file-refactor
 // / todo-tracker.
-export async function main(): Promise<void> {
-  const reader = Bun.stdin.stream().getReader();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let newlineIdx: number;
-    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIdx).trim();
-      buffer = buffer.slice(newlineIdx + 1);
-      if (!line) continue;
-
-      try {
-        const req: JsonRpcRequest = JSON.parse(line);
-        const res = handleRequest(req);
-        writeStdout(JSON.stringify(res) + "\n");
-      } catch {
-        // Ignore malformed lines
-      }
-    }
-  }
+export function start(): void {
+  const channel = getChannel();
+  channel.onRequest("tools/call", async (params) => unwrapToolResponse(await handleRequest({
+    jsonrpc: "2.0", id: 0, method: "tools/call", params: params as Record<string, unknown>,
+  })));
 }
+
+export const main = start;
 
 /** Exported for `index.test.ts`, mirroring file-refactor's `_internals`
  *  convention. */

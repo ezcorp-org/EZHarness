@@ -1,0 +1,10 @@
+# Bounded expansion configuration shared by the staged-tree scanner and controls.
+MAX_MEMBERS = 20_000
+# Two historical coverage tar streams, their regular members, and 3,100 copied
+# hardlinks account for 7,390,374,391 bytes. Eight GiB retains this known input
+# while still bounding aggregate output.
+MAX_BYTES = 8 * 1024 * 1024 * 1024
+STREAM_CHUNK_BYTES = 1024 * 1024
+# Archive classification reads only this bounded prefix before extraction budgets apply.
+CLASSIFICATION_BYTES = 64 * 1024
+TAR_HEADER_BYTES = 512

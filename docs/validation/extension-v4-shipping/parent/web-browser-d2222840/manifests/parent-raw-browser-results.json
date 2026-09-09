@@ -1,0 +1,47 @@
+{
+  "checkoutCommit": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "archives": [
+    {
+      "blobFile": "mock.zip",
+      "blobSha256": "6724955660225bf8e852a38787678179dac1cd4cd16f629cd72c64753eff55ec",
+      "results": {
+        "passed": 210,
+        "skipped": 13
+      },
+      "pngs": 18,
+      "retries": 0,
+      "terminal": "passed"
+    },
+    {
+      "blobFile": "real-auth.zip",
+      "blobSha256": "6fce7ad4470c39aac72bb4d160a50b9baec0915449e0d2b6ce15b5c0bc62ef8e",
+      "results": {
+        "passed": 59
+      },
+      "pngs": 33,
+      "retries": 0,
+      "terminal": "passed"
+    },
+    {
+      "blobFile": "visual-blobs/mock.zip",
+      "blobSha256": "0964c02f39ad6dccee26a5584d5613693c8d83b4cdf652347de0615cc6dfed91",
+      "results": {
+        "passed": 180
+      },
+      "pngs": 213,
+      "retries": 0,
+      "terminal": "passed"
+    },
+    {
+      "blobFile": "visual-blobs/real-auth.zip",
+      "blobSha256": "3af0ecb165ba402b03063872327742d6312b747fe55567ed0758b2cbf62a7747",
+      "results": {
+        "passed": 10
+      },
+      "pngs": 30,
+      "retries": 0,
+      "terminal": "passed"
+    }
+  ],
+  "totalPNGAttachments": 294
+}

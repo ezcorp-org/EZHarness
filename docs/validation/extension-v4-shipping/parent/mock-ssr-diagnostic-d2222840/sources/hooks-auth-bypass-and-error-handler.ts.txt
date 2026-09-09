@@ -1,0 +1,18 @@
+   649	      if (!event.locals.user) {
+   650	        let count: number;
+   651	        try { count = await getUserCount(); } catch {
+   652	          // DB unreachable. Under PI_SKIP_INIT (E2E) the DB is intentionally
+   653	          // absent, so skip auth and let the request through. In every other
+   654	          // environment a transient DB failure must NOT fail open — doing so
+   655	          // would serve every protected route unauthenticated for the
+   656	          // duration of the outage. Fail closed with 503 instead.
+   657	          if (process.env.PI_SKIP_INIT) {
+   658	            return resolveBounded(event);
+   659	          }
+   953	// ── Error Handler ─────────────────────────────────────────────────────
+   954	
+   955	export const handleError: HandleServerError = ({ error, status, message }) => {
+   956	  const err = error as Error;
+   957	  log.error("server error", { status, error: err?.message ?? "Unknown error" });
+   958	  return { message: message || "An unexpected error occurred" };
+   959	};

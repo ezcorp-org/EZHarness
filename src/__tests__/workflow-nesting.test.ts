@@ -607,12 +607,7 @@ describe("validateWorkflow — nesting", () => {
     );
   });
 
-  test("with no injected resolver it reads the LIVE merged cache", async () => {
-    // The default is what gives the API create/update routes, the fork route
-    // and the dry-run route cycle detection with no call-site change. If it
-    // silently fell back to "this definition only", a mutual cycle created
-    // through the API would pass validation and only surface at run time,
-    // after real child runs had already had their effects.
+  test("with no injected resolver it reads only the live public non-extension cache", async () => {
     const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
       "../runtime/workflow/runtime-registry"
     );
@@ -621,9 +616,16 @@ describe("validateWorkflow — nesting", () => {
     registerWorkflowRuntime({
       workflowExecutor: {} as never,
       getWorkflows: () => [a, b],
+      getCachedWorkflows: () => [a, b].map(definition => ({ definition, source: "yaml", id: null, projectId: null, userId: null, visibility: "system", forkedFrom: null })),
     });
     try {
       expect(validateWorkflow(a)).toContain("Nested workflow cycle: live-a -> live-b -> live-a");
+      registerWorkflowRuntime({ workflowExecutor: {} as never, getWorkflows: () => [a, b] });
+      expect(validateWorkflow(a)).toEqual([]);
+      for (const source of ["db", "extension"] as const) {
+        registerWorkflowRuntime({ workflowExecutor: {} as never, getWorkflows: () => [a, b], getCachedWorkflows: () => [a, b].map(definition => ({ definition, source, id: null, projectId: null, userId: "owner", visibility: "private", forkedFrom: null })) });
+        expect(validateWorkflow(a)).toEqual([]);
+      }
     } finally {
       _resetWorkflowRuntimeForTests();
     }

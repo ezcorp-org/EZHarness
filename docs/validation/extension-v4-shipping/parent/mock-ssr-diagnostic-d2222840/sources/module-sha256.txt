@@ -1,0 +1,5 @@
+source=d2222840cf3d2b4963075ffc0f5cf0bdec5ef621
+web/src/hooks.server.ts 4d0b25799bf6a1a7f41e68f3038a50aa608ae9435ce6c223823f84baca751606
+web/src/routes/api/extensions/+server.ts 2e51266182ec2daec55c3335d8ae9dbd3e19fe800bc23a9add1cdb49b2e7d2fb
+src/auth/middleware.ts 47a8572e8646c508e18b0d35ca7281f257c24be26cf008798ee50d19c21efc96
+web/src/routes/(app)/project/[id]/chat/[convId]/+layout.ts 592eb90b52d234f71496c7385fc2856faf5121d3a37f008ee3d4ec898b4bf19a

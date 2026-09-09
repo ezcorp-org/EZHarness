@@ -1,0 +1,18 @@
+{
+  "base": "153e74d86ae88101667a425760cb1d7b50e19a33",
+  "inputs": {
+    "src/__tests__/db-live-holder-guard.test.ts": [
+      "extension-v4-db-holder-flake",
+      "44832125e923fd0978a199e8c7e7c5734bac56164ec8576ea3da9c6f73540173"
+    ],
+    "scripts/test-coverage.sh": [
+      "extension-v4-coverage-output-fix",
+      "dc65290906d3476700976f02e17dbbb87689ea5e527a496b44351515114c9a06"
+    ],
+    "src/__tests__/coverage-leg-lcov-guard.test.ts": [
+      "extension-v4-coverage-output-fix",
+      "9a62297b65d3f30e7a85902847583904c23a430466469934c99031ec20cac885"
+    ]
+  },
+  "checked_utc": "2026-09-07T20:33:28.724616+00:00"
+}

@@ -29,13 +29,13 @@ test("isUnderCwd allows cwd itself", () => {
 // Test manifest structure
 test("manifest has required fields", async () => {
   const manifest = ((await import(import.meta.dir + "/ezcorp.config.ts")).default);
-  expect(manifest.schemaVersion).toBe(2);
+  expect(manifest.schemaVersion).toBe(4);
   expect(manifest.name).toBe("project-analyzer");
   expect(manifest.author.name).toBe("EZCorp");
-  expect(manifest.entrypoint).toBe("./index.ts");
+  expect(manifest.entrypoint).toBe("./extension.ts");
   expect(manifest.tools).toHaveLength(2);
-  expect(manifest.permissions.filesystem).toEqual(["$CWD"]);
-  expect(manifest.permissions.shell).toBe(true);
+  expect(manifest.permissions.filesystem).toEqual(["/project", "/data"]);
+  expect(manifest.permissions.shell).toBe(false);
   expect(manifest.scripts.postinstall).toBe("./scripts/postinstall.ts");
 });
 
@@ -126,7 +126,8 @@ describe("readFile — dispatch", () => {
 });
 
 describe("listFiles — dispatch", () => {
-  test("lists the real cwd via Bun.$", async () => {
+  test("lists the project through the filesystem broker", async () => {
+    spyOn(getChannel(), "request").mockResolvedValue({ entries: [{ name: "package.json", type: "file" }, { name: "secret.txt", type: "file" }] });
     const res = (await _internals.handleRequest({
       jsonrpc: "2.0",
       id: 4,
@@ -138,10 +139,8 @@ describe("listFiles — dispatch", () => {
     expect(content[0]!.text).toContain("package.json");
   });
 
-  test("a shell failure is a clean -32000, not a crash", async () => {
-    const spy = spyOn(Bun, "$").mockImplementation(() => {
-      throw new Error("shell unavailable");
-    });
+  test("a filesystem denial is a clean -32000, not a crash", async () => {
+    const spy = spyOn(getChannel(), "request").mockRejectedValue(new Error("filesystem unavailable"));
     try {
       const res = (await _internals.handleRequest({
         jsonrpc: "2.0",
@@ -157,52 +156,19 @@ describe("listFiles — dispatch", () => {
   });
 });
 
-describe("main() — the stdin JSON-RPC loop", () => {
-  // `writeStdout` in index.ts caches the `Bun.stdout.writer()` instance the
-  // FIRST time it's called and reuses it for the rest of the process — see
-  // the comment on `writeStdout`. The spy is therefore installed exactly
-  // ONCE for this file's test process; writes are routed through a
-  // rebindable sink so each test gets its own array.
-  const sink = { written: [] as string[] };
-  let writerSpy: ReturnType<typeof spyOn>;
-  beforeAll(() => {
-    writerSpy = spyOn(Bun.stdout, "writer").mockReturnValue({
-      write: (s: string) => {
-        sink.written.push(s as string);
-        return (s as string).length;
-      },
-      flush: () => Promise.resolve(0),
-    } as unknown as ReturnType<typeof Bun.stdout.writer>);
-  });
-  afterAll(() => {
-    writerSpy.mockRestore();
-  });
-
-  async function runMain(input: string): Promise<string[]> {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(input));
-        controller.close();
-      },
-    });
-    const streamSpy = spyOn(Bun.stdin, "stream").mockReturnValue(
-      stream as unknown as ReturnType<typeof Bun.stdin.stream>,
-    );
-    sink.written = [];
+describe("registration", () => {
+  test("registered handler reads a file and rejects unknown tools without opening stdin", async () => {
+    const input = spyOn(Bun.stdin, "stream");
+    const registration = spyOn(getChannel(), "onRequest");
     try {
-      await main();
+      main();
+      expect(input).not.toHaveBeenCalled();
+      const handler = registration.mock.calls.find(([method]) => method === "tools/call")?.[1];
+      expect(handler).toBeDefined();
+      expect(await handler!({ name: "readFile", arguments: { path: "README.md" } })).toEqual({ content: [{ type: "text", text: "hello from README" }], isError: false });
+      await expect(handler!({ name: "unknown" })).rejects.toMatchObject({ code: "HANDLER_FAILED", message: "Tool request failed" });
     } finally {
-      streamSpy.mockRestore();
+      input.mockRestore();
     }
-    return sink.written;
-  }
-
-  test("answers a request end-to-end through the real reader loop", async () => {
-    const req: JsonRpcRequest = { jsonrpc: "2.0", id: 42, method: "nope/nope" };
-    const written = await runMain(JSON.stringify(req) + "\n");
-    expect(written).toHaveLength(1);
-    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
-    expect(res.id).toBe(42);
-    expect(res.error!.code).toBe(-32601);
   });
 });

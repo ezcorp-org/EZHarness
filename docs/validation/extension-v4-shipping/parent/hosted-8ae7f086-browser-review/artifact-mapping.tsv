@@ -1,0 +1,4 @@
+artifact_id	name	reported_sha256	reported_bytes	raw_boundary
+10032746459	extension-lifecycle-firefox	bd766c7871134adf62470c72adc617d4a5e0d984e03dba1d73dd2aaa119f4ba7	1356006	raw archive private; metadata mapping only
+10032759954	extension-lifecycle-webkit	0fbf6f104197497d8e1d2af5a18b7fae0c5b4ff147e28bd014afefcbf790ccb8	1267708	raw archive private; metadata mapping only
+10032888550	visual-evidence	746348d4e8b81b2a0572754cced9ee9655ddf084dc1746edb45c5cbf2155e349	42278053	raw archive private; metadata mapping only

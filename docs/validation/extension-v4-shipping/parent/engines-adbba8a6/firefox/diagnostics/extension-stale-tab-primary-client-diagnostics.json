@@ -1,0 +1,23 @@
+{
+  "pageErrors": [],
+  "consoleErrors": [],
+  "failedApiResponses": [],
+  "failedApiRequests": [],
+  "ignoredApiResponses": [],
+  "expectedRuntimeEventCancellations": [
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "NS_BINDING_ABORTED"
+    },
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "NS_BINDING_ABORTED"
+    }
+  ],
+  "expectedRuntimeEventTeardownMarks": 6,
+  "browserEngine": "firefox"
+}

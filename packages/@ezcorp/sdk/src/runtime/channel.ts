@@ -20,6 +20,7 @@
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 import { _setDispatcherRegister, toolError } from "./rpc";
 import { withToolContext, getToolContext } from "./tool-context";
+import { getInvocationChannel } from "../v4/invocation-channel";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -562,6 +563,17 @@ async function* bunStdinLines(): AsyncGenerator<string> {
 // ── Singleton ───────────────────────────────────────────────────
 
 let singleton: HostChannelImpl | null = null;
+let installedChannel: HostChannel | null = null;
+
+export function installInvocationChannel(channel: HostChannel): () => void {
+  if (singleton || installedChannel) throw new Error("A channel is already installed");
+  installedChannel = channel;
+  _dispatcherRegistered = false;
+  ensureDispatcherRegistered();
+  return () => {
+    if (installedChannel === channel) installedChannel = null;
+  };
+}
 
 function createProductionChannel(): HostChannelImpl {
   // `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
@@ -665,7 +677,10 @@ function ensureDispatcherRegistered(): void {
 }
 
 export function getChannel(): HostChannel {
+  const invocation = getInvocationChannel();
+  if (invocation) return invocation;
   ensureDispatcherRegistered();
+  if (installedChannel) return installedChannel;
   if (!singleton) singleton = createProductionChannel();
   return singleton;
 }
@@ -701,6 +716,7 @@ export function __rearmDispatcherForTests(): void {
 
 /** Drops the singleton and rejects any outstanding pending requests. */
 export function __resetChannelForTests(): void {
+  installedChannel = null;
   if (singleton) {
     singleton.stop();
     singleton._clearPending("channel reset");

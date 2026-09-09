@@ -35,8 +35,6 @@ const {
   clearLockfileCache,
 } = await import("../extensions/bundled-lock");
 
-const { migrateManifestV2ToV3 } = await import("../extensions/manifest");
-
 const { buildLockfile, diffLockfiles } = await import(
   "../../scripts/regenerate-manifest-lock"
 );
@@ -398,95 +396,22 @@ describe("canonicalizeAndHash determinism", () => {
 
 // ── (j) regenerate round-trip ─────────────────────────────────────
 
-describe("(j) regenerate-script round-trip", () => {
-  test("after editing a manifest, the regenerated lockfile validates", async () => {
-    // Build a fake mini-repo with one bundled extension at the
-    // expected path layout. We point `buildLockfile` at this temp
-    // root and exercise the same code path as the production script.
+describe("(j) source-lock round-trip", () => {
+  test("hashes configs as data and detects source edits without executing them", async () => {
     const fakeRepo = await mkdtemp(join(tmpdir(), "fake-repo-"));
     try {
-      // The script's BUNDLED list expects each entry's path to point
-      // at a directory containing an `ezcorp.config.ts`. We can't
-      // monkey-patch BUNDLED, but the other 20 entries will simply
-      // fail to load. We assert specifically on `scratchpad`'s entry
-      // by pointing the script at a fake tree where ONLY scratchpad
-      // resolves; the script's `errors` array captures the rest.
-      const scratchpadDir = join(fakeRepo, "docs/extensions/examples/scratchpad");
-      await mkdir(scratchpadDir, { recursive: true });
-      await Bun.write(
-        join(scratchpadDir, "ezcorp.config.ts"),
-        `export default { schemaVersion: 2, name: "scratchpad", version: "9.9.9", description: "x", author: { name: "x" }, entrypoint: "./index.ts", tools: [{ name: "round_trip", description: "rt", inputSchema: {} }], permissions: { storage: true } };\n`,
-      );
-      const { lockfile, errors } = await buildLockfile(fakeRepo);
-      // Other 20 should have failed; scratchpad should be present.
-      expect(errors.length).toBeGreaterThan(0);
-      expect(lockfile.extensions.scratchpad).toBeDefined();
-      expect(lockfile.extensions.scratchpad?.version).toBe("9.9.9");
-
-      // Write that lockfile to our verifier path.
-      await Bun.write(lockfilePath, JSON.stringify(lockfile));
-      clearLockfileCache();
-
-      // Verify the SAME manifest against the regenerated lockfile.
-      // `buildLockfile` uses `loadManifestFresh` which runs the manifest
-      // through `migrateManifestV2ToV3`, so the lockfile records hashes
-      // of migrated tools. Production `verifyManifestAgainstLock` is also
-      // called against migrated manifests (the loader migrates first),
-      // so we mirror that here.
-      const manifest = migrateManifestV2ToV3({
-        schemaVersion: 2,
-        name: "scratchpad",
-        version: "9.9.9",
-        description: "x",
-        author: { name: "x" },
-        entrypoint: "./index.ts",
-        tools: [{ name: "round_trip", description: "rt", inputSchema: {} }],
-        permissions: { storage: true },
-      });
-      const result = await verifyManifestAgainstLock("scratchpad", manifest);
-      expect(result).toEqual({ ok: true });
-    } finally {
-      await rm(fakeRepo, { recursive: true, force: true }).catch(() => {});
-    }
-  });
-
-  test("diffLockfiles reports added/removed/changed entries correctly", () => {
-    const before = {
-      schemaVersion: 1 as const,
-      generatedAt: "old",
-      extensions: {
-        a: { version: "1.0.0", entrypoint: "./i.ts", toolsHash: "sha256-old" },
-        b: { version: "1.0.0", entrypoint: "./i.ts", toolsHash: "sha256-bb" },
-      },
-    };
-    const after = {
-      schemaVersion: 1 as const,
-      generatedAt: "new",
-      extensions: {
-        a: { version: "1.0.0", entrypoint: "./i.ts", toolsHash: "sha256-new" }, // changed hash
-        c: { version: "0.1.0", entrypoint: "./i.ts", toolsHash: "sha256-cc" }, // added
-      },
-    };
-    const diff = diffLockfiles(before, after);
-    expect(diff.added).toEqual(["c"]);
-    expect(diff.removed).toEqual(["b"]);
-    expect(diff.changed).toEqual([
-      { name: "a", field: "toolsHash", before: "sha256-old", after: "sha256-new" },
-    ]);
-  });
-
-  test("diffLockfiles against null treats every entry as added", () => {
-    const after = {
-      schemaVersion: 1 as const,
-      generatedAt: "now",
-      extensions: {
-        x: { version: "1.0.0", entrypoint: "./i.ts", toolsHash: "sha256-xx" },
-      },
-    };
-    const diff = diffLockfiles(null, after);
-    expect(diff.added).toEqual(["x"]);
-    expect(diff.removed).toEqual([]);
-    expect(diff.changed).toEqual([]);
+      for (const path of ["extensions", "packages/@ezcorp", "docs/extensions/examples/scratchpad"]) await mkdir(join(fakeRepo, path), { recursive: true });
+      const directory = join(fakeRepo, "docs/extensions/examples/scratchpad");
+      await Bun.write(join(directory, "ezcorp.config.ts"), "throw new Error('Host must never import this config')");
+      await Bun.write(join(directory, "extension.ts"), "export const version = 4;");
+      const first = await buildLockfile(fakeRepo);
+      const second = await buildLockfile(fakeRepo);
+      expect(first.errors).toEqual([]);
+      expect(first.lockfile.sources.scratchpad).toBeDefined();
+      expect(diffLockfiles(first.lockfile, second.lockfile)).toEqual({ added: [], removed: [], changed: [] });
+      await Bun.write(join(directory, "extension.ts"), "export const version = 5;");
+      expect(diffLockfiles(first.lockfile, (await buildLockfile(fakeRepo)).lockfile).changed).toEqual(["scratchpad"]);
+    } finally { await rm(fakeRepo, { recursive: true, force: true }); }
   });
 });
 

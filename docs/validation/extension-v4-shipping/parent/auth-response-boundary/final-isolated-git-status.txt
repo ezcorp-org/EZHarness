@@ -1,0 +1,6 @@
+ M src/__tests__/auth-middleware.test.ts
+ M src/auth/middleware.ts
+ M web/e2e/chat-graph.spec.ts
+ M web/src/__tests__/api-extensions.server.test.ts
+ M web/src/__tests__/extensions-api.test.ts
+ M web/src/routes/api/extensions/+server.ts

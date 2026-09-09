@@ -1,0 +1,15 @@
+{
+  "head": "29d145cf222255de4110c067e2c07ca1ee42d405",
+  "tree": "357e88be9f8efd7b779110de88fbfe4d89d38953",
+  "base": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+  "bun": "1.3.14",
+  "files": 5,
+  "pass": 148,
+  "fail": 0,
+  "assertions": 508,
+  "exit": 0,
+  "raw": "file-organizer-final-independent.log",
+  "sha256": "eaf29a9f14528f913e94311c1c43e185408e607c0d8b696f0e46a748c5364de6",
+  "scope": "Real daemon startup and owned files for twelve legitimate journal phase/authority cases; existing applier/containment/EXDEV tests; registry lifecycle and deterministic deferred-start shutdown tests. Engine decisions and registry dependencies are fixtures, not a malicious extension chain.",
+  "raw_archive": "coordinator-checkpoints.tar.gz"
+}

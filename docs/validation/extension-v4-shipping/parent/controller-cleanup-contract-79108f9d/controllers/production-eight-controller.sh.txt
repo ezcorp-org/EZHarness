@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+# Final candidate-image eight-leaf controller. It retains the reviewed image
+# tags in both engines; each leaf owns its own application/runner cleanup.
+set -euo pipefail
+
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+source_sha=${1:?full final source SHA required}
+image=${2:?candidate image tag required}
+expected_docker_id=${3:?exact Docker image ID required}
+expected_podman_id=${4:?exact native Podman image ID required}
+expected_revision=${5:?exact image revision SHA required}
+receipt=${6:?new absolute receipt directory required}
+
+for value in "$source_sha" "$expected_revision"; do
+  [[ "$value" =~ ^[0-9a-f]{40}$ ]] || { echo "Expected a full source SHA" >&2; exit 64; }
+done
+canonical_image_id() {
+  local value="$1"
+  [[ "$value" =~ ^(sha256:)?[0-9a-f]{64}$ ]] || return 1
+  printf 'sha256:%s\n' "${value#sha256:}"
+}
+expected_docker_id=$(canonical_image_id "$expected_docker_id") || { echo "Expected a full sha256 image ID" >&2; exit 64; }
+expected_podman_id=$(canonical_image_id "$expected_podman_id") || { echo "Expected a full sha256 image ID" >&2; exit 64; }
+[[ "$source_sha" == "$expected_revision" ]] || { echo "Final checkout and image source must match" >&2; exit 64; }
+[[ "$receipt" == /* && ! -e "$receipt" ]] || { echo "Receipt must be a new absolute directory" >&2; exit 64; }
+
+if [[ "${EZ_FINAL_EIGHT_LOCK_HELD:-}" != 1 ]]; then
+  exec flock --close "$repo/.cache/validation-heavy.lock" env EZ_FINAL_EIGHT_LOCK_HELD=1 bash "$0" "$@"
+fi
+
+cd "$repo"
+umask 077
+mkdir -p "$receipt/frozen-inputs/source"
+receipt=$(realpath "$receipt")
+started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+main_rc=65
+finish() {
+  local rc="$?" status_rc=0 write_rc=0
+  if [[ "$main_rc" -eq 65 || ( "$main_rc" -eq 0 && "$rc" -ne 0 ) ]]; then main_rc="$rc"; fi
+  git status --porcelain --untracked-files=all > "$receipt/status.terminal.txt" 2>/dev/null || status_rc=$?
+  [[ "$status_rc" -eq 0 ]] || { [[ "$main_rc" -eq 0 ]] && main_rc="$status_rc"; }
+  printf 'main_exit=%s\nfinished_utc=%s\n' "$main_rc" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$receipt/exit.txt" || write_rc=$?
+  [[ "$write_rc" -eq 0 ]] || { [[ "$main_rc" -eq 0 ]] && main_rc="$write_rc"; }
+  trap - EXIT
+  exit "$main_rc"
+}
+trap finish EXIT
+
+# The proof needs rootful Docker for compose and this user's native Podman for
+# the isolated runner. Refuse client routing through an inherited remote socket.
+unset DOCKER_HOST DOCKER_CONTEXT CONTAINER_HOST CONTAINER_CONNECTION CONTAINER_CONNECTIONS_CONF PODMAN_HOST
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+if [[ -n "${EZ_FINAL_PODMAN_WRAPPER_BIN:-}" ]]; then
+  [[ -x "$EZ_FINAL_PODMAN_WRAPPER_BIN/podman" ]] || { echo "Missing native Podman wrapper" >&2; exit 65; }
+  export PATH="$EZ_FINAL_PODMAN_WRAPPER_BIN:$PATH"
+fi
+export CONMON=/tmp/ez-audit-ci-conmon BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+[[ "$(docker context show)" == default ]] || { echo "Docker default context is required" >&2; exit 65; }
+docker buildx inspect default | awk '/Driver:/ { found = ($2 == "docker") } END { exit !found }'
+
+assert_product_clean() {
+  local output
+  output=$(git status --porcelain --untracked-files=all -- . \
+    ':(exclude)docs/extension-v4-shipping-validation-report.md' \
+    ':(exclude)gates/shipping-root.md' \
+    ':(exclude)tasks/todo.md' \
+    ':(exclude)tasks/lessons.md' \
+    ':(exclude)docs/validation/extension-v4-shipping/parent/**') || return 1
+  [[ -z "$output" ]] || { printf '%s\n' "$output" >&2; return 1; }
+}
+assert_product_clean
+[[ "$(git rev-parse HEAD)" == "$source_sha" ]] || { echo "Checkout differs from requested final source" >&2; exit 65; }
+
+git show -s --format='commit=%H%ntree=%T%nparent=%P%ncommit_time=%cI%nsubject=%s' "$source_sha" > "$receipt/frozen-inputs/checkout-commit.txt"
+git status --porcelain --untracked-files=all > "$receipt/status.before.txt"
+cp "$0" "$receipt/frozen-inputs/controller.sh"
+for input in \
+  scripts/verify-shipping-production-suite.sh \
+  scripts/verify-production-image-lifecycle.sh \
+  scripts/verify-docker-upgrade.sh \
+  scripts/verify-legacy-adoption.sh \
+  scripts/lib/build-archived-image.sh \
+  scripts/Dockerfile.legacy-adoption-derived \
+  scripts/verify-shipping-runtime.sh \
+  scripts/verify-shipping-runtime-resources.sh \
+  scripts/verify-shipping-runtime-resources.ts \
+  scripts/verify-shipping-embeddings.sh \
+  scripts/verify-shipping-embeddings.ts \
+  scripts/verify-shipping-delivery.sh \
+  scripts/verify-shipping-delivery.ts \
+  scripts/verify-shipping-revocation.sh \
+  scripts/verify-shipping-revocation.ts \
+  scripts/verify-docker-upgrade-state.ts \
+  scripts/verify-legacy-adoption.ts \
+  scripts/lib/production-lifecycle-client.ts \
+  scripts/lib/shipping-bootstrap-state.ts \
+  scripts/lib/shipping-effect-client.ts \
+  scripts/lib/shipping-runtime-helpers.ts \
+  scripts/lib/shipping-runtime-resource-config.ts \
+  scripts/lib/shipping-runtime-cycle-conversation.ts \
+  scripts/lib/shipping-runtime-resource-accounting.ts \
+  scripts/start-extension-runner-e2e.sh \
+  docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh \
+  web/e2e/file-organizer-real.spec.ts \
+  src/extensions/v4/types.ts src/memory/types.ts src/health.ts \
+  Dockerfile .dockerignore package.json bun.lock web/package.json web/bun.lock manifest.lock.json; do
+  mkdir -p "$receipt/frozen-inputs/source/$(dirname "$input")"
+  cp "$input" "$receipt/frozen-inputs/source/$input"
+done
+sha256sum \
+  "$0" \
+  scripts/verify-shipping-production-suite.sh \
+  scripts/verify-production-image-lifecycle.sh \
+  scripts/verify-docker-upgrade.sh \
+  scripts/verify-legacy-adoption.sh \
+  scripts/lib/build-archived-image.sh \
+  scripts/Dockerfile.legacy-adoption-derived \
+  scripts/verify-shipping-runtime.sh \
+  scripts/verify-shipping-runtime-resources.sh \
+  scripts/verify-shipping-runtime-resources.ts \
+  scripts/verify-shipping-embeddings.sh \
+  scripts/verify-shipping-embeddings.ts \
+  scripts/verify-shipping-delivery.sh \
+  scripts/verify-shipping-delivery.ts \
+  scripts/verify-shipping-revocation.sh \
+  scripts/verify-shipping-revocation.ts \
+  scripts/verify-docker-upgrade-state.ts \
+  scripts/verify-legacy-adoption.ts \
+  scripts/lib/production-lifecycle-client.ts \
+  scripts/lib/shipping-bootstrap-state.ts \
+  scripts/lib/shipping-effect-client.ts \
+  scripts/lib/shipping-runtime-helpers.ts \
+  scripts/lib/shipping-runtime-resource-config.ts \
+  scripts/lib/shipping-runtime-cycle-conversation.ts \
+  scripts/lib/shipping-runtime-resource-accounting.ts \
+  scripts/start-extension-runner-e2e.sh \
+  docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh \
+  web/e2e/file-organizer-real.spec.ts \
+  src/extensions/v4/types.ts src/memory/types.ts src/health.ts \
+  Dockerfile .dockerignore package.json bun.lock web/package.json web/bun.lock manifest.lock.json > "$receipt/input.sha256"
+
+docker_id_raw=$(docker image inspect "$image" --format '{{.Id}}')
+docker_id=$(canonical_image_id "$docker_id_raw") || { echo "Docker returned an invalid image ID" >&2; exit 65; }
+docker_revision=$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+podman_id_raw=$(podman --remote=false image inspect "$image" --format '{{.Id}}')
+podman_id=$(canonical_image_id "$podman_id_raw") || { echo "Native Podman returned an invalid image ID" >&2; exit 65; }
+podman_revision=$(podman --remote=false image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+[[ "$docker_id" == "$expected_docker_id" && "$podman_id" == "$expected_podman_id" ]] || { echo "Candidate image ID differs from supplied cache-proof identity" >&2; exit 65; }
+[[ "$docker_revision" == "$expected_revision" && "$podman_revision" == "$expected_revision" ]] || { echo "Candidate OCI revision differs from supplied cache-proof identity" >&2; exit 65; }
+[[ "$docker_id" == "$podman_id" ]] || { echo "Docker and native Podman image IDs differ" >&2; exit 65; }
+docker image inspect "$image" > "$receipt/docker-image-inspect.json"
+podman --remote=false image inspect "$image" > "$receipt/native-podman-image-inspect.json"
+
+# The legacy fixture copies this candidate asset into the retained 537 image.
+# Prove the candidate's actual asset matches the helper's fail-closed default.
+expected_asset=$(sed -n 's/^asset_sha256="${VERIFY_LEGACY_ADOPTION_ASSET_SHA256:-\([0-9a-f]\{64\}\)}"$/\1/p' scripts/verify-legacy-adoption.sh)
+[[ "$expected_asset" =~ ^[0-9a-f]{64}$ ]] || { echo "Could not parse the legacy asset checksum expectation" >&2; exit 65; }
+asset_container="ez-final-eight-asset-${source_sha:0:12}-${RANDOM}${RANDOM}"
+asset_rc=0
+actual_asset=$(docker run --name "$asset_container" --rm --entrypoint sha256sum "$image" \
+  /app/web/node_modules/@electric-sql/pglite-pgvector/dist/vector.tar.gz | awk '{print $1}') || asset_rc=$?
+# Docker may retain a named container when startup fails before --rm can run.
+asset_cleanup_rc=0
+if docker container inspect "$asset_container" >/dev/null 2>&1; then
+  docker rm -f "$asset_container" >/dev/null 2>&1 || asset_cleanup_rc=$?
+fi
+[[ "$asset_rc" -eq 0 ]] || { echo "Candidate pgvector asset preflight failed" >&2; exit "$asset_rc"; }
+[[ "$asset_cleanup_rc" -eq 0 ]] || { echo "Could not remove owned pgvector preflight container" >&2; exit "$asset_cleanup_rc"; }
+[[ "$actual_asset" == "$expected_asset" ]] || { echo "Candidate pgvector asset does not match the legacy helper expectation" >&2; exit 65; }
+printf 'source=%s\nimage=%s\ndocker_image_id_raw=%s\ndocker_image_id=%s\npodman_image_id_raw=%s\npodman_image_id=%s\nrevision=%s\napp_uid=1001\napp_gid=1001\nrunner_uid=1001\nlegacy_source=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3\nupgrade_previous_source=3ec53eaa66409a39d66b502f79d74139ec94dcf2\npgvector_asset_sha256=%s\nstarted_utc=%s\n' \
+  "$source_sha" "$image" "$docker_id_raw" "$docker_id" "$podman_id_raw" "$podman_id" "$docker_revision" "$actual_asset" "$started" > "$receipt/provenance.txt"
+
+unset EZ_RUNTIME_RESOURCE_CYCLES EZ_RUNTIME_RESOURCE_MIN_DURATION_SECONDS EZ_RUNTIME_RESOURCE_MAX_CYCLES EZ_RUNTIME_RESOURCE_SOAK_GRACE_SECONDS
+set +e
+EZ_RUNTIME_RESOURCE_CYCLES=10 \
+VERIFY_UPGRADE_PREVIOUS_SOURCE=3ec53eaa66409a39d66b502f79d74139ec94dcf2 \
+VERIFY_UPGRADE_PREVIOUS_IMAGE=localhost/ezcorp-extension-v4:audit-final-3ec53eaa \
+VERIFY_UPGRADE_PREVIOUS_IMAGE_ID=8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be \
+VERIFY_LEGACY_ADOPTION_BASE_IMAGE=localhost/ezcorp-extension-v4:legacy-main-537f074e \
+VERIFY_LEGACY_ADOPTION_IMAGE=localhost/ezcorp-extension-v4:legacy-main-537f074e-derived \
+VERIFY_LEGACY_ADOPTION_LEGACY_SOURCE=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3 \
+VERIFY_LEGACY_ADOPTION_ASSET_SHA256="$expected_asset" \
+EZ_SHIPPING_CANDIDATE_IMAGE="$image" \
+EZ_SHIPPING_RECEIPT_ROOT="$receipt/runtime" \
+EZ_SHIPPING_APP_UID=1001 EZ_SHIPPING_APP_GID=1001 EZ_SHIPPING_RUNNER_APP_UID=1001 \
+VERIFY_UPGRADE_CANDIDATE_SOURCE="$source_sha" \
+bash scripts/verify-shipping-production-suite.sh > "$receipt/controller.log" 2>&1
+main_rc=$?
+set -e
+
+# The suite continues after leaf failure. Capture every completed leaf and every
+# launcher command log, including its app-log and owned-cleanup outcomes.
+if [[ -f "$receipt/runtime/summary.tsv" ]]; then
+  cp "$receipt/runtime/summary.tsv" "$receipt/leaf-summary.tsv"
+else
+  echo "Canonical suite did not retain its leaf summary" >&2
+  main_rc=1
+fi
+if [[ -d "$receipt/runtime" ]]; then
+  required_logs=(
+    file-organizer/runtime/command.log embeddings/runtime/command.log runtime/runtime/command.log
+    delivery/runtime/command.log revocation/runtime/command.log runtime-resources/runtime/command.log
+    historical-upgrade/upgrade/seed-previous/command.log historical-upgrade/upgrade/assert-candidate/command.log historical-upgrade/upgrade/assert-restore/command.log
+    legacy-adoption/legacy/seed/command.log legacy-adoption/legacy/adopt/command.log
+  )
+  for path in "${required_logs[@]}"; do [[ -f "$receipt/runtime/$path" ]] || { echo "Missing required launcher receipt: $path" >&2; main_rc=1; }; done
+  require_launcher_quartet() {
+    local log="$1"
+    [[ -f "$log" ]] || { echo "Missing launcher receipt: $log" >&2; return 1; }
+    awk '
+      BEGIN { split("command_exit app_log_exit owned_cleanup_exit verifier_cleanup_exit", fields, " ") }
+      {
+        for (field_index in fields) {
+          field = fields[field_index]
+          prefix = field "="
+          if (index($0, prefix) == 1) {
+            counts[field]++
+            values[field] = substr($0, length(prefix) + 1)
+          }
+        }
+      }
+      END {
+        for (field_index in fields) {
+          field = fields[field_index]
+          if (counts[field] != 1 || values[field] !~ /^[0-9]+$/) exit 1
+        }
+        printf "%s\t%s\t%s\t%s\n", values[fields[1]], values[fields[2]], values[fields[3]], values[fields[4]]
+      }
+    ' "$log" || { echo "Incomplete launcher exit quartet: $log" >&2; return 1; }
+  }
+  {
+    printf 'path\tcommand_exit\tapp_log_exit\towned_cleanup_exit\tverifier_cleanup_exit\n'
+    while IFS= read -r -d '' log; do
+      quartet_rc=0
+      quartet=$(require_launcher_quartet "$log") || quartet_rc=$?
+      if [[ "$quartet_rc" -eq 0 ]]; then
+        read -r command_exit app_log_exit cleanup_exit verifier_cleanup_exit <<< "$quartet"
+        [[ "$command_exit" == 0 && "$app_log_exit" == 0 && "$cleanup_exit" == 0 && "$verifier_cleanup_exit" == 0 ]] || { echo "Failed launcher exit quartet: $log" >&2; main_rc=1; }
+        printf '%s\t%s\t%s\t%s\t%s\n' "${log#"$receipt/runtime/"}" "$command_exit" "$app_log_exit" "$cleanup_exit" "$verifier_cleanup_exit"
+      else
+        main_rc=1
+        printf '%s\tmissing\tmissing\tmissing\tmissing\n' "${log#"$receipt/runtime/"}"
+      fi
+    done < <(find "$receipt/runtime" -type f -name command.log -print0 | sort -z)
+  } > "$receipt/launcher-exits.tsv"
+  required_proofs=(file-organizer embeddings runtime delivery revocation runtime-resources historical-upgrade legacy-adoption)
+  for proof in "${required_proofs[@]}"; do
+    awk -F '\t' -v proof="$proof" '$1 == proof && $2 == "0" { found=1 } END { exit !found }' "$receipt/runtime/summary.tsv" || { echo "Missing successful required proof row: $proof" >&2; main_rc=1; }
+  done
+else
+  echo "Canonical suite did not create its runtime receipt directory" >&2
+  main_rc=1
+fi
+if ! sha256sum -c "$receipt/input.sha256" > "$receipt/input.sha256.verify" 2>&1; then
+  main_rc=1
+fi
+if ! assert_product_clean; then main_rc=1; fi
+[[ "$(git rev-parse HEAD)" == "$source_sha" ]] || main_rc=1
+git status --porcelain --untracked-files=all > "$receipt/status.after.txt"
+# Deliberately retain the reviewed image tags in rootful Docker and native Podman.
+exit "$main_rc"

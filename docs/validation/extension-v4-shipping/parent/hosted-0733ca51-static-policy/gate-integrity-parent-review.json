@@ -1,0 +1,12 @@
+{
+  "count": 83,
+  "prior_count": 83,
+  "exact_ordered_findings_match": false,
+  "ordered_changes": [
+    [
+      "web/src/__tests__/extensions-api.test.ts: test file GUTTED in place: removes 188 assertion/test line(s), adds 45 (net -143 of 229 at base \u2014 >50% loss) \u2014 hollowing out a surviving test file needs the gate-change-approved label",
+      "web/src/__tests__/extensions-api.test.ts: test file GUTTED in place: removes 189 assertion/test line(s), adds 48 (net -141 of 229 at base \u2014 >50% loss) \u2014 hollowing out a surviving test file needs the gate-change-approved label"
+    ]
+  ],
+  "raw_sha256": "60e3268775fa1b5dcb363ce3ce9d7905b706dc5d5163bff85d014cef811ece7d"
+}

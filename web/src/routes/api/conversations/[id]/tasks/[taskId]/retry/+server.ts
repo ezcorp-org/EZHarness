@@ -10,7 +10,6 @@ import { getExecutor, getBus } from "$lib/server/context";
 import { writeTaskSnapshotForConversation } from "$server/runtime/task-tracking-host";
 import type { TaskAssignment } from "$server/runtime/task-tracking-host";
 import {
-  broadcastAssignmentUpdate,
   loadSnapshotAndFindTask,
   pickSpawnAgentConfig,
   writeAndBroadcastSnapshot,
@@ -117,11 +116,7 @@ const postHandler: RequestHandler = async ({ params, request, locals }) => {
     }
   }
 
-  await writeAndBroadcastSnapshot(params.id, snapshot);
-
-  for (const a of resetAssignments) {
-    broadcastAssignmentUpdate(params.id, params.taskId, a);
-  }
+  await writeAndBroadcastSnapshot(params.id, snapshot, resetAssignments.map(assignment => ({ taskId: params.taskId, assignment })));
 
   // Auto-spawn when there's exactly one runnable assignment. Matches
   // intuitive retry UX: "retry" does what "start" would have done on

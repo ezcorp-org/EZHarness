@@ -1,0 +1,26 @@
+{
+  "scope": "read-only comparison of the completed R4 soak console receipt and the parent replay",
+  "actual_verification_log": {
+    "path": "final-production-v2-2c542bac-20260907T184024Z/soak/runtime/verification.log",
+    "bytes": 65537,
+    "sha256": "4a04833e98ff29a6fd894b2f9b2fc0a98ef30642fd6da8e68bb1aeec78e19d76",
+    "shape": "first 65536 bytes of the expected JSON followed by one LF",
+    "newline_count": 1
+  },
+  "persisted_sample": {
+    "path": "final-production-v2-2c542bac-20260907T184024Z/soak/runtime/r4-resource-samples.json",
+    "bytes": 17995563,
+    "sha256": "927493b680b34d8660b836aa3c6abcbf2a2435803b045e9237285c328e88ac7f",
+    "valid_complete": true,
+    "sample_count": 273
+  },
+  "replay": {
+    "path": "resource-console-replay-20260907T194347Z/results.json",
+    "expected_json_bytes": 89572,
+    "expected_json_sha256": "d8231bc021cb9b807799a1a081c1a2b0a278284692539efff57381aa2cc7f8e8",
+    "exact_prefix_65536": true,
+    "tested_complete_paths": ["Bun console JSON", "awaited stdout write", "original final expression", "production lifecycle client import", "logger import", "setsid plus tee pipeline"],
+    "all_tested_exits_zero": true
+  },
+  "conclusion": "No supported truncation source remains from these artifacts. The truncation occurs after or during the actual runtime's single console write, but the tested generic Bun, expression, imported client, and setsid/tee path do not reproduce it. Do not attribute it to Bun, tee, the product, or the persisted sample without a new discriminating observation."
+}

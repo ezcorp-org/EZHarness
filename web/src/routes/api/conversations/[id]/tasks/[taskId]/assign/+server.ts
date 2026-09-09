@@ -7,7 +7,6 @@ import { errorJson } from "$lib/server/http-errors";
 import * as convQueries from "$server/db/queries/conversations";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import {
-  broadcastAssignmentUpdate,
   loadSnapshotAndFindTask,
   writeAndBroadcastSnapshot,
 } from "$lib/server/task-helpers";
@@ -86,8 +85,7 @@ const postHandler: RequestHandler = async ({ params, request, locals }) => {
     task.assignments.push(assignment);
   }
 
-  await writeAndBroadcastSnapshot(params.id, snapshot);
-  broadcastAssignmentUpdate(params.id, params.taskId, assignment);
+  await writeAndBroadcastSnapshot(params.id, snapshot, [{ taskId: params.taskId, assignment }]);
 
   return json({ assignment, snapshot });
 };

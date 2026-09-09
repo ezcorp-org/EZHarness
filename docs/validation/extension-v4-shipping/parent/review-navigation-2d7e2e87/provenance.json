@@ -1,0 +1,12 @@
+{
+  "base_source_sha": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "fixture_repair_commit": "2f942dab4bd2f5eeec0ee816e7437c8ac327964a",
+  "read_only_contract_commit": "2d7e2e87",
+  "lane_commit": "d34f5cf3",
+  "integrated_parent_source_sha": "b5d2d69138aca978a3022862a657d668f3b2314a",
+  "bun": "1.3.14",
+  "node": "22.22.2",
+  "browser": "chromium",
+  "blob_archive_private_sha256": "ed33051428642f5c7d67f7b8988f4ee58aa1f29671ba08e6ed38e76c5ee56c92",
+  "blob_archive_private_path": "/home/dev/work/EZCorp/extension-v4-review-link-fixtures/.cache/terra-review-link-fixtures/final/review-destinations-r2.zip"
+}

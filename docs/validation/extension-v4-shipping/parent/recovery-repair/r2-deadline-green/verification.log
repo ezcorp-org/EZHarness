@@ -1,0 +1,1 @@
+{"passed":true,"checks":["before-effect-positive-control","real-worker-sigkill-before-effect","real-worker-sigkill-after-effect","durable-outcome-unknown","same-key-no-repeat-after-restart","fresh-distinct-delivery"]}

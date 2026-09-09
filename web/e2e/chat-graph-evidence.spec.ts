@@ -125,8 +125,8 @@ test.describe("Chat DAG graph visual evidence", () => {
 			projects: [project],
 			conversations: [conversation],
 			messages,
+			settings: { "global:showObservability": true },
 			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
 				[`/api/observability/${CONV_ID}`]: () => ({
 					events: [
 						{

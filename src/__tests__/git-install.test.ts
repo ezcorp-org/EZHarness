@@ -1,623 +1,220 @@
-/**
- * Integration tests for git-based extension install, update, and remove.
- *
- * Uses local bare git repos to avoid network dependency.
- * Mocks the DB layer to isolate installer logic.
- */
-
-import { test, expect, describe, beforeAll, afterAll, beforeEach, mock, spyOn } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
+import { PodmanRunner, buildLimits, DEFAULT_IMAGE, provisionToolchain, filesDigest } from "@ezcorp/extension-runner";
+import type { ReleaseRecord, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mkdtemp, rm, mkdir } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
-import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
-import { configContent } from "./helpers/write-config";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { ExtensionLifecycle, FileBlobStore } from "../extensions/v4";
+import { collectGitHubSource } from "../extensions/source-import";
+import { createLifecycleAuthorization, publishExtensionGeneration, verifyExtensionCandidate } from "../extensions/extension-lifecycle-service";
+import { requestedReleaseGrants } from "../extensions/extension-control";
+import { createUser, getUserById } from "../db/queries/users";
+import { getExtension, getExtensionByName } from "../db/queries/extensions";
+import { getStorageValue, setStorageValue } from "../db/queries/extension-storage";
+import { installFromGit, updateExtension, checkForUpdates } from "../extensions/installer";
 
-// ── Mock DB layer ─────────────────────────────────────────────────────
+mockDbConnection();
+let root: string;
+let repo: string;
+let runner: PodmanRunner;
+let lifecycle: ExtensionLifecycle;
+let ownerId: string;
+let installationId: string;
+let initialRelease: ReleaseRecord;
+let upgradedRelease: ReleaseRecord;
+let initialFiles: WorkspaceFiles;
+let initialApprovalId: string;
+const actor = () => ({ principalId: ownerId, scope: "global", kind: "human" as const });
 
-import { createMockExtensionsStore, requireRow } from "./helpers/mock-extensions-store";
-
-const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
-const mockExtensions = extStore.store;
-
-mock.module("../db/queries/extensions", () => ({
-  createExtension: extStore.createExtension,
-  getExtensionByName: extStore.getExtensionByName,
-  updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
-  listExtensions: extStore.listExtensions,
-}));
-
-// Mock registry reload to no-op
-mock.module("../extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({
-      reload: async () => {},
-    }),
-  },
-}));
-
-// The env-leak gate writes forensic audit rows before refusing — no live
-// DB in this suite, so stub the insert (the gate treats audit failures
-// as non-fatal anyway; this keeps the log clean and deterministic).
-mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async () => {},
-  listAuditLog: async () => [],
-  listAuditForExtension: async () => [],
-}));
-
-// Import after mocks
-const { installFromGit, updateExtension, removeExtension, checkForUpdates } = await import("../extensions/installer");
-
-// ── Test fixtures ─────────────────────────────────────────────────────
-
-const env = { ...process.env };
-const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-  Bun.spawnSync(cmd, { ...opts, env });
-
-function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
-  return {
-    schemaVersion: 2,
-    name: "test-git-ext",
-    version: "1.0.0",
-    description: "A test git extension",
-    author: { name: "Tester" },
-    entrypoint: "index.ts",
-    tools: [{ name: "greet", description: "Say hi", inputSchema: { type: "object" } }],
-    permissions: {},
-    ...overrides,
-  };
+function git(...args: string[]): Buffer {
+  const process = Bun.spawnSync(["git", ...args], { cwd: repo, env: { ...globalThis.process.env, GIT_CONFIG_NOSYSTEM: "1" } });
+  if (process.exitCode !== 0) throw new Error(process.stderr.toString());
+  return Buffer.from(process.stdout);
 }
 
-const defaultPerms: ExtensionPermissions = {
-  network: [],
-  grantedAt: { network: Date.now() },
-};
+async function collect(ref = "v1.0.0", patchTree?: (tree: Record<string, unknown>[]) => Record<string, unknown>[]) {
+  const fetcher = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    if (url.pathname.includes("/commits/")) {
+      const selected = decodeURIComponent(url.pathname.split("/commits/")[1]!);
+      return Response.json({ commit: { tree: { sha: git("rev-parse", selected + "^{tree}").toString().trim() } } });
+    }
+    if (url.pathname.includes("/git/trees/")) {
+      const tree = git("ls-tree", "-r", "-l", url.pathname.split("/git/trees/")[1]!).toString().trim().split("\n").filter(Boolean).map(line => {
+        const [metadata, path] = line.split("\t");
+        const [mode, type, sha, size] = metadata!.trim().split(/\s+/);
+        return { path, mode, type, sha, size: Number(size) };
+      });
+      return Response.json({ truncated: false, tree: patchTree ? patchTree(tree) : tree });
+    }
+    const sha = url.pathname.split("/git/blobs/")[1]!;
+    return Response.json({ encoding: "base64", content: git("cat-file", "blob", sha).toString("base64") });
+  }) as typeof fetch;
+  return collectGitHubSource({ kind: "github", repository: "fixtures/source", ref }, { fetch: fetcher, resolveHost: async () => ["93.184.216.34"] });
+}
 
-let tempBase: string;
-let bareRepoDir: string;
-let installBase: string;
+async function stage(files: WorkspaceFiles, existingId?: string) {
+  const created = await lifecycle.createWorkspace(actor(), { files, ...(existingId ? { installationId: existingId } : {}) });
+  const operation = await lifecycle.build(actor(), { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: 1, idempotencyKey: crypto.randomUUID() });
+  const result = await lifecycle.runBuild(actor(), created.installation.id, operation.id);
+  return { ...created, operation: result };
+}
 
-// ── Setup: create bare repo with manifest + entrypoint, tagged v1.0.0 ──
+async function activate(release: ReleaseRecord) {
+  const state = await lifecycle.inspect(actor(), release.installationId);
+  const approval = await lifecycle.requestApproval(actor(), { installationId: release.installationId, releaseId: release.id, grants: requestedReleaseGrants(release.manifest), expectedActiveReleaseId: state.installation.activeReleaseId });
+  await lifecycle.approve(actor(), release.installationId, approval.id, true);
+  const result = await lifecycle.activate(actor(), { installationId: release.installationId, approvalId: approval.id, idempotencyKey: crypto.randomUUID() });
+  expect(result.state).toBe("active");
+  return approval.id;
+}
 
 beforeAll(async () => {
-  tempBase = await mkdtemp(join(tmpdir(), "git-install-test-"));
-  bareRepoDir = join(tempBase, "bare.git");
-  installBase = join(tempBase, "extensions");
-  await mkdir(installBase, { recursive: true });
+  await setupTestDb();
+  const owner = await createUser({ email: "git-owner@example.com", name: "Owner", role: "admin", passwordHash: "test" });
+  ownerId = owner.id;
+  root = await mkdtemp(join(tmpdir(), "git-lifecycle-"));
+  repo = join(root, "source");
+  await mkdir(repo);
+  git("init", "-b", "main");
+  git("config", "user.email", "fixture@example.com");
+  git("config", "user.name", "Fixture");
+  const seed = scaffoldWorkspace({ name: "git-source-extension", description: "Git source fixture" }).files;
+  for (const [path, source] of Object.entries(seed)) await Bun.write(join(repo, path), source);
+  const versionOne = seed["extension.ts"]!.replace('"permissions": {}', '"permissions": {"storage":true,"network":["api.example.com","other.example.com"]}');
+  await Bun.write(join(repo, "extension.ts"), versionOne);
+  git("add", "."); git("commit", "-m", "version one"); git("tag", "v1.0.0");
+  await Bun.write(join(repo, "extension.ts"), versionOne.replace('"version": "1.0.0"', '"version": "2.0.0"').replace(',"other.example.com"', ""));
+  git("add", "."); git("commit", "-m", "version two"); git("tag", "v2.0.0");
+  runner = new PodmanRunner({ root: join(root, "runner"), ...await provisionToolchain() });
+  await runner.initialize();
+  const repository = new DatabaseLifecycleRepository(getTestDb());
+  lifecycle = new ExtensionLifecycle({
+    repository, blobs: new FileBlobStore(join(root, "blobs")), runner, buildLimits,
+    runnerProfile: "podman-v1", runnerImageDigest: DEFAULT_IMAGE, validatorVersion: "runner-v4.1",
+    ...createLifecycleAuthorization({
+      user: getUserById, installation: async id => (await repository.read(id))?.installation ?? null,
+      projectionById: async id => await getExtension(id) ?? null, projectionByName: async name => await getExtensionByName(name) ?? null,
+      projectMember: async () => false,
+    }),
+    verifyCandidate: release => verifyExtensionCandidate(runner, release), publish: publishExtensionGeneration,
+  });
+  initialFiles = await collect();
+  const staged = await stage(initialFiles);
+  expect(staged.operation.diagnostics).toEqual([]);
+  expect(staged.operation.state).toBe("verified");
+  installationId = staged.installation.id;
+  const state = await lifecycle.inspect(actor(), installationId);
+  initialRelease = state.releases[staged.operation.releaseId!]!;
+  expect(state.installation.enabled).toBe(false);
+  expect(state.installation.grants).toEqual([]);
+  expect(await getExtensionByName("git-source-extension")).toBeNull();
+  initialApprovalId = await activate(initialRelease);
+}, 120000);
+afterAll(async () => { await runner?.close(); restoreModuleMocks(); await closeTestDb(); if (root) await rm(root, { recursive: true, force: true }); });
 
-  spawn(["git", "init", "--bare", bareRepoDir]);
-
-  const workDir = join(tempBase, "work");
-  spawn(["git", "clone", bareRepoDir, workDir]);
-  spawn(["git", "config", "user.email", "test@test.com"], { cwd: workDir });
-  spawn(["git", "config", "user.name", "Test"], { cwd: workDir });
-
-  const manifest = makeManifest();
-  await Bun.write(join(workDir, "ezcorp.config.ts"), configContent(manifest));
-  await Bun.write(join(workDir, "index.ts"), 'console.log("ext");');
-
-  spawn(["git", "add", "."], { cwd: workDir });
-  spawn(["git", "commit", "-m", "v1.0.0"], { cwd: workDir });
-  spawn(["git", "tag", "v1.0.0"], { cwd: workDir });
-  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: workDir });
-
-  // Create v1.1.0 tag
-  const updatedManifest = makeManifest({ version: "1.1.0" });
-  await Bun.write(join(workDir, "ezcorp.config.ts"), configContent(updatedManifest));
-  spawn(["git", "add", "."], { cwd: workDir });
-  spawn(["git", "commit", "-m", "v1.1.0"], { cwd: workDir });
-  spawn(["git", "tag", "v1.1.0"], { cwd: workDir });
-  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: workDir });
+describe("explicit GitHub source collection", () => {
+  test("a selected tag builds and activates only after exact human approval", async () => {
+    expect(initialRelease.manifest.version).toBe("1.0.0");
+    expect(initialRelease.sourceDigest).toBe(filesDigest(initialFiles));
+    expect((await getExtension(installationId))?.source).toBe("release-v4");
+  });
+  test("branch selection resolves immutable tree content", async () => {
+    expect(await collect("main")).toEqual(await collect("v2.0.0"));
+    expect(filesDigest(await collect("main"))).not.toBe(initialRelease.sourceDigest);
+  });
+  test("missing entrypoint is rejected before staging", async () => {
+    await expect(collect("v1.0.0", tree => tree.filter(entry => entry.path !== "extension.ts"))).rejects.toThrow("entrypoint");
+  });
+  test("malformed source fails without changing the active release", async () => {
+    const result = await stage({ ...initialFiles, "extension.ts": "export const broken = ;" }, installationId);
+    expect(result.operation.state).toBe("failed");
+    expect((await lifecycle.inspect(actor(), installationId)).installation.activeReleaseId).toBe(initialRelease.id);
+  }, 120000);
+  test("invalid manifest fails isolated validation", async () => {
+    const invalid = { ...initialFiles, "extension.ts": String(initialFiles["extension.ts"]).replace('"schemaVersion": 4', '"schemaVersion": 2') };
+    expect((await stage(invalid, installationId)).operation.state).toBe("failed");
+  }, 120000);
+  test("a second installation cannot claim an active extension name", async () => {
+    const second = await stage(initialFiles);
+    expect(second.operation.state).toBe("verified");
+    const state = await lifecycle.inspect(actor(), second.installation.id);
+    const release = state.releases[second.operation.releaseId!]!;
+    await expect(lifecycle.requestApproval(actor(), { installationId: second.installation.id, releaseId: release.id, grants: requestedReleaseGrants(release.manifest), expectedActiveReleaseId: null })).rejects.toThrow("owns this extension name");
+    expect(state.installation.enabled).toBe(false);
+    expect((await getExtensionByName("git-source-extension"))?.id).toBe(installationId);
+  }, 120000);
+  test("failed candidates cannot execute host-side configuration", async () => {
+    const marker = join(root, "host-marker");
+    const files = { ...initialFiles, "ezcorp.config.ts": `await Bun.write(${JSON.stringify(marker)}, "executed"); throw new Error("host forbidden");`, "extension.ts": "this is invalid syntax" };
+    expect((await stage(files, installationId)).operation.state).toBe("failed");
+    expect(await Bun.file(marker).exists()).toBe(false);
+  }, 120000);
 });
 
-afterAll(async () => {
-  restoreModuleMocks();
-  await rm(tempBase, { recursive: true, force: true }).catch(() => {});
-});
-
-beforeEach(async () => {
-  mockExtensions.clear();
-  // Also clear the filesystem install dir so prior-test leftovers don't cause
-  // `mv` to nest into an existing directory. The DB-mock guard doesn't fire when
-  // the mock Map was just cleared but a prior test's dir remains on disk.
-  await rm(installBase, { recursive: true, force: true }).catch(() => {});
-  await mkdir(installBase, { recursive: true });
-});
-
-// ── Install tests ─────────────────────────────────────────────────────
-
-describe("installFromGit", () => {
-  test("installs from file:// URL", async () => {
-    const result = await installFromGit(
-      `file://${bareRepoDir}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    expect(result.name).toBe("test-git-ext");
-    expect(result.version).toBe("1.1.0"); // Latest commit is v1.1.0
-    expect(result.source).toBe(`file://${bareRepoDir}`);
+describe("immutable upgrade behavior", () => {
+  test("new remote tags do not update the active installation", async () => {
+    expect((await collect("v2.0.0"))["extension.ts"]).toContain('"version": "2.0.0"');
+    expect((await getExtension(installationId))?.version).toBe("1.0.0");
   });
-
-  test("installs with @ref pinning", async () => {
-    const result = await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    expect(result.name).toBe("test-git-ext");
-    expect(result.version).toBe("1.0.0");
+  test("repeated collection of the same tag has the same source digest", async () => { expect(filesDigest(await collect())).toBe(initialRelease.sourceDigest); });
+  test("HEAD needs no semver scanning and still resolves exact source", async () => { expect(await collect("HEAD")).toEqual(await collect("v2.0.0")); });
+  test("legacy automatic update checks reject instead of silently polling a mutable source", async () => { await expect(checkForUpdates({ source: "github:fixtures/source", version: "1.0.0" })).rejects.toThrow("EXTENSION_V4_REQUIRED"); });
+  test("an upgrade creates a separate verified release without changing grants", async () => {
+    const result = await stage(await collect("v2.0.0"), installationId);
+    expect(result.operation.diagnostics).toEqual([]);
+    expect(result.operation.state).toBe("verified");
+    const state = await lifecycle.inspect(actor(), installationId);
+    upgradedRelease = state.releases[result.operation.releaseId!]!;
+    expect(upgradedRelease.sourceDigest).not.toBe(initialRelease.sourceDigest);
+    expect(state.installation.activeReleaseId).toBe(initialRelease.id);
+    expect(state.installation.grants).toEqual(requestedReleaseGrants(initialRelease.manifest));
+  }, 120000);
+  test("unknown installation updates fail closed", async () => { await expect(lifecycle.createWorkspace(actor(), { installationId: "unknown", files: initialFiles })).rejects.toThrow("not found"); });
+  test("generic file Git remotes remain explicitly unsupported", async () => { await expect(installFromGit(`file://${repo}`, { grantedAt: {} })).rejects.toThrow("EXTENSION_V4_REQUIRED"); });
+  test("failed upgrades leave the sealed previous source readable", async () => {
+    const fork = await lifecycle.createWorkspace(actor(), { installationId, releaseId: initialRelease.id });
+    expect((await lifecycle.readWorkspace(actor(), installationId, fork.workspace.id)).files).toEqual(initialFiles);
   });
-
-  test("fails if ezcorp.config.ts missing", async () => {
-    // Create a bare repo with no manifest
-    const noManifestBare = join(tempBase, "no-manifest.git");
-    spawn(["git", "init", "--bare", noManifestBare]);
-    const noManifestWork = join(tempBase, "no-manifest-work");
-    spawn(["git", "clone", noManifestBare, noManifestWork]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: noManifestWork });
-    spawn(["git", "config", "user.name", "Test"], { cwd: noManifestWork });
-    await Bun.write(join(noManifestWork, "readme.md"), "hello");
-    spawn(["git", "add", "."], { cwd: noManifestWork });
-    spawn(["git", "commit", "-m", "no manifest"], { cwd: noManifestWork });
-    spawn(["git", "push", "origin", "HEAD"], { cwd: noManifestWork });
-
-    await expect(
-      installFromGit(`file://${noManifestBare}`, defaultPerms, { extensionsDir: installBase }),
-    ).rejects.toThrow(/No ezcorp\.config\.ts/);
+  test("legacy local update cannot replace source or approvals", async () => { await expect(updateExtension("git-source-extension")).rejects.toThrow("EXTENSION_V4_REQUIRED"); });
+  test("old approval and mismatched grants cannot approve new code", async () => {
+    await expect(lifecycle.requestApproval(actor(), { installationId, releaseId: upgradedRelease.id, grants: requestedReleaseGrants(initialRelease.manifest), expectedActiveReleaseId: initialRelease.id })).rejects.toThrow("exact declared permissions");
+    await expect(lifecycle.activate(actor(), { installationId, approvalId: initialApprovalId, idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
+    expect((await lifecycle.inspect(actor(), installationId)).installation.activeReleaseId).toBe(initialRelease.id);
   });
-
-  test("fails with malformed config", async () => {
-    const malformedBare = join(tempBase, "malformed-json.git");
-    spawn(["git", "init", "--bare", malformedBare]);
-    const malformedWork = join(tempBase, "malformed-json-work");
-    spawn(["git", "clone", malformedBare, malformedWork]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: malformedWork });
-    spawn(["git", "config", "user.name", "Test"], { cwd: malformedWork });
-    await Bun.write(join(malformedWork, "ezcorp.config.ts"), "not valid typescript!!!");
-    spawn(["git", "add", "."], { cwd: malformedWork });
-    spawn(["git", "commit", "-m", "malformed json"], { cwd: malformedWork });
-    spawn(["git", "push", "origin", "HEAD"], { cwd: malformedWork });
-
-    await expect(
-      installFromGit(`file://${malformedBare}`, defaultPerms, { extensionsDir: installBase }),
-    ).rejects.toThrow();
-  });
-
-  test("fails if manifest validation fails", async () => {
-    const badManifestBare = join(tempBase, "bad-manifest.git");
-    spawn(["git", "init", "--bare", badManifestBare]);
-    const badManifestWork = join(tempBase, "bad-manifest-work");
-    spawn(["git", "clone", badManifestBare, badManifestWork]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: badManifestWork });
-    spawn(["git", "config", "user.name", "Test"], { cwd: badManifestWork });
-    await Bun.write(join(badManifestWork, "ezcorp.config.ts"), configContent({ schemaVersion: 1 }));
-    spawn(["git", "add", "."], { cwd: badManifestWork });
-    spawn(["git", "commit", "-m", "bad manifest"], { cwd: badManifestWork });
-    spawn(["git", "push", "origin", "HEAD"], { cwd: badManifestWork });
-
-    await expect(
-      installFromGit(`file://${badManifestBare}`, defaultPerms, { extensionsDir: installBase }),
-    ).rejects.toThrow(/Invalid manifest/);
-  });
-
-  test("fails on name collision", async () => {
-    // Install first
-    await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    // Try to install again (same name)
-    await expect(
-      installFromGit(`file://${bareRepoDir}@v1.0.0`, defaultPerms, { extensionsDir: installBase }),
-    ).rejects.toThrow(/already installed/);
-  });
-
-  test("cleans up temp dir on failure", async () => {
-    const badBare = join(tempBase, "cleanup-test.git");
-    spawn(["git", "init", "--bare", badBare]);
-    const badWork = join(tempBase, "cleanup-test-work");
-    spawn(["git", "clone", badBare, badWork]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: badWork });
-    spawn(["git", "config", "user.name", "Test"], { cwd: badWork });
-    await Bun.write(join(badWork, "ezcorp.config.ts"), configContent({ bad: true }));
-    spawn(["git", "add", "."], { cwd: badWork });
-    spawn(["git", "commit", "-m", "bad"], { cwd: badWork });
-    spawn(["git", "push", "origin", "HEAD"], { cwd: badWork });
-
-    try {
-      await installFromGit(`file://${badBare}`, defaultPerms, { extensionsDir: installBase });
-    } catch {
-      // expected
-    }
-
-    // Verify no orphaned directories in extensions dir for this name
-    const glob = new Bun.Glob("**/cleanup-test*");
-    const orphans: string[] = [];
-    for await (const path of glob.scan({ cwd: installBase })) {
-      orphans.push(path);
-    }
-    // There should be no leftover dirs (name from bad manifest would be undefined)
-    expect(orphans.length).toBe(0);
+  test("narrowing permissions takes effect only after fresh approval and activation", async () => {
+    await activate(upgradedRelease);
+    const state = await lifecycle.inspect(actor(), installationId);
+    expect(state.installation.activeReleaseId).toBe(upgradedRelease.id);
+    expect(state.installation.grants).toEqual(requestedReleaseGrants(upgradedRelease.manifest));
+    expect((await getExtension(installationId))?.grantedPermissions.network).toEqual(["api.example.com"]);
+  }, 120000);
+  test("source recollection cannot silently renew or widen grants", async () => {
+    const before = (await lifecycle.inspect(actor(), installationId)).installation;
+    await collect("v1.0.0");
+    expect((await lifecycle.inspect(actor(), installationId)).installation).toEqual(before);
   });
 });
 
-// ── Update tests ──────────────────────────────────────────────────────
-
-describe("checkForUpdates", () => {
-  test("detects available update", async () => {
-    const ext = await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    const result = await checkForUpdates(ext);
-    expect(result.available).toBe(true);
-    expect(result.latestVersion).toBe("1.1.0");
+describe("uninstall retains user data and immutable history", () => {
+  test("uninstall disables projection but retains data and previous releases", async () => {
+    await setStorageValue(installationId, "global", null, "retained", { message: "keep" }, false, Buffer.byteLength(JSON.stringify({ message: "keep" })));
+    await lifecycle.uninstall(actor(), installationId);
+    const state = await lifecycle.inspect(actor(), installationId);
+    expect(state.installation.uninstalled).toBe(true);
+    expect(state.installation.enabled).toBe(false);
+    expect(state.releases[initialRelease.id]).toEqual(initialRelease);
+    expect((await getStorageValue(installationId, "global", null, "retained"))?.value).toEqual({ message: "keep" });
+    expect((await getExtension(installationId))?.enabled).toBe(false);
   });
-
-  test("returns not available when at latest", async () => {
-    const ext = await installFromGit(
-      `file://${bareRepoDir}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    const result = await checkForUpdates(ext);
-    expect(result.available).toBe(false);
-  });
-
-  test("returns not available when repo has no semver tags", async () => {
-    // Create a bare repo with only non-semver tags
-    const noSemverBare = join(tempBase, "no-semver.git");
-    spawn(["git", "init", "--bare", noSemverBare]);
-    const noSemverWork = join(tempBase, "no-semver-work");
-    spawn(["git", "clone", noSemverBare, noSemverWork]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: noSemverWork });
-    spawn(["git", "config", "user.name", "Test"], { cwd: noSemverWork });
-    const m = makeManifest({ name: "no-semver-ext" });
-    await Bun.write(join(noSemverWork, "ezcorp.config.ts"), configContent(m));
-    await Bun.write(join(noSemverWork, "index.ts"), 'console.log("ext");');
-    spawn(["git", "add", "."], { cwd: noSemverWork });
-    spawn(["git", "commit", "-m", "initial"], { cwd: noSemverWork });
-    spawn(["git", "tag", "latest"], { cwd: noSemverWork });
-    spawn(["git", "tag", "nightly"], { cwd: noSemverWork });
-    spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: noSemverWork });
-
-    const ext = await installFromGit(
-      `file://${noSemverBare}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    const result = await checkForUpdates(ext);
-    expect(result.available).toBe(false);
-    expect(result.latestVersion).toBeUndefined();
-  });
-
-  test("returns not available for local source", async () => {
-    const fakeLocal = {
-      source: "local:/tmp/fake",
-      version: "1.0.0",
-    } as any;
-
-    const result = await checkForUpdates(fakeLocal);
-    expect(result.available).toBe(false);
-  });
-});
-
-describe("updateExtension", () => {
-  test("updates to latest version", async () => {
-    await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    const result = await updateExtension("test-git-ext");
-    expect(result.from).toBe("1.0.0");
-    expect(result.to).toBe("1.1.0");
-  });
-
-  test("throws if extension not found", async () => {
-    await expect(updateExtension("nonexistent")).rejects.toThrow(/not found/);
-  });
-
-  test("throws when repo has no semver tags", async () => {
-    // Create a bare repo with only non-semver tags
-    const noSemverBare2 = join(tempBase, "no-semver-update.git");
-    spawn(["git", "init", "--bare", noSemverBare2]);
-    const noSemverWork2 = join(tempBase, "no-semver-update-work");
-    spawn(["git", "clone", noSemverBare2, noSemverWork2]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: noSemverWork2 });
-    spawn(["git", "config", "user.name", "Test"], { cwd: noSemverWork2 });
-    const m = makeManifest({ name: "no-semver-update-ext" });
-    await Bun.write(join(noSemverWork2, "ezcorp.config.ts"), configContent(m));
-    await Bun.write(join(noSemverWork2, "index.ts"), 'console.log("ext");');
-    spawn(["git", "add", "."], { cwd: noSemverWork2 });
-    spawn(["git", "commit", "-m", "initial"], { cwd: noSemverWork2 });
-    spawn(["git", "tag", "latest"], { cwd: noSemverWork2 });
-    spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: noSemverWork2 });
-
-    await installFromGit(
-      `file://${noSemverBare2}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    await expect(updateExtension("no-semver-update-ext")).rejects.toThrow(/No semver tags/);
-  });
-
-  test("throws on invalid manifest after checkout to new version", async () => {
-    // Create a bare repo: v1.0.0 valid, v2.0.0 has invalid manifest
-    const badUpdateBare = join(tempBase, "bad-update.git");
-    spawn(["git", "init", "--bare", badUpdateBare]);
-    const badUpdateWork = join(tempBase, "bad-update-work");
-    spawn(["git", "clone", badUpdateBare, badUpdateWork]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: badUpdateWork });
-    spawn(["git", "config", "user.name", "Test"], { cwd: badUpdateWork });
-
-    // v1.0.0 - valid manifest
-    const validManifest = makeManifest({ name: "bad-update-ext", version: "1.0.0" });
-    await Bun.write(join(badUpdateWork, "ezcorp.config.ts"), configContent(validManifest));
-    await Bun.write(join(badUpdateWork, "index.ts"), 'console.log("ext");');
-    spawn(["git", "add", "."], { cwd: badUpdateWork });
-    spawn(["git", "commit", "-m", "v1.0.0"], { cwd: badUpdateWork });
-    spawn(["git", "tag", "v1.0.0"], { cwd: badUpdateWork });
-    spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: badUpdateWork });
-
-    // v2.0.0 - invalid manifest (missing required fields)
-    await Bun.write(join(badUpdateWork, "ezcorp.config.ts"), configContent({ schemaVersion: 2, name: "bad-update-ext" }));
-    spawn(["git", "add", "."], { cwd: badUpdateWork });
-    spawn(["git", "commit", "-m", "v2.0.0"], { cwd: badUpdateWork });
-    spawn(["git", "tag", "v2.0.0"], { cwd: badUpdateWork });
-    spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: badUpdateWork });
-
-    // Install v1.0.0
-    await installFromGit(
-      `file://${badUpdateBare}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-
-    // Update should fail on manifest validation
-    await expect(updateExtension("bad-update-ext")).rejects.toThrow(/Invalid manifest/);
-  });
-
-  test("throws if source is local", async () => {
-    // Manually insert a local extension
-    extStore.seed({
-      id: "local-id",
-      name: "local-ext",
-      source: "local:/tmp/fake",
-      version: "1.0.0",
-      installPath: "/tmp/fake",
-    });
-
-    await expect(updateExtension("local-ext")).rejects.toThrow(/local/i);
-  });
-});
-
-// ── fix-wave B Phase 2: env-leak gate on update + grant re-clamp ──────
-
-/** Build a bare repo whose history carries one tagged commit per entry
- *  of `versions` (each with its own manifest). Returns the file:// URL. */
-async function makeVersionedRepo(
-  slug: string,
-  versions: Array<Partial<ExtensionManifestV2> & { version: string }>,
-): Promise<string> {
-  const bare = join(tempBase, `${slug}.git`);
-  spawn(["git", "init", "--bare", bare]);
-  const work = join(tempBase, `${slug}-work`);
-  spawn(["git", "clone", bare, work]);
-  spawn(["git", "config", "user.email", "test@test.com"], { cwd: work });
-  spawn(["git", "config", "user.name", "Test"], { cwd: work });
-  for (const overrides of versions) {
-    const m = makeManifest(overrides);
-    await Bun.write(join(work, "ezcorp.config.ts"), configContent(m));
-    await Bun.write(join(work, "index.ts"), 'console.log("ext");');
-    spawn(["git", "add", "."], { cwd: work });
-    spawn(["git", "commit", "-m", `v${overrides.version}`], { cwd: work });
-    spawn(["git", "tag", `v${overrides.version}`], { cwd: work });
-  }
-  spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: work });
-  return `file://${bare}`;
-}
-
-describe("updateExtension — env-leak gate (v1.4 parity with install)", () => {
-  test("new-tag manifest declaring FOO_API_TOKEN env is refused; DB + disk stay at old version", async () => {
-    const url = await makeVersionedRepo("leaky-update", [
-      { name: "leaky-update-ext", version: "1.0.0", permissions: {} },
-      { name: "leaky-update-ext", version: "1.1.0", permissions: { env: ["FOO_API_TOKEN"] } },
-    ]);
-
-    const installed = await installFromGit(`${url}@v1.0.0`, defaultPerms, {
-      extensionsDir: installBase,
-      enabled: true,
-    });
-    expect(installed.version).toBe("1.0.0");
-
-    await expect(updateExtension("leaky-update-ext")).rejects.toThrow(
-      /credential-shaped env name/,
-    );
-
-    // DB row untouched — old version, old manifest, still enabled.
-    const row = requireRow(
-      Array.from(mockExtensions.values()).find((e: any) => e.name === "leaky-update-ext"),
-      "leaky-update-ext row",
-    );
-    expect(row.version).toBe("1.0.0");
-    expect(row.manifest.permissions?.env).toBeUndefined();
-    expect(row.enabled).toBe(true);
-
-    // Disk restored — the subprocess spawns from disk, so a refused
-    // update must NOT leave the new tag checked out.
-    const installPath = requireRow(row.installPath, "leaky-update-ext row's installPath");
-    const onDisk = await Bun.file(join(installPath, "ezcorp.config.ts")).text();
-    expect(onDisk.includes("FOO_API_TOKEN")).toBe(false);
-    expect(onDisk.includes("1.0.0")).toBe(true);
-  });
-});
-
-describe("updateExtension — grant re-clamp against the new manifest", () => {
-  const wideGrant: ExtensionPermissions = {
-    network: ["api.example.com", "cdn.example.com"],
-    shell: true,
-    grantedAt: { network: 111, shell: 222 },
-  };
-  const widePerms = {
-    network: ["api.example.com", "cdn.example.com"],
-    shell: true,
-  };
-
-  test("narrowing manifest drops granted shell + the removed network host", async () => {
-    const url = await makeVersionedRepo("narrow-update", [
-      { name: "narrow-update-ext", version: "1.0.0", permissions: widePerms },
-      // v1.1.0 drops shell entirely and removes cdn.example.com.
-      { name: "narrow-update-ext", version: "1.1.0", permissions: { network: ["api.example.com"] } },
-    ]);
-
-    await installFromGit(`${url}@v1.0.0`, wideGrant, {
-      extensionsDir: installBase,
-      enabled: true,
-    });
-
-    const result = await updateExtension("narrow-update-ext");
-    expect(result.to).toBe("1.1.0");
-
-    const row = requireRow(
-      Array.from(mockExtensions.values()).find((e: any) => e.name === "narrow-update-ext"),
-      "narrow-update-ext row",
-    );
-    // Stale looser sandbox closed: shell gone, cdn host gone.
-    expect(row.grantedPermissions.shell).toBeUndefined();
-    expect(row.grantedPermissions.network).toEqual(["api.example.com"]);
-    // grantedAt timestamps survive the clamp.
-    expect(row.grantedPermissions.grantedAt.network).toBe(111);
-    // Enabled state preserved — re-clamp never flips consent.
-    expect(row.enabled).toBe(true);
-  });
-
-  test("unchanged manifest = no-op on the stored grants", async () => {
-    const url = await makeVersionedRepo("noop-update", [
-      { name: "noop-update-ext", version: "1.0.0", permissions: widePerms },
-      // v1.1.0 bumps the version only — permissions identical.
-      { name: "noop-update-ext", version: "1.1.0", permissions: widePerms },
-    ]);
-
-    await installFromGit(`${url}@v1.0.0`, wideGrant, {
-      extensionsDir: installBase,
-      enabled: true,
-    });
-
-    const result = await updateExtension("noop-update-ext");
-    expect(result.to).toBe("1.1.0");
-
-    const row = requireRow(
-      Array.from(mockExtensions.values()).find((e: any) => e.name === "noop-update-ext"),
-      "noop-update-ext row",
-    );
-    expect(row.grantedPermissions.network).toEqual([
-      "api.example.com",
-      "cdn.example.com",
-    ]);
-    expect(row.grantedPermissions.shell).toBe(true);
-    expect(row.grantedPermissions.grantedAt).toEqual({ network: 111, shell: 222 });
-    expect(row.enabled).toBe(true);
-  });
-});
-
-// ── Remove tests ──────────────────────────────────────────────────────
-
-describe("removeExtension", () => {
-  /** Run an uninstall and capture what `console.warn` saw. */
-  async function removeCapturingWarnings(name: string): Promise<string[]> {
-    const warnings: string[] = [];
-    const warnSpy = spyOn(console, "warn").mockImplementation((...args) =>
-      warnings.push(args.join(" ")),
-    );
-    try {
-      await removeExtension(name);
-    } finally {
-      warnSpy.mockRestore();
-    }
-    return warnings;
-  }
-
-  test("unregisters the extension but keeps files installed outside the allowed roots", async () => {
-    // This suite installs into a throwaway `extensionsDir` (only the
-    // test-only `__EZCORP_TEST_EXTENSIONS_DIR` sets that in production
-    // code — a real git install lands in `data/extensions/`). That temp
-    // base is NOT one of the two allowed install roots, so containment
-    // refuses the delete and says so instead of silently `rm -rf`ing a
-    // directory the host does not own. Removal of a genuinely-contained
-    // install is asserted in installer-coverage.test.ts.
-    const ext = await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
-    expect(await Bun.file(join(ext.installPath, "ezcorp.config.ts")).exists()).toBe(true);
-
-    const warnings = await removeCapturingWarnings("test-git-ext");
-
-    // Verify DB record gone
-    const remaining = Array.from(mockExtensions.values()).find(
-      (e: any) => e.name === "test-git-ext",
-    );
-    expect(remaining).toBeUndefined();
-
-    // Files kept, refusal logged with the path it kept.
-    expect(await Bun.file(join(ext.installPath, "ezcorp.config.ts")).exists()).toBe(true);
-    expect(warnings.some((w) => w.includes(ext.installPath) && w.includes("was NOT deleted"))).toBe(
-      true,
-    );
-  });
-
-  test("throws if extension not found", async () => {
-    await expect(removeExtension("nonexistent")).rejects.toThrow(/not found/);
-  });
-
-  test("does not remove install path outside extensions directory", async () => {
-    // Two shapes the pre-containment check got wrong, both absolute:
-    // one with no `/extensions/` substring (which it did refuse) and one
-    // WITH it (`/…/extensions/precious-ext`, which it happily deleted —
-    // this is the shape every bundled extension's row has).
-    const cases = [
-      { id: "dangerous-id", name: "dangerous-ext", dir: join(tempBase, "precious-data") },
-      {
-        id: "substring-id",
-        name: "substring-ext",
-        dir: join(tempBase, "someone-elses", "extensions", "precious-ext"),
-      },
-    ];
-
-    for (const { id, name, dir } of cases) {
-      await mkdir(dir, { recursive: true });
-      await Bun.write(join(dir, "important.txt"), "do not delete");
-
-      extStore.seed({
-        id,
-        name,
-        source: `file://${bareRepoDir}`,
-        version: "1.0.0",
-        installPath: dir,
-      });
-
-      const warnings = await removeCapturingWarnings(name);
-
-      // DB record should be gone
-      expect(mockExtensions.has(id)).toBe(false);
-
-      // But the directory should NOT have been removed (containment)
-      const file = Bun.file(join(dir, "important.txt"));
-      expect(await file.exists()).toBe(true);
-      expect(warnings.some((w) => w.includes(dir) && w.includes("was NOT deleted"))).toBe(true);
-    }
+  test("unknown uninstall targets are rejected", async () => { await expect(lifecycle.uninstall(actor(), "unknown")).rejects.toThrow("not found"); });
+  test("uninstall never deletes the external source checkout", async () => {
+    expect(await Bun.file(join(repo, "extension.ts")).exists()).toBe(true);
+    expect(git("rev-parse", "v1.0.0").toString().trim()).toMatch(/^[a-f0-9]{40}$/);
+    expect((await lifecycle.inspect(actor(), installationId)).releases[initialRelease.id]?.sourceDigest).toBe(initialRelease.sourceDigest);
   });
 });

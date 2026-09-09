@@ -74,15 +74,19 @@ import { ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { extensions, agentConfigs, users, settings, toolCalls } from "../db/schema";
 import { eq } from "drizzle-orm";
-import type { ExtensionManifestV2 } from "../extensions/types";
+import { validateManifest, type ExtensionManifestV4 } from "@ezcorp/extension-contract";
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { getExtensionLifecycle, publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
+import { requestedReleaseGrants } from "../extensions/extension-control";
 
 const EXT_NAME = "gated-ext";
 const TOOL_NAME = "do_thing";
 const NAMESPACED_TOOL = `${EXT_NAME}__${TOOL_NAME}`;
 
-function buildManifest(): ExtensionManifestV2 {
-  return {
-    schemaVersion: 2,
+function buildManifest(): ExtensionManifestV4 {
+  return validateManifest({
+    schemaVersion: 4,
     name: EXT_NAME,
     version: "1.0.0",
     description: "Toggle gating fixture",
@@ -93,10 +97,20 @@ function buildManifest(): ExtensionManifestV2 {
         name: TOOL_NAME,
         description: "Do a thing",
         inputSchema: { type: "object", properties: {} },
+        outputSchema: {},
       },
     ],
     permissions: {},
-  };
+  });
+}
+
+async function publishFixture(manifest = buildManifest()): Promise<string> {
+  const fixture = releaseRuntimeFixture(crypto.randomUUID(), manifest, { ownerId: ADMIN_USER.id });
+  fixture.snapshot.installation.grants = requestedReleaseGrants(manifest);
+  const { installation, release } = fixture.snapshot;
+  await new DatabaseLifecycleRepository(getTestDb()).create({ installation, releases: { [release.id]: release }, revisions: {}, workspaces: {}, approvals: {}, operations: {} });
+  await publishExtensionGeneration(installation, release);
+  return installation.id;
 }
 
 let extensionId: string;
@@ -132,6 +146,7 @@ beforeAll(async () => {
       role: "admin",
     },
   ]);
+  await getExtensionLifecycle();
 });
 
 afterAll(async () => {
@@ -148,20 +163,7 @@ beforeEach(async () => {
   await db.delete(extensions);
   await db.delete(settings);
 
-  const extRows = await db
-    .insert(extensions)
-    .values({
-      name: EXT_NAME,
-      version: "1.0.0",
-      description: "Toggle gating fixture",
-      manifest: buildManifest(),
-      source: "local:/tmp/gated-ext",
-      installPath: "/tmp/gated-ext",
-      enabled: true,
-      grantedPermissions: { grantedAt: {} } as any,
-    })
-    .returning({ id: extensions.id });
-  extensionId = extRows[0]!.id;
+  extensionId = await publishFixture();
 
   const agentRows = await db
     .insert(agentConfigs)
@@ -239,7 +241,7 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
     expect(result.content[0]!.text).toContain(NAMESPACED_TOOL);
   });
 
-  test("POST /:id/activate after disable → tool returns for the agent", async () => {
+  test("legacy activation cannot restore a disabled release without human release approval", async () => {
     // Disable first.
     await call(
       PATCH,
@@ -267,12 +269,12 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
         user: ADMIN_USER,
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(410);
 
     // Tool is reachable again.
-    expect(registry.getRegisteredTool(NAMESPACED_TOOL)).not.toBeNull();
+    expect(registry.getRegisteredTool(NAMESPACED_TOOL)).toBeNull();
     const agentTools = await registry.getToolsForAgent(agentId);
-    expect(agentTools.map((t) => t.name)).toContain(NAMESPACED_TOOL);
+    expect(agentTools.map((t) => t.name)).not.toContain(NAMESPACED_TOOL);
   });
 
   test("other extensions on the same agent are unaffected by toggling one off", async () => {
@@ -286,28 +288,16 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
     const siblingToolName = "other_tool";
     const siblingNamespaced = `${siblingName}__${siblingToolName}`;
 
-    const siblingRows = await db
-      .insert(extensions)
-      .values({
-        name: siblingName,
-        version: "1.0.0",
-        description: "Sibling",
-        manifest: {
+    const siblingId = await publishFixture(validateManifest({
           ...buildManifest(),
           name: siblingName,
           tools: [{
             name: siblingToolName,
             description: "Sibling tool",
             inputSchema: { type: "object", properties: {} },
+            outputSchema: {},
           }],
-        } as any,
-        source: "local:/tmp/other-ext",
-        installPath: "/tmp/other-ext",
-        enabled: true,
-        grantedPermissions: { grantedAt: {} } as any,
-      })
-      .returning({ id: extensions.id });
-    const siblingId = siblingRows[0]!.id;
+    }));
 
     // Attach BOTH extensions to the agent.
     await db
@@ -346,8 +336,8 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
   });
 });
 
-describe("POST /:id/activate refuses unresolvable npm dependencies", () => {
-  test("declared npm dep that cannot resolve → 403 actionable message, extension stays disabled", async () => {
+describe("legacy activation cannot bypass isolated dependency verification", () => {
+  test("an unverified dependency stays disabled and requires a v4 build", async () => {
     // An extension whose manifest declares a third-party npm package that
     // is NOT resolvable from its install path. activateExtension must
     // REFUSE with a 4xx (never a 500) and leave enabled=false — mirroring
@@ -385,12 +375,9 @@ describe("POST /:id/activate refuses unresolvable npm dependencies", () => {
         user: ADMIN_USER,
       }),
     );
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/requires npm package\(s\) it cannot resolve/);
-    expect(body.error).toContain(
-      "nonexistent-pkg-xyz-does-not-exist@^1.0.0 (missing)",
-    );
+    expect(res.status).toBe(410);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("extension_v4_required");
 
     // The refusal must NOT flip enabled — the row stays disabled so the
     // extension can't be invoked until its deps are actually installed.

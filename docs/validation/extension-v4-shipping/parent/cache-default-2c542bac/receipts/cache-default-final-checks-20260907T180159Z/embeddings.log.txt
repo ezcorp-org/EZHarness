@@ -1,0 +1,22 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/memory-embeddings.test.ts:
+(pass) schema > memories table accepts insert with vector embedding, content, category, provenance JSONB [12.73ms]
+(pass) schema > memoryAuditLog table accepts insert with all fields [2.38ms]
+(pass) schema > HNSW index exists on memories.embedding [6.53ms]
+(pass) schema > tsvector GIN index exists on memories.content [3.35ms]
+(pass) schema > test-pglite helper creates DB with vector extension enabled [0.92ms]
+(pass) embeddings > generateEmbedding returns a number[] of length 384 [0.51ms]
+(pass) embeddings > all values in returned embedding are finite numbers [0.32ms]
+(pass) embeddings > generateEmbeddings returns array of 2 embeddings, each 384-dim [0.22ms]
+(pass) embeddings > calling generateEmbedding twice reuses same model instance (singleton) [0.19ms]
+(pass) embeddings > embeddings are normalized (L2 norm approximately 1.0) [0.18ms]
+(pass) embeddings > IDX-06: input is capped at 256 tokens via tokenizer.config, not call opts [0.14ms]
+(pass) embeddings > a 10,000-character input returns a 384-dim vector without throwing [0.08ms]
+(pass) embeddings > EMBEDDING_MODEL_ID is the single source of truth [0.01ms]
+(pass) embeddings > getTokenizer() resolves to the pipeline's tokenizer (reuses loaded pipeline) [0.04ms]
+
+ 14 pass
+ 0 fail
+ 806 expect() calls
+Ran 14 tests across 1 file. [879.00ms]

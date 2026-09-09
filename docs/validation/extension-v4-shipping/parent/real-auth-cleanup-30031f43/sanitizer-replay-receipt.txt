@@ -1,0 +1,16 @@
+syntax_check=0
+replay_exit=0
+output_root=<owned-temporary-root>
+comparison=all published sanitizer outputs matched byte-for-byte
+match	original-playwright.log.txt
+match	fixed-playwright.log.txt
+match	original-before.txt
+match	original-after.txt
+match	original-new.txt
+match	fixed-before.txt
+match	fixed-after.txt
+match	fixed-new.txt
+match	original-exit.txt
+match	fixed-exit.txt
+match	sanitizer-record.txt
+published files were not modified by replay

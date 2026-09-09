@@ -239,14 +239,9 @@ describe("which visibilities any code path can actually produce", () => {
     expect(copyRouteDefault()).toBe("private");
   });
 
-  test("`private` IS produced — the author names it, AND a copy defaults to it", () => {
-    // The confidential tier is reachable two ways, and both are
-    // structural rather than incidental: the request schema admits it,
-    // and the copy route falls back to it. Sorted so the assertion is
-    // about the SET of producers, not the order the sweep happened to
-    // record them in.
+  test("`private` is produced by author choice, copy default and owner-bound release assets", () => {
     expect([...(PRODUCED.get("private") ?? [])].sort()).toEqual(
-      [SCHEMA_PATH, COPY_ROUTE_PATH].sort(),
+      [SCHEMA_PATH, COPY_ROUTE_PATH, "src/runtime/workflow-release-assets.ts"].sort(),
     );
   });
 

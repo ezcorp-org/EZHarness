@@ -7,7 +7,7 @@
 
 import { test, expect, describe, afterEach } from "bun:test";
 import manifest from "./ezcorp.config";
-import { validateManifestV2 } from "../../../../src/extensions/manifest";
+import { defineRuntimeManifest } from "@ezcorp/sdk/v4";
 import { tools } from "./index";
 import {
   draftPost,
@@ -100,12 +100,12 @@ afterEach(() => {
 
 describe("substack-pipeline — manifest shape", () => {
   test("required fields", () => {
-    expect(manifest.schemaVersion).toBe(2);
+    expect(manifest.schemaVersion).toBe(4);
     expect(manifest.name).toBe("substack-pipeline");
     expect(manifest.version).toBe("1.0.0");
     expect(manifest.author.name).toBe("EZCorp");
     expect(manifest.description.length).toBeGreaterThan(0);
-    expect(manifest.entrypoint).toBe("./index.ts");
+    expect(manifest.entrypoint).toBe("./extension.ts");
   });
 
   test("declares the 3 pipeline tools", () => {
@@ -140,10 +140,9 @@ describe("substack-pipeline — manifest shape", () => {
     expect(p.env).toBeUndefined();
   });
 
-  test("validateManifestV2 accepts the manifest", () => {
-    const r = validateManifestV2(manifest);
-    if (!r.valid) throw new Error(`rejected:\n  ${r.errors.join("\n  ")}`);
-    expect(r.valid).toBe(true);
+test("v4 contract accepts the manifest", () => {
+    expect(() => defineRuntimeManifest(manifest)).not.toThrow();
+
   });
 
   test("dispatcher registers the 3 tools", () => {

@@ -1,0 +1,33 @@
+{
+  "responseStatus": 200,
+  "body": {
+    "ok": false,
+    "message": "Blocked: engine denied the quarantine write"
+  },
+  "applied": {
+    "id": "449b7d23-2d77-47aa-8ff0-1f80f80c54e4",
+    "kind": "delete-quarantine",
+    "src": "/app/data/file-organizer-test/fo-test-watched/daemon-proof.tmp",
+    "dst": null,
+    "reason": "Temp files (*.tmp, \u226510m old)",
+    "ruleId": "junk-tmp",
+    "ruleLabel": "Temp files (*.tmp, \u226510m old)",
+    "folderId": "8de4e826-5f36-48e3-835c-32faef3df8e4",
+    "snapshot": {
+      "size": 49,
+      "mtimeMs": 1788744386861.3977,
+      "sha256": "b1245a870df94c5705cb2bf11135bd3e74e693236862df7ca97f85e1c9b56123",
+      "isSymlink": false,
+      "dev": 0,
+      "ino": 0,
+      "nlink": 1
+    },
+    "status": "blocked",
+    "dedupeKey": "delete-quarantine|/app/data/file-organizer-test/fo-test-watched/daemon-proof.tmp|junk-tmp|",
+    "createdAt": "2026-09-07T01:48:23.680Z",
+    "version": 1
+  },
+  "sourceContent": "daemon-proof-1317d2d6-2fc9-4100-adca-1c8865a562c2",
+  "sourceAbsent": false,
+  "destinationContent": null
+}

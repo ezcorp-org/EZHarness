@@ -1,0 +1,19 @@
+# Extension v4 Gate integrity repair
+
+At `93742772`, the unchanged gate reports 83 findings: one removed coverage obligation, 28 deleted tests, 24 renamed tests, and 30 reduced test files.
+
+The repair restores all 82 protected test paths with current v4 behavior. Existing lifecycle, source import, approval, credential, and route cases move to those paths; shared fixtures avoid duplicate test bodies. New cases check missing authority, credential revocation, stale revisions, rejected reviews, failed candidate builds, and retained uninstall history. The previous private-source HTTP secrecy and credential recheck tests remain intact.
+
+Host integration tests use an exact `// @ezcorp-host-integration` first line. The first-party source collector excludes only marked test/spec files from extension build snapshots. It retains runtime files and nonleading markers, and rejects marking the required portable `extension.test.ts`. Normal host test and coverage discovery still run the restored files. The coverage producer removes the two stale PR-new paths whose tests already run at their restored paths, and includes the restored permission suite that now owns human approval cases. Portable tests for Code Quality, Code Review, Memory Extractor, and Extension Author remain in their source snapshots; their four lock records change accordingly.
+
+The restored `bundled-drift-reapprove.ts` owns the live release grant normalization and equality functions. Both host authorization and publication use that shared implementation. Its original 100% coverage obligation is restored; a focused coverage run measures all six executable lines. Approval remains bound to the human, owner, scope, release, and requested grants.
+
+The parent independently reviews the Terra changes, checks all 82 protected test paths with the unchanged gate functions, and runs affected tests. This working-tree preview clears the original findings. Delivery also requires the full gate against a normal commit, local static/test/coverage checks, and all CI on the pushed head. No approval label or gate bypass is used. Historical production and browser results retain their recorded source scope.
+
+Local checks use the normal commands: `bun run typecheck`, `bun run lint`, `bun run test`, `bun run test:coverage`, and `bun scripts/gate-integrity.ts`. The focused author journey uses a real durable repository and blob store with an injected deterministic runner; the production CI lane checks the actual worker boundary.
+
+The final preservation inventory accounts for all 100 original test blocks from deleted or split PR-new suites. Parent review restores missed build-entrypoint, builtin-identity, grant-derivation, and project-binding branches. All four changed portable snapshots also pass actual container builds and candidate verification. Memory Extractor capability execution remains outside that candidate-build check.
+
+The full local backend run also reproduces a database-guard race: Linux can expose a live process with a matching executable and an empty readable command line during exec. The guard now treats that state as indeterminate/live, just as it treats an unreadable command line. The new regression fails with the old guard and all 15 guard tests pass with the repair; unrelated live processes remain rejected once their command lines are available.
+
+Local coverage completes 1,565 host files without a failure and 4,714 Vitest tests across 290 files. SDK, harness-client, AI-kit, suggestion, and security producers pass. The first threshold check identifies one missing SDK development-command record; restoring its original pre-execution rejection test passes all four development/CLI cases. Merging that measured supplement with the full run passes all 1,265 file thresholds, all 134 new source files, and changed executable lines across 398 files. The original failed gate result is retained; it is not relabeled as a passing full command.

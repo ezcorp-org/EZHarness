@@ -1,0 +1,78 @@
+from pathlib import Path
+import gzip, hashlib, io, json, subprocess, sys, tarfile, tempfile, zipfile
+
+helper = Path(__file__).with_name('scan-final-staged-snapshot-expand.py')
+receipt = Path(sys.argv[1])
+receipt.mkdir()
+results = []
+
+def tar_bytes(entries):
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode='w') as archive:
+        for name, body in entries:
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            archive.addfile(info, io.BytesIO(body))
+    return output.getvalue()
+
+def run_case(name, files, expected_exit):
+    with tempfile.TemporaryDirectory(prefix='ez-archive-parent-') as temporary:
+        root = Path(temporary)
+        inputs = root / 'docs/validation/extension-v4-fixture'
+        inputs.mkdir(parents=True)
+        out = receipt / name
+        out.mkdir()
+        for filename, body in files.items():
+            (inputs / filename).write_bytes(body)
+        result = subprocess.run([sys.executable, str(helper), str(root), str(out)], capture_output=True)
+        (out / 'stdout.txt').write_bytes(result.stdout)
+        (out / 'stderr.txt').write_bytes(result.stderr)
+        (out / 'exit.txt').write_text(str(result.returncode) + '\n')
+        assert result.returncode == expected_exit, name
+        records = []
+        if expected_exit == 0:
+            records = json.loads((out / 'expanded-inputs.json').read_text())['archives']
+            paths = [entry['expandedPath'] for entry in records]
+            assert len(paths) == len(set(paths)), 'duplicate entries overwrote bytes'
+            for entry in records:
+                body = (root / 'expanded-validation-review' / entry['expandedPath']).read_bytes()
+                assert hashlib.sha256(body).hexdigest() == entry['payloadSha256']
+            (out / 'hash-check.txt').write_text(f'All {len(records)} extracted payload hashes match.\n')
+        results.append({'case': name, 'exit': result.returncode, 'entries': len(records)})
+        return records
+
+nested = gzip.compress(tar_bytes([('nested.txt.gz', gzip.compress(b'inner-payload')), ('tar.txt', b'tar-payload')]))
+container = io.BytesIO()
+with zipfile.ZipFile(container, 'w') as archive:
+    archive.writestr('duplicate.txt', b'first-payload')
+    archive.writestr('duplicate.txt', b'second-payload')
+    archive.writestr('nested.tar.gz', nested)
+records = run_case('nested-and-duplicate', {'mixed.zip': container.getvalue()}, 0)
+assert len(records) == 6
+hashes = {entry['payloadSha256'] for entry in records}
+for expected in [b'first-payload', b'second-payload', b'tar-payload', b'inner-payload']:
+    assert hashlib.sha256(expected).hexdigest() in hashes
+run_case('corrupt-gzip', {'broken.gz': b'not-a-gzip'}, 1)
+run_case('tar-traversal', {'escape.tar': tar_bytes([('../outside.txt', b'outside')])}, 1)
+run_case('corrupt-zip', {'broken.zip': b'not-a-zip'}, 1)
+zstd_tar = subprocess.run(['zstd', '--compress', '--stdout', '--quiet'], input=tar_bytes([('zstd-inner.txt.gz', gzip.compress(b'zstd-inner-payload'))]), capture_output=True, check=True).stdout
+records = run_case('nested-zstd', {'nested.tar.zst': zstd_tar}, 0)
+assert len(records) == 3
+assert hashlib.sha256(b'zstd-inner-payload').hexdigest() in {entry['payloadSha256'] for entry in records}
+run_case('corrupt-zstd', {'broken.tar.zst': b'not-zstd'}, 1)
+run_case('zstd-traversal', {'escape.tar.zst': subprocess.run(['zstd', '--compress', '--stdout', '--quiet'], input=tar_bytes([('../outside.txt', b'outside')]), capture_output=True, check=True).stdout}, 1)
+header_tar = io.BytesIO()
+with tarfile.open(fileobj=header_tar, mode='w') as archive:
+    for i in range(20_001):
+        info = tarfile.TarInfo(f'directory-{i}')
+        info.type = tarfile.DIRTYPE
+        archive.addfile(info)
+run_case('tar-directory-limit', {'headers.tar.gz': gzip.compress(header_tar.getvalue())}, 1)
+header_zip = io.BytesIO()
+with zipfile.ZipFile(header_zip, 'w') as archive:
+    for i in range(20_001): archive.writestr(f'directory-{i}/', b'')
+run_case('zip-directory-limit', {'headers.zip': header_zip.getvalue()}, 1)
+(receipt / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
+(receipt / 'helper.py.txt').write_bytes(helper.read_bytes())
+(receipt / 'probe.py.txt').write_bytes(Path(__file__).read_bytes())
+print(json.dumps(results))

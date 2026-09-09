@@ -527,7 +527,7 @@ export class ScheduleDaemon {
         // them correctly and RUNS them identically, which is worse than the
         // unique-index violation it replaced because it fails silently.
         if (schedule.dynamic && schedule.key !== null) {
-          proc.sendNotification("ezcorp/trigger-fire", {
+          await proc.sendNotification("ezcorp/trigger-fire", {
             v: 1,
             key: schedule.key,
             kind: "cron",
@@ -539,7 +539,7 @@ export class ScheduleDaemon {
             _meta: { ezCallId },
           });
         } else {
-          proc.sendNotification("ezcorp/schedule-fire", {
+          await proc.sendNotification("ezcorp/schedule-fire", {
             cron: schedule.cron,
             scheduledAt: schedule.nextFireAt.toISOString(),
             firedAt: firedAt.toISOString(),

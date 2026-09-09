@@ -1,0 +1,3 @@
+archived_image=localhost/ezcorp-extension-v4:shipping-9ca27583
+archived_source=9ca275838faf30666da5dba1c0eba141dd053050
+archived_build_log=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/candidate-9ca27583-20260907T075156Z/build-archive/candidate-archive-build.log

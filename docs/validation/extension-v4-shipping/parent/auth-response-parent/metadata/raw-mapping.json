@@ -1,0 +1,232 @@
+{
+  "private_receipt": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z",
+  "copied_files": [
+    {
+      "curated_path": "exits/auth-coverage.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/auth-coverage.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/authored-whitespace.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/authored-whitespace.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/boundaries.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/boundaries.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/browser.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/browser.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/controller.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/controller.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/extensions-api-bun.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/extensions-api-bun.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/lint.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/lint.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/manifest.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/manifest.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/old-route-red.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/old-route-red.exit",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/route-vitest.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/route-vitest.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/source-guard.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/source-guard.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/svelte.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/svelte.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "exits/typecheck.exit.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/typecheck.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "curated_path": "logs/auth-coverage.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/auth-coverage.log",
+      "sha256": "31ba82ba14920c0c790e2f9e939044d300d5dbd34d3fcd77e73550645e5d1e97",
+      "bytes": 67677
+    },
+    {
+      "curated_path": "logs/authored-whitespace.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/authored-whitespace.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "curated_path": "logs/boundaries.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/boundaries.log",
+      "sha256": "89bd562d9b77b341b136593e86ddec12372139d1d208d4b8900d49d4b7b915c1",
+      "bytes": 62
+    },
+    {
+      "curated_path": "logs/browser.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/browser.log",
+      "sha256": "f8fca80412561fafcb89af9924632b4bbf728b4b2b3c7c125965948167e529c6",
+      "bytes": 22622
+    },
+    {
+      "curated_path": "logs/extensions-api-bun.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/extensions-api-bun.log",
+      "sha256": "6866a4bd385c295876b514eaed4f84d3f1fa3689c85f0efe45df85c7932b1ee7",
+      "bytes": 6007
+    },
+    {
+      "curated_path": "logs/lint.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/lint.log",
+      "sha256": "4ba1699dd5644814b47013c91415add7998b287f7c0aa53244c5c74cc572b3fc",
+      "bytes": 15124
+    },
+    {
+      "curated_path": "logs/manifest.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/manifest.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "curated_path": "logs/old-route-red.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/old-route-red.log",
+      "sha256": "7fb207a8b3ad57c3c4b2d2adf2e273af13ae8cc8f19bd14c69eea8185af1d2e5",
+      "bytes": 3340
+    },
+    {
+      "curated_path": "logs/route-vitest.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/route-vitest.log",
+      "sha256": "2f8b749bbcb14df5d7a99218f97f09133d89204bb5d211c9c79851de9eea5911",
+      "bytes": 552
+    },
+    {
+      "curated_path": "logs/svelte.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/svelte.log",
+      "sha256": "ac421c9e11ff13f3b74c08342bfb714efac7420f5d9d6cc40e1cb745a53453c2",
+      "bytes": 8042
+    },
+    {
+      "curated_path": "logs/typecheck.log.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/typecheck.log",
+      "sha256": "beadd1fb90b6cf5a09d66010d09d9db6a86bb5a963505d7a6b7748813f2b80be",
+      "bytes": 304
+    },
+    {
+      "curated_path": "metadata/baseline-route.ts.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/baseline-route.ts.txt",
+      "sha256": "2e51266182ec2daec55c3335d8ae9dbd3e19fe800bc23a9add1cdb49b2e7d2fb",
+      "bytes": 1893
+    },
+    {
+      "curated_path": "metadata/completed-at.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/completed-at.txt",
+      "sha256": "2b6b04e85a6e375ac07294ee9849794fefe39c89784905826e7b4844996e05d9",
+      "bytes": 33
+    },
+    {
+      "curated_path": "metadata/executed-controller.py.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/executed-controller.py.txt",
+      "sha256": "14552820aaf172c2990f31e76759e32f90a0b9577f3314a31a997ca9d590d0fa",
+      "bytes": 4956
+    },
+    {
+      "curated_path": "metadata/results.tsv",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/results.tsv",
+      "sha256": "53fa6ae62c8f84e4fb938342f9be29fc2fc0ae3f244ac5b1a32a87d3cbb7f8de",
+      "bytes": 174
+    },
+    {
+      "curated_path": "metadata/source.patch",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/source.patch",
+      "sha256": "0932ff7d37b661c492a5c16a1e29040370dfcef0424a3611c5a54b2c60762bae",
+      "bytes": 13605
+    },
+    {
+      "curated_path": "metadata/started-at.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/started-at.txt",
+      "sha256": "06f6556c1ffaf48e53524e38bb36e769ac89a6c296aae4f396da9589756395ab",
+      "bytes": 33
+    },
+    {
+      "curated_path": "sources/src/__tests__/auth-middleware.test.ts.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/final-source/src/__tests__/auth-middleware.test.ts.txt",
+      "sha256": "306507e3cd4ee668287f7a13b968e358ef276301a5c5db218bd3cca2c717446b",
+      "bytes": 20681
+    },
+    {
+      "curated_path": "sources/src/auth/middleware.ts.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/final-source/src/auth/middleware.ts.txt",
+      "sha256": "663054280419154d13991da5d230eb9ca894adcaa4ad143b014083b9a33bda31",
+      "bytes": 15347
+    },
+    {
+      "curated_path": "sources/web/e2e/chat-graph.spec.ts.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/final-source/web/e2e/chat-graph.spec.ts.txt",
+      "sha256": "c0a272a59eca4f9a92a2d0892ae6691abea3a9c44902abbb434b86e303b50fe0",
+      "bytes": 26812
+    },
+    {
+      "curated_path": "sources/web/src/__tests__/api-extensions.server.test.ts.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/final-source/web/src/__tests__/api-extensions.server.test.ts.txt",
+      "sha256": "1ded2dce3c89d91eb760ded707313b841603832859ccb85cf0b27b534357c2a7",
+      "bytes": 8615
+    },
+    {
+      "curated_path": "sources/web/src/__tests__/extensions-api.test.ts.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/final-source/web/src/__tests__/extensions-api.test.ts.txt",
+      "sha256": "bc6b202e5b73845e7e69c0f3a5e9529ed134c9249e2535decb116a7d08491146",
+      "bytes": 24639
+    },
+    {
+      "curated_path": "sources/web/src/routes/api/extensions/+server.ts.txt",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/final-source/web/src/routes/api/extensions/+server.ts.txt",
+      "sha256": "5e2371c4f2c037fcc908276ef34277bdff85098c7a4018bd248b22095dcfde82",
+      "bytes": 2003
+    }
+  ],
+  "transformed_files": [
+    {
+      "curated_path": "metadata/inputs.json",
+      "private_path": ".cache/terra-shipping/parent/auth-response-parent-20260907T214541Z/inputs.json",
+      "sha256": "de1fc1f28f70ee3581f0b2004634ef0f6bd5665bb0911fafba85d37a645ac696",
+      "bytes": 659,
+      "output_sha256": "2357affc5b464437f2c1cab6a5514679c92cb8f49bec17b00ba3d8926f258d49",
+      "output_bytes": 851,
+      "transform": "Replace filename-keyed hash object with ordered file/sha256 records. All six original filenames and digest values are unchanged."
+    }
+  ]
+}

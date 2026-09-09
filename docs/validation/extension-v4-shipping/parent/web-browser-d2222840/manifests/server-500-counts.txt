@@ -1,0 +1,6 @@
+mock_full_log_500=105
+visual_capture_total_500=72
+visual_mock_segment_500=72
+visual_real_auth_segment_500=0
+visual_mock_boundary=before the line containing "180 passed"
+visual_real_auth_boundary=after "180 passed" through the line containing "10 passed"

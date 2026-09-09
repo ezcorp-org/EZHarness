@@ -1,0 +1,10 @@
+--- a/docs/extensions/examples/todo-tracker/index.ts
++++ b/docs/extensions/examples/todo-tracker/index.ts
+@@ -105,7 +105,6 @@
+     try {
+       entries = await fsList(dir);
+     } catch (error) {
+-      if (isRoot) throw error;
+       return; // skip dirs we can't list (permission, gone, etc.)
+     }
+     for (const entry of entries) {

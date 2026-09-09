@@ -6,7 +6,10 @@
 // (the real end-to-end pipeline composition test). Test-only helper —
 // not product code.
 
-import { BarcodeFormat, EncodeHintType, QRCodeWriter } from "@zxing/library";
+// ZXing publishes CommonJS. Node 22 cannot statically link all of its named
+// exports, even though newer Node versions can detect them. Use the stable
+// CommonJS default namespace so Playwright collection works on CI and locally.
+import ZXing from "@zxing/library";
 import jpeg from "jpeg-js";
 import { encode as encodePng } from "fast-png";
 import type { RgbaImage } from "../../lib/decode";
@@ -72,11 +75,11 @@ export function renderItfRgba(digits: string, unitPx = 3, heightPx = 80, quietUn
 
 /** Render a QR code for `contents` as an RGBA raster (zxing's own writer). */
 export function renderQrRgba(contents: string, size = 240): RgbaImage {
-  const hints = new Map<EncodeHintType, unknown>();
-  hints.set(EncodeHintType.MARGIN, 4);
-  const matrix = new QRCodeWriter().encode(
-    contents,
-    BarcodeFormat.QR_CODE,
+	const hints = new Map<unknown, unknown>();
+	hints.set(ZXing.EncodeHintType.MARGIN, 4);
+	const matrix = new ZXing.QRCodeWriter().encode(
+		contents,
+		ZXing.BarcodeFormat.QR_CODE,
     size,
     size,
     hints as never,

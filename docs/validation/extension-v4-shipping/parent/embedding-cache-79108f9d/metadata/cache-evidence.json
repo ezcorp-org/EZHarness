@@ -1,0 +1,31 @@
+{
+  "all_first_owner_rows_1001_1001": true,
+  "all_read_only_owner_rows_1001_1001": true,
+  "content_hashes_equal": true,
+  "first_nonempty_file_count": 4,
+  "first_ownership_row_count": 8,
+  "raw_identities": {
+    "cache-first-ownership-modes.tsv": {
+      "bytes": 334,
+      "sha256": "877f9f97a7f00b7e3ed98510582da62d4db1bc832ae14ccd9889e33f892f2d8d"
+    },
+    "cache-first-sha256.tsv": {
+      "bytes": 433,
+      "sha256": "c61f2c70231e387e347bd4afd30f4df4f027c2b21fd58498b46f3af3146f9969"
+    },
+    "cache-read-only-ownership-modes.tsv": {
+      "bytes": 334,
+      "sha256": "b6e786c307f76aa4ee2244211d78fc71f028c6a91b0346e261999be82535fe00"
+    },
+    "cache-second-sha256.tsv": {
+      "bytes": 433,
+      "sha256": "c61f2c70231e387e347bd4afd30f4df4f027c2b21fd58498b46f3af3146f9969"
+    }
+  },
+  "read_only_ownership_row_count": 8,
+  "second_nonempty_file_count": 4,
+  "uid1001_writable_probe": {
+    "cacheFiles": 4,
+    "packageWritable": false
+  }
+}

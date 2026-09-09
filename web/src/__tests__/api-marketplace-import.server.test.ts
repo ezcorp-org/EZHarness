@@ -135,7 +135,7 @@ describe("POST /api/marketplace/import", () => {
       name: "TestAgent",
     } as any);
     const res = await POST(
-      makeEvent({ locals: { user }, body: validManifestBody }),
+      makeEvent({ locals: { user }, body: { ...validManifestBody, managedByExtensionId: "forged", agent: { ...validManifestBody.agent, managedByExtensionId: "forged" } } }),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
@@ -144,6 +144,7 @@ describe("POST /api/marketplace/import", () => {
     };
     expect(body.agentConfig.id).toBe("cfg-1");
     expect(body.extensionsNeeded).toEqual([]);
+    expect(vi.mocked(createAgentConfig).mock.calls[0]![0]).not.toHaveProperty("managedByExtensionId");
   });
 
   test("renames agent on name collision", async () => {

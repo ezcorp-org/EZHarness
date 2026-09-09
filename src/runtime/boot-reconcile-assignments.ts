@@ -30,12 +30,17 @@ import type { AgentEvents } from "../types";
 import { logger } from "../logger";
 import { listStorageRowsForKey } from "../db/queries/extension-storage";
 import { getRunStatusesByIds } from "../db/queries/runs";
+import { getRunWithLogs } from "../db/queries/runs";
+import { capFullResult, extractFullText, stripSignals } from "./start-assignment";
+import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
+import { LifecycleError } from "../extensions/v4/types";
 import {
   getTaskTrackingExtensionId,
   writeTaskSnapshotForConversation,
   STORAGE_KEY,
   type TaskAssignment,
   type TrackedTask,
+  TaskTrackingNotInstalledError,
 } from "./task-tracking-host";
 
 const log = logger.child("boot-reconcile-assignments");
@@ -48,6 +53,7 @@ interface DanglingTarget {
   conversationId: string;
   taskId: string;
   assignment: TaskAssignment;
+  resultFull?: string;
 }
 
 /** Per-conversation working set: the mutable snapshot to re-persist and the
@@ -56,7 +62,9 @@ interface DanglingTarget {
 interface ConversationEntry {
   snapshot: { tasks: TrackedTask[]; activeTaskId?: string };
   running: DanglingTarget[];
+  expectedRevision: string;
 }
+let maintenanceCursor = "";
 
 /**
  * Reconcile task-tracking assignments left `running` by a restart. Returns
@@ -64,17 +72,21 @@ interface ConversationEntry {
  * not-yet-installed extension (very early boot) is a quiet no-op.
  */
 export async function reconcileInterruptedAssignments(
-  bus: EventBus<AgentEvents>,
+  bus: EventBus<AgentEvents> | undefined,
+  batchSize?: number,
 ): Promise<number> {
   let extId: string;
   try {
     extId = await getTaskTrackingExtensionId();
-  } catch {
+  } catch (error) {
+    if (!(error instanceof TaskTrackingNotInstalledError)) throw error;
     // task-tracking not installed yet (uninitialized boot) — nothing to do.
     return 0;
   }
 
-  const rows = await listStorageRowsForKey(extId, "conversation", STORAGE_KEY);
+  const limit = batchSize === undefined ? undefined : Math.max(1, Math.min(500, Math.trunc(batchSize)));
+  const rows = await listStorageRowsForKey(extId, "conversation", STORAGE_KEY, limit === undefined ? undefined : { limit, afterScopeId: maintenanceCursor });
+  if (limit !== undefined) maintenanceCursor = rows.length < limit ? "" : rows.at(-1)?.scopeId ?? "";
 
   // Gather every RUNNING assignment (task- or subtask-scoped) per conversation
   // so each snapshot is persisted at most once.
@@ -104,6 +116,7 @@ export async function reconcileInterruptedAssignments(
           : {}),
       },
       running,
+      expectedRevision: await sha256(canonicalJson(row.value)),
     });
   }
 
@@ -123,6 +136,15 @@ export async function reconcileInterruptedAssignments(
       const status = runId ? statuses.get(runId) : undefined;
       if (status === "running") continue;
       const assignment = target.assignment;
+      if (status === "success" && runId) {
+        const run = await getRunWithLogs(runId);
+        assignment.status = "completed";
+        assignment.completedAt = new Date().toISOString();
+        target.resultFull = capFullResult(stripSignals(extractFullText(run?.result?.output))) ?? "";
+        assignment.resultPreview = target.resultFull.slice(0, 200);
+        patched.push(target);
+        continue;
+      }
       assignment.status = "failed";
       assignment.failedAt = new Date().toISOString();
       assignment.resultPreview = INTERRUPT_PREVIEW;
@@ -130,7 +152,12 @@ export async function reconcileInterruptedAssignments(
     }
     if (patched.length === 0) continue;
 
-    await writeTaskSnapshotForConversation(conversationId, entry.snapshot);
+    try {
+      await writeTaskSnapshotForConversation(conversationId, entry.snapshot, { bus, expectedRevision: entry.expectedRevision, assignments: patched.map(target => ({ taskId: target.taskId, assignment: target.assignment, resultFull: target.resultFull ?? INTERRUPT_PREVIEW })) });
+    } catch (error) {
+      if (error instanceof LifecycleError && error.code === "task_conflict") continue;
+      throw error;
+    }
     for (const target of patched) {
       emitReconciled(bus, target);
       reconciled++;
@@ -160,21 +187,15 @@ function collectRunningAssignments(task: TrackedTask): TaskAssignment[] {
 
 /** Emit the reconciling `task:assignment_update` + `agent:complete` so the
  *  panel + any waiting ext state converge on next load. */
-function emitReconciled(bus: EventBus<AgentEvents>, target: DanglingTarget): void {
-  const { conversationId, taskId, assignment } = target;
-  bus.emit("task:assignment_update", {
-    conversationId,
-    taskId,
-    assignment,
-    resultFull: INTERRUPT_PREVIEW,
-  });
-  bus.emit("agent:complete", {
+function emitReconciled(bus: EventBus<AgentEvents> | undefined, target: DanglingTarget): void {
+  const { conversationId, assignment } = target;
+  bus?.emit("agent:complete", {
     runId: assignment.agentRunId ?? "",
     agentRunId: assignment.agentRunId ?? "",
     subConversationId: assignment.subConversationId ?? "",
     agentName: assignment.agentName,
     agentConfigId: assignment.agentConfigId,
-    success: false,
+    success: assignment.status === "completed",
     resultPreview: assignment.resultPreview ?? INTERRUPT_PREVIEW,
     parentConversationId: conversationId,
   });

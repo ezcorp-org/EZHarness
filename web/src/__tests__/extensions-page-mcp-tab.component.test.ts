@@ -21,6 +21,8 @@ import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("$lib/toast.svelte.js", () => ({ addToast: vi.fn() }));
+vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
+import { goto } from "$app/navigation";
 
 import ExtensionsPage from "../routes/(app)/extensions/+page.svelte";
 
@@ -101,6 +103,23 @@ afterEach(() => {
 });
 
 describe("Extensions page — MCP tab + guided install", () => {
+	test("routes source imports to review and excludes the virtual native-tool row", async () => {
+		const sentinel = makeExt({ id: "builtin", name: "Built-in Tools", source: "builtin" });
+		restoreFetch = installFetch({ list: [local, sentinel] });
+		const { getByRole, getByTestId, queryByText, queryByPlaceholderText } = render(ExtensionsPage, {
+			props: { data: { bundledExtensions: [], installedExtensions: [local, sentinel] } },
+		});
+		await waitFor(() => expect(getByTestId("ext-tab-installed")).toHaveTextContent("1"));
+		expect(queryByText("Built-in Tools")).toBeNull();
+		expect(getByRole("link", { name: "Choose source" })).toHaveAttribute("href", "/extensions/import-source");
+		expect(queryByPlaceholderText("/path/to/extension")).toBeNull();
+		expect(queryByText("Git URL")).toBeNull();
+		expect(queryByText("Install from GitHub")).toBeNull();
+		expect(vi.mocked(fetch).mock.calls.some(([url, init]) => url === "/api/extensions" && init?.method === "POST")).toBe(false);
+		await fireEvent.click(getByRole("button", { name: "MCP Server" }));
+		await fireEvent.click(getByRole("button", { name: "Extension source" }));
+		expect(getByRole("link", { name: "Choose source" })).toBeVisible();
+	});
 	test("renders three tabs; MCP tab filters to kind:mcp rows", async () => {
 		restoreFetch = installFetch({ list: [local, mcp] });
 		const { getByTestId, findByText, queryByText } = render(ExtensionsPage, {
@@ -125,7 +144,7 @@ describe("Extensions page — MCP tab + guided install", () => {
 		await waitFor(() => expect(queryByText("local-ext")).toBeNull());
 	});
 
-	test("successful MCP install renders 'Connected · N tools found' from manifest.tools.length", async () => {
+	test("MCP source staging opens the review workspace without claiming activation", async () => {
 		const installed = makeExt({
 			id: "db-mcp",
 			name: "db-mcp",
@@ -144,7 +163,7 @@ describe("Extensions page — MCP tab + guided install", () => {
 		restoreFetch = installFetch({
 			list: [],
 			afterInstall: [installed],
-			installed,
+			installed: { openUrl: "/extensions/author?installation=db-mcp&workspace=draft" },
 		});
 		const { getByText, getByPlaceholderText, findByTestId } = render(ExtensionsPage, {
 			props: { data: { bundledExtensions: [], installedExtensions: [] } },
@@ -160,7 +179,10 @@ describe("Extensions page — MCP tab + guided install", () => {
 		// Confirmation banner reads the returned manifest's tool count (3).
 		const banner = await findByTestId("mcp-install-confirmation");
 		expect(banner).toBeInTheDocument();
-		expect(await findByTestId("mcp-install-tool-count")).toHaveTextContent("3");
+		expect(banner).toHaveTextContent("Build pending");
+		expect(banner).toHaveTextContent("needs human approval");
+		expect(banner).not.toHaveTextContent("Connected");
+		expect(goto).toHaveBeenCalledWith("/extensions/author?installation=db-mcp&workspace=draft");
 		expect(banner).toHaveTextContent("db-mcp");
 	});
 });

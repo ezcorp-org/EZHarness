@@ -1,0 +1,5 @@
+started_at=2026-09-07T06:05:03Z
+source=156fd9a46c3666e711e54f71350a53b6646e997f
+image=localhost/ezcorp-extension-v4:shipping-adbba8a6
+image_id=sha256:3800bd95cd2e106d1d3b9fb304cddce94db5872006f5a4b782d673e01a601b8f
+minimum_duration_seconds=1800

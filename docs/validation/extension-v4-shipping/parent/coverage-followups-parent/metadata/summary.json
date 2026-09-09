@@ -1,0 +1,51 @@
+{
+  "base_commit": "153e74d86ae88101667a425760cb1d7b50e19a33",
+  "final_commit": "a28bba35dec4d9e2e7b0dbd67f08123f2a64ac4a",
+  "final_commit_subject": "test: wait for async completion and retain coverage failures",
+  "first_controller": {
+    "receipt": "combined-coverage-followups-20260907T203717Z",
+    "old_close_control_exit": 1,
+    "old_close_control": "Expected red: closeObserved was false before the await-close repair.",
+    "auto_note_covered_exit": 0,
+    "auto_note_covered": "14 pass, 0 fail, 42 expectations.",
+    "chat_covered_exit": 0,
+    "chat_covered": "3 pass, 0 fail, 11 expectations.",
+    "typecheck_exit": 1,
+    "typecheck_failure": "TS2352 in chat-tools-integration.test.ts: unsafe conversion of an event with only eventType to a type requiring data.tokenUsage."
+  },
+  "coverage_output": {
+    "receipt": "coverage-followup-parent-20260907T203326Z",
+    "controlled_red_exit": 1,
+    "controlled_red": "Expected red before pooled failure output was retained.",
+    "hostile_ci_green_exit": 0,
+    "shell_syntax_exit": 0,
+    "file_lint_exit": 0,
+    "holder_covered_exit": 0,
+    "holder_covered": "14 pass, 0 fail, 26 expectations.",
+    "holder_adjacent_covered_exit": 0,
+    "holder_adjacent_covered": "11 pass, 0 fail, 21 expectations."
+  },
+  "final_static": {
+    "receipt": "coverage-followups-static-20260907T203904Z",
+    "controller_exit": 0,
+    "commit_exit": 0,
+    "final_chat_covered_exit": 0,
+    "final_chat_covered": "3 pass, 0 fail, 11 expectations.",
+    "rows": {
+      "typecheck": 0,
+      "lint": 0,
+      "boundaries": 0,
+      "svelte": 0,
+      "manifest": 0,
+      "shell": 0,
+      "whitespace": 0,
+      "source_guard": 0
+    },
+    "narrow_final_correction": "The final chat test gives the fetched event array its concrete event/data type before selecting turn_summary, removing the TS2352 cast while keeping the bounded asynchronous wait."
+  },
+  "limitations": [
+    "This checkpoint contains no LCOV files or raw archives.",
+    "The red controls are expected controls, not product failures.",
+    "Only the copied files enumerated in provenance.json have byte mappings; this checkpoint does not claim a full-suite result."
+  ]
+}

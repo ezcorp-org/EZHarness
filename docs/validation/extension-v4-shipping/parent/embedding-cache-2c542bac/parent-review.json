@@ -1,0 +1,37 @@
+{
+  "source_commit_sha": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "frozen_committed_inputs": 19,
+  "cache_files": 4,
+  "read_only_ownership_rows": 8,
+  "cache_bytes_equal": true,
+  "phase_statuses_all_zero": true,
+  "owned_state_absent": true,
+  "raw_log_review": [
+    {
+      "phase": "first",
+      "file": "compose.log",
+      "sha256": "1d09af4984ccf289d5e9bde1546c815614589190b4581b11ddd86f70cd502420",
+      "error_fatal_eacces_lines": 0
+    },
+    {
+      "phase": "first",
+      "file": "runner.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_fatal_eacces_lines": 0
+    },
+    {
+      "phase": "second",
+      "file": "compose.log",
+      "sha256": "7cbbe45eded9232110a0e345748b7c13ade212187e0550c8b3eb5145df09f5e9",
+      "error_fatal_eacces_lines": 0
+    },
+    {
+      "phase": "second",
+      "file": "runner.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_fatal_eacces_lines": 0
+    }
+  ],
+  "safe_checksums_verified": 27,
+  "safe_frozen_inputs_matched": 19
+}

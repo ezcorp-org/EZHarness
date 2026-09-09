@@ -48,7 +48,7 @@
  * ("unsupported Unicode escape sequence") — an exception on both drivers.
  */
 import { eq, sql } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, type DbTransaction } from "../connection";
 import { conversations } from "../schema";
 import { isPlainObject, sanitizeNulDeep } from "../sanitize-nul";
 
@@ -81,6 +81,7 @@ import { isPlainObject, sanitizeNulDeep } from "../sanitize-nul";
 export async function mergeConversationMetadata(
   id: string,
   patch: Record<string, unknown>,
+  database?: Pick<DbTransaction, "update">,
 ): Promise<void> {
   if (!isPlainObject(patch)) {
     throw new TypeError(
@@ -89,7 +90,7 @@ export async function mergeConversationMetadata(
     );
   }
   const clean = JSON.stringify(sanitizeNulDeep(patch));
-  await getDb()
+  await (database ?? getDb())
     .update(conversations)
     .set({
       metadata: sql`COALESCE(${conversations.metadata}, '{}'::jsonb) || ${clean}::text::jsonb`,
@@ -107,8 +108,9 @@ export async function mergeConversationMetadata(
 export async function deleteConversationMetadataKey(
   id: string,
   key: ConversationMetadataKey,
+  database?: Pick<DbTransaction, "update">,
 ): Promise<void> {
-  await getDb()
+  await (database ?? getDb())
     .update(conversations)
     .set({ metadata: sql`COALESCE(${conversations.metadata}, '{}'::jsonb) - ${key}::text` })
     .where(eq(conversations.id, id));

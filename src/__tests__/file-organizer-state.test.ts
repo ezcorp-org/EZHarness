@@ -144,6 +144,32 @@ describe("acceptProposal", () => {
     expect(await Bun.file(join(watched, "junk.tmp")).exists()).toBe(false);
   });
 
+  test("first delete-quarantine creates its private trash root and preserves bytes", async () => {
+    await seedConfig();
+    await rm(join(dataDir, ".trash"), { recursive: true, force: true });
+    const sentinel = "first-quarantine-sentinel";
+    const src = join(watched, "first-junk.tmp");
+    await writeFile(src, sentinel);
+    await seedProposals([
+      proposal({
+        id: "first-delete",
+        kind: "delete-quarantine",
+        src,
+        dst: null,
+        quarantineId: "first-q",
+        reason: "junk",
+        snapshot: { size: Buffer.byteLength(sentinel), mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 },
+      }),
+    ]);
+
+    const result = await state.acceptProposal(deps(), "first-delete");
+
+    expect(result.ok).toBe(true);
+    expect((await readProposals()).proposals[0].status).toBe("applied");
+    expect(await Bun.file(src).exists()).toBe(false);
+    expect(await Bun.file(join(dataDir, ".trash", "first-q", "first-junk.tmp")).text()).toBe(sentinel);
+  });
+
   test("stale source ⇒ status stale-source + 'Source gone' message", async () => {
     await seedConfig();
     // No file on disk at the proposal's src ⇒ applier returns stale-source.
@@ -297,6 +323,15 @@ describe("quarantine restore / undo / purge", () => {
     expect(r.ok).toBe(true);
     expect(await Bun.file(join(dataDir, ".trash", "q1", "a.txt")).exists()).toBe(false);
     expect((await readManifest()).entries).toHaveLength(0);
+  });
+
+  test("a denied private purge preserves its trash bytes and manifest entry", async () => {
+    await seedConfig();
+    await seedQuarantine();
+    const r = await state.purge(deps(fakeEngine("deny")), "q1");
+    expect(r).toEqual({ ok: false, message: "Blocked: engine denied the private purge", changed: false });
+    expect(await Bun.file(join(dataDir, ".trash", "q1", "a.txt")).text()).toBe("restored");
+    expect((await readManifest()).entries.map((entry: { id: string }) => entry.id)).toEqual(["q1"]);
   });
 
   test("emptyQuarantine clears all", async () => {

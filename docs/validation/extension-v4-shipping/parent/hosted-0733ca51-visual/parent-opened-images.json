@@ -1,0 +1,26 @@
+{
+  "opened_by_parent": [
+    {
+      "artifact_member": "extracted/extension-source-import.spec.ts__extension-source-import-review.png",
+      "curated_path": "images/extension-source-import.spec.ts__extension-source-import-review.png",
+      "sha256": "e111529adb0a85946b1bac0c86c71c7fcc4d5daa466606faffe3defaa0c6e5a8",
+      "bytes": 149929,
+      "archive_extraction_and_curation_bytes_identical": true
+    },
+    {
+      "artifact_member": "extracted/extension-author-flow.spec.ts__extension-uninstall-retains-data.png",
+      "curated_path": "images/extension-author-flow.spec.ts__extension-uninstall-retains-data.png",
+      "sha256": "a1c5ff561e23bc20a413f2721004a670eca4f21e13e708efdf67901e9518d1aa",
+      "bytes": 128532,
+      "archive_extraction_and_curation_bytes_identical": true
+    },
+    {
+      "artifact_member": "extracted/extension-author-flow.spec.ts__extension-release-mobile.png",
+      "curated_path": "images/extension-author-flow.spec.ts__extension-release-mobile.png",
+      "sha256": "80b5bb54da4764095039135cd29c7cf95141c74d5a4cb92b60d59871c599afa4",
+      "bytes": 40246,
+      "archive_extraction_and_curation_bytes_identical": true
+    }
+  ],
+  "finding": "No overlap, clipping, or legibility defect observed in these three images only."
+}

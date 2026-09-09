@@ -17,6 +17,7 @@ import {
   afterAll,
   beforeEach,
   mock,
+  spyOn,
 } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
@@ -40,6 +41,8 @@ const { reconcileInterruptedAssignments, INTERRUPT_PREVIEW } = await import(
 );
 const { getTaskSnapshotForConversation, _resetTaskTrackingExtensionIdCache } =
   await import("../runtime/task-tracking-host");
+const taskHost = await import("../runtime/task-tracking-host");
+const { LifecycleError } = await import("../extensions/v4/types");
 const { EventBus } = await import("../runtime/events");
 const { getDb } = await import("../db/connection");
 const {
@@ -163,6 +166,39 @@ beforeEach(async () => {
 });
 
 describe("reconcileInterruptedAssignments", () => {
+  test("recovery propagates database faults and skips stale snapshots without overwriting them", async () => {
+    const lookupFailure = spyOn(taskHost, "getTaskTrackingExtensionId").mockRejectedValueOnce(new Error("Database unavailable"));
+    try { await expect(reconcileInterruptedAssignments(undefined)).rejects.toThrow("Database unavailable"); }
+    finally { lookupFailure.mockRestore(); }
+    await seedExtension();
+    await seedConversation("conv-race");
+    await seedSnapshot("conv-race", [{ id: "task-race", title: "Race", description: "", status: "active", assignments: [assignment({ id: "assignment-race", agentRunId: "run-gone" })], subtasks: [], priority: 0, createdAt: "now" }]);
+    const { bus, events } = capturingBus();
+    const conflict = spyOn(taskHost, "writeTaskSnapshotForConversation").mockRejectedValueOnce(new LifecycleError("task_conflict", "State changed"));
+    try { expect(await reconcileInterruptedAssignments(bus)).toBe(0); }
+    finally { conflict.mockRestore(); }
+    expect(events).toEqual([]);
+    expect((await getTaskSnapshotForConversation("conv-race"))?.tasks[0]?.assignments[0]?.status).toBe("running");
+    const failure = spyOn(taskHost, "writeTaskSnapshotForConversation").mockRejectedValueOnce(new Error("Outbox unavailable"));
+    try { await expect(reconcileInterruptedAssignments(bus)).rejects.toThrow("Outbox unavailable"); }
+    finally { failure.mockRestore(); }
+  });
+
+  test("a successful persisted run recovers its assignment result instead of reporting interruption", async () => {
+    await seedExtension();
+    await seedConversation("conv-success");
+    await seedSnapshot("conv-success", [{ id: "task-success", title: "Successful task", description: "", status: "active", assignments: [assignment({ id: "assignment-success", agentRunId: "run-success" })], subtasks: [], priority: 0, createdAt: "now" }]);
+    await seedRun("run-success", "success");
+    const { eq } = await import("drizzle-orm");
+    await getDb().update(runs).set({ result: { success: true, output: "Recovered full result" } }).where(eq(runs.id, "run-success"));
+    const { bus, events } = capturingBus();
+    expect(await reconcileInterruptedAssignments(bus)).toBe(1);
+    const snapshot = await getTaskSnapshotForConversation("conv-success");
+    expect(snapshot?.tasks[0]?.assignments[0]).toMatchObject({ status: "completed", resultPreview: "Recovered full result" });
+    expect(events.find(event => event.type === "task:assignment_update")?.data.resultFull).toBe("Recovered full result");
+    expect(events.find(event => event.type === "agent:complete")?.data.success).toBe(true);
+    expect(await reconcileInterruptedAssignments(bus)).toBe(0);
+  });
   test("returns 0 (quiet no-op) when the task-tracking extension is not installed", async () => {
     // No extension row seeded yet — getTaskTrackingExtensionId throws.
     const { bus, events } = capturingBus();

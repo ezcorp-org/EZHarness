@@ -121,6 +121,7 @@ function checkToolMode(
 // ── Types ──────────────────────────────────────────────────────────
 
 export interface FsHandlerContext {
+  serviceInvocation?: import("./service-invocation").ServiceInvocation;
   extensionId: string;
   conversationId: string;
   userId: string;

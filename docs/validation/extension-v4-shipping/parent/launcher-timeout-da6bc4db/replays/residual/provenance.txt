@@ -1,0 +1,2 @@
+da6bc4db6326696347d76a2225677954b31d3a2b
+PATH=/home/dev/.bun/install/global/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/dev/.codex/tmp/arg0/codex-arg0WGxFDh:/home/dev/.local/bin:/home/dev/.bun/bin:/home/dev/.local/bin:/home/dev/.opencode/bin:/home/dev/.bun/bin:/run/wrappers/bin:/home/dev/.local/share/flatpak/exports/bin:/var/lib/flatpak/exports/bin:/home/dev/.nix-profile/bin:/nix/profile/bin:/home/dev/.local/state/nix/profile/bin:/etc/profiles/per-user/dev/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin

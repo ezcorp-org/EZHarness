@@ -1,0 +1,33 @@
+{
+  "responseStatus": 200,
+  "body": {
+    "ok": false,
+    "message": "Failed: trash root unresolvable"
+  },
+  "applied": {
+    "id": "d53b568b-533f-4eac-be14-6356b42013f1",
+    "kind": "delete-quarantine",
+    "src": "/app/data/file-organizer-test/fo-test-watched/daemon-proof.tmp",
+    "dst": null,
+    "reason": "Temp files (*.tmp, ≥10m old)",
+    "ruleId": "junk-tmp",
+    "ruleLabel": "Temp files (*.tmp, ≥10m old)",
+    "folderId": "97593ee8-86bb-4e7f-a947-cff5eb844527",
+    "snapshot": {
+      "size": 49,
+      "mtimeMs": 1788741861065.4885,
+      "sha256": "918a9fa7de37b0e1d302a4b39bafb73fdd9f27d089a83674373d098e4cd2406d",
+      "isSymlink": false,
+      "dev": 0,
+      "ino": 0,
+      "nlink": 1
+    },
+    "status": "failed",
+    "dedupeKey": "delete-quarantine|/app/data/file-organizer-test/fo-test-watched/daemon-proof.tmp|junk-tmp|",
+    "createdAt": "2026-09-07T01:06:17.441Z",
+    "version": 1
+  },
+  "sourceContent": "daemon-proof-4b938c4e-cca1-4fc0-b65a-dd6e067a5892",
+  "sourceAbsent": false,
+  "destinationContent": null
+}

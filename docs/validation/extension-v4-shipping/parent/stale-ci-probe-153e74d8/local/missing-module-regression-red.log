@@ -1,0 +1,28 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/e2e-lanes.test.ts:
+264 |       const modules = [...text.matchAll(/\bbun\s+((?:scripts|web)\/[A-Za-z0-9_./-]+\.ts)/g)].map(
+265 |         (match) => match[1]!,
+266 |       );
+267 |       expect(modules.length, `${source} has no explicit Bun file commands`).toBeGreaterThan(0);
+268 |       const missing = modules.filter((module) => !existsSync(join(REPO_ROOT, module)));
+269 |       expect(missing, `${source} invokes missing Bun module(s): ${missing.join(", ")}`).toEqual([]);
+                                                                                              ^
+error: .github/workflows/ci.yml invokes missing Bun module(s): web/e2e/real-auth/_sandbox-spawn-probe.bun.ts
+
+- []
++ [
++   "web/e2e/real-auth/_sandbox-spawn-probe.bun.ts",
++ ]
+
+- Expected  - 1
++ Received  + 3
+
+      at <anonymous> (/home/dev/work/EZCorp/extension-v4-independent-audit/src/__tests__/e2e-lanes.test.ts:269:89)
+(fail) e2e lane manifest > hosted and local CI Bun file commands name existing modules [2.92ms]
+
+ 0 pass
+ 11 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [480.00ms]

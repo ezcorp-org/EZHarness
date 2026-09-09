@@ -1,0 +1,3 @@
+source=private runtime/compose.log
+structured_error_or_fatal_match_count=0
+raw_app_log=not_published

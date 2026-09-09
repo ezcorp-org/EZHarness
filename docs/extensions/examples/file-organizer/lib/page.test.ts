@@ -1,3 +1,4 @@
+// @ezcorp-host-integration
 import { describe, expect, test } from "bun:test";
 import { validatePageTree, MAX_PAGE_NODES, MAX_TABLE_ROWS } from "../../../../../src/extensions/page-schema";
 import {
@@ -15,7 +16,7 @@ import {
   type FoldersView,
   type OverviewView,
   type ReviewView,
-} from "./page";
+} from ".././lib/page";
 import type { Proposal, ProposalKind } from "./proposals";
 import { emptyConfig, addFolder, type Config } from "./config";
 import type { QuarantineEntry } from "./quarantine";

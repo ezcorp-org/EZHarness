@@ -1,0 +1,3 @@
+source_commit_sha=6c05453edbb4148d53cbc37b67d05907b5459c67
+image=localhost/ezcorp-extension-v4:shipping-6c05453e
+image_id=sha256:f46201b8f779745e5fa927d780cd7976c85ae8031e63ae584e68ac93e81aeea5

@@ -91,9 +91,12 @@ describe("pingAct", () => {
   });
 
   test("negative / non-finite / non-integer seq is normalized to a safe int", async () => {
-    expect((await pingAct(makeCtx({ seq: -5 }))).outcome).toMatchObject({ seq: 0 });
-    expect((await pingAct(makeCtx({ seq: 2.9 }))).outcome).toMatchObject({ seq: 2 });
-    expect((await pingAct(makeCtx({ seq: Number.NaN }))).outcome).toMatchObject({ seq: 0 });
+    for (const [seq, expected] of [[-5, 0], [2.9, 2], [Number.NaN, 0]]) {
+      const result = await pingAct(makeCtx({ seq }));
+      expect(result.kind).toBe("terminal");
+      if (result.kind !== "terminal") throw new Error("Expected a completed ping");
+      expect(result.outcome).toMatchObject({ seq: expected });
+    }
   });
 
   test("settings.enabled=false → skip (no outcome)", async () => {

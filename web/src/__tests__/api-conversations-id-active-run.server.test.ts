@@ -21,6 +21,11 @@ const cancelRun = vi.fn();
 const getActiveRunForConversation = vi.fn();
 const getPendingPermissions = vi.fn(() => []);
 const busEmit = vi.fn();
+const finalizeRunRow = vi.fn();
+vi.mock("$server/db/queries/runs", () => ({ finalizeRunRow }));
+vi.mock("$server/extensions/domain-event-outbox", () => ({
+  emitPersistedDomainEvent: (bus: { emit: typeof busEmit }, event: { type: string; payload: unknown }) => bus.emit(event.type, event.payload),
+}));
 
 vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({
@@ -78,6 +83,7 @@ const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 
 describe("GET /api/conversations/[id]/active-run", () => {
   beforeEach(() => {
+    finalizeRunRow.mockReset().mockResolvedValue(1);
     cancelRun.mockReset();
     getActiveRunForConversation.mockReset();
     vi.mocked(getActiveRun).mockReset();
@@ -138,6 +144,7 @@ describe("GET /api/conversations/[id]/active-run", () => {
 
 describe("POST /api/conversations/[id]/active-run", () => {
   beforeEach(() => {
+    finalizeRunRow.mockReset().mockResolvedValue(1);
     cancelRun.mockReset();
     getActiveRunForConversation.mockReset();
     vi.mocked(getActiveRun).mockReset();
@@ -224,7 +231,8 @@ describe("POST /api/conversations/[id]/active-run", () => {
     expect(body.cancelled).toBe(true);
     expect(body.path).toBe("db-fallback");
     expect(body.runId).toBe("run-db-1");
-    expect(vi.mocked(markInterrupted)).toHaveBeenCalledWith("run-db-1");
+    expect(vi.mocked(markInterrupted)).not.toHaveBeenCalled();
+    expect(finalizeRunRow).toHaveBeenCalledWith("run-db-1", "error", expect.any(String), expect.objectContaining({ conversationId: "c1" }), true);
 
     // The synthesized run:error must carry a top-level runId (parity with
     // run:status) so SSE clients clean up their streaming state.
@@ -238,4 +246,24 @@ describe("POST /api/conversations/[id]/active-run", () => {
     expect(payload.run.id).toBe("run-db-1");
     expect(payload.conversationId).toBe("c1");
   });
+});
+
+test("fallback waits for commit and does not publish on persistence failure or a lost race", async () => {
+  getActiveRunForConversation.mockReturnValue(null);
+  vi.mocked(getActiveRun).mockResolvedValue({ id: "run-db-1", startedAt: new Date() } as any);
+  busEmit.mockClear();
+  let finish!: (count: number) => void;
+  finalizeRunRow.mockImplementationOnce(() => new Promise<number>((resolve) => { finish = resolve; }));
+  const request = () => makeEvent({ method: "POST", locals: { user }, body: { action: "cancel" } });
+  const pending = POST(request());
+  await vi.waitFor(() => expect(finish).toBeDefined());
+  expect(busEmit).not.toHaveBeenCalled();
+  finish(0);
+  expect(await (await pending).json()).toMatchObject({ cancelled: false });
+  expect(busEmit).not.toHaveBeenCalled();
+  finalizeRunRow.mockRejectedValueOnce(new Error("database details"));
+  const response = await POST(request());
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({ error: "Failed to finalize the run." });
+  expect(busEmit).not.toHaveBeenCalled();
 });

@@ -21,6 +21,9 @@ import { mock } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { withFrozenNow } from "./helpers/frozen-clock";
+import { up as receiptTables } from "../db/migrations/add-extension-event-receipts";
+import { up as releaseTables } from "../db/migrations/add-extension-releases";
+import { registerCallProvenance, releaseCallProvenance } from "../extensions/call-provenance";
 
 mock.module("../db/connection", () => ({
   getDb: () => {
@@ -38,7 +41,7 @@ mock.module("../db/connection", () => ({
 
 const { handleEmitLoopEventRpc } = await import("../extensions/loop-events-handler");
 const { getDb } = await import("../db/connection");
-const { users, auditLog } = await import("../db/schema");
+const { users, auditLog, projects, conversations } = await import("../db/schema");
 const { eq, desc, and } = await import("drizzle-orm");
 
 import type { LoopEventsContext } from "../extensions/loop-events-handler";
@@ -99,12 +102,16 @@ async function lastAudit(
 
 beforeAll(async () => {
   await setupTestDb();
+  await releaseTables(getDb());
+  await receiptTables(getDb());
   await getDb().insert(users).values({
     id: "user-loops",
     email: "user-loops@t.local",
     passwordHash: "x",
     name: "user-loops",
   } as any).onConflictDoNothing();
+  const [project] = await getDb().insert(projects).values({ name: "Loop tests", path: "/fixture" }).returning();
+  await getDb().insert(conversations).values(["c1", "c9"].map(id => ({ id, userId: "user-loops", projectId: project!.id })));
 });
 
 afterAll(async () => {
@@ -326,7 +333,7 @@ describe("emit-loop-event — validation", () => {
       rpc({ v: 1, type: "auto_disabled", payload: { loopId: "flaky", consecutiveErrors: 5 } }),
       ctx(bus),
     );
-    expect(resp.result).toEqual({ ok: true });
+    expect(resp.result).toEqual({ ok: true, durable: false });
     expect(calls[0]).toEqual({ event: "loops:auto_disabled", payload: { loopId: `${id}:flaky`, consecutiveErrors: 5 } });
   });
 });
@@ -342,7 +349,7 @@ describe("emit-loop-event — happy paths", () => {
       rpc({ v: 1, type: "approval_pending", payload: { loopId: "docs", runId: "r1" } }),
       ctx(bus),
     );
-    expect(resp.result).toEqual({ ok: true });
+    expect(resp.result).toEqual({ ok: true, durable: false });
     expect(calls).toEqual([{ event: "loops:approval_pending", payload: { loopId: `${id}:docs`, runId: "r1" } }]);
     const audit = await lastAudit(id, "ext:loop-event-emitted");
     expect(audit?.metadata?.newValue).toBe("approval_pending");
@@ -354,7 +361,7 @@ describe("emit-loop-event — happy paths", () => {
     await handleEmitLoopEventRpc(
       id,
       rpc({ v: 1, type: "approval_pending", payload: { loopId: "docs", runId: "r1", conversationId: "c9" } }),
-      ctx(bus),
+      ctx(bus, { conversationId: "c9" }),
     );
     expect(calls[0]!.payload).toEqual({ loopId: `${id}:docs`, runId: "r1", conversationId: "c9" });
   });
@@ -376,9 +383,9 @@ describe("emit-loop-event — happy paths", () => {
     const resp = await handleEmitLoopEventRpc(
       id,
       rpc({ v: 1, type: "approval_resolved", payload: { loopId: "docs", runId: "r1", decision: "declined", conversationId: "c1" } }),
-      ctx(bus),
+      ctx(bus, { conversationId: "c1" }),
     );
-    expect(resp.result).toEqual({ ok: true });
+    expect(resp.result).toMatchObject({ ok: true, durable: true, duplicate: false });
     expect(calls[0]).toEqual({
       event: "loops:approval_resolved",
       payload: { loopId: `${id}:docs`, runId: "r1", decision: "declined", conversationId: "c1" },
@@ -388,11 +395,12 @@ describe("emit-loop-event — happy paths", () => {
   test("auto_disabled threads a conversationId", async () => {
     const id = ext();
     const { bus, calls } = makeBus();
-    await handleEmitLoopEventRpc(
+    const token = registerCallProvenance({ onBehalfOf: "user-loops", conversationId: "c1", runId: "host-run", parentCallId: null, actorExtensionId: id, kind: "tool", ownerless: false });
+    try { await handleEmitLoopEventRpc(
       id,
-      rpc({ v: 1, type: "auto_disabled", payload: { loopId: "flaky", consecutiveErrors: 2, conversationId: "c1" } }),
-      ctx(bus),
-    );
+      rpc({ v: 1, type: "auto_disabled", payload: { loopId: "flaky", consecutiveErrors: 2, conversationId: "c1" }, _meta: { ezCallId: token } }),
+      ctx(bus, { conversationId: "c1" }),
+    ); } finally { releaseCallProvenance(token); }
     expect(calls[0]!.payload).toEqual({ loopId: `${id}:flaky`, consecutiveErrors: 2, conversationId: "c1" });
   });
 
@@ -403,7 +411,7 @@ describe("emit-loop-event — happy paths", () => {
       rpc({ v: 1, type: "approval_pending", payload: { loopId: "docs", runId: "r1" } }),
       ctx(undefined),
     );
-    expect(resp.result).toEqual({ ok: true });
+    expect(resp.result).toEqual({ ok: true, durable: false });
     const audit = await lastAudit(id, "ext:loop-event-emitted");
     expect(audit?.metadata?.newValue).toBe("approval_pending");
   });

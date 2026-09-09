@@ -1,0 +1,5 @@
+da6bc4db6326696347d76a2225677954b31d3a2b
+6b5a00343d84da9050bfbc2d99d9a71ec28812c569eeab601db8b2a810aa43a8  src/__tests__/production-image-lifecycle-launch.integration.test.ts
+b7677b3a72203949a4b904c80662374a914f92dcad5f53a2b4a42c37ab1447f1  scripts/verify-production-image-lifecycle.sh
+0576bee4610d0bf4edd433e57e29992932aea017e7f2ca17ff4473560f92903d  scripts/start-extension-runner-e2e.sh
+a170e3541538d370be7a7b93ee55dd76a5a780697b0758dae4bc6e5188db69fc  scripts/lib/production-lifecycle-client.ts

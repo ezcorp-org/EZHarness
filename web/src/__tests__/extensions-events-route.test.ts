@@ -33,6 +33,7 @@ mock.module("$lib/server/security/api-keys", () => ({
 }));
 
 mock.module("$server/auth/middleware", () => ({
+  checkProjectRole: async () => undefined,
   requireAuth: () => ({
     id: "user-1",
     email: "t@t.com",
@@ -40,11 +41,20 @@ mock.module("$server/auth/middleware", () => ({
     role: "member",
   }),
 }));
+mock.module("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => null }));
 
 // ── Mock bus via $lib/server/context ───────────────────────────────
 
 const mockBusEmit = mock((..._args: unknown[]) => {});
 const mockBus = { emit: mockBusEmit };
+mock.module("$server/extensions/domain-event-outbox", () => ({
+  admitConversationExtensionAction: async (principalId: string, extensionId: string, type: string, key: string, payload: unknown, bus: typeof mockBus) => {
+    expect(principalId).toBe("user-1");
+    expect(extensionId).toBeTruthy();
+    expect(key).toBeTruthy();
+    bus.emit(type, payload);
+  },
+}));
 // The route's spawn-path re-wire (out-of-turn wirer fix) also imports
 // getExecutor; a partial mock that omits it fails EVERY import from the
 // module at load ("Export named 'getExecutor' not found"). Default: a
@@ -89,6 +99,7 @@ const mockGetConversation = mock(
 );
 mock.module("$server/db/queries/conversations", () => ({
   getConversation: mockGetConversation,
+  getOrCreateExtServiceConversation: async () => { throw new Error("Unexpected service conversation in route unit fixture"); },
 }));
 
 // ── Mock tool-call lookup (F2 cross-binding) ──────────────────────
@@ -150,7 +161,6 @@ mock.module("$server/extensions/registry", () => ({
 const mockEnsureWired = mock(async (..._args: unknown[]) => {});
 mock.module("$server/extensions/tool-executor", () => ({
   ToolExecutor: class {
-    constructor() {}
     async ensureSubprocessRpcWired(...args: unknown[]) {
       return mockEnsureWired(...args);
     }
@@ -205,6 +215,7 @@ mock.module("$server/extensions/finalize-tool-call-handler", () => ({
 }));
 
 mock.module("$server/logger", () => ({
+  extensionLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
   logger: {
     child: () => ({
       info: (..._a: unknown[]) => {},
@@ -239,7 +250,7 @@ function makeEvent(
     url: null,
     request: {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: typeof body === "string" ? body : JSON.stringify(body),
       },
     locals: {
@@ -658,7 +669,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       };
     }
 
-    test("auto-wires + calls append-message in-process and emits run:turn_saved", async () => {
+    test("auto-wires and delegates the saved-turn bus to the atomic append writer", async () => {
       mockRegisteredEvents.add("kokoro-tts:speak");
       mockConv = { id: "c-1", userId: "user-1" };
       mockExt = kokoroExt();
@@ -702,10 +713,8 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       const turnSavedCalls = mockBusEmit.mock.calls.filter(
         (c) => c[0] === "run:turn_saved",
       );
-      expect(turnSavedCalls).toHaveLength(1);
-      const payload = turnSavedCalls[0]?.[1] as { runId: string; messageId: string };
-      expect(payload.runId).toBe("ext:ext-kokoro:new-msg-1");
-      expect(payload.messageId).toBe("new-msg-1");
+      expect(turnSavedCalls).toHaveLength(0);
+      expect((call.ctx as { bus: unknown }).bus).toBe(mockBus);
     });
 
     test("an un-booted executor (getExecutor throws) degrades to the unwired spawn path — event still 200s", async () => {

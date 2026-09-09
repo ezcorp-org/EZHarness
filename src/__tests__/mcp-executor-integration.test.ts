@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
@@ -6,7 +6,7 @@ mockDbConnection();
 import { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
-import { installMcpExtension, deleteExtension } from "../db/queries/extensions";
+import { installMcpExtension, deleteExtension, updateExtension } from "../db/queries/extensions";
 import { createConversation } from "../db/queries/conversations";
 import { getDb } from "../db/connection";
 import { toolCalls, projects } from "../db/schema";
@@ -14,10 +14,17 @@ import { eq } from "drizzle-orm";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 
+import { mcpReleaseFixture } from "./helpers/mcp-release-fixture";
+import { normalizeMcpCatalog } from "@ezcorp/extension-contract";
+import { createUser } from "../db/queries/users";
+let fixture: ReturnType<typeof mcpReleaseFixture> | undefined;
+afterEach(() => fixture?.cleanup());
+let ownerId: string;
 let projectId: string;
 
 beforeAll(async () => {
   await setupTestDb();
+  ownerId = (await createUser({ email: "mcp-owner@test.local", name: "MCP owner", passwordHash: "hash", role: "admin", status: "active" })).id;
   const [p] = await getDb()
     .insert(projects)
     .values({ name: "mcp-exec-proj", path: "/tmp/mcp-exec" })
@@ -56,20 +63,17 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
       ],
     });
 
-    const registry = ExtensionRegistry.getInstance();
+    fixture = mcpReleaseFixture({ id: ext.id, name: extName, tools: normalizeMcpCatalog([{ name: "probe", description: "probe", inputSchema }]) });
+    fixture.snapshot.installation.ownerId = ownerId;
+    await updateExtension(ext.id, { manifest: fixture.manifest });
+    const registry = fixture.registry;
     await registry.loadFromDb();
-
     const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (registry as any).mcpClients.set(ext.id, {
-      isConnected: true,
-      connect: async () => {},
-      listTools: async () => [],
-      callTool: async (name: string, args: Record<string, unknown>) => {
-        calls.push({ name, args });
-        return callToolImpl(name, args);
-      },
-      close: async () => {},
+    fixture.invoke(async params => {
+      const name = params.name as string;
+      const args = params.input as Record<string, unknown>;
+      calls.push({ name, args });
+      return callToolImpl(name, args);
     });
 
     return { ext, registry, calls };
@@ -88,8 +92,9 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
     bus.on("tool:complete", (p) => events.push({ type: "tool:complete", payload: p }));
     bus.on("tool:error", (p) => events.push({ type: "tool:error", payload: p }));
 
-    const conv = await createConversation(projectId, { title: "ev" });
+    const conv = await createConversation(projectId, { userId: ownerId, title: "ev" });
     const executor = new ToolExecutor(registry, createStubPermissionEngine(), { bus });
+    executor.setCurrentUserId(ownerId);
 
     const result = await executor.executeToolCall(
       "ev-success__probe",
@@ -126,8 +131,9 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
     bus.on("tool:complete", () => events.push({ type: "tool:complete" }));
     bus.on("tool:error", () => events.push({ type: "tool:error" }));
 
-    const conv = await createConversation(projectId, { title: "err" });
+    const conv = await createConversation(projectId, { userId: ownerId, title: "err" });
     const executor = new ToolExecutor(registry, createStubPermissionEngine(), { bus });
+    executor.setCurrentUserId(ownerId);
 
     const result = await executor.executeToolCall(
       "ev-throw__probe",
@@ -150,13 +156,14 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
 
   test("records an isError=true row when the MCP server returns isError", async () => {
     const { ext, registry } = await setupMcp(
-      "ev-isErr",
+      "ev-iserr",
       { type: "object", properties: {} },
       async () => ({ content: [{ type: "text", text: "nope" }], isError: true }),
     );
-    const conv = await createConversation(projectId, { title: "isErr" });
+    const conv = await createConversation(projectId, { userId: ownerId, title: "isErr" });
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
-    const r = await executor.executeToolCall("ev-isErr__probe", {}, conv.id, null);
+    executor.setCurrentUserId(ownerId);
+    const r = await executor.executeToolCall("ev-iserr__probe", {}, conv.id, null);
     expect(r.isError).toBe(true);
 
     const rows = await getDb().select().from(toolCalls).where(eq(toolCalls.extensionId, ext.id));
@@ -178,8 +185,9 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
       async () => ({ content: [{ type: "text", text: "ok" }], isError: false }),
     );
 
-    const conv = await createConversation(projectId, { title: "shared" });
+    const conv = await createConversation(projectId, { userId: ownerId, title: "shared" });
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
+    executor.setCurrentUserId(ownerId);
     await executor.executeToolCall(
       "ev-shared__probe",
       { name: "alice" },
@@ -202,11 +210,12 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
       { type: "object", properties: {} },
       async () => ({ content: [{ type: "text", text: "should-not-reach" }], isError: false }),
     );
-    const conv = await createConversation(projectId, { title: "perm" });
+    const conv = await createConversation(projectId, { userId: ownerId, title: "perm" });
     // Phase 1: the per-call permission gate is the PDP, not a checker
     // injected at construction time. Deny-all engine = same observable
     // semantics: PermissionDeniedError + subprocess never invoked.
     const executor = new ToolExecutor(registry, createStubPermissionEngine("deny-all"));
+    executor.setCurrentUserId(ownerId);
     await expect(
       executor.executeToolCall("ev-perm__probe", {}, conv.id, null),
     ).rejects.toThrow(/Permission denied/);

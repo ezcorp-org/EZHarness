@@ -63,6 +63,14 @@ mock.module("$server/extensions/permission-engine", () => ({
 // above: hub-api.test.ts's route needs getProject from this module id
 // when the two files share a process).
 let __fakeProjects: Array<{ id: string; name: string; path: string }> = [];
+mock.module("$server/db/queries/users", () => ({ ...require("../db/queries/users"), getUserById: async () => ({ id: "u1", role: "admin", status: "active" }) }));
+mock.module("$server/db/queries/project-members", () => ({ ...require("../db/queries/project-members"), getProjectMembership: async () => null }));
+mock.module("$server/extensions/release-process", () => ({
+  ...require("../extensions/release-process"),
+  getReleaseRuntime: () => ({}),
+  resolveActiveRelease: async () => ({ installation: { scope: "project:p-a" } }),
+  releaseBinding: () => "approved-release",
+}));
 mock.module("$server/db/queries/projects", () => ({
   ...require("../db/queries/projects"),
   listProjects: async () => __fakeProjects,
@@ -70,7 +78,8 @@ mock.module("$server/db/queries/projects", () => ({
 mock.module("$server/extensions/page-schema", () => require("../extensions/page-schema"));
 mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
 mock.module("$server/extensions/types", () => require("../extensions/types"));
-mock.module("$server/db/queries/extensions", () => require("../db/queries/extensions"));
+let authorizedProjection: Extension | null = null;
+mock.module("$server/db/queries/extensions", () => ({ ...require("../db/queries/extensions"), getExtension: async (id: string) => authorizedProjection?.id === id ? authorizedProjection : require("../db/queries/extensions").getExtension(id) }));
 mock.module("$server/db/schema", () => require("../db/schema"));
 const realLogger = require("../logger");
 mock.module("$server/logger", () => realLogger);
@@ -127,11 +136,16 @@ function okResponse(result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id: 1, result };
 }
 
+function cacheVariant(scope: { project?: unknown; listProjects?: boolean; run?: string; step?: string } = {}): string {
+  return JSON.stringify(["u1", "approved-release", scope.project ?? null, scope.listProjects ?? false, scope.run ?? null, scope.step ?? null, null]);
+}
+
 function makeDeps(overrides: Partial<RenderPullDeps> = {}): RenderPullDeps & { calls: string[] } {
   const calls: string[] = [];
   const extension = makeExtension();
   return {
     calls,
+    authorize: async () => "approved-release",
     findPage: async () => ({ extension, page: PAGE }),
     callPage: async (_ext, pageId) => {
       calls.push(pageId);
@@ -144,6 +158,20 @@ function makeDeps(overrides: Partial<RenderPullDeps> = {}): RenderPullDeps & { c
 }
 
 describe("renderExtensionPage", () => {
+  test("production authority resolver reads the active release and current projection before cache reuse", async () => {
+    const extension = makeExtension();
+    authorizedProjection = extension;
+    __fakeProjects = [{ id: "p-a", name: "Private", path: "/host-private" }];
+    const deps = makeDeps({ authorize: undefined, findPage: async () => ({ extension, page: { ...PAGE, perProject: true } }) });
+    const { authorize: _fixtureAuthority, ...productionAuthorityDeps } = deps;
+    try {
+      expect((await renderExtensionPage("cron-dashboard", "dashboard", "u1", productionAuthorityDeps)).page).toBeDefined();
+      expect((await renderExtensionPage("cron-dashboard", "dashboard", "u1", productionAuthorityDeps)).page).toBeDefined();
+      expect(deps.calls).toHaveLength(1);
+      authorizedProjection = { ...extension, enabled: false };
+      expect(await renderExtensionPage("cron-dashboard", "dashboard", "u1", productionAuthorityDeps)).toEqual({ notFound: true });
+    } finally { authorizedProjection = null; __fakeProjects = []; }
+  });
   test("notFound when the page/extension can't be resolved", async () => {
     const deps = makeDeps({ findPage: async () => null });
     const result = await renderExtensionPage("nope", "dashboard", "u1", deps);
@@ -163,7 +191,7 @@ describe("renderExtensionPage", () => {
     expect(labels).toEqual(["Clear"]);
     expect(deps.calls).toEqual(["dashboard"]);
     // Cached for the next caller.
-    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant())).not.toBeNull();
   });
 
   test("a >64KB subprocess result → {error} envelope, nothing cached (size cap pin)", async () => {
@@ -179,7 +207,7 @@ describe("renderExtensionPage", () => {
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
     expect(result.error).toBe("This page produced invalid content.");
     expect(result.page).toBeUndefined();
-    expect(deps.cache.get("ext-1", "dashboard")).toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant())).toBeNull();
   });
 
   test("fresh cache hit short-circuits the subprocess", async () => {
@@ -205,7 +233,7 @@ describe("renderExtensionPage", () => {
     // Background refresh lands on a later tick and re-stamps the entry.
     await new Promise((r) => setTimeout(r, 10));
     expect(deps.calls).toHaveLength(2);
-    expect(cache.get("ext-1", "dashboard")!.stale).toBe(false);
+    expect(cache.get("ext-1", "dashboard", cacheVariant())!.stale).toBe(false);
   });
 
   test("background refresh failures are swallowed (stale content still served)", async () => {
@@ -234,7 +262,7 @@ describe("renderExtensionPage", () => {
     });
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
     expect(result.error).toContain("failed to render");
-    expect(deps.cache.get("ext-1", "dashboard")).toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant())).toBeNull();
   });
 
   test("subprocess rejection → {error}", async () => {
@@ -260,7 +288,7 @@ describe("renderExtensionPage", () => {
     const deps = makeDeps({ callPage: async () => okResponse({ bogus: true }) });
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
     expect(result.error).toContain("invalid content");
-    expect(deps.cache.get("ext-1", "dashboard")).toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant())).toBeNull();
   });
 
   test("missing grantedPermissions → empty allowlist (action nodes dropped)", async () => {
@@ -277,7 +305,8 @@ describe("renderExtensionPage", () => {
     // Inject only the page lookup + a fresh cache — callPage defaults
     // to the production subprocess path (faked module collaborators).
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
-      findPage: async () => ({ extension, page: PAGE }),
+      authorize: async () => "approved-release",
+    findPage: async () => ({ extension, page: PAGE }),
       cache: new ExtensionPageCache(),
     });
     expect(result.page!.title).toBe("Cron Dashboard");
@@ -301,7 +330,8 @@ describe("renderExtensionPage", () => {
     try {
       const extension = makeExtension();
       await renderExtensionPage("cron-dashboard", "dashboard", "user-42", {
-        findPage: async () => ({ extension, page: PAGE }),
+        authorize: async () => "approved-release",
+    findPage: async () => ({ extension, page: PAGE }),
         cache: new ExtensionPageCache(),
       });
     } finally {
@@ -334,10 +364,10 @@ describe("renderExtensionPage", () => {
       invalidate: inner.invalidate.bind(inner),
       invalidateExtension: inner.invalidateExtension.bind(inner),
       clear: inner.clear.bind(inner),
-      set: (extId: string, pageId: string, tree: never) => {
+      set: (extId: string, pageId: string, tree: never, variant?: string, generation?: number) => {
         sets++;
         if (sets > 1) throw new Error("cache exploded");
-        inner.set(extId, pageId, tree);
+        inner.set(extId, pageId, tree, variant, generation);
       },
     } as unknown as ExtensionPageCache;
     const deps = makeDeps({ cache: throwingCache });
@@ -361,7 +391,8 @@ describe("perProject scope", () => {
     const extension = makeExtension();
     const deps: RenderPullDeps & { scopes: unknown[] } = {
       scopes,
-      findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+      authorize: async () => "approved-release",
+    findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
       callPage: async (_ext, _pageId, _userId, scope) => {
         scopes.push(scope);
         return okResponse(VALID_RESULT);
@@ -378,8 +409,8 @@ describe("perProject scope", () => {
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
     expect(result.page!.title).toBe("Cron Dashboard");
     expect(deps.scopes).toEqual([{ project: PROJECT }]);
-    expect(deps.cache.get("ext-1", "dashboard", PROJECT.id)).not.toBeNull();
-    expect(deps.cache.get("ext-1", "dashboard")).toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant({ project: PROJECT }))).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant())).toBeNull();
   });
 
   test("global render of a perProject page requests the project LIST", async () => {
@@ -387,7 +418,7 @@ describe("perProject scope", () => {
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
     expect(result.page).toBeDefined();
     expect(deps.scopes).toEqual([{ listProjects: true }]);
-    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant({ listProjects: true }))).not.toBeNull();
   });
 
   test("variants are cached independently — a project render never serves the global tree", async () => {
@@ -402,12 +433,13 @@ describe("perProject scope", () => {
   test("non-perProject page IGNORES a provided project (global scope + global cache)", async () => {
     const extension = makeExtension();
     const deps = makeScopedDeps({
-      findPage: async () => ({ extension, page: PAGE }),
+      authorize: async () => "approved-release",
+    findPage: async () => ({ extension, page: PAGE }),
     });
     await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, PROJECT);
     expect(deps.scopes).toEqual([undefined]);
-    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
-    expect(deps.cache.get("ext-1", "dashboard", PROJECT.id)).toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant())).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant({ project: PROJECT }))).toBeNull();
   });
 
   test("run + step render variants cache under distinct keys (step isolated from the run detail)", async () => {
@@ -421,9 +453,9 @@ describe("perProject scope", () => {
     ]);
     // The run detail caches under `run:run_a`; the step detail under
     // `run:run_a:step:review` — independent slots, no collision.
-    expect(deps.cache.get("ext-1", "dashboard", "run:run_a")).not.toBeNull();
-    expect(deps.cache.get("ext-1", "dashboard", "run:run_a:step:review")).not.toBeNull();
-    expect(deps.cache.get("ext-1", "dashboard", "run:run_a:step:test")).toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant({ listProjects: true, run: "run_a" }))).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant({ listProjects: true, run: "run_a", step: "review" }))).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant({ listProjects: true, run: "run_a", step: "test" }))).toBeNull();
   });
 
   test("a stray step WITHOUT run does not fork a step cache variant", async () => {
@@ -432,7 +464,7 @@ describe("perProject scope", () => {
     // no step; hub-render-pull drops the meaningless step.
     await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, undefined, "review");
     expect(deps.scopes).toEqual([{ listProjects: true }]);
-    expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
+    expect(deps.cache.get("ext-1", "dashboard", cacheVariant({ listProjects: true }))).not.toBeNull();
   });
 
   test("production callPage forwards {project} on the render RPC", async () => {
@@ -442,14 +474,15 @@ describe("perProject scope", () => {
     try {
       const extension = makeExtension();
       await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
-        findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+        authorize: async () => "approved-release",
+    findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
         cache: new ExtensionPageCache(),
       }, PROJECT);
     } finally {
       __fakeProcInspect = null;
     }
     expect(seen).toHaveLength(1);
-    expect(seen[0]!.project).toEqual(PROJECT);
+    expect(seen[0]!.project).toEqual({ ...PROJECT, path: "/project" });
     expect(seen[0]!.projects).toBeUndefined();
   });
 
@@ -464,7 +497,8 @@ describe("perProject scope", () => {
     try {
       const extension = makeExtension();
       await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
-        findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+        authorize: async () => "approved-release",
+    findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
         cache: new ExtensionPageCache(),
       });
     } finally {
@@ -473,8 +507,8 @@ describe("perProject scope", () => {
     }
     expect(seen).toHaveLength(1);
     expect(seen[0]!.projects).toEqual([
-      { id: "p-a", name: "A", path: "/a" },
-      { id: "p-b", name: "B", path: "/b" },
+      { id: "p-a", name: "A", path: "/project" },
+      { id: "p-b", name: "B", path: "/project" },
     ]);
     expect(seen[0]!.project).toBeUndefined();
   });
@@ -490,7 +524,7 @@ describe("perProject scope", () => {
         "cron-dashboard",
         "dashboard",
         "u1",
-        { findPage: async () => ({ extension, page: PAGE }), cache: new ExtensionPageCache() },
+        { authorize: async () => "approved-release", findPage: async () => ({ extension, page: PAGE }), cache: new ExtensionPageCache() },
         undefined,
         undefined,
         undefined,
@@ -521,7 +555,7 @@ describe("single-flight pull dedup", () => {
       },
     });
     const first = renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
-    const second = renderExtensionPage("cron-dashboard", "dashboard", "u2", deps);
+    const second = renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
     await new Promise((r) => setTimeout(r, 5));
     resolvePull!(okResponse(VALID_RESULT));
     const [a, b] = await Promise.all([first, second]);
@@ -535,7 +569,8 @@ describe("single-flight pull dedup", () => {
     const perProjectPage = { id: "dashboard", title: "Dash", perProject: true };
     const extension = makeExtension();
     const deps = makeDeps({
-      findPage: async () => ({ extension, page: perProjectPage }),
+      authorize: async () => "approved-release",
+    findPage: async () => ({ extension, page: perProjectPage }),
       callPage: async (_e, _p, _u, scope) => {
         seen.push(scope?.project?.id);
         return okResponse(VALID_RESULT);

@@ -14,11 +14,14 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const h = vi.hoisted(() => {
   const FO_MANIFEST = {
+    name: "file-organizer",
     pages: [{ id: "review" }, { id: "overview" }, { id: "folders" }],
+    permissions: { eventSubscriptions: ["file-organizer:accept", "file-organizer:select-segment", "file-organizer:reject", "file-organizer:set-mode"] },
     settings: { quarantine_ttl_days: { default: 30 }, quarantine_cap_gb: { default: 5 } },
   };
   return {
     FO_MANIFEST,
+    currentEvent: "",
     state: {
       ext: { id: "ext-fo", enabled: true, manifest: FO_MANIFEST } as { id: string; enabled: boolean; manifest: unknown } | null,
       dispatchResult: { handled: true, changed: true, ok: true } as { handled: boolean; changed?: boolean; ok?: boolean; message?: string },
@@ -26,25 +29,39 @@ const h = vi.hoisted(() => {
       inProcessEvents: new Set<string>(["accept", "select-segment", "reject", "set-mode"]),
     },
     invalidate: vi.fn((..._a: unknown[]) => {}),
-    // `sendNotification` REPORTS DELIVERY (`subprocess.ts`). A mock that
-    // returned undefined would model a dropped frame, which the route now
-    // (correctly) turns into a 503 — so the happy path has to say `true`.
     notificationDelivered: true,
     getProcess: vi.fn(async function (this: void, _id: string) {
-      return { sendNotification: vi.fn(() => h.notificationDelivered) };
+      return { sendNotification: vi.fn(async () => {
+        if (!h.notificationDelivered) {
+          const { LifecycleError } = await import("$server/extensions/v4/types");
+          throw new LifecycleError("delivery_unavailable", "Delivery unavailable");
+        }
+      }) };
     }),
     ensureWired: vi.fn(async (..._a: unknown[]) => {}),
+    preparedEffect: { action: "file-organizer:accept", subject: "p1:1:move", paths: ["/proj/watched/a", "/proj/watched/b"] },
+    prepare: vi.fn(),
+    issue: vi.fn(),
+    issuedAuthority: Object.freeze({ sealed: true }),
   };
 });
 
 vi.mock("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
-vi.mock("$server/auth/middleware", () => ({ requireAuth: (l: { user?: unknown }) => l.user }));
+vi.mock("$server/auth/middleware", () => ({ requireAuth: (l: { user?: unknown }) => l.user, checkProjectRole: async () => undefined }));
+vi.mock("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => h.state.inProcessEvents.has(h.currentEvent) ? { id: "binding", ownerId: "session-user", projectId: "project", releaseId: "release", generation: 1 } : null }));
+vi.mock("$server/db/queries/projects", () => ({ getProject: async () => ({ id: "project", path: "/proj" }) }));
+vi.mock("$lib/server/extension-browser", () => ({ authorizeExtensionBrowser: async () => ({
+  user: { id: "session-user", role: "member", status: "active" },
+  extension: { id: "ext-fo", grantedPermissions: h.FO_MANIFEST.permissions },
+  active: { installation: { ownerId: "session-user", scope: "global", generation: 1, grants: [JSON.stringify(["eventSubscriptions", h.FO_MANIFEST.permissions.eventSubscriptions])] }, release: { id: "release", manifest: h.FO_MANIFEST } },
+}) }));
 vi.mock("$lib/server/context", () => ({ getBus: () => ({ emit: () => {} }) }));
 vi.mock("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
     new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } }),
 }));
-vi.mock("$server/runtime/sse-conversation-filter", () => ({
+vi.mock("$server/runtime/sse-conversation-filter", async (importOriginal) => ({
+  ...await importOriginal<typeof import("$server/runtime/sse-conversation-filter")>(),
   isRegisteredExtensionEvent: (e: string) =>
     new Set([
       "file-organizer:accept",
@@ -60,6 +77,13 @@ vi.mock("$lib/server/hub-extension-pages", () => ({
 vi.mock("$server/extensions/page-cache", () => ({ getPageCache: () => ({ invalidate: h.invalidate }) }));
 vi.mock("$server/extensions/permission-engine", () => ({ getPermissionEngine: () => ({ __mock: "engine" }) }));
 vi.mock("$server/extensions/bundled", () => ({ getProjectRoot: () => "/proj" }));
+vi.mock("node:fs/promises", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:fs/promises")>(),
+  realpath: async (path: string) => {
+    if (path !== "/proj") throw new Error(`Unexpected harness path: ${path}`);
+    return path;
+  },
+}));
 // The subprocess-forward branch mints a per-fire reverse-RPC provenance token
 // (onBehalfOf = the clicking user) before sending the notification. Stub it so
 // the route doesn't touch the real provenance registry under vitest.
@@ -76,6 +100,12 @@ vi.mock("$server/extensions/file-organizer-events", () => ({
     return h.state.dispatchResult;
   },
   IN_PROCESS_EVENTS: h.state.inProcessEvents,
+}));
+vi.mock("$server/extensions/file-organizer-state", () => ({
+  prepareFileOrganizerAction: (...args: unknown[]) => h.prepare(...args),
+}));
+vi.mock("$server/extensions/file-organizer-action-authority", () => ({
+  issueFileOrganizerActionAuthority: (...args: unknown[]) => h.issue(...args),
 }));
 vi.mock("$server/extensions/registry", () => ({
   ExtensionRegistry: { getInstance: () => ({ getProcess: h.getProcess }) },
@@ -95,10 +125,11 @@ vi.mock("$server/logger", () => ({
 const { POST } = await import("../routes/api/extensions/[name]/events/[event]/+server");
 
 function hubReq(event: string, payload: Record<string, unknown>, pageId = "review") {
+  h.currentEvent = event;
   return {
     request: new Request(`http://localhost/api/extensions/file-organizer/events/${event}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({ source: "hub", pageId, payload }),
     }),
     locals: { user: { id: "session-user", email: "t@t.com", name: "T", role: "member" } },
@@ -114,6 +145,8 @@ describe("file-organizer hub in-process branch", () => {
     h.invalidate.mockClear();
     h.getProcess.mockClear();
     h.notificationDelivered = true;
+    h.prepare.mockReset().mockResolvedValue(h.preparedEffect);
+    h.issue.mockReset().mockReturnValue(h.issuedAuthority);
   });
 
   test("accept dispatched in-process w/ SESSION userId + cache invalidate", async () => {
@@ -124,7 +157,30 @@ describe("file-organizer hub in-process branch", () => {
     expect((h.state.dispatchCalls[0]!.deps as { userId: string }).userId).toBe("session-user");
     expect((h.state.dispatchCalls[0]!.deps as { dataDir: string }).dataDir).toBe("/proj/.ezcorp/extension-data/file-organizer");
     expect((h.state.dispatchCalls[0]!.deps as { settings: { quarantineTtlDays: number } }).settings.quarantineTtlDays).toBe(30);
+    expect((h.state.dispatchCalls[0]!.deps as { actionAuthority: unknown }).actionAuthority).toBe(h.issuedAuthority);
+    expect(h.prepare).toHaveBeenCalledWith({
+      dataDir: "/proj/.ezcorp/extension-data/file-organizer",
+      settings: { quarantineTtlDays: 30, quarantineCapGb: 5 },
+      now: expect.any(Function),
+    }, "accept", { proposalId: "p1" });
+    expect(h.issue).toHaveBeenCalledExactlyOnceWith({
+      installationId: "ext-fo", userId: "session-user", releaseId: "release", generation: 1,
+      bindingId: "binding", projectId: "project", projectRoot: "/proj",
+      dataDirRoot: "/proj/.ezcorp/extension-data/file-organizer", effects: [h.preparedEffect],
+    });
+    expect(h.issue.mock.calls[0]![0].effects[0]).toBe(h.preparedEffect);
+    expect(h.prepare.mock.calls[0]![0].now()).toBe((h.state.dispatchCalls[0]!.deps.now as () => number)());
     expect(h.invalidate).toHaveBeenCalledWith("ext-fo", "review");
+    expect(h.getProcess).not.toHaveBeenCalled();
+  });
+
+  test("unpreparable in-process action is denied before dispatch", async () => {
+    h.prepare.mockResolvedValue(null);
+    const res = await POST(hubReq("accept", { proposalId: "p1" }) as never);
+    expect(res.status).toBe(404);
+    expect(h.issue).not.toHaveBeenCalled();
+    expect(h.state.dispatchCalls).toHaveLength(0);
+    expect(h.invalidate).not.toHaveBeenCalled();
     expect(h.getProcess).not.toHaveBeenCalled();
   });
 
@@ -133,9 +189,20 @@ describe("file-organizer hub in-process branch", () => {
     expect((h.state.dispatchCalls[0]!.deps as { userId: string }).userId).toBe("session-user");
   });
 
+  test("authority issuance failure is denied before dispatch", async () => {
+    h.issue.mockImplementation(() => { throw new Error("seal failed"); });
+    const res = await POST(hubReq("accept", { proposalId: "p1" }) as never);
+    expect(res.status).toBe(404);
+    expect(h.state.dispatchCalls).toHaveLength(0);
+    expect(h.invalidate).not.toHaveBeenCalled();
+    expect(h.getProcess).not.toHaveBeenCalled();
+  });
+
   test("no cache invalidation when nothing changed", async () => {
     h.state.dispatchResult = { handled: true, changed: false, ok: true };
-    await POST(hubReq("accept", { proposalId: "missing" }) as never);
+    const res = await POST(hubReq("accept", { proposalId: "p1" }) as never);
+    expect(res.status).toBe(200);
+    expect(h.state.dispatchCalls).toHaveLength(1);
     expect(h.invalidate).not.toHaveBeenCalled();
   });
 

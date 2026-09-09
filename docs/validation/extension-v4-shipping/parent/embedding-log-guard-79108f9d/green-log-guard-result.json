@@ -1,0 +1,7 @@
+{
+  "command": "bun scripts/verify-shipping-embedding-log.ts expected-startup-warning.log",
+  "result": {
+    "exit": 0,
+    "safeDiagnostic": ""
+  }
+}

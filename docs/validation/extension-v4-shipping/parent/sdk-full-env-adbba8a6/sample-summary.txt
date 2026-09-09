@@ -1,0 +1,10 @@
+source_receipt=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/backend/sdk-full-env-monitor-adbba8a6-20260907
+result=exit 0; 1029 pass; 0 fail; MCP rootless Podman test enabled
+sample_scope=pid,state,cwd,wchan,normalized phase only; no argv or environment values retained
+phase_samples:
+bun-add=6
+fixture-bun-test=1
+mcp-bun-build=2
+other=67
+podman-info=1
+podman-run=4

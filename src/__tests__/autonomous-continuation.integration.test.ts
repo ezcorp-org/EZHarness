@@ -19,8 +19,11 @@
 
 import { test, expect, describe, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { taskSnapshotPort } from "../../web/src/__tests__/helpers/task-state-port";
 
 afterAll(() => restoreModuleMocks());
+
+mock.module("../runtime/task-tracking-host", () => ({ writeTaskSnapshotForConversation: taskSnapshotPort }));
 
 mock.module("../db/queries/conversations", () => ({
   getSubConversations: async () => [],

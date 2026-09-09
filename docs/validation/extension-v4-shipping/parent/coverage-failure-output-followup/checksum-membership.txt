@@ -1,0 +1,16 @@
+README.md
+inputs/fake-bun-red.sh.txt
+inputs/final/scripts__test-coverage.sh.txt
+inputs/final/src__tests__coverage-leg-lcov-guard.test.ts.txt
+inputs/original/scripts__test-coverage.sh.txt
+inputs/original/src__tests__coverage-leg-lcov-guard.test.ts.txt
+provenance.txt
+receipts/focused-green.exits.txt
+receipts/focused-green.log.txt
+receipts/hostile-ci-green.log.txt
+receipts/hostile-ci-green.receipt.txt
+receipts/hostile-ci-lint.exit.txt
+receipts/hostile-ci-lint.log.txt
+receipts/original-wrapper-red.command.txt
+receipts/original-wrapper-red.exit.txt
+receipts/original-wrapper-red.log.txt

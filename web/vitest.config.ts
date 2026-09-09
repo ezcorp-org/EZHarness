@@ -28,6 +28,7 @@ export default defineConfig({
 			// no-op stubs; any test asserting specific behaviour `vi.mock`s
 			// the same path on top.
 			"$app/navigation": resolve(__dirname, "src/__tests__/stubs/app-navigation.ts"),
+			"$app/forms": resolve(__dirname, "src/__tests__/stubs/app-forms.ts"),
 			"$app/state": resolve(__dirname, "src/__tests__/stubs/app-state.ts"),
 			"$app/stores": resolve(__dirname, "src/__tests__/stubs/app-stores.ts"),
 			"$app/environment": resolve(__dirname, "src/__tests__/stubs/app-environment.ts"),
@@ -83,6 +84,10 @@ export default defineConfig({
 			// `web_bunleg_files()` keeps it in exactly one runner, explicitly —
 			// same mechanism relative-time.test.ts uses above.
 			"src/lib/chat/page-handlers/__tests__/send-message.test.ts",
+			// This suite drives the shipped load-messages module. It uses module
+			// mocks, so Bun can run its assertions but cannot produce the web/lib
+			// LCOV record that the canonical Node Vitest leg requires.
+			"src/lib/chat/page-handlers/__tests__/load-messages.test.ts",
 			// Same reason as send-message above: the vitest leg is the ONLY
 			// coverage producer for `web/src/lib/**`, and this suite is what
 			// covers `context-usage-logic.ts` (the context-indicator maths —
@@ -120,6 +125,9 @@ export default defineConfig({
 			},
 		},
 		coverage: {
+			// `svelte-check` mirrors application sources under `.svelte-kit`; broad
+			// route include globs must measure the real `src/` modules only.
+			exclude: ["**/.svelte-kit/**"],
 			// A single failing test must NOT erase the whole coverage report.
 			// Vitest defaults `coverage.reportOnFailure` to false and writes no
 			// reporter output at all once any test fails, so ONE timed-out test

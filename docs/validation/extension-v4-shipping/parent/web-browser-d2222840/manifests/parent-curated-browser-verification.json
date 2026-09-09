@@ -1,0 +1,16 @@
+{
+  "checkoutCommit": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "rawAttachments": 294,
+  "curatedPngFiles": 294,
+  "allRawAndCuratedBytesMatch": true,
+  "parentOpenedSelectedImages": 8,
+  "selectedBytesIncluded": true,
+  "exactTerminalFiles": [
+    "controller.exit",
+    "results.tsv",
+    "provenance.txt",
+    "visual-selection.txt"
+  ],
+  "overallControllerExit": 0,
+  "scope": "Eight selected full-auth images opened; all36 separate lifecycle-engine images were also opened in their own proof. No claim that all294 screenshots were manually viewed."
+}

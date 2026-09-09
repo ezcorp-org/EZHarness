@@ -1,0 +1,7 @@
+recorded_receipt=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/archive-expansion-parent-20260907T082600Z
+recorded_probe_parent_path=/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/probe-archive-expansion.py
+recorded_probe_parent_sha256=e62ec0f10bb4911160bf277950b119ac940c71c99f68ff3a576e5af1ebcc1ef7
+recorded_receipt_probe_sha256=e62ec0f10bb4911160bf277950b119ac940c71c99f68ff3a576e5af1ebcc1ef7
+recorded_receipt_helper_sha256=c8a425a1bc2c3087d695fd06d501bd56aa95932814d062934ff38fda10a9be57
+source_commit_at_curation=d2222840cf3d2b4963075ffc0f5cf0bdec5ef621
+scope=recorded archive-expansion controls only; not a final Gitleaks result

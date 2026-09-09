@@ -1,0 +1,91 @@
+{
+  "first": {
+    "app_log_guard": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "compose_log": {
+      "level_counts": {
+        "info": 18,
+        "warn": 1
+      },
+      "nonstructured_rows": 7,
+      "plain_failure_signature_matches": 0,
+      "raw": {
+        "bytes": 3900,
+        "sha256": "1d09af4984ccf289d5e9bde1546c815614589190b4581b11ddd86f70cd502420"
+      },
+      "structured_warning_error_records": [
+        {
+          "level": "warn",
+          "msg": "embed-worker: embedding not ready \u2014 entering degraded mode",
+          "subsystem": "embed-worker"
+        }
+      ]
+    },
+    "launcher_exit_quartet": {
+      "app_log_exit": "0",
+      "command_exit": "0",
+      "owned_cleanup_exit": "0",
+      "verifier_cleanup_exit": "0"
+    },
+    "result": {
+      "app_health_exit": "0",
+      "boundary_exit": "0",
+      "exit": "0",
+      "finished_at": "2026-09-07T18:13:20Z",
+      "launcher_quartet_exit": "0",
+      "phase": "first",
+      "started_at": "2026-09-07T18:13:03Z"
+    },
+    "vector_proof": {
+      "dimensions": 384,
+      "durationMs": 7373,
+      "norm": 1.0000000031202674,
+      "polls": 30,
+      "proof": "production-memory-embedding",
+      "status": "passed"
+    }
+  },
+  "second": {
+    "app_log_guard": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "compose_log": {
+      "level_counts": {
+        "info": 46
+      },
+      "nonstructured_rows": 7,
+      "plain_failure_signature_matches": 0,
+      "raw": {
+        "bytes": 13740,
+        "sha256": "7cbbe45eded9232110a0e345748b7c13ade212187e0550c8b3eb5145df09f5e9"
+      },
+      "structured_warning_error_records": []
+    },
+    "launcher_exit_quartet": {
+      "app_log_exit": "0",
+      "command_exit": "0",
+      "owned_cleanup_exit": "0",
+      "verifier_cleanup_exit": "0"
+    },
+    "result": {
+      "app_health_exit": "0",
+      "boundary_exit": "0",
+      "exit": "0",
+      "finished_at": "2026-09-07T18:13:27Z",
+      "launcher_quartet_exit": "0",
+      "phase": "second",
+      "started_at": "2026-09-07T18:13:20Z"
+    },
+    "vector_proof": {
+      "dimensions": 384,
+      "durationMs": 56,
+      "norm": 0.9999999945731638,
+      "polls": 1,
+      "proof": "production-memory-embedding",
+      "status": "passed"
+    }
+  }
+}

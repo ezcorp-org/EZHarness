@@ -19,6 +19,7 @@
 
 import { readdir, realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
+import { getInvocationContext, getInvocationSignal } from "@ezcorp/sdk/v4";
 
 interface JsonRpcRequest {
   jsonrpc: "2.0";
@@ -37,13 +38,16 @@ interface JsonRpcResponse {
 // overrides are seams for in-process testing (and future relocation);
 // resolved lazily so they honour the environment at call time.
 function skillDir(): string {
+  if (getInvocationContext()) return join(process.cwd(), "skill");
   return process.env.EZCORP_SKILL_DIR || join(import.meta.dir, "skill");
 }
 function skillMd(): string {
   return join(skillDir(), "SKILL.md");
 }
 function runTimeoutMs(): number {
-  return Number(process.env.EZCORP_SKILL_RUN_TIMEOUT_MS) || 30_000;
+  const value = Number(process.env.EZCORP_SKILL_RUN_TIMEOUT_MS);
+  const limit = Math.max(1, Math.min(30_000, (getInvocationContext()?.deadline ?? Infinity) - Date.now()));
+  return Number.isFinite(value) && value > 0 ? Math.min(value, limit) : limit;
 }
 
 const TOOLS = [
@@ -144,45 +148,55 @@ async function runScript(
   if (!real) {
     return { text: `Script not found or outside the skill: ${rel}`, isError: true };
   }
+  const signal = getInvocationSignal();
+  signal?.throwIfAborted();
   const proc = Bun.spawn(commandFor(real, args), {
     cwd: skillDir(),
     stdout: "pipe",
     stderr: "pipe",
   });
+  const readers = [proc.stdout.getReader(), proc.stderr.getReader()];
   let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    proc.kill(9); // SIGKILL the child fast (a lingering grandchild can
-    // still hold the stdout pipe open — bounded reads below stop us
-    // from hanging on its EOF).
-  }, runTimeoutMs());
-
+  let cancelled = false;
+  let outputExceeded = false;
+  let outputBytes = 0;
+  const stop = () => {
+    try { proc.kill(9); } catch {}
+    for (const reader of readers) void reader.cancel().catch(() => undefined);
+  };
+  const timer = setTimeout(() => { timedOut = true; stop(); }, runTimeoutMs());
+  const cancel = () => { cancelled = true; stop(); };
+  signal?.addEventListener("abort", cancel, { once: true });
+  if (signal?.aborted) cancel();
+  const grab = async (reader: (typeof readers)[number]): Promise<string> => {
+    const chunks: Uint8Array[] = [];
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const remaining = 65_536 - outputBytes;
+        chunks.push(value.subarray(0, Math.max(0, remaining)));
+        outputBytes += value.byteLength;
+        if (outputBytes > 65_536) { outputExceeded = true; stop(); break; }
+      }
+    } finally { reader.releaseLock(); }
+    return new TextDecoder().decode(Buffer.concat(chunks));
+  };
   let exitCode: number;
+  let stdout: string;
+  let stderr: string;
   try {
-    exitCode = await proc.exited;
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const grab = (s: ReadableStream<Uint8Array>): Promise<string> =>
-    new Response(s).text().catch(() => "");
-  const capped = (s: ReadableStream<Uint8Array>): Promise<string> =>
-    Promise.race([
-      grab(s),
-      new Promise<string>((r) => setTimeout(() => r(""), 300)),
-    ]);
-  const [stdout, stderr] = timedOut
-    ? await Promise.all([capped(proc.stdout), capped(proc.stderr)])
-    : await Promise.all([grab(proc.stdout), grab(proc.stderr)]);
+    [exitCode, stdout, stderr] = await Promise.all([proc.exited, grab(readers[0]!), grab(readers[1]!)]);
+  } finally { clearTimeout(timer); signal?.removeEventListener("abort", cancel); }
 
   const header = timedOut
     ? `timed out after ${runTimeoutMs()}ms (exit ${exitCode})`
-    : `exit ${exitCode}`;
+    : cancelled ? "cancelled" : outputExceeded ? "output limit exceeded (64 KiB)" : `exit ${exitCode}`;
   const body =
     `${header}\n` +
     (stdout ? `--- stdout ---\n${stdout}\n` : "") +
     (stderr ? `--- stderr ---\n${stderr}\n` : "");
-  return { text: body.trim(), isError: timedOut || exitCode !== 0 };
+  return { text: body.trim(), isError: timedOut || cancelled || outputExceeded || exitCode !== 0 };
 }
 
 export async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> {

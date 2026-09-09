@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${1:-.}"
+IMAGE="${2:-2d069cc64bc0bf06d5216517b0ee6724a865fe88ead28850f31219c2e2ade4de}"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+cat > "$WORK/tiny.json" <<'JSON'
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 38,
+  "syscalls": [
+    { "names": ["read", "write"], "action": "SCMP_ACT_ALLOW" }
+  ]
+}
+JSON
+
+gcc -O2 -o "$WORK/compile-seccomp" "$ROOT/build/compile-seccomp.c" -lseccomp
+"$WORK/compile-seccomp" "$WORK/tiny.json" "$WORK/tiny.bpf" 2>&1
+printf 'tiny_bytes=%s\n' "$(stat -c '%s' "$WORK/tiny.bpf")"
+python3 - "$WORK/tiny.bpf" <<'PY'
+import struct
+import sys
+
+blob = open(sys.argv[1], "rb").read()
+for offset in range(0, len(blob), 8):
+    code, jump_true, jump_false, value = struct.unpack_from("=HBBI", blob, offset)
+    print(
+        f"tiny_insn={offset // 8} code=0x{code:04x} "
+        f"jt={jump_true} jf={jump_false} k=0x{value:08x}"
+    )
+PY
+
+"$WORK/compile-seccomp" \
+  "$ROOT/src/extensions/mcp-seccomp.json" \
+  "$WORK/actual.bpf" 2>&1
+printf 'actual_bytes=%s\n' "$(stat -c '%s' "$WORK/actual.bpf")"
+sha256sum "$WORK/actual.bpf"
+podman run --rm --entrypoint /usr/bin/sha256sum \
+  "$IMAGE" /app/src/extensions/mcp-seccomp.bpf

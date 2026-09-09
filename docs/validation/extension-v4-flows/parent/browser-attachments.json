@@ -1,0 +1,69 @@
+[
+  {
+    "name": "extension-lifecycle-review-desktop",
+    "artifact": "screenshots/extension-lifecycle-review-desktop.png",
+    "sha256": "2d664e9fb2025c8f3d439e2ec25214f8665ff6125d973d23e5f2090e46300e96"
+  },
+  {
+    "name": "extension-lifecycle-live-output",
+    "artifact": "screenshots/extension-lifecycle-live-output.png",
+    "sha256": "68889b37e6435a91f2e3c5bb7b6233c115ca0c36336723b4a247f98eb7571338"
+  },
+  {
+    "name": "extension-lifecycle-tool-selection-mobile",
+    "artifact": "screenshots/extension-lifecycle-tool-selection-mobile.png",
+    "sha256": "4d51e9cfb22a5c959f2e3bc7b8ee02f9c5b458ba246acba37c10580a51fb6e58"
+  },
+  {
+    "name": "extension-lifecycle-tool-selection-mobile-narrow",
+    "artifact": "screenshots/extension-lifecycle-tool-selection-mobile-narrow.png",
+    "sha256": "8aeb9ae3bdcdeaa1b0a8241303bc6bf0c3e9f73331e14f5087f8de2b26e974da"
+  },
+  {
+    "name": "extension-lifecycle-tool-selection-desktop-after-mobile",
+    "artifact": "screenshots/extension-lifecycle-tool-selection-desktop-after-mobile.png",
+    "sha256": "3d8c690b88c5ca6bf2126fa841efc1bff9339a92281bf3dce3baed2d325919cb"
+  },
+  {
+    "name": "extension-lifecycle-client-diagnostics",
+    "artifact": "diagnostics/extension-lifecycle-client-diagnostics.json",
+    "sha256": "7c70da31deac21be252901d965e49f91de554b348fcbc814efcd0be1e83395a4"
+  },
+  {
+    "name": "extension-lifecycle-server-state",
+    "artifact": "diagnostics/extension-lifecycle-server-state.json",
+    "sha256": "443d0cae8066ba2f9346ef4019aac72bc5d95f16b3112735bb98dcf4478981c6",
+    "source_attachment_sha256": "cc1d3e0f9e485f59a9b845db778b7bb5c0ce1a86f11c767e08138bc7952a93d9",
+    "normalization": "Published evidence calls the non-secret idempotencyKey UUID operationDeduplicationUuid. Production API fields are unchanged."
+  },
+  {
+    "name": "extension-source-import-form",
+    "artifact": "screenshots/extension-source-import-form.png",
+    "sha256": "9e0094bb4a12fb1f2108378c8c9b3e7d1407b9c06c4b5e54bb570a4d8ca29daf"
+  },
+  {
+    "name": "extension-source-import-mobile",
+    "artifact": "screenshots/extension-source-import-mobile.png",
+    "sha256": "392c3da985d8e955a2ad4f04978e8836e6501ce68d62f493b60d67dbe7dba3e4"
+  },
+  {
+    "name": "extension-source-import-review",
+    "artifact": "screenshots/extension-source-import-review.png",
+    "sha256": "e15ec787b0f6c930c2f1576f8ca4a56b0e29c83b3d182cb712b291bb112a059b"
+  },
+  {
+    "name": "extension-source-import-visible-output",
+    "artifact": "screenshots/extension-source-import-visible-output.png",
+    "sha256": "ec80b85dfbe2789b85429c42b51a2970212f1f3723033e17bdd8bbe410c109a9"
+  },
+  {
+    "name": "extension-source-import-permission-update",
+    "artifact": "screenshots/extension-source-import-permission-update.png",
+    "sha256": "7bd59642cd30b278bed3ac817a4d7765964b4a9e4ab27713a501a66c123a8e45"
+  },
+  {
+    "name": "extension-source-import-local-form",
+    "artifact": "screenshots/extension-source-import-local-form.png",
+    "sha256": "f2eede2f781cd1ea731bf0a08e15fbfb3d781f8596d72c3380c642648eeda458"
+  }
+]

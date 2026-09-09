@@ -1,0 +1,9 @@
+mock E2E job 101853766463: completed/success; log summary: 255 passed, 13 skipped.
+Firefox lifecycle job 101853766560: completed/success; log summary: 3 passed (2.6m); artifact extension-lifecycle-firefox ID 10031698450.
+WebKit lifecycle job 101853766428: completed/success; log summary: 3 passed (3.4m); artifact extension-lifecycle-webkit ID 10031715463.
+Visual evidence job 101853766498: completed/success; log summaries: 191 passed (3.1m), then 13 passed (5.3m); artifact visual-evidence ID 10031823458.
+real-auth job 101853766464: completed/failure at Bun module resolution before real browser tests; artifact upload step completed.
+Web Bun job 101853766458 and web security job 101853766558: completed/success.
+Vitest shards 101853766495/509/533: completed/success; see README for printed counts.
+
+Mock and visual logs contain controlled mock-mode 500 records. This review does not attribute them to a product failure because the same jobs passed and no request-level cause was established here.

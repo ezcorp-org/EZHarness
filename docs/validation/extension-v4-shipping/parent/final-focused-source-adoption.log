@@ -1,0 +1,22 @@
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/__tests__/source-adoption.test.ts:
+(pass) owner source adoption preserves exact legacy identity, owner and namespace without old grants [444.17ms]
+(pass) historical installer audit adopts only its matching local, GitHub, or git source [268.19ms]
+(pass) null-owner adoption rejects all provenance mismatches without mutation [249.67ms]
+(pass) a null-owner projection cannot bypass an existing lifecycle state [210.99ms]
+(pass) target ownership is checked before any source collection, including administrator requests [217.70ms]
+(pass) active owner imports build a candidate without changing the active release or approved grants [259.86ms]
+(pass) a later GitHub blob failure stages nothing and leaves an active installation byte-for-byte unchanged [232.37ms]
+(pass) an identical immutable GitHub retry reuses one candidate while changed source stages a distinct unapproved candidate [295.92ms]
+(pass) a deactivated owner cannot activate an administrator-approved release or change its live installation [303.01ms]
+(pass) unknown targets and mismatched persisted owners stay opaque, while an owner's deleted installation reports its tombstone [231.16ms]
+(pass) members cannot use adoption to read host-local source or create unowned installations [219.51ms]
+(pass) a member imports GitHub source into their explicit legacy installation through the shared flow [260.73ms]
+(pass) lost project membership denies target imports before collecting source [205.99ms]
+(pass) a project member imports and opens the real scoped review loader without disclosing foreign source [287.57ms]
+
+ 14 pass
+ 0 fail
+ 97 expect() calls
+Ran 14 tests across 1 file. [4.25s]

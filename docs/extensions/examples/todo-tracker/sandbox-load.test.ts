@@ -1,3 +1,5 @@
+// @ezcorp-host-integration
+const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url: import.meta.url };
 // Phase post-perm-cleanup, task B6 — sandbox-load smoke.
 //
 // Goal: prove that `index.ts` loads cleanly under the production
@@ -30,11 +32,11 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 
 const SANDBOX_PRELOAD_PATH = resolve(
-  import.meta.dir,
+  fixtureImportMeta.dir,
   "../../../../src/extensions/runtime/sandbox-preload.ts",
 );
 
-const ENTRYPOINT = resolve(import.meta.dir, "./index.ts");
+const ENTRYPOINT = resolve(fixtureImportMeta.dir, "./index.ts");
 
 describe("todo-tracker sandbox-load smoke", () => {
   test("module loads without throwing under the production sandbox-preload", () => {

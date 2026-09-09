@@ -1,3 +1,4 @@
+import { emitTerminalRun } from "./domain-events";
 import type { AgentRun, AgentEvents } from "../types";
 import type { EventBus } from "./events";
 import type { Agent } from "@earendil-works/pi-agent-core";
@@ -183,22 +184,10 @@ export class WatchdogManager {
     // Clean up orphaned runs on startup and periodically.
     // Also cancel any in-memory runs whose DB record was marked interrupted.
     // On fresh startup, ALL "running" DB entries are orphaned — interrupt them immediately
-    activeRunsDb.interruptAllRuns().then((count) => {
-      if (count > 0) log.info("Interrupted orphaned runs from previous process", { count });
-    }).catch((err) => {
-      log.error("interruptAllRuns on startup failed", { error: String(err) });
-    });
-
-    // Drain the `runs`-table counterpart of the same invariant: a fresh
-    // process owns zero in-memory runs, so ANY `runs` row still
-    // `status='running'` is orphaned. interruptAllRuns() above only
-    // fixes `active_runs`; without this twin pass the `runs` mirror
-    // stays stuck `running`/finished_at=NULL forever (the systemic
-    // ~131-row backlog). This both drains that pre-existing backlog on
-    // the next legitimate restart AND self-heals after any crash/OOM
-    // kill that skipped finalizeCleanup — no manual DB surgery needed.
-    dbRuns.terminalizeOrphanedRuns().then((count) => {
+    dbRuns.terminalizeOrphanedRuns().then(async (count) => {
       if (count > 0) log.info("Terminalized orphaned runs rows from previous process", { count });
+      const interrupted = await activeRunsDb.interruptAllRuns();
+      if (interrupted > 0) log.info("Interrupted orphaned runs from previous process", { count: interrupted });
       // C2: reconcile task-tracking assignments a restart left `running`.
       // Runs AFTER terminalization so each dangling assignment's run row is
       // already terminal. Fire-and-forget + self-catching so a slow/failing
@@ -461,19 +450,6 @@ export class WatchdogManager {
         // `status='running', finished_at=NULL` while `active_runs` is
         // marked interrupted. That divergence is the orphaned-run bug.
         //
-        // Fire-and-forget on purpose: a slow/hung `runs` or `active_runs`
-        // UPDATE must NOT delay the user-visible tool:error / run:error
-        // emissions below (the whole point of the watchdog is fast
-        // recovery). Each write is independently error-logged.
-        // finalizeRunRow is idempotent + race-safe (it only transitions a
-        // still-`running` row) so the healthy path that DOES reach
-        // finalizeCleanup is unaffected.
-        void activeRunsDb.markInterrupted(runId).catch((err) => {
-          log.error("Watchdog markInterrupted failed", { error: String(err) });
-        });
-        void dbRuns.finalizeRunRow(runId, "error", reason).catch((err) => {
-          log.error("Watchdog finalizeRunRow failed", { error: String(err) });
-        });
         // Emit tool:error for each in-flight tool BEFORE run:error so the
         // chat can render a per-tool failure card instead of the bare
         // "Request was aborted" string the abort path would otherwise
@@ -523,7 +499,9 @@ export class WatchdogManager {
             });
           });
         }
-        this.host.bus.emit("run:error", { run, runId: run.id, error: reason, conversationId });
+        void emitTerminalRun(this.host, run, "run:error", { run, runId: run.id, error: reason, conversationId }, "abnormal").catch((err) => {
+          log.error("Watchdog finalization failed", { error: String(err) });
+        });
         // Abort the in-memory controller so any remaining awaits unblock.
         const controller = this.host.controllers.get(runId);
         if (controller && !controller.signal.aborted) controller.abort();

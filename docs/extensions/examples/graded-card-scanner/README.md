@@ -9,8 +9,9 @@ PSA / CGC / BGS / SGC) with a per-company grade-price chart.
 
 | Piece | Where |
 |---|---|
-| Scanner web app (camera + upload + manual entry, saved list, detail view with grade table + chart) | `app/`, deployed by postinstall and served session-authed at `/api/extensions/graded-card-scanner/data/app/index.html` |
-| `lookup_card(cert, fresh?)` tool | `index.ts` — called by the app via `POST /api/tool-invoke`, and callable by the LLM in chat |
+| Scanner web app (camera + upload + manual entry, saved list, detail view with grade table + chart) | `app/`, bundled offline by `ezcorp.browser.json` into the sealed release; open `/extensions/graded-card-scanner/preview` |
+| `lookup_card(cert, fresh?)` tool | `index.ts` — called through the trusted host bridge, and callable by the LLM in chat |
+| Private saved-card tools | `lib/saved-cards.ts` — list/get/upsert/delete/clear the calling user's cards; cannot read the PSA token |
 | `identify_slab(attachment, filename?, mimeType?)` tool + **deterministic preprocessor** | `index.ts` + `ezcorp.config.ts` `preprocessors` — the host runs it automatically on PNG/JPEG attachments (see [Slab photos in chat](#slab-photos-in-chat-deterministic-preprocess)) |
 | `set_psa_token(token)` tool | `index.ts` — saves your free PSA API token (encrypted, never echoed) |
 | Live lookup pipeline (PSA API + PriceCharting, per-host politeness, per-cert cache) | `lib/` — `pipeline.ts`, `sources/psa-api.ts`, `sources/pricecharting.ts`, `politeness.ts`, `token.ts` |
@@ -52,24 +53,28 @@ What `identify_slab` does, per grader:
 
 ```bash
 # from the repo root
-bun src/cli.ts ext install docs/extensions/examples/graded-card-scanner
-# postinstall deploys app/ into .ezcorp/extension-data/graded-card-scanner/app/
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install docs/extensions/examples/graded-card-scanner
 ```
 
-Open `/api/extensions/graded-card-scanner/data/app/index.html` in a
-browser logged in to your EZCorp instance. On a phone, use your
-deployment's HTTPS address.
+Review and approve the exact built release in EZCorp, then open
+`/extensions/graded-card-scanner/preview`. Select the conversation in
+the trusted host controls. The scanner cannot create a hidden conversation
+or change its user, extension, release, or conversation authority.
+On a phone, use your deployment's HTTPS address.
 
-**No API keys are needed to try it.** With no backend data source
-configured the app runs in **mock mode**: the full scan → list →
-detail → chart flow works with zero network using a built-in sample
-card (1999 Base Set Charizard #4). The "Simulate scan" button and
-manual cert entry exercise everything without a camera.
+**No API keys are needed for the explicit demo.** "Simulate scan" shows
+a clearly labeled sample card. Manual entry and camera scans use the
+real lookup tool. Lookup or permission failures show an error, never
+sample data presented as a successful lookup.
 
 ## Camera notes
 
 - Live continuous scanning needs a **secure context** (HTTPS or
-  localhost) *and* the platform's camera header opt-in. Without them,
+  localhost). Click "Start scanning", then approve camera use in the
+  trusted host camera panel. The host shares bounded JPEG frames, not
+  a device stream or session credentials. Stop, navigation, expiry, or
+  a hidden scanner page ends capture; it never restarts automatically.
+  Without a camera,
   the **Photo** button still works — it opens the native camera app via
   `<input capture>` and decodes the still — as do manual entry and
   simulate.
@@ -173,8 +178,10 @@ served from cache. Any failure exits non-zero.
 
 ## Storage
 
-- Your scanned list lives **on the device** (IndexedDB) and survives
-  reloads; already-scanned certs are never looked up twice.
+- Your scanned list uses **user-scoped extension storage**, survives
+  reloads, and is available across your devices. The opaque app has no
+  IndexedDB, localStorage, cookies, or direct host HTTP access.
+  The list is bounded to 500 cards; already-scanned certs are not fetched twice.
 - Lookup results are also cached server-side per cert (extension
   Storage), so re-scans and other devices reuse them; `fresh=true`
   bypasses the cache.

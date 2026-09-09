@@ -1,0 +1,11 @@
+    60	  }
+    61	  return user;
+    62	}
+    63	
+    64	export function requireRole(locals: AuthLocals, role: "admin"): AuthUser {
+    65	  const user = requireAuth(locals);
+    66	  if (user.role !== role) {
+    67	    throw new Response(JSON.stringify({ error: "Insufficient permissions" }), {
+    68	      status: 403,
+    69	      headers: { "Content-Type": "application/json" },
+    70	    });

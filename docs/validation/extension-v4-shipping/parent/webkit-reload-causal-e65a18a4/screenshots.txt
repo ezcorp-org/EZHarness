@@ -1,0 +1,5 @@
+Eligible PNG attachments copied: 12.
+
+Source: final passing WebKit blob report `web/blob-report/report-webkit-9bcddb7.zip`, mapped only from onAttach events. `attachment-index.tsv` maps each attachment to its test ID and copied path. Client diagnostics are sanitized to the established browser-diagnostics fields.
+
+The raw blob and the authenticated red trace are retained outside this receipt. No trace, session data, request bodies, headers, cookies, or raw report JSONL are copied.

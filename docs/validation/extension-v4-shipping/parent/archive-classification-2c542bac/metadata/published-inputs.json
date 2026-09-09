@@ -1,0 +1,23 @@
+{
+  "source_commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "inputs": [
+    {
+      "published_path": "inputs/controller.sh.txt",
+      "private_source": ".cache/terra-shipping/parent/scan-final-staged-snapshot.sh",
+      "sha256": "c949bb2625d2932eab14f61ead5a5ba7a5e46eedd08531b0ef316efabad405e4",
+      "bytes": 2059
+    },
+    {
+      "published_path": "inputs/expand-helper.py.txt",
+      "private_source": ".cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py",
+      "sha256": "04f9b20aad11634bfc1f58a3df0d36c381a048200f83ef32dc23e470feb505bc",
+      "bytes": 8785
+    },
+    {
+      "published_path": "inputs/archive-expansion-config.py.txt",
+      "private_source": ".cache/terra-shipping/parent/archive_expansion_config.py",
+      "sha256": "48ddbb6810cc9ce8b1f13ed5674b6ea5f8e7e55e7ef41b15cb08e02bcfa7d383",
+      "bytes": 516
+    }
+  ]
+}

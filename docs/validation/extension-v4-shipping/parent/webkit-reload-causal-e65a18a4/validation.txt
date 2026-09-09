@@ -1,0 +1,2 @@
+git diff --check -- web/e2e/real-auth/extension-lifecycle-flow.spec.ts: exit 0
+controller session 23665: exit 0

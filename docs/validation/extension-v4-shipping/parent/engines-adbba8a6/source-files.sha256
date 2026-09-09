@@ -1,0 +1,3 @@
+7dfa2f3ba5b105cfd991dee141ae435c823ddb3d12ca32aee0debcca691b2400  web/e2e/real-auth/extension-lifecycle-flow.spec.ts
+5cd10bfac3db43b156451fbc7450113ebbb94fbff9510fe0dc5153975ee2c750  web/src/routes/(app)/extensions/author/+page.svelte
+9437e00e961a8d487e10b9d4995e768a013e88547bd98b6659fbf1bbae6b2625  web/src/lib/components/hub/HubPageView.svelte

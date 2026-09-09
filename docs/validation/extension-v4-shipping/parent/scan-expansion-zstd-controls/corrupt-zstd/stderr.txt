@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 85, in <module>
+    if __name__=='__main__': main()
+                             ~~~~^^
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 83, in main
+    path,source,chain=queue.popleft(); serial+=1; expand(path,source,chain,output,queue,records,serial,totals)
+                                                  ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 52, in expand
+    if process.wait()!=0: fail(f'corrupt zstd archive: {path.name!r}')
+                          ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 8, in fail
+    def fail(message): raise ValueError(message)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: corrupt zstd archive: 'broken.tar.zst'

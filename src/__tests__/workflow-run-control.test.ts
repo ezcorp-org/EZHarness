@@ -20,6 +20,7 @@ import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import type { AgentEvents, WorkflowDefinition, WorkflowStep } from "../types";
 import type { WorkflowRuntime } from "../runtime/workflow/runtime-registry";
+import { systemCachedWorkflow } from "../runtime/workflow-scope";
 
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -124,6 +125,15 @@ async function parked(id: string, userId: string | null = "owner"): Promise<void
 }
 
 describe("resume — preconditions", () => {
+  test("an extension without exact release authority stays parked", async () => {
+    await parked("release-denied");
+    const runtime = runtimeFor([trivial]);
+    runtime.getCachedWorkflows = () => [systemCachedWorkflow(trivial, "extension")];
+    const result = await resumeParkedRun("release-denied", OWNER, { runtime });
+    expect(result).toMatchObject({ ok: false, code: "resume-failed" });
+    expect((await getWorkflowRunRow("release-denied"))?.status).toBe("suspended");
+  });
+
   test("a run that does not exist is not-found", async () => {
     const r = await resumeParkedRun("ghost", OWNER, { runtime: runtimeFor([trivial]) });
     expect(r).toMatchObject({ ok: false, code: "not-found" });

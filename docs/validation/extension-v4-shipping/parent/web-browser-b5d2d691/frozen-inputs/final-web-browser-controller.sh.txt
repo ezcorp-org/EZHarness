@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${1:-} != --locked ]]; then
+  exec flock --close <audit-worktree>/.cache/validation-heavy.lock "$0" --locked "${1:?Expected source commit required}"
+fi
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export CONMON=/tmp/ez-audit-ci-conmon
+repo=<audit-worktree>
+cd "$repo"
+expected_source=${2:?Expected source commit required}
+[[ "$(git rev-parse HEAD)" == "$expected_source" ]] || exit 65
+git diff --quiet HEAD -- src web scripts packages package.json bun.lock || exit 66
+receipt="$repo/.cache/terra-shipping/parent/final-web-closeout-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$receipt"
+cp "${BASH_SOURCE[0]}" "$receipt/controller.sh.txt"
+git diff --name-only d2222840 HEAD > "$receipt/changed-inputs.txt"
+while IFS= read -r input; do
+  mkdir -p "$receipt/inputs/$(dirname "$input")"
+  cp "$input" "$receipt/inputs/$input.txt"
+  sha256sum "$input" >> "$receipt/input-sha256.txt"
+done < "$receipt/changed-inputs.txt"
+python3 - "$receipt" <<'PYENV'
+import json,os,pathlib
+pathlib.Path(__import__('sys').argv[1], 'inherited-fixture-env-presence.json').write_text(json.dumps({k: bool(os.environ.get(k)) for k in ['PI_E2E_REAL_DB_PATH','EZCORP_DB_PATH','EZCORP_JWT_SECRET','EZCORP_SECRETS_DIR']},indent=2)+'\n')
+PYENV
+# Exercise default fixture ownership with fresh keys in both authenticated lanes.
+unset PI_E2E_REAL_DB_PATH EZCORP_JWT_SECRET EZCORP_SECRETS_DIR
+fixture_parent=$(realpath "${TMPDIR:-/tmp}")
+find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/default-roots.before.txt"
+
+printf 'source=%s\nbranch=%s\nbun=' "$(git rev-parse HEAD)" "$(git branch --show-current)" >"$receipt/provenance.txt"
+bun --version >>"$receipt/provenance.txt"; printf 'node=' >>"$receipt/provenance.txt"; node --version >>"$receipt/provenance.txt"
+printf 'conmon=%s\n' "$CONMON" >>"$receipt/provenance.txt"
+sha256sum web/e2e/lanes.json web/playwright.real.config.ts >>"$receipt/provenance.txt"
+git status --short >"$receipt/status.before.txt"; : >"$receipt/results.tsv"
+run() { local label=$1; shift; local start=$(date +%s); "$@" >"$receipt/$label.log" 2>&1; local rc=$?; printf '%s\t%s\t%s\t%s\n' "$label" "$rc" "$(( $(date +%s)-start ))" "$(wc -l <"$receipt/$label.log")" | tee -a "$receipt/results.tsv"; local tee_rc=${PIPESTATUS[1]}; [[ $rc -ne 0 ]] && return "$rc"; return "$tee_rc"; }
+failed=0
+run runner-probe bash scripts/setup-extension-runner-ci.sh --probe || failed=1
+run fixture-regressions bun test ./src/__tests__/real-auth-fixture-cleanup.test.ts ./src/__tests__/e2e-lanes.test.ts || failed=1
+run typecheck bun run typecheck || failed=1
+run svelte-check bash -c 'cd web && bunx svelte-check --tsgo' || failed=1
+run vitest-full bash -c 'cd web && bunx --bun vitest run' || failed=1
+run web-bun bash scripts/test-web.sh || failed=1
+run lint-boundaries bash -c 'bun run lint && bun scripts/check-boundaries.ts' || failed=1
+run manifest-lock bun run scripts/regenerate-manifest-lock.ts --check || failed=1
+run mock-full bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate); [ "${#ARGS[@]}" -gt 0 ] || exit 64; cd web && CI=1 EZCORP_E2E_EVIDENCE=1 PLAYWRIGHT_BLOB_OUTPUT_FILE="$1/mock.zip" bunx playwright test --project=chromium --output="$1/mock-test-results" "${ARGS[@]}"' _ "$receipt" || failed=1
+run real-auth-full bash -c 'cd web && CI=1 PI_E2E_REAL=1 PI_E2E_REAL_BROWSER_PROJECTS=chromium EZCORP_E2E_EVIDENCE=1 PLAYWRIGHT_BLOB_OUTPUT_FILE="$1/real-auth.zip" bunx playwright test --config playwright.real.config.ts --output="$1/real-auth-test-results"' _ "$receipt" || failed=1
+run visual-gate env BASE_REF=origin/main bun scripts/check-visual-evidence.ts || failed=1
+run visual-selection bash -c 'BASE_REF=origin/main bun scripts/visual-evidence/select-specs.ts >"$1/visual-selection.txt" && test -s "$1/visual-selection.txt"' _ "$receipt" || failed=1
+run visual-capture bash -c 'CI=1 BASE_REF=origin/main PI_E2E_REAL_BROWSER_PROJECTS=chromium bun scripts/run-visual-evidence.ts "$1/visual-selection.txt"; rc=$?; mkdir -p "$1/visual-blobs"; for z in web/blob-report/*.zip; do [ -f "$z" ] && cp "$z" "$1/visual-blobs/"; done; exit "$rc"' _ "$receipt" || failed=1
+find "$fixture_parent" -mindepth 1 -maxdepth 1 -type d -name 'ezcorp-e2e-*' -print | sort > "$receipt/default-roots.after.txt"
+comm -13 "$receipt/default-roots.before.txt" "$receipt/default-roots.after.txt" > "$receipt/default-roots.new.txt"
+run fixture-cleanup bash -c 'test ! -s "$1/default-roots.new.txt" && test ! -e web/e2e/.real-auth.json' _ "$receipt" || failed=1
+git diff --quiet HEAD -- src web scripts packages package.json bun.lock || failed=1
+git status --short >"$receipt/status.after.txt"; printf '%s\n' "$failed" >"$receipt/controller.exit"; exit "$failed"

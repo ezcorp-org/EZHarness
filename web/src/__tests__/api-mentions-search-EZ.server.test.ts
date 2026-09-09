@@ -18,6 +18,7 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockListEzActions = vi.fn();
+vi.mock("$lib/server/workflow-access", () => ({ listVisibleWorkflows: async () => [] }));
 vi.mock("$server/runtime/ez-actions/registry", () => ({
   listEzActions: mockListEzActions,
 }));
@@ -27,10 +28,6 @@ vi.mock("$lib/server/context", () => ({
   // branch doesn't touch them — harmless stubs.
   getExecutor: () => ({ listAgents: () => [] }),
   getCommandRegistry: () => ({ listCommands: async () => [] }),
-  // The no-colon `!` fallback merges workflows alongside EZ actions.
-  // Empty here so the EZ merge stays the only contributor and these
-  // assertions can keep counting exact result lengths.
-  getWorkflows: () => [],
 }));
 
 // Stub the DB and builtin-registry calls used by the no-colon `!`

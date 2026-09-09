@@ -1,0 +1,17 @@
+{
+  "source_commit_sha": "6c05453edbb4148d53cbc37b67d05907b5459c67",
+  "real_browser_pngs_reviewed_as_contact_sheets": 63,
+  "full_resolution_review": [
+    "real-auth-full-002.png",
+    "real-auth-full-013.png",
+    "real-auth-full-017.png",
+    "real-auth-full-018.png"
+  ],
+  "observations": [
+    "Mobile approval controls and tool menu stay within the viewport.",
+    "Stale approval error text is readable.",
+    "Uninstalled status and retained-history notice are clear.",
+    "No layout or clipping defect observed in these reviewed images."
+  ],
+  "scope": "63 real-browser screenshots plus four full-resolution checks; this does not claim full-resolution review of all 294 artifacts."
+}

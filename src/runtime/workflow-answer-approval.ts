@@ -64,6 +64,7 @@ import { requireItemConsent } from "./workflow-approval-guard";
 import { resumeClaimedRun } from "./workflow-executor";
 import {
   getWorkflowRuntime,
+  workflowResumeEntry,
   type WorkflowRuntime,
 } from "./workflow/runtime-registry";
 import { logger } from "../logger";
@@ -486,7 +487,8 @@ export async function answerApproval(
         : "Workflow runtime is not available to resume this run",
     };
   }
-  const workflow = runtime.getWorkflows().find((w) => w.name === runRow.workflowName);
+  const entry = workflowResumeEntry(runtime, runRow.workflowName);
+  const workflow = entry?.definition;
   if (!workflow) {
     return {
       ok: false,
@@ -581,13 +583,15 @@ export async function answerApproval(
     workflow,
     runRow.id,
     claimedBy,
+    undefined,
+    entry,
   );
   // A resume that came back `error` is NOT a successful answer. Returning
   // `ok: true` here mapped to HTTP 200, telling the user their approval
   // landed while the workflow was dead and their answer already spent.
   // The answer IS recorded — the human really did decide — so the
   // message says both things rather than pretending nothing happened.
-  if (run.status === "error") {
+  if (run.status === "error" || run.result?.error !== undefined) {
     const detail =
       run.result?.error && typeof run.result.error === "object"
         ? run.result.error.message

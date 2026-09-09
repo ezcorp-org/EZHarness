@@ -37,6 +37,7 @@ import {
 import { resumeClaimedRun } from "./workflow-executor";
 import {
   getWorkflowRuntime,
+  workflowResumeEntry,
   type WorkflowRuntime,
 } from "./workflow/runtime-registry";
 import type { WorkflowRun } from "../types";
@@ -139,7 +140,8 @@ export async function resumeParkedRun(
       message: "Workflow runtime is not available to resume this run",
     };
   }
-  const workflow = runtime.getWorkflows().find((w) => w.name === row.workflowName);
+  const entry = workflowResumeEntry(runtime, row.workflowName);
+  const workflow = entry?.definition;
   if (!workflow) {
     return {
       ok: false,
@@ -168,7 +170,7 @@ export async function resumeParkedRun(
   // Re-reads the row under the claim and hands the claim back if the run
   // comes back parked — which is the NORMAL outcome here, because this is
   // not an approval-answering path and relies on the transient refusal.
-  const run = await resumeClaimedRun(runtime.workflowExecutor, workflow, runId, claimedBy);
+  const run = await resumeClaimedRun(runtime.workflowExecutor, workflow, runId, claimedBy, undefined, entry);
   // Branch on the ERROR, not on the status.
   //
   // `resumeWorkflow` has two refusal shapes and only one of them is

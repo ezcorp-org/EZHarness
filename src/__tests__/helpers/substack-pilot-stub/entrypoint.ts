@@ -1,68 +1,8 @@
-/**
- * Stub subprocess for the chat-E2E test of substack-pilot (gap #4).
- *
- * This is NOT the real `docs/extensions/examples/substack-pilot/index.ts`
- * dispatcher. It mirrors the shape of `mock-extension/entrypoint.ts` —
- * a minimal JSON-RPC stdin/stdout loop — but routes the seven
- * substack-pilot tool names to in-memory canned responses that mimic
- * the real handlers' contract:
- *
- *   - `list_post_types`       → returns an array with the "weekly" seed
- *   - `get_post_type`         → returns the "weekly" PostType when slug matches
- *   - `summarize_urls`        → returns one summary per input URL
- *   - `generate_substack_draft` → returns a fake draft URL payload
- *
- * We use a stub instead of the real `index.ts` because the real one
- * relies on the host's storage subprocess channel + `@ezcorp/sdk`
- * runtime + a live substack-mcp child process — none of which are
- * available inside Bun's test runner without recreating the host. The
- * production code paths for those handlers are exercised by
- * `docs/extensions/examples/substack-pilot/tests/{post-types,summarize-urls,generate-draft}.test.ts`.
- *
- * What THIS stub proves is the host-side wiring: that when an agent
- * config has `extensions: [substackPilotId]`, the host spawns the
- * extension, lists tools via `tools/list`, namespaces them as
- * `substack-pilot__<tool>`, and routes `tools/call` requests with the
- * right `name` and `arguments` keys. The MockAgent in the e2e test
- * drives a 3-step tool-call sequence that crosses this boundary three
- * times, then emits a final assistant text containing the draft URL
- * the stub returned.
- */
-
 import type {
   JsonRpcRequest,
   JsonRpcResponse,
   ToolCallResult,
 } from "../../../extensions/types";
-
-const decoder = new TextDecoder();
-let buffer = "";
-const stdoutWriter = Bun.stdout.writer();
-
-// Same Bun.stdout pattern as mock-extension/entrypoint.ts to dodge the
-// fs-poison issue documented there.
-
-async function main(): Promise<void> {
-  const reader = Bun.stdin.stream().getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const request: JsonRpcRequest = JSON.parse(line);
-        const response = handleRequest(request);
-        stdoutWriter.write(JSON.stringify(response) + "\n");
-        await stdoutWriter.flush();
-      } catch {
-        // Skip malformed lines (same as mock-extension)
-      }
-    }
-  }
-}
 
 const WEEKLY_POST_TYPE = {
   name: "Weekly digest",
@@ -78,7 +18,7 @@ const WEEKLY_POST_TYPE = {
 
 const FAKE_DRAFT_URL = "https://example.substack.com/p/weekly-2026-05-11";
 
-function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
+export function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
   if (req.method === "tools/call") {
     const params = req.params as {
       name: string;
@@ -190,5 +130,3 @@ function jsonErrorResult(
   };
   return { jsonrpc: "2.0", id, result };
 }
-
-main();

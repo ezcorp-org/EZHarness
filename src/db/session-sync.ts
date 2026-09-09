@@ -1,18 +1,22 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { logger } from "../logger";
 import type { HistoryUserRow } from "../chat/attachments/history-rehydrate";
 import { getDb } from "./connection";
+import type { DbTransaction } from "./connection";
 import { getMessages, getLatestLeaf } from "./queries/conversations";
 import { getSetting } from "./queries/settings";
 import { agentSessionEntries, agentSessions } from "./schema";
 import {
   entryToRow,
   type DbSessionMetadata,
-  type DbSessionStorage,
+  DbSessionStorage,
   type SessionTreeEntry,
 } from "./session-storage";
 import { backfillSessionForConversation, isLlmTurn, rowToEntry, rowToPiMessage } from "./session-backfill";
+import { emitPersistedDomainEvent, publishDomainEvent, type DomainExtensionEvent } from "../extensions/domain-event-outbox";
+import type { EventBus } from "../runtime/events";
+import type { AgentEvents } from "../types";
 
 /**
  * P3 of the Postgres SessionStorage design
@@ -333,8 +337,14 @@ export async function appendSavedMessageEntry(
   row: SavedMessageRow,
   parentId: string | null,
 ): Promise<void> {
-  await withConvSessionLock(conversationId, async () => {
-    const db = getDb();
+  await withConvSessionLock(conversationId, () => appendSavedMessageEntryInTransaction(getDb(), conversationId, row, parentId)).catch((err) => log.warn("live session append failed (catch-up will heal)", {
+    conversationId,
+    id: row.id,
+    error: String(err),
+  }));
+}
+
+export async function appendSavedMessageEntryInTransaction(db: Pick<DbTransaction, "select" | "insert" | "update">, conversationId: string, row: SavedMessageRow, parentId: string | null): Promise<void> {
     const [session] = await db
       .select({ id: agentSessions.id })
       .from(agentSessions)
@@ -355,11 +365,6 @@ export async function appendSavedMessageEntry(
       .values(entryToRow(session.id, entry, row.id))
       .onConflictDoNothing();
     await db.update(agentSessions).set({ leafEntryId: row.id }).where(eq(agentSessions.id, session.id));
-  }).catch((err) => log.warn("live session append failed (catch-up will heal)", {
-    conversationId,
-    id: row.id,
-    error: String(err),
-  }));
 }
 
 // ── TREE VIEW + REWIND (P4) ─────────────────────────────────────────
@@ -495,25 +500,35 @@ export async function rewindSession(
   conversationId: string,
   targetMessageId: string,
   summary?: string,
+  bus?: EventBus<AgentEvents>,
 ): Promise<RewindOutcome> {
   return withConvSessionLock(conversationId, async () => {
     const { storage, rowsById } = await syncSessionForConversation(conversationId);
     if (!rowsById.has(targetMessageId)) return { ok: false, reason: "target_not_found" };
-    const priorLeaf = await storage.getLeafId();
-    const trimmed = summary?.trim();
-    if (trimmed) {
-      const entry: SessionTreeEntry = {
-        type: "branch_summary",
-        id: await storage.createEntryId(),
-        parentId: priorLeaf,
-        timestamp: new Date().toISOString(),
-        fromId: priorLeaf ?? "root",
-        summary: trimmed,
-      };
-      await storage.appendEntry(entry);
-    }
-    await storage.setLeafId(targetMessageId);
-    const tree = buildTreeView(conversationId, targetMessageId, await storage.getEntries(), rowsById);
-    return { ok: true, tree };
+    const metadata = await storage.getMetadata();
+    const committed = await getDb().transaction(async (transaction: DbTransaction) => {
+      await transaction.execute(sql`SELECT id FROM agent_sessions WHERE id = ${metadata.id} FOR UPDATE`);
+      const writable = await DbSessionStorage.open(metadata.id, transaction);
+      const priorLeaf = await writable.getLeafId();
+      const trimmed = summary?.trim();
+      if (trimmed) {
+        const entry: SessionTreeEntry = {
+          type: "branch_summary",
+          id: await writable.createEntryId(),
+          parentId: priorLeaf,
+          timestamp: new Date().toISOString(),
+          fromId: priorLeaf ?? "root",
+          summary: trimmed,
+        };
+        await writable.appendEntry(entry);
+      }
+      await writable.setLeafId(targetMessageId);
+      const tree = buildTreeView(conversationId, targetMessageId, await writable.getEntries(), rowsById);
+      const event: DomainExtensionEvent = { id: crypto.randomUUID(), type: "conversation:tree-changed", conversationId, payload: { conversationId, currentLeaf: tree.currentLeaf } };
+      await publishDomainEvent(transaction, event);
+      return { tree, event };
+    });
+    emitPersistedDomainEvent(bus, committed.event);
+    return { ok: true, tree: committed.tree };
   });
 }

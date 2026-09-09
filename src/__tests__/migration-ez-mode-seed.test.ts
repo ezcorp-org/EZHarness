@@ -11,6 +11,7 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
+import { extensionControlTools } from "../extensions/extension-control";
 
 mockDbConnection();
 
@@ -43,7 +44,7 @@ describe("Ez mode seed (post-migration)", () => {
     expect(mode!.toolRestriction).toBe("allowlist");
   });
 
-  test("allowedTools contains the nine native tool names plus extension-author__create_extension", async () => {
+  test("allowedTools contains the native Ez tools and host-owned extension controls", async () => {
     const mode = await getModeBySlug("ez");
     // The seed ARRAY holds the nine native Ez tools (fresh-install order);
     // the follow-up migrate.ts step (9) appends the bundled
@@ -60,7 +61,7 @@ describe("Ez mode seed (post-migration)", () => {
       "fill_form",
       "navigate_to",
       "read_page",
-      "extension-author__create_extension",
+      ...extensionControlTools.map((tool) => tool.name),
     ];
     expect(mode!.allowedTools).toEqual(expected);
   });

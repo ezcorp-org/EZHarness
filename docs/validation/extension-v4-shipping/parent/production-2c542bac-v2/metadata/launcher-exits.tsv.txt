@@ -1,0 +1,12 @@
+path	command_exit	app_log_exit	owned_cleanup_exit	verifier_cleanup_exit
+delivery/runtime/command.log	0	0	0	0
+embeddings/runtime/command.log	0	0	0	0
+file-organizer/runtime/command.log	0	0	0	0
+historical-upgrade/upgrade/assert-candidate/command.log	0	0	0	0
+historical-upgrade/upgrade/assert-restore/command.log	0	0	0	0
+historical-upgrade/upgrade/seed-previous/command.log	0	0	0	0
+legacy-adoption/legacy/adopt/command.log	0	0	0	0
+legacy-adoption/legacy/seed/command.log	0	0	0	0
+revocation/runtime/command.log	0	0	0	0
+runtime-resources/runtime/command.log	0	0	0	0
+runtime/runtime/command.log	0	0	0	0

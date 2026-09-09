@@ -1,382 +1,136 @@
-/**
- * Focused gap coverage for src/extensions/installer.ts.
- *
- * Complementary to installer-coverage.test.ts + installer-v2.test.ts — this
- * file only covers branches NOT already exercised there:
- *
- *   1. SEC-5 (#12): manifest.name path-traversal rejection through
- *      installFromLocal. Installer must reject "../x", "/abs", "foo/bar",
- *      "..", ".hidden", and names longer than 64 chars before touching
- *      the filesystem. See manifest.ts NAME_REGEX.
- *   2. #9 regression: installFromGitHub must fail loudly when the final
- *      cp -r into data/extensions/<name> fails — no silent fallback, no
- *      DB row, error message includes src/dest/stderr.
- *   3. Fixture smoke tests — exercise the new installer-fixtures helpers
- *      end-to-end so fixture regressions surface even when no product
- *      test uses them directly.
- */
+import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
+import { mkdtemp, mkdir, writeFile, symlink, link, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { digestObject } from "../extensions/v4/blobs";
+import type { LifecycleActor } from "../extensions/v4";
+import * as egress from "../search/egress";
+import type { GuardedFetchOptions } from "../search/egress";
 
-import { test, expect, describe, beforeEach, afterEach, mock, afterAll } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { useTempProjectRoot } from "./helpers/temp-project-root";
-import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
-import type { ExtensionPermissions } from "../extensions/types";
-import {
-  makeLocalPackage,
-  makeGitRepo,
-  makeTarball,
-  buildGithubFetchStub,
-} from "./helpers/installer-fixtures";
+const originalEgress = { ...egress };
+const guardedSourceFetch = egress.guardedFetch;
+mock.module("../search/egress", () => ({ ...originalEgress, guardedFetch: (url: string, init: RequestInit, options: GuardedFetchOptions) => guardedSourceFetch(url, init, { ...options, resolveHost: async () => ["93.184.216.34"] }) }));
 
-// ── Mock DB + registry (same shape installer-coverage.test.ts uses) ──
+let root: string;
+let local: string;
+let user: { id: string; role: string; status: string } | undefined;
+const actor: LifecycleActor = { principalId: "admin", scope: "global", kind: "human" };
+const workspace = mock(async (_actor: LifecycleActor, input: { files: Record<string, string> }) => ({ installation: { id: "installation", ownerId: _actor.principalId, enabled: false, activeReleaseId: null }, workspace: { id: "workspace", revision: 1, sourceDigest: digestObject(input.files) } }));
+const build = mock(async (_actor: LifecycleActor, _input: unknown) => ({ id: "operation", state: "queued" }));
+const runBuild = mock(async () => {});
+mock.module("../db/queries/users", () => ({ getUserById: async () => user }));
+mock.module("../db/queries/projects", () => ({ listProjects: async () => [{ path: join(root, "project") }] }));
+mock.module("../extensions/project-root", () => ({ getProjectRoot: () => root }));
+mock.module("../extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => ({ createWorkspace: workspace, build, runBuild }) }));
+const { importExtensionSource, stageExtensionSourceFiles, configureGitHubSourceCredentials } = await import("../extensions/source-import");
+const originalFetch = globalThis.fetch;
 
-import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
-
-const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
-const mockExtensions = extStore.store;
-
-mock.module("../db/queries/extensions", () => ({
-  createExtension: extStore.createExtension,
-  getExtensionByName: extStore.getExtensionByName,
-  updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
-  listExtensions: extStore.listExtensions,
-}));
-
-mock.module("../extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({ reload: async () => {} }),
-  },
-}));
-
-// The install base is the RELATIVE `data/extensions`, resolved against
-// `process.cwd()` — the checkout, for a test. Run from a throwaway root so
-// no install lands in the working tree.
-const TMP_ROOT = useTempProjectRoot("installer-");
-
-afterAll(() => {
-  restoreModuleMocks();
-  TMP_ROOT.cleanup();
-});
-
-const { installFromLocal, installFromGitHub, installFromGit } = await import(
-  "../extensions/installer"
-);
-
-const defaultPerms: ExtensionPermissions = {
-  network: [],
-  grantedAt: { network: Date.now() },
-};
-
-beforeEach(() => {
-  mockExtensions.clear();
-});
-
-// ══════════════════════════════════════════════════════════════════════
-// SEC-5 (#12): manifest.name path-traversal rejection via installFromLocal
-// ══════════════════════════════════════════════════════════════════════
-//
-// Rationale: validateManifestV2 enforces NAME_REGEX + excludes ".." —
-// but validator-level tests (manifest-v2.test.ts) don't prove the
-// installer honors that rejection. These tests go through installFromLocal
-// so a regression that bypasses loader→validator is caught. The fixture
-// helpers preserve the name string verbatim (spread + JSON.stringify),
-// so the installer sees the malicious value exactly as an attacker would
-// author it in ezcorp.config.ts.
-
-describe("installFromLocal — manifest.name traversal rejection (SEC-5)", () => {
-  const EXPECTED = /name must match.*filesystem-safe.*no path separators/;
-
-  // Attack strings the user (or an extension author) might craft to try
-  // escaping data/extensions/. Each must be rejected with the same error.
-  const traversalNames: Array<[string, string]> = [
-    ["parent-relative", "../escape"],
-    ["absolute path", "/absolute"],
-    ["embedded slash", "foo/bar"],
-    ["bare dots", ".."],
-    ["hidden (leading dot)", ".hidden"],
-    ["backslash separator", "foo\\bar"],
-    ["URL-ish", "../../etc/passwd"],
-  ];
-
-  for (const [label, name] of traversalNames) {
-    test(`rejects name=${JSON.stringify(name)} (${label})`, async () => {
-      const pkg = makeLocalPackage({ name });
-      try {
-        await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(
-          EXPECTED,
-        );
-        // And no DB row was created for the attempted install.
-        expect(mockExtensions.size).toBe(0);
-      } finally {
-        pkg.cleanup();
-      }
-    });
+beforeAll(async () => {
+  root = await mkdtemp(join(tmpdir(), "source-import-staging-"));
+  local = join(root, ".ezcorp/extensions/local");
+  for (const path of [local, "extensions/bundled", "docs/extensions/examples", "packages/@ezcorp", "project/.ezcorp/extensions/project-source"].map((path) => path.startsWith(root) ? path : join(root, path))) await mkdir(path, { recursive: true });
+  for (const path of [local, join(root, "extensions/bundled"), join(root, "project/.ezcorp/extensions/project-source")]) {
+    await writeFile(join(path, "extension.ts"), "throw new Error('never execute on host')");
+    await writeFile(join(path, "ezcorp.config.ts"), "throw new Error('config must remain data during collection')");
+    await writeFile(join(path, ".env"), "SECRET=not-for-workspace");
   }
-
-  test("rejects name longer than 64 chars", async () => {
-    const pkg = makeLocalPackage({ name: "a".repeat(65) });
-    try {
-      await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(
-        EXPECTED,
-      );
-      expect(mockExtensions.size).toBe(0);
-    } finally {
-      pkg.cleanup();
-    }
-  });
-
-  test("accepts name exactly 64 chars (boundary)", async () => {
-    // Regex is [a-z0-9][a-z0-9-_.]{0,63} — total 1 + 63 = 64.
-    const name = "a".repeat(64);
-    const pkg = makeLocalPackage({ name });
-    try {
-      const result = await installFromLocal(pkg.path, defaultPerms);
-      expect(result.name).toBe(name);
-    } finally {
-      pkg.cleanup();
-    }
-  });
-
-  test("accepts valid filesystem-safe name with dots and hyphens", async () => {
-    // Confirms the regex permits the inner character class [a-z0-9-_.]
-    // — so legitimate names like "my-ext.v2" still install. Guards against
-    // an over-broad hardening regression.
-    const pkg = makeLocalPackage({ name: "my-ext.v2_0" });
-    try {
-      const result = await installFromLocal(pkg.path, defaultPerms);
-      expect(result.name).toBe("my-ext.v2_0");
-    } finally {
-      pkg.cleanup();
-    }
-  });
+});
+beforeEach(() => {
+  user = { id: "admin", role: "admin", status: "active" };
+  workspace.mockClear(); build.mockClear(); runBuild.mockClear();
+  runBuild.mockImplementation(async () => {});
+  configureGitHubSourceCredentials(async () => null);
+  globalThis.fetch = originalFetch;
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// extension npm-deps: install refusal when a declared dep can't resolve
-// ══════════════════════════════════════════════════════════════════════
-//
-// Mirrors the env-key-leak install gate: an unresolvable third-party npm
-// dependency REFUSES the install (verify-only v1) with the actionable
-// formatNpmDepError message, and persists NO DB row. Resolution is from
-// the install path — a tmpdir fixture never reaches the app node_modules,
-// so a declared dep is always "missing" here (exactly the deploy-drift
-// the live incident hit).
+test("unknown caller metadata cannot persist secrets or grant authority during source staging", async () => {
+  for (const input of [{ kind: "github", repository: "owner/repo", token: "secret" }, { kind: "skill", name: "example", headers: { authorization: "secret" } }, { kind: "skill", name: "" }, { kind: "github", repository: "owner/repo", targetInstallationId: "unexpected" }]) {
+    await expect(stageExtensionSourceFiles(actor, { "extension.ts": "source" }, input as Parameters<typeof stageExtensionSourceFiles>[2])).rejects.toThrow();
+  }
+  expect(workspace).not.toHaveBeenCalled();
+  expect(build).not.toHaveBeenCalled();
+});
+afterAll(async () => { globalThis.fetch = originalFetch; mock.restore(); mock.module("../search/egress", () => originalEgress); await rm(root, { recursive: true, force: true }); });
 
-describe("installFromLocal — npm-dependency install refusal", () => {
-  test("refuses an install whose declared npm dep can't be resolved", async () => {
-    const pkg = makeLocalPackage({
-      npmDependencies: { "nonexistent-pkg-xyz": "^1.0.0" },
-    });
-    try {
-      await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(
-        /requires npm package\(s\) it cannot resolve: nonexistent-pkg-xyz@\^1\.0\.0 \(missing\)/,
-      );
-      // No DB row for the refused install.
-      expect(mockExtensions.size).toBe(0);
-    } finally {
-      pkg.cleanup();
-    }
-  });
-
-  test("installs normally when no npm deps are declared (no regression)", async () => {
-    const pkg = makeLocalPackage({ name: "no-npm-deps-ext" });
-    try {
-      const result = await installFromLocal(pkg.path, defaultPerms);
-      expect(result.name).toBe("no-npm-deps-ext");
-      expect(mockExtensions.size).toBe(1);
-    } finally {
-      pkg.cleanup();
-    }
-  });
+for (const kind of ["local", "bundled"] as const) test(`${kind}: preserves complete source without evaluating metadata or enabling execution`, async () => {
+  const result = await importExtensionSource(actor, kind === "local" ? { kind, path: local } : { kind, name: "bundled" });
+  expect(result.installation).toMatchObject({ ownerId: "admin", enabled: false, activeReleaseId: null });
+  expect(result.openUrl).toContain("workspace=workspace");
+  const files = workspace.mock.calls[0]![1].files;
+  expect(files["extension.ts"]).toContain("never execute");
+  expect(files["ezcorp.config.ts"]).toContain("remain data");
+  expect(files[".env"]).toBeUndefined();
+  expect(files["extension-source.json"]).not.toContain(root);
+  expect(build).toHaveBeenCalledWith(actor, { installationId: "installation", workspaceId: "workspace", expectedRevision: 1, idempotencyKey: `source-import:${digestObject(files)}` });
+  expect(runBuild).toHaveBeenCalledWith(actor, "installation", "operation");
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// #9 regression: installFromGitHub fails loudly on cp -r failure
-// ══════════════════════════════════════════════════════════════════════
-//
-// Before #9 the installer silently left the extension in the extraction
-// tempdir when the final cp to data/extensions/<name> failed — later the
-// tempdir was rm'd, leaving a broken DB row pointing at nothing. Post-fix
-// the installer MUST throw "Failed to copy extension from ... to ...: ..."
-// with the cp stderr, and MUST NOT create a DB row.
-//
-// We don't want to actually write to ./data/extensions during tests, so
-// we patch Bun.spawnSync to intercept the cp call and force a non-zero
-// exit — this exercises the exact error-handling branch at installer.ts
-// lines 145-150 without touching the repo's real data/ directory.
-
-describe("installFromGitHub — cp -r failure surfaces loud error (#9)", () => {
-  const realSpawnSync = Bun.spawnSync;
-  const realFetch = globalThis.fetch;
-
-  afterEach(() => {
-    (Bun as any).spawnSync = realSpawnSync;
-    globalThis.fetch = realFetch;
-  });
-
-  test("throws 'Failed to copy' with stderr when cp exits non-zero", async () => {
-    const tgz = await makeTarball({ name: "cp-fail-ext" });
-    try {
-      globalThis.fetch = buildGithubFetchStub({
-        release: {
-          tag_name: "v1.0.0",
-          assets: [
-            { name: "release.tar.gz", browser_download_url: "https://example.com/release.tar.gz" },
-          ],
-        },
-        tarballBytes: tgz.bytes,
-        tarballUrl: "https://example.com/release.tar.gz",
-      });
-
-      // Intercept the SECOND cp invocation (the final copy into
-      // data/extensions/<name>). The first spawnSync call is `tar -xzf` for
-      // extraction — we let that pass through. Any cp call we force to fail.
-      const SPAWN_FAIL_STDERR = "cp: cannot create directory 'data/extensions/cp-fail-ext': Permission denied";
-      (Bun as any).spawnSync = ((argv: string[], opts?: any) => {
-        if (Array.isArray(argv) && argv[0] === "cp") {
-          return {
-            exitCode: 1,
-            stdout: Buffer.from(""),
-            stderr: Buffer.from(SPAWN_FAIL_STDERR),
-            success: false,
-          } as any;
-        }
-        return realSpawnSync(argv, opts);
-      }) as typeof Bun.spawnSync;
-
-      await expect(
-        installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms),
-      ).rejects.toThrow(
-        /Failed to copy extension from .+ to .+: cp: cannot create directory.+Permission denied/,
-      );
-
-      // No DB row created for the failed install (the fix's real guarantee).
-      expect(mockExtensions.size).toBe(0);
-    } finally {
-      tgz.cleanup();
-    }
-  });
-
-  test("throws 'Failed to copy' with generic fallback when cp has empty stderr", async () => {
-    // Covers the `stderr || "cp exited non-zero"` branch at installer.ts:148
-    const tgz = await makeTarball({ name: "cp-silent-ext" });
-    try {
-      globalThis.fetch = buildGithubFetchStub({
-        release: {
-          tag_name: "v1.0.0",
-          assets: [
-            { name: "release.tar.gz", browser_download_url: "https://example.com/release.tar.gz" },
-          ],
-        },
-        tarballBytes: tgz.bytes,
-        tarballUrl: "https://example.com/release.tar.gz",
-      });
-
-      (Bun as any).spawnSync = ((argv: string[], opts?: any) => {
-        if (Array.isArray(argv) && argv[0] === "cp") {
-          return {
-            exitCode: 1,
-            stdout: Buffer.from(""),
-            stderr: Buffer.from(""), // empty → exercises fallback
-            success: false,
-          } as any;
-        }
-        return realSpawnSync(argv, opts);
-      }) as typeof Bun.spawnSync;
-
-      await expect(
-        installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms),
-      ).rejects.toThrow(/Failed to copy extension.*cp exited non-zero/);
-      expect(mockExtensions.size).toBe(0);
-    } finally {
-      tgz.cleanup();
-    }
-  });
+test("registered project source roots work without granting the rest of the host filesystem", async () => {
+  await importExtensionSource(actor, { kind: "local", path: join(root, "project/.ezcorp/extensions/project-source") });
+  expect(workspace).toHaveBeenCalledTimes(1);
+  await expect(importExtensionSource(actor, { kind: "local", path: root })).rejects.toThrow("outside the allowed");
+  expect(workspace).toHaveBeenCalledTimes(1);
 });
 
-// ══════════════════════════════════════════════════════════════════════
-// Fixture smoke tests — ensure installer-fixtures helpers stay in sync
-// ══════════════════════════════════════════════════════════════════════
-//
-// These are thin end-to-end smokes that exercise every public fixture
-// helper against the real installer. If a helper drifts from installer
-// expectations (e.g. loader.ts changes the config-file name), these
-// fail loudly instead of lying dormant as broken scaffolding.
+test("relative paths, files and symlink aliases cannot become local source roots", async () => {
+  const alias = join(root, ".ezcorp/extensions/alias");
+  await symlink(local, alias);
+  for (const path of ["relative", join(local, "extension.ts"), alias]) await expect(importExtensionSource(actor, { kind: "local", path })).rejects.toThrow("regular source directory");
+  expect(workspace).not.toHaveBeenCalled();
+});
 
-describe("installer-fixtures end-to-end smokes", () => {
-  test("makeLocalPackage → installFromLocal succeeds", async () => {
-    const pkg = makeLocalPackage({ name: "fx-local-smoke" });
-    try {
-      const result = await installFromLocal(pkg.path, defaultPerms);
-      expect(result.name).toBe("fx-local-smoke");
-      expect(result.source).toBe(`local:${pkg.path}`);
-      expect(result.manifest.checksum).toMatch(/^[a-f0-9]{64}$/);
-    } finally {
-      pkg.cleanup();
-    }
-  });
+test("hard-linked host files cannot enter an imported workspace", async () => {
+  const secret = join(root, "outside-source-secret");
+  const linked = join(local, "linked-source.ts");
+  await writeFile(secret, "host-only-content");
+  await link(secret, linked);
+  try {
+    await expect(importExtensionSource(actor, { kind: "local", path: local })).rejects.toThrow("Hard-linked");
+    expect(workspace).not.toHaveBeenCalled();
+  } finally { await rm(linked); }
+});
 
-  test("makeGitRepo → installFromGit succeeds with tag", async () => {
-    const repo = await makeGitRepo({
-      manifestOverrides: { name: "fx-git-smoke" },
-      tag: "v1.0.0",
-    });
-    const installBase = await mkdtemp(join(tmpdir(), "fx-installs-"));
-    try {
-      const source = `${repo.url}@v1.0.0`;
-      const result = await installFromGit(source, defaultPerms, {
-        extensionsDir: installBase,
-      });
-      expect(result.name).toBe("fx-git-smoke");
-      expect(result.source).toBe(source);
-      expect(result.installPath).toBe(join(installBase, "fx-git-smoke"));
-    } finally {
-      repo.cleanup();
-      await rm(installBase, { recursive: true, force: true }).catch(() => {});
-    }
-  });
+test("missing or ambiguous bundled names cannot stage another extension", async () => {
+  await expect(importExtensionSource(actor, { kind: "bundled", name: "missing" })).rejects.toThrow("Unknown or ambiguous");
+  expect(workspace).not.toHaveBeenCalled();
+});
 
-  test("makeTarball + buildGithubFetchStub → installFromGitHub succeeds", async () => {
-    // This smoke intentionally lets the real cp run (it will land in
-    // ./data/extensions/fx-gh-smoke). We clean up after ourselves.
-    const tgz = await makeTarball({ name: "fx-gh-smoke" });
-    const realFetch = globalThis.fetch;
-    try {
-      globalThis.fetch = buildGithubFetchStub({
-        release: {
-          tag_name: "v1.0.0",
-          assets: [
-            { name: "release.tar.gz", browser_download_url: "https://example.com/release.tar.gz" },
-          ],
-        },
-        tarballBytes: tgz.bytes,
-        tarballUrl: "https://example.com/release.tar.gz",
-      });
+for (const kind of ["agent", "service"] as const) test(`${kind} cannot import source even when it claims an administrator principal`, async () => {
+  await expect(importExtensionSource({ ...actor, kind }, { kind: "local", path: local })).rejects.toThrow("human administrator");
+  expect(workspace).not.toHaveBeenCalled();
+});
 
-      const result = await installFromGitHub("fxuser/fxrepo@v1.0.0", defaultPerms);
-      expect(result.name).toBe("fx-gh-smoke");
-      expect(result.source).toContain("github:fxuser/fxrepo");
-      expect(result.installPath).toBe(join("data", "extensions", "fx-gh-smoke"));
-    } finally {
-      globalThis.fetch = realFetch;
-      tgz.cleanup();
-      // Remove the extension directory the real cp created.
-      await rm(join("data", "extensions", "fx-gh-smoke"), {
-        recursive: true,
-        force: true,
-      }).catch(() => {});
-    }
-  });
+for (const account of [undefined, { id: "admin", role: "admin", status: "inactive" }, { id: "admin", role: "member", status: "active" }]) test(`source staging refuses unauthorized account ${JSON.stringify(account)}`, async () => {
+  user = account;
+  await expect(stageExtensionSourceFiles(actor, { "extension.ts": "fixture" }, { kind: "skill", name: "fixture" })).rejects.toThrow();
+  expect(workspace).not.toHaveBeenCalled();
+});
 
-  test("buildGithubFetchStub rejects unmocked URLs with 404", async () => {
-    // Guards against a leaky test silently hitting real github.com.
-    const stub = buildGithubFetchStub({});
-    const res = await stub("https://github.com/totally-unexpected");
-    expect(res.status).toBe(404);
-    const body = await res.text();
-    expect(body).toContain("unmocked URL");
-  });
+test("prepared skill sources cannot inject paths or overwrite host provenance", async () => {
+  await expect(stageExtensionSourceFiles(actor, { "../escape": "bad" }, { kind: "skill", name: "fixture" })).rejects.toThrow();
+  expect(workspace).not.toHaveBeenCalled();
+  await stageExtensionSourceFiles(actor, { "extension.ts": "fixture", "extension-source.json": "forged" }, { kind: "skill", name: "fixture" });
+  expect(JSON.parse(workspace.mock.calls[0]![1].files["extension-source.json"]!)).toEqual({ schemaVersion: 4, source: { kind: "skill", name: "fixture" } });
+});
+
+test("GitHub import pins collection and uses only an explicit scoped source credential", async () => {
+  const seen: Array<{ url: string; authorization: string | null }> = [];
+  configureGitHubSourceCredentials(async (identity, repository) => { expect(identity).toEqual(actor); expect(repository).toBe("owner/repo"); return "fixture-scoped-token"; });
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    seen.push({ url, authorization: new Headers(init?.headers).get("authorization") });
+    return Response.json(url.includes("/commits/") ? { commit: { tree: { sha: "a".repeat(40) } } } : url.includes("/git/trees/") ? { truncated: false, tree: [{ path: "extension.ts", mode: "100644", type: "blob", sha: "b".repeat(40), size: 7 }] } : { encoding: "base64", content: Buffer.from("fixture").toString("base64") });
+  }) as unknown as typeof fetch;
+  await importExtensionSource(actor, { kind: "github", repository: "owner/repo", ref: "main" });
+  expect(seen).toHaveLength(3);
+  expect(seen.every((request) => request.url.startsWith("https://93.184.216.34/repos/owner/repo/") && request.authorization === "Bearer fixture-scoped-token")).toBe(true);
+  expect(JSON.stringify(workspace.mock.calls[0]![1].files)).not.toContain("fixture-scoped-token");
+});
+
+test("runner rejection never turns staging into implicit activation", async () => {
+  runBuild.mockRejectedValueOnce(new Error("runner unavailable"));
+  const result = await stageExtensionSourceFiles(actor, { "extension.ts": "fixture" }, { kind: "skill", name: "fixture" });
+  await Promise.resolve();
+  expect(result.operation.state).toBe("queued");
+  expect(result.installation.enabled).toBe(false);
 });

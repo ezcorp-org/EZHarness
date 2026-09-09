@@ -238,7 +238,7 @@ describe("Setup page (+page.svelte)", () => {
       ),
     );
 
-    const { container, getByText, queryByText } = render(SetupPage);
+    const { container, findByText, queryByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
       email: "a@b.co",
@@ -247,11 +247,7 @@ describe("Setup page (+page.svelte)", () => {
     });
     await submit(container);
 
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const err = getByText("Password must contain at least one digit");
+    const err = await findByText("Password must contain at least one digit");
     expect(err).toHaveAttribute("role", "alert");
     expect(err).toHaveAttribute("id", "password-error");
 
@@ -264,7 +260,7 @@ describe("Setup page (+page.svelte)", () => {
   test("429 with no fields surfaces 'Too many requests' in the top-level banner", async () => {
     fetchSpy.mockResolvedValue(jsonResponse({ error: "Too many requests" }, 429));
 
-    const { container, getByText } = render(SetupPage);
+    const { container, findByText } = render(SetupPage);
     await fillInputs(container, {
       name: "Ada",
       email: "a@b.co",
@@ -273,11 +269,7 @@ describe("Setup page (+page.svelte)", () => {
     });
     await submit(container);
 
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const banner = getByText("Too many requests");
+    const banner = await findByText("Too many requests");
     expect(banner).toBeInTheDocument();
     // The banner's parent <div> carries role="alert".
     expect(banner.closest('[role="alert"]')).not.toBeNull();

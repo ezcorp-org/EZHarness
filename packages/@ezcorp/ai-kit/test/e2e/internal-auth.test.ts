@@ -1,6 +1,7 @@
+// @ezcorp-host-integration
 import { beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
+import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "./_guard";
 
 /** End-to-end verification of the internal-auth security contract against
  *  a live SvelteKit server. Skipped unless EZCORP_E2E_BASE_URL is set.
@@ -20,14 +21,10 @@ import { E2E_API_KEY, E2E_BASE_URL, e2eReady } from "./_guard";
  *  key out of the in-memory store. That's the security property at work.
  */
 
-let ready = false;
-beforeAll(async () => {
-  ready = await e2eReady();
-});
-
 describe.skipIf(!E2E_BASE_URL)("e2e: internal-auth HTTP contract", () => {
+  beforeAll(requireE2eReady);
+
   test("forged ezkint_ token is rejected with 401 from the live server", async () => {
-    if (!ready) return;
     const forged = "ezkint_" + "A".repeat(43);
     const res = await fetch(new URL("/api/auth/me", E2E_BASE_URL!), {
       headers: { Authorization: `Bearer ${forged}` },
@@ -38,7 +35,6 @@ describe.skipIf(!E2E_BASE_URL)("e2e: internal-auth HTTP contract", () => {
   }, 10_000);
 
   test("random-garbage Bearer is rejected with 401 (baseline)", async () => {
-    if (!ready) return;
     const res = await fetch(new URL("/api/auth/me", E2E_BASE_URL!), {
       headers: { Authorization: "Bearer random-gibberish-token" },
     });
@@ -46,7 +42,6 @@ describe.skipIf(!E2E_BASE_URL)("e2e: internal-auth HTTP contract", () => {
   }, 10_000);
 
   test("ezkint_ rejection and random-token rejection look IDENTICAL to the client (no prefix-based info leak)", async () => {
-    if (!ready) return;
     const forged = "ezkint_" + "B".repeat(43);
     const random = "ezk_" + "C".repeat(43);
     const [a, b] = await Promise.all([
@@ -64,11 +59,7 @@ describe.skipIf(!E2E_BASE_URL)("e2e: internal-auth HTTP contract", () => {
     expect(aBody).toBe(bBody);
   }, 10_000);
 
-  test("a valid user-issued key still authenticates (no regression)", async () => {
-    if (!ready || !E2E_API_KEY) {
-      console.log("[skip] no E2E_API_KEY — can't verify user-key regression path");
-      return;
-    }
+  test.skipIf(!E2E_API_KEY)("a valid user-issued key still authenticates (no regression)", async () => {
     const client = new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! });
     const me = await client.me();
     expect(me.id).toBeString();

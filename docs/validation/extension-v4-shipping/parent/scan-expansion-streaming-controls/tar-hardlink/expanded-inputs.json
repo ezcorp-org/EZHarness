@@ -1,0 +1,24 @@
+{
+  "archives": [
+    {
+      "source": "docs/validation/extension-v4-fixture/hardlinks.tar",
+      "archiveChain": [],
+      "member": "original.txt",
+      "expandedPath": "archive-000001/member-000001/original.txt",
+      "payloadSha256": "387017fdfa2927c8dafe124c522cbe15c9c82a4748678a1ace95f902d568fac3",
+      "payloadBytes": 16
+    },
+    {
+      "source": "docs/validation/extension-v4-fixture/hardlinks.tar",
+      "archiveChain": [],
+      "member": "copy.txt",
+      "expandedPath": "archive-000001/member-000002/copy.txt",
+      "payloadSha256": "387017fdfa2927c8dafe124c522cbe15c9c82a4748678a1ace95f902d568fac3",
+      "payloadBytes": 16,
+      "hardlinkTarget": "original.txt"
+    }
+  ],
+  "memberCount": 2,
+  "headerCount": 2,
+  "bytes": 32
+}

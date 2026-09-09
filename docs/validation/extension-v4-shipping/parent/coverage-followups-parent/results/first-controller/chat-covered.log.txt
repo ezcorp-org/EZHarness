@@ -1,0 +1,32 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/chat-tools-integration.test.ts:
+{"ts":"2026-09-07T20:37:19.454Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-09-07T20:37:19.468Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-07T20:37:19.469Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-07T20:37:19.469Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"2c9e664e-396f-4f14-8d58-29eef6d72fb9"}
+{"ts":"2026-09-07T20:37:19.474Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"hello obs","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-07T20:37:19.482Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":10}
+{"ts":"2026-09-07T20:37:19.482Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+(pass) Chat observability integration > obs:turn event is emitted during chat [79.37ms]
+{"ts":"2026-09-07T20:37:19.499Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-09-07T20:37:19.503Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-07T20:37:19.504Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-07T20:37:19.504Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"c29304af-ef4e-4324-a457-a6ef3533025e"}
+{"ts":"2026-09-07T20:37:19.505Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"check usage","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-07T20:37:19.509Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":10}
+{"ts":"2026-09-07T20:37:19.509Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+(pass) Chat observability integration > run:usage event fires with correct token counts [25.93ms]
+{"ts":"2026-09-07T20:37:19.525Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":1}
+{"ts":"2026-09-07T20:37:19.528Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-07T20:37:19.529Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-07T20:37:19.529Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"8f404367-4d34-4142-b7bc-017ce311d422"}
+{"ts":"2026-09-07T20:37:19.529Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"persist check","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-07T20:37:19.533Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":10}
+{"ts":"2026-09-07T20:37:19.533Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+(pass) Chat observability integration > observability events are persisted and queryable via API [27.33ms]
+
+ 3 pass
+ 0 fail
+ 11 expect() calls
+Ran 3 tests across 1 file. [1110.00ms]

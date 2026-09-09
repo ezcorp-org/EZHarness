@@ -1,0 +1,41 @@
+{
+  "source_commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "started_utc": "2026-09-07T18:14:50Z",
+  "finished_utc": "2026-09-07T18:36:39Z",
+  "outer_exit": 1,
+  "canonical_eight_exit": 1,
+  "leaves": [
+    {
+      "proof": "file-organizer",
+      "exit": 0
+    },
+    {
+      "proof": "embeddings",
+      "exit": 0
+    },
+    {
+      "proof": "runtime",
+      "exit": 0
+    },
+    {
+      "proof": "delivery",
+      "exit": 0
+    },
+    {
+      "proof": "revocation",
+      "exit": 0
+    },
+    {
+      "proof": "runtime-resources",
+      "exit": 1
+    },
+    {
+      "proof": "historical-upgrade",
+      "exit": 0
+    },
+    {
+      "proof": "legacy-adoption",
+      "exit": 0
+    }
+  ]
+}

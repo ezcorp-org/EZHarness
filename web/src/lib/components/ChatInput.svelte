@@ -1054,7 +1054,7 @@
 				 * it. This replaces the old single "Ez" chip — Model and
 				 * Thinking are now first-class citizens in locked mode.
 				 -->
-				<div class="flex items-center gap-3">
+				<div class="flex min-w-0 flex-wrap items-center gap-3">
 					<div class="flex flex-col">
 						<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
 						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onmodelsloaded} {onautoselect} {allowAuto} {autoServed} {defaultSelection} />

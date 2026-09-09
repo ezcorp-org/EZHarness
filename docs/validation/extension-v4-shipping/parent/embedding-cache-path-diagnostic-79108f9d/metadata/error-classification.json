@@ -1,0 +1,9 @@
+{
+  "config_json_fetch_positions": [
+    1,
+    3
+  ],
+  "model_fetch_count": 6,
+  "plain_error_count": 1,
+  "sanitized_signature": "Unable to add response to browser cache: Error: EACCES: permission denied, mkdir '<package>/.cache'."
+}

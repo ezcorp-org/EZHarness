@@ -1,0 +1,16 @@
+{
+  "ours": "860177681f5ca2eb5b4c2a58cfa32cdb63bcf155",
+  "main": "bd7364388d0106364864e18a3d321b13ba978c36",
+  "resolutions": [
+    {
+      "file": "src/__tests__/author-draft-revalidation-cache.test.ts",
+      "choice": "retain v4 source-snapshot and host-config rejection tests",
+      "reason": "main only renames the legacy skill fixture content field to prompt; this fixture no longer executes a legacy manifest on the host."
+    },
+    {
+      "file": "src/__tests__/bundled-phase5-clamp.test.ts",
+      "choice": "retain deletion",
+      "reason": "c2c8abda replaced startup auto-grant assumptions with v4 release/bootstrap invariants. Incoming main only removes GITHUB_TOKEN from that obsolete test fixture."
+    }
+  ]
+}

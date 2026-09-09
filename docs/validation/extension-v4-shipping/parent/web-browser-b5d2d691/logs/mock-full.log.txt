@@ -1,0 +1,639 @@
+[WebServer] $ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer]                                ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let activeFilter = $state<CapabilityFilter>("all");
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type Entry = (typeof data.entries)[number];
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer]                                         ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer]                                 ^
+[WebServer] 24: 
+[WebServer] 25:   // Filter state
+[WebServer] 7:09:42 AM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_tabindex
+[WebServer] 445:     drops to 0 on mobile where the dock takes the full viewport.
+[WebServer] 446:   -->
+[WebServer] 447:   <main
+[WebServer]             ^
+[WebServer] 448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[WebServer] 449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+[WebServer] 7:09:43 AM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:402:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 400:   // normal async load. `__seeded` also gates the async loader so the
+[WebServer] 401:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[WebServer] 402:   const __seeded = seedMessages !== undefined;
+[WebServer]                                     ^
+[WebServer] 403:   // svelte-ignore state_referenced_locally
+[WebServer] 404:   let allMessages = $state<Message[]>(
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_tabindex
+[WebServer] 445:     drops to 0 on mobile where the dock takes the full viewport.
+[WebServer] 446:   -->
+[WebServer] 447:   <main
+[WebServer]             ^
+[WebServer] 448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[WebServer] 449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer]                                ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let activeFilter = $state<CapabilityFilter>("all");
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type Entry = (typeof data.entries)[number];
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer]                                         ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer] 7:09:47 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer]                                 ^
+[WebServer] 24: 
+[WebServer] 25:   // Filter state
+[WebServer] 7:09:48 AM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:402:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 400:   // normal async load. `__seeded` also gates the async loader so the
+[WebServer] 401:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[WebServer] 402:   const __seeded = seedMessages !== undefined;
+[WebServer]                                     ^
+[WebServer] 403:   // svelte-ignore state_referenced_locally
+[WebServer] 404:   let allMessages = $state<Message[]>(
+[WebServer] [plugin builtin:vite-reporter] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] [INEFFECTIVE_DYNAMIC_IMPORT] ../src/extensions/registry.ts is dynamically imported by ../src/extensions/delivery-runtime.ts, ../src/extensions/extension-lifecycle-service.ts, ../src/extensions/subprocess.ts, ../src/extensions/webhook-delivery-daemon.ts, ../src/runtime/stream-chat/setup-tools.ts, ... but also statically imported by ../src/db/queries/conversation-extensions.ts, ../src/runtime/executor.ts, ../src/runtime/stream-chat/setup-tools.ts, ../src/runtime/stream-chat/subscribe-bridge.ts, ../src/runtime/workflow-delegation-record.ts, ..., dynamic import will not move module into another chunk.
+[WebServer] 
+[WebServer] .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js (7:52) [UNRESOLVED_IMPORT] Could not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js
+[WebServer]    ╭─[ .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js:7:53 ]
+[WebServer]    │
+[WebServer]  7 │ import { FFIType, dlopen, ptr, toArrayBuffer } from "bun:ffi";
+[WebServer]    │                                                     ────┬────  
+[WebServer]    │                                                         ╰────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [UNRESOLVED_IMPORT] Could not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js
+[WebServer]    ╭─[ ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js:1:21 ]
+[WebServer]    │
+[WebServer]  1 │ import { SQL } from "bun";
+[WebServer]    │                     ──┬──  
+[WebServer]    │                       ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const cp = require('child_process');
+[WebServer]    │                    ───────┬───────  
+[WebServer]    │                           ╰───────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const fs = require('fs');
+[WebServer]    │                    ──┬─  
+[WebServer]    │                      ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+[WebServer]    ╭─[ ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 ]
+[WebServer]    │
+[WebServer]  5 │ const path = require('path')
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 ]
+[WebServer]    │
+[WebServer]  1 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] [PLUGIN_TIMINGS] Your build spent 100% of 8.7s inside plugin hooks (33.0s).
+[WebServer] Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+[WebServer]   - vite-plugin-sveltekit-compile closeBundle (100%, 24.6s, 1 call)
+[WebServer]   - vite-plugin-sveltekit-compile writeBundle (57%, 4.9s, 1 call)
+[WebServer]   - visualizer generateBundle (12%, 1.0s, 1 call)
+[WebServer] Those rows are 100% of the build; the rest of the 100% is below.
+[WebServer] Not measurable — 19 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+[WebServer]   - vite-plugin-sveltekit-guard resolveId (6849 calls)
+[WebServer]   - vite:worker renderChunk (741 calls)
+[WebServer]   - vite:asset renderChunk (741 calls)
+[WebServer]   … and 16 more
+[WebServer] See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[WebServer] 
+[WebServer] $ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite preview
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+
+Running 233 tests using 4 workers
+
+(node:689475) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:689473) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:689474) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:689481) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+[WebServer] {"ts":"2026-09-07T11:10:18.570Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:19.039Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:19.041Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:19.042Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    1 [chromium] › e2e/agent-panel-parity.spec.ts:283:2 › Agent sub-chat panel parity (Phase 5) › mobile viewport: panel toolbar targets are 44px-min (touch parity) (1.7s)
+[WebServer] {"ts":"2026-09-07T11:10:20.274Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    4 [chromium] › e2e/agent-panel-parity.spec.ts:234:2 › Agent sub-chat panel parity (Phase 5) › sub-chat turns expose the full main-chat toolbar (Regenerate / Copy) (1.8s)
+  ✓    2 [chromium] › e2e/agent-panel-parity.spec.ts:157:2 › Agent sub-chat panel parity (Phase 5) › panel embeds the shared ChatThread (variant=panel) with sub-conv history @evidence (1.8s)
+[WebServer] {"ts":"2026-09-07T11:10:20.379Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:20.383Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    3 [chromium] › e2e/agent-panel-parity.spec.ts:183:2 › Agent sub-chat panel parity (Phase 5) › sub-chat composer sends and live WS tokens bind (no 5s poll) (1.9s)
+[WebServer] {"ts":"2026-09-07T11:10:20.435Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    5 [chromium] › e2e/chat-graph.spec.ts:104:2 › Chat DAG graph panel › header button opens the panel and level 1 renders one node per prompt (1.9s)
+[WebServer] {"ts":"2026-09-07T11:10:22.128Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    6 [chromium] › e2e/chat-graph.spec.ts:142:2 › Chat DAG graph panel › a label too wide for its box fades out and keeps its full text reachable (1.8s)
+[WebServer] {"ts":"2026-09-07T11:10:22.216Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    8 [chromium] › e2e/chat-graph.spec.ts:221:2 › Chat DAG graph panel › a rewind fork renders two paths with the rewound-away one greyed (1.9s)
+[WebServer] {"ts":"2026-09-07T11:10:22.342Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    7 [chromium] › e2e/chat-graph.spec.ts:169:2 › Chat DAG graph panel › clicking a prompt node drills into THAT turn's trace, and the breadcrumb comes back (2.0s)
+[WebServer] {"ts":"2026-09-07T11:10:22.375Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   10 [chromium] › e2e/chat-graph.spec.ts:361:2 › Chat DAG graph panel › a sub-agent node is present on both levels and drills into its own graph (1.5s)
+[WebServer] {"ts":"2026-09-07T11:10:23.708Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   11 [chromium] › e2e/chat-graph.spec.ts:408:2 › Chat DAG graph panel › an unknown duration renders an em dash, never 0ms (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:23.750Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   12 [chromium] › e2e/chat-graph.spec.ts:453:2 › Chat DAG graph panel › a degraded graph shows the quiet notice, not an error (1.7s)
+[WebServer] {"ts":"2026-09-07T11:10:24.121Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓    9 [chromium] › e2e/chat-graph.spec.ts:301:2 › Chat DAG graph panel › the graph is reachable and walkable by keyboard alone, across a level switch (2.0s)
+[WebServer] {"ts":"2026-09-07T11:10:24.161Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   16 [chromium] › e2e/chat-prompt-arrow-nav-agentic.spec.ts:169:2 › chat arrow-key navigation in an agentic conversation › @evidence ArrowLeft reaches a prompt that is not in the rendered window (1.2s)
+[WebServer] {"ts":"2026-09-07T11:10:25.412Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   14 [chromium] › e2e/chat-graph.spec.ts:489:1 › the legend explains the colours and link styles, and collapses (1.9s)
+[WebServer] {"ts":"2026-09-07T11:10:25.628Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   15 [chromium] › e2e/chat-graph.spec.ts:528:1 › hovering a node opens a card at the cursor that follows it between nodes (2.1s)
+[WebServer] {"ts":"2026-09-07T11:10:26.229Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   17 [chromium] › e2e/chat-prompt-arrow-nav-agentic.spec.ts:198:2 › chat arrow-key navigation in an agentic conversation › ArrowLeft steps prompt to prompt instead of paging to the top (2.0s)
+[WebServer] {"ts":"2026-09-07T11:10:27.374Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   19 [chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:230:2 › chat prompt arrow-key navigation around cards › a card growing after the nav parked a prompt does not strand the walk (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:27.666Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   13 [chromium] › e2e/chat-graph.spec.ts:472:2 › Chat DAG graph panel › the panel closes from its own button and from Escape (4.2s)
+[WebServer] {"ts":"2026-09-07T11:10:27.941Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   18 [chromium] › e2e/chat-prompt-arrow-nav-agentic.spec.ts:234:2 › chat arrow-key navigation in an agentic conversation › ArrowRight walks back down the prompts and falls through to the bottom (2.6s)
+[WebServer] {"ts":"2026-09-07T11:10:28.254Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   20 [chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:281:2 › chat prompt arrow-key navigation around cards › every ArrowRight parks the next prompt or reaches the bottom — never freezes (1.6s)
+[WebServer] {"ts":"2026-09-07T11:10:28.937Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   22 [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:172:2 › chat prompt arrow-key navigation › Left scrolls up to the previous prompt; Right scrolls back down (1.2s)
+  ✓   23 [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:234:2 › chat prompt arrow-key navigation › arrows inside the composer keep native caret behaviour (no nav) (877ms)
+[WebServer] {"ts":"2026-09-07T11:10:29.119Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:29.137Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   21 [chromium] › e2e/chat-prompt-arrow-nav-cards.spec.ts:340:2 › chat prompt arrow-key navigation around cards › the lightbox a card opens owns the arrows — the thread stays put @evidence (1.9s)
+[WebServer] {"ts":"2026-09-07T11:10:29.587Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   25 [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:385:2 › chat prompt arrow-key navigation › a modifier+arrow is ignored (no scroll) (996ms)
+[WebServer] {"ts":"2026-09-07T11:10:30.127Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   27 [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:506:2 › chat prompt arrow-key navigation › a one-turn conversation pages the turn: Right to the bottom, Left back to the top (1.1s)
+  ✓   28 [chromium] › e2e/chat-scroll-restore.spec.ts:192:2 › chat scroll-restore on open › first visit lands at bottom (regression) (572ms)
+[WebServer] {"ts":"2026-09-07T11:10:30.702Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:30.704Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   24 [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:274:2 › chat prompt arrow-key navigation › ArrowRight on the last prompt falls through to the bottom of the thread (2.8s)
+[WebServer] {"ts":"2026-09-07T11:10:31.714Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   30 [chromium] › e2e/chat-scroll-restore.spec.ts:216:2 › chat scroll-restore on open › preserve scroll position when no new text arrives while away (1.1s)
+[WebServer] {"ts":"2026-09-07T11:10:31.832Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   29 [chromium] › e2e/chat-scroll-restore.spec.ts:264:2 › chat scroll-restore on open › paginated context preserved: expand window, scroll up, switch and return (1.3s)
+[WebServer] {"ts":"2026-09-07T11:10:32.022Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   33 [chromium] › e2e/chat-scroll-restore.spec.ts:497:2 › chat scroll-restore on open › staying on a conv: a streamed new turn + run:complete keeps the view pinned to the bottom (user never scrolled) (1.1s)
+  ✓   31 [chromium] › e2e/chat-scroll-restore.spec.ts:330:2 › chat scroll-restore on open › active streaming run on return scrolls to bottom (overrides cached position) (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:33.132Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   32 [chromium] › e2e/chat-scroll-restore.spec.ts:402:2 › chat scroll-restore on open › stream completes while away → on return, restore scroll position (not bottom) (1.3s)
+[WebServer] {"ts":"2026-09-07T11:10:33.170Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:33.181Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   34 [chromium] › e2e/chat-stick-to-bottom.spec.ts:196:2 › chat stick-to-bottom › at bottom: streaming growth keeps the view pinned to the bottom (678ms)
+[WebServer] {"ts":"2026-09-07T11:10:33.814Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   26 [chromium] › e2e/chat-prompt-arrow-nav.spec.ts:433:2 › chat prompt arrow-key navigation › ArrowLeft at the very top stops (no wrap to the bottom) (5.5s)
+  ✓   36 [chromium] › e2e/chat-stick-to-bottom.spec.ts:324:2 › chat stick-to-bottom › the jump-to-bottom affordance is an overlay: mounting it must not move the scroll extent @evidence (1.5s)
+[WebServer] {"ts":"2026-09-07T11:10:34.641Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:34.667Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   35 [chromium] › e2e/chat-stick-to-bottom.spec.ts:253:2 › chat stick-to-bottom › scrolled up mid-stream: NOT yanked; jump-to-bottom re-glues (1.9s)
+[WebServer] {"ts":"2026-09-07T11:10:35.053Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   37 [chromium] › e2e/chat-stick-to-bottom.spec.ts:403:2 › chat stick-to-bottom › open-restore to a non-bottom position is preserved (RO must not yank on resize) (1.5s)
+[WebServer] {"ts":"2026-09-07T11:10:35.334Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   38 [chromium] › e2e/chat-turn-collapse.spec.ts:93:2 › chat turn collapse › @evidence ArrowLeft folds the turn it leaves, keeping the prompt on screen (1.2s)
+[WebServer] {"ts":"2026-09-07T11:10:35.808Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   40 [chromium] › e2e/chat-turn-collapse.spec.ts:149:2 › chat turn collapse › clicking the summary row unfolds that turn (1.3s)
+[WebServer] {"ts":"2026-09-07T11:10:36.403Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   41 [chromium] › e2e/chat-turn-collapse.spec.ts:166:2 › chat turn collapse › folds accumulate as you keep walking back (1.3s)
+[WebServer] {"ts":"2026-09-07T11:10:36.676Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   39 [chromium] › e2e/chat-turn-collapse.spec.ts:121:2 › chat turn collapse › ArrowRight pops the last fold open — the exact inverse of ArrowLeft (2.1s)
+[WebServer] {"ts":"2026-09-07T11:10:36.802Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:36.813Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   43 [chromium] › e2e/diff-panel-subagent.spec.ts:58:2 › Diff Summary Panel — sub-agent edits › sub-agent edit to a file renders as a file card in the parent's review panel (893ms)
+[WebServer] {"ts":"2026-09-07T11:10:37.302Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   44 [chromium] › e2e/diff-panel-subagent.spec.ts:97:2 › Diff Summary Panel — sub-agent edits › edits from multiple sub-agents on different files produce multiple file cards (932ms)
+[WebServer] {"ts":"2026-09-07T11:10:37.621Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   45 [chromium] › e2e/diff-panel-subagent.spec.ts:123:2 › Diff Summary Panel — sub-agent edits › sub-agent edit content renders inside the expanded file card (919ms)
+[WebServer] {"ts":"2026-09-07T11:10:37.731Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   46 [chromium] › e2e/diff-panel-subagent.spec.ts:152:2 › Diff Summary Panel — sub-agent edits › empty state when there are NO parent edits AND no sub-agent edits (859ms)
+  ✓   42 [chromium] › e2e/chat-turn-collapse.spec.ts:238:2 › chat turn collapse while a run streams › the turn being written is never folded (and would be, were it idle) (2.4s)
+[WebServer] {"ts":"2026-09-07T11:10:38.172Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:38.184Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   50 [chromium] › e2e/diff-panel.spec.ts:165:2 › Code review panel › header reads 'Files changed' with the count and +/- totals (997ms)
+[WebServer] {"ts":"2026-09-07T11:10:39.189Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   48 [chromium] › e2e/diff-panel.spec.ts:98:2 › Code review panel › panel toggle: backdrop dismisses panel (1.7s)
+  ✓   49 [chromium] › e2e/diff-panel.spec.ts:131:2 › Code review panel › panel is right-anchored and full height: 75vw at ≥md, full-bleed below (1.3s)
+[WebServer] {"ts":"2026-09-07T11:10:39.439Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:39.462Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   47 [chromium] › e2e/diff-panel.spec.ts:89:2 › Code review panel › panel toggle: click opens panel, close dismisses it (2.1s)
+[WebServer] {"ts":"2026-09-07T11:10:39.725Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   51 [chromium] › e2e/diff-panel.spec.ts:180:2 › Code review panel › empty state: shows message when no diffs exist (896ms)
+[WebServer] {"ts":"2026-09-07T11:10:40.089Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   53 [chromium] › e2e/diff-panel.spec.ts:203:2 › Code review panel › multiple diffs render multiple cards (986ms)
+  ✓   52 [chromium] › e2e/diff-panel.spec.ts:192:2 › Code review panel › one file card per changed file, showing the path (1.0s)
+[WebServer] {"ts":"2026-09-07T11:10:40.454Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:40.463Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   54 [chromium] › e2e/diff-panel.spec.ts:215:2 › Code review panel › files open expanded and the chevron collapses one (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:41.099Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   55 [chromium] › e2e/diff-panel.spec.ts:228:2 › Code review panel › Collapse all / Expand all drives every card at once (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:41.505Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   56 [chromium] › e2e/diff-panel.spec.ts:249:2 › Code review panel › file tree lists the changed files and collapses a directory (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:41.815Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   57 [chromium] › e2e/diff-panel.spec.ts:268:2 › Code review panel › the file tree rail hides and comes back (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:41.860Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   58 [chromium] › e2e/diff-panel.spec.ts:280:2 › Code review panel › filter narrows the file list and the count follows it (984ms)
+[WebServer] {"ts":"2026-09-07T11:10:42.091Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   59 [chromium] › e2e/diff-panel.spec.ts:299:2 › Code review panel › a filter matching nothing offers a Clear filter escape hatch (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:42.875Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   62 [chromium] › e2e/diff-panel.spec.ts:351:2 › Code review panel › user messages are ignored, only assistant diffs are reviewed (955ms)
+[WebServer] {"ts":"2026-09-07T11:10:43.052Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:43.159Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   61 [chromium] › e2e/diff-panel.spec.ts:335:2 › Code review panel › un-ticking Viewed re-opens the file (1.4s)
+[WebServer] {"ts":"2026-09-07T11:10:43.268Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   63 [chromium] › e2e/diff-panel.spec.ts:378:2 › Code review panel › a diff with no filename falls back to the unnamed placeholder (926ms)
+[WebServer] {"ts":"2026-09-07T11:10:43.810Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   60 [chromium] › e2e/diff-panel.spec.ts:314:2 › Code review panel › Viewed collapses the file, advances progress, and survives a reload (2.2s)
+[WebServer] {"ts":"2026-09-07T11:10:43.975Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   64 [chromium] › e2e/diff-panel.spec.ts:396:2 › Code review panel › file headers stick to the top of the diff column while scrolling (992ms)
+[WebServer] {"ts":"2026-09-07T11:10:44.050Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   65 [chromium] › e2e/diff-panel.spec.ts:414:2 › Code review panel › diff rows use GitHub's add/delete tints (955ms)
+[WebServer] {"ts":"2026-09-07T11:10:44.231Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   66 [chromium] › e2e/diff-panel.spec.ts:443:2 › Code review panel › view toggle: Split and Unified are both offered, Split is the default (997ms)
+[WebServer] {"ts":"2026-09-07T11:10:44.812Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   69 [chromium] › e2e/diff-panel.spec.ts:501:2 › Code review panel › diff badge is hidden when no file changes exist (830ms)
+[WebServer] {"ts":"2026-09-07T11:10:45.066Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:10:45.402Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   67 [chromium] › e2e/diff-panel.spec.ts:463:2 › Code review panel › view toggle: Unified switches to one column and back to Split (1.5s)
+[WebServer] {"ts":"2026-09-07T11:10:45.449Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   70 [chromium] › e2e/diff-panel.spec.ts:509:2 › Code review panel › diff panel button reports the panel's open state (933ms)
+[WebServer] {"ts":"2026-09-07T11:10:45.754Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   71 [chromium] › e2e/diff-panel.spec.ts:523:2 › Code review panel › every settled assistant diff is reviewable (990ms)
+[WebServer] {"ts":"2026-09-07T11:10:46.066Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   68 [chromium] › e2e/diff-panel.spec.ts:485:2 › Code review panel › view toggle: Unified choice persists across reload (2.1s)
+[WebServer] {"ts":"2026-09-07T11:10:46.198Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   72 [chromium] › e2e/diff-panel.spec.ts:561:2 › Code review panel › backdrop covers full viewport behind panel (891ms)
+[WebServer] {"ts":"2026-09-07T11:10:46.346Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓   73 [chromium] › e2e/diff-panel.spec.ts:577:2 › Code review panel › no raw tool name leaks into the review surface (880ms)
+  ✓   74 [chromium] › e2e/extension-author-provenance.spec.ts:104:2 › extension-author provenance — create_extension tool call completes (no 90s hang) › create_extension streams running → tool:complete (success draft), no error / no stuck Working state (1.1s)
+  ✓   75 [chromium] › e2e/extension-author-stuck-chat.spec.ts:107:2 › extension-author stuck-chat — stalled create_extension fails FAST and VISIBLY (no 90s frozen bubble) › stalled ezcorp/drafts → FAST tool:error card + visible run:error within seconds, composer re-enabled (NOT a frozen bubble) (999ms)
+  ✓   76 [chromium] › e2e/extension-author-stuck-chat.spec.ts:196:2 › extension-author stuck-chat — stalled create_extension fails FAST and VISIBLY (no 90s frozen bubble) › a re-fired tool:error for the same call updates the ONE card instead of stacking a duplicate (940ms)
+  ✓   78 [chromium] › e2e/extension-deep-links.spec.ts:161:2 › extension detail page — resolving the route reference, canonicalising on the row id › given the pre-fix id-only server, the same URL renders the not-found branch (296ms)
+  ✓   77 [chromium] › e2e/extension-deep-links.spec.ts:137:2 › extension detail page — resolving the route reference, canonicalising on the row id › @evidence given a server that resolves the reference, arriving by name renders and every action targets the resolved id (854ms)
+  ✓   80 [chromium] › e2e/extension-deep-links.spec.ts:193:2 › extension detail page — resolving the route reference, canonicalising on the row id › links the detail page mints carry the resolved id, not the route reference (302ms)
+  ✓   81 [chromium] › e2e/extension-detail-pages.spec.ts:69:2 › Extension detail — Hub Pages section › enabled extension with manifest.pages: whole card deep-links into the project hub (300ms)
+  ✓   79 [chromium] › e2e/extension-deep-links.spec.ts:176:2 › extension detail page — resolving the route reference, canonicalising on the row id › the library's card link shape resolves to a rendered detail page (580ms)
+  ✓   82 [chromium] › e2e/extension-detail-pages.spec.ts:99:2 › Extension detail — Hub Pages section › disabled extension: pages stay listed but the card is not a link (336ms)
+  ✓   83 [chromium] › e2e/extension-detail-pages.spec.ts:112:2 › Extension detail — Hub Pages section › extension without manifest.pages: no Hub Pages section at all (309ms)
+  ✓   87 [chromium] › e2e/extensions-bundled-drift-reapproval.spec.ts:84:1 › a disabled bundled extension with matching release evidence offers review (297ms)
+  ✓   84 [chromium] › e2e/extension-install-granted-caps.spec.ts:76:2 › Extension install-granted capabilities › renders storage / spawnAgents / event subscriptions read-only @evidence (844ms)
+  ✓   85 [chromium] › e2e/extension-install-granted-caps.spec.ts:100:2 › Extension install-granted capabilities › displays install-granted caps and captures evidence @evidence (1.0s)
+  ✓   86 [chromium] › e2e/extensions-bundled-drift-reapproval.spec.ts:47:1 › bundled city-conditions shows Atlanta website access and opens release review @evidence (1.0s)
+  ✓   88 [chromium] › e2e/extensions-detail-consent-legibility.spec.ts:138:2 › Extensions detail — consent legibility › @evidence a near-limit host stays inside the card and the viewport (776ms)
+  ✓   90 [chromium] › e2e/extensions-detail-consent-legibility.spec.ts:200:2 › Extensions detail — consent legibility › a NON-MCP extension still shows the modification notice (314ms)
+  ✓   92 [chromium] › e2e/extensions-library-tabs.spec.ts:40:2 › Extensions Library tabs › defaults to Installed tab and renders only non-bundled cards (301ms)
+  ✓   89 [chromium] › e2e/extensions-detail-consent-legibility.spec.ts:180:2 › Extensions detail — consent legibility › @evidence an MCP extension does not claim its own admin cannot edit it (813ms)
+  ✓   91 [chromium] › e2e/extensions-detail-consent-legibility.spec.ts:220:2 › Extensions detail — consent legibility › @evidence the audit panel describes, and renders, MCP lifecycle rows (775ms)
+  ✓   93 [chromium] › e2e/extensions-library-tabs.spec.ts:65:2 › Extensions Library tabs › switching to Built-ins shows only bundled cards (667ms)
+  ✓   94 [chromium] › e2e/extensions-library-tabs.spec.ts:89:2 › Extensions Library tabs › Built-ins empty state copy when no bundled rows (687ms)
+  ✓   97 [chromium] › e2e/extensions-mcp-audit-trail.spec.ts:129:2 › Extensions — MCP lifecycle audit trail › an admin sees the install, edit and refresh rows on the detail page (309ms)
+  ✓   95 [chromium] › e2e/extensions-library-tabs.spec.ts:103:2 › Extensions Library tabs › active tab persists across reload via localStorage (878ms)
+  ✓   98 [chromium] › e2e/extensions-mcp-audit-trail.spec.ts:163:2 › Extensions — MCP lifecycle audit trail › a member does not see the Audit Trail panel at all (315ms)
+  ✓   96 [chromium] › e2e/extensions-library-tabs.spec.ts:132:2 › Extensions Library tabs › bundled cards hide the Uninstall button (703ms)
+  ✓  102 [chromium] › e2e/extensions-mcp-edit.spec.ts:114:2 › Extensions — MCP candidate staging › Connection panel is hidden for a non-MCP extension (264ms)
+  ✓   99 [chromium] › e2e/extensions-mcp-edit.spec.ts:50:2 › Extensions — MCP candidate staging › edited args stage a candidate and hand off to review without changing the active catalog (744ms)
+  ✓  101 [chromium] › e2e/extensions-mcp-edit.spec.ts:94:2 › Extensions — MCP candidate staging › credential blanks stay redacted and round-trip only into the staged candidate (681ms)
+  ✓  100 [chromium] › e2e/extensions-mcp-edit.spec.ts:73:2 › Extensions — MCP candidate staging › failed probe shows a redacted error without staging or changing the active release (858ms)
+  ✓  104 [chromium] › e2e/extensions-mcp-permissions.spec.ts:146:2 › Extensions — MCP network permission › a stdio server naming no host shows the deny-by-default state (344ms)
+  ✓  105 [chromium] › e2e/extensions-workflows-grant.spec.ts:59:2 › Extensions review — workflow declaration › renders the exact workflow declaration as read-only release evidence (346ms)
+  ✓  107 [chromium] › e2e/extensions-workflows-grant.spec.ts:89:2 › Extensions review — workflow declaration › an extension declaring no workflows does not invent a workflow grant (334ms)
+  ✓  103 [chromium] › e2e/extensions-mcp-permissions.spec.ts:110:2 › Extensions — MCP network permission › @evidence shows the derived host in the current release grant (1.0s)
+  ✓  106 [chromium] › e2e/extensions-workflows-grant.spec.ts:70:2 › Extensions review — workflow declaration › Review opens the exact installation without authority mutation (669ms)
+  ✓  109 [chromium] › e2e/ez-factory-console.spec.ts:266:3 › ez-factory console › jobs view: stats, the install-wide warning, and one row per job (359ms)
+  ✓  110 [chromium] › e2e/ez-factory-console.spec.ts:284:3 › ez-factory console › a job stopped by a STALE CONSENT says so, and differently from one a limit paused (327ms)
+  ✓  111 [chromium] › e2e/ez-factory-console.spec.ts:326:3 › ez-factory console › an empty install renders the empty state and NO table (298ms)
+  ✓  112 [chromium] › e2e/ez-factory-console.spec.ts:338:3 › ez-factory console › a job row links into that job's editor (324ms)
+  ✓  113 [chromium] › e2e/ez-factory-console.spec.ts:350:3 › ez-factory console › `?view=` reaches the render pull and selects the surface (297ms)
+  ✓  108 [chromium] › e2e/extensions-workflows-grant.spec.ts:97:2 › Extensions review — workflow declaration › renders the workflows release declaration and captures evidence @evidence (1.0s)
+  ✓  114 [chromium] › e2e/ez-factory-console.spec.ts:362:3 › ez-factory console › templates link out to core's workflow UI under the NAMESPACED name (275ms)
+  ✓  115 [chromium] › e2e/ez-factory-console.spec.ts:376:3 › ez-factory console › runs view: each row deep-links to core's run trace (300ms)
+  ✓  116 [chromium] › e2e/ez-factory-console.spec.ts:388:3 › ez-factory console › the shell renders a run row as its cells plus a trace link, and nothing more (311ms)
+  ✓  118 [chromium] › e2e/ez-factory-console.spec.ts:449:3 › ez-factory console › an unrecognised ?view= renders an honest empty state, not an error card (269ms)
+  ✓  117 [chromium] › e2e/ez-factory-console.spec.ts:427:3 › ez-factory console › the approvals inbox and workflows are LINKS OUT, not rendered lists (301ms)
+  ✓  119 [chromium] › e2e/ez-factory-job-editor.spec.ts:324:3 › ez-factory job editor › a create renders ONE form — there is no schedule to set until the job exists (292ms)
+  ✓  120 [chromium] › e2e/ez-factory-job-editor.spec.ts:343:3 › ez-factory job editor › an edit prefills every field and offers Save (301ms)
+  ✓  121 [chromium] › e2e/ez-factory-job-editor.spec.ts:369:3 › ez-factory job editor › visibleWhen hides the other workflow's inputs LIVE as the select changes (295ms)
+  ✓  124 [chromium] › e2e/ez-factory-job-editor.spec.ts:453:3 › ez-factory job editor › a stale link to a deleted job renders 'not found' and NO form (299ms)
+  ✓  122 [chromium] › e2e/ez-factory-job-editor.spec.ts:389:3 › ez-factory job editor › INVARIANT B: a hidden field is OMITTED from the submitted payload (590ms)
+  ✓  125 [chromium] › e2e/ez-factory-job-editor.spec.ts:466:3 › ez-factory job editor › the schedule form's cron fields appear ONLY for the cron kind, live (321ms)
+  ✓  123 [chromium] › e2e/ez-factory-job-editor.spec.ts:422:3 › ez-factory job editor › an edit's save carries the job id from the ACTION payload, not a typed field (554ms)
+  ✓  128 [chromium] › e2e/ez-factory-job-editor.spec.ts:565:3 › ez-factory job editor › a background job says out loud that saving it armed nothing (298ms)
+  ✓  129 [chromium] › e2e/ez-factory-job-editor.spec.ts:592:3 › ez-factory job editor › a MANUAL job shows no 'not yet armed' notice — there is nothing to arm (296ms)
+  ✓  126 [chromium] › e2e/ez-factory-job-editor.spec.ts:497:3 › ez-factory job editor › a cron schedule submits its expression, zone and BOTH bounds (573ms)
+  ✓  127 [chromium] › e2e/ez-factory-job-editor.spec.ts:528:3 › ez-factory job editor › THE BOUND: switching back to manual OMITS the bounds from the wire (538ms)
+  ✓  130 [chromium] › e2e/ez-factory-job-editor.spec.ts:606:3 › ez-factory job editor › the editor links back to the console (279ms)
+  ✓  131 [chromium] › e2e/file-organizer-hub.spec.ts:161:3 › file-organizer Hub › overview: status + stats + the unclassified alert table render (293ms)
+  ✓  133 [chromium] › e2e/file-organizer-hub.spec.ts:197:3 › file-organizer Hub › review: reject a move POSTs events/reject (668ms)
+  ✓  132 [chromium] › e2e/file-organizer-hub.spec.ts:175:3 › file-organizer Hub › review: accept a move → POST events/accept {payload} → re-pull fresh tree (701ms)
+  ✓  134 [chromium] › e2e/file-organizer-hub.spec.ts:214:3 › file-organizer Hub › review: batch-confirm deletes is confirm-gated then POSTs (707ms)
+  ✓  135 [chromium] › e2e/file-organizer-hub.spec.ts:233:3 › file-organizer Hub › review: undo last auto-batch POSTs the batchId (665ms)
+  ✓  136 [chromium] › e2e/file-organizer-hub.spec.ts:250:3 › file-organizer Hub › review: restore from quarantine POSTs events/restore → re-pull empty tree (714ms)
+  ✓  138 [chromium] › e2e/file-organizer-hub.spec.ts:339:3 › file-organizer Hub › folders: typing an ABSOLUTE path still passes through unmodified (709ms)
+  ✓  137 [chromium] › e2e/file-organizer-hub.spec.ts:271:3 › file-organizer Hub › folders: BROWSE + select in the file-path picker yields an ABSOLUTE path → POST events/add-folder (845ms)
+  ✓  139 [chromium] › e2e/file-organizer-hub.spec.ts:361:3 › file-organizer Hub › folders: a refused add (HTTP 200 {ok:false}) surfaces the EXACT validator error instead of silently doing nothing (761ms)
+  ✓  141 [chromium] › e2e/file-organizer-hub.spec.ts:411:3 › file-organizer Hub › folders: toggle a preset POSTs events/toggle-preset → re-pull shows the check (552ms)
+  ✓  140 [chromium] › e2e/file-organizer-hub.spec.ts:394:3 › file-organizer Hub › folders: set mode (Auto) POSTs events/set-mode (658ms)
+  ✓  143 [chromium] › e2e/file-organizer-hub.spec.ts:450:3 › file-organizer Hub › unclassified: Teach-a-rule prompt POSTs the mini-DSL rule (556ms)
+  ✓  142 [chromium] › e2e/file-organizer-hub.spec.ts:431:3 › file-organizer Hub › folders: add an ignore via the prompt (722ms)
+  ✓  145 [chromium] › e2e/file-organizer-hub.spec.ts:495:3 › file-organizer Hub › loading: the skeleton shows while the render is in flight, then resolves (267ms)
+  ✓  144 [chromium] › e2e/file-organizer-hub.spec.ts:469:3 › file-organizer Hub › live invalidation: an ext:page-state signal re-pulls the review tree (302ms)
+  ✓  147 [chromium] › e2e/file-organizer-hub.spec.ts:532:3 › file-organizer Hub › 404 render: a disabled/unknown page shows the not-exist error card (no retry loop crash) (273ms)
+  ✓  148 [chromium] › e2e/file-organizer-hub.spec.ts:543:3 › file-organizer Hub › overview empty: no pending + no unclassified renders the clean state (no attention section) (305ms)
+  ✓  149 [chromium] › e2e/file-organizer-hub.spec.ts:555:3 › file-organizer Hub › folders empty: the No-folders-watched empty-state renders with the add affordance (295ms)
+  ✓  150 [chromium] › e2e/file-organizer-hub.spec.ts:567:3 › file-organizer Hub › review empty: the quarantine empty-state renders (295ms)
+  ✓  146 [chromium] › e2e/file-organizer-hub.spec.ts:512:3 › file-organizer Hub › render error: a render failure shows the error card; Retry re-pulls and recovers (724ms)
+  -  154 [chromium] › e2e/file-organizer-real.spec.ts:286:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted
+  -  155 [chromium] › e2e/file-organizer-real.spec.ts:315:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: a RELATIVE path is refused by the REAL validator with the exact message
+  -  156 [chromium] › e2e/file-organizer-real.spec.ts:323:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: an UNREACHABLE absolute path is refused with the container-visibility message
+  -  157 [chromium] › e2e/file-organizer-real.spec.ts:336:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: a DESCENDANT of an already-watched folder is refused as already-covered
+  -  158 [chromium] › e2e/file-organizer-real.spec.ts:352:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error
+  -  159 [chromium] › e2e/file-organizer-real.spec.ts:368:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config
+  -  160 [chromium] › e2e/file-organizer-real.spec.ts:425:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › proposal lifecycle: daemon proposes and accepts a REAL move on disk
+  -  161 [chromium] › e2e/file-organizer-real.spec.ts:506:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation)
+  -  162 [chromium] › e2e/file-organizer-real.spec.ts:516:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › UI: a refused add surfaces a real error toast in the browser
+  -  163 [chromium] › e2e/file-organizer-real.spec.ts:556:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › add-folder: the added folder APPEARS in the Hub render (data dirs aligned)
+  -  164 [chromium] › e2e/file-organizer-real.spec.ts:572:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › config mutation REFLECTS in the Folders Hub render (data dirs aligned)
+  -  165 [chromium] › e2e/file-organizer-real.spec.ts:597:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › Review Hub render loads against the live backend (data dirs aligned)
+  -  166 [chromium] › e2e/file-organizer-real.spec.ts:602:5 › file-organizer real-backend (skipped: set DOCKER_TEST=1) › lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import
+  ✓  151 [chromium] › e2e/file-organizer-hub.spec.ts:578:3 › file-organizer Hub › confirm cancel: dismissing the delete confirm does NOT POST the action (861ms)
+  ✓  152 [chromium] › e2e/file-organizer-hub.spec.ts:600:3 › file-organizer Hub › prompt cancel: dismissing the add-folder prompt does NOT POST (872ms)
+  ✓  167 [chromium] › e2e/hub.spec.ts:103:2 › Hub › nav entry → /hub redirects to the first tab and renders the tree (760ms)
+  ✓  153 [chromium] › e2e/file-organizer-hub.spec.ts:622:3 › file-organizer Hub › prompt Escape: pressing Escape in the plain-text prompt cancels without POSTing (848ms)
+  ✓  171 [chromium] › e2e/hub.spec.ts:217:2 › Hub › extension tab renders and re-pulls on the ext:page-state invalidation signal (309ms)
+  ✓  168 [chromium] › e2e/hub.spec.ts:128:2 › Hub › in-project nav entry → the sidebar Hub link opens the project hub and auto-lands on the scoped page (645ms)
+  ✓  170 [chromium] › e2e/hub.spec.ts:196:2 › Hub › render error envelope → error card → retry recovers (597ms)
+  ✓  169 [chromium] › e2e/hub.spec.ts:165:2 › Hub › action button: confirm dialog gates the POST; fresh tree updates inline (821ms)
+  ✓  173 [chromium] › e2e/hub.spec.ts:273:2 › Hub › /hub with no pages shows the empty explainer (309ms)
+  ✓  172 [chromium] › e2e/hub.spec.ts:253:2 › Hub › invalidation signals for OTHER pages don't trigger a re-pull (587ms)
+  ✓  177 [chromium] › e2e/hub.spec.ts:381:2 › Hub › stale:true render shows the refreshing… indicator (291ms)
+  ✓  174 [chromium] › e2e/hub.spec.ts:282:2 › Hub › tab switch: title swaps and the new page's render route is pulled ($effect param reload) (695ms)
+  ✓  175 [chromium] › e2e/hub.spec.ts:313:2 › Hub › refresh button re-pulls the render endpoint and renders the updated tree (678ms)
+  ✓  176 [chromium] › e2e/hub.spec.ts:338:2 › Hub › action failure (429 {error}) surfaces a toast without replay; the tree stays unchanged @evidence (1.2s)
+  ✓  180 [chromium] › e2e/hub.spec.ts:443:2 › Hub › watchlist: Add prompt dialog → type → Submit POSTs {payload:{topic}} → fresh tree shows the row (739ms)
+  ✓  178 [chromium] › e2e/hub.spec.ts:394:2 › Hub › loading skeleton shows while the render request is in flight; tab icon renders a lucide svg (1.1s)
+  ✓  181 [chromium] › e2e/hub.spec.ts:481:2 › Hub › watchlist: Cancel (and empty value) fire no POST (834ms)
+  ✓  182 [chromium] › e2e/hub.spec.ts:506:2 › Hub › watchlist: Enter submits the prompt; Escape closes it with no POST (918ms)
+  ✓  183 [chromium] › e2e/hub.spec.ts:546:2 › Hub › watchlist: row remove → confirm dialog → Confirm POSTs remove-watchlist → row gone (722ms)
+[WebServer] {"ts":"2026-09-07T11:11:00.628Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:11:00.640Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  184 [chromium] › e2e/hub.spec.ts:576:2 › Hub › Hub nav link renders on the Global project sidebar (global navLinks branch) (258ms)
+[WebServer] {"ts":"2026-09-07T11:11:00.709Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  179 [chromium] › e2e/hub.spec.ts:418:2 › Hub › a slow superseded render can't overwrite the newer tab (fetch-race guard) (2.2s)
+[WebServer] {"ts":"2026-09-07T11:11:01.121Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  186 [chromium] › e2e/main-chat-parity.spec.ts:95:2 › Main-chat parity baseline (Phase 0 pin) › send message renders the user turn (optimistic → server) (680ms)
+[WebServer] {"ts":"2026-09-07T11:11:01.326Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  185 [chromium] › e2e/main-chat-parity.spec.ts:48:2 › Main-chat parity baseline (Phase 0 pin) › branched tree renders the latest sibling branch by default @evidence (870ms)
+[WebServer] {"ts":"2026-09-07T11:11:01.505Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  188 [chromium] › e2e/main-chat-parity.spec.ts:166:2 › Main-chat parity baseline (Phase 0 pin) › assistant turn exposes regenerate; user turn exposes edit (674ms)
+[WebServer] {"ts":"2026-09-07T11:11:01.803Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:11:01.851Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  187 [chromium] › e2e/main-chat-parity.spec.ts:118:2 › Main-chat parity baseline (Phase 0 pin) › active WS run binds the streaming UI (stop control appears) @evidence (1.2s)
+  ✓  189 [chromium] › e2e/main-chat-parity.spec.ts:207:2 › Main-chat parity baseline (Phase 0 pin) › edit-text (no-regenerate) action is available on a saved turn (656ms)
+  ✓  190 [chromium] › e2e/main-chat-parity.spec.ts:242:2 › Main-chat parity baseline (Phase 0 pin) › URL leaf param survives a reload (branch deep-link) (611ms)
+  ✓  192 [chromium] › e2e/project-form.spec.ts:5:2 › Project Form › new project form has correct heading and fields (334ms)
+  ✓  193 [chromium] › e2e/project-form.spec.ts:14:2 › Project Form › can fill in project name (316ms)
+  ✓  194 [chromium] › e2e/project-form.spec.ts:27:2 › Project Form › submit button says 'Create' for new projects (302ms)
+  ✓  195 [chromium] › e2e/project-form.spec.ts:34:2 › Project Form › icon preview falls back to the first letter of the name (275ms)
+[WebServer] {"ts":"2026-09-07T11:11:02.551Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  196 [chromium] › e2e/project-form.spec.ts:46:2 › Project Form › Create Folder is disabled only when the path is blank (274ms)
+[WebServer] {"ts":"2026-09-07T11:11:02.603Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  197 [chromium] › e2e/project-form.spec.ts:63:2 › Project Form › submitting the form with name and path (316ms)
+[WebServer] {"ts":"2026-09-07T11:11:02.764Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  191 [chromium] › e2e/main-chat-parity.spec.ts:290:2 › Main-chat parity baseline (Phase 0 pin) › select-mode entry surfaces a bulk action bar (1.1s)
+[WebServer] {"ts":"2026-09-07T11:11:02.884Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  199 [chromium] › e2e/pull-to-refresh-no-spurious-reload.spec.ts:166:2 › PullToRefresh does not reload during ordinary use › desktop: swiping down does NOT reload the page (1.6s)
+  ✓  198 [chromium] › e2e/pull-to-refresh-no-spurious-reload.spec.ts:146:2 › PullToRefresh does not reload during ordinary use › mobile: swiping down mid-list does NOT reload the page (1.7s)
+[WebServer] {"ts":"2026-09-07T11:11:04.222Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:11:04.238Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  200 [chromium] › e2e/pull-to-refresh-no-spurious-reload.spec.ts:179:2 › PullToRefresh does not reload during ordinary use › mobile: a cancelled pull followed by a tap does NOT reload (1.6s)
+  ✓  201 [chromium] › e2e/pull-to-refresh-no-spurious-reload.spec.ts:201:2 › PullToRefresh does not reload during ordinary use › mobile: a short pull at the top does NOT reload (1.6s)
+[WebServer] {"ts":"2026-09-07T11:11:04.582Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:11:04.597Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  202 [chromium] › e2e/pull-to-refresh-no-spurious-reload.spec.ts:216:2 › PullToRefresh does not reload during ordinary use › mobile: pulling from INSIDE the list at its top still refreshes (410ms)
+  ✓  203 [chromium] › e2e/pull-to-refresh-no-spurious-reload.spec.ts:233:2 › PullToRefresh does not reload during ordinary use › mobile: pulling down at the top still refreshes @evidence (1.2s)
+  ✓  207 [chromium] › e2e/resume-bounce-no-loop.spec.ts:114:2 › resuming into a route that bounces home › the bounced user lands on a rendered, usable screen @evidence (1.0s)
+  ✓  208 [chromium] › e2e/resume-bounce-no-loop.spec.ts:125:2 › resuming into a route that bounces home › a normal resume target is still honoured and re-recorded (644ms)
+[WebServer] {"ts":"2026-09-07T11:11:07.088Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  205 [chromium] › e2e/resume-bounce-no-loop.spec.ts:92:2 › resuming into a route that bounces home › settles on a usable route instead of the guarded one (3.4s)
+[WebServer] {"ts":"2026-09-07T11:11:07.893Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  206 [chromium] › e2e/resume-bounce-no-loop.spec.ts:103:2 › resuming into a route that bounces home › the poisoned resume path is not left behind for the next open (3.4s)
+[WebServer] {"ts":"2026-09-07T11:11:08.034Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:11:08.308Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  211 [chromium] › e2e/task-panel-cold-start.spec.ts:86:2 › Task Panel — cold start › survives a page reload (559ms)
+[WebServer] {"ts":"2026-09-07T11:11:08.597Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  210 [chromium] › e2e/task-panel-cold-start.spec.ts:63:2 › Task Panel — cold start › @evidence renders persisted tasks on first load with no live event (855ms)
+[WebServer] {"ts":"2026-09-07T11:11:08.750Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+[WebServer] {"ts":"2026-09-07T11:11:08.933Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  204 [chromium] › e2e/resume-bounce-no-loop.spec.ts:82:2 › resuming into a route that bounces home › does not ping-pong between / and the bouncing route (4.6s)
+[WebServer] {"ts":"2026-09-07T11:11:08.974Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  213 [chromium] › e2e/task-panel-cold-start.spec.ts:129:2 › Task Panel — cold start › re-hydrates when the event stream reconnects (351ms)
+[WebServer] {"ts":"2026-09-07T11:11:09.111Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  212 [chromium] › e2e/task-panel-cold-start.spec.ts:103:2 › Task Panel — cold start › shows up in a second tab on the same conversation (666ms)
+[WebServer] {"ts":"2026-09-07T11:11:09.264Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  214 [chromium] › e2e/task-panel-cold-start.spec.ts:155:2 › Task Panel — cold start › a failing snapshot load leaves the rendered panel alone (391ms)
+[WebServer] {"ts":"2026-09-07T11:11:09.432Z","level":"error","msg":"server error","subsystem":"hooks.server","status":500,"error":"{}"}
+  ✓  215 [chromium] › e2e/task-panel-cold-start.spec.ts:183:2 › Task Panel — cold start › swaps snapshots when switching conversations (564ms)
+  ✓  217 [chromium] › e2e/workflows-run-output.spec.ts:218:2 › Workflow run output — the workflow page › a failed run's message arrives with its output (603ms)
+  ✓  216 [chromium] › e2e/workflows-run-output.spec.ts:175:2 › Workflow run output — the workflow page › @evidence a persisted run is listed, and its output opens in place (1.1s)
+  ✓  218 [chromium] › e2e/workflows-run-output.spec.ts:235:2 › Workflow run output — the workflow page › the toggle closes the panel it opened (729ms)
+  ✓  219 [chromium] › e2e/workflows-run-output.spec.ts:248:2 › Workflow run output — the workflow page › a run whose trace cannot be read says so, and the row survives (708ms)
+  ✓  220 [chromium] › e2e/workflows-run-output.spec.ts:267:2 › Workflow run output — the workflow page › live and persisted runs share ONE list, newest first (315ms)
+  ✓  222 [chromium] › e2e/workflows-run-output.spec.ts:324:2 › Workflow run output — the run trace › a failed run's result shows the message AND the absent output (293ms)
+  ✓  223 [chromium] › e2e/workflows-run-output.spec.ts:350:2 › Workflow run output — how the history is fetched › the page asks for ONE workflow's history, bounded, exactly once (303ms)
+  ✓  221 [chromium] › e2e/workflows-run-output.spec.ts:304:2 › Workflow run output — the run trace › @evidence the trace renders the run's final result (756ms)
+  ✓  224 [chromium] › e2e/workflows-run-output.spec.ts:381:2 › Workflow run output — how the history is fetched › history reloads when the workflow NAME changes under the same page (573ms)
+  ✓  225 [chromium] › e2e/workflows-run-output.spec.ts:403:2 › Workflow run output — how the history is fetched › a slow answer for one workflow never paints under another (766ms)
+  ✓  227 [chromium] › e2e/workflows-run-output.spec.ts:505:2 › Workflow run output — how the history is fetched › a LIVE run's failure message needs no round trip (331ms)
+  ✓  228 [chromium] › e2e/workflows-run-output.spec.ts:538:2 › Workflow run output — how the history is fetched › a live run belonging to ANOTHER workflow stays off this page (312ms)
+  ✓  226 [chromium] › e2e/workflows-run-output.spec.ts:449:2 › Workflow run output — how the history is fetched › a terminal run's trace is fetched ONCE; a live run's is re-fetched (942ms)
+  ✓  229 [chromium] › e2e/workflows-run-output.spec.ts:562:2 › Workflow run output — how the history is fetched › one run's unreadable trace does not follow the reader to the next row (779ms)
+  ✓  230 [chromium] › e2e/workflows-run-output.spec.ts:586:2 › Workflow run output — how the history is fetched › the panel says it is LOADING rather than sitting blank (711ms)
+  ✓  231 [chromium] › e2e/workflows-run-output.spec.ts:613:2 › Workflow run output — how the history is fetched › a history error CLEARS when the next workflow loads (714ms)
+  ✓  232 [chromium] › e2e/workflows-run-output.spec.ts:629:2 › Workflow run output — how the history is fetched › a history that cannot be loaded says so, instead of claiming there are none (303ms)
+  ✓  233 [chromium] › e2e/workflows-run-output.spec.ts:648:2 › Workflow run output — reaching the trace › Full trace → opens the run's own page, showing the same output (772ms)
+  ✓  209 [chromium] › e2e/stuck-skeleton-self-heal.spec.ts:48:2 › Stuck skeleton self-heal (terminal event never arrives) › skeleton clears without a reload when the run ends silently (10.6s)
+
+  13 skipped
+  220 passed (1.6m)

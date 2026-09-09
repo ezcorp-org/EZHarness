@@ -198,10 +198,7 @@ function canonicalize(p: string, testFile: string): string {
   const srcRoot = join(import.meta.dir, "..");
   const testDir = join(testFile, "..");
   const abs = join(testDir, p);
-  const relFromSrc = relative(srcRoot, abs);
-  return relFromSrc.startsWith("..")
-    ? p                         // escapes src/ entirely — treat as opaque
-    : `../../${relFromSrc}`;
+  return relative(join(srcRoot, "__tests__", "helpers"), abs);
 }
 
 function isExempt(path: string): boolean {
@@ -383,6 +380,10 @@ function isWebLibRelativeCovered(path: string, modulePaths: Set<string>): boolea
 }
 
 describe("mock-cleanup coverage (meta-test)", () => {
+  test("source-external mocks resolve to the same snapshot from any test depth", () => {
+    expect(canonicalize("../../scripts/migrate-extension-v4", join(import.meta.dir, "example.test.ts"))).toBe("../../../scripts/migrate-extension-v4");
+    expect(canonicalize("../../../scripts/migrate-extension-v4", join(import.meta.dir, "../extensions/__tests__/example.test.ts"))).toBe("../../../scripts/migrate-extension-v4");
+  });
   test("every mock.module target is either snapshotted or exempt", () => {
     const helper = helperSource();
     const modulePaths = parseModulePaths(helper);

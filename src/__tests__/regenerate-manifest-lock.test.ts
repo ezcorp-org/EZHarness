@@ -107,8 +107,8 @@ describe("regenerate-manifest-lock --check", () => {
     const diff = diffLockfiles(before, after);
     const decision = computeCheckDecision(diff);
     expect(decision.exitCode).toBe(1);
-    expect(decision.message).toContain("~ ext.toolsHash:");
-    expect(decision.message).toContain("sha256-old -> sha256-new");
+    expect(decision.message).toContain("~ ext");
+    expect(diff.changed).toEqual(["ext"]);
   });
 
   test("multiple drifts → exit 1, all reported", () => {
@@ -134,7 +134,7 @@ describe("regenerate-manifest-lock --check", () => {
     expect(decision.exitCode).toBe(1);
     expect(decision.message).toContain("+ c");
     expect(decision.message).toContain("- b");
-    expect(decision.message).toContain("~ a.toolsHash");
+    expect(decision.message).toContain("~ a");
   });
 });
 

@@ -1,0 +1,2 @@
+command=SHARD_INDEX=0 SHARD_TOTAL=1 HOST_FILES_OVERRIDE=<single-P-file> PATH=<fake-bun-first> FAKE_BUN_STATE=<owned-fixture> bash scripts/test-coverage.sh
+expected=original first-pass sentinel is lost before retry (pre-fix)

@@ -2,6 +2,7 @@ import type { EventBus } from "../../runtime/events";
 import type { AgentEvents } from "../../types";
 import type { ToolCallResult } from "../types";
 import type { CapabilitySet } from "../capability-types";
+import type { InvocationGuard } from "../runtime-locks";
 
 /**
  * The `ToolExecutor.executeToolCall` call signature, expressed as a standalone
@@ -19,6 +20,9 @@ export type ExecuteToolCall = (
   conversationId: string,
   messageId: string | null,
   _opts?: {
+    signal?: AbortSignal;
+    invocationGuard?: InvocationGuard;
+    serviceInvocation?: import("../service-invocation").ServiceInvocation;
     callerExtensionId?: string;
     _callDepth?: number;
     metadata?: { invocationId?: string; source?: "inline" | "agent-run" };

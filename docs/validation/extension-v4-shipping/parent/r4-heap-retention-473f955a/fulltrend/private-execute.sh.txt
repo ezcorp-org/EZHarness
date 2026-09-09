@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+work=/tmp/ez-r4-trend-review-20260907T072500Z
+receipt=$repo/.cache/terra-shipping/parent/r4-heap-trend-review-20260907T072500Z
+state="$(mktemp -d /tmp/r4-XXXXXX)"
+printf 'diagnostic_state_root=%s\n' "$state" > "$receipt/state-path.txt"
+tag=localhost/ezcorp-extension-v4:r4-trend-review-20260907t072500z
+runtime="$receipt/runtime"
+export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH
+export DOCKER_HOST=unix:///run/user/1001/podman/podman.sock
+bun --version > "$receipt/tool-versions.txt"
+node --version >> "$receipt/tool-versions.txt"
+podman build --format docker --pull=never --tag "$tag" "$work" > "$receipt/derived-image-build.log" 2>&1
+docker image inspect "$tag" > "$receipt/derived-image-inspect.json"
+set +e
+timeout --foreground --kill-after=30s 2500s env EZ_PRODUCTION_IMAGE="$tag" EZ_PRODUCTION_RECEIPT_DIR="$runtime" EZ_PRODUCTION_STATE_DIR="$state" EZ_PRODUCTION_PORT=4293 EZ_PRODUCTION_COMPOSE_PROJECT=ez-r4-trend-review-20260907t072500z EZ_PRODUCTION_APP_CONTAINER=ez-r4-trend-review-20260907t072500z-app EZ_PRODUCTION_APP_UID=0 EZ_PRODUCTION_APP_GID=0 bash "$work/verify-production-image-lifecycle.sh" -- "$work/run-r4-trend.sh" > "$receipt/launcher.log" 2>&1
+run_result=$?
+set -e
+printf 'r4_full_duration_diagnostic_exit=%s\n' "$run_result" > "$receipt/exit.txt"
+docker image rm "$tag" > "$receipt/derived-image-cleanup.log" 2>&1
+cleanup_result=$?
+printf 'derived_image_cleanup_exit=%s\n' "$cleanup_result" >> "$receipt/exit.txt"
+if [[ "$cleanup_result" -ne 0 ]]; then exit "$cleanup_result"; fi
+exit "$run_result"

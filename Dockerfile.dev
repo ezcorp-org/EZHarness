@@ -5,6 +5,7 @@
 # in ci.yml). The floating `oven/bun:1` this used to carry meant any upstream
 # 1.x push invalidated every layer below, including both installs.
 FROM oven/bun:1.3.14
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
 # System packages. `git` is required at runtime by `installFromGit` — the
@@ -23,6 +24,8 @@ COPY package.json bun.lock ./
 COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
 COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
+COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
+COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
 # `--ignore-scripts`: the @ezcorp/sdk package's `prepare` script (and the
 # root `postinstall`) compile the SDK to dist/ via tsc, but only the
 # package.json files have been COPY'd at this stage (the SDK source +

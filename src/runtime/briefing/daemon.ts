@@ -150,6 +150,8 @@ export class BriefingDaemon {
    */
   async tick(): Promise<BriefingTickResult> {
     const now = this.opts.now();
+    const { recoverRunCompletionIntents } = await import("./completion-intents");
+    await recoverRunCompletionIntents(now.getTime());
 
     // Fail-safe: without a runtime (and no injected pipeline) we must
     // NOT claim — claiming would consume the slot and the dispatch

@@ -1,0 +1,50 @@
+{
+  "privateRawFileHashes": [
+    {
+      "privatePath": "controller.log",
+      "sha256": "28b1baeab97759fe28be91474ea8e9aedc025761bbb08cb75f9d09b9c63b7100",
+      "bytes": 3881
+    },
+    {
+      "privatePath": "runtime/command.log",
+      "sha256": "75f3f29983925bf3f8b55be64d5ea2d30f9058bbf1e63b679e39bba9cf12d74f",
+      "bytes": 188
+    },
+    {
+      "privatePath": "runtime/compose.log",
+      "sha256": "0b4bd2bebc2dcc987856dcdd8467fc97ffd6d1b81f877dfe22cab23d43fb31a8",
+      "bytes": 4394
+    },
+    {
+      "privatePath": "runtime/playwright.log",
+      "sha256": "bd9f787bc69620fd31714ed0265479a5cc0db0972b5d8a4856a08b9a7945271a",
+      "bytes": 3562
+    },
+    {
+      "privatePath": "runtime/provenance.txt",
+      "sha256": "6f142fd6f7bf073ffb58a6163b79a90e17eb33e66a938af75c40925236c71a68",
+      "bytes": 324
+    },
+    {
+      "privatePath": "runtime/runner.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "privatePath": "runtime/runtime-events.log",
+      "sha256": "9e8215887c97c2794829c5895f48c1897d24d6414e814d776c1f6baa363ad39c",
+      "bytes": 179
+    },
+    {
+      "privatePath": "runtime/verification.log",
+      "sha256": "bd9f787bc69620fd31714ed0265479a5cc0db0972b5d8a4856a08b9a7945271a",
+      "bytes": 3562
+    }
+  ],
+  "publishedAttachments": 0,
+  "publishedScreenshots": 0,
+  "blobReportProduced": false,
+  "traceProduced": false,
+  "retryCount": "not observable: verifier neither configures a blob/JSON reporter nor retains test-result metadata",
+  "sourceScreenshotCalls": "the test source contains screenshot/attachment calls, but no resulting files appear in the immutable receipt"
+}

@@ -1,0 +1,10 @@
+.cache/terra-shipping/parent/resource-focused-2c542bac-20260907T183851Z/focused-controller.sh: OK
+scripts/verify-shipping-runtime-resources.sh: OK
+scripts/verify-shipping-runtime-resources.ts: OK
+scripts/verify-shipping-runtime.sh: OK
+scripts/verify-production-image-lifecycle.sh: OK
+scripts/start-extension-runner-e2e.sh: OK
+scripts/lib/production-lifecycle-client.ts: OK
+scripts/lib/shipping-runtime-resource-accounting.ts: OK
+/tmp/ez-audit-ci-conmon/podman: OK
+/tmp/ez-audit-ci-conmon/conmon-2.2.1: OK

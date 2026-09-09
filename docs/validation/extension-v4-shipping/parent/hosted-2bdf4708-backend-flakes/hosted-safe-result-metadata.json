@@ -1,0 +1,181 @@
+{
+  "run_id": 34158014590,
+  "head_sha": "2bdf4708594db3e27e25269e7c4fbb7cf0dc87f7",
+  "workflow_status_observed": "in_progress",
+  "workflow_conclusion_observed": "",
+  "assigned_jobs": [
+    {
+      "databaseId": 101853766446,
+      "name": "Coverage extras (legs)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:52Z",
+      "completedAt": "2026-09-07T20:10:42Z"
+    },
+    {
+      "databaseId": 101853766476,
+      "name": "Coverage shard 7",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:09:03Z"
+    },
+    {
+      "databaseId": 101853766486,
+      "name": "Backend critical (strict pass/fail)",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:08:05Z"
+    },
+    {
+      "databaseId": 101853766493,
+      "name": "Coverage shard 10",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:09:30Z"
+    },
+    {
+      "databaseId": 101853766506,
+      "name": "Coverage shard 0",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:09:17Z"
+    },
+    {
+      "databaseId": 101853766548,
+      "name": "Residual integration tests",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:06:45Z"
+    },
+    {
+      "databaseId": 101853766644,
+      "name": "Coverage shard 3",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:52Z",
+      "completedAt": "2026-09-07T20:08:12Z"
+    },
+    {
+      "databaseId": 101853766673,
+      "name": "Coverage shard 8",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:52Z",
+      "completedAt": "2026-09-07T20:08:45Z"
+    },
+    {
+      "databaseId": 101853766688,
+      "name": "Coverage shard 1",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:52Z",
+      "completedAt": "2026-09-07T20:08:25Z"
+    },
+    {
+      "databaseId": 101853766695,
+      "name": "Coverage shard 11",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:08:43Z"
+    },
+    {
+      "databaseId": 101853766706,
+      "name": "Coverage shard 4",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:08:58Z"
+    },
+    {
+      "databaseId": 101853766719,
+      "name": "Coverage shard 5",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:08:32Z"
+    },
+    {
+      "databaseId": 101853766721,
+      "name": "Coverage shard 9",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:52Z",
+      "completedAt": "2026-09-07T20:08:31Z"
+    },
+    {
+      "databaseId": 101853766796,
+      "name": "Coverage shard 6",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:09:45Z"
+    },
+    {
+      "databaseId": 101853766905,
+      "name": "Coverage shard 2",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:04:51Z",
+      "completedAt": "2026-09-07T20:08:40Z"
+    },
+    {
+      "databaseId": 101854918861,
+      "name": "Per-file coverage gate",
+      "status": "completed",
+      "conclusion": "success",
+      "startedAt": "2026-09-07T20:10:45Z",
+      "completedAt": "2026-09-07T20:11:07Z"
+    }
+  ],
+  "all_assigned_jobs_terminal": true,
+  "all_assigned_jobs_success": true,
+  "first_pass_coverage_retries": [
+    {
+      "shard": 0,
+      "failed_first_coverage_pass_file": "src/__tests__/chat-tools-integration.test.ts",
+      "isolated_plain_rerun": "passed",
+      "policy_label": "instrumentation/contention flake \u2014 tolerated"
+    },
+    {
+      "shard": 1,
+      "failed_first_coverage_pass_file": "src/__tests__/db-live-holder-guard.test.ts",
+      "isolated_plain_rerun": "passed",
+      "policy_label": "instrumentation/contention flake \u2014 tolerated"
+    },
+    {
+      "shard": 2,
+      "failed_first_coverage_pass_file": "src/extensions/first-party-integration/auto-note/legacy-subprocess.integration.test.ts",
+      "isolated_plain_rerun": "passed",
+      "policy_label": "instrumentation/contention flake \u2014 tolerated"
+    }
+  ],
+  "decisive_gate_messages": {
+    "coverage_threshold": "PASSED: 1260 enforced files at or above threshold",
+    "new_file_coverage": "PASSED: 134 new source files gated",
+    "patch_coverage": "PASSED: all changed executable lines covered (394 files)"
+  },
+  "test_summaries": {
+    "backend_critical": {
+      "pass": 659,
+      "fail": 0,
+      "files": 38
+    },
+    "residual_integration": {
+      "pass": 182,
+      "fail": 0,
+      "files": 15
+    },
+    "coverage_extras": {
+      "pass": 1435,
+      "fail": 0,
+      "files_or_legs": "legs"
+    }
+  },
+  "limits": "Successful job conclusions include three tolerated first-pass coverage failures listed above. Raw hosted logs remain private."
+}

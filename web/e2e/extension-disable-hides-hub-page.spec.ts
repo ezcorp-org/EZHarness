@@ -19,6 +19,7 @@
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeExtension, makeProject } from "./fixtures/data.js";
+import { expectReadable, useLightTheme } from "./fixtures/readable.js";
 
 const proj = makeProject({ id: "proj-hub", name: "Hub Owner" });
 
@@ -157,6 +158,7 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 		// dispatching `extensions:changed`); this covers the CONSUMER on the
 		// Hub route, which is a different page — the two are never on screen
 		// together, so the event is dispatched directly here.
+		await useLightTheme(page);
 		await mockApi({ projects: [proj], extensions: [makeHubExtension(true)] });
 
 		let disabled = false;
@@ -164,9 +166,11 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 			route.fulfill({ json: disabled ? withoutExtPage : withExtPage }),
 		);
 		await page.route(`**/api/hub/pages/${encodeURIComponent(EXT_PAGE_ID)}*`, (route) =>
-			route.fulfill({
-				json: { page: { title: "Notes Dashboard", nodes: [] }, renderedAt: 1 },
-			}),
+				disabled
+					? route.fulfill({ status: 404, json: { error: "Page not found" } })
+					: route.fulfill({
+							json: { page: { title: "Notes Dashboard", nodes: [] }, renderedAt: 1 },
+						}),
 		);
 		await page.route("**/api/hub/pages/core%3Abriefing*", (route) =>
 			route.fulfill({ json: { page: { title: "Briefing", nodes: [] }, renderedAt: 1 } }),
@@ -180,6 +184,12 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 
 		await expect(page.getByTestId("hub-tab")).toHaveCount(1, { timeout: 5000 });
 		await expect(page.getByTestId("hub-tab")).toHaveText("Briefing");
+		await expect(page.getByTestId("hub-error-card")).toContainText(
+			"This page doesn't exist (the extension may be disabled).",
+		);
+		await expectReadable(page.getByTestId("hub-error-title"), "disabled Hub page error title");
+		await expect(page.getByTestId("hub-page-title")).toHaveCount(0);
+		await expect(page.getByText("Notes Dashboard", { exact: true })).toHaveCount(0);
 
 		await captureEvidence(page, testInfo, "hub-tab-bar-after-disable");
 	});
@@ -212,7 +222,7 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 
 		const dialog = page.getByTestId("uninstall-dialog");
 		await expect(dialog).toBeVisible();
-		await expect(dialog).toContainText(".ezcorp/extension-data/notes-keeper/");
+		await expect(dialog).toContainText("release history, settings, secrets, stored data and files are kept");
 
 		await captureEvidence(page, testInfo, "extension-detail-uninstall");
 	});
@@ -243,10 +253,7 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 		await expect(page.getByTestId("extension-detail-uninstall-button")).toHaveCount(0);
 	});
 
-	test("the uninstall dialog names the data directory and makes the user choose", async ({ page, mockApi }, testInfo) => {
-		// The delete now reaches the filesystem. Neither option is
-		// preselected: a default "delete" destroys data people meant to keep,
-		// a default "keep" orphans directories nobody cleans up.
+	test("the uninstall dialog states that data and history are retained", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj], extensions: [makeHubExtension(true)] });
 		await page.goto("/extensions");
 
@@ -254,10 +261,9 @@ test.describe("@evidence Disabling an extension hides its Hub page", () => {
 
 		const dialog = page.getByTestId("uninstall-dialog");
 		await expect(dialog).toBeVisible({ timeout: 5000 });
-		await expect(dialog).toContainText(".ezcorp/extension-data/notes-keeper/");
-		await expect(page.getByTestId("uninstall-keep-data")).not.toBeChecked();
-		await expect(page.getByTestId("uninstall-delete-data")).not.toBeChecked();
-		await expect(page.getByTestId("uninstall-confirm")).toBeDisabled();
+		await expect(dialog).toContainText("release history, settings, secrets, stored data and files are kept");
+		await expect(dialog).toContainText("Data deletion requires a separate review");
+		await expect(page.getByTestId("uninstall-confirm")).toBeEnabled();
 
 		await captureEvidence(page, testInfo, "uninstall-dialog-data-choice");
 	});

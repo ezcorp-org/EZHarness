@@ -1,0 +1,4 @@
+cd web && bunx --bun vitest run src/__tests__/extension-author-page.component.test.ts
+bun run typecheck
+bun run lint
+bash scripts/setup-extension-runner-ci.sh --probe

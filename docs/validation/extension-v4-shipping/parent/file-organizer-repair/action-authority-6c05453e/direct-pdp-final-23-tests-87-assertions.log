@@ -1,0 +1,31 @@
+bun test v1.3.14 (0d9b296a)
+
+src/extensions/file-organizer-action-authority.test.ts:
+(pass) real non-bundled grants require consent; each batch effect and private companion is admitted once and audited [2133.48ms]
+(pass) copied proof, foreign actor/install, changed effect, cross-batch subject and mixed capabilities cannot authorize a host write [308.25ms]
+(pass) private writes require their exact prior public admission, actor, install, path, and a single capability [273.55ms]
+(pass) private companion rechecks binding after public admission [287.36ms]
+(pass) private companion rechecks membership after public admission [305.75ms]
+(pass) private companion rechecks user after public admission [267.63ms]
+(pass) private companion rechecks project-path after public admission [263.22ms]
+(pass) private companion rechecks generation after public admission [343.17ms]
+(pass) private companion rechecks disabled after public admission [277.19ms]
+(pass) private companion rechecks uninstalled after public admission [279.20ms]
+(pass) private companion rechecks write-scope after public admission [284.81ms]
+(pass) private companion rechecks release after public admission [353.82ms]
+(pass) private companion rechecks binding-owner after public admission [305.76ms]
+(pass) private companion rechecks binding-project after public admission [272.85ms]
+(pass) private companion rechecks binding-generation after public admission [285.82ms]
+(pass) private consent never replaces the live /data grant [283.18ms]
+(pass) prior always-allow consent cannot revive a revoked or consumed browser action [308.23ms]
+(pass) simultaneous calls admit each exact public and private effect at most once [276.16ms]
+(pass) an existing host filesystem grant does not bypass a browser action's finite effect [299.84ms]
+(pass) an explicit private-only action needs no host write scope and cannot be redirected or replayed [303.99ms]
+(pass) host scopes reject outside roots, sibling prefixes, private data and exact-file descendants [309.80ms]
+(pass) a changed parent symlink cannot redirect a sealed host effect [273.31ms]
+(pass) malformed or unbacked proof and invalid private paths fail closed [300.63ms]
+
+ 23 pass
+ 0 fail
+ 87 expect() calls
+Ran 23 tests across 1 file. [9.28s]

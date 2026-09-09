@@ -1,0 +1,20 @@
+{
+  "status": "historical_failure",
+  "index_tree": "048cfb25a998d70a7a740f83cf908445c1c95bea",
+  "controller_exit": 1,
+  "checks": {
+    "sdk-build": { "exit": 0, "seconds": 2 },
+    "typecheck-all": { "exit": 1, "seconds": 28 },
+    "focused-tests": { "exit": 1, "seconds": 23, "passed": 654, "failed": 1, "files": 36 },
+    "lint-boundaries": { "exit": 0, "seconds": 1 },
+    "manifest-lock": { "exit": 0, "seconds": 0 }
+  },
+  "typecheck_cause": "Host schemaVersion no longer included version 4 in the first merge resolution.",
+  "private_log_hashes": {
+    "sdk-build.log": "781a10af5b6d2c1214f2be00467fa8dde4ce30fefcc5665279ba2750a69a0754",
+    "typecheck-all.log": "0623977ea30ed68262947cffca20d0efa2ddcf9f89b2ffcdac85d5d34ecb470e",
+    "focused-tests.log": "86fc3e66757f38e39e1f39f8b85d48a7a1603be96006f3c28db644c28e5ad0a3",
+    "lint-boundaries.log": "a17cc7763473670769c5cf51e4a3385e9ab0c28c8ad62a6df0d040c1b01b4095",
+    "manifest-lock.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

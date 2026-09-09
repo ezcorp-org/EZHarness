@@ -11,7 +11,7 @@ EZCorp — a self-hosted AI platform for multi-model chat with persistent memory
 - `src/` — Bun backend: runtime executor + built-in tools, providers, auth/RBAC, db, extension host
 - `web/` — SvelteKit frontend (Svelte 5 runes, Vite, Tailwind 4) — see `web/CLAUDE.md`
 - `packages/@ezcorp/` — bun workspaces: `sdk` (extension authoring), `ai-kit` (LLM-driver integration kit), `harness-client` (remote-control client)
-- `extensions/` — first-party **bundled** extensions (git-tracked, registered in `src/extensions/bundled.ts`); `docs/extensions/examples/*/` holds the reference extensions — see `src/extensions/CLAUDE.md`
+- `extensions/` and `docs/extensions/examples/*/` — first-party source built into immutable v4 releases; activation requires exact human approval. Read `src/extensions/CLAUDE.md` before changing extension authoring, execution, or authority.
 - `worker/` — Cloudflare Workers deploy target (LLM-only agents reusing `src/runtime/executor` with stubbed shell/file providers)
 - Database: PGlite embedded by default; external Postgres via `DATABASE_URL` (`Bun.sql`)
 
@@ -49,7 +49,7 @@ human review. Verify locally before pushing:
 `bun run typecheck && bun run lint && bun run test && bun run test:coverage`.
 **That line does NOT cover everything CI does** — `bun run test` is the backend
 pool only (not `scripts/test-web.sh`, not Vitest, not e2e), `bun run test:e2e`
-runs the whole backlog rather than CI's 24-spec gate lane, and a rebase
+runs the whole backlog rather than CI's manifest-defined `mock-gate` lane, and a rebase
 invalidates any baseline you measured before it. Details and the exact lane
 invocation:
 [docs/development-lifecycle.md](docs/development-lifecycle.md#what-the-local-commands-do-not-cover).

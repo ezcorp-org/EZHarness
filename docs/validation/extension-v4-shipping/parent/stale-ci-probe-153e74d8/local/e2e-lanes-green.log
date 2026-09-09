@@ -1,0 +1,20 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/e2e-lanes.test.ts:
+(pass) e2e lane manifest > lane set is exactly the known lanes [0.06ms]
+(pass) e2e lane manifest > exhaustive + unique: every on-disk spec in exactly one lane, no phantom entries [0.34ms]
+(pass) e2e lane manifest > real-auth lane == the real config's testDir population [0.06ms]
+(pass) e2e lane manifest > fresh-setup lane contains the dedicated config's original-path spec [0.01ms]
+(pass) e2e lane manifest > real preview clears inherited alternate DB and mock-init modes [361.99ms]
+(pass) e2e lane manifest > evidence-soft members all carry @evidence; no @evidence spec is unwired [0.25ms]
+(pass) e2e lane manifest > docker lane members are DOCKER_TEST-gated [0.03ms]
+(pass) e2e lane manifest > unwired backlog only shrinks (ceiling is the exact current size) [0.02ms]
+(pass) e2e lane manifest > mock-gate args generator emits one anchored web-relative regex per member [0.18ms]
+(pass) e2e lane manifest > the MOCK config cannot reach the real-auth tier [1791.73ms]
+(pass) e2e lane manifest > hosted and local CI Bun file commands name existing modules [10.76ms]
+(pass) e2e lane manifest > ci.yml consumes the manifest via the generator (one home for the gate list) [0.21ms]
+
+ 12 pass
+ 0 fail
+ 110 expect() calls
+Ran 12 tests across 1 file. [2.66s]

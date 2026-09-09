@@ -61,9 +61,9 @@ test.describe("Swipe Drawer", () => {
 
 		const panel = page.getByTestId("swipe-drawer-panel");
 		await expect(panel).toBeVisible();
-		// navLinks (global-project branch in (app)/+layout.svelte:184-208) includes
-		// "Home" as the first entry; "Dashboard" was the pre-v1.3 label.
-		await expect(panel.getByText("Home")).toBeVisible();
+		// The global-project navigation starts with Chat. Home is the project
+		// rail's accessible name, rather than a navigation item.
+		await expect(panel.getByRole("link", { name: "Chat" })).toBeVisible();
 	});
 
 	test("mobile: left drawer closes on backdrop click", async ({ page, mockApi }) => {
@@ -77,7 +77,7 @@ test.describe("Swipe Drawer", () => {
 		await expect(drawer).toBeVisible({ timeout: 3000 });
 
 		const backdrop = page.getByTestId("swipe-drawer-backdrop");
-		await backdrop.click({ force: true });
+		await backdrop.click({ position: { x: mobile.width - 8, y: 100 } });
 
 		await expect(drawer).toBeHidden({ timeout: 3000 });
 	});
@@ -145,7 +145,7 @@ test.describe("Swipe Drawer", () => {
 		const drawer = page.getByTestId("swipe-drawer");
 		await expect(drawer).toBeVisible({ timeout: 3000 });
 
-		await page.getByTestId("swipe-drawer-backdrop").click({ force: true });
+		await page.getByTestId("swipe-drawer-backdrop").click({ position: { x: mobile.width - 8, y: 100 } });
 
 		await expect(drawer).toBeHidden({ timeout: 3000 });
 	});
@@ -188,7 +188,7 @@ test.describe("Swipe Drawer", () => {
 		expect(box!.width).toBeGreaterThanOrEqual(mobile.width - 2);
 	});
 
-	test("mobile: diff panel closes on backdrop click", async ({ page, mockApi }) => {
+	test("mobile: diff panel closes from its close control", async ({ page, mockApi }) => {
 		await page.setViewportSize(mobile);
 		await goToChat(page, mockApi);
 
@@ -196,7 +196,8 @@ test.describe("Swipe Drawer", () => {
 		const drawer = page.getByTestId("swipe-drawer");
 		await expect(drawer).toBeVisible({ timeout: 3000 });
 
-		await page.getByTestId("swipe-drawer-backdrop").click({ force: true });
+		// The panel is full width on mobile, so it has no user-reachable backdrop.
+		await page.getByTestId("diff-panel-close").click();
 
 		await expect(drawer).toBeHidden({ timeout: 3000 });
 	});
@@ -212,18 +213,16 @@ test.describe("Swipe Drawer", () => {
 
 		const box = await diffPanel.boundingBox();
 		expect(box).toBeTruthy();
-		// w-[48rem] = 768px
-		expect(box!.width).toBeGreaterThanOrEqual(756);
-		expect(box!.width).toBeLessThanOrEqual(780);
+		// `md:w-[75vw]` in DiffSummaryPanel.svelte at this 1280px viewport.
+		expect(box!.width).toBeGreaterThanOrEqual(desktop.width * 0.75 - 2);
+		expect(box!.width).toBeLessThanOrEqual(desktop.width * 0.75 + 2);
 	});
 
 	test("mobile: obs panel opens in SwipeDrawer", async ({ page, mockApi }) => {
 		await page.setViewportSize(mobile);
 		await goToChat(page, mockApi, {
 			...baseMockOpts(),
-			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
-			},
+			settings: { "global:showObservability": true },
 		});
 
 		const obsBtn = page.locator("button[aria-label='Inspect observability']");
@@ -238,9 +237,7 @@ test.describe("Swipe Drawer", () => {
 		await page.setViewportSize(desktop);
 		await goToChat(page, mockApi, {
 			...baseMockOpts(),
-			routes: {
-				"/api/settings/global:showObservability": () => ({ value: true }),
-			},
+			settings: { "global:showObservability": true },
 		});
 
 		const obsBtn = page.locator("button[aria-label='Inspect observability']");
@@ -296,7 +293,7 @@ test.describe("Swipe Drawer", () => {
 		await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
 
 		await page.getByRole("button", { name: "Expand sidebar" }).click();
-		await expect(sidebar.getByText("Dashboard")).toBeVisible();
+		await expect(sidebar.getByRole("link", { name: "Chat", exact: true })).toBeVisible();
 	});
 
 	test("desktop: conversation list visible as sidebar", async ({ page, mockApi }) => {

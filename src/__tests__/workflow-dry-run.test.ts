@@ -14,6 +14,9 @@ import {
   WorkflowDryRunViolation,
 } from "../runtime/workflow-dry-run";
 import type { WorkflowDefinition } from "../types";
+import { WorkflowExecutor } from "../runtime/workflow-executor";
+import { EventBus } from "../runtime/events";
+import { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } from "../runtime/workflow/runtime-registry";
 
 const toolBearing: WorkflowDefinition = {
   name: "ship",
@@ -26,6 +29,42 @@ const toolBearing: WorkflowDefinition = {
 };
 
 describe("dry run cannot dispatch, structurally", () => {
+  test("YAML transform expressions remain data and cannot evaluate host JavaScript", async () => {
+    const key = `EZ_DRY_RUN_${crypto.randomUUID().replaceAll("-", "")}`;
+    const expression = `process.env.${key} = 'executed'`;
+    const definition = Bun.YAML.parse(`name: unapproved:expression\nsteps:\n  - name: render\n    kind: transform\n    output:\n      code: ${JSON.stringify(expression)}\n      template: ${JSON.stringify(`{{ ${expression} }}`)}\n`) as WorkflowDefinition;
+    try {
+      const report = await dryRunWorkflow(definition, {});
+      expect(report.status).toBe("success");
+      expect(report.output).toEqual({ code: expression, template: expression });
+      expect(process.env[key]).toBeUndefined();
+    } finally { delete process.env[key]; }
+  });
+
+  test("a nested step cannot fall back to the live runtime even with an unsafe predicate", async () => {
+    let dispatches = 0;
+    const nested: WorkflowDefinition = { name: "unapproved:parent", description: "", steps: [{ name: "child", kind: "workflow", workflow: "live-child" }] };
+    registerWorkflowRuntime({
+      getWorkflows: () => [{ name: "live-child", description: "", steps: [] }],
+      workflowExecutor: { runWorkflow: async () => { dispatches++; throw new Error("Must not dispatch"); }, resumeWorkflow: async () => { dispatches++; throw new Error("Must not resume"); } },
+    });
+    try {
+      expect((await dryRunWorkflow(nested, {})).stubbed).toEqual(["child"]);
+      const forced = await dryRunWorkflow(nested, {}, () => true);
+      expect(forced.status).toBe("error");
+      expect(forced.error).toContain("could not resolve workflow");
+      expect(dispatches).toBe(0);
+    } finally { _resetWorkflowRuntimeForTests(); }
+  });
+
+  test("namespaced pure evaluation cannot grant real execution or dispatch through its predicate", async () => {
+    const definition = { ...toolBearing, name: "unapproved:ship" };
+    expect((await dryRunWorkflow(definition, { topic: "release" })).stubbed).toEqual(["draft", "publish"]);
+    await expect(dryRunWorkflow(definition, {}, () => true)).rejects.toThrow(WorkflowDryRunViolation);
+    const executor = new WorkflowExecutor(dryRunAgentExecutor(), new EventBus(), { persist: false, toolRunnerFactory: () => dryRunToolRunnerFactory() });
+    await expect(executor.runWorkflow(definition, {})).rejects.toThrow("release authority");
+  });
+
   test("a tool-bearing graph dry-runs to completion with stubs", async () => {
     // Also the merge tripwire for `stepSubstitute`. If that option is ever
     // lost from the executor, the agent and tool steps here DISPATCH, the

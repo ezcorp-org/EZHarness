@@ -1,0 +1,763 @@
+﻿2026-09-07T21:57:08.1184252Z Current runner version: '2.337.0'
+2026-09-07T21:57:08.1211906Z ##[group]Runner Image Provisioner
+2026-09-07T21:57:08.1212739Z Hosted Compute Agent
+2026-09-07T21:57:08.1213464Z Version: 20260828.587
+2026-09-07T21:57:08.1214129Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+2026-09-07T21:57:08.1214925Z Build Date: 2026-08-28T16:44:25Z
+2026-09-07T21:57:08.1215715Z Worker ID: {76dc86bd-b663-4d50-81cc-f75f31779265}
+2026-09-07T21:57:08.1216482Z Azure Region: eastus2
+2026-09-07T21:57:08.1217171Z ##[endgroup]
+2026-09-07T21:57:08.1218917Z ##[group]Operating System
+2026-09-07T21:57:08.1219852Z Ubuntu
+2026-09-07T21:57:08.1220423Z 24.04.4
+2026-09-07T21:57:08.1220968Z LTS
+2026-09-07T21:57:08.1221570Z ##[endgroup]
+2026-09-07T21:57:08.1222155Z ##[group]Runner Image
+2026-09-07T21:57:08.1222798Z Image: ubuntu-24.04
+2026-09-07T21:57:08.1223452Z Version: 20260831.293.1
+2026-09-07T21:57:08.1224722Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260831.293/images/ubuntu/Ubuntu2404-Readme.md
+2026-09-07T21:57:08.1226390Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260831.293
+2026-09-07T21:57:08.1227439Z ##[endgroup]
+2026-09-07T21:57:08.1228669Z ##[group]GITHUB_TOKEN Permissions
+2026-09-07T21:57:08.1231279Z Contents: read
+2026-09-07T21:57:08.1231924Z Metadata: read
+2026-09-07T21:57:08.1232553Z ##[endgroup]
+2026-09-07T21:57:08.1235202Z Secret source: Actions
+2026-09-07T21:57:08.1236574Z Prepare workflow directory
+2026-09-07T21:57:08.1619906Z Prepare all required actions
+2026-09-07T21:57:08.1667523Z Getting action download info
+2026-09-07T21:57:08.3627926Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-09-07T21:57:08.5676242Z Complete job name: Lint (biome)
+2026-09-07T21:57:08.6542240Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-09-07T21:57:08.6543265Z with:
+2026-09-07T21:57:08.6543732Z   repository: ezcorp-org/EZHarness
+2026-09-07T21:57:08.6547682Z   token: ***
+2026-09-07T21:57:08.6548140Z   ssh-strict: true
+2026-09-07T21:57:08.6548592Z   ssh-user: git
+2026-09-07T21:57:08.6549283Z   persist-credentials: true
+2026-09-07T21:57:08.6549789Z   clean: true
+2026-09-07T21:57:08.6550253Z   sparse-checkout-cone-mode: true
+2026-09-07T21:57:08.6550782Z   fetch-depth: 1
+2026-09-07T21:57:08.6551220Z   fetch-tags: false
+2026-09-07T21:57:08.6551671Z   show-progress: true
+2026-09-07T21:57:08.6552120Z   lfs: false
+2026-09-07T21:57:08.6552545Z   submodules: false
+2026-09-07T21:57:08.6553003Z   set-safe-directory: true
+2026-09-07T21:57:08.6553524Z   allow-unsafe-pr-checkout: false
+2026-09-07T21:57:08.6554239Z env:
+2026-09-07T21:57:08.6554680Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:08.6555221Z ##[endgroup]
+2026-09-07T21:57:08.7585841Z Syncing repository: ezcorp-org/EZHarness
+2026-09-07T21:57:08.7588448Z ##[group]Getting Git version info
+2026-09-07T21:57:08.7589759Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+2026-09-07T21:57:08.7591429Z [command]/usr/bin/git version
+2026-09-07T21:57:08.7622854Z git version 2.55.0
+2026-09-07T21:57:08.7642526Z ##[endgroup]
+2026-09-07T21:57:08.7652766Z Temporarily overriding HOME='/home/runner/work/_temp/d816ffd0-05c9-4908-a6de-e7504e1e8765' before making global git config changes
+2026-09-07T21:57:08.7655148Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-07T21:57:08.7659014Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+2026-09-07T21:57:08.7703196Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+2026-09-07T21:57:08.7706734Z ##[group]Determining repository object format
+2026-09-07T21:57:08.7708154Z ##[endgroup]
+2026-09-07T21:57:08.7709565Z ##[group]Initializing the repository
+2026-09-07T21:57:08.7712702Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+2026-09-07T21:57:08.7793565Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-09-07T21:57:08.7796170Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-09-07T21:57:08.7797677Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-09-07T21:57:08.7798886Z hint: call:
+2026-09-07T21:57:08.7799719Z hint:
+2026-09-07T21:57:08.7800533Z hint: 	git config --global init.defaultBranch <name>
+2026-09-07T21:57:08.7801510Z hint:
+2026-09-07T21:57:08.7802426Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-09-07T21:57:08.7803927Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-09-07T21:57:08.7805132Z hint:
+2026-09-07T21:57:08.7805790Z hint: 	git branch -m <name>
+2026-09-07T21:57:08.7806545Z hint:
+2026-09-07T21:57:08.7807565Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-09-07T21:57:08.7809865Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+2026-09-07T21:57:08.7812853Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+2026-09-07T21:57:08.7851722Z ##[endgroup]
+2026-09-07T21:57:08.7853522Z ##[group]Disabling automatic garbage collection
+2026-09-07T21:57:08.7854909Z [command]/usr/bin/git config --local gc.auto 0
+2026-09-07T21:57:08.7888699Z ##[endgroup]
+2026-09-07T21:57:08.7890021Z ##[group]Setting up auth
+2026-09-07T21:57:08.7890838Z Removing SSH command configuration
+2026-09-07T21:57:08.7895695Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-07T21:57:08.7931607Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-07T21:57:08.8262464Z Removing HTTP extra header
+2026-09-07T21:57:08.8270415Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-07T21:57:08.8308014Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-07T21:57:08.8596600Z Removing includeIf entries pointing to credentials config files
+2026-09-07T21:57:08.8597845Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-07T21:57:08.8634876Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-07T21:57:08.8880942Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-09-07T21:57:08.8927393Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:57:08.8963768Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:57:08.9001245Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:57:08.9038056Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:57:08.9071227Z ##[endgroup]
+2026-09-07T21:57:08.9071997Z ##[group]Fetching the repository
+2026-09-07T21:57:08.9078024Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +f4bc16e4933f2c73b100aee676072838d95d0187:refs/remotes/pull/246/merge
+2026-09-07T21:57:15.0547158Z From https://github.com/ezcorp-org/EZHarness
+2026-09-07T21:57:15.0549403Z  * [new ref]         f4bc16e4933f2c73b100aee676072838d95d0187 -> pull/246/merge
+2026-09-07T21:57:15.0554368Z ##[endgroup]
+2026-09-07T21:57:15.0556083Z ##[group]Determining the checkout info
+2026-09-07T21:57:15.0558135Z ##[endgroup]
+2026-09-07T21:57:15.0559560Z [command]/usr/bin/git sparse-checkout disable
+2026-09-07T21:57:15.0611878Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-09-07T21:57:15.0647868Z ##[group]Checking out the ref
+2026-09-07T21:57:15.0651438Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/246/merge
+2026-09-07T21:57:16.0848093Z Updating files:  52% (5385/10196)
+2026-09-07T21:57:16.1203101Z Updating files:  53% (5404/10196)
+2026-09-07T21:57:16.1548727Z Updating files:  54% (5506/10196)
+2026-09-07T21:57:16.1795057Z Updating files:  55% (5608/10196)
+2026-09-07T21:57:16.1874274Z Updating files:  56% (5710/10196)
+2026-09-07T21:57:16.1943162Z Updating files:  57% (5812/10196)
+2026-09-07T21:57:16.2016047Z Updating files:  58% (5914/10196)
+2026-09-07T21:57:16.2088326Z Updating files:  59% (6016/10196)
+2026-09-07T21:57:16.2157903Z Updating files:  60% (6118/10196)
+2026-09-07T21:57:16.2244576Z Updating files:  61% (6220/10196)
+2026-09-07T21:57:16.2320992Z Updating files:  62% (6322/10196)
+2026-09-07T21:57:16.2407243Z Updating files:  63% (6424/10196)
+2026-09-07T21:57:16.2493226Z Updating files:  64% (6526/10196)
+2026-09-07T21:57:16.2567371Z Updating files:  65% (6628/10196)
+2026-09-07T21:57:16.2647973Z Updating files:  66% (6730/10196)
+2026-09-07T21:57:16.2738842Z Updating files:  67% (6832/10196)
+2026-09-07T21:57:16.2819773Z Updating files:  68% (6934/10196)
+2026-09-07T21:57:16.2902630Z Updating files:  69% (7036/10196)
+2026-09-07T21:57:16.2988171Z Updating files:  70% (7138/10196)
+2026-09-07T21:57:16.3085941Z Updating files:  71% (7240/10196)
+2026-09-07T21:57:16.3160170Z Updating files:  72% (7342/10196)
+2026-09-07T21:57:16.3246544Z Updating files:  73% (7444/10196)
+2026-09-07T21:57:16.3344444Z Updating files:  74% (7546/10196)
+2026-09-07T21:57:16.3445338Z Updating files:  75% (7647/10196)
+2026-09-07T21:57:16.3538098Z Updating files:  76% (7749/10196)
+2026-09-07T21:57:16.3617036Z Updating files:  77% (7851/10196)
+2026-09-07T21:57:16.3706209Z Updating files:  78% (7953/10196)
+2026-09-07T21:57:16.3796533Z Updating files:  79% (8055/10196)
+2026-09-07T21:57:16.3875765Z Updating files:  80% (8157/10196)
+2026-09-07T21:57:16.3953646Z Updating files:  81% (8259/10196)
+2026-09-07T21:57:16.4026713Z Updating files:  82% (8361/10196)
+2026-09-07T21:57:16.4100211Z Updating files:  83% (8463/10196)
+2026-09-07T21:57:16.4170287Z Updating files:  84% (8565/10196)
+2026-09-07T21:57:16.4258214Z Updating files:  85% (8667/10196)
+2026-09-07T21:57:16.4327814Z Updating files:  86% (8769/10196)
+2026-09-07T21:57:16.4401182Z Updating files:  87% (8871/10196)
+2026-09-07T21:57:16.4474362Z Updating files:  88% (8973/10196)
+2026-09-07T21:57:16.4550693Z Updating files:  89% (9075/10196)
+2026-09-07T21:57:16.4640185Z Updating files:  90% (9177/10196)
+2026-09-07T21:57:16.4711090Z Updating files:  91% (9279/10196)
+2026-09-07T21:57:16.4786141Z Updating files:  92% (9381/10196)
+2026-09-07T21:57:16.4863280Z Updating files:  93% (9483/10196)
+2026-09-07T21:57:16.4936381Z Updating files:  94% (9585/10196)
+2026-09-07T21:57:16.4999983Z Updating files:  95% (9687/10196)
+2026-09-07T21:57:16.5096921Z Updating files:  96% (9789/10196)
+2026-09-07T21:57:16.5182955Z Updating files:  97% (9891/10196)
+2026-09-07T21:57:16.5277625Z Updating files:  98% (9993/10196)
+2026-09-07T21:57:16.5367064Z Updating files:  99% (10095/10196)
+2026-09-07T21:57:16.5367961Z Updating files: 100% (10196/10196)
+2026-09-07T21:57:16.5371761Z Updating files: 100% (10196/10196), done.
+2026-09-07T21:57:16.5487288Z Note: switching to 'refs/remotes/pull/246/merge'.
+2026-09-07T21:57:16.5487982Z 
+2026-09-07T21:57:16.5488348Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-09-07T21:57:16.5489432Z changes and commit them, and you can discard any commits you make in this
+2026-09-07T21:57:16.5490193Z state without impacting any branches by switching back to a branch.
+2026-09-07T21:57:16.5490698Z 
+2026-09-07T21:57:16.5491455Z If you want to create a new branch to retain commits you create, you may
+2026-09-07T21:57:16.5492147Z do so (now or later) by using -c with the switch command. Example:
+2026-09-07T21:57:16.5492414Z 
+2026-09-07T21:57:16.5492553Z   git switch -c <new-branch-name>
+2026-09-07T21:57:16.5492752Z 
+2026-09-07T21:57:16.5492863Z Or undo this operation with:
+2026-09-07T21:57:16.5493040Z 
+2026-09-07T21:57:16.5493135Z   git switch -
+2026-09-07T21:57:16.5493269Z 
+2026-09-07T21:57:16.5493487Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-09-07T21:57:16.5493808Z 
+2026-09-07T21:57:16.5494157Z HEAD is now at f4bc16e Merge 0733ca51daf570227bd801b14991700ad0ca0c12 into bd7364388d0106364864e18a3d321b13ba978c36
+2026-09-07T21:57:16.5526490Z ##[endgroup]
+2026-09-07T21:57:16.5583367Z [command]/usr/bin/git log -1 --format=%H
+2026-09-07T21:57:16.5615384Z f4bc16e4933f2c73b100aee676072838d95d0187
+2026-09-07T21:57:16.5965276Z Prepare all required actions
+2026-09-07T21:57:16.5965886Z Getting action download info
+2026-09-07T21:57:16.6673138Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+2026-09-07T21:57:16.8732205Z Download action repository 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' (SHA:55cc8345863c7cc4c66a329aec7e433d2d1c52a9)
+2026-09-07T21:57:17.0186131Z ##[group]Run ./.github/actions/setup
+2026-09-07T21:57:17.0186445Z with:
+2026-09-07T21:57:17.0186654Z   web: false
+2026-09-07T21:57:17.0186856Z   sync: false
+2026-09-07T21:57:17.0187063Z   playwright: false
+2026-09-07T21:57:17.0187282Z env:
+2026-09-07T21:57:17.0187493Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:17.0187768Z ##[endgroup]
+2026-09-07T21:57:17.0248886Z ##[start-action display=Isolate runtime configuration between Bun processes;id=__self.__run]
+2026-09-07T21:57:17.0335802Z ##[group]Run echo 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"
+2026-09-07T21:57:17.0336380Z [36;1mecho 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"[0m
+2026-09-07T21:57:17.0383228Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-07T21:57:17.0383603Z env:
+2026-09-07T21:57:17.0383832Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:17.0384124Z ##[endgroup]
+2026-09-07T21:57:17.0489020Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=23]
+2026-09-07T21:57:17.0492307Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__self.__oven-sh_setup-bun]
+2026-09-07T21:57:17.0565278Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+2026-09-07T21:57:17.0565664Z with:
+2026-09-07T21:57:17.0565895Z   bun-version-file: .bun-version
+2026-09-07T21:57:17.0566163Z   no-cache: false
+2026-09-07T21:57:17.0568527Z   token: ***
+2026-09-07T21:57:17.0568737Z env:
+2026-09-07T21:57:17.0568973Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:17.0569481Z ##[endgroup]
+2026-09-07T21:57:17.2204534Z Obtained version 1.3.14 from .bun-version
+2026-09-07T21:57:17.3201254Z Cache hit for: bun-fR4r1tsFeXfPQkusQwkKD2kGnsE=
+2026-09-07T21:57:17.6204844Z Received 33843766 of 33843766 (100.0%), 140.9 MBs/sec
+2026-09-07T21:57:17.6205557Z Cache Size: ~32 MB (33843766 B)
+2026-09-07T21:57:17.6243623Z [command]/usr/bin/tar -xf /home/runner/work/_temp/61bccbc7-fa43-42d7-a254-cc7ce116fb05/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+2026-09-07T21:57:17.7930091Z Cache restored successfully
+2026-09-07T21:57:17.7961709Z [command]/home/runner/.bun/bin/bun --revision
+2026-09-07T21:57:17.8020206Z 1.3.14+0d9b296af
+2026-09-07T21:57:17.8027004Z Using a cached version of Bun: 1.3.14+0d9b296af
+2026-09-07T21:57:17.8167269Z ##[end-action id=__self.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=767]
+2026-09-07T21:57:17.8171330Z ##[start-action display=Cache bun global install cache;id=__self.__actions_cache]
+2026-09-07T21:57:17.9927325Z ##[group]Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+2026-09-07T21:57:17.9927696Z with:
+2026-09-07T21:57:17.9928108Z   path: ~/.bun/install/cache
+2026-09-07T21:57:17.9928793Z   key: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59
+2026-09-07T21:57:17.9930108Z   restore-keys: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-
+
+2026-09-07T21:57:17.9930601Z   enableCrossOsArchive: false
+2026-09-07T21:57:17.9930879Z   fail-on-cache-miss: false
+2026-09-07T21:57:17.9931133Z   lookup-only: false
+2026-09-07T21:57:17.9931359Z   save-always: false
+2026-09-07T21:57:17.9931570Z env:
+2026-09-07T21:57:17.9931802Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:17.9932074Z ##[endgroup]
+2026-09-07T21:57:18.1891560Z Cache hit for: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59
+2026-09-07T21:57:19.2620965Z Received 239075328 of 617178032 (38.7%), 228.0 MBs/sec
+2026-09-07T21:57:20.2588901Z Received 499122176 of 617178032 (80.9%), 238.0 MBs/sec
+2026-09-07T21:57:20.7268954Z Received 617178032 of 617178032 (100.0%), 238.5 MBs/sec
+2026-09-07T21:57:20.7271227Z Cache Size: ~589 MB (617178032 B)
+2026-09-07T21:57:20.7378248Z [command]/usr/bin/tar -xf /home/runner/work/_temp/9affaab8-07c6-4ea2-9622-73644be2b1d8/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+2026-09-07T21:57:25.8286632Z Cache restored successfully
+2026-09-07T21:57:25.8656229Z Cache restored from key: bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59
+2026-09-07T21:57:25.8799977Z ##[end-action id=__self.__actions_cache;outcome=success;conclusion=success;duration_ms=8062]
+2026-09-07T21:57:25.8802845Z ##[start-action display=Install root deps;id=__self.__run_2]
+2026-09-07T21:57:25.8855046Z ##[group]Run bun install --frozen-lockfile
+2026-09-07T21:57:25.8855434Z [36;1mbun install --frozen-lockfile[0m
+2026-09-07T21:57:25.8898344Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-09-07T21:57:25.8898711Z env:
+2026-09-07T21:57:25.8898958Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:25.8899451Z ##[endgroup]
+2026-09-07T21:57:25.9142434Z bun install v1.3.14 (0d9b296a)
+2026-09-07T21:57:25.9199002Z Resolving dependencies
+2026-09-07T21:57:26.0870552Z Resolved, downloaded and extracted [3]
+2026-09-07T21:57:30.6140410Z 
+2026-09-07T21:57:30.6141088Z $ bun run --cwd packages/@ezcorp/sdk build && bash scripts/setup-git-hooks.sh
+2026-09-07T21:57:30.6181346Z $ bunx tsc -b tsconfig.build.json
+2026-09-07T21:57:30.7264807Z 
+2026-09-07T21:57:30.7265368Z + @biomejs/biome@2.5.11
+2026-09-07T21:57:30.7265830Z + @types/bun@1.3.14
+2026-09-07T21:57:30.7266179Z + @types/js-yaml@4.0.9
+2026-09-07T21:57:30.7266563Z + @types/node@26.4.0 (v26.5.0 available)
+2026-09-07T21:57:30.7267008Z + drizzle-kit@0.31.10
+2026-09-07T21:57:30.7267466Z + @earendil-works/pi-agent-core@0.84.3
+2026-09-07T21:57:30.7267926Z + @earendil-works/pi-ai@0.84.3
+2026-09-07T21:57:30.7268358Z + @electric-sql/pglite@0.5.7
+2026-09-07T21:57:30.7268773Z + @electric-sql/pglite-pgvector@0.0.8
+2026-09-07T21:57:30.7269275Z + @huggingface/transformers@4.2.0
+2026-09-07T21:57:30.7269586Z + @modelcontextprotocol/sdk@1.30.0
+2026-09-07T21:57:30.7269873Z + @zxing/library@0.23.0
+2026-09-07T21:57:30.7270115Z + drizzle-orm@0.45.2
+2026-09-07T21:57:30.7270350Z + exceljs@4.4.0
+2026-09-07T21:57:30.7270583Z + fast-png@8.0.0
+2026-09-07T21:57:30.7270806Z + file-type@22.0.2
+2026-09-07T21:57:30.7271021Z + jpeg-js@0.4.4
+2026-09-07T21:57:30.7271242Z + pdf-parse@2.4.5
+2026-09-07T21:57:30.7271459Z + yaml@2.9.0
+2026-09-07T21:57:30.7271684Z + typescript@5.9.3 (v7.0.2 available)
+2026-09-07T21:57:30.7271880Z 
+2026-09-07T21:57:30.7271995Z 728 packages installed [4.82s]
+2026-09-07T21:57:30.7312682Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=4850]
+2026-09-07T21:57:30.7315325Z ##[start-action display=Install web deps;id=__self.__run_3]
+2026-09-07T21:57:30.7322878Z ##[end-action id=__self.__run_3;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:30.7325129Z ##[start-action display=SvelteKit sync;id=__self.__run_4]
+2026-09-07T21:57:30.7329572Z ##[end-action id=__self.__run_4;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:30.7331726Z ##[start-action display=Cache Playwright browsers;id=__self.pw-cache]
+2026-09-07T21:57:30.7338442Z ##[end-action id=__self.pw-cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:30.7340871Z ##[start-action display=Install Playwright chromium;id=__self.__run_5]
+2026-09-07T21:57:30.7344555Z ##[end-action id=__self.__run_5;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:30.7346510Z ##[start-action display=Install Playwright system deps (browser-cache miss only);id=__self.__run_6]
+2026-09-07T21:57:30.7353945Z ##[end-action id=__self.__run_6;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-09-07T21:57:30.7389986Z ##[group]Run bun run lint
+2026-09-07T21:57:30.7390296Z [36;1mbun run lint[0m
+2026-09-07T21:57:30.7431039Z shell: /usr/bin/bash -e {0}
+2026-09-07T21:57:30.7431309Z env:
+2026-09-07T21:57:30.7431545Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:30.7431834Z ##[endgroup]
+2026-09-07T21:57:30.7517274Z $ bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker docs tests index.ts drizzle.config.ts .*.json *.json "$@"' --
+2026-09-07T21:57:38.5070839Z biome.json:40:12 deserialize  DEPRECATED  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-07T21:57:38.5071568Z 
+2026-09-07T21:57:38.5072350Z   i The use of the recommended field has been deprecated, and will removed in the next major version of Biome. Use preset instead.
+2026-09-07T21:57:38.5073300Z   
+2026-09-07T21:57:38.5073673Z     38 │ 		"enabled": false
+2026-09-07T21:57:38.5074104Z     39 │ 	},
+2026-09-07T21:57:38.5074475Z   > 40 │ 	"linter": {
+2026-09-07T21:57:38.5074985Z        │ 	          ^
+2026-09-07T21:57:38.5075422Z   > 41 │ 		"enabled": true,
+2026-09-07T21:57:38.5075822Z         ...
+2026-09-07T21:57:38.5076182Z   > 78 │ 		}
+2026-09-07T21:57:38.5076524Z   > 79 │ 	},
+2026-09-07T21:57:38.5076857Z        │ 	^
+2026-09-07T21:57:38.5078765Z     80 │ 	"javascript": {
+2026-09-07T21:57:38.5079515Z     81 │ 		"formatter": {
+2026-09-07T21:57:38.5079988Z   
+2026-09-07T21:57:38.5080528Z   i Migrate the configuration with the proper command
+2026-09-07T21:57:38.5081142Z   
+2026-09-07T21:57:38.5081536Z   $ biome migrate
+2026-09-07T21:57:38.5081964Z   
+2026-09-07T21:57:38.5082226Z 
+2026-09-07T21:57:38.5083004Z scripts/lcov-noise-filter.ts:45:34 lint/complexity/noUselessEscapeInRegex  FIXABLE  ━━━━━━━━━━━━━━━━
+2026-09-07T21:57:38.5083882Z 
+2026-09-07T21:57:38.5084172Z   i The character doesn't need to be escaped.
+2026-09-07T21:57:38.5084895Z   
+2026-09-07T21:57:38.5085590Z     44 │ const COMMENT_LINE = /^\s*(\/\/|\/\*|\*\/|\*\s|\*$|\*\*\s*$)/;
+2026-09-07T21:57:38.5086406Z   > 45 │ const BRACE_PUNCT_ONLY = /^\s*[{}\[\]\(\),;:>?]+\s*$/;
+2026-09-07T21:57:38.5087060Z        │                                  ^^
+2026-09-07T21:57:38.5087581Z     46 │ const BLANK = /^\s*$/;
+2026-09-07T21:57:38.5087988Z     47 │ 
+2026-09-07T21:57:38.5088269Z   
+2026-09-07T21:57:38.5088861Z   i The character should only be escaped if it is outside a character class or under the `v` flag.
+2026-09-07T21:57:38.5089743Z   
+2026-09-07T21:57:38.5090071Z   i Safe fix: Unescape the character.
+2026-09-07T21:57:38.5090474Z   
+2026-09-07T21:57:38.5091259Z     45 │ const·BRACE_PUNCT_ONLY·=·/^\s*[{}\[\]\(\),;:>?]+\s*$/;
+2026-09-07T21:57:38.5092031Z        │                                  -                    
+2026-09-07T21:57:38.5092383Z 
+2026-09-07T21:57:38.5093029Z scripts/lcov-noise-filter.ts:95:58 lint/complexity/noUselessEscapeInRegex  FIXABLE  ━━━━━━━━━━━━━━━━
+2026-09-07T21:57:38.5093666Z 
+2026-09-07T21:57:38.5093865Z   i The character doesn't need to be escaped.
+2026-09-07T21:57:38.5094313Z   
+2026-09-07T21:57:38.5094921Z     93 │ // tuple. `(` and `{` are attested in-tree; `[` is included so the rule covers
+2026-09-07T21:57:38.5096274Z     94 │ // the class instead of the instances and this tax stops recurring.
+2026-09-07T21:57:38.5097105Z   > 95 │ const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*(?:[A-Z]\w*<?)?[{<\[(]?\s*$/;
+2026-09-07T21:57:38.5097842Z        │                                                          ^^
+2026-09-07T21:57:38.5098354Z     96 │ 
+2026-09-07T21:57:38.5098838Z     97 │ // Standalone generic type continuation.
+2026-09-07T21:57:38.5099469Z   
+2026-09-07T21:57:38.5100053Z   i The character should only be escaped if it is outside a character class or under the `v` flag.
+2026-09-07T21:57:38.5100757Z   
+2026-09-07T21:57:38.5101070Z   i Safe fix: Unescape the character.
+2026-09-07T21:57:38.5101472Z   
+2026-09-07T21:57:38.5102064Z     95 │ const·RETURN_TYPE_OPEN·=·/^\s*\)\s*:\s*(?:[A-Z]\w*<?)?[{<\[(]?\s*$/;
+2026-09-07T21:57:38.5103169Z        │                                                          -          
+2026-09-07T21:57:38.5103546Z 
+2026-09-07T21:57:38.5104295Z docs/validation/extension-v4-shipping/parent/expanded-staged-scan-2c542bac/expanded-inputs.json check ━━━━━━━━━━
+2026-09-07T21:57:38.5105035Z 
+2026-09-07T21:57:38.5105466Z   ! The size of the file is 7.2 MiB, which exceeds the configured maximum of 1.0 MiB for this project.
+2026-09-07T21:57:38.5106632Z     Use the `files.maxSize` configuration to change the maximum size of files processed, or `files.includes` to ignore the file.
+2026-09-07T21:57:38.5107482Z   
+2026-09-07T21:57:38.5107652Z 
+2026-09-07T21:57:38.5108458Z docs/validation/extension-v4-shipping/parent/resource-soak-2c542bac/samples/r4-resource-samples.json check ━━━━━━━━━━
+2026-09-07T21:57:38.5109353Z 
+2026-09-07T21:57:38.5109777Z   ! The size of the file is 17.2 MiB, which exceeds the configured maximum of 1.0 MiB for this project.
+2026-09-07T21:57:38.5110937Z     Use the `files.maxSize` configuration to change the maximum size of files processed, or `files.includes` to ignore the file.
+2026-09-07T21:57:38.5111779Z   
+2026-09-07T21:57:38.5111945Z 
+2026-09-07T21:57:38.5112567Z packages/@ezcorp/sdk/src/runtime/llm.ts:143:3 suppressions/unused ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-07T21:57:38.5113175Z 
+2026-09-07T21:57:38.5113703Z   ! Suppression comment has no effect. Remove the suppression or make sure you are suppressing the correct rule.
+2026-09-07T21:57:38.5114488Z   
+2026-09-07T21:57:38.5114826Z     141 │   }
+2026-09-07T21:57:38.5115171Z     142 │ 
+2026-09-07T21:57:38.5115945Z   > 143 │   // biome-ignore lint/correctness/useYield: stub-only; throws before any yield is meaningful.
+2026-09-07T21:57:38.5116935Z         │   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5117957Z     144 │   async *stream(_opts: LlmCompleteOpts): AsyncIterable<{ delta: string; usage?: LlmUsage }> {
+2026-09-07T21:57:38.5119213Z     145 │     // The throw makes the generator unreachable past this point; we
+2026-09-07T21:57:38.5119821Z   
+2026-09-07T21:57:38.5119981Z 
+2026-09-07T21:57:38.5120590Z web/src/lib/server/preview/ws-bridge.ts:166:11 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5121222Z 
+2026-09-07T21:57:38.5121381Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5121791Z   
+2026-09-07T21:57:38.5122653Z     164 │     open(ws: { data?: unknown; close(code?: number, reason?: string): void; send(msg: string | ArrayBufferLike): void }) {
+2026-09-07T21:57:38.5123688Z     165 │       const data = ws.data as PreviewWsData | undefined;
+2026-09-07T21:57:38.5124349Z   > 166 │       if (!data || data.__preview !== true) {
+2026-09-07T21:57:38.5124923Z         │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5125519Z     167 │         ws.close(1008, "not a preview socket");
+2026-09-07T21:57:38.5126042Z     168 │         return;
+2026-09-07T21:57:38.5126395Z   
+2026-09-07T21:57:38.5126756Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5127199Z   
+2026-09-07T21:57:38.5128128Z     164 164 │       open(ws: { data?: unknown; close(code?: number, reason?: string): void; send(msg: string | ArrayBufferLike): void }) {
+2026-09-07T21:57:38.5129554Z     165 165 │         const data = ws.data as PreviewWsData | undefined;
+2026-09-07T21:57:38.5130320Z     166     │ - ······if·(!data·||·data.__preview·!==·true)·{
+2026-09-07T21:57:38.5130961Z         166 │ + ······if·(data?.__preview·!==·true)·{
+2026-09-07T21:57:38.5131587Z     167 167 │           ws.close(1008, "not a preview socket");
+2026-09-07T21:57:38.5132151Z     168 168 │           return;
+2026-09-07T21:57:38.5132524Z   
+2026-09-07T21:57:38.5132696Z 
+2026-09-07T21:57:38.5133361Z web/src/lib/server/security/bearer-auth.ts:28:7 lint/correctness/noUnusedVariables  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5134028Z 
+2026-09-07T21:57:38.5134225Z   ! This variable ON_BEHALF_OF_HEADER is unused.
+2026-09-07T21:57:38.5134673Z   
+2026-09-07T21:57:38.5135288Z     26 │  *  channel in the subprocess JSON-RPC request (see ToolExecutor + ai-kit's
+2026-09-07T21:57:38.5140228Z     27 │  *  MCP server for the full propagation chain). */
+2026-09-07T21:57:38.5141144Z   > 28 │ const ON_BEHALF_OF_HEADER = "X-Ezcorp-On-Behalf-Of";
+2026-09-07T21:57:38.5141930Z        │       ^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5142407Z     29 │ 
+2026-09-07T21:57:38.5142866Z     30 │ export interface BearerAuthEvent {
+2026-09-07T21:57:38.5143344Z   
+2026-09-07T21:57:38.5144016Z   i Unused variables are often the result of typos, incomplete refactors, or other sources of bugs.
+2026-09-07T21:57:38.5144802Z   
+2026-09-07T21:57:38.5145359Z   i Unsafe fix: If this is intentional, prepend ON_BEHALF_OF_HEADER with an underscore.
+2026-09-07T21:57:38.5146051Z   
+2026-09-07T21:57:38.5146708Z      26  26 │    *  channel in the subprocess JSON-RPC request (see ToolExecutor + ai-kit's
+2026-09-07T21:57:38.5147601Z      27  27 │    *  MCP server for the full propagation chain). */
+2026-09-07T21:57:38.5148403Z      28     │ - const·ON_BEHALF_OF_HEADER·=·"X-Ezcorp-On-Behalf-Of";
+2026-09-07T21:57:38.5149376Z          28 │ + const·_ON_BEHALF_OF_HEADER·=·"X-Ezcorp-On-Behalf-Of";
+2026-09-07T21:57:38.5150002Z      29  29 │   
+2026-09-07T21:57:38.5150490Z      30  30 │   export interface BearerAuthEvent {
+2026-09-07T21:57:38.5150973Z   
+2026-09-07T21:57:38.5151140Z 
+2026-09-07T21:57:38.5151816Z web/src/lib/server/security/bearer-auth.ts:187:9 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5152493Z 
+2026-09-07T21:57:38.5152683Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5153101Z   
+2026-09-07T21:57:38.5153542Z     185 │     // ceiling is enforced at mint time).
+2026-09-07T21:57:38.5154230Z     186 │     const owner = await getUserById(keyData.userId);
+2026-09-07T21:57:38.5154988Z   > 187 │     if (!owner || owner.status !== "active") return false;
+2026-09-07T21:57:38.5155643Z         │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5156184Z     188 │     const effectiveRole =
+2026-09-07T21:57:38.5156941Z     189 │       keyData.role === "admin" && owner.role === "admin" ? "admin" : "member";
+2026-09-07T21:57:38.5157578Z   
+2026-09-07T21:57:38.5157950Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5158413Z   
+2026-09-07T21:57:38.5158866Z     185 185 │       // ceiling is enforced at mint time).
+2026-09-07T21:57:38.5159752Z     186 186 │       const owner = await getUserById(keyData.userId);
+2026-09-07T21:57:38.5160567Z     187     │ - ····if·(!owner·||·owner.status·!==·"active")·return·false;
+2026-09-07T21:57:38.5161365Z         187 │ + ····if·(owner?.status·!==·"active")·return·false;
+2026-09-07T21:57:38.5161985Z     188 188 │       const effectiveRole =
+2026-09-07T21:57:38.5162757Z     189 189 │         keyData.role === "admin" && owner.role === "admin" ? "admin" : "member";
+2026-09-07T21:57:38.5163431Z   
+2026-09-07T21:57:38.5163592Z 
+2026-09-07T21:57:38.5180380Z web/src/lib/workers/agent-fuzzy-search-bridge.ts:87:9 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5189636Z 
+2026-09-07T21:57:38.5189851Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5190375Z   
+2026-09-07T21:57:38.5191129Z     85 │     }
+2026-09-07T21:57:38.5192079Z     86 │     const msg = (ev as MessageEvent).data as RankResponse | undefined;
+2026-09-07T21:57:38.5192821Z   > 87 │     if (!msg || msg.type !== "ranked") return;
+2026-09-07T21:57:38.5193388Z        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5193928Z     88 │     const slot = pending.get(msg.id);
+2026-09-07T21:57:38.5194439Z     89 │     if (!slot) return;
+2026-09-07T21:57:38.5194821Z   
+2026-09-07T21:57:38.5195175Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5195617Z   
+2026-09-07T21:57:38.5195965Z      85  85 │       }
+2026-09-07T21:57:38.5196596Z      86  86 │       const msg = (ev as MessageEvent).data as RankResponse | undefined;
+2026-09-07T21:57:38.5197409Z      87     │ - ····if·(!msg·||·msg.type·!==·"ranked")·return;
+2026-09-07T21:57:38.5198071Z          87 │ + ····if·(msg?.type·!==·"ranked")·return;
+2026-09-07T21:57:38.5198910Z      88  88 │       const slot = pending.get(msg.id);
+2026-09-07T21:57:38.5199622Z      89  89 │       if (!slot) return;
+2026-09-07T21:57:38.5200044Z   
+2026-09-07T21:57:38.5200213Z 
+2026-09-07T21:57:38.5200887Z web/src/lib/workers/agent-fuzzy-search-worker.ts:81:9 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5201563Z 
+2026-09-07T21:57:38.5201728Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5202169Z   
+2026-09-07T21:57:38.5202778Z     79 │   self.addEventListener("message", (ev: MessageEvent<RankRequest>) => {
+2026-09-07T21:57:38.5203482Z     80 │     const data = ev.data;
+2026-09-07T21:57:38.5204032Z   > 81 │     if (!data || data.type !== "rank") return;
+2026-09-07T21:57:38.5204585Z        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5205096Z     82 │     const reply = rank(data);
+2026-09-07T21:57:38.5205803Z     83 │     (self as unknown as { postMessage: (m: unknown) => void }).postMessage(
+2026-09-07T21:57:38.5206392Z   
+2026-09-07T21:57:38.5206741Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5207172Z   
+2026-09-07T21:57:38.5207803Z     79 79 │     self.addEventListener("message", (ev: MessageEvent<RankRequest>) => {
+2026-09-07T21:57:38.5208560Z     80 80 │       const data = ev.data;
+2026-09-07T21:57:38.5209293Z     81    │ - ····if·(!data·||·data.type·!==·"rank")·return;
+2026-09-07T21:57:38.5209923Z        81 │ + ····if·(data?.type·!==·"rank")·return;
+2026-09-07T21:57:38.5210462Z     82 82 │       const reply = rank(data);
+2026-09-07T21:57:38.5211192Z     83 83 │       (self as unknown as { postMessage: (m: unknown) => void }).postMessage(
+2026-09-07T21:57:38.5211801Z   
+2026-09-07T21:57:38.5211952Z 
+2026-09-07T21:57:38.5212579Z web/src/lib/workers/kokoro-tts-bridge.ts:68:1 lint/style/useConst  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━
+2026-09-07T21:57:38.5213201Z 
+2026-09-07T21:57:38.5213443Z   ! This let declares a variable that is only assigned once.
+2026-09-07T21:57:38.5213935Z   
+2026-09-07T21:57:38.5214386Z     66 │ let workerInstance: WorkerLike | null = null;
+2026-09-07T21:57:38.5215173Z     67 │ let messageListener: ((ev: MessageEvent | ErrorEvent) => void) | null = null;
+2026-09-07T21:57:38.5215895Z   > 68 │ let pending = new Map<
+2026-09-07T21:57:38.5216312Z        │ ^^^
+2026-09-07T21:57:38.5216677Z     69 │   string,
+2026-09-07T21:57:38.5217043Z     70 │   {
+2026-09-07T21:57:38.5217358Z   
+2026-09-07T21:57:38.5217685Z   i 'pending' is never reassigned.
+2026-09-07T21:57:38.5218086Z   
+2026-09-07T21:57:38.5218539Z     66 │ let workerInstance: WorkerLike | null = null;
+2026-09-07T21:57:38.5219470Z     67 │ let messageListener: ((ev: MessageEvent | ErrorEvent) => void) | null = null;
+2026-09-07T21:57:38.5220190Z   > 68 │ let pending = new Map<
+2026-09-07T21:57:38.5220626Z        │     ^^^^^^^
+2026-09-07T21:57:38.5220993Z     69 │   string,
+2026-09-07T21:57:38.5221354Z     70 │   {
+2026-09-07T21:57:38.5221660Z   
+2026-09-07T21:57:38.5221973Z   i Safe fix: Use const instead.
+2026-09-07T21:57:38.5222375Z   
+2026-09-07T21:57:38.5222852Z      66  66 │   let workerInstance: WorkerLike | null = null;
+2026-09-07T21:57:38.5223689Z      67  67 │   let messageListener: ((ev: MessageEvent | ErrorEvent) => void) | null = null;
+2026-09-07T21:57:38.5224673Z      68     │ - let·pending·=·new·Map<
+2026-09-07T21:57:38.5225187Z          68 │ + const·pending·=·new·Map<
+2026-09-07T21:57:38.5225678Z      69  69 │     string,
+2026-09-07T21:57:38.5226078Z      70  70 │     {
+2026-09-07T21:57:38.5226393Z   
+2026-09-07T21:57:38.5226580Z 
+2026-09-07T21:57:38.5227190Z web/src/lib/workers/kokoro-tts-worker.ts:235:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5227819Z 
+2026-09-07T21:57:38.5227986Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5228384Z   
+2026-09-07T21:57:38.5229025Z     233 │ self.addEventListener("message", async (ev: MessageEvent<WorkerRequest>) => {
+2026-09-07T21:57:38.5229905Z     234 │   const msg = ev.data;
+2026-09-07T21:57:38.5230434Z   > 235 │   if (!msg || msg.type !== "synthesize") return;
+2026-09-07T21:57:38.5231195Z         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5231814Z     236 │   const { id, text, voice = "af_bella", speed } = msg;
+2026-09-07T21:57:38.5232617Z     237 │   console.info("[kokoro-tts-flow][worker] synthesize request", {
+2026-09-07T21:57:38.5233202Z   
+2026-09-07T21:57:38.5233558Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5233988Z   
+2026-09-07T21:57:38.5234663Z     233 233 │   self.addEventListener("message", async (ev: MessageEvent<WorkerRequest>) => {
+2026-09-07T21:57:38.5235438Z     234 234 │     const msg = ev.data;
+2026-09-07T21:57:38.5236093Z     235     │ - ··if·(!msg·||·msg.type·!==·"synthesize")·return;
+2026-09-07T21:57:38.5236787Z         235 │ + ··if·(msg?.type·!==·"synthesize")·return;
+2026-09-07T21:57:38.5237499Z     236 236 │     const { id, text, voice = "af_bella", speed } = msg;
+2026-09-07T21:57:38.5238365Z     237 237 │     console.info("[kokoro-tts-flow][worker] synthesize request", {
+2026-09-07T21:57:38.5238964Z   
+2026-09-07T21:57:38.5239311Z 
+2026-09-07T21:57:38.5240009Z web/src/routes/(app)/admin/moderation/+page.server.ts:5:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5240655Z 
+2026-09-07T21:57:38.5240813Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5241177Z   
+2026-09-07T21:57:38.5241708Z     4 │ export const load: PageServerLoad = async ({ locals }) => {
+2026-09-07T21:57:38.5242398Z   > 5 │   if (!locals.user || locals.user.role !== "admin") {
+2026-09-07T21:57:38.5243018Z       │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5243541Z     6 │     throw redirect(302, "/");
+2026-09-07T21:57:38.5243975Z     7 │   }
+2026-09-07T21:57:38.5244272Z   
+2026-09-07T21:57:38.5244607Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5245050Z   
+2026-09-07T21:57:38.5245359Z     3 3 │   
+2026-09-07T21:57:38.5245893Z     4 4 │   export const load: PageServerLoad = async ({ locals }) => {
+2026-09-07T21:57:38.5246710Z     5   │ - ··if·(!locals.user·||·locals.user.role·!==·"admin")·{
+2026-09-07T21:57:38.5247354Z       5 │ + ··if·(locals.user?.role·!==·"admin")·{
+2026-09-07T21:57:38.5247904Z     6 6 │       throw redirect(302, "/");
+2026-09-07T21:57:38.5248361Z     7 7 │     }
+2026-09-07T21:57:38.5248674Z   
+2026-09-07T21:57:38.5248835Z 
+2026-09-07T21:57:38.5249785Z web/src/routes/api/conversations/[id]/messages/[mid]/retry/+server.ts:97:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5250531Z 
+2026-09-07T21:57:38.5250693Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5251076Z   
+2026-09-07T21:57:38.5251666Z     95 │   const allMessages = await convQueries.getMessages(conversationId);
+2026-09-07T21:57:38.5252497Z     96 │   const target = allMessages.find((m) => m.id === messageId);
+2026-09-07T21:57:38.5253203Z   > 97 │   if (!target || target.role !== "assistant") {
+2026-09-07T21:57:38.5253778Z        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5254764Z     98 │     return errorJson(400, "Target is not an assistant message of this conversation", { code: "target_not_found" });
+2026-09-07T21:57:38.5255609Z     99 │   }
+2026-09-07T21:57:38.5256155Z   
+2026-09-07T21:57:38.5256502Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5256965Z   
+2026-09-07T21:57:38.5257564Z      95  95 │     const allMessages = await convQueries.getMessages(conversationId);
+2026-09-07T21:57:38.5258448Z      96  96 │     const target = allMessages.find((m) => m.id === messageId);
+2026-09-07T21:57:38.5259358Z      97     │ - ··if·(!target·||·target.role·!==·"assistant")·{
+2026-09-07T21:57:38.5260076Z          97 │ + ··if·(target?.role·!==·"assistant")·{
+2026-09-07T21:57:38.5261099Z      98  98 │       return errorJson(400, "Target is not an assistant message of this conversation", { code: "target_not_found" });
+2026-09-07T21:57:38.5261962Z      99  99 │     }
+2026-09-07T21:57:38.5262294Z   
+2026-09-07T21:57:38.5262455Z 
+2026-09-07T21:57:38.5263471Z web/src/routes/api/conversations/[id]/messages/[mid]/retry/+server.ts:103:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5264226Z 
+2026-09-07T21:57:38.5264396Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5264771Z   
+2026-09-07T21:57:38.5265282Z     101 │     ? allMessages.find((m) => m.id === target.parentMessageId)
+2026-09-07T21:57:38.5265876Z     102 │     : undefined;
+2026-09-07T21:57:38.5266399Z   > 103 │   if (!parentUser || parentUser.role !== "user") {
+2026-09-07T21:57:38.5266986Z         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5267911Z     104 │     return errorJson(400, "Target assistant message has no user parent to retry from", { code: "no_user_parent" });
+2026-09-07T21:57:38.5268716Z     105 │   }
+2026-09-07T21:57:38.5268989Z   
+2026-09-07T21:57:38.5269512Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5269951Z   
+2026-09-07T21:57:38.5270479Z     101 101 │       ? allMessages.find((m) => m.id === target.parentMessageId)
+2026-09-07T21:57:38.5271087Z     102 102 │       : undefined;
+2026-09-07T21:57:38.5271707Z     103     │ - ··if·(!parentUser·||·parentUser.role·!==·"user")·{
+2026-09-07T21:57:38.5272381Z         103 │ + ··if·(parentUser?.role·!==·"user")·{
+2026-09-07T21:57:38.5273442Z     104 104 │       return errorJson(400, "Target assistant message has no user parent to retry from", { code: "no_user_parent" });
+2026-09-07T21:57:38.5274280Z     105 105 │     }
+2026-09-07T21:57:38.5274584Z   
+2026-09-07T21:57:38.5274742Z 
+2026-09-07T21:57:38.5275427Z web/src/routes/api/extensions/[name]/uploads/+server.ts:113:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5276091Z 
+2026-09-07T21:57:38.5276239Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5276614Z   
+2026-09-07T21:57:38.5277101Z     111 │   // extension is disabled — both produce the opaque 404.
+2026-09-07T21:57:38.5277752Z     112 │   const ext = await getExtensionByName(name);
+2026-09-07T21:57:38.5278449Z   > 113 │   if (!ext || !ext.enabled) return errorJson(404, "Not found");
+2026-09-07T21:57:38.5279364Z         │       ^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5279796Z     114 │ 
+2026-09-07T21:57:38.5280390Z     115 │   // Extension must be wired to this conversation. The append-message
+2026-09-07T21:57:38.5280977Z   
+2026-09-07T21:57:38.5281305Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5281729Z   
+2026-09-07T21:57:38.5282244Z     111 111 │     // extension is disabled — both produce the opaque 404.
+2026-09-07T21:57:38.5282957Z     112 112 │     const ext = await getExtensionByName(name);
+2026-09-07T21:57:38.5283740Z     113     │ - ··if·(!ext·||·!ext.enabled)·return·errorJson(404,·"Not·found");
+2026-09-07T21:57:38.5284530Z         113 │ + ··if·(!ext?.enabled)·return·errorJson(404,·"Not·found");
+2026-09-07T21:57:38.5285078Z     114 114 │   
+2026-09-07T21:57:38.5285672Z     115 115 │     // Extension must be wired to this conversation. The append-message
+2026-09-07T21:57:38.5286271Z   
+2026-09-07T21:57:38.5286421Z 
+2026-09-07T21:57:38.5287307Z web/src/routes/api/ez-actions/[name]/+server.ts:189:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5287950Z 
+2026-09-07T21:57:38.5288267Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5288634Z   
+2026-09-07T21:57:38.5289032Z     187 │     // Fall through — handled below.
+2026-09-07T21:57:38.5289661Z     188 │   }
+2026-09-07T21:57:38.5290192Z   > 189 │   if (!envelope || envelope.__ezDistillerOutcome !== true) {
+2026-09-07T21:57:38.5290908Z         │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5291411Z     190 │     return {
+2026-09-07T21:57:38.5291803Z     191 │       kind: "error",
+2026-09-07T21:57:38.5292167Z   
+2026-09-07T21:57:38.5292489Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5292908Z   
+2026-09-07T21:57:38.5293319Z     187 187 │       // Fall through — handled below.
+2026-09-07T21:57:38.5293815Z     188 188 │     }
+2026-09-07T21:57:38.5294401Z     189     │ - ··if·(!envelope·||·envelope.__ezDistillerOutcome·!==·true)·{
+2026-09-07T21:57:38.5295254Z         189 │ + ··if·(envelope?.__ezDistillerOutcome·!==·true)·{
+2026-09-07T21:57:38.5295867Z     190 190 │       return {
+2026-09-07T21:57:38.5296344Z     191 191 │         kind: "error",
+2026-09-07T21:57:38.5296758Z   
+2026-09-07T21:57:38.5296931Z 
+2026-09-07T21:57:38.5297569Z web/src/routes/api/health/+server.ts:30:9 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━━━━━━
+2026-09-07T21:57:38.5298243Z 
+2026-09-07T21:57:38.5298412Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5298808Z   
+2026-09-07T21:57:38.5299610Z     28 │     // with a principal while the cookieless probe stays anonymous and free.
+2026-09-07T21:57:38.5300486Z     29 │     const user = locals.user as { role?: string } | undefined;
+2026-09-07T21:57:38.5301150Z   > 30 │     if (!user || user.role !== "admin") {
+2026-09-07T21:57:38.5301705Z        │         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5302298Z     31 │       return errorJson(401, "Admin access required");
+2026-09-07T21:57:38.5302834Z     32 │     }
+2026-09-07T21:57:38.5303164Z   
+2026-09-07T21:57:38.5303489Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5303932Z   
+2026-09-07T21:57:38.5304513Z     28 28 │       // with a principal while the cookieless probe stays anonymous and free.
+2026-09-07T21:57:38.5305351Z     29 29 │       const user = locals.user as { role?: string } | undefined;
+2026-09-07T21:57:38.5306082Z     30    │ - ····if·(!user·||·user.role·!==·"admin")·{
+2026-09-07T21:57:38.5306716Z        30 │ + ····if·(user?.role·!==·"admin")·{
+2026-09-07T21:57:38.5307418Z     31 31 │         return errorJson(401, "Admin access required");
+2026-09-07T21:57:38.5308022Z     32 32 │       }
+2026-09-07T21:57:38.5308359Z   
+2026-09-07T21:57:38.5308533Z 
+2026-09-07T21:57:38.5309470Z web/src/routes/api/hub/pages/[id]/actions/[action]/+server.ts:53:7 lint/complexity/useOptionalChain  FIXABLE  ━━━━━━━━━━
+2026-09-07T21:57:38.5310244Z 
+2026-09-07T21:57:38.5310412Z   ! Change to an optional chain.
+2026-09-07T21:57:38.5310828Z   
+2026-09-07T21:57:38.5311341Z     52 │   const parsed = parseHubPageId(params.id ?? "");
+2026-09-07T21:57:38.5312163Z   > 53 │   if (!parsed || parsed.kind !== "core") return errorJson(404, "Not found");
+2026-09-07T21:57:38.5313101Z        │       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-09-07T21:57:38.5313575Z     54 │ 
+2026-09-07T21:57:38.5314005Z     55 │   const actionName = params.action ?? "";
+2026-09-07T21:57:38.5314436Z   
+2026-09-07T21:57:38.5314747Z   i Unsafe fix: Change to an optional chain.
+2026-09-07T21:57:38.5315163Z   
+2026-09-07T21:57:38.5315462Z      51  51 │   
+2026-09-07T21:57:38.5315943Z      52  52 │     const parsed = parseHubPageId(params.id ?? "");
+2026-09-07T21:57:38.5316829Z      53     │ - ··if·(!parsed·||·parsed.kind·!==·"core")·return·errorJson(404,·"Not·found");
+2026-09-07T21:57:38.5317778Z          53 │ + ··if·(parsed?.kind·!==·"core")·return·errorJson(404,·"Not·found");
+2026-09-07T21:57:38.5318419Z      54  54 │   
+2026-09-07T21:57:38.5318867Z      55  55 │     const actionName = params.action ?? "";
+2026-09-07T21:57:38.5319652Z   
+2026-09-07T21:57:38.5319815Z 
+2026-09-07T21:57:38.5320233Z The number of diagnostics exceeds the limit allowed. Use --max-diagnostics to increase it.
+2026-09-07T21:57:38.5320964Z Diagnostics not shown: 89.
+2026-09-07T21:57:38.5321366Z Checked 4428 files in 7s. No fixes applied.
+2026-09-07T21:57:38.5321803Z Found 98 warnings.
+2026-09-07T21:57:38.5322132Z Found 11 infos.
+2026-09-07T21:57:38.9781104Z ##[group]Run bun scripts/check-boundaries.ts
+2026-09-07T21:57:38.9781507Z [36;1mbun scripts/check-boundaries.ts[0m
+2026-09-07T21:57:38.9822290Z shell: /usr/bin/bash -e {0}
+2026-09-07T21:57:38.9822572Z env:
+2026-09-07T21:57:38.9822821Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:38.9823120Z ##[endgroup]
+2026-09-07T21:57:39.3963479Z Dependency boundaries OK — 4686 source files, 0 violations.
+2026-09-07T21:57:39.4049407Z ##[group]Run docker run --rm -v "$PWD:/repo" -w /repo \
+2026-09-07T21:57:39.4049879Z [36;1mdocker run --rm -v "$PWD:/repo" -w /repo \[0m
+2026-09-07T21:57:39.4050501Z [36;1m  ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \[0m
+2026-09-07T21:57:39.4051199Z [36;1m  dir . --no-banner --config .gitleaks.toml --redact --exit-code 1[0m
+2026-09-07T21:57:39.4091492Z shell: /usr/bin/bash -e {0}
+2026-09-07T21:57:39.4091771Z env:
+2026-09-07T21:57:39.4092020Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-09-07T21:57:39.4092324Z ##[endgroup]
+2026-09-07T21:57:39.4724203Z Unable to find image 'ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f' locally
+2026-09-07T21:57:39.6468202Z ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f: Pulling from gitleaks/gitleaks
+2026-09-07T21:57:39.7023988Z d49a2dee86fb: Pulling fs layer
+2026-09-07T21:57:39.7024630Z d92b655ae8e2: Pulling fs layer
+2026-09-07T21:57:39.7025084Z 61fdfd7c0175: Pulling fs layer
+2026-09-07T21:57:39.7025501Z a43ab0c74cc4: Pulling fs layer
+2026-09-07T21:57:39.7025901Z a43ab0c74cc4: Waiting
+2026-09-07T21:57:39.8388080Z d49a2dee86fb: Verifying Checksum
+2026-09-07T21:57:39.8388899Z d49a2dee86fb: Download complete
+2026-09-07T21:57:39.8417580Z d92b655ae8e2: Verifying Checksum
+2026-09-07T21:57:39.8418381Z d92b655ae8e2: Download complete
+2026-09-07T21:57:39.8558565Z 61fdfd7c0175: Verifying Checksum
+2026-09-07T21:57:39.8559390Z 61fdfd7c0175: Download complete
+2026-09-07T21:57:39.9066212Z a43ab0c74cc4: Verifying Checksum
+2026-09-07T21:57:39.9066735Z a43ab0c74cc4: Download complete
+2026-09-07T21:57:39.9467622Z d49a2dee86fb: Pull complete
+2026-09-07T21:57:40.4560644Z d92b655ae8e2: Pull complete
+2026-09-07T21:57:40.5819842Z 61fdfd7c0175: Pull complete
+2026-09-07T21:57:40.5904005Z a43ab0c74cc4: Pull complete
+2026-09-07T21:57:40.5938642Z Digest: sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+2026-09-07T21:57:40.5951096Z Status: Downloaded newer image for ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+2026-09-07T21:58:02.9370923Z [90m9:58PM[0m [32mINF[0m [1mscanned ~95745525 bytes (95.75 MB) in 22.2s[0m
+2026-09-07T21:58:02.9372826Z [90m9:58PM[0m [32mINF[0m [1mno leaks found[0m
+2026-09-07T21:58:03.0325587Z Post job cleanup.
+2026-09-07T21:58:03.0330518Z ##[start-action display=Cache bun global install cache;id=__658b14e8-5f35-4d4c-b281-e62aeecdce70.__actions_cache]
+2026-09-07T21:58:03.2042038Z Post job cleanup.
+2026-09-07T21:58:03.3257123Z Cache hit occurred on the primary key bun-Linux-7ad7dfb1284f274e4135933b45f5e355366dd6b650748d7a0d5b0b3e386f1884-5a35c07f67d3b6fb21da02d57cc263d3ad0c74c9e2706a091f9623392e9f1e59, not saving cache.
+2026-09-07T21:58:03.3320719Z ##[end-action id=__658b14e8-5f35-4d4c-b281-e62aeecdce70.__actions_cache;outcome=success;conclusion=success;duration_ms=298]
+2026-09-07T21:58:03.3325898Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__658b14e8-5f35-4d4c-b281-e62aeecdce70.__oven-sh_setup-bun]
+2026-09-07T21:58:03.3372020Z Post job cleanup.
+2026-09-07T21:58:03.5057690Z ##[end-action id=__658b14e8-5f35-4d4c-b281-e62aeecdce70.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=173]
+2026-09-07T21:58:03.5145338Z Post job cleanup.
+2026-09-07T21:58:03.6037624Z [command]/usr/bin/git version
+2026-09-07T21:58:03.6094341Z git version 2.55.0
+2026-09-07T21:58:03.6129651Z Temporarily overriding HOME='/home/runner/work/_temp/c7abb585-f11c-4149-b678-e5c45b85fb69' before making global git config changes
+2026-09-07T21:58:03.6131248Z Adding repository directory to the temporary git global config as a safe directory
+2026-09-07T21:58:03.6136504Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+2026-09-07T21:58:03.6171205Z Removing SSH command configuration
+2026-09-07T21:58:03.6177430Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-09-07T21:58:03.6214967Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-09-07T21:58:03.6502709Z Removing HTTP extra header
+2026-09-07T21:58:03.6509751Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-09-07T21:58:03.6548858Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-09-07T21:58:03.6842567Z Removing includeIf entries pointing to credentials config files
+2026-09-07T21:58:03.6851624Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-09-07T21:58:03.6889224Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+2026-09-07T21:58:03.6890230Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+2026-09-07T21:58:03.6891165Z includeif.gitdir:/github/workspace/.git.path
+2026-09-07T21:58:03.6892043Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-07T21:58:03.6900381Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+2026-09-07T21:58:03.6931111Z /home/runner/work/_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:58:03.6943397Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-e000088d\-af0a\-41a9\-9a74\-bbf1c8954936\.config
+2026-09-07T21:58:03.6987713Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+2026-09-07T21:58:03.7022223Z /home/runner/work/_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:58:03.7041563Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-e000088d\-af0a\-41a9\-9a74\-bbf1c8954936\.config
+2026-09-07T21:58:03.7084583Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-09-07T21:58:03.7116118Z /github/runner_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:58:03.7125144Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-e000088d\-af0a\-41a9\-9a74\-bbf1c8954936\.config
+2026-09-07T21:58:03.7163532Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-09-07T21:58:03.7192385Z /github/runner_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config
+2026-09-07T21:58:03.7198990Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-e000088d\-af0a\-41a9\-9a74\-bbf1c8954936\.config
+2026-09-07T21:58:03.7239740Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-09-07T21:58:03.7498081Z Removing credentials config '/home/runner/work/_temp/git-credentials-e000088d-af0a-41a9-9a74-bbf1c8954936.config'
+2026-09-07T21:58:03.7649933Z Cleaning up orphan processes

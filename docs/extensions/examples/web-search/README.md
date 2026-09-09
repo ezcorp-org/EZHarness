@@ -66,7 +66,7 @@ Point `SEARXNG_BASE_URL` at any SearXNG instance. Two requirements:
 ## Install (manual, for developers)
 
 ```
-ezcorp ext install ./docs/extensions/examples/web-search
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/web-search
 ```
 
 End users do not need to run this — the extension is in `BUNDLED_EXTENSIONS` and installs on first launch.

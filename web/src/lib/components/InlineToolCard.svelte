@@ -90,6 +90,7 @@
 		extensionId: call.extensionName,
 		cardType: call.cardType,
 		cardLayout: call.cardLayout,
+		source: call.source,
 	}));
 
 	// Auto-open dock on first complete-state observation (debounced 500ms).

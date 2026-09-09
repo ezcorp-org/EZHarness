@@ -20,7 +20,7 @@
 	 *   - `onchange(map)` persists a narrowed map; `onreset()` clears the
 	 *     override back to the default (null).
 	 */
-	import { onMount } from "svelte";
+	import { onMount, tick } from "svelte";
 	import Tooltip from "$lib/components/Tooltip.svelte";
 	import type { Mode } from "$lib/api";
 	import {
@@ -64,6 +64,8 @@
 	const CALLER_EXT_ID = "caller";
 
 	let open = $state(false);
+	let popoverEl = $state<HTMLDivElement>();
+	let popoverOffsetX = $state(0);
 	let extData = $state<Record<string, ExtInfo>>({});
 	let callerSection = $state<ExtInfo | null>(null);
 	let loaded = $state(false);
@@ -194,12 +196,36 @@
 		}, 0),
 	);
 
-	function toggleOpen() {
+	function fitPopoverInViewport() {
+		if (!popoverEl) return;
+		if (window.innerWidth >= 640) {
+			popoverOffsetX = 0;
+			return;
+		}
+		const inset = 8;
+		const bounds = popoverEl.getBoundingClientRect();
+		popoverOffsetX += Math.max(inset - bounds.left, Math.min(0, window.innerWidth - inset - bounds.right));
+	}
+
+	async function toggleOpen() {
 		open = !open;
+		popoverOffsetX = 0;
+		if (open) {
+			await tick();
+			fitPopoverInViewport();
+		}
 	}
 	function close() {
 		open = false;
+		popoverOffsetX = 0;
 	}
+
+	$effect(() => {
+		if (!open) return;
+		const handleResize = () => fitPopoverInViewport();
+		window.addEventListener("resize", handleResize);
+		return () => window.removeEventListener("resize", handleResize);
+	});
 
 	function toggle(ext: ExtInfo, toolName: string) {
 		const all = ext.tools.map((t) => t.name);
@@ -248,12 +274,12 @@
 	</button>
 
 	{#if open}
-		<div class="absolute bottom-full left-0 mb-1 max-h-80 w-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] py-1 shadow-xl z-50" data-testid="conversation-tools-popover">
+		<div bind:this={popoverEl} class="conversation-tools-popover absolute bottom-full left-0 mb-1 max-h-80 w-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] py-1 shadow-xl z-50" data-testid="conversation-tools-popover" style:transform={`translateX(${popoverOffsetX}px)`}>
 			<div class="px-3 py-1.5 border-b border-[var(--color-border)] mb-1">
 				<div class="flex items-center justify-between">
 					<div class="text-xs font-medium text-[var(--color-text-primary)]">Conversation tools</div>
 					<span
-						class="text-[10px] {isCustomized ? 'text-amber-400' : 'text-[var(--color-text-muted)]'}"
+						class="text-[10px] {isCustomized ? 'text-amber-800 dark:text-amber-300' : 'text-[var(--color-text-muted)]'}"
 						data-testid="conversation-tools-state"
 					>
 						{isCustomized
@@ -343,3 +369,13 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	@media (max-width: 639px) {
+		.conversation-tools-popover {
+			left: auto;
+			right: 0;
+			width: min(16rem, calc(100vw - 1rem));
+		}
+	}
+</style>

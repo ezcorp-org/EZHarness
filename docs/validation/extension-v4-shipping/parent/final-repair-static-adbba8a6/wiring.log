@@ -1,0 +1,10 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/shipping-production-suite-wiring.test.ts:
+(pass) shipping suite normalizes engine image IDs, retains later proof receipts, and returns failure [92.96ms]
+(pass) shipping suite rejects mismatched engine candidates and nonempty receipt roots [18.87ms]
+
+ 2 pass
+ 0 fail
+ 20 expect() calls
+Ran 2 tests across 1 file. [590.00ms]

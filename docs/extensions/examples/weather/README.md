@@ -48,7 +48,7 @@ No filesystem, shell, or secret env access is required.
 ## Install locally
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/weather
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/weather
 ```
 
 ## Run tests

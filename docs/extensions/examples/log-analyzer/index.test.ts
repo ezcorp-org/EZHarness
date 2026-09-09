@@ -161,71 +161,33 @@ describe("dispatch", () => {
   });
 });
 
-describe("main() — the stdin JSON-RPC loop", () => {
-  // `writeStdout` in index.ts caches the `Bun.stdout.writer()` instance the
-  // FIRST time it's called and reuses it for the rest of the process — see
-  // the comment on `writeStdout`. The spy is therefore installed exactly
-  // ONCE for this file's test process; writes are routed through a
-  // rebindable sink so each test gets its own array.
-  const sink = { written: [] as string[] };
-  let writerSpy: ReturnType<typeof spyOn>;
-  beforeAll(() => {
-    writerSpy = spyOn(Bun.stdout, "writer").mockReturnValue({
-      write: (s: string) => {
-        sink.written.push(s as string);
-        return (s as string).length;
-      },
-      flush: () => Promise.resolve(0),
-    } as unknown as ReturnType<typeof Bun.stdout.writer>);
-  });
-  afterAll(() => {
-    writerSpy.mockRestore();
-  });
-
-  async function runMain(input: string): Promise<string[]> {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(input));
-        controller.close();
-      },
-    });
-    const streamSpy = spyOn(Bun.stdin, "stream").mockReturnValue(
-      stream as unknown as ReturnType<typeof Bun.stdin.stream>,
-    );
-    sink.written = [];
+describe("registration", () => {
+  test("registered handler filters logs and rejects unknown tools without opening stdin", async () => {
+    const input = spyOn(Bun.stdin, "stream");
+    const registration = spyOn(getChannel(), "onRequest");
     try {
-      await main();
+      main();
+      expect(input).not.toHaveBeenCalled();
+      const handler = registration.mock.calls.find(([method]) => method === "tools/call")?.[1];
+      expect(handler).toBeDefined();
+      expect(await handler!({ name: "search-logs", arguments: { logFile: "app.log", query: "SLOW" } })).toEqual({ content: [{ type: "text", text: expect.stringContaining("1 matching entries found.") }], isError: false });
+      await expect(handler!({ name: "unknown" })).rejects.toMatchObject({ code: "HANDLER_FAILED", message: "Tool request failed" });
     } finally {
-      streamSpy.mockRestore();
+      input.mockRestore();
     }
-    return sink.written;
-  }
-
-  test("answers a search-logs request end-to-end through the real reader loop", async () => {
-    const req: JsonRpcRequest = {
-      jsonrpc: "2.0",
-      id: 9,
-      method: "tools/call",
-      params: { name: "search-logs", arguments: { logFile: "app.log", level: "warn" } },
-    };
-    const written = await runMain(JSON.stringify(req) + "\n");
-    expect(written).toHaveLength(1);
-    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
-    expect(res.id).toBe(9);
-    expect(text(res)).toContain("slow query");
   });
 });
 
 describe("manifest", () => {
   test("has required fields", async () => {
     const manifest = (await import(import.meta.dir + "/ezcorp.config.ts")).default;
-    expect(manifest.schemaVersion).toBe(2);
+    expect(manifest.schemaVersion).toBe(4);
     expect(manifest.name).toBe("log-analyzer");
     expect(manifest.author.name).toBe("EZCorp");
-    expect(manifest.entrypoint).toBe("./index.ts");
+    expect(manifest.entrypoint).toBe("./extension.ts");
     expect(manifest.tools).toHaveLength(1);
     expect(manifest.tools[0].name).toBe("search-logs");
-    expect(manifest.permissions.filesystem).toEqual(["$CWD"]);
+    expect(manifest.permissions.filesystem).toEqual(["/project", "/data"]);
     expect(manifest.permissions.shell).toBe(false);
   });
 });

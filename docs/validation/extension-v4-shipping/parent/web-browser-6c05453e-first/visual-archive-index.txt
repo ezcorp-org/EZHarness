@@ -1,0 +1,10 @@
+Visual PNG extraction index
+Each image was extracted from an onAttach image/png base64 attachment in the named controller blob report.
+Names include the source archive and occurrence index. This prevents basename overwrite across archives.
+All report JSON, trace/network data, nested resources, and zip blobs are omitted from this evidence directory.
+
+mock-full	mock.zip	18 PNG attachments
+visual-mock	visual-blobs/mock.zip	213 PNG attachments
+real-auth-full	real-auth.zip	33 PNG attachments
+visual-real-auth	visual-blobs/real-auth.zip	30 PNG attachments
+TOTAL	294 PNG attachments

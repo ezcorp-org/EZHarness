@@ -120,7 +120,17 @@ export async function backgroundFetch(
  * Exists so call sites document intent: if you're using `userFetch` it's
  * because a human click is behind the request.
  */
-export function userFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function userFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const request = input instanceof Request ? input : undefined;
+  const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+  if (method !== "POST") return fetch(input, init);
+  const origin = typeof location === "undefined" ? "http://localhost" : location.origin;
+  const url = new URL(request?.url ?? String(input), origin);
+  if (url.origin === origin && /^\/api\/extensions\/[^/]+\/events\/[^/]+$/.test(url.pathname)) {
+    const headers = new Headers(init?.headers ?? request?.headers);
+    if (!headers.has("Idempotency-Key")) headers.set("Idempotency-Key", crypto.randomUUID());
+    return fetch(input, { ...init, headers });
+  }
   return fetch(input, init);
 }
 

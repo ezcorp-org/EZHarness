@@ -35,6 +35,7 @@ import { dirname, basename, join, sep } from "node:path";
 import { logger } from "../logger";
 import { realpathInsideRoot } from "../runtime/fs/scan-fs";
 import type { PermissionEngine } from "./permission-engine";
+import type { FileOrganizerEffect } from "./file-organizer-action-authority";
 
 const log = logger.child("ext.file-organizer-applier");
 
@@ -84,6 +85,9 @@ export interface ApplierContext {
   watchedRoot: string;
   /** The extension data dir whose `.ezcorp/data` ancestor must never be written. */
   dataDirRoot: string;
+  /** Sealed browser proof consumed by PermissionEngine against this effect. */
+  hostActionAuthority?: unknown;
+  hostActionEffect?: FileOrganizerEffect;
 }
 
 // ── Journal (crash-replay) ──────────────────────────────────────────
@@ -116,7 +120,7 @@ async function writeJournal(path: string, entries: JournalEntry[]): Promise<void
 }
 
 /** Containment anchors for a journal replay (see {@link replayJournal}). */
-export interface ReplayAnchors {
+export interface ReplayAnchors extends Pick<ApplierContext, "engine" | "extensionId" | "userId" | "conversationId"> {
   /**
    * ALREADY realpath'd roots an entry may touch: the configured watched
    * folders plus the trash root. An entry outside every one of them is
@@ -152,7 +156,9 @@ async function replayPathAllowed(p: string, anchors: ReplayAnchors): Promise<boo
  * Every entry is containment-checked against `anchors` FIRST: replay is
  * a boot-time unlink/rm driven by an on-disk file, so an entry naming a
  * path outside the watched roots + trash root is refused and dropped
- * rather than executed. The journal is still cleared afterwards (a
+ * rather than executed. Each mutation then re-runs the same PermissionEngine
+ * fs.write authorization as a normal apply. Deny, prompt, or engine failure
+ * leaves the file unchanged. The journal is still cleared afterwards (a
  * refused entry must not be retried on the next boot).
  */
 export async function replayJournal(
@@ -173,6 +179,10 @@ export async function replayJournal(
       if (e.phase === "copy-done" || e.phase === "unlink-pending") {
         // Destination is fully written — remove the original to complete the move.
         if (await pathExists(e.src)) {
+          if ((await authorizeWrite(anchors, e.src)) === null) {
+            refused++;
+            continue;
+          }
           await unlink(e.src).catch(() => {});
         }
         finished++;
@@ -182,12 +192,17 @@ export async function replayJournal(
       } else {
         // copy-pending: drop a possibly-partial destination; keep original.
         if (e.dst && (await pathExists(e.dst))) {
+          if ((await authorizeWrite(anchors, e.dst)) === null) {
+            refused++;
+            continue;
+          }
           await rm(e.dst, { force: true }).catch(() => {});
         }
         rolledBack++;
       }
     } catch (err) {
       log.warn("journal replay entry failed", { src: e.src, error: String(err) });
+      refused++;
     }
   }
   if (entries.length > 0) await writeJournal(journalPath, []);
@@ -240,6 +255,42 @@ async function canonicalRoot(root: string): Promise<string | null> {
     return await realpath(root);
   } catch {
     return null;
+  }
+}
+
+type PrivateDirectory =
+  | { status: "ready"; path: string }
+  | { status: "blocked" | "failed"; reason: string };
+
+/**
+ * Plan the one private directory quarantine may create. `trashRoot` is part
+ * of the host context, but it must still resolve to exactly the `.trash`
+ * child of this extension's canonical data root before we make a directory.
+ */
+async function plannedPrivateTrashRoot(ctx: ApplierContext): Promise<PrivateDirectory> {
+  const dataRoot = await canonicalRoot(ctx.dataDirRoot);
+  if (dataRoot === null) return { status: "failed", reason: "extension data root unresolvable" };
+
+  const expected = join(dataRoot, ".trash");
+  const requested = await resolveCreateTarget(ctx.trashRoot);
+  if (requested !== expected) {
+    return { status: "blocked", reason: "trash root is outside the extension private data directory" };
+  }
+  return { status: "ready", path: expected };
+}
+
+/** Create then canonicalize a known private directory. Symlinks and files
+ * fail closed, including a path planted between planning and creation. */
+async function materializePrivateDirectory(path: string): Promise<PrivateDirectory> {
+  try {
+    await mkdir(path, { recursive: true });
+    const entry = await lstat(path);
+    if (!entry.isDirectory()) return { status: "blocked", reason: "private quarantine path is not a directory" };
+    const canonical = await realpath(path);
+    if (canonical !== path) return { status: "blocked", reason: "private quarantine path resolves outside its anchor" };
+    return { status: "ready", path: canonical };
+  } catch {
+    return { status: "failed", reason: "private quarantine directory could not be created or verified" };
   }
 }
 
@@ -325,7 +376,7 @@ async function resolveCreateTarget(target: string): Promise<string> {
 }
 
 /** Non-overwrite suffix resolution against the live filesystem. */
-async function resolveNonOverwrite(desired: string): Promise<string> {
+export async function resolveNonOverwrite(desired: string): Promise<string> {
   if (!(await pathExists(desired))) return desired;
   const dir = dirname(desired);
   const name = basename(desired);
@@ -351,19 +402,36 @@ async function resolveNonOverwrite(desired: string): Promise<string> {
  * auto-allows, but this writes the audit row every destructive action
  * needs. Returns the auditId on allow, or null on deny (caller → blocked).
  */
-async function authorizeWrite(ctx: ApplierContext, value: string): Promise<string | null> {
+async function authorizeWrite(
+  ctx: Pick<ApplierContext, "engine" | "extensionId" | "userId" | "conversationId" | "dataDirRoot" | "hostActionAuthority" | "hostActionEffect">,
+  value: string,
+): Promise<string | null> {
+  const dataRoot = await canonicalRoot(ctx.dataDirRoot);
+  if (dataRoot !== null && isWithin(dataRoot, value)) {
+    // The V4 grant is deliberately virtual (`/data`), while this host applier
+    // uses the physical extension-data directory. Only this known private
+    // root is translated; public project files never acquire a fake `/data`
+    // grant through this path.
+    const rel = value === dataRoot ? "" : value.slice(dataRoot.length + 1);
+    value = rel ? `/data/${rel}` : "/data";
+  }
   const decision = await ctx.engine.authorize(
-    { extensionId: ctx.extensionId, userId: ctx.userId, conversationId: ctx.conversationId },
+    {
+      extensionId: ctx.extensionId,
+      userId: ctx.userId,
+      conversationId: ctx.conversationId,
+      ...(ctx.hostActionAuthority && ctx.hostActionEffect ? { fileOrganizerActionAuthority: ctx.hostActionAuthority, fileOrganizerEffect: ctx.hostActionEffect } : {}),
+    },
     [{ kind: "fs.write", value }],
   );
   if (decision.decision === "deny") {
-    log.warn("file-organizer apply denied by engine", { value, reason: decision.reason });
+    log.warn("file-organizer filesystem mutation denied by engine", { value, reason: decision.reason });
     return null;
   }
   if (decision.decision === "prompt") {
     // Bundled auto-allow means we should never land here; treat as deny
     // (fail-closed — never apply on an unresolved prompt).
-    log.warn("file-organizer apply unexpectedly prompted — failing closed", { value });
+    log.warn("file-organizer filesystem mutation unexpectedly prompted — failing closed", { value });
     return null;
   }
   return decision.auditId;
@@ -439,6 +507,13 @@ export async function applyProposal(
     return { status: "skipped", reason: "symlink skipped (v1 policy)" };
   }
 
+  // Quarantine writes privately under `/data`; consume the public source
+  // authority first so its later unlink never relies on the private grant.
+  if (proposal.kind === "delete-quarantine") {
+    const auditId = await authorizeWrite(ctx, srcCanon);
+    if (auditId === null) return { status: "blocked", reason: "engine denied the source write" };
+  }
+
   if (proposal.kind === "delete-quarantine") {
     return applyQuarantine(proposal, ctx);
   }
@@ -466,12 +541,18 @@ async function applyMove(
     return { status: "blocked", reason: "destination escapes the watched root or targets a protected platform dir" };
   }
 
-  // Audit gate (writes the audit row; deny ⇒ blocked).
-  const auditId = await authorizeWrite(ctx, dstForCheck);
+  // A sealed host action binds the exact destination shown to the user. Do
+  // not silently redirect it to a collision suffix after admission.
+  const sealedDestination = ctx.hostActionEffect?.paths.at(-1);
+  if (ctx.hostActionAuthority && (!sealedDestination || await pathExists(sealedDestination))) {
+    return { status: "blocked", reason: "destination changed after approval" };
+  }
+  const resolvedDst = ctx.hostActionAuthority
+    ? sealedDestination!
+    : await resolveNonOverwrite(proposal.dst);
+  // Authorize the exact collision-resolved target, never the pre-plan name.
+  const auditId = await authorizeWrite(ctx, await resolveCreateTarget(resolvedDst));
   if (auditId === null) return { status: "blocked", reason: "engine denied the write" };
-
-  // Never overwrite — resolve a collision-free destination.
-  const resolvedDst = await resolveNonOverwrite(proposal.dst);
   const destDir = dirname(resolvedDst);
 
   try {
@@ -501,8 +582,6 @@ async function applyMove(
 }
 
 async function applyQuarantine(proposal: ApplierProposal, ctx: ApplierContext): Promise<ApplyOutcome> {
-  const realTrash = await canonicalRoot(ctx.trashRoot);
-  if (realTrash === null) return { status: "failed", reason: "trash root unresolvable" };
   const quarantineId = proposal.quarantineId ?? proposal.id;
   // Validate BEFORE the id can reach `.trash/manifest.json`: the manifest
   // is what the pruner reads back, so an escaping id recorded here is a
@@ -510,16 +589,43 @@ async function applyQuarantine(proposal: ApplierProposal, ctx: ApplierContext): 
   if (!isQuarantineId(quarantineId)) {
     return { status: "blocked", reason: "invalid quarantine id" };
   }
-  const trashDir = join(realTrash, quarantineId);
-  const desired = join(trashDir, basename(proposal.src));
+
+  const plannedTrash = await plannedPrivateTrashRoot(ctx);
+  if (plannedTrash.status !== "ready") return plannedTrash;
+  // Authorize the exact initial target BEFORE creating even the private
+  // directory, so a denied operation leaves no new filesystem state.
+  const desired = join(plannedTrash.path, quarantineId, basename(proposal.src));
+  const sealedPrivate = ctx.hostActionEffect?.privatePath;
+  let plannedTarget = desired;
+  if (ctx.hostActionAuthority) {
+    // The route planned the collision suffix before it issued the proof.
+    // Convert only that exact virtual companion back into our trusted own
+    // data directory; never accept a broad `/data` prefix as host authority.
+    if (!sealedPrivate?.startsWith("/data/")) {
+      return { status: "blocked", reason: "missing sealed quarantine target" };
+    }
+    const relative = sealedPrivate.slice("/data/".length);
+    plannedTarget = join(await canonicalRoot(ctx.dataDirRoot) ?? ctx.dataDirRoot, relative);
+    const quarantineRoot = join(plannedTrash.path, quarantineId);
+    if (!isWithin(quarantineRoot, plannedTarget) || await pathExists(plannedTarget)) {
+      return { status: "blocked", reason: "quarantine destination changed after approval" };
+    }
+  }
 
   // Audit gate on the trash destination.
-  const auditId = await authorizeWrite(ctx, desired);
+  const auditId = await authorizeWrite(ctx, plannedTarget);
   if (auditId === null) return { status: "blocked", reason: "engine denied the quarantine write" };
 
+  const realTrash = await materializePrivateDirectory(plannedTrash.path);
+  if (realTrash.status !== "ready") return realTrash;
+  const plannedTrashDir = join(realTrash.path, quarantineId);
+  const trashDir = await materializePrivateDirectory(plannedTrashDir);
+  if (trashDir.status !== "ready") return trashDir;
+
   try {
-    await mkdir(trashDir, { recursive: true });
-    const trashPath = await resolveNonOverwrite(desired);
+    const trashPath = ctx.hostActionAuthority
+      ? plannedTarget
+      : await resolveNonOverwrite(join(trashDir.path, basename(proposal.src)));
     // Journal the quarantine intent.
     await writeJournal(ctx.journalPath, [
       { op: "quarantine", src: proposal.src, dst: trashPath, quarantineId, phase: "copy-pending" },
@@ -570,14 +676,22 @@ export async function restoreFromQuarantine(
   // `rootForRestore` (file-organizer-state.ts) falls back to the original
   // file's parent so quarantine outlives the removal of its watched
   // folder. The protected-dir deny is what guards it.
-  const restoreCanon = await resolveCreateTarget(input.restorePath);
+  const sealedDestination = ctx.hostActionEffect?.paths.at(-1);
+  const finalPath = ctx.hostActionAuthority ? sealedDestination : await resolveNonOverwrite(input.restorePath);
+  if (!finalPath) return { status: "blocked", reason: "missing sealed restore target" };
+  const restoreCanon = await resolveCreateTarget(finalPath);
   if (await touchesProtectedDir(restoreCanon, ctx.dataDirRoot)) {
     return { status: "blocked", reason: "restore target inside a protected platform dir" };
   }
+  if (ctx.hostActionAuthority && await pathExists(finalPath)) {
+    return { status: "blocked", reason: "restore destination changed after approval" };
+  }
   const auditId = await authorizeWrite(ctx, restoreCanon);
   if (auditId === null) return { status: "blocked", reason: "engine denied the restore" };
-
-  const finalPath = await resolveNonOverwrite(input.restorePath);
+  // Removing the quarantined source is a second private mutation. Its
+  // exact virtual companion is sealed beside the public destination.
+  const privateAuditId = await authorizeWrite(ctx, input.trashPath);
+  if (privateAuditId === null) return { status: "blocked", reason: "engine denied the private restore source" };
   try {
     await mkdir(dirname(finalPath), { recursive: true });
     try {
@@ -610,7 +724,7 @@ export async function restoreFromQuarantine(
  * Returns true when the entry is gone, INCLUDING when it was already
  * absent — prune is idempotent and the manifest row should still drop.
  */
-export async function hardDeleteTrash(trashRoot: string, quarantineId: string): Promise<boolean> {
+export async function hardDeleteTrash(trashRoot: string, quarantineId: string, ctx?: ApplierContext): Promise<boolean> {
   if (!isQuarantineId(quarantineId)) {
     log.warn("file-organizer prune refused: invalid quarantine id", { quarantineId: String(quarantineId) });
     return false;
@@ -621,6 +735,10 @@ export async function hardDeleteTrash(trashRoot: string, quarantineId: string): 
     return false;
   }
   const trashDir = join(realRoot, quarantineId);
+  if (ctx && (await authorizeWrite(ctx, trashDir)) === null) {
+    log.warn("file-organizer prune denied by permission engine", { trashDir });
+    return false;
+  }
   const st = await lstat(trashDir).catch(() => null);
   if (st === null) return true; // already gone — prune is idempotent
   if (st.isSymbolicLink()) {

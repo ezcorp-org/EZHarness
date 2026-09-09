@@ -165,6 +165,8 @@ export interface FileOrganizerDaemonOptions {
   skipLockfile?: boolean;
   /** Override the wake interval (ms) — tests pass small. */
   wakeIntervalMsOverride?: number;
+  /** Override lock release to make lifecycle ordering deterministic in tests. */
+  releaseLockfile?: typeof releaseLockfile;
 }
 
 interface BadgeFile {
@@ -237,6 +239,10 @@ export class FileOrganizerDaemon {
       const res = await replayJournal(this.journalPath, {
         roots: await this.replayAnchors(),
         dataDirRoot: this.opts.dataDir,
+        engine: this.opts.engine,
+        extensionId: this.opts.extensionId,
+        userId: null,
+        conversationId: null,
       });
       if (res.finished + res.rolledBack + res.refused > 0) {
         log.info("file-organizer journal replayed", res);
@@ -257,12 +263,12 @@ export class FileOrganizerDaemon {
     return true;
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
     if (this.lockfileOwned) {
-      void releaseLockfile(this.lockfilePath).catch(() => {});
       this.lockfileOwned = false;
+      await (this.opts.releaseLockfile ?? releaseLockfile)(this.lockfilePath).catch(() => {});
     }
   }
 

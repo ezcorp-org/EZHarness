@@ -313,3 +313,5 @@ describe("AssistantMessageEvent type correctness", () => {
     expect(event.reason).toBe("error");
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

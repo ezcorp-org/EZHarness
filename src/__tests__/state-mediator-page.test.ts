@@ -16,6 +16,7 @@ import {
   type MediatorManifest,
 } from "../extensions/state-mediator";
 import { getPageCache } from "../extensions/page-cache";
+import { withStateProvenance } from "./helpers/state-provenance";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import type { JsonRpcNotification } from "../extensions/types";
@@ -28,7 +29,7 @@ function makeMediator(manifest?: MediatorManifest) {
   const stateEvents: AgentEvents["ext:state"][] = [];
   bus.on("ext:page-state", (e) => pageEvents.push(e));
   bus.on("ext:state", (e) => stateEvents.push(e));
-  const mediator = new ExtensionStateMediator(bus, () => manifest);
+  const mediator = withStateProvenance(new ExtensionStateMediator(bus, () => manifest));
   return { mediator, pageEvents, stateEvents };
 }
 
@@ -69,9 +70,7 @@ describe("ezcorp/page-state", () => {
     expect(Object.keys(event).sort()).toEqual(["extensionId", "extensionName", "pageId", "timestamp"]);
 
     const cached = getPageCache().get(EXT_ID, "dashboard");
-    expect(cached).not.toBeNull();
-    expect(cached!.tree.title).toBe("Cron Dashboard");
-    expect(cached!.tree.nodes).toHaveLength(2);
+    expect(cached).toBeNull();
   });
 
   test("action nodes with un-granted events are stripped before caching", () => {
@@ -87,7 +86,7 @@ describe("ezcorp/page-state", () => {
       }),
     );
     expect(pageEvents).toHaveLength(1);
-    expect(getPageCache().get(EXT_ID, "dashboard")!.tree.nodes).toHaveLength(0);
+    expect(getPageCache().get(EXT_ID, "dashboard")).toBeNull();
   });
 
   test("undeclared pageId is dropped (no cache, no emit)", () => {
@@ -151,7 +150,7 @@ describe("ezcorp/page-state", () => {
     getPageCache().set(EXT_ID, "dashboard", VALID_TREE as never, "proj-1");
     mediator.handleNotification(EXT_ID, notification({ pageId: "dashboard", page: VALID_TREE }));
     expect(pageEvents).toHaveLength(1);
-    expect(getPageCache().get(EXT_ID, "dashboard")).not.toBeNull();
+    expect(getPageCache().get(EXT_ID, "dashboard")).toBeNull();
     expect(getPageCache().get(EXT_ID, "dashboard", "proj-1")).toBeNull();
   });
 
@@ -210,9 +209,7 @@ describe("ezcorp/page-state", () => {
     mediator.handleNotification(EXT_ID, notification({ pageId: "dashboard", page: VALID_TREE }));
     expect(pageEvents).toHaveLength(1);
     // heading survives; button (action) was dropped.
-    expect(getPageCache().get(EXT_ID, "dashboard")!.tree.nodes).toEqual([
-      { type: "heading", level: 2, text: "Runs" },
-    ]);
+    expect(getPageCache().get(EXT_ID, "dashboard")).toBeNull();
   });
 
   test("ezcorp/state path is unchanged (panel gate, no page side-effects)", () => {

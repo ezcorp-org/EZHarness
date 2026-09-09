@@ -1,0 +1,20 @@
+{
+  "coverageSourceFiles": 1401,
+  "coverageTests": {
+    "pass": 25980,
+    "fail": 0,
+    "shards": 1558
+  },
+  "source": "d2222840cf3d2b4963075ffc0f5cf0bdec5ef621",
+  "allGateExits": [
+    "runner-probe\t0",
+    "coverage\t0",
+    "residual\t0",
+    "new-file-coverage\t0",
+    "patch-coverage\t0"
+  ],
+  "overallExit": "0",
+  "lcovSha256": "455972c773411e5f2d0f7541f89d64c8900235a59b37ba3d24f6c22516a877aa",
+  "lcovBytes": 1539703,
+  "thresholdCount": 1251
+}

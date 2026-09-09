@@ -1,0 +1,7 @@
+ Network ezcorp-production-lifecycle-503712628_default Creating 
+ Network ezcorp-production-lifecycle-503712628_default Created 
+ Container ezcorp-production-lifecycle-503712628-app Creating 
+ Container ezcorp-production-lifecycle-503712628-app Created 
+ Container ezcorp-production-lifecycle-503712628-app Starting 
+ Container ezcorp-production-lifecycle-503712628-app Started 
+{"proof":"production-memory-embedding","dimensions":384,"norm":0.9999999999401207,"polls":33,"durationMs":8239,"status":"passed"}

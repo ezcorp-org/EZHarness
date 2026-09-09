@@ -1,10 +1,3 @@
-// FULLY-WIRED smoke: NO stubbed boundaries. Real PGlite + real
-// migrations + real createUserCommand + real synthesizeSkillExtension
-// + real installFromLocal + real getExtensionByName, then the
-// *installed* runner is spawned for real and asked to run a bundled
-// script. This closes the gap the other suites leave (they stub the
-// DB / installer / registry); it proves the genuine commit path.
-
 import {
   test,
   expect,
@@ -15,6 +8,11 @@ import {
 import { mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { FramedExecution } from "@ezcorp/extension-runner";
+import { snapshotExtensionSource } from "../../scripts/migrate-extension-v4";
+import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { getDb } from "../db/connection";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { useTempProjectRoot, type TempProjectRoot } from "./helpers/temp-project-root";
 import {
@@ -31,7 +29,7 @@ const { createUserCommand, getUserCommand } = await import(
   "../db/queries/user-commands"
 );
 const { getExtensionByName } = await import("../db/queries/extensions");
-const { installFromLocal } = await import("../extensions/installer");
+const { stageExtensionSourceFiles } = await import("../extensions/source-import");
 const {
   stageDirectoryUpload,
   resolveScanRoot,
@@ -48,6 +46,9 @@ afterAll(() => restoreModuleMocks());
 let tmpRoot: TempProjectRoot;
 let projectRoot: string;
 let userId: string;
+const previousBlobRoot = process.env.EZCORP_EXTENSION_BLOB_ROOT;
+const previousSocket = process.env.EZCORP_EXTENSION_RUNNER_SOCKET;
+const previousToken = process.env.EZCORP_EXTENSION_RUNNER_TOKEN;
 
 beforeAll(async () => {
   await setupTestDb();
@@ -55,9 +56,9 @@ beforeAll(async () => {
     email: "wired@test.local",
     passwordHash: "x",
     name: "Wired",
+    role: "admin",
   });
   userId = u.id;
-  await createProject({ name: "Wired", path: "/tmp/wired" });
   // A throwaway root that LOOKS like the repo (it links `node_modules` /
   // `packages` in), so the synthesized config's `@ezcorp/sdk` import
   // resolves the same way a real `<projectRoot>/.ezcorp` install does.
@@ -66,19 +67,29 @@ beforeAll(async () => {
   tmpRoot = useTempProjectRoot("import-wired-");
   projectRoot = join(tmpRoot.root, ".ezcorp", "wired-test", crypto.randomUUID());
   await mkdir(projectRoot, { recursive: true });
+  await createProject({ name: "Wired", path: projectRoot });
+  process.env.EZCORP_EXTENSION_BLOB_ROOT = join(tmpRoot.root, "blobs");
+  process.env.EZCORP_EXTENSION_RUNNER_SOCKET = join(tmpRoot.root, "unavailable-runner.sock");
+  process.env.EZCORP_EXTENSION_RUNNER_TOKEN = "test-runner-token-with-at-least-32-bytes";
 });
 
 afterAll(async () => {
   await closeTestDb();
   tmpRoot.cleanup();
+  if (previousBlobRoot === undefined) delete process.env.EZCORP_EXTENSION_BLOB_ROOT;
+  else process.env.EZCORP_EXTENSION_BLOB_ROOT = previousBlobRoot;
+  if (previousSocket === undefined) delete process.env.EZCORP_EXTENSION_RUNNER_SOCKET;
+  else process.env.EZCORP_EXTENSION_RUNNER_SOCKET = previousSocket;
+  if (previousToken === undefined) delete process.env.EZCORP_EXTENSION_RUNNER_TOKEN;
+  else process.env.EZCORP_EXTENSION_RUNNER_TOKEN = previousToken;
 });
 
 function file(content: string, name: string): File {
   return new File([content], name);
 }
 
-describe("import wizard — fully wired (real DB + real installer)", () => {
-  test("upload → scan → real createUserCommand + real installFromLocal → installed runner executes", async () => {
+describe("import wizard — real DB, immutable workspace and v4 source protocol", () => {
+  test("upload and scan preserve commands, stage an unapproved build, and produce callable v4 source", async () => {
     // 1) Real staged upload of a command + a runnable skill bundle.
     const staged = await stageDirectoryUpload({
       projectRoot,
@@ -125,17 +136,18 @@ describe("import wizard — fully wired (real DB + real installer)", () => {
       destDir,
       name: bundle.name,
     });
-    const inst = await installFromLocal(
-      destDir,
-      { grantedAt: {} } as never,
-      false, // installed DISABLED — matches the wizard
-      { isBundled: false, userId },
-    );
+    const snapshot = await snapshotExtensionSource(projectRoot, { name: bundle.name, directory: `.ezcorp/extensions/${bundle.name}`, entrypoint: "extension.ts" });
+    const stagedSource = await stageExtensionSourceFiles({ principalId: userId, scope: "global", kind: "human" }, snapshot.files, { kind: "skill", name: bundle.name });
+    const inst = stagedSource.installation;
     expect(inst.id).toBeTruthy();
     expect(inst.enabled).toBe(false);
 
-    const extRow = await getExtensionByName(bundle.name);
-    expect(extRow?.id).toBe(inst.id);
+    const state = await new DatabaseLifecycleRepository(getDb()).read(inst.id);
+    expect(state?.installation.activeReleaseId).toBeNull();
+    expect(state?.installation.ownerId).toBe(userId);
+    expect(state?.approvals).toEqual({});
+    expect(state?.workspaces[stagedSource.workspace.id]?.sourceDigest).toBe(stagedSource.workspace.sourceDigest);
+    expect(state?.operations[stagedSource.operation.id]).toBeDefined();
     expect(existsSync(join(destDir, "ezcorp.config.ts"))).toBe(true);
     expect(existsSync(join(destDir, "index.ts"))).toBe(true);
     expect(existsSync(join(destDir, "skill/say.sh"))).toBe(true);
@@ -143,25 +155,18 @@ describe("import wizard — fully wired (real DB + real installer)", () => {
     // 4) Runnable proof: spawn the INSTALLED runner and invoke
     //    run_script — the exact subprocess the host would spawn.
     await chmod(join(destDir, "skill/say.sh"), 0o755);
-    const proc = Bun.spawn(["bun", join(destDir, "index.ts")], {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    proc.stdin.write(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: "run_script", arguments: { script: "say.sh", args: ["X"] } },
-      }) + "\n",
-    );
-    await proc.stdin.end();
-    const out = await new Response(proc.stdout).text();
-    await proc.exited;
-    const resp = JSON.parse(out.trim().split("\n").filter(Boolean)[0]!);
-    expect(resp.result.isError).toBe(false);
-    expect(resp.result.content[0].text).toContain("SMOKE_OK_X");
-    expect(resp.result.content[0].text).toContain("exit 0");
+    const proc = spawn(process.execPath, [join(destDir, "extension.ts")], { cwd: destDir, stdio: "pipe" });
+    const execution = new FramedExecution("skill-wired", proc, async () => { throw new Error("No host effects permitted in source verification"); }, async () => { proc.kill(); }, 1024 * 1024, 10_000);
+    try {
+      const manifest = await execution.request("extension/discover", {}) as { schemaVersion: number };
+      expect(manifest.schemaVersion).toBe(4);
+      const response = await execution.request("extension/invoke", {
+        name: "run_script", input: { script: "say.sh", args: ["X"] },
+        context: { invocationId: "wired", workerId: "worker", releaseId: "release", principalId: userId, scopeId: "global", token: "test", deadline: Date.now() + 10_000 },
+      }) as { isError?: boolean; content: Array<{ text: string }> };
+      expect(response.isError).toBe(false);
+      expect(response.content[0]!.text).toContain("SMOKE_OK_X");
+      expect(response.content[0]!.text).toContain("exit 0");
+    } finally { await execution.close(); }
   });
 });

@@ -1,0 +1,19 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/connection-health-live-holder.test.ts:
+(pass) process-local holder registry > closeStaleProcessHolder returns false when nothing is recorded [0.15ms]
+(pass) process-local holder registry > a recorded holder is closed exactly once by closeStaleProcessHolder [0.06ms]
+(pass) process-local holder registry > awaits an async close callback [1.70ms]
+(pass) process-local holder registry > a throwing close callback is swallowed and still clears the entry [0.08ms]
+(pass) process-local holder registry > clearProcessHolder forgets WITHOUT closing (caller closed it themselves) [0.04ms]
+(pass) process-local holder registry > holders are keyed per datadir — closing one leaves the other live [0.06ms]
+(pass) process-local holder registry > re-recording the same datadir replaces the close callback [0.06ms]
+(pass) assertNoLiveHolder — cross-process pidfile guard > throws DbInUseError when a DIFFERENT live JS-runtime process holds the datadir [0.63ms]
+(pass) assertNoLiveHolder — cross-process pidfile guard > passes when the pidfile records OUR OWN pid (same-process re-init) [0.08ms]
+(pass) assertNoLiveHolder — cross-process pidfile guard > passes when there is no pidfile [0.04ms]
+(pass) assertNoLiveHolder — cross-process pidfile guard > passes when the recorded pid is dead (unclean prior shutdown) [0.07ms]
+
+ 11 pass
+ 0 fail
+ 21 expect() calls
+Ran 11 tests across 1 file. [465.00ms]

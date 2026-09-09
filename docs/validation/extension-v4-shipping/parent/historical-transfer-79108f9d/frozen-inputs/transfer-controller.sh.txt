@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Transfer the three retained historical verification images from native Podman
+# into rootful Docker without deleting or retagging any existing image.
+set -euo pipefail
+
+repo=/home/dev/work/EZCorp/extension-v4-independent-audit
+receipt=${1:?new absolute receipt directory required}
+[[ "$receipt" == /* && ! -e "$receipt" ]] || { echo "Receipt must be a new absolute directory" >&2; exit 64; }
+
+if [[ "${EZ_HISTORICAL_TRANSFER_LOCK_HELD:-}" != 1 ]]; then
+  exec flock --close "$repo/.cache/validation-heavy.lock" env EZ_HISTORICAL_TRANSFER_LOCK_HELD=1 bash "$0" "$@"
+fi
+
+umask 077
+mkdir -p "$receipt/logs" "$receipt/frozen-inputs"
+receipt=$(realpath "$receipt")
+started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+archive_root=$(mktemp -d /tmp/ez-historical-image-transfer-XXXXXXXX)
+main_rc=65
+finish() {
+  local rc="$?" cleanup_rc=0 write_rc=0
+  if [[ "$main_rc" -eq 65 || ( "$main_rc" -eq 0 && "$rc" -ne 0 ) ]]; then main_rc="$rc"; fi
+  # This directory contains only controller-owned temporary OCI archives.
+  rmdir "$archive_root" 2>/dev/null || cleanup_rc=$?
+  [[ "$cleanup_rc" -eq 0 ]] || { [[ "$main_rc" -eq 0 ]] && main_rc="$cleanup_rc"; }
+  printf 'main_exit=%s\nowned_archive_cleanup_exit=%s\nfinished_utc=%s\n' \
+    "$main_rc" "$cleanup_rc" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$receipt/exit.txt" || write_rc=$?
+  [[ "$write_rc" -eq 0 ]] || { [[ "$main_rc" -eq 0 ]] && main_rc="$write_rc"; }
+  trap - EXIT
+  exit "$main_rc"
+}
+trap finish EXIT
+
+unset DOCKER_HOST DOCKER_CONTEXT CONTAINER_HOST CONTAINER_CONNECTION CONTAINER_CONNECTIONS_CONF PODMAN_HOST
+export CONMON=/tmp/ez-audit-ci-conmon
+[[ "$(docker context show)" == default ]] || { echo "Docker default context is required" >&2; exit 65; }
+[[ "$(docker context inspect default --format '{{(index .Endpoints "docker").Host}}')" == "unix:///var/run/docker.sock" ]] || {
+  echo "Docker default context must use unix:///var/run/docker.sock" >&2; exit 65;
+}
+[[ -x /tmp/ez-audit-ci-conmon/podman ]] || { echo "Pinned native Podman launcher is missing" >&2; exit 65; }
+cp "$0" "$receipt/frozen-inputs/controller.sh"
+cp /tmp/ez-audit-ci-conmon/podman "$receipt/frozen-inputs/pinned-podman.sh"
+cp /tmp/ez-audit-ci-conmon/conmon-2.2.1 "$receipt/frozen-inputs/conmon-2.2.1"
+sha256sum "$0" /tmp/ez-audit-ci-conmon/podman /tmp/ez-audit-ci-conmon/conmon-2.2.1 > "$receipt/input.sha256"
+
+canonical_id() {
+  local value="$1"
+  [[ "$value" =~ ^(sha256:)?[0-9a-f]{64}$ ]] || return 1
+  printf 'sha256:%s\n' "${value#sha256:}"
+}
+native_id() {
+  /tmp/ez-audit-ci-conmon/podman --remote=false image inspect "$1" --format '{{.Id}}'
+}
+docker_id() {
+  docker image inspect "$1" --format '{{.Id}}'
+}
+
+images=(
+  'localhost/ezcorp-extension-v4:audit-final-3ec53eaa|sha256:8f722e76d30f7a4866eb61a2546af64da73f170a5cc9c23866f53ced660e40be'
+  'localhost/ezcorp-extension-v4:legacy-main-537f074e|sha256:5f78e42b03fd4963ebdc7e535dc79219c4d5e2f890d431c82bb78e92a8b1d834'
+  'localhost/ezcorp-extension-v4:legacy-main-537f074e-derived|sha256:0552ca8b37dfbfe6b43752b68dcfeeaa443d7127d523e78ae7dcb5a0188b68c1'
+)
+
+# Validate every source and refuse a conflicting rootful tag before the first
+# transfer. A failed preflight therefore cannot leave a partially overwritten tag.
+for entry in "${images[@]}"; do
+  IFS='|' read -r tag expected <<< "$entry"
+  source_raw=$(native_id "$tag") || { echo "Missing native Podman source image: $tag" >&2; exit 65; }
+  source_id=$(canonical_id "$source_raw") || { echo "Invalid native Podman image ID: $tag" >&2; exit 65; }
+  [[ "$source_id" == "$expected" ]] || { echo "Unexpected native Podman image ID: $tag" >&2; exit 65; }
+  if docker image inspect "$tag" >/dev/null 2>&1; then
+    target_raw=$(docker_id "$tag") || exit 65
+    target_id=$(canonical_id "$target_raw") || exit 65
+    [[ "$target_id" == "$expected" ]] || { echo "Refusing to replace conflicting Docker tag: $tag" >&2; exit 65; }
+  fi
+done
+
+printf 'tag\texpected_id\tnative_id_raw\tnative_id\tdocker_id_raw\tdocker_id\taction\tsave_exit\tload_exit\n' > "$receipt/images.tsv"
+main_rc=0
+for entry in "${images[@]}"; do
+  IFS='|' read -r tag expected <<< "$entry"
+  safe_name=$(printf '%s' "$tag" | tr '/:' '__')
+  source_raw=$(native_id "$tag")
+  source_id=$(canonical_id "$source_raw")
+  action=already-present
+  save_rc=n/a
+  load_rc=n/a
+  target_raw=absent
+  target_id=absent
+  if docker image inspect "$tag" >/dev/null 2>&1; then
+    target_raw=$(docker_id "$tag")
+    target_id=$(canonical_id "$target_raw")
+  else
+    action=transferred
+    archive="$archive_root/$safe_name.tar"
+    set +e
+    /tmp/ez-audit-ci-conmon/podman --remote=false save -o "$archive" "$tag" > "$receipt/logs/$safe_name.save.log" 2>&1
+    save_rc=$?
+    if [[ "$save_rc" -eq 0 ]]; then
+      docker load -i "$archive" > "$receipt/logs/$safe_name.load.log" 2>&1
+      load_rc=$?
+    else
+      : > "$receipt/logs/$safe_name.load.log"
+      load_rc=not-run
+    fi
+    set -e
+    # The tar is controller-owned; remove it before advancing, while retaining
+    # save/load logs and identity receipts.
+    if [[ -e "$archive" ]]; then rm -f "$archive" || { main_rc=1; }; fi
+    if [[ "$save_rc" != 0 || "$load_rc" != 0 ]]; then main_rc=1; fi
+    if docker image inspect "$tag" >/dev/null 2>&1; then
+      target_raw=$(docker_id "$tag")
+      target_id=$(canonical_id "$target_raw")
+    fi
+  fi
+  [[ "$source_id" == "$expected" && "$target_id" == "$expected" ]] || main_rc=1
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$tag" "$expected" "$source_raw" "$source_id" "$target_raw" "$target_id" "$action" "$save_rc" "$load_rc" >> "$receipt/images.tsv"
+done
+sha256sum -c "$receipt/input.sha256" > "$receipt/input.sha256.verify" 2>&1 || main_rc=1
+printf 'started_utc=%s\ntransfer_source=native-podman-remote-false\ntransfer_target=rootful-docker-default-context\nimage_count=3\nimage_deletions=0\n' "$started" > "$receipt/provenance.txt"
+exit "$main_rc"

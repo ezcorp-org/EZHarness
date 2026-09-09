@@ -1,0 +1,50 @@
+[
+  {
+    "name": "chat-graph-waterfall-timeline",
+    "file": "chat-graph-waterfall-timeline.png",
+    "sha256": "10f38d31231f617122492f11e9518194bd32e989c30456e4b17ebfe08897bdd5",
+    "archive": "mock.zip"
+  },
+  {
+    "name": "extension-lifecycle-sidebar-720",
+    "file": "extension-lifecycle-sidebar-720.png",
+    "sha256": "e99c4211674fededdaa01c9b761b382553f61f194961c82c1a37a5d9439da19f",
+    "archive": "real-auth.zip"
+  },
+  {
+    "name": "extension-lifecycle-review-desktop",
+    "file": "extension-lifecycle-review-desktop.png",
+    "sha256": "c2ab308c0c002c2ae02cb115c2341b4780a7bb61fe4b8474b7a9e0ad51acb020",
+    "archive": "real-auth.zip"
+  },
+  {
+    "name": "extension-lifecycle-live-output",
+    "file": "extension-lifecycle-live-output.png",
+    "sha256": "d550732fd135490cbc109cdcee7bff9000492512fba974eeee8bcd4c5ca2e8a7",
+    "archive": "real-auth.zip"
+  },
+  {
+    "name": "extension-lifecycle-tool-selection-mobile",
+    "file": "extension-lifecycle-tool-selection-mobile.png",
+    "sha256": "4dd5a4e3e15db89d285d92d7196329c913c831fad8db45023aa0ab02dcd7e4f9",
+    "archive": "real-auth.zip"
+  },
+  {
+    "name": "extension-lifecycle-tool-selection-mobile-narrow",
+    "file": "extension-lifecycle-tool-selection-mobile-narrow.png",
+    "sha256": "64c534c48153437570f9cd2ecae992998e8f346dd9bed3b3550235fe343ff85a",
+    "archive": "real-auth.zip"
+  },
+  {
+    "name": "extension-lifecycle-tool-selection-desktop-after-mobile",
+    "file": "extension-lifecycle-tool-selection-desktop-after-mobile.png",
+    "sha256": "3b52ba9eec87c8acf24ce538040e5f08bfb241ba89ce382f3ada8687b8c4d84c",
+    "archive": "real-auth.zip"
+  },
+  {
+    "name": "extension-lifecycle-client-diagnostics",
+    "file": "extension-lifecycle-client-diagnostics.json",
+    "sha256": "7c70da31deac21be252901d965e49f91de554b348fcbc814efcd0be1e83395a4",
+    "archive": "real-auth.zip"
+  }
+]

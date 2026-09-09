@@ -1,0 +1,22 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/memory-embeddings-state.test.ts:
+(pass) isEmbeddingReady / resetEmbeddingProvider state machine > returns false immediately after reset (no extractor loaded) [0.06ms]
+(pass) isEmbeddingReady / resetEmbeddingProvider state machine > returns true after a successful generateEmbedding call [0.44ms]
+(pass) isEmbeddingReady / resetEmbeddingProvider state machine > uses a durable cache beside the configured database instead of node_modules [0.18ms]
+(pass) isEmbeddingReady / resetEmbeddingProvider state machine > keeps the configured durable cache when relational data uses external Postgres [0.13ms]
+(pass) isEmbeddingReady / resetEmbeddingProvider state machine > real Transformers config preflight stores config.json in the selected filesystem cache [31.16ms]
+(pass) isEmbeddingReady / resetEmbeddingProvider state machine > resetEmbeddingProvider flips state back to false [0.12ms]
+(pass) warmupEmbeddings > fires model init without awaiting (eventually becomes ready) [50.95ms]
+(pass) warmupEmbeddings > is a no-op if the extractor is already loaded [21.00ms]
+(pass) warmupEmbeddings > safe to call multiple times before init resolves (dedupes) [50.91ms]
+(pass) generateEmbedding / generateEmbeddings — output shape > generateEmbedding returns a normalized unit vector (L2 norm ~= 1) [0.37ms]
+(pass) generateEmbedding / generateEmbeddings — output shape > generateEmbeddings preserves input order [0.27ms]
+(pass) generateEmbedding / generateEmbeddings — output shape > generateEmbeddings on empty input returns empty array (no model load) [0.06ms]
+(pass) init failure handling > rejected init does not leave isEmbeddingReady() stuck as true [0.08ms]
+(pass) init failure handling > after a failed init, a fresh call retries pipeline() and can succeed [0.08ms]
+
+ 14 pass
+ 0 fail
+ 35 expect() calls
+Ran 14 tests across 1 file. [684.00ms]

@@ -1,0 +1,85 @@
+const bun = required("EZ_REPRO_BUN");
+const root = required("EZ_REPRO_ROOT");
+const snapshotRoot = required("EZ_REPRO_SNAPSHOT_ROOT");
+const modes = ["noals-single", "als-single", "noals-admit-read", "als-admit-read", "noals-admit-jsstream-read", "als-admit-jsstream-read", "als-response-only"] as const;
+const warmRequests = 10;
+const measuredRequests = 500;
+const payload = JSON.stringify({ tool: "extensions_inspect", input: { text: "x".repeat(4096 - 63) } });
+const payloadBytes = new TextEncoder().encode(payload);
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error("Missing " + name);
+  return value;
+}
+async function ready(child: ReturnType<typeof Bun.spawn>): Promise<number> {
+  if (!child.stdout) throw new Error("server stdout missing");
+  const reader = child.stdout.getReader();
+  let text = "";
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) throw new Error("server exited before ready: " + text);
+      text += new TextDecoder().decode(next.value);
+      const newline = text.indexOf("\n");
+      if (newline < 0) continue;
+      const parsed = JSON.parse(text.slice(0, newline)) as { kind?: string; port?: number };
+      if (parsed.kind === "ready" && typeof parsed.port === "number") return parsed.port;
+      throw new Error("server emitted an invalid ready record");
+    }
+  } finally { reader.releaseLock(); }
+}
+async function request(origin: string, path: string, init?: RequestInit): Promise<{ ok: true; mode: string }> {
+  const response = await fetch(origin + path, init);
+  if (!response.ok) throw new Error(path + " returned " + response.status);
+  const data = await response.json() as { ok?: unknown; mode?: unknown };
+  if (data.ok !== true || typeof data.mode !== "string") throw new Error(path + " returned an invalid body");
+  return data as { ok: true; mode: string };
+}
+function workInit(mode: string): RequestInit {
+  return mode === "als-response-only" ? { headers: { connection: "close" } } : {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(payloadBytes.byteLength),
+      connection: "close",
+    },
+    body: payload,
+  };
+}
+async function send(origin: string, mode: string, count: number): Promise<void> {
+  for (let index = 0; index < count; index++) {
+    const result = await request(origin, "/api/extensions/control", workInit(mode));
+    if (result.mode !== mode) throw new Error("work response mode mismatch at " + index);
+  }
+}
+async function metrics(origin: string, path: "/__metrics" | "/__snapshot"): Promise<unknown> {
+  const response = await fetch(origin + path, { method: "POST", headers: { connection: "close" } });
+  if (!response.ok) throw new Error(path + " returned " + response.status);
+  return response.json();
+}
+async function run(mode: (typeof modes)[number]): Promise<unknown> {
+  const snapshot = snapshotRoot + "/" + mode + ".heapsnapshot";
+  const childrenFile = process.env.EZ_REPRO_CHILDREN_FILE;
+  const child = Bun.spawn([bun, root + "/server.ts"], {
+    cwd: root,
+    env: { ...process.env, EZ_REPRO_MODE: mode, EZ_REPRO_SNAPSHOT: snapshot },
+    stdout: "pipe", stderr: "pipe",
+  });
+  try {
+    if (childrenFile) await Bun.write(childrenFile, String(child.pid) + "\n", { createPath: true, append: true });
+    const origin = "http://127.0.0.1:" + await ready(child);
+    await send(origin, mode, warmRequests);
+    const warm = await metrics(origin, "/__metrics");
+    await send(origin, mode, measuredRequests);
+    const first = await metrics(origin, "/__metrics");
+    await send(origin, mode, measuredRequests);
+    const final = await metrics(origin, "/__snapshot");
+    return { warm, first, final, snapshot };
+  } finally {
+    child.kill();
+    await child.exited;
+  }
+}
+const results: Record<string, unknown> = {};
+for (const mode of modes) results[mode] = await run(mode);
+console.log(JSON.stringify({ kind: "result", runtime: Bun.version, warmRequests, measuredRequests, batches: 2, payloadBytes: payloadBytes.byteLength, results }));

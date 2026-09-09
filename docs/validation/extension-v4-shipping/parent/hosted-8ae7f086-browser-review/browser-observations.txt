@@ -1,0 +1,22 @@
+Scope: terminal results from hosted CI run 34161268825, head 8ae7f0860728741c0918729452a8ec846cf6ed29.
+
+Results:
+- E2E mock lane: 255 passed, 13 skipped.
+- E2E real auth + real DB: runner setup reported kernel controls verified, then 62 passed.
+- Extension lifecycle: Firefox 3 passed; WebKit 3 passed.
+- Visual evidence: mock lane 191 passed; real-auth lane 13 passed; EVIDENCE_SKIPPED was empty.
+- Web Bun-leg job completed after reporting 220 orphaned files.
+- Web Vitest shards: 183 files / 2413 tests, 183 / 2418, and 183 / 2314 passed.
+- Web security coverage reported 18 Bun:test suites and completed successfully.
+
+Retry scope:
+- The retained job logs do not publish a numeric Playwright retry summary. This record makes no zero-retry claim.
+
+Observed log boundaries:
+- The passing mock and visual jobs contain hooks.server 500 {} records. Their request-level cause is not established by retained terminal logs.
+- Passing lifecycle and real-auth logs contain task-tracking-unavailable warnings. Passing real-auth logs also show model-capability skips, blocked-egress/read-url warnings, a delegation-not-found workflow warning, and an observed 404. Test-result and request-level linkage is not asserted here.
+- GitHub post-job cleanup lines appear in every retained terminal job log. They establish only that GitHub ran its post-job phase, not complete application/fixture cleanup.
+
+Stale-probe boundary:
+- The real-auth job completed runner setup, logged "Extension runner kernel controls verified", and then completed 62 real-auth cases. It did not fail on the deleted sandbox-spawn probe.
+- Generic build externalization warnings that contain "Module not found" for runtime builtins (bun, bun:ffi, child_process, fs, path) are distinct from the removed-probe failure and do not indicate that stale command.

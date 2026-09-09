@@ -1,0 +1,3 @@
+This directory contains safe metadata only.
+Private-only material: raw hosted job logs, downloaded browser artifacts, Playwright blobs, traces, screenshots, auth/session state, and any artifact payload.
+Raw job log paths and hashes are listed in raw-log-mapping.tsv. Artifact IDs, published digests, and published sizes are listed in artifact-mapping.tsv. No raw archive or log bytes are copied here.

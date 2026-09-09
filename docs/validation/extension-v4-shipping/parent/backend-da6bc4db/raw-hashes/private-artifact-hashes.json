@@ -1,0 +1,78 @@
+{
+  "private_only": true,
+  "files": [
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend-complete.log",
+      "sha256": "a2085847bffcb7b782476f39a0fe2947884deef3565652d2783cee048b8d1146",
+      "bytes": 99
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/authored-whitespace.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/coverage.log",
+      "sha256": "53a6de4ba115b188fbeb2db766de9e2d200e9f193e79e54889f4638cdc42ba47",
+      "bytes": 156313
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/residual.log",
+      "sha256": "01412d68b27be2c72262c6be4f0b7724f276b7f5e98b85f8ed9e351bf78d6996",
+      "bytes": 440
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/new-file-coverage.log",
+      "sha256": "9393a83b083f604fa5840a3ba7ae38bcfa765db6608fd84a2e089c70be488b68",
+      "bytes": 61
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/patch-coverage.log",
+      "sha256": "15ef2ce44795e5cb66a9314114358e5e5151c30df90a1f26ae2331e6ea3bd093",
+      "bytes": 80
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/runner-probe.log",
+      "sha256": "254d14a604c7b3d38cfcbed1e945f2f525fcd46a4365bf0858ef21e0ac52c2de",
+      "bytes": 42
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/lcov.info",
+      "sha256": "4633a9eb67ad3e9510b50c27f6de106c3b2152686def706f21e29f062b4c663f",
+      "bytes": 1559455,
+      "kind": "raw_lcov_private"
+    }
+  ],
+  "terminal_records": [
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/controller.exit",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "text": "1"
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/results.tsv",
+      "sha256": "777a0c867ceb84d5bb7229e6bace701455ded11514261b55ec097383e6b5f0ff",
+      "bytes": 47,
+      "text": "backend-complete\t1\t740\nauthored-whitespace\t0\t0"
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/exit",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "text": "1"
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/exits.tsv",
+      "sha256": "adf0b7de7b67316ec004da32802d751fefb1e5bdaab02d8a136b0e489286292d",
+      "bytes": 74,
+      "text": "runner-probe\t0\ncoverage\t0\nresidual\t1\nnew-file-coverage\t0\npatch-coverage\t0"
+    },
+    {
+      "private_path": ".cache/terra-shipping/parent/merged-backend-da6bc4db/backend/provenance.txt",
+      "sha256": "354fbc406daf0551ac241dd92be098c7afd427eaa68f3b67c8032ffe2b74b4af",
+      "bytes": 324,
+      "text": "worktree=/home/dev/work/EZCorp/extension-v4-independent-audit\nsource=da6bc4db6326696347d76a2225677954b31d3a2b\ntree=be66104272e97354db0f54d8aa5e614ddff5d0ba\nbase_ref=origin/main\nbase=bd7364388d0106364864e18a3d321b13ba978c36\nbun=1.3.14\nnode=v22.22.2\nconmon=/tmp/ez-audit-ci-conmon\nrunner_probe=not-yet-run\nrunner_probe_exit=0"
+    }
+  ]
+}

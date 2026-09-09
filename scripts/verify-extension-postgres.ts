@@ -1,0 +1,235 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { SQL } from "bun";
+import { drizzle } from "drizzle-orm/bun-sql";
+import { sql } from "drizzle-orm";
+import { up } from "../src/db/migrations/add-extension-releases";
+import { up as upEventReceipts } from "../src/db/migrations/add-extension-event-receipts";
+import { up as upBrowserRequests } from "../src/db/migrations/add-extension-browser-requests";
+import { up as upDelegationRelease } from "../src/db/migrations/add-workflow-delegation-release";
+import { BrowserInvocationStore } from "../src/db/queries/extension-browser-requests";
+import { claimBrowserInvocation } from "../src/extensions/browser-invocation-control";
+import { admitEventInTransaction, getEventReceipt, purgeExpiredEventReceipts, EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_OWNER_LIMIT, EVENT_RECEIPT_GLOBAL_LIMIT } from "../src/db/queries/extension-event-receipts";
+import { publishDomainEvent } from "../src/extensions/domain-event-outbox";
+import type { MigrationDb } from "../src/db/migrations/types";
+import { DatabaseLifecycleRepository } from "../src/db/queries/extension-releases";
+import { readWorkflowAuthorityUser, readWorkflowAuthorityMembership, readWorkflowAuthorityRun } from "../src/db/queries/workflow-authority";
+import { resolveExtensionReleaseSnapshot } from "../src/extensions/extension-lifecycle-service";
+import { configureReleaseRuntime, releaseBinding } from "../src/extensions/release-process";
+import { workflowReleaseCanExecute } from "../src/runtime/workflow-release-assets";
+import { buildWorkflowReleaseConsent } from "../src/runtime/workflow-release-consent";
+import { workflowExecutionHash } from "../src/runtime/workflow-definition-hash";
+import type { CachedWorkflow } from "../src/runtime/workflow-scope";
+import { ExtensionDeliveryQueue } from "../src/extensions/v4/deliveries";
+import { ExtensionDataMigrations } from "../src/extensions/v4/data-migrations";
+import type { OperationRecord, ReleaseRecord } from "@ezcorp/extension-contract";
+
+const url = process.env.EXTENSION_TEST_POSTGRES_URL;
+if (!url) throw new Error("EXTENSION_TEST_POSTGRES_URL must identify a disposable PostgreSQL database.");
+const client = new SQL(url, { max: 1 });
+const schema = `extension_validation_${randomUUID().replaceAll("-", "")}`;
+try {
+  await client.unsafe(`CREATE SCHEMA ${schema}`);
+  await client.unsafe(`SET search_path TO ${schema}`);
+  await client.unsafe("CREATE TABLE extension_storage (id TEXT PRIMARY KEY, extension_id TEXT NOT NULL, scope TEXT NOT NULL, scope_id TEXT, key TEXT NOT NULL, value JSONB NOT NULL, encrypted BOOLEAN NOT NULL DEFAULT FALSE, size_bytes INTEGER NOT NULL, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  const driver = drizzle(client);
+  await up(driver);
+  await up(driver);
+  await upEventReceipts(driver);
+  await upEventReceipts(driver);
+  await upBrowserRequests(driver);
+  await upBrowserRequests(driver);
+  const browserPeer = new SQL(url, { max: 1 });
+  try {
+    await browserPeer.unsafe(`SET search_path TO ${schema}`);
+    const firstStore = new BrowserInvocationStore(driver);
+    const peerStore = new BrowserInvocationStore(drizzle(browserPeer));
+    const identity = { principalId: "owner", installationId: "installation", releaseBinding: "a".repeat(64), conversationId: "conversation", payloadDigest: "b".repeat(64), deadline: Date.now() + 60_000 };
+    const ticket = await firstStore.prepare(identity);
+    const claimed = await claimBrowserInvocation(identity, ticket.requestId, identity.payloadDigest, firstStore);
+    let releaseEffect!: () => void;
+    let admitted!: () => void;
+    const held = new Promise<void>(resolve => { releaseEffect = resolve; });
+    const entered = new Promise<void>(resolve => { admitted = resolve; });
+    const effect = driver.transaction(async transaction => {
+      await claimed.assertActive(transaction);
+      admitted();
+      await held;
+      await transaction.execute(sql`CREATE TABLE browser_effect_proof(id INTEGER)`);
+      await transaction.execute(sql`INSERT INTO browser_effect_proof VALUES(1)`);
+    });
+    await entered;
+    let cancelReturned = false;
+    const cancelled = peerStore.cancel(identity, ticket.requestId).then(result => { cancelReturned = true; return result; });
+    await Bun.sleep(100);
+    const cancelledBeforeCommit = cancelReturned;
+    releaseEffect();
+    await effect;
+    assert.equal(cancelledBeforeCommit, false, "cancel must wait for an admitted SQL effect transaction");
+    assert.equal((await cancelled).state, "cancel_requested");
+    await Bun.sleep(150);
+    assert.equal(claimed.signal.aborted, true, "another app connection cancels the running host");
+    await assert.rejects(driver.transaction(transaction => claimed.assertActive(transaction)));
+    assert.equal((await client.unsafe("SELECT COUNT(*)::int AS total FROM browser_effect_proof"))[0].total, 1);
+    await claimed.finish("failed");
+    await claimed.dispose();
+    const before = await firstStore.prepare(identity);
+    await peerStore.cancel(identity, before.requestId);
+    await assert.rejects(firstStore.claim(identity, before.requestId, identity.payloadDigest));
+    const concurrent = await firstStore.prepare(identity);
+    const winners = await Promise.allSettled([firstStore, peerStore].map(store => store.claim(identity, concurrent.requestId, identity.payloadDigest)));
+    assert.equal(winners.filter(result => result.status === "fulfilled").length, 1);
+    await assert.rejects(peerStore.cancel({ ...identity, principalId: "foreign" }, concurrent.requestId));
+    const restarted = new BrowserInvocationStore(drizzle(browserPeer));
+    await assert.rejects(restarted.claim(identity, concurrent.requestId, identity.payloadDigest));
+  } finally { await browserPeer.close(); }
+  const repository = new DatabaseLifecycleRepository(driver);
+  const installation = { id: randomUUID(), ownerId: "owner", scope: "global", activeReleaseId: "release-one", generation: 1, enabled: true, uninstalled: false, status: "active" as const, grants: [], acknowledgedGeneration: 1 };
+  const operation: OperationRecord = { id: randomUUID(), kind: "activate", state: "activating", idempotencyKey: "pg", inputDigest: "a".repeat(64), diagnostics: [], events: [], lease: { holder: randomUUID(), until: Date.now() + 60_000, fence: 1 }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const previous: ReleaseRecord = { id: "release-one", installationId: installation.id, workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "a".repeat(64), artifactDigest: "b".repeat(64), imageDigest: "image", runnerProfile: "podman", policyDigest: "c".repeat(64), releaseDigest: "d".repeat(64), createdAt: new Date().toISOString(), evidence: { protocolVersion: 4, validatorVersion: "test", discoveryDigest: "e".repeat(64), tests: [{ name: "test", passed: true }] }, manifest: { schemaVersion: 4, name: "fixture", version: "1.0.0", author: { name: "Test" }, description: "Test", permissions: {}, dataSchema: { version: "1", readableVersions: ["1"] } } };
+  const release: ReleaseRecord = { ...previous, id: "release-two", manifest: { ...previous.manifest, entrypoint: "extension.ts", methods: [{ name: "migrate", inputSchema: { type: "object" }, outputSchema: { type: "object" } }], dataSchema: { version: "2", readableVersions: ["2"], migrateMethod: "migrate" } } };
+  await repository.create({ installation, workspaces: {}, revisions: {}, releases: { [previous.id]: previous, [release.id]: release }, operations: { [operation.id]: operation }, approvals: {} });
+  assert.deepEqual((await repository.read(installation.id))?.releases[previous.id], previous);
+  const competing = await Promise.allSettled([1, 2].map(() => repository.transact(installation.id, (state) => { if (state.installation.generation !== 1) throw new Error("conflict"); state.installation.generation = 2; })));
+  assert.equal(competing.filter((result) => result.status === "fulfilled").length, 1);
+  await assert.rejects(repository.transact(installation.id, (state) => { state.installation.generation = 3; throw new Error("rollback"); }));
+  assert.equal((await repository.read(installation.id))?.installation.generation, 2);
+  await client.unsafe("INSERT INTO extension_storage (id,extension_id,scope,scope_id,key,value,size_bytes) VALUES ($1,$2,'user','owner','data',($3::text)::jsonb,1)", [randomUUID(), installation.id, JSON.stringify({ quote: "a\"b", nested: [1, true, null] })]);
+  const migrations = new ExtensionDataMigrations(driver, async (input) => ({ values: { data: { migrated: input.values.data } } }));
+  await migrations.prepare(installation, previous, release, operation);
+  await assert.rejects(client.unsafe("UPDATE extension_storage SET value='{}' WHERE extension_id=$1", [installation.id]));
+  await repository.transact(installation.id, (state) => { state.installation.activeReleaseId = release.id; state.operations[operation.id]!.state = "reconciling"; });
+  await migrations.finalize(installation.id);
+  const stored = await client.unsafe("SELECT value FROM extension_storage WHERE extension_id=$1", [installation.id]);
+  assert.deepEqual(stored[0].value, { migrated: { quote: "a\"b", nested: [1, true, null] } });
+  const queue = new ExtensionDeliveryQueue(driver);
+  await client.unsafe("CREATE TABLE users(id TEXT PRIMARY KEY,status TEXT,role TEXT DEFAULT 'member'); CREATE TABLE project_members(user_id TEXT,project_id TEXT); CREATE TABLE conversations(id TEXT PRIMARY KEY,user_id TEXT,project_id TEXT,title TEXT); CREATE TABLE extensions(id TEXT PRIMARY KEY,name TEXT,enabled BOOLEAN,granted_permissions JSONB); CREATE TABLE conversation_extensions(conversation_id TEXT,extension_id TEXT,effective_granted_permissions JSONB)");
+  await client.unsafe("INSERT INTO users(id,status) VALUES ('owner','active'); INSERT INTO conversations VALUES ('conversation','owner',NULL,'original'); INSERT INTO project_members VALUES ('owner','project'); CREATE TABLE authority_effect_proof(label TEXT PRIMARY KEY)");
+  const authorityPeer = new SQL(url, { max: 1 });
+  try {
+    await authorityPeer.unsafe(`SET search_path TO ${schema}`);
+    const peerId = (await authorityPeer.unsafe("SELECT pg_backend_pid() AS id"))[0].id;
+    const ownerConnectionId = (await client.unsafe("SELECT pg_backend_pid() AS id"))[0].id;
+    const proveFence = async (label: string, read: (transaction: MigrationDb) => Promise<void>, revoke: () => Promise<unknown>, write?: (transaction: MigrationDb) => Promise<void>) => {
+      let revoked: Promise<{ ok: boolean; error?: unknown }> | undefined;
+      await driver.transaction(async transaction => {
+        await read(transaction);
+        revoked = revoke().then(() => ({ ok: true }), error => ({ ok: false, error }));
+        const deadline = Date.now() + 5000;
+        while (true) {
+          const blockers = await transaction.execute(sql`SELECT pg_blocking_pids(${peerId}::int) AS blockers`);
+          assert.ok(blockers[0], "PostgreSQL must report the observed connection blockers");
+          if ((blockers[0].blockers as number[]).includes(ownerConnectionId)) break;
+          assert.ok(Date.now() < deadline, `${label} revocation did not wait for the admitted effect transaction`);
+          await Bun.sleep(10);
+        }
+        await write?.(transaction);
+        await transaction.execute(sql`INSERT INTO authority_effect_proof VALUES (${label})`);
+      });
+      assert.deepEqual(await revoked, { ok: true });
+    };
+    const active = (await repository.read(installation.id))!.installation;
+    await proveFence("release", async transaction => {
+      assert.equal((await repository.read(installation.id, transaction))?.installation.enabled, true);
+    }, () => authorityPeer.unsafe("UPDATE extension_release_installations SET payload=$1 WHERE id=$2", [JSON.stringify({ ...active, enabled: false, generation: active.generation + 1 }), installation.id]));
+    assert.equal((await repository.read(installation.id))?.installation.enabled, false);
+    await repository.transact(installation.id, state => { state.installation = active; });
+    await proveFence("publication", async transaction => {
+      assert.equal((await resolveExtensionReleaseSnapshot(repository, migrations, installation.id, transaction))?.installation.enabled, true);
+    }, () => drizzle(authorityPeer).transaction(async transaction => {
+      await transaction.execute(sql`LOCK TABLE extension_storage IN SHARE ROW EXCLUSIVE MODE`);
+      await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installation.id} FOR UPDATE`);
+      await transaction.execute(sql`UPDATE extension_release_installations SET payload = ${JSON.stringify({ ...active, enabled: false, generation: active.generation + 1 })} WHERE id = ${installation.id}`);
+    }), async transaction => {
+      await transaction.execute(sql`INSERT INTO extension_storage (id, extension_id, scope, key, value, size_bytes) VALUES ('guarded-publication-effect', ${installation.id}, 'global', 'publication', '{}'::jsonb, 2)`);
+    });
+    assert.equal(await driver.transaction(transaction => resolveExtensionReleaseSnapshot(repository, migrations, installation.id, transaction)), null);
+    await repository.transact(installation.id, state => { state.installation = active; });
+    await proveFence("owner", async transaction => {
+      assert.equal((await readWorkflowAuthorityUser("owner", transaction))?.status, "active");
+    }, () => authorityPeer.unsafe("UPDATE users SET status='inactive' WHERE id='owner'"));
+    assert.equal((await readWorkflowAuthorityUser("owner", driver))?.status, "inactive");
+    await client.unsafe("UPDATE users SET status='active' WHERE id='owner'");
+    await proveFence("membership", async transaction => {
+      assert.equal(await readWorkflowAuthorityMembership("owner", "project", transaction), true);
+    }, () => authorityPeer.unsafe("DELETE FROM project_members WHERE user_id='owner' AND project_id='project'"));
+    assert.equal(await readWorkflowAuthorityMembership("owner", "project", driver), false);
+    await client.unsafe("CREATE TABLE service_accounts(id TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT true,project_id TEXT); CREATE TABLE workflow_delegations(id TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT true,revoked_at TIMESTAMPTZ,owner_kind TEXT,owner_user_id TEXT,owner_service_account_id TEXT,workflow_name TEXT,project_id TEXT,extension_id TEXT,consented_by_user_id TEXT); CREATE TABLE workflow_runs(id TEXT PRIMARY KEY,status TEXT,user_id TEXT,run_as_kind TEXT,run_as TEXT,delegation_id TEXT,project_id TEXT,workflow_name TEXT,definition_hash TEXT,parent_run_id TEXT)");
+    await upDelegationRelease(driver);
+    await upDelegationRelease(driver);
+    await repository.transact(installation.id, state => { state.installation.acknowledgedGeneration = state.installation.generation; });
+    configureReleaseRuntime({ runner: async () => { throw new Error("SQL authority checks must not start a worker"); }, resolve: (id, transaction) => resolveExtensionReleaseSnapshot(repository, migrations, id, transaction) });
+    const snapshot = await resolveExtensionReleaseSnapshot(repository, migrations, installation.id);
+    assert.ok(snapshot);
+    const entry: CachedWorkflow = { definition: { name: "fixture:service", description: "Service SQL proof", steps: [] }, source: "extension", visibility: "private", userId: "owner", projectId: null, id: null, forkedFrom: null, extensionRelease: { installationId: installation.id, ownerId: "owner", scope: "global", binding: releaseBinding(snapshot) } };
+    const consent = buildWorkflowReleaseConsent({ release: entry.extensionRelease!, workflowName: entry.definition.name, ownerKind: "service", ownerId: "service", projectId: null }, [entry]);
+    await client.unsafe("INSERT INTO service_accounts(id) VALUES ('service')");
+    await client.unsafe("INSERT INTO workflow_delegations(id,owner_kind,owner_service_account_id,workflow_name,extension_id,consented_by_user_id,extension_release_binding) VALUES ('service-delegation','service','service',$1,$2,'owner',$3)", [entry.definition.name, installation.id, consent]);
+    const authority = { userId: null, runAsKind: "service", runAs: "service", delegationId: "service-delegation", projectId: null };
+    const canExecute = (transaction: MigrationDb) => workflowReleaseCanExecute(entry, authority, transaction);
+    await proveFence("service", async transaction => { assert.equal(await canExecute(transaction), true); }, () => authorityPeer.unsafe("UPDATE service_accounts SET enabled=false WHERE id='service'"));
+    assert.equal(await driver.transaction(canExecute), false);
+    await client.unsafe("UPDATE service_accounts SET enabled=true WHERE id='service'");
+    await proveFence("delegation", async transaction => { assert.equal(await canExecute(transaction), true); }, () => authorityPeer.unsafe("UPDATE workflow_delegations SET revoked_at=NOW() WHERE id='service-delegation'"));
+    assert.equal(await driver.transaction(canExecute), false);
+    await client.unsafe("UPDATE workflow_delegations SET revoked_at=NULL WHERE id='service-delegation'");
+    await client.unsafe("INSERT INTO workflow_runs(id,status,run_as_kind,run_as,delegation_id,workflow_name,definition_hash) VALUES ('service-run','running','service','service','service-delegation',$1,$2)", [entry.definition.name, workflowExecutionHash(entry.definition, entry.extensionRelease)]);
+    await proveFence("service-run", async transaction => {
+      assert.equal((await readWorkflowAuthorityRun("service-run", transaction))?.status, "running");
+      assert.equal(await canExecute(transaction), true);
+    }, () => authorityPeer.unsafe("UPDATE workflow_runs SET status='cancelled' WHERE id='service-run'"));
+    assert.equal((await readWorkflowAuthorityRun("service-run", driver))?.status, "cancelled");
+    assert.equal((await client.unsafe("SELECT COUNT(*)::int AS total FROM authority_effect_proof"))[0].total, 7);
+  } finally { await authorityPeer.close(); }
+  await client.unsafe("INSERT INTO conversation_extensions VALUES ('conversation',$1,NULL)", [installation.id]);
+  await client.unsafe("INSERT INTO extensions VALUES ($1,'fixture',true,($2::text)::jsonb)", [installation.id, JSON.stringify({ eventSubscriptions: ["tool:complete"] })]);
+  await repository.transact(installation.id, state => { state.installation.grants = [JSON.stringify(["eventSubscriptions", ["tool:complete"]])]; });
+  const admission = { principalId: "owner", namespace: "tool:complete", key: "source-one", scope: "conversation", payload: { conversationId: "conversation", toolName: 'quoted "event"', input: { private: true } } };
+  const admit = (transaction: MigrationDb) => admitEventInTransaction(transaction, admission, id => publishDomainEvent(transaction, { id, type: "tool:complete", conversationId: "conversation", payload: admission.payload }), 0);
+  await assert.rejects(driver.transaction(async transaction => {
+    await transaction.execute(sql`UPDATE conversations SET title = 'uncommitted' WHERE id = 'conversation'`);
+    await admit(transaction);
+    throw new Error("precommit event crash");
+  }));
+  assert.equal(await getEventReceipt(driver, admission), null);
+  assert.equal(await queue.claim(), null);
+  assert.equal((await client.unsafe("SELECT title FROM conversations WHERE id='conversation'"))[0].title, "original");
+  const admitted = await driver.transaction(admit);
+  assert.equal(admitted.receipt.deliveryIds.length, 1);
+  assert.equal((await driver.transaction(admit)).accepted, false);
+  await assert.rejects(driver.transaction(transaction => admitEventInTransaction(transaction, { ...admission, payload: { changed: true } }, async () => [])), { code: "event_conflict" });
+  assert.equal(await getEventReceipt(driver, { ...admission, principalId: "another-owner" }), null);
+  assert.equal(await driver.transaction(transaction => purgeExpiredEventReceipts(transaction, EVENT_RECEIPT_RETENTION_MS)), 0);
+  const recoveredQueue = new ExtensionDeliveryQueue(driver);
+  assert.equal((await recoveredQueue.dispatch(async event => {
+    assert.equal((event.input as { params: { toolName: string } }).params.toolName, admission.payload.toolName);
+    assert.equal(Object.hasOwn((event.input as { params: object }).params, "input"), false);
+  }))?.state, "delivered");
+  assert.equal(await recoveredQueue.claim(), null);
+  assert.equal(await driver.transaction(transaction => purgeExpiredEventReceipts(transaction, EVENT_RECEIPT_RETENTION_MS)), 1);
+  const emptyAdmission = { ...admission, key: "zero-recipients" };
+  assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => []))).accepted, true);
+  assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => { throw new Error("replayed zero-recipient event"); }))).accepted, false);
+  await client.unsafe("INSERT INTO extension_event_receipts(id,principal_id,identity_digest,retain_until,payload) SELECT 'quota-' || generate_series, 'owner', 'digest', $1, '{}' FROM generate_series(1,$2)", [EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_OWNER_LIMIT - 2]);
+  const competingClient = new SQL(url, { max: 1 });
+  try {
+    await competingClient.unsafe(`SET search_path TO ${schema}`);
+    const competingDriver = drizzle(competingClient);
+    const admissions = await Promise.allSettled([driver, competingDriver].map((database, index) => database.transaction(transaction => admitEventInTransaction(transaction, { ...admission, key: `concurrent-${index}` }, async () => []))));
+    assert.equal(admissions.filter(result => result.status === "fulfilled").length, 1);
+    assert.equal(admissions.filter(result => result.status === "rejected" && result.reason.code === "event_admission_full").length, 1);
+  } finally { await competingClient.close(); }
+  assert.equal((await driver.transaction(transaction => admitEventInTransaction(transaction, emptyAdmission, async () => []))).accepted, false);
+  await client.unsafe("INSERT INTO extension_event_receipts(id,principal_id,identity_digest,retain_until,payload) SELECT 'global-' || generate_series, 'other-' || generate_series, 'digest', $1, '{}' FROM generate_series(1,$2)", [EVENT_RECEIPT_RETENTION_MS, EVENT_RECEIPT_GLOBAL_LIMIT - EVENT_RECEIPT_OWNER_LIMIT]);
+  await assert.rejects(driver.transaction(transaction => admitEventInTransaction(transaction, { ...admission, principalId: "new-owner", key: "global-full" }, async () => [])), { code: "event_admission_full" });
+  const delivery = await queue.enqueue({ installationId: installation.id, releaseId: release.id, generation: 2, principalId: "owner", scope: "global", deduplicationId: randomUUID(), kind: "event", input: { event: "example" } });
+  const claimed = await queue.claim();
+  assert.equal(claimed?.id, delivery.id);
+  await repository.transact(installation.id, (state) => { state.installation.enabled = false; state.installation.generation += 1; });
+  assert.equal((await queue.inspect(installation.id, delivery.id))?.state, "cancelled");
+  console.log("PostgreSQL lifecycle validation passed: JSON fidelity, competing writes, rollback, storage migration gate, delivery fencing, atomic event receipts, replay, scoped identity, retention, recovery, cross-host browser cancellation, and release/owner/membership/service/delegation/run revocation ordered after admitted SQL effects.");
+} finally {
+  await client.unsafe("SET search_path TO public");
+  await client.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+  await client.close();
+}

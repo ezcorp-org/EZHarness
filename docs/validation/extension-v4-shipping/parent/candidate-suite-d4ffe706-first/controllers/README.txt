@@ -1,0 +1,3 @@
+These are frozen controller inputs for the first d4ffe706 canonical run. The first run recorded SHA-256 values but did not retain private controller bytes. The four controller/stage files match their values in `receipt-controller-and-verifier.sha256.txt`.
+
+`verify-checkout-image-source.sh.txt` is a byte-matched reconstruction. The live private helper was later replaced for the post-R1 run. The reconstruction restores the one-path checkout allowance and hashes to `f5b9f72cefddf7f79bf1a1ae9f0c7ba9ee9d1cd563e38e9df7e6004136405150`, exactly the SHA recorded by the first-run receipt. It is not claimed as an originally retained file.

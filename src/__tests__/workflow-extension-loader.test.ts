@@ -7,7 +7,7 @@
  * `demo-deterministic` would silently replace the host's. Every test below
  * that touches naming exists to prove that cannot happen.
  */
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +50,19 @@ const VALID_YAML = (name: string) =>
   `name: ${name}\ndescription: a shipped workflow\nsteps:\n  - name: emit\n    kind: transform\n    output:\n      hello: world\n`;
 
 describe("loadExtensionWorkflows — discovery", () => {
+  test("an unreadable workflow asset cannot abort discovery of a valid sibling", async () => {
+    const source = await installExtension("my-ext", { "valid.workflow.yaml": VALID_YAML("valid"), "unreadable.workflow.yaml": VALID_YAML("unreadable") });
+    const original = Bun.file;
+    const read = spyOn(Bun, "file").mockImplementation((path) => {
+      if (String(path).endsWith("unreadable.workflow.yaml")) throw new Error("Asset read failed");
+      return original(path as string);
+    });
+    try {
+      const loaded = await loadExtensionWorkflows([source]);
+      expect(loaded.map(workflow => workflow.name)).toEqual(["my-ext:valid"]);
+    } finally { read.mockRestore(); }
+  });
+
   test("loads a *.workflow.yaml from the extension's own install path", async () => {
     const src = await installExtension("my-ext", {
       "deploy.workflow.yaml": VALID_YAML("deploy"),

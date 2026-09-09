@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
   TaskStatus,
@@ -122,12 +123,13 @@ mock.module("$lib/server/context", () => ({
 // ── Mock task-tracking-host ────────────────────────────────────────
 
 const mockGetTaskSnapshotForConversation = mock(async (_id: string) => taskStore);
-const mockWriteTaskSnapshotForConversation = mock(async (..._args: any[]) => {});
+const mockWriteTaskSnapshotForConversation = mock(taskSnapshotPort);
 const mockEnsureTaskTrackingWired = mock(async (..._args: any[]) => {});
 
 mock.module("$server/runtime/task-tracking-host", () => ({
   getTaskSnapshotForConversation: mockGetTaskSnapshotForConversation,
   writeTaskSnapshotForConversation: mockWriteTaskSnapshotForConversation,
+  writeTaskAssignmentForConversation: taskAssignmentPort,
   ensureTaskTrackingWired: mockEnsureTaskTrackingWired,
   getTaskTrackingExtensionId: async () => "ext-tt",
 }));

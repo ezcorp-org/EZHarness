@@ -1,0 +1,5 @@
+{
+  "indexes": 120,
+  "indexed_files_checked": 4819,
+  "errors": []
+}

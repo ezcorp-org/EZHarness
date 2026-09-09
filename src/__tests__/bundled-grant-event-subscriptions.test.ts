@@ -1,280 +1,43 @@
-/**
- * Bundled-grant ↔ on-disk-manifest reconciliation for the
- * `eventSubscriptions` permission field.
- *
- * Reproduces the production bug: an extension was installed BEFORE
- * `eventSubscriptions: ["claude-design:knob-change"]` was added to its
- * `bundled.ts` entry. Subsequent boots ran `ensureBundledExtensions`
- * and called `detectAndLogManifestDrift`, but the legacy drift check
- * only inspected `network/filesystem/shell/env/storage/lifecycleHooks`
- * — `eventSubscriptions` divergence was invisible. The runtime
- * `granted_permissions` row therefore stayed empty for the field, the
- * dispatcher skipped registration, and `POST /api/extensions/claude-design/
- * events/knob-change` returned 404 from the SSE-filter gate.
- *
- * Closes link #2 (bundled grant) and #3 (drift detection) of the
- * canvas knob-change flow.
- *
- * Policy locked in by these tests (see `detectAndLogManifestDrift`'s
- * doc comment for the rationale):
- *   - eventSubscriptions: AUTO-HEAL via union-merge. Disk additions
- *     are propagated into both `granted_permissions.eventSubscriptions`
- *     AND `manifest.permissions.eventSubscriptions`, then audited as
- *     `BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED`.
- *   - network/filesystem/shell/env/storage: WARN-AND-FAIL-CLOSED
- *     (legacy MANIFEST_DRIFTED behavior, untouched here).
- *
- * The test names spell out the chosen policy so a reviewer who's
- * looking for "do we auto-heal X here?" can grep this file.
- */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+// Current immutable lifecycle regression coverage retained at the original suite path.
+import { expect, test } from "bun:test";
+import { actor, human, database, releaseFixture, approved } from "./helpers/durable-lifecycle-fixture";
 
-// ── Mock the DB-queries module so ensureBundledExtensions sees a
-// pre-seeded "claude-design" row whose grant lacks eventSubscriptions.
-import { createMockExtensionsStore, type MockExtensionRow } from "./helpers/mock-extensions-store";
-
-const extStore = createMockExtensionsStore({ keyBy: "name" });
-const store = extStore.store;
-
-mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: extStore.getExtensionByName,
-  createExtension: extStore.createExtension,
-  listExtensions: extStore.listExtensions,
-  updateExtension: extStore.updateExtension,
-  deleteExtension: extStore.deleteExtension,
-  incrementFailures: async () => 0,
-  resetFailures: async () => undefined,
-  disableExtension: async () => undefined,
-}));
-
-// Capture every audit_log write — drift, regrant, backfill — so each
-// test can assert on the exact action that fired.
-interface AuditCall {
-  action: string;
-  target?: string;
-  metadata?: Record<string, unknown>;
-}
-const auditCalls: AuditCall[] = [];
-mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async (
-    _userId: string | null,
-    action: string,
-    target?: string,
-    metadata?: Record<string, unknown>,
-  ) => {
-    auditCalls.push({
-      action,
-      ...(target !== undefined ? { target } : {}),
-      ...(metadata !== undefined ? { metadata } : {}),
-    });
-  },
-  listAuditLog: async () => [],
-  listAuditForExtension: async () => [],
-}));
-
-afterAll(() => restoreModuleMocks());
-
-import { ensureBundledExtensions } from "../extensions/bundled";
-import { EXT_AUDIT_ACTIONS } from "../extensions/audit-actions";
-
-beforeEach(() => {
-  extStore.reset();
-  auditCalls.length = 0;
-});
-
-// ── Helpers ──────────────────────────────────────────────────────────
-
-/** Seed the store with a "stale" claude-design row that mimics a
- *  pre-eventSubscriptions install. The on-disk manifest (loaded by
- *  ensureBundledExtensions via loadManifestFresh) declares the new
- *  subscription; this row's grant + manifest do not. */
-function seedStaleClaudeDesign(): MockExtensionRow {
-  const row: MockExtensionRow = {
-    id: "ext-stale-claude-design",
-    name: "claude-design",
-    installPath: "docs/extensions/examples/claude-design",
-    enabled: true,
-    isBundled: true,
-    manifest: {
-      schemaVersion: 2,
-      name: "claude-design",
-      // Match disk version exactly so the S9 version-bump gate doesn't
-      // engage — this test isolates the drift-vs-grant divergence.
-      version: "0.1.0",
-      permissions: {
-        filesystem: ["$CWD"],
-        shell: false,
-        storage: true,
-        network: ["cdn.jsdelivr.net"],
-        // eventSubscriptions intentionally missing — that's the bug.
-      },
-    },
-    grantedPermissions: {
-      filesystem: ["$CWD"],
-      storage: true,
-      network: ["cdn.jsdelivr.net"],
-      // eventSubscriptions intentionally missing — runtime would skip
-      // dispatcher registration → POST returns 404.
-      grantedAt: {
-        filesystem: 1,
-        storage: 1,
-        network: 1,
-      },
-    },
-  };
-  store.set(row.name, row);
-  return row;
-}
-
-// ── Tests ────────────────────────────────────────────────────────────
-
-describe("ensureBundledExtensions — eventSubscriptions auto-heal (drift policy)", () => {
-  // The on-disk manifest at `docs/extensions/examples/claude-design/`
-  // declares both `claude-design:knob-change` AND
-  // `claude-design:brief-answer` (the latter added with the form-card
-  // landing). The full disk set is used by every test here; ordering
-  // assertions sort first so the merge order isn't a contract.
-  const DISK_EVENTS = [
-    "claude-design:knob-change",
-    "claude-design:brief-answer",
-  ];
-
-  test("preexisting row with NO eventSubscriptions in grant → backfilled with disk additions", async () => {
-    seedStaleClaudeDesign();
-    await ensureBundledExtensions();
-    const row = store.get("claude-design")!;
-    // Auto-heal surfaces the full disk set on the runtime grant so the
-    // dispatcher picks them up.
-    expect((row.grantedPermissions.eventSubscriptions ?? []).slice().sort())
-      .toEqual([...DISK_EVENTS].sort());
-    // The DB-stored manifest's permissions block is also backfilled so
-    // future drift checks don't see a fake mismatch.
-    expect(
-      ((row.manifest.permissions as { eventSubscriptions?: string[] }).eventSubscriptions ?? []).slice().sort(),
-    ).toEqual([...DISK_EVENTS].sort());
-    // grantedAt timestamp tracks the heal.
-    expect(typeof row.grantedPermissions.grantedAt.eventSubscriptions).toBe("number");
+test("approval and lifecycle mutations audit atomically once with the real actor and retained release binding", async () => {
+    const setup = await releaseFixture();
+    const input = await approved(setup);
+    await setup.lifecycle.activate(actor, input);
+    await setup.lifecycle.activate(actor, input);
+    await setup.lifecycle.disable(human, input.installationId);
+    await setup.lifecycle.disable(human, input.installationId);
+    await setup.lifecycle.uninstall(human, input.installationId);
+    await setup.lifecycle.uninstall(human, input.installationId);
+    const rows = (await database.query<{ action: string; user_id: string; metadata: Record<string, unknown> }>("SELECT action, user_id, metadata FROM audit_log WHERE target = $1 ORDER BY created_at", [input.installationId])).rows;
+    for (const action of ["ext:approval_pending", "ext:approval_approved", "ext:approval_consumed", "ext:activated", "ext:disabled", "ext:uninstalled"]) expect(rows.filter((row) => row.action === action)).toHaveLength(1);
+    expect(rows.find((row) => row.action === "ext:approval_approved")).toMatchObject({ user_id: human.principalId, metadata: { actorKind: "human", approvalReleaseId: setup.releaseId } });
+    expect(rows.find((row) => row.action === "ext:uninstalled")).toMatchObject({ metadata: { purgeData: false, source: "release-v4", oldVersion: "1.0.0", releaseId: setup.releaseId } });
   });
 
-  test("backfill emits exactly one BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED audit row", async () => {
-    seedStaleClaudeDesign();
-    await ensureBundledExtensions();
-    const backfillAudits = auditCalls.filter(
-      (c) => c.action === EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED,
-    );
-    expect(backfillAudits).toHaveLength(1);
-    expect(backfillAudits[0]!.target).toBe("ext-stale-claude-design");
-    const meta = backfillAudits[0]!.metadata as {
-      permission: string;
-      oldValue: string[];
-      newValue: string[];
-      actor: string;
-    };
-    expect(meta.permission).toBe("eventSubscriptions");
-    expect(meta.oldValue).toEqual([]);
-    expect([...meta.newValue].sort()).toEqual([...DISK_EVENTS].sort());
-    expect(meta.actor).toBe("system");
+test("audit storage failure rolls back consent and retry cannot duplicate the decision", async () => {
+    const setup = await releaseFixture();
+    const approval = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: [], expectedActiveReleaseId: null });
+    await database.exec("ALTER TABLE audit_log RENAME TO unavailable_audit_log");
+    try { await expect(setup.lifecycle.approve(human, setup.installation.id, approval.id, true)).rejects.toThrow(); }
+    finally { await database.exec("ALTER TABLE unavailable_audit_log RENAME TO audit_log"); }
+    expect((await setup.lifecycle.inspect(actor, setup.installation.id)).approvals[approval.id]?.status).toBe("pending");
+    await setup.lifecycle.approve(human, setup.installation.id, approval.id, true);
+    expect((await database.query("SELECT id FROM audit_log WHERE target = $1 AND action = 'ext:approval_approved'", [setup.installation.id])).rows).toHaveLength(1);
   });
 
-  test("backfill is idempotent — second boot does not re-fire the audit", async () => {
-    seedStaleClaudeDesign();
-    await ensureBundledExtensions();
-    auditCalls.length = 0; // discard first-boot audits
-    await ensureBundledExtensions();
-    expect(
-      auditCalls.filter(
-        (c) => c.action === EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED,
-      ),
-    ).toHaveLength(0);
-    // Grant remains the union — no duplication.
-    const row = store.get("claude-design")!;
-    expect((row.grantedPermissions.eventSubscriptions ?? []).slice().sort())
-      .toEqual([...DISK_EVENTS].sort());
-  });
-
-  test("when grant ALREADY contains the disk subscription → no backfill, no audit", async () => {
-    const row = seedStaleClaudeDesign();
-    row.grantedPermissions.eventSubscriptions = [...DISK_EVENTS];
-    row.grantedPermissions.grantedAt.eventSubscriptions = 100;
-    (row.manifest.permissions as Record<string, unknown>).eventSubscriptions =
-      [...DISK_EVENTS];
-    await ensureBundledExtensions();
-    expect(
-      auditCalls.filter(
-        (c) => c.action === EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED,
-      ),
-    ).toHaveLength(0);
-  });
-
-  test("union-merge preserves grant entries the disk does NOT declare (no removal)", async () => {
-    // Operator (or prior bundled.ts) granted a stray subscription that
-    // the current disk manifest no longer declares. Auto-heal MUST
-    // only ADD; it must not silently revoke. Removal is the operator's
-    // job at re-install time — same fail-closed policy as
-    // network/filesystem.
-    const row = seedStaleClaudeDesign();
-    row.grantedPermissions.eventSubscriptions = ["legacy:event"];
-    row.grantedPermissions.grantedAt.eventSubscriptions = 100;
-    await ensureBundledExtensions();
-    const updated = store.get("claude-design")!;
-    expect((updated.grantedPermissions.eventSubscriptions ?? []).slice().sort())
-      .toEqual([...DISK_EVENTS, "legacy:event"].sort());
-  });
-
-  test("validation: bundled grant for claude-design includes BOTH knob-change AND brief-answer post-self-heal", async () => {
-    // Regression: when the disk manifest declared `brief-answer`
-    // (added in the form-card landing) but a stale row from before
-    // that change existed, the union-merge auto-heal must produce a
-    // grant containing BOTH event subscriptions, not just the older
-    // knob-change one. This pins the bundled.ts entry's full set.
-    seedStaleClaudeDesign();
-    await ensureBundledExtensions();
-    const row = store.get("claude-design")!;
-    const granted = row.grantedPermissions.eventSubscriptions ?? [];
-    // Sort so the assertion is order-independent — auto-heal preserves
-    // original order then appends new entries; both shapes are fine.
-    expect([...granted].sort()).toEqual([
-      "claude-design:brief-answer",
-      "claude-design:knob-change",
-    ]);
-    // The DB-stored manifest's permissions block reflects the same set.
-    const manifestEvents =
-      ((row.manifest.permissions as { eventSubscriptions?: string[] })
-        .eventSubscriptions ?? []).slice().sort();
-    expect(manifestEvents).toEqual([
-      "claude-design:brief-answer",
-      "claude-design:knob-change",
-    ]);
-  });
-
-  test("network drift on the SAME row → MANIFEST_DRIFTED warns-and-fails-closed (legacy policy unchanged)", async () => {
-    // Co-locate the auto-heal path with the legacy fail-closed path
-    // to prove they coexist on a single row. The grant for `network`
-    // must NOT be auto-healed — only the drift-warn audit fires.
-    const row = seedStaleClaudeDesign();
-    // DB grant lists fewer hosts than disk — drift on the safety
-    // boundary; must NOT auto-heal.
-    row.grantedPermissions.network = ["cdn.jsdelivr.net"];
-    row.manifest.permissions = {
-      ...(row.manifest.permissions as Record<string, unknown>),
-      network: ["only-the-old-cdn.example.com"],
-    };
-    await ensureBundledExtensions();
-    const updated = store.get("claude-design")!;
-    // network grant unchanged — fail-closed.
-    expect(updated.grantedPermissions.network).toEqual(["cdn.jsdelivr.net"]);
-    // BUT the drift audit fires for `network`.
-    const driftAudits = auditCalls.filter(
-      (c) =>
-        c.action === EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED &&
-        (c.metadata as { permission?: string })?.permission === "network",
-    );
-    expect(driftAudits.length).toBeGreaterThanOrEqual(1);
-    // AND the eventSubscriptions backfill audit fires (independent path).
-    const backfillAudits = auditCalls.filter(
-      (c) => c.action === EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED,
-    );
-    expect(backfillAudits).toHaveLength(1);
-  });
+test("a rejected capability review records the human decision once without publishing", async () => {
+  const setup = await releaseFixture();
+  const approval = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: ["events:read"], expectedActiveReleaseId: null });
+  const rejected = await setup.lifecycle.approve(human, setup.installation.id, approval.id, false);
+  expect(rejected.status).toBe("rejected");
+  expect(rejected.approvedBy).toBe(human.principalId);
+  await expect(setup.lifecycle.approve(human, setup.installation.id, approval.id, true)).rejects.toMatchObject({ code: "approval_decided" });
+  const state = await setup.lifecycle.inspect(actor, setup.installation.id);
+  expect(state.installation.activeReleaseId).toBeNull();
+  expect(state.installation.grants).toEqual([]);
+  expect(setup.published).toEqual([]);
+  expect((await database.query("SELECT action FROM audit_log WHERE target = $1 AND action = 'ext:approval_rejected'", [setup.installation.id])).rows).toHaveLength(1);
 });

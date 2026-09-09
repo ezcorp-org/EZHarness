@@ -1,0 +1,7 @@
+ Network ezcorp-production-lifecycle-2883030843_default Creating 
+ Network ezcorp-production-lifecycle-2883030843_default Created 
+ Container ezcorp-production-lifecycle-2883030843-app Creating 
+ Container ezcorp-production-lifecycle-2883030843-app Created 
+ Container ezcorp-production-lifecycle-2883030843-app Starting 
+ Container ezcorp-production-lifecycle-2883030843-app Started 
+{"check":"R1","appDeath":"SIGKILL","installationId":"16ad18c2-c930-4c0a-a324-a604ab9dc0b3","lifecycleOperationId":"a4ecb00c-ae02-4726-bfbb-30e1b7011975","runnerOperationId":"fdf9c281-5d2e-4e6c-9292-1b7e347e78f1","pausedContainer":"ez-v4-41a4c859153622b5e73e666956b9001c","pauseAttempts":4,"releases":1,"activeReleaseId":"e9146219-d163-4844-bced-6177051bea21","recoveryEvents":[{"sequence":1,"state":"queued","at":"2026-09-07T01:48:38.106Z"},{"sequence":2,"state":"building","at":"2026-09-07T01:48:38.110Z"},{"sequence":3,"state":"building","at":"2026-09-07T01:54:38.193Z"},{"sequence":4,"state":"verifying","at":"2026-09-07T01:54:42.122Z"},{"sequence":5,"state":"verified","at":"2026-09-07T01:54:42.903Z"}]}

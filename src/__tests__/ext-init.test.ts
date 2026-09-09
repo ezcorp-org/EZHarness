@@ -2,10 +2,14 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { validateManifestV2 } from "../extensions/manifest";
+import { validateManifest } from "@ezcorp/extension-contract";
+
+function generatedManifest(content: string) {
+  const prefix = "export default validateManifest(";
+  return validateManifest(JSON.parse(content.slice(content.indexOf(prefix) + prefix.length, content.lastIndexOf(");"))));
+}
 import { parseArgs } from "../cli";
 
-// ── parseArgs tests ─────────────────────────────────────────────────
 
 describe("parseArgs ext init", () => {
   test("parses ext init with name", () => {
@@ -28,7 +32,6 @@ describe("parseArgs ext init", () => {
   });
 });
 
-// ── initExtension tests ─────────────────────────────────────────────
 
 describe("initExtension", () => {
   let tempDir: string;
@@ -48,8 +51,8 @@ describe("initExtension", () => {
     const extDir = join(tempDir, "my-tool");
     expect(existsSync(extDir)).toBe(true);
     expect(existsSync(join(extDir, "ezcorp.config.ts"))).toBe(true);
-    expect(existsSync(join(extDir, "index.ts"))).toBe(true);
-    expect(existsSync(join(extDir, "index.test.ts"))).toBe(true);
+    expect(existsSync(join(extDir, "extension.ts"))).toBe(true);
+    expect(existsSync(join(extDir, "extension.test.ts"))).toBe(true);
     expect(existsSync(join(extDir, "README.md"))).toBe(true);
     expect(existsSync(join(extDir, ".gitignore"))).toBe(true);
     expect(existsSync(join(extDir, "tsconfig.json"))).toBe(true);
@@ -60,41 +63,28 @@ describe("initExtension", () => {
     const { initExtension } = await import("../extensions/sdk/init");
     await initExtension({ extName: "test-ext", type: "tool", cwd: tempDir });
 
-    // Can't use loadManifest because the generated file imports "ezcorp/sdk"
-    // which isn't resolvable from temp dirs. Instead, eval with shims.
     const content = await Bun.file(join(tempDir, "test-ext", "ezcorp.config.ts")).text();
-    const transformed = content
-      .replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']*["'];?\n?/g, "")
-      .replace(/import\s+\w+\s+from\s*["'][^"']*["'];?\n?/g, "")
-      .replace("export default", "return");
-    const noop = () => {};
-    const manifest = new Function("defineExtension", "handleRequest", transformed)(
-      (x: any) => x, noop,
-    );
-    if (manifest.tools) {
-      for (const t of manifest.tools) delete t.handler;
-    }
-    const result = validateManifestV2(manifest);
-    expect(result.valid).toBe(true);
-    expect(result.errors).toEqual([]);
+    const manifest = generatedManifest(content);
+    expect(manifest.schemaVersion).toBe(4);
+    expect(manifest.entrypoint).toBe("./extension.ts");
   });
 
-  test("creates skill extension without entrypoint file", async () => {
+  test("creates skill extension with a discovery entrypoint", async () => {
     const { initExtension } = await import("../extensions/sdk/init");
     await initExtension({ extName: "my-skill", type: "skill", cwd: tempDir });
 
     const extDir = join(tempDir, "my-skill");
     expect(existsSync(extDir)).toBe(true);
     expect(existsSync(join(extDir, "ezcorp.config.ts"))).toBe(true);
-    expect(existsSync(join(extDir, "index.ts"))).toBe(false);
-    expect(existsSync(join(extDir, "index.test.ts"))).toBe(true);
+    expect(existsSync(join(extDir, "extension.ts"))).toBe(true);
+    expect(existsSync(join(extDir, "extension.test.ts"))).toBe(true);
   });
 
-  test("creates agent extension without entrypoint file", async () => {
+  test("creates agent extension with a discovery entrypoint", async () => {
     const { initExtension } = await import("../extensions/sdk/init");
     await initExtension({ extName: "my-agent", type: "agent", cwd: tempDir });
 
-    expect(existsSync(join(tempDir, "my-agent", "index.ts"))).toBe(false);
+    expect(existsSync(join(tempDir, "my-agent", "extension.ts"))).toBe(true);
     expect(existsSync(join(tempDir, "my-agent", "ezcorp.config.ts"))).toBe(true);
   });
 
@@ -103,18 +93,11 @@ describe("initExtension", () => {
     await initExtension({ extName: "my-multi", type: "multi", cwd: tempDir });
 
     const extDir = join(tempDir, "my-multi");
-    expect(existsSync(join(extDir, "index.ts"))).toBe(true);
+    expect(existsSync(join(extDir, "extension.ts"))).toBe(true);
     expect(existsSync(join(extDir, "ezcorp.config.ts"))).toBe(true);
 
     const content = await Bun.file(join(extDir, "ezcorp.config.ts")).text();
-    const transformed = content
-      .replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']*["'];?\n?/g, "")
-      .replace(/import\s+\w+\s+from\s*["'][^"']*["'];?\n?/g, "")
-      .replace("export default", "return");
-    const noop = () => {};
-    const manifest = new Function("defineExtension", "handleRequest", transformed)(
-      (x: any) => x, noop,
-    );
+    const manifest = generatedManifest(content);
     expect(manifest.tools).toHaveLength(1);
     expect(manifest.skills).toHaveLength(1);
     expect(manifest.agent).toBeDefined();
@@ -148,9 +131,6 @@ describe("initExtension", () => {
   });
 
   test("generated tsconfig.json is standalone (no workspace-root extends)", async () => {
-    // Phase 3 dropped the path-mapping hack entirely. Scaffolded extensions
-    // resolve `@ezcorp/sdk` via `bun add @ezcorp/sdk` from the npm registry,
-    // so the tsconfig must stand alone without inheriting from the host repo.
     const { initExtension } = await import("../extensions/sdk/init");
     await initExtension({ extName: "my-tool", type: "tool", cwd: tempDir });
 
@@ -165,9 +145,6 @@ describe("initExtension", () => {
   });
 
   test("generated package.json declares @ezcorp/sdk dependency", async () => {
-    // Replaces the dropped path-mapping hack: scaffolded extensions now
-    // carry their own package.json with @ezcorp/sdk as a registry dep,
-    // so `bun install` in the extension directory pulls the published SDK.
     const { initExtension } = await import("../extensions/sdk/init");
     await initExtension({
       extName: "dep-tool",
@@ -182,7 +159,7 @@ describe("initExtension", () => {
     expect(pkg.description).toBe("Dep check tool");
     expect(pkg.type).toBe("module");
     expect(pkg.private).toBe(true);
-    expect(pkg.dependencies["@ezcorp/sdk"]).toBe("^0.1.0");
+    expect(pkg.peerDependencies["@ezcorp/sdk"]).toBe("0.1.0");
   });
 
   test("uses description when provided", async () => {
@@ -195,14 +172,7 @@ describe("initExtension", () => {
     });
 
     const content = await Bun.file(join(tempDir, "my-tool", "ezcorp.config.ts")).text();
-    const transformed = content
-      .replace(/import\s*\{[^}]*\}\s*from\s*["'][^"']*["'];?\n?/g, "")
-      .replace(/import\s+\w+\s+from\s*["'][^"']*["'];?\n?/g, "")
-      .replace("export default", "return");
-    const noop = () => {};
-    const manifest = new Function("defineExtension", "handleRequest", transformed)(
-      (x: any) => x, noop,
-    );
+    const manifest = generatedManifest(content);
     expect(manifest.description).toBe("My custom description");
   });
 });

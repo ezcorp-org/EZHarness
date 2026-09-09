@@ -3,6 +3,7 @@ import type { AgentEvents } from "../types";
 import type { JsonRpcNotification } from "./types";
 import { validatePageTree } from "./page-schema";
 import { getPageCache } from "./page-cache";
+import { resolveCallProvenance } from "./call-provenance";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -106,14 +107,20 @@ export class ExtensionStateMediator {
 
     // ── ezcorp/state (bottom panel) ───────────────────────────────
     if (!manifest?.panel) return;
+    const meta = notification.params._meta;
+    const token = meta && typeof meta === "object" && !Array.isArray(meta) ? (meta as Record<string, unknown>).ezCallId : undefined;
+    const provenance = typeof token === "string" ? resolveCallProvenance(token) : undefined;
+    if (!provenance?.onBehalfOf || provenance.ownerless || provenance.actorExtensionId !== extensionId) return;
 
     // Sanitise string values
-    const sanitised = stripHtmlTags(notification.params, 0) as Record<string, unknown>;
+    const stateParams = Object.fromEntries(Object.entries(notification.params).filter(([key]) => key !== "_meta"));
+    const sanitised = stripHtmlTags(stateParams, 0) as Record<string, unknown>;
 
     // Emit on the bus
     this.bus.emit("ext:state", {
       extensionId,
       extensionName: manifest.name,
+      userId: provenance.onBehalfOf,
       state: (sanitised.state ?? sanitised) as Record<string, unknown>,
       timestamp: Date.now(),
     });
@@ -130,9 +137,8 @@ export class ExtensionStateMediator {
    *      granted eventSubscriptions). Invalid → drop silently.
    *      Without one: invalidate-only — the pattern for `perProject`
    *      pages, where one pushed tree can't cover every variant.
-   *   3. Drop every cached variant (a push can't know which project
-   *      views are stale), then cache the validated tree as the fresh
-   *      GLOBAL render when one was pushed.
+   *   3. Drop every cached variant. A pushed tree has no reusable viewer
+   *      authority, so each client must pull its own authorized render.
    *   4. Emit `ext:page-state` WITHOUT the tree — only
    *      {extensionId, extensionName, pageId}. The signal leaks
    *      nothing but "page X changed", so the SSE layer may deliver
@@ -149,21 +155,14 @@ export class ExtensionStateMediator {
     if (typeof pageId !== "string") return;
     if (!manifest.pageIds?.includes(pageId)) return;
 
-    let tree = null;
     if (params.page !== undefined) {
-      tree = validatePageTree(params.page, {
+      const tree = validatePageTree(params.page, {
         allowedEvents: manifest.eventSubscriptions ?? [],
       });
       if (!tree) return; // a malformed tree is a bad push, not an invalidation
     }
 
-    // perProject pages: a pushed tree is DOWNGRADED to invalidate-only.
-    // The push was built in exactly one context (usually none), so caching
-    // it as the global variant would serve it as the all-projects home.
-    if (tree && manifest.perProjectPageIds?.includes(pageId)) tree = null;
-
     getPageCache().invalidate(extensionId, pageId);
-    if (tree) getPageCache().set(extensionId, pageId, tree);
 
     this.bus.emit("ext:page-state", {
       extensionId,

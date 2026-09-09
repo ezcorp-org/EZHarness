@@ -1,0 +1,28 @@
+{
+  "pageErrors": [],
+  "consoleErrors": [],
+  "failedApiResponses": [
+    {
+      "method": "POST",
+      "status": 409,
+      "path": "/api/extensions/control"
+    },
+    {
+      "method": "POST",
+      "status": 409,
+      "path": "/api/extensions/control"
+    }
+  ],
+  "failedApiRequests": [],
+  "ignoredApiResponses": [],
+  "expectedRuntimeEventCancellations": [
+    {
+      "method": "GET",
+      "path": "/api/runtime-events",
+      "status": 0,
+      "error": "NS_BINDING_ABORTED"
+    }
+  ],
+  "expectedRuntimeEventTeardownMarks": 4,
+  "browserEngine": "firefox"
+}

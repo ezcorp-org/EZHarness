@@ -1,0 +1,109 @@
+{
+  "real_auth": {
+    "source_commit": "64a8f0f31d553b3c41b6b81a0e391b8395d2dc2d",
+    "passed": 57,
+    "failed": 0,
+    "skipped": 0,
+    "exit": 0,
+    "duration": "4.6m",
+    "command": "./node_modules/.bin/playwright test --config playwright.real.config.ts",
+    "cwd": "web",
+    "env": {
+      "PI_E2E_REAL": "1",
+      "PI_E2E_REAL_BASE_URL": "http://localhost:4285",
+      "EZCORP_E2E_EVIDENCE": "1"
+    },
+    "client_diagnostics": "diagnostics/extension-lifecycle-client-diagnostics.json"
+  },
+  "mock_gate": {
+    "source_commit": "b468397043cd3758b8eb4502e9ffa77439b38c59",
+    "passed": 210,
+    "failed": 0,
+    "skipped": 13,
+    "exit": 0,
+    "duration": "1.5m",
+    "env": {
+      "CI": "1"
+    },
+    "selection": "bun scripts/e2e-lane-args.ts mock-gate",
+    "command": "./node_modules/.bin/playwright test --project=chromium \"${lane_args[@]}\"",
+    "skips": "All13 File Organizer cases require DOCKER_TEST. The production-image replay ran all13 successfully."
+  },
+  "web_vitest": {
+    "source_commit": "b468397043cd3758b8eb4502e9ffa77439b38c59",
+    "files": 543,
+    "passed": 7050,
+    "failed": 0,
+    "exit": 0,
+    "command": "./node_modules/.bin/vitest run",
+    "cwd": "web"
+  },
+  "tool_versions": {
+    "bun": "1.3.14",
+    "node": "v22.22.2"
+  },
+  "coverage": {
+    "source_commit": "5898793ac23d8087d25e795cdb8937ab5327691a",
+    "base_commit": "537f074e7303ecdf3cbef1a7af4fd60a3244b0a3",
+    "merged_sources": 1404,
+    "file_gate_passed": 1247,
+    "new_file_gate_passed": 131,
+    "patch_gate_passed": 381,
+    "exits": [
+      0,
+      0,
+      0
+    ],
+    "merge_command": "bun scripts/merge-lcov.ts '/tmp/terra-review-canonical-merge-20260906b/*.info' coverage/lcov.info",
+    "commands": [
+      "bun scripts/check-coverage.ts",
+      "bun scripts/check-new-file-coverage.ts",
+      "bun scripts/check-patch-coverage.ts"
+    ]
+  },
+  "artifacts": {
+    "real-auth-full.log": {
+      "artifact": "raw/real-auth-full.log.gz",
+      "raw_sha256": "f4ec19e865d5fd56d37f48bf5fa7c27cb62548f029dc106a61c72bf4922aef43"
+    },
+    "mock-gate.log": {
+      "artifact": "raw/mock-gate.log.gz",
+      "raw_sha256": "e3011acee87150ec38e589d1bcad6bd5ce184f894e29f90b0284e16d36a673da"
+    },
+    "web-vitest-combined.log": {
+      "artifact": "raw/web-vitest-combined.log.gz",
+      "raw_sha256": "648a9335bc1987d9cce3ddb4e2886829d1b99d39ac084dffdf0b49f960c7f641"
+    },
+    "coverage-merge.log": {
+      "artifact": "raw/coverage-merge.log.gz",
+      "raw_sha256": "43b65060639651a704374efe570d2c23bafbd697c9464627dc0c86d4d65bc248"
+    },
+    "check-coverage.log": {
+      "artifact": "raw/check-coverage.log.gz",
+      "raw_sha256": "5cc26a07ce9d1f505340cca8301b911d83263c2a3a3d48ca33430bf803a322b2"
+    },
+    "check-new-file-coverage.log": {
+      "artifact": "raw/check-new-file-coverage.log.gz",
+      "raw_sha256": "fe35d6d09cb2469b468138d0a93bbd5c5b97dfc5113b60c7564114d20f813c32"
+    },
+    "check-patch-coverage.log": {
+      "artifact": "raw/check-patch-coverage.log.gz",
+      "raw_sha256": "11751732c7b21fac32cc2419c1c2ed783b81ba50b2822e88224520c2a16fa763"
+    }
+  },
+  "orchestration_note": "The full real-auth run exited0. A following copy expected report-*.zip, but the full unfiltered reporter produced report.zip; the copy was corrected and mock/component phases resumed without repeating or changing the successful real-auth run.",
+  "final_sidebar_ui": {
+    "source_commit": "717e6fed2807ff61b44d3a8402c4b91d35d74e17",
+    "passed": 1,
+    "failed": 0,
+    "exit": 0,
+    "duration": "56.2s",
+    "bun": "1.3.14",
+    "node": "v22.22.2",
+    "command": "./node_modules/.bin/playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts",
+    "cwd": "web",
+    "raw_sha256": "c2f0f1e07cf1434ae2ea8e6b12959b8c22f3209640dd7829fd8d35faa3a62193",
+    "artifact": "raw/sidebar-final.log.gz",
+    "client_diagnostics": "sidebar-final/extension-lifecycle-client-diagnostics.json"
+  }
+}

@@ -1,0 +1,168 @@
+web/e2e/hub.spec.ts:583:		test.skip(isMobile, "global project route has no sidebar on mobile");
+web/e2e/user-commands.spec.ts:248:		test.skip(
+web/e2e/user-commands.spec.ts:270:		test.skip(
+web/e2e/preview-consent.spec.ts:232:	test.skip(!process.env.DOCKER_TEST, "requires Docker harness + seeded conversation/user");
+web/e2e/chat-pending-gates-no-doubleup-on-switch.spec.ts:26: * This is marked `test.fixme` because the bug is pre-existing — the user will
+web/e2e/chat-pending-gates-no-doubleup-on-switch.spec.ts:127:	// To verify the bug locally: flip `test.fixme` → `test` and re-run; the
+web/e2e/chat-pending-gates-no-doubleup-on-switch.spec.ts:129:	test.fixme(
+web/e2e/slash-commands-panel.spec.ts:97:		test.skip(true, "Agent detail panel did not render — app wiring skipped this path");
+web/e2e/mobile-navigation.spec.ts:144:  test.fixme("conversation list is visible on mobile chat page", async ({
+web/e2e/mobile-navigation.spec.ts:162:  test.fixme("conversation list fills viewport width on mobile", async ({
+web/e2e/audit-global.spec.ts:37:	test.fixme("happy path: stats strip + filter strip + timeline render without leaked credentials", async ({ page, mockApi }) => {
+web/e2e/task-card-actions-full.spec.ts:27:// `test.fixme` → `test` on each case below; testid locators are
+web/e2e/task-card-actions-full.spec.ts:141:	test.fixme("TaskListCard Start button triggers start-task", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:166:	test.fixme("TaskListCard Finish button opens summary form", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:199:	test.fixme("TaskListCard Add Task form", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:228:	test.fixme("TaskListCard Add Task rejects empty title", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:256:	test.fixme("TaskDetailCard Start button", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:280:	test.fixme("TaskDetailCard Finish with summary", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:312:	test.fixme("TaskDetailCard Edit form", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:347:	test.fixme("No action buttons without conversationId", async ({ page, mockApi, emitWs }) => {
+web/e2e/task-card-actions-full.spec.ts:439:	test.fixme("Completed tasks have no Start/Finish buttons", async ({ page, mockApi, emitWs }) => {
+web/e2e/conversation-list-sidebar-nav.spec.ts:92:		test.skip(
+web/e2e/workflows-new.spec.ts:23:		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+web/e2e/workflows-new.spec.ts:43:		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+web/e2e/workflows-new.spec.ts:73:		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+web/e2e/workflows-new.spec.ts:102:		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+web/e2e/bottom-sheet-pickers.spec.ts:15: * `test.fixme(true, '<wave name>')` — mirroring the L797 fixme pattern
+web/e2e/bottom-sheet-pickers.spec.ts:16: * in v1.3-permission-backbone.spec.ts. `test.skip` is reserved for env
+web/e2e/bottom-sheet-pickers.spec.ts:125:			test.fixme(true, `${waveTag} provides impl`);
+web/e2e/bottom-sheet-pickers.spec.ts:136:			test.fixme(true, `${waveTag} provides impl`);
+web/e2e/bottom-sheet-pickers.spec.ts:144:			test.fixme(true, `${waveTag} provides impl`);
+web/e2e/bottom-sheet-pickers.spec.ts:155:			test.fixme(true, `${waveTag} provides impl`);
+web/e2e/bottom-sheet-pickers.spec.ts:166:			test.fixme(true, `${waveTag} provides impl`);
+web/e2e/bottom-sheet-pickers.spec.ts:189:	test.skip(browserName !== "webkit", "webkit-only — iOS safe-area proxy");
+web/e2e/bottom-sheet-pickers.spec.ts:190:	test.fixme(true, "Wave 1 (Plan 57-02 Task 2) BottomSheet ships safe-area padding");
+web/e2e/bottom-sheet-pickers.spec.ts:210:	test.fixme(true, "Wave 1 (Plan 57-02 Task 2) BottomSheet ships WCAG-clean dialog");
+web/e2e/capability-event-pills.spec.ts:121:	test.fixme("Phase 52.5.6: row hidden by default; toggle reveals; no /messages re-fetch on toggle", async ({
+web/e2e/signup-token.spec.ts:59:		test.skip(!finalUrl.startsWith("/signup/"), "signup token not available in this environment");
+web/e2e/signup-token.spec.ts:84:		test.skip(!finalUrl.startsWith("/signup/"), "signup token not available in this environment");
+web/e2e/kokoro-tts-realmodel.spec.ts:28:  test.skip(
+web/e2e/chat-context-compaction.spec.ts:73:test.describe.skip("Long conversation no longer dead-ends on context_length_exceeded", () => {
+web/e2e/command-palette.spec.ts:37:		test.skip(isMobile, "palette sidebar button only exists on desktop");
+web/e2e/landing-page.spec.ts:9:test.describe.skip("Landing page", () => {
+web/e2e/file-organizer-real.spec.ts:175:    test.skip(!RUN_REAL, "real-backend spec — requires DOCKER_TEST=1 + live container on :3000");
+web/e2e/file-organizer-real.spec.ts:379:      test.skip(!pending, "no daemon-produced applyable pending proposal on disk — nothing real to accept");
+web/e2e/agent-picker-prefs.spec.ts:9: * Four cases — all `test.fixme` until Wave 3 (Plan 57-06) lands the
+web/e2e/agent-picker-prefs.spec.ts:19:		test.fixme(true, "Wave 3 (Plan 57-06 Tasks 1+2) impl");
+web/e2e/agent-picker-prefs.spec.ts:32:		test.fixme(true, "Wave 3 (Plan 57-06 Tasks 1+2) impl");
+web/e2e/agent-picker-prefs.spec.ts:48:		test.fixme(true, "Wave 3 (Plan 57-06 Task 1) self-trim-on-read impl");
+web/e2e/agent-picker-prefs.spec.ts:65:		test.fixme(true, "Wave 3 (Plan 57-06 Task 2) UI surface contract");
+web/e2e/chat-resume-roundtrip.spec.ts:228:		test.skip(
+web/e2e/chat-resume-roundtrip.spec.ts:249:		test.skip(
+packages/@ezcorp/extension-runner/tests/podman.integration.test.ts:133:  for (const files of [ { ...source(), "broken.ts": "const count:number='bad';" }, { "extension.ts": source()["extension.ts"]! }, { ...source(), "feature.test.ts": "import {test,expect} from 'bun:test';test('fail',()=>expect(1).toBe(2));" }, { ...source(), "feature.test.ts": "import {test} from 'bun:test';test.skip('skip',()=>{});" }, { ...source(), "feature.test.ts": "console.log('PASS');process.exit(0);" } ]) {
+web/e2e/workflows-actions.spec.ts:301:		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+web/e2e/workflows-actions.spec.ts:341:		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+web/e2e/workflows-actions.spec.ts:368:		test.skip(
+web/e2e/hub-side-nav.spec.ts:56:		test.skip(isMobile, "sidebar dropdown targets the desktop command column");
+web/e2e/hub-side-nav.spec.ts:113:		test.skip(isMobile, "sidebar dropdown targets the desktop command column");
+web/e2e/workflows-demos.spec.ts:374:		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+web/e2e/workflows-fork.spec.ts:79:		test.skip(
+web/e2e/admin-moderation.spec.ts:81:		test.skip(finalPath !== "/admin/moderation", "server-side admin gate redirected; cannot mock locals.user from client");
+web/e2e/admin-moderation.spec.ts:102:		test.skip(finalPath !== "/admin/moderation", "server-side admin gate redirected; cannot mock locals.user from client");
+web/e2e/extensions-audit-drilldown.spec.ts:96:	test.fixme("navigates from extension detail → audit page", async ({
+web/e2e/extensions-audit-drilldown.spec.ts:135:	test.fixme("renders timeline + stats strip + disclaimer", async ({
+web/e2e/extensions-audit-drilldown.spec.ts:152:	test.fixme("clicking Denials filter narrows the list", async ({ page, mockApi }) => {
+web/e2e/extensions-audit-drilldown.spec.ts:163:	test.fixme("expand-row reveals redacted before/after; no leaked credentials", async ({
+web/e2e/extensions-audit-drilldown.spec.ts:187:	test.fixme("granted permissions sidebar shows the snapshot", async ({
+web/e2e/preview-static.spec.ts:61:  test.skip(!process.env.DOCKER_TEST, "requires Docker harness + seeded preview row");
+web/e2e/claude-design-brief-form.spec.ts:18: * locator is restored — do NOT add `test.skip` here; the spec's
+web/e2e/agent-panel-parity.spec.ts:87:	// silently `test.skip`ped. Use the real testid and ASSERT the panel
+web/e2e/agent-panel-parity.spec.ts:136:	// (the real reason these specs were silently test.skip'ped).
+web/e2e/selector-keyboard-nav.spec.ts:38:// blocking trigger clicks). Once that holds, flip `test.fixme` → `test`
+web/e2e/selector-keyboard-nav.spec.ts:51:	test.fixme("search input auto-focuses on open", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:78:	test.fixme("ArrowDown and Enter selects a model", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:109:	test.fixme("Escape closes model dropdown", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:135:	test.fixme("typing filters model list", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:167:	test.fixme("no match shows empty message", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:194:	test.fixme("search input auto-focuses on open", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:228:	test.fixme("ArrowDown and Enter selects a thinking level", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:265:	test.fixme("Escape closes thinking dropdown", async ({ page, mockApi }) => {
+web/e2e/selector-keyboard-nav.spec.ts:296:	test.fixme("typing filters thinking levels", async ({ page, mockApi }) => {
+web/e2e/chip-reorder.spec.ts:16: * The 6 cases below remain `test.fixme` because the e2e harness lacks the
+web/e2e/chip-reorder.spec.ts:50:		test.fixme(true, "e2e infra: auth + test-agent seed pending");
+web/e2e/chip-reorder.spec.ts:83:		test.fixme(true, "e2e infra: auth + test-agent seed + touch fixture pending");
+web/e2e/chip-reorder.spec.ts:111:		test.fixme(true, "e2e infra: auth + test-agent seed pending");
+web/e2e/chip-reorder.spec.ts:137:		test.fixme(true, "e2e infra: auth + test-agent seed + Save-button selector pending");
+web/e2e/chip-reorder.spec.ts:161:		test.fixme(true, "e2e infra: auth + test-agent seed pending");
+web/e2e/chip-reorder.spec.ts:189:		test.fixme(true, "e2e infra: auth + test-agent seed pending");
+web/e2e/tool-card-rendering.spec.ts:27:// under api-mocks. Once that holds, flip `test.fixme` → `test` on
+web/e2e/tool-card-rendering.spec.ts:78:	test.fixme("TerminalCard renders shell output", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:125:	test.fixme("TerminalCard shows kill button while running", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:156:	test.fixme("DiffCard renders diff view", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:202:	test.fixme("SearchResultsCard renders grep results", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:250:	test.fixme("SearchResultsCard renders glob results", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:297:	test.fixme("DefaultCard renders for unknown cardType", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:332:	test.fixme("tool:complete with success:false renders the red X (no green checkmark)", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:390:	test.fixme("PermissionGate renders for permission request", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:419:	test.fixme("TaskDetailCard renders task", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:465:	test.fixme("TaskListCard renders task list", async ({ page, mockApi, emitWs }) => {
+web/e2e/tool-card-rendering.spec.ts:546:	// Flip `test.fixme` → `test` together with the sibling cases; the
+web/e2e/tool-card-rendering.spec.ts:549:	test.fixme(
+web/e2e/tool-card-rendering.spec.ts:601:	test.fixme(
+web/e2e/command-palette-search.spec.ts:406:	test.skip(({ viewport }) => (viewport?.width ?? 0) >= LG, "mobile-only: <lg BottomSheet fallback");
+packages/@ezcorp/sdk/src/v4/mcp.test.ts:58:test.skipIf(process.env.EZCORP_RUN_PODMAN_TESTS !== "1")("MCP executable discovers and invokes in a networkless rootless container", async () => {
+web/e2e/session-history-producer.spec.ts:48:    test.skip(!RUN_REAL, "real-backend spec — requires DOCKER_TEST=1 + live container on :3000");
+web/e2e/marketplace-trgm-search.spec.ts:8: * Four cases — all `test.fixme` until Wave 2 Track B (Plan 57-04)
+web/e2e/marketplace-trgm-search.spec.ts:19:		test.fixme(true, "Wave 2 Track B (Plan 57-04) pg_trgm impl");
+web/e2e/marketplace-trgm-search.spec.ts:33:		test.fixme(true, "Wave 2 Track B short-circuit impl");
+web/e2e/marketplace-trgm-search.spec.ts:48:		test.fixme(true, "Wave 2 Track B short-circuit impl");
+web/e2e/marketplace-trgm-search.spec.ts:60:		test.fixme(true, "Wave 2 Track B similarity ranking impl");
+web/e2e/concurrent-streams.spec.ts:74:	// (the real reason these specs were silently test.skip'ped).
+web/e2e/concurrent-streams.spec.ts:122:	// were silently `test.skip`ped. Just confirm it renders here;
+web/e2e/v1.3-permission-backbone.spec.ts:9: *        Status: test.fixme — see the FIXME block above the F-describe
+web/e2e/v1.3-permission-backbone.spec.ts:55: * `cap-expiry-flow.server.test.ts:232`). The F-test (test.fixme'd
+web/e2e/v1.3-permission-backbone.spec.ts:229:// (iii) UN-BLOCKER CONDITION — flip `test.fixme` → `test` when:
+web/e2e/v1.3-permission-backbone.spec.ts:843:// (iii) UN-BLOCKER CONDITION for L797 — flip `test.fixme` → `test` when:
+web/e2e/v1.3-permission-backbone.spec.ts:856:	test.fixme(
+web/e2e/v1.3-permission-backbone.spec.ts:1052:// UN-BLOCKER CONDITION — flip `test.fixme` → `test` when:
+web/e2e/v1.3-permission-backbone.spec.ts:1065:	test.fixme(
+web/e2e/v1.3-permission-backbone.spec.ts:1188:	test.fixme(
+web/e2e/workflows-editor.spec.ts:24:	test.skip(
+web/e2e/goal-feature.spec.ts:97:test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
+web/e2e/settings-sticky-nav.spec.ts:58:		test.skip(isMobile, "the sticky column is the md+ two-column layout");
+web/e2e/settings-sticky-nav.spec.ts:95:		test.skip(isMobile, "the sticky column is the md+ two-column layout");
+web/e2e/settings-sticky-nav.spec.ts:148:		test.skip(isMobile, "the sticky column is the md+ two-column layout");
+web/e2e/settings-sticky-nav.spec.ts:207:		test.skip(isMobile, "the sticky column is the md+ two-column layout");
+web/e2e/branding.spec.ts:74:	test.skip("sidebar displays small logo", async ({ page, mockApi }) => {
+web/e2e/branding.spec.ts:83:	test.skip("mobile header displays small logo", async ({ page, mockApi }) => {
+web/src/__tests__/relative-time.test.ts:28: * with `test.skipIf(!hasEnLocale)` so this suite degrades cleanly on
+src/__tests__/runtime-tools-grep.test.ts:136:  test.skipIf(!HAS_RG)(
+src/__tests__/runtime-tools-grep.test.ts:149:  test.skipIf(!HAS_RG)(
+src/__tests__/mcp-netns-integration.test.ts:5: * Coverage gate (any failure → test.skipIf):
+src/__tests__/mcp-netns-integration.test.ts:112:  test.skipIf(SKIP)("probeNetnsAvailability returns available", () => {
+src/__tests__/mcp-netns-integration.test.ts:119:  test.skipIf(SKIP)(
+src/__tests__/mcp-netns-integration.test.ts:142:  test.skipIf(SKIP)(
+src/__tests__/mcp-netns-integration.test.ts:190:  test.skipIf(SKIP)(
+src/__tests__/mcp-netns-integration.test.ts:331:  test.skipIf(BWRAP_SKIP)(
+src/__tests__/mcp-netns-integration.test.ts:382:  test.skipIf(BWRAP_SKIP)(
+src/__tests__/mcp-netns-integration.test.ts:432:  test.skipIf(BWRAP_SKIP)(
+src/__tests__/mcp-netns-integration.test.ts:503:// SKIP gates (W4 checker — no test.fixme permitted):
+src/__tests__/mcp-netns-integration.test.ts:514:// test.fixme.skipIf. Manual-verification fallback documented in
+src/__tests__/mcp-netns-integration.test.ts:547:  test.skipIf(SECCOMP_SKIP)(
+src/__tests__/task-stack-sdk-integration.test.ts:62:describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () => {
+src/__tests__/mcp-seccomp-enforce-integration.test.ts:98:test.skipIf(SHOULD_SKIP)(
+src/__tests__/gate-scripts.test.ts:344:    expect(scan("  it.skip('x', () => {})").length).toBe(1);
+src/__tests__/gate-scripts.test.ts:356:    expect(scan("  // it.skip('disabled')")).toEqual([]);
+src/__tests__/gate-scripts.test.ts:363:    expect(scan('  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)')).toEqual([]);
+src/__tests__/gate-scripts.test.ts:367:    expect(scan('  it.skip("still caught", () => {})').length).toBe(1);
+src/__tests__/gate-scripts.test.ts:371:    expect(scan('  test.skip(!RUN_REAL, "needs DOCKER_TEST=1")')).toEqual([]);
+src/__tests__/gate-scripts.test.ts:372:    expect(scan("  test.skip(!pending, 'nothing real to accept')")).toEqual([]);
+src/__tests__/gate-scripts.test.ts:373:    expect(scan("  it.skip(process.env.CI == null)")).toEqual([]);
+src/__tests__/gate-scripts.test.ts:375:    expect(scan('  test.skip("permanently disabled", () => {})').length).toBe(1);
+src/__tests__/gate-scripts.test.ts:376:    expect(scan("  it.skip()").length).toBe(1);
+src/__tests__/gate-scripts.test.ts:377:    expect(scan("  test.describe.skip('suite', () => {})").length).toBe(1);
+src/__tests__/gate-scripts.test.ts:382:  // broke `test.describe.skip(` into `test.describe` / `.skip(` in three e2e
+src/__tests__/gate-scripts.test.ts:387:    expect(scan("test.describe", '  .skip("Landing page", () => {', "});").length).toBe(1);
+src/__tests__/gate-scripts.test.ts:390:    expect(scan("test", '  .skip("name", fn);').length).toBe(1);
+src/__tests__/gate-scripts.test.ts:392:    expect(scan("test.describe", '  .skip("Landing page", () => {', "});")[0]).toContain(
+src/__tests__/gate-scripts.test.ts:415:  test("an unrelated .skip() method call is not a test skip", () => {
+src/__tests__/gate-scripts.test.ts:416:    expect(scan("const rows = cursor.skip(10);")).toEqual([]);
+src/__tests__/gate-scripts.test.ts:417:    expect(scan("const rows = query", "  .skip(5)", "  .take(10);")).toEqual([]);
+src/__tests__/gate-scripts.test.ts:421:    const src = ["test.describe", '  .skip("old suite", () => {});', 'test("new", () => {});'].join(
+src/__tests__/mcp-seccomp-profile.test.ts:66:  test.skipIf(!BPF_PRESENT)(
+src/__tests__/mcp-seccomp-profile.test.ts:75:  test.skipIf(!BPF_PRESENT)(
+src/__tests__/marketplace-release-isolation.integration.test.ts:11:test.skipIf(process.env.EZCORP_RUN_PODMAN_TESTS !== "1")("isolated publish artifacts persist and rebuild from immutable marketplace source", async () => {
+src/__tests__/agent-input-form.test.ts:224://   - It never gated anything. `test.skip` on CI meant it ran in exactly the
+src/__tests__/memory-validation.test.ts:439:// `test.skip`s there precisely because external data drifts; against fixtures
+src/__tests__/todo-tracker-sdk-integration.test.ts:51:describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", () => {

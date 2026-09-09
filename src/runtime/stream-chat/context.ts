@@ -107,6 +107,7 @@ export interface StreamChatContext {
   totalUsage: Usage;
   /** Serializes async DB writes triggered from the sync subscribe callback. */
   dbQueue: Promise<void>;
+  domainEventFailure?: Error;
   /** Buffered tool-call args between tool_execution_start and tool_execution_end (for DB persistence). */
   pendingToolArgs: Map<string, Record<string, unknown>>;
   /** Wall-clock ms when the turn began (for obs:turn duration). */

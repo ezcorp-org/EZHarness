@@ -1,4 +1,8 @@
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
+import { resolveCallProvenance } from "../call-provenance";
+import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
+import { isSealedServiceInvocation } from "../service-invocation";
+import { isRuntimeInvokeMethod } from "../runtime-invoke-handler";
 import type { ExtensionRegistry } from "../registry";
 import type { PermissionEngine } from "../permission-engine";
 import type { EventBus } from "../../runtime/events";
@@ -853,45 +857,9 @@ export async function handlePiAppendMessage(
     grantedPermissions: base.granted,
     // Phase 6: thread the PDP for the canonical permission decision.
     engine: deps.engine,
+    bus: deps.bus,
   };
   const response = await handleAppendMessageRpc(extensionId, req, ctx);
-
-  // On success, broadcast `run:turn_saved` so the chat UI's
-  // existing `ez:turn_saved` listener picks up the new turn. Without
-  // this, the row sits in the DB but the user never sees it — the
-  // frontend only re-hydrates messages on initial page load and on
-  // run completion. The conversationId comes from the same source
-  // the handler uses (params if ctx is unbound, otherwise ctx).
-  if (deps.bus && "result" in response && response.result) {
-    const result = response.result as { messageId?: unknown; toolCallIds?: unknown };
-    if (typeof result.messageId === "string") {
-      const params = (req.params ?? {}) as Record<string, unknown>;
-      const convId =
-        ctx.conversationId !== "unknown"
-          ? ctx.conversationId
-          : (typeof params.conversationId === "string" ? params.conversationId : null);
-      const parentId = typeof params.parentMessageId === "string"
-        ? params.parentMessageId
-        : null;
-      const content = typeof params.content === "string" ? params.content : "";
-      if (convId) {
-        deps.bus.emit("run:turn_saved", {
-          // No host-driven run for extension-authored turns. Use a
-          // synthetic id so SSE consumers that key on runId don't
-          // collide with a real run.
-          runId: `ext:${extensionId}:${result.messageId}`,
-          conversationId: convId,
-          messageId: result.messageId,
-          parentMessageId: parentId,
-          content,
-          // Extension-authored turns are one-shot (no agent tool-loop
-          // continuation) and route through handleExtensionTurnSaved on
-          // the client, not the streaming-placeholder path.
-          final: true,
-        });
-      }
-    }
-  }
 
   return response;
 }
@@ -938,6 +906,13 @@ export async function handlePiFinalizeToolCall(
  * `FsRpcResponse` return (the table casts them at the call site, as before).
  */
 export interface ReverseRpcDispatch {
+  handlePiCredentialBroker(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiHostApi(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiProjectPullRequest(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiProjectGit(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiProjectPullRequestReview(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiNetworkBroker(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
+  handlePiNetworkTunnel(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiInvoke(callerExtId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiFs(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse>;
   handlePiFsRead(extensionId: string, req: JsonRpcRequest): Promise<FsRpcResponse>;
@@ -977,6 +952,21 @@ type RouteFn = (
 ) => Promise<JsonRpcResponse>;
 
 export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
+  "ezcorp/api.request": (self, extensionId, request) => self.handlePiHostApi(extensionId, request),
+  "ezcorp/api.events": (self, extensionId, request) => self.handlePiHostApi(extensionId, request),
+  "ezcorp/project.openPr": (self, extensionId, request) => self.handlePiProjectPullRequest(extensionId, request),
+  "ezcorp/project.gitHead": (self, extensionId, request) => self.handlePiProjectGit(extensionId, request),
+  "ezcorp/project.commitSubjects": (self, extensionId, request) => self.handlePiProjectGit(extensionId, request),
+  "ezcorp/project.origin": (self, extensionId, request) => self.handlePiProjectGit(extensionId, request),
+  "ezcorp/project.pullRequest": (self, extensionId, request) => self.handlePiProjectPullRequestReview(extensionId, request),
+  "ezcorp/network.fetch": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
+  "ezcorp/network.tunnel.open": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
+  "ezcorp/network.tunnel.write": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
+  "ezcorp/network.tunnel.read": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
+  "ezcorp/network.tunnel.close": (self, extensionId, request) => self.handlePiNetworkTunnel(extensionId, request),
+  "ezcorp/env.get": (self, extensionId, request) => self.handlePiCredentialBroker(extensionId, request),
+  "ezcorp/credentials.read": (self, extensionId, request) => self.handlePiCredentialBroker(extensionId, request),
+  "ezcorp/network.read": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
   "ezcorp/invoke": (s, e, r) => s.handlePiInvoke(e, r),
   // Phase 3: per-operation fs.* handlers come BEFORE the legacy path-check
   // `ezcorp/fs` shim. Method strings are exact-match (no fallthrough).
@@ -998,7 +988,7 @@ export const REVERSE_RPC_ROUTES: Record<string, RouteFn> = {
   "ezcorp/queue-agent-message": (s, e, r) => s.handlePiQueueAgentMessage(e, r),
   "ezcorp/append-message": (s, e, r) => s.handlePiAppendMessage(e, r),
   "ezcorp/finalize-tool-call": (s, e, r) => s.handlePiFinalizeToolCall(e, r),
-  "ezcorp/network.internal": (s, e, r) => s.handlePiNetworkInternal(e, r),
+  "ezcorp/network.internal": (self, extensionId, request) => self.handlePiNetworkBroker(extensionId, request),
   "ezcorp/storage": (s, e, r) => s.handlePiStorage(e, r),
   "ezcorp/llm-complete": (s, e, r) => s.handlePiLlmComplete(e, r),
   "ezcorp/memory": (s, e, r) => s.handlePiMemory(e, r),
@@ -1035,6 +1025,24 @@ export async function routeReverseRpc(
   extensionId: string,
   req: JsonRpcRequest,
 ): Promise<JsonRpcResponse> {
+  const params = req.params as Record<string, unknown> | undefined;
+  const tokenId = (params?._meta as { ezCallId?: unknown } | undefined)?.ezCallId;
+  const token = resolveCallProvenance(typeof tokenId === "string" ? tokenId : undefined);
+  if (token?.serviceInvocation) {
+    try {
+      if (!isSealedServiceInvocation(token.serviceInvocation)) throw new Error("Service reverse RPC requires a sealed extension origin");
+      if (token.actorExtensionId !== extensionId || token.onBehalfOf !== null) throw new Error("Service request does not match its host token");
+      if (typeof token.invocationGuard !== "function") throw new Error("Service tool authority is unavailable");
+      if (getRuntimeToolContext()?.invocationGuard !== token.invocationGuard) await token.invocationGuard();
+      const permitted = ["ezcorp/storage", "ezcorp/invoke", "ezcorp/network.fetch", "ezcorp/network.read", "ezcorp/fs.read", "ezcorp/fs.write", "ezcorp/fs.list", "ezcorp/fs.stat", "ezcorp/fs.exists", "ezcorp/fs.mkdir", "ezcorp/fs.unlink"];
+      if (!permitted.includes(req.method)) throw new Error("This capability requires a human or conversation-owned context");
+      if (req.method === "ezcorp/storage" && params?.scope !== undefined && params.scope !== "global") throw new Error("Service storage is limited to the installation scope");
+      if (req.method === "ezcorp/invoke" && typeof params?.tool === "string" && isRuntimeInvokeMethod(params.tool)) throw new Error("Service calls cannot invoke conversation-owned runtime tools");
+      return await withRuntimeToolContext({ serviceInvocation: token.serviceInvocation, invocationGuard: token.invocationGuard }, () => REVERSE_RPC_ROUTES[req.method]!(self, extensionId, req));
+    } catch (error) {
+      return { jsonrpc: "2.0", id: req.id, error: { code: -32106, message: error instanceof Error ? error.message : "Service capability unavailable" } };
+    }
+  }
   const exact = REVERSE_RPC_ROUTES[req.method];
   if (exact) return exact(self, extensionId, req);
   // `ezcorp/github-projects.<verb>` — bundled-only board control plane.

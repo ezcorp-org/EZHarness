@@ -1,0 +1,117 @@
+{
+  "scope": "Independent rootless Podman container verifier phase only. The 1800-second soak remains active and is excluded.",
+  "source_commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "image": "ezcorp:embedding-cache-final-2c542bace8f1",
+  "image_id": "sha256:c0941c22a713f343eee54e846c01fe630fe6ac7f8831b58afc3fd4155508fa95",
+  "oci_revision": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "native_boundary": "rootless Podman user namespace keep-id, UID 1000",
+  "http_verifier_boundary": "separate HTTP verifier path, UID 1001/GID 100; cache ownership 1001:1001",
+  "terminal": {
+    "independent_command_exit": 0,
+    "owned_cleanup_exit": 0,
+    "passed": true,
+    "checks": [
+      "production-boot",
+      "file-credential",
+      "real-isolated-build",
+      "human-approval",
+      "activation",
+      "tool-invocation",
+      "disable-denial",
+      "retained-history"
+    ]
+  },
+  "owned_residue": {
+    "new_owned_residue": false,
+    "raw_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "raw_diff_bytes": 0,
+    "inventories_published": false
+  },
+  "raw_receipts": {
+    "provenance.txt": {
+      "sha256": "8630b3733600101dee71a7c79ebe644c1424b9d49b2ddd431f7e854059b4de05",
+      "bytes": 657,
+      "published_path": "receipts/outer-provenance.txt"
+    },
+    "image-identity.before-independent.txt": {
+      "sha256": "b6c82ebb0646b5048dd60391d74bfe45108d3b12ffa46bf3bdfce0e4dbe63f35",
+      "bytes": 443,
+      "published_path": "receipts/image-identity-before-independent.txt"
+    },
+    "phases/command-exits.tsv": {
+      "sha256": "bc02621ac3d7e8926db0a63d9a9493e8780c18f21cae3464639765ffcce3a3a9",
+      "bytes": 61,
+      "published_path": "receipts/command-exits.tsv",
+      "snapshot_boundary": "Captured after independent terminal and before soak terminal; this is the leading prefix of the final phase table."
+    },
+    "phases/exits.tsv": {
+      "sha256": "6124d7c067efefeb90a307e11c02bb98a43d5990e7e6db9dfd9d921243eb2a04",
+      "bytes": 135,
+      "published_path": "receipts/phase-exits.tsv",
+      "snapshot_boundary": "Captured after independent terminal and before soak terminal; this is the leading prefix of the final phase table."
+    },
+    "independent/command.log": {
+      "sha256": "ba614d29da47c07710b4c20d9f0a98869b92b4c8718d757d52c472c040ef35d1",
+      "bytes": 264,
+      "published_path": "receipts/independent-command.log"
+    },
+    "boundary.independent.diff": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "published_path": "receipts/owned-residue.diff"
+    },
+    "boundary.before-independent.txt": {
+      "sha256": "35c11ed40949caa9542674587848e310e1892902d50adf81afccfd3ce0b51d5a",
+      "bytes": 2391,
+      "published_path": null,
+      "reason_not_published": "broad borrowed-resource inventory"
+    },
+    "boundary.after-independent.txt": {
+      "sha256": "35c11ed40949caa9542674587848e310e1892902d50adf81afccfd3ce0b51d5a",
+      "bytes": 2391,
+      "published_path": null,
+      "reason_not_published": "broad borrowed-resource inventory"
+    }
+  },
+  "committed_inputs": [
+    {
+      "source_path": "scripts/verify-extension-container.sh",
+      "commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+      "sha256": "1b718cc8952a6ea1b75008a0ff780658d417ab6d340e1e08f87b019307652c94",
+      "bytes": 2644,
+      "published_path": "inputs/scripts__verify-extension-container.sh.txt",
+      "frozen_copy_equal": true
+    },
+    {
+      "source_path": "scripts/verify-extension-container.ts",
+      "commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+      "sha256": "d1f797849991cd57ad78bf82fde4638fa717ca294e5dfd44025243401ce24d67",
+      "bytes": 4738,
+      "published_path": "inputs/scripts__verify-extension-container.ts.txt",
+      "frozen_copy_equal": true
+    },
+    {
+      "source_path": "scripts/start-extension-runner-e2e.sh",
+      "commit": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+      "sha256": "0576bee4610d0bf4edd433e57e29992932aea017e7f2ca17ff4473560f92903d",
+      "bytes": 1154,
+      "published_path": "inputs/scripts__start-extension-runner-e2e.sh.txt",
+      "frozen_copy_equal": true
+    }
+  ],
+  "outer_controller": {
+    "raw_path": "frozen-inputs/controller.sh",
+    "sha256": "ea40d91e396cc83221e066a14f541297df912cffc6ca510f3ab36308fb444ccb",
+    "bytes": 16931,
+    "published_path": "inputs/outer-v2-controller.sh.txt"
+  },
+  "exclusions": [
+    "raw authentication material",
+    "archives",
+    "database/state data",
+    "broad borrowed-resource inventories",
+    "canonical-eight evidence",
+    "soak evidence"
+  ],
+  "phase_table_snapshot_verified_utc": "2026-09-07T19:11:11.842167+00:00"
+}

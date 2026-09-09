@@ -48,7 +48,7 @@ const perms = config.permissions as unknown as Record<string, unknown>;
 
 describe("ez-factory manifest — identity", () => {
   test("is a v2 manifest named ez-factory", () => {
-    expect(config.schemaVersion).toBe(2);
+    expect(config.schemaVersion).toBe(4);
     expect(config.name).toBe("ez-factory");
     expect(config.version).toBe("0.1.0");
   });
@@ -59,7 +59,7 @@ describe("ez-factory manifest — identity", () => {
     // pairing across the whole bundled list — plus that the entrypoint
     // FILE exists, since the install path checksums it. Declaring tools
     // without it fails the bundled install closed at boot.
-    expect(config.entrypoint).toBe("./index.ts");
+    expect(config.entrypoint).toBe("./extension.ts");
     expect(config.tools?.map((t) => t.name)).toEqual([
       "read_files",
       "write_file",
@@ -166,7 +166,7 @@ describe("ez-factory manifest — the exact permission key set", () => {
     // partition by. Workflow tool steps run under a synthetic
     // `workflow-run:<uuid>` key with none, so a `$USER` grant would
     // fail-closed on every write inside a workflow.
-    expect(perms.filesystem).toEqual(["$CWD"]);
+    expect(perms.filesystem).toEqual(["/project", "/data"]);
     for (const prefix of perms.filesystem as string[]) {
       expect(prefix).not.toContain("$USER");
     }

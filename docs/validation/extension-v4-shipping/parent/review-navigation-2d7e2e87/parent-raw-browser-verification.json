@@ -1,0 +1,14 @@
+{
+  "archiveSha256": "ed33051428642f5c7d67f7b8988f4ee58aa1f29671ba08e6ed38e76c5ee56c92",
+  "passed": 10,
+  "failed": 0,
+  "testIds": 10,
+  "overall": [
+    "passed"
+  ],
+  "rawPngAttachments": 9,
+  "matchedCuratedPngs": 9,
+  "uniquePngBytes": 5,
+  "parentOpenedAllFiveUniqueImages": true,
+  "visualReview": "Review destination renders Extension workspace, disabled generation 0, build and release sections. Permission JSON values are readable. No clipped control or unreadable text identified in reviewed views."
+}

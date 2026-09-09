@@ -5,7 +5,7 @@ A tool extension that reads and lists project files. This example demonstrates *
 ## Install
 
 ```bash
-ezcorp ext install ./docs/extensions/examples/project-analyzer
+EZCORP_USER_ID=<active-admin-id> bun src/cli.ts ext install ./docs/extensions/examples/project-analyzer
 ```
 
 ## Manifest Walkthrough

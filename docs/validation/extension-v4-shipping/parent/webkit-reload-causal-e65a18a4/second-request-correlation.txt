@@ -1,0 +1,9 @@
+The earlier full-WebKit receipt 055303 failed after two distinct cancelled read-only inspections. A duplicate-request hypothesis was rejected.
+
+Safe network timestamps:
+- 06:01:12.660, monotonic 24837561.356: the prepared reload inspection cancellation.
+- 06:01:26.312, monotonic 24851213.493: a second inspection cancellation, 13.65 seconds later.
+
+Both had the same safe request shape: same-origin POST /api/extensions/control, tool extensions_inspect, top-level keys [input, tool], input keys [installationId]. They are separate trace events, not a proven duplicate failure callback for one Request.
+
+The second cancellation aligned with the terminal-state Refresh status sequence: its click completed at test time 106182 ms and navigation to chat began at 106341 ms. The old helper dispatched Refresh status and read existing DOM state without waiting for its inspection response. The repaired helper requires the matching successful inspection response and waits for Refresh status to re-enable before it reads the state or permits the following navigation.

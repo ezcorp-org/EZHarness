@@ -1,0 +1,17 @@
+# Test-only repair for the retained main image. The base remains the immutable
+# 537f074e image; this adds only the PGlite pgvector bundle its generated
+# server chunk resolves at boot. Both images use PGlite 0.5.7.
+ARG LEGACY_BASE=localhost/ezcorp-extension-v4:legacy-main-537f074e
+ARG ASSET_SOURCE=localhost/ezcorp-extension-v4:terra-final-26541024
+FROM ${ASSET_SOURCE} AS asset_source
+FROM ${LEGACY_BASE}
+ARG LEGACY_BASE_ID
+ARG VECTOR_SHA256=bc318f06884e68874ba57613ca2ae88e93e9845445c2a0f19383606b041f77cc
+USER root
+COPY --from=asset_source /app/web/node_modules/@electric-sql/pglite-pgvector/dist/vector.tar.gz /app/web/build/server/chunks/vector.tar.gz
+RUN echo "${VECTOR_SHA256}  /app/web/build/server/chunks/vector.tar.gz" | sha256sum -c - \
+  && chown bun:bun /app/web/build/server/chunks/vector.tar.gz
+LABEL org.opencontainers.image.revision="537f074e7303ecdf3cbef1a7af4fd60a3244b0a3" \
+      org.ezcorp.legacy-adoption.base-image="${LEGACY_BASE_ID}" \
+      org.ezcorp.legacy-adoption.delta="pglite-pgvector-0.0.8 vector.tar.gz from candidate with PGlite 0.5.7"
+USER bun

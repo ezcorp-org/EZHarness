@@ -489,7 +489,7 @@ describe("shouldDeliverEvent — pass-through tier", () => {
     expect(deliver).toBe(false);
   });
 
-  test("passes ext:state events (extension-scoped, not conversation-scoped)", async () => {
+  test("drops ext:state events without a host-issued principal", async () => {
     const get = makeGetConversation({});
     const deliver = await shouldDeliverEvent(
       "ext:state",
@@ -497,7 +497,7 @@ describe("shouldDeliverEvent — pass-through tier", () => {
       { userId: "user-1" },
       get,
     );
-    expect(deliver).toBe(true);
+    expect(deliver).toBe(false);
   });
 
   test("loops:approval_* — conversation-wired nudge is scoped to the owner", async () => {

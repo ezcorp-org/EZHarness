@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 63, in <module>
+    if __name__=='__main__': main()
+                             ~~~~^^
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 61, in main
+    path,source,chain=queue.popleft(); serial+=1; expand(path,source,chain,output,queue,records,serial,totals)
+                                                  ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dev/work/EZCorp/extension-v4-independent-audit/.cache/terra-shipping/parent/scan-final-staged-snapshot-expand.py", line 46, in expand
+    with zipfile.ZipFile(path) as archive:
+         ~~~~~~~~~~~~~~~^^^^^^
+  File "/nix/store/0r6k8xa2kgqyp3r4v2w7yrb80ma2iawm-python3-3.13.12/lib/python3.13/zipfile/__init__.py", line 1401, in __init__
+    self._RealGetContents()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/nix/store/0r6k8xa2kgqyp3r4v2w7yrb80ma2iawm-python3-3.13.12/lib/python3.13/zipfile/__init__.py", line 1468, in _RealGetContents
+    raise BadZipFile("File is not a zip file")
+zipfile.BadZipFile: File is not a zip file

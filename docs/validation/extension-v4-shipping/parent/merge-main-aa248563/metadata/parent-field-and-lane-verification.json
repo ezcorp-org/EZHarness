@@ -1,0 +1,22 @@
+{
+  "host_permission_fields": 27,
+  "lost_host_fields": [],
+  "lost_lane_specs": [],
+  "changed_lanes": {
+    "web/e2e/provider-settings.spec.ts": [
+      "unwired",
+      "mock-gate"
+    ],
+    "web/e2e/setup-first-run.spec.ts": [
+      "unwired",
+      "fresh-setup"
+    ]
+  },
+  "added_lanes": {
+    "web/e2e/chat-save-errors.spec.ts": "mock-gate",
+    "web/e2e/onboarding-provider-access.spec.ts": "mock-gate",
+    "web/e2e/quickstart-refresh.spec.ts": "mock-gate",
+    "web/e2e/workflow-yaml-fallback.spec.ts": "mock-gate",
+    "web/e2e/real-auth/audit-web-regressions.spec.ts": "real-auth"
+  }
+}

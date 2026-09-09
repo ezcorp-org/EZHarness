@@ -219,12 +219,29 @@ export class EzcorpClient {
 
   // ────── health ──────
 
-  health(): Promise<{ ok: boolean }> {
-    return this.request("/api/health");
+  async health(): Promise<{ ok: boolean }> {
+    const response = await this.request<{ status?: unknown }>("/api/health");
+    if (response.status !== "healthy" && response.status !== "degraded") {
+      throw new TypeError("Invalid /api/health response");
+    }
+    return { ok: response.status === "healthy" };
   }
 
-  me(): Promise<{ id: string; name: string; email: string; role: string }> {
-    return this.request("/api/auth/me");
+  async me(): Promise<{ id: string; name: string; email: string; role: string }> {
+    const response = await this.request<{
+      user?: { id?: unknown; name?: unknown; email?: unknown; role?: unknown };
+    }>("/api/auth/me");
+    const user = response.user;
+    if (
+      !user ||
+      typeof user.id !== "string" ||
+      typeof user.name !== "string" ||
+      typeof user.email !== "string" ||
+      typeof user.role !== "string"
+    ) {
+      throw new TypeError("Invalid /api/auth/me response");
+    }
+    return { id: user.id, name: user.name, email: user.email, role: user.role };
   }
 
   // ────── projects ──────

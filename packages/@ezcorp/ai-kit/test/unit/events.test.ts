@@ -1,3 +1,4 @@
+// @ezcorp-host-integration
 /**
  * Event-name parity guard: `RUNTIME_EVENT_NAMES` in `src/types.ts` mirrors
  * the app's canonical list at `web/src/lib/runtime-event-names.ts`. The

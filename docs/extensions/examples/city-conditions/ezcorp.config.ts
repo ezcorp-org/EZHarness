@@ -1,4 +1,4 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 // city-conditions — "what is it like in <city> right now?"
 //
@@ -22,7 +22,7 @@ import { defineExtension } from "../../../../src/extensions/sdk/define";
 // bare name (the host namespaces it to `city-conditions:conditions`, so
 // it can never address another extension's or a host workflow).
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "city-conditions",
   version: "0.3.0",
   description:
@@ -31,7 +31,7 @@ export default defineExtension({
     "Pollen API coverage (including the U.S.), and Open-Meteo fallback, with source, timestamp, " +
     "unit, and honest unavailable reasons. Ships a `conditions` workflow with the same flow.",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   category: "Utilities",
   tags: ["weather", "pollen", "mold", "allergies", "time", "open-meteo", "workflow", "ui"],
 

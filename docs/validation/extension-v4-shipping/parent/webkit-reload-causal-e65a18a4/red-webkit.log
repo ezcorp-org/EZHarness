@@ -1,0 +1,334 @@
+[WebServer] $ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer]                                ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let activeFilter = $state<CapabilityFilter>("all");
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type Entry = (typeof data.entries)[number];
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer]                                         ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer]                                 ^
+[WebServer] 24: 
+[WebServer] 25:   // Filter state
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_tabindex
+[WebServer] 445:     drops to 0 on mobile where the dock takes the full viewport.
+[WebServer] 446:   -->
+[WebServer] 447:   <main
+[WebServer]             ^
+[WebServer] 448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[WebServer] 449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+[WebServer] 2:17:35 AM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:402:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 400:   // normal async load. `__seeded` also gates the async loader so the
+[WebServer] 401:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[WebServer] 402:   const __seeded = seedMessages !== undefined;
+[WebServer]                                     ^
+[WebServer] 403:   // svelte-ignore state_referenced_locally
+[WebServer] 404:   let allMessages = $state<Message[]>(
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/+layout.svelte:447:1 noninteractive element cannot have nonnegative tabIndex value
+[WebServer] https://svelte.dev/e/a11y_no_noninteractive_tabindex
+[WebServer] 445:     drops to 0 on mobile where the dock takes the full viewport.
+[WebServer] 446:   -->
+[WebServer] 447:   <main
+[WebServer]             ^
+[WebServer] 448:     class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
+[WebServer] 449:     style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:19:31 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type Entry = (typeof data.entries)[number];
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer]                                         ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state<Entry[]>(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/audit/+page.svelte:23:23 This reference only captures the initial value of `data`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let extensionFacets = data.extensionFacets;
+[WebServer]                                 ^
+[WebServer] 24: 
+[WebServer] 25:   // Filter state
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:19:22 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 17:   type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer]                                ^
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:20:40 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 18: 
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer]                                                  ^
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/routes/(app)/extensions/[id]/audit/+page.svelte:21:20 This reference only captures the initial value of `data`. Did you mean to reference it inside a derived instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 19:   let entries = $state(data.entries);
+[WebServer] 20:   let nextCursor = $state<string | null>(data.nextCursor);
+[WebServer] 21:   let stats = $state(data.stats);
+[WebServer]                              ^
+[WebServer] 22:   let loading = $state(false);
+[WebServer] 23:   let activeFilter = $state<CapabilityFilter>("all");
+[WebServer] 2:17:40 AM [vite-plugin-svelte] src/lib/components/ChatThread.svelte:402:18 This reference only captures the initial value of `seedMessages`. Did you mean to reference it inside a closure instead?
+[WebServer] https://svelte.dev/e/state_referenced_locally
+[WebServer] 400:   // normal async load. `__seeded` also gates the async loader so the
+[WebServer] 401:   // seed isn't clobbered by a `computeLatestLeaf` overwrite.
+[WebServer] 402:   const __seeded = seedMessages !== undefined;
+[WebServer]                                     ^
+[WebServer] 403:   // svelte-ignore state_referenced_locally
+[WebServer] 404:   let allMessages = $state<Message[]>(
+[WebServer] [plugin builtin:vite-reporter] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[WebServer] [PLUGIN_TIMINGS] Your build spent 91% of 3.0s inside plugin hooks (2.7s).
+[WebServer] Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+[WebServer]   - vite:worker-import-meta-url transform (64%, 1.9s, 2 calls)
+[WebServer] Those rows are 64% of the build; the rest of the 91% is below.
+[WebServer] Not measurable — 20 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+[WebServer]   - vite-plugin-sveltekit-guard resolveId (3207 calls)
+[WebServer]   - vite-plugin-sveltekit-guard load (1058 calls)
+[WebServer]   - vite-plugin-sveltekit-virtual-modules load (1011 calls)
+[WebServer]   … and 17 more
+[WebServer] See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[WebServer] 
+[WebServer] Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer]       at warnOnDeactivatedColors (internal:tty:33:24)
+[WebServer]       at getColorDepth (internal:tty:42:39)
+[WebServer]       at shouldColorize (internal:util/colors:14:109)
+[WebServer]       at refresh (internal:util/colors:18:31)
+[WebServer]       at internal:util/colors (internal:util/colors:24:16)
+[WebServer]       at internal:assert/assertion_error (internal:assert/assertion_error:2:187)
+[WebServer]       at loadAssertionError (node:assert:28:96)
+[WebServer] 
+[WebServer] [INEFFECTIVE_DYNAMIC_IMPORT] ../src/extensions/registry.ts is dynamically imported by ../src/extensions/delivery-runtime.ts, ../src/extensions/extension-lifecycle-service.ts, ../src/extensions/subprocess.ts, ../src/extensions/webhook-delivery-daemon.ts, ../src/runtime/stream-chat/setup-tools.ts, ... but also statically imported by ../src/db/queries/conversation-extensions.ts, ../src/runtime/executor.ts, ../src/runtime/stream-chat/setup-tools.ts, ../src/runtime/stream-chat/subscribe-bridge.ts, ../src/runtime/workflow-delegation-record.ts, ..., dynamic import will not move module into another chunk.
+[WebServer] 
+[WebServer] ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [UNRESOLVED_IMPORT] Could not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js
+[WebServer]    ╭─[ ../node_modules/.bun/drizzle-orm@0.45.2+1a6689c8a57a8338/node_modules/drizzle-orm/bun-sql/driver.js:1:21 ]
+[WebServer]    │
+[WebServer]  1 │ import { SQL } from "bun";
+[WebServer]    │                     ──┬──  
+[WebServer]    │                       ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js (7:52) [UNRESOLVED_IMPORT] Could not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js
+[WebServer]    ╭─[ .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js:7:53 ]
+[WebServer]    │
+[WebServer]  7 │ import { FFIType, dlopen, ptr, toArrayBuffer } from "bun:ffi";
+[WebServer]    │                                                     ────┬────  
+[WebServer]    │                                                         ╰────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const cp = require('child_process');
+[WebServer]    │                    ───────┬───────  
+[WebServer]    │                           ╰───────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const fs = require('fs');
+[WebServer]    │                    ──┬─  
+[WebServer]    │                      ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+[WebServer]    ╭─[ ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 ]
+[WebServer]    │
+[WebServer]  5 │ const path = require('path')
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 ]
+[WebServer]    │
+[WebServer]  1 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] [PLUGIN_TIMINGS] Your build spent 100% of 8.9s inside plugin hooks (33.0s).
+[WebServer] Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+[WebServer]   - vite-plugin-sveltekit-compile closeBundle (100%, 24.3s, 1 call)
+[WebServer]   - vite-plugin-sveltekit-compile writeBundle (57%, 5.1s, 1 call)
+[WebServer]   - visualizer generateBundle (12%, 1.1s, 1 call)
+[WebServer] Those rows are 100% of the build; the rest of the 100% is below.
+[WebServer] Not measurable — 19 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+[WebServer]   - vite-plugin-sveltekit-guard resolveId (6849 calls)
+[WebServer]   - vite:worker renderChunk (743 calls)
+[WebServer]   - vite:asset renderChunk (743 calls)
+[WebServer]   … and 16 more
+[WebServer] See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[WebServer] 
+[WebServer] {"ts":"2026-09-07T06:18:08.301Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+[WebServer] {"ts":"2026-09-07T06:18:08.301Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+[WebServer] {"ts":"2026-09-07T06:18:09.433Z","level":"warn","msg":"Using the EMBEDDED PGlite database, but this repo's compose Postgres is running.\nYou are probably looking at the wrong database: PGlite at /tmp/ezcorp-e2e-iy3pv6 is a\nseparate, usually EMPTY store, while the dev stack keeps its data in Postgres on\n127.0.0.1:5432. A blank app and a redirect to /setup are the symptom.\n\n  Use the stack's database:  bun run dev:stack\n  Or set it for this run:    DATABASE_URL=postgres://ezcorp:ezcorp@127.0.0.1:5432/ezcorp bun run dev\n\nDo NOT put DATABASE_URL in .env — Bun loads .env into every process, and the test\npool would then run migrate() and write against that database (see preload.ts).","subsystem":"db"}
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+Running 1 test using 1 worker
+
+(node:3239243) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [webkit] › e2e/real-auth/extension-lifecycle-flow.spec.ts:663:1 › reload transport control › reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence (38.5s)
+
+
+  1) [webkit] › e2e/real-auth/extension-lifecycle-flow.spec.ts:663:1 › reload transport control › reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 8
+
+    - Array []
+    + Array [
+    +   Object {
+    +     "error": "Load request cancelled",
+    +     "method": "POST",
+    +     "path": "/api/extensions/control",
+    +     "status": 0,
+    +   },
+    + ]
+
+      293 |   expect(allowed.consoleErrorVariants ?? [[]]).toContainEqual(diagnostics.consoleErrors);
+      294 |   expect(diagnostics.failedApiResponses).toEqual(allowed.apiFailures ?? []);
+    > 295 |   expect(diagnostics.failedApiRequests).toEqual([]);
+          |                                         ^
+      296 |   expect(diagnostics.ignoredApiResponses).toEqual([]);
+      297 | }
+      298 |
+        at expectCleanBrowserDiagnostics (/home/dev/work/EZCorp/extension-v4-independent-audit/web/e2e/real-auth/extension-lifecycle-flow.spec.ts:295:41)
+        at /home/dev/work/EZCorp/extension-v4-independent-audit/web/e2e/real-auth/extension-lifecycle-flow.spec.ts:776:3
+
+    Error Context: ../.cache/terra-shipping/parent/webkit-reload-causal-20260907T061731Z/red-results/extension-lifecycle-flow-r-1c042-ive-release-usable-evidence-webkit/error-context.md
+
+    attachment #5: trace (application/zip) ─────────────────────────────────────────────────────────
+    ../.cache/terra-shipping/parent/webkit-reload-causal-20260907T061731Z/red-results/extension-lifecycle-flow-r-1c042-ive-release-usable-evidence-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace ../.cache/terra-shipping/parent/webkit-reload-causal-20260907T061731Z/red-results/extension-lifecycle-flow-r-1c042-ive-release-usable-evidence-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [webkit] › e2e/real-auth/extension-lifecycle-flow.spec.ts:663:1 › reload transport control › reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence 

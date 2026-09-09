@@ -1,0 +1,115 @@
+Chat graph observability mock-evidence repair
+===============================================
+
+Checkpoint before change: 05a8539f951f08c113ca948434d137cc1d467bb0.
+The chat page now reads GET /api/settings through fetchSettings(), instead of
+GET /api/settings/global:showObservability. The evidence test still seeded
+only the removed per-key request, so its shared mock fixture returned {} for
+the batch response and the Inspect observability button was absent.
+
+Red reproduction
+----------------
+
+Command:
+  flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock \
+    zsh -lc 'export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH; \
+    unset EZCORP_E2E_EVIDENCE; cd /home/dev/work/EZCorp/extension-v4-flow-review/web; \
+    bunx playwright test --config playwright.config.ts --project=chromium \
+      e2e/chat-graph-evidence.spec.ts --grep "observability execution timeline"'
+
+Bun 1.3.14; Node v22.22.2. Exit 1. The unchanged test timed out at its
+existing 5-second visible-button assertion: expected Inspect observability,
+but no matching element was found. The test's normal failure screenshot showed
+the seeded chat without the button.
+
+Green repair
+------------
+
+The test now supplies `settings: { "global:showObservability": true }` to
+the existing `mockApi` fixture. It removes the obsolete per-key route override.
+This verifies the actual batch response shape used by the page; it does not
+change product code, a fixture default, a timeout, or a test skip.
+
+Command:
+  flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock \
+    zsh -lc 'export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH; \
+    export EZCORP_E2E_EVIDENCE=1; cd /home/dev/work/EZCorp/extension-v4-flow-review/web; \
+    bunx playwright test --config playwright.config.ts --project=chromium \
+      e2e/chat-graph-evidence.spec.ts --grep "observability execution timeline"'
+
+Bun 1.3.14; Node v22.22.2. Exit 0: 1 passed (39.3 seconds). The test asserts
+that the button is visible, opens it, and verifies the Execution Timeline plus
+both seeded tool labels before capture. The inspected screenshot shows the
+drawer, token and timing values, and bars for read_file, Thinking, and
+run_shell.
+
+Nearby fixture audit
+--------------------
+
+The focused search found three other mock specs still overriding the retired
+per-key route: mobile-chat, swipe-drawer, and waterfall-timeline. Each now
+uses the same existing `settings` option. Waterfall-timeline also removed its
+old optional button branches, so its configured setting must render the
+control before each timeline assertion runs.
+
+The stale per-key override has no remaining occurrence under `web/e2e`.
+The affected checks replayed together:
+
+  flock --close /home/dev/work/EZCorp/extension-v4-independent-audit/.cache/validation-heavy.lock \
+    zsh -lc 'export PATH=/tmp/ez-extension-bun-1.3.14/bun-linux-x64:/nix/store/vs03s8q30qg698zzpbszk08j4shb0gsl-nodejs-slim-22.22.2/bin:$PATH; \
+    export EZCORP_E2E_EVIDENCE=1; cd /home/dev/work/EZCorp/extension-v4-flow-review/web; \
+    bunx playwright test --config playwright.config.ts --project=chromium \
+      e2e/chat-graph-evidence.spec.ts e2e/waterfall-timeline.spec.ts \
+      e2e/swipe-drawer.spec.ts e2e/mobile-chat.spec.ts \
+      --grep "observability execution timeline|Waterfall Timeline|obs panel|observability panel"'
+
+Bun 1.3.14; Node v22.22.2. Exit 0: 8 passed (43.3 seconds). The prior
+`bun scripts/typecheck-tests.ts` run also exited 0 after the fixture updates.
+
+Complete touched-spec replay
+----------------------------
+
+All 38 cases in the four touched files were then run with the same pinned
+runtime and lock. The observability repair remained green: chat-graph, all
+three chat waterfall cases, both swipe-drawer observability cases, and the
+mobile observability case passed. The command exited 1 with 34 passed and four
+unrelated existing failures:
+
+* mobile-chat backdrop close left the conversation drawer visible;
+* swipe-drawer expected the obsolete Home label;
+* swipe-drawer expected 768px diff width but measured 960px; and
+* swipe-drawer expected the obsolete Dashboard label after expansion.
+
+Those failures are not part of the batch-settings fixture change and are not
+claimed as a complete visual-lane result. Their full mock-only receipt is
+retained for the responsible UI owner.
+
+Follow-up: all four failures were corrected in f950d27d. The complete 38-case
+replay now passes; see drawer-contract-correction-20260906.txt for causes,
+the unchanged product behavior, and the final green receipt.
+
+Artifacts
+---------
+
+The compressed mock-only receipts contain no authenticated browser data:
+
+  raw/terra-review-chat-graph-observability-red-05a8539f.log.gz
+  SHA-256 5f114f25eb8972a48e3b2654c0cdacd23564b13ad97d1818c699bd93b5535ff7
+
+  raw/terra-review-chat-graph-observability-green-05a8539f.log.gz
+  SHA-256 2bafa7ad20a1b96f1cbd0b4a933336a1aedb47faaa01f61fed43eff16c334978
+
+  raw/terra-review-observability-fixtures-green-05a8539f.log.gz
+  SHA-256 561ef103214566f133a2e5831cdc5fc5d093cbe759484a1b60847a312e25b42c
+
+  raw/terra-review-observability-four-specs-05a8539f.log.gz
+  SHA-256 e9e96cbae1d22293169bd345ae3954b5bbde20aceecd10c45ef54e6f862899f0
+
+The committed screenshot is the green, mock-only capture:
+
+  screenshots/terra-review-chat-graph-observability-green-05a8539f.png
+  SHA-256 10f38d31231f617122492f11e9518194bd32e989c30456e4b17ebfe08897bdd5
+
+The red failure trace remains local and uncommitted:
+
+  web/test-results/chat-graph-evidence-Chat-D-64ed5--normalizer-s-bars-evidence-chromium/trace.zip

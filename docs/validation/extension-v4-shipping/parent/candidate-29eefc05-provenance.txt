@@ -1,0 +1,3 @@
+image=localhost/ezcorp-extension-v4:shipping-29eefc05
+image_id=sha256:ce6f2a71d22ba2d5f0ebd0e9701fc5ac55c4a714bfd9ac3c14ccdc876d3b9754
+source_commit_sha=29eefc057be55c114761762a1fd4d3b9aa55c1fc

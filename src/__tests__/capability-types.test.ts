@@ -372,6 +372,18 @@ describe("intersectPermissions — network", () => {
   });
 });
 
+describe("intersectPermissions — raw credential access", () => {
+  test("retains only exact shared names, removes duplicates and never infers access", () => {
+    const requested: ExtensionPermissions = { secretRead: ["OPENAI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"], grantedAt: {} };
+    const approved: ExtensionPermissions = { secretRead: ["OPENAI_API_KEY"], grantedAt: {} };
+    expect(intersectPermissions(requested, approved).secretRead).toEqual(["OPENAI_API_KEY"]);
+    expect(intersectPermissions(approved, requested).secretRead).toEqual(["OPENAI_API_KEY"]);
+    expect(intersectPermissions(requested, { secretRead: ["openai_api_key"], grantedAt: {} }).secretRead).toBeUndefined();
+    expect(intersectPermissions(requested, { grantedAt: {} }).secretRead).toBeUndefined();
+    expect(requested.secretRead).toHaveLength(3);
+  });
+});
+
 describe("intersectPermissions — filesystem", () => {
   test("identical paths → preserved", () => {
     const a: ExtensionPermissions = { filesystem: ["/data"], grantedAt: {} };

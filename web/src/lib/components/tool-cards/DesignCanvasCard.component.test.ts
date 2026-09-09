@@ -151,7 +151,7 @@ describe("DesignCanvasCard — adaptive descriptors", () => {
 		const input = getByTestId("knob-borderRadius") as HTMLInputElement;
 		await fireEvent.input(input, { target: { value: "12" } });
 		const label = container.querySelector("label.knob");
-		expect(label?.textContent).toContain("12px");
+		expect(label?.textContent).toContain("Border radius (12px)");
 	});
 
 	test("falls back to LEGACY_DESCRIPTORS (5 knobs) when payload.knobs is undefined", () => {
@@ -494,37 +494,38 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 	});
 
 	test("dirty dot appears for the changed knob only", async () => {
-		const { getByTestId, queryByTestId } = render(DesignCanvasCard, {
-			toolCall: makeCallWithPayload({
-				knobs: [
-					{
-						key: "primaryColor",
-						kind: "color",
-						label: "Primary",
-						var: "--color-primary",
-					},
-					{
-						key: "secondaryColor",
-						kind: "color",
-						label: "Secondary",
-						var: "--color-secondary",
-					},
-				],
-				knobValues: { primaryColor: "#ff0066", secondaryColor: "#00ff00" },
-			}),
+		const initialCall = makeCallWithPayload({
+			knobs: [
+				{
+					key: "primaryColor",
+					kind: "color",
+					label: "Primary",
+					var: "--color-primary",
+				},
+				{
+					key: "secondaryColor",
+					kind: "color",
+					label: "Secondary",
+					var: "--color-secondary",
+				},
+			],
+			knobValues: { primaryColor: "#ff0066", secondaryColor: "#00ff00" },
+		});
+		// Runtime hydration may supply an already-parsed object. Keep that
+		// exact identity through an unrelated metadata update.
+		initialCall.output = JSON.parse(String(initialCall.output));
+		const { getByTestId, queryByTestId, rerender } = render(DesignCanvasCard, {
+			toolCall: initialCall,
 			conversationId: "conv-1",
 		});
 
-		// Initially nothing dirty (form is empty, applied is set — empty
-		// form + applied = "user cleared it" which IS dirty per spec, BUT
-		// the bind:value initialises from undefined so values map starts
-		// empty. encodeKnobValue("") returns null → considered dirty when
-		// applied is set. To get a clean baseline we first set the value
-		// to match the applied one.
+		// The open-canvas payload seeds both the displayed form and the
+		// applied baseline, so valid colors render immediately without a
+		// false dirty state.
 		const primary = getByTestId("knob-primaryColor") as HTMLInputElement;
-		await fireEvent.input(primary, { target: { value: "#ff0066" } });
 		const secondary = getByTestId("knob-secondaryColor") as HTMLInputElement;
-		await fireEvent.input(secondary, { target: { value: "#00ff00" } });
+		expect(primary.value).toBe("#ff0066");
+		expect(secondary.value).toBe("#00ff00");
 
 		// Now dirty-dot for both should be hidden.
 		expect(queryByTestId("dirty-dot-primaryColor")).toBeNull();
@@ -534,6 +535,27 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 		await fireEvent.input(primary, { target: { value: "#000000" } });
 		expect(queryByTestId("dirty-dot-primaryColor")).not.toBeNull();
 		expect(queryByTestId("dirty-dot-secondaryColor")).toBeNull();
+		await rerender({
+			toolCall: { ...initialCall, duration: 999 },
+			conversationId: "conv-1",
+		});
+		expect(primary.value).toBe("#000000");
+		expect(queryByTestId("dirty-dot-primaryColor")).not.toBeNull();
+
+		// A replacement open-canvas result initializes the new payload once.
+		await rerender({
+			toolCall: makeCallWithPayload({
+				knobs: [
+					{ key: "primaryColor", kind: "color", label: "Primary" },
+					{ key: "secondaryColor", kind: "color", label: "Secondary" },
+				],
+				knobValues: { primaryColor: "#123456", secondaryColor: "#abcdef" },
+			}),
+			conversationId: "conv-1",
+		});
+		expect(primary.value).toBe("#123456");
+		expect(secondary.value).toBe("#abcdef");
+		expect(queryByTestId("dirty-dot-primaryColor")).toBeNull();
 	});
 
 	test("diff drawer renders when both originalTokensBlock and tokensBlock supplied", () => {

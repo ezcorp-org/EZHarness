@@ -395,6 +395,17 @@ describe("scanTodos filter integration", () => {
     expect(text).not.toContain("file-e.svelte");
   });
 
+  test("a root listing denial is a tool error, not a false empty-project success", async () => {
+    installStub(new Set([cwd]));
+
+    const result = await tools["scan-todos"]!({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]).toMatchObject({
+      type: "text",
+      text: expect.stringContaining("Filesystem access denied"),
+    });
+  });
+
   test("searchQuery narrows to text-substring matches (case-insensitive)", async () => {
     const text = await runScan({ searchQuery: "alpha" });
     expect(text).toContain("Found 1 TODO");

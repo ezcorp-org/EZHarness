@@ -1,0 +1,8 @@
+ci_run=34121216099
+ci_job=101739432125
+failed_step=Run Stage 2 real namespace proof against the candidate image
+prior_steps=build candidate image, load candidate into runner store, and kernel journal access all succeeded
+launch_result=exit 126 before namespace assertions
+conmon_error=[conmon:e]: Include journald in compilation path to log to systemd journal
+interpretation=container-launch configuration failure; not a direct-TCP, IPv6, kernel-journal, audit, or conntrack assertion failure
+full_job_log=private; hash recorded in raw-input-hashes.tsv

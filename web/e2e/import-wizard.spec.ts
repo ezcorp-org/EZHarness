@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -36,6 +36,7 @@ const COMMIT_OK = {
 			requested: "Baz",
 			finalName: "baz",
 			extId: "ext-1",
+			openUrl: "/extensions/author?installation=ext-1&workspace=workspace-1",
 			status: "ok",
 		},
 	],
@@ -67,9 +68,9 @@ async function mockImport(
 		if (opts.hits) opts.hits.deleteCommand = true;
 		return route.fulfill({ status: 204, body: "" });
 	});
-	await page.route("**/api/extensions/ext-1", (route) => {
+	await page.route("**/api/extensions/control", (route) => {
 		if (opts.hits) opts.hits.deleteExt = true;
-		return route.fulfill({ status: 204, body: "" });
+		return route.fulfill({ status: 200, json: { ok: true } });
 	});
 }
 
@@ -90,10 +91,10 @@ test.afterAll(async () => {
 });
 
 test.describe("Import wizard", () => {
-	test("directory upload → select → import → remove + undo", async ({
+	test("directory upload → select → staged review → remove + undo @evidence", async ({
 		page,
 		mockApi,
-	}) => {
+	}, testInfo) => {
 		const hits: Record<string, boolean> = {};
 		await mockApi({ projects: [proj] });
 		await mockImport(page, { hits });
@@ -112,9 +113,8 @@ test.describe("Import wizard", () => {
 		await expect(wiz).toHaveAttribute("data-step", "2");
 		await expect(page.locator('[data-testid="imp-cmd-foo"]')).toBeVisible();
 		await expect(page.locator('[data-testid="imp-skill-baz"]')).toBeVisible();
-		await expect(page.locator('[data-testid="import-skills"]')).toContainText(
-			"disabled",
-		);
+		await expect(page.locator('[data-testid="import-skills"]')).toContainText("staged for an isolated build");
+		await captureEvidence(page, testInfo, "import-wizard-review-before-build");
 
 		await page.locator('[data-testid="import-submit"]').click();
 
@@ -123,6 +123,11 @@ test.describe("Import wizard", () => {
 		await expect(rows).toHaveCount(2);
 		await expect(rows.nth(0)).toContainText("command: foo");
 		await expect(rows.nth(1)).toContainText("skill: baz");
+		await expect(rows.nth(1).getByRole("link", { name: "Review build", exact: true })).toHaveAttribute(
+			"href",
+			"/extensions/author?installation=ext-1&workspace=workspace-1",
+		);
+		await captureEvidence(page, testInfo, "import-wizard-staged-review-link");
 
 		// Remove the command via the inline button.
 		await rows

@@ -22,9 +22,8 @@
  *      (index.ts dispatcher + lib/pipeline + invoke-helpers + scratch
  *      over the real @ezcorp/sdk runtime) — the part unit seams stub.
  *
- * No DB: `recordToolCall` routes through `persistToolCall`, which
- * swallows DB errors (tool-executor.ts:1820). Permission decisions use
- * the allow-all stub (cross-extension.test.ts pattern).
+ * The unit pipeline uses an explicit atomic-persistence test sink.
+ * Permission decisions use the allow-all stub.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -321,3 +320,5 @@ describe("substack-pipeline integration (b) — real subprocess channel wiring",
     }
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

@@ -1,0 +1,12 @@
+container_verifier=0
+chromium=0
+
+Chromium Playwright summary:
+- 3 tests passed (1.9m).
+- Human lifecycle: create, approve, use, scope, disable, re-enable, uninstall.
+- Browser recovery: observe pending build, display diagnostics, repair source, retain active release use.
+- Stale session: cannot replace active release or restore uninstall.
+
+The screenshots are direct `testInfo.attach` PNGs. The diagnostic directory contains
+only client-diagnostic attachments. It excludes the server-state attachment, all
+Playwright report JSON, network, trace, and authentication material.

@@ -1,0 +1,57 @@
+{
+  "source_commit_sha": "79108f9deb128ffa9780a08530f0121273ddc5ef",
+  "frozen_committed_inputs": 17,
+  "cache_nonempty_files": 4,
+  "cache_ownership_rows": 8,
+  "cache_bytes_equal": true,
+  "read_only_modes_confirmed": true,
+  "proofs": [
+    {
+      "phase": "first",
+      "proof": "production-memory-embedding",
+      "dimensions": 384,
+      "norm": 0.9999999760164612,
+      "polls": 30,
+      "durationMs": 7371,
+      "status": "passed"
+    },
+    {
+      "phase": "second",
+      "proof": "production-memory-embedding",
+      "dimensions": 384,
+      "norm": 0.9999999777457041,
+      "polls": 2,
+      "durationMs": 284,
+      "status": "passed"
+    }
+  ],
+  "raw_log_review": [
+    {
+      "phase": "first",
+      "file": "compose.log",
+      "sha256": "72092b7d042544ff7c1c7a940a2e9a6d43fde9be73190b0c84bfe6a038cb46ab",
+      "error_fatal_eacces_lines": 1
+    },
+    {
+      "phase": "first",
+      "file": "runner.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_fatal_eacces_lines": 0
+    },
+    {
+      "phase": "second",
+      "file": "compose.log",
+      "sha256": "2a8f9c7588512488287ac23fad60c7307357aa5f2b71b997e43f2d0da3bd83fe",
+      "error_fatal_eacces_lines": 1
+    },
+    {
+      "phase": "second",
+      "file": "runner.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "error_fatal_eacces_lines": 0
+    }
+  ],
+  "owned_state_absent": true,
+  "safe_frozen_inputs_matched": 17,
+  "shipping_verdict": "rejected: one package-cache EACCES warning in each actual app log"
+}

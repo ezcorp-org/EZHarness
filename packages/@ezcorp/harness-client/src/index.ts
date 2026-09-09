@@ -511,6 +511,13 @@ export class HarnessClient {
   }
 
   // ── Extensions ─────────────────────────────────────────────────────
+  extensionControl<Result = unknown>(
+    tool: "extensions_describe" | "extensions_workspace" | "extensions_build" | "extensions_inspect" | "extensions_release",
+    input: Record<string, unknown> = {},
+  ): Promise<Result> {
+    return this.route("extensionControl", undefined, { tool, input });
+  }
+
   /** List installed extensions. `GET /api/extensions` returns a bare array;
    *  a `{ extensions: [...] }` wrapper is tolerated too. Any other shape throws
    *  (a silent `[]` would mask a contract drift as "no extensions installed"). */

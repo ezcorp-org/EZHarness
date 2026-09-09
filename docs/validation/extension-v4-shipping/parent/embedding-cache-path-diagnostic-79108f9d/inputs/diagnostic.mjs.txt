@@ -1,0 +1,49 @@
+import { pipeline, env } from '@huggingface/transformers';
+import { access, constants, mkdir, readdir } from 'node:fs/promises';
+import { join, basename } from 'node:path';
+
+const model = 'Xenova/all-MiniLM-L6-v2';
+const cacheDir = '/app/data/embedding-model-cache';
+const fetches = [];
+const originalFetch = env.fetch;
+env.fetch = async (input, init) => {
+  const raw = input instanceof Request ? input.url : String(input);
+  try {
+    const url = new URL(raw);
+    fetches.push({ host: url.host, pathname: url.pathname, basename: basename(url.pathname) });
+  } catch {
+    fetches.push({ host: null, pathname: raw, basename: basename(raw) });
+  }
+  return originalFetch(input, init);
+};
+async function writable(path, create) {
+  try {
+    if (create) await mkdir(path, { recursive: true });
+    await access(path, constants.W_OK);
+    return { writable: true, errorCode: null };
+  } catch (error) {
+    return { writable: false, errorCode: error?.code ?? error?.name ?? 'unknown' };
+  }
+}
+async function files(path, relative = '') {
+  const entries = await readdir(path, { withFileTypes: true });
+  const all = [];
+  for (const entry of entries) {
+    const next = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) all.push(...await files(join(path, entry.name), next));
+    else if (entry.isFile()) all.push(next);
+  }
+  return all.sort();
+}
+const before = {
+  bun: Bun.version,
+  useBrowserCache: env.useBrowserCache,
+  useFSCache: env.useFSCache,
+  useWasmCache: env.useWasmCache,
+  defaultCacheDir: env.cacheDir,
+  defaultCacheWritable: await writable(env.cacheDir, false),
+  pipelineCacheDir: cacheDir,
+  pipelineCacheWritable: await writable(cacheDir, true),
+};
+await pipeline('feature-extraction', model, { dtype: 'fp32', cache_dir: cacheDir });
+console.log(JSON.stringify({ before, fetches, pipelineCacheFiles: await files(cacheDir) }));

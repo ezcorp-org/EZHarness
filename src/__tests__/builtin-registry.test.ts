@@ -1,9 +1,10 @@
 import { test, expect, describe } from "bun:test";
 
 import { getBuiltInToolMetadata, getBuiltInCategories, getBuiltInToolsByCategory } from "../runtime/tools/builtin-registry";
+import { extensionControlTools } from "../extensions/extension-control";
 
 describe("builtin-registry", () => {
-  test("returns only `ez` category tools (legacy categories all moved to bundled extensions)", () => {
+  test("returns Ez tools and the host-owned extension control tools", () => {
     // Phase 1 moved the 2 scratchpad tools out of the built-in registry
     // into a bundled extension. Phase 3 commit-5 moved the 12
     // task-tracking tools. Phase 4 commit-5 moved `invoke_agent`.
@@ -13,7 +14,8 @@ describe("builtin-registry", () => {
     // tools that are intentionally locked to the in-app Ez concierge mode.
     const tools = getBuiltInToolMetadata();
     expect(tools.length).toBeGreaterThan(0);
-    expect(tools.every((t) => (t as { category: string }).category === "ez")).toBe(true);
+    expect(tools.filter((tool) => tool.category === "extensions").map((tool) => tool.name)).toEqual(extensionControlTools.map((tool) => tool.name));
+    expect(tools.every((tool) => ["ez", "extensions"].includes(tool.category))).toBe(true);
   });
 
   test("scratchpad, task-tracking, invoke_agent, and ask_human are no longer in the built-in registry", () => {
@@ -28,10 +30,10 @@ describe("builtin-registry", () => {
     expect(tools.some((t) => (t as { category: string }).category === "orchestration")).toBe(false);
   });
 
-  test("only the `ez` category remains for built-in tools", () => {
+  test("only Ez and extension-control categories remain for built-in tools", () => {
     const tools = getBuiltInToolMetadata();
     const categories = new Set(tools.map((t) => t.category));
-    expect([...categories]).toEqual(["ez"]);
+    expect([...categories]).toEqual(["ez", "extensions"]);
   });
 
   test("no duplicate names", () => {

@@ -36,9 +36,10 @@ mock.module("../db/connection", () => ({
 const { handleEmitTaskEventRpc } = await import("../extensions/task-events-handler");
 const { getDb } = await import("../db/connection");
 const { addConversationExtensions } = await import("../db/queries/conversation-extensions");
-const { projects, conversations, extensions: extensionsTable } = await import("../db/schema");
+const { users, projects, conversations, extensions: extensionsTable } = await import("../db/schema");
+const { _resetTaskTrackingExtensionIdCache } = await import("../runtime/task-tracking-host");
 
-import type { EventBus } from "../runtime/events";
+import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import type { TaskEventsContext } from "../extensions/task-events-handler";
 import type { ExtensionPermissions } from "../extensions/types";
@@ -61,16 +62,48 @@ const CONV_ID = "conv-tte-int-1";
 
 interface EmitCall { event: string; payload: unknown; }
 
-function makeBus(): { bus: EventBus<AgentEvents>; calls: EmitCall[] } {
+interface ResponseState { settled: boolean; }
+
+function makeBus(responseState: ResponseState): {
+  bus: EventBus<AgentEvents>;
+  calls: EmitCall[];
+  eventBeforeResponse: Promise<void>;
+} {
   const calls: EmitCall[] = [];
-  const bus = {
-    emit: (event: string, payload: unknown) => {
-      calls.push({ event, payload });
-    },
-    on: () => () => {},
-    off: () => {},
-  } as unknown as EventBus<AgentEvents>;
-  return { bus, calls };
+  const bus = new EventBus<AgentEvents>();
+  let resolveEvent!: () => void;
+  let rejectEvent!: (error: Error) => void;
+  const eventBeforeResponse = new Promise<void>((resolve, reject) => {
+    resolveEvent = resolve;
+    rejectEvent = reject;
+  });
+  bus.on("task:snapshot", (payload) => {
+    calls.push({ event: "task:snapshot", payload });
+    // This microtask runs before the persistence await can settle the RPC.
+    // It fails if a handler response was released before the host event.
+    queueMicrotask(() => {
+      if (responseState.settled) {
+        rejectEvent(new Error("task:snapshot emitted after the RPC response settled"));
+      } else {
+        resolveEvent();
+      }
+    });
+  });
+  return { bus, calls, eventBeforeResponse };
+}
+
+async function within<T>(promise: Promise<T>, ms = 2000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 // ── Subprocess harness (clone of scratchpad integration pattern) ──
@@ -143,6 +176,8 @@ function spawnExtension(): TestProc {
 
 beforeAll(async () => {
   await setupTestDb();
+  _resetTaskTrackingExtensionIdCache();
+  await getDb().insert(users).values({ id: "user-int", email: "task-int@test.local", name: "Owner", passwordHash: "unused", role: "admin", status: "active" });
   await getDb().insert(projects).values({
     id: "proj-tte-int",
     name: "proj-tte-int",
@@ -150,6 +185,7 @@ beforeAll(async () => {
   } as any);
   await getDb().insert(conversations).values({
     id: CONV_ID,
+    userId: "user-int",
     projectId: "proj-tte-int",
     title: "integration",
   } as any);
@@ -170,6 +206,7 @@ beforeAll(async () => {
     installPath: `/tmp/${EXT_ID}`,
     enabled: true,
   } as any);
+  await getDb().insert(extensionsTable).values({ id: "task-tracking-store", name: "task-tracking", version: "1.0.0", manifest: { schemaVersion: 4, name: "task-tracking", version: "1.0.0", description: "Storage fixture", author: { name: "Test" }, permissions: {} }, enabled: true, source: "release-v4", creatorUserId: "user-int" });
   await addConversationExtensions(CONV_ID, [{ extensionId: EXT_ID }]);
 });
 
@@ -186,8 +223,9 @@ afterEach(() => { if (proc) proc.kill(); proc = null; });
 // ── Test ──────────────────────────────────────────────────────────
 
 describe("emit-task-event integration: real subprocess + real handler + bus", () => {
-  test("emitSnapshot round-trips — bus fires with HOST conversationId, ignoring extension's forged value", async () => {
-    const { bus, calls } = makeBus();
+  test("emitSnapshot round-trips — host event precedes reply and uses the HOST conversationId", async () => {
+    const responseState: ResponseState = { settled: false };
+    const { bus, calls, eventBeforeResponse } = makeBus(responseState);
     const grantedPermissions: ExtensionPermissions = {
       taskEvents: true,
       grantedAt: { taskEvents: Date.now() },
@@ -211,7 +249,6 @@ describe("emit-task-event integration: real subprocess + real handler + bus", ()
 
     // Extension emits a reverse ezcorp/emit-task-event RPC.
     const emitReq = await proc!.wait((m) => m.method === "ezcorp/emit-task-event");
-    const start = Date.now();
 
     // Drive the REAL host handler with this RPC request.
     const ctx: TaskEventsContext = {
@@ -220,12 +257,17 @@ describe("emit-task-event integration: real subprocess + real handler + bus", ()
       grantedPermissions,
       bus,
     };
-    const resp = await handleEmitTaskEventRpc(
+    const response = handleEmitTaskEventRpc(
       EXT_ID,
       emitReq as any,
       ctx,
-    );
-    const elapsed = Date.now() - start;
+    ).then((value) => {
+      responseState.settled = true;
+      return value;
+    });
+
+    // The persisted host event is observable before the RPC reply settles.
+    const [, resp] = await within(Promise.all([eventBeforeResponse, response]));
 
     // Bus must have fired with the HOST's conversationId, not the forged one.
     expect(resp.error).toBeUndefined();
@@ -235,7 +277,6 @@ describe("emit-task-event integration: real subprocess + real handler + bus", ()
     expect(emitted.conversationId).toBe(CONV_ID);
     expect(emitted.conversationId).not.toBe("attacker-controlled-conv-id");
     expect(emitted.tasks).toHaveLength(1);
-    expect(elapsed).toBeLessThan(200);
 
     // Close the loop so the extension's tool handler returns cleanly.
     proc!.inbound({ jsonrpc: "2.0", id: emitReq.id, result: resp.result });

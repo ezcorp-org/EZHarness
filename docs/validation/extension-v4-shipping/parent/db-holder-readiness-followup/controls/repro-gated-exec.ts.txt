@@ -1,0 +1,36 @@
+import { mkdtemp, readlink, rm, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { assertNoLiveHolder, DbInUseError, holderPidPath, isLiveHolder } from "../../src/db/live-holder-guard";
+
+const gate = realpathSync(".cache/terra-db-holder/bun-gated-exec");
+const sleepCommand = Bun.which("sleep");
+if (!sleepCommand) throw new Error("sleep is unavailable");
+const sleep = realpathSync(sleepCommand);
+const root = await mkdtemp(join(tmpdir(), "ezcorp-holder-gated-"));
+const child = Bun.spawn([gate], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+try {
+  const ready = new Uint8Array(await child.stdout.getReader().read().then(({ value }) => value ?? new Uint8Array()));
+  if (new TextDecoder().decode(ready) !== "R") throw new Error("gated child did not become ready");
+  await writeFile(holderPidPath(join(root, "db")), String(child.pid));
+  const beforeExe = await readlink(`/proc/${child.pid}/exe`);
+  const beforeLive = isLiveHolder(child.pid);
+  let beforeDenied = false;
+  try { assertNoLiveHolder(join(root, "db")); } catch (error) { if (!(error instanceof DbInUseError)) throw error; beforeDenied = true; }
+  child.stdin.write("go");
+  child.stdin.end();
+  for (let i = 0; i < 500; i++) {
+    if (await readlink(`/proc/${child.pid}/exe`).catch(() => "") === sleep) break;
+    await Bun.sleep(10);
+  }
+  const afterExe = await readlink(`/proc/${child.pid}/exe`);
+  const afterLive = isLiveHolder(child.pid);
+  assertNoLiveHolder(join(root, "db"));
+  console.log(JSON.stringify({ beforeExe, beforeLive, beforeDenied, afterExe, afterLive }));
+  if (!beforeExe.includes("bun-gated-exec") || !beforeLive || !beforeDenied || afterExe !== sleep || afterLive) throw new Error("gated exec did not demonstrate identity transition");
+} finally {
+  child.kill();
+  await child.exited;
+  await rm(root, { recursive: true, force: true });
+}

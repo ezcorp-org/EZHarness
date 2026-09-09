@@ -1,0 +1,2 @@
+bun test --timeout 30000 ./scripts/lib/shipping-bootstrap-state.test.ts
+bun test --timeout 30000 ./src/extensions/v4/lifecycle.test.ts

@@ -1,12 +1,12 @@
-import { defineExtension } from "../../../../src/extensions/sdk/define";
+import { defineRuntimeManifest as defineExtension } from "@ezcorp/sdk/v4";
 
 export default defineExtension({
-  schemaVersion: 2,
+  schemaVersion: 4,
   name: "file-refactor",
   version: "1.0.0",
   description: "Preview file renames to match a naming convention",
   author: { name: "EZCorp" },
-  entrypoint: "./index.ts",
+  entrypoint: "./extension.ts",
   tools: [
     {
       name: "rename-files",
@@ -46,7 +46,7 @@ export default defineExtension({
     },
   ],
   permissions: {
-    filesystem: ["$CWD"],
+    filesystem: ["/project", "/data"],
     shell: false,
   },
 });

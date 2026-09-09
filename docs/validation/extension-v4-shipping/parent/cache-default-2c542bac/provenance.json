@@ -1,0 +1,14 @@
+{
+  "head": "2c542bace8f13c58eefa2db715fe54aab4111a62",
+  "productCommit": "49e0a0be",
+  "finalInputSha256": {
+    "src/memory/embeddings.ts": "246d535ea1c8612bd62bd34aece4975fb613b69c23863c65af1831ed9135139f",
+    "src/__tests__/memory-embeddings-state.test.ts": "df0e886fb025c319d23340ed8c150c0728c804b4a50debed374de9ca4004fdbb",
+    "scripts/verify-shipping-embeddings.sh": "a32d4e6417e43653b1c106441d72f08c5d380739c52b87635e909ffa883eac55",
+    "scripts/lib/shipping-embedding-log-guard.ts": "0a46fb2fd2010d2a2434892999d130086940921b8748e22572d47761f47b4508",
+    "scripts/verify-shipping-embedding-log.ts": "79c9d9df949d7c5df35ec5ca7cd0b1b9da70433b87065469fca8eb032a5a03da",
+    "scripts/verify-shipping-embedding-log.test.ts": "75ae2413f76742e0c3dbff1c6defcb436341ee5379daad92c090be5f176e98cd",
+    "scripts/lib/test-file-sets.sh": "748640a846eccef62d2677db56d1fd1ba223478d45be1f8838eaecef0009f132"
+  },
+  "rawLogsAndAuthArtifacts": "not copied"
+}

@@ -1,0 +1,6 @@
+mock-full archive: 210 passed, 13 skipped, 0 retries, 0 error results; one onEnd status passed; all 18 image/png attachments copied.
+real-auth-full archive: 59 passed, 0 skipped, 0 retries, 0 error results; one onEnd status passed; all 33 image/png attachments copied. The eight parent-reviewed images map into the standard real-auth-full manifest through manifests/parent-selected-image-inclusion.tsv.
+visual mock archive: 180 passed, 0 retries, 0 error results; one onEnd status passed; all 213 image/png attachments copied.
+visual real-auth archive: 10 passed, 0 retries, 0 error results; one onEnd status passed; all 30 image/png attachments copied (22 standard plus 8 separately named extra files).
+Raw archive total: 294 PNG attachments. Safe curation contains all 294 PNG files, grouped by source archive and per-attachment SHA-256 manifests.
+All visual selection was requested by visual-selection.txt = __ALL__.

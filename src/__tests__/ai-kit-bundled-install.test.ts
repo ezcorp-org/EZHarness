@@ -1,20 +1,11 @@
-/**
- * Tests the bundled install path for `@ezcorp/ai-kit`. ai-kit is ON BY
- * DEFAULT for every EZCorp installation — operators opt OUT by setting
- * `EZCORP_DISABLE_AI_KIT=1` in their environment.
- *
- * Unit-level coverage: `resolveBundledExtensions` opt-out gate.
- * Integration-level coverage: by default, a DB row is created containing
- * the 19 ai-kit tool names, the declared permissions (network localhost +
- * filesystem + EZCORP_* env vars), and is idempotent on repeat startup.
- * With `EZCORP_DISABLE_AI_KIT=1`, no row is created.
- */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+import { discoverFirstPartyManifest } from "./helpers/first-party-manifest";
+import { getProjectRoot } from "../extensions/bundled";
+import { join } from "node:path";
 
 const extStore = createMockExtensionsStore({ keyBy: "name" });
-const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
   getExtensionByName: extStore.getExtensionByName,
@@ -30,7 +21,6 @@ mock.module("../db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 import {
-  ensureBundledExtensions,
   resolveBundledExtensions,
 } from "../extensions/bundled";
 
@@ -82,21 +72,14 @@ describe("resolveBundledExtensions — opt-out gate", () => {
     });
   });
 
-  test("ai-kit entry declares expected permissions", () => {
+  test("ai-kit release declares scoped host API access without host credentials", async () => {
     const list = resolveBundledExtensions({});
     const entry = list.find((e) => e.name === "ai-kit")!;
     expect(entry.path).toBe("packages/@ezcorp/ai-kit");
-    expect(entry.permissions.network).toContain("localhost");
-    expect(entry.permissions.network).toContain("127.0.0.1");
-    expect(entry.permissions.filesystem).toContain("$CWD");
-    expect(entry.permissions.env).toEqual([
-      "EZCORP_BASE_URL",
-      "EZCORP_API_KEY",
-      "EZCORP_SESSION_COOKIE",
-    ]);
-    expect(entry.permissions.grantedAt["network"]).toBeGreaterThan(0);
-    expect(entry.permissions.grantedAt["filesystem"]).toBeGreaterThan(0);
-    expect(entry.permissions.grantedAt["env"]).toBeGreaterThan(0);
+    const manifest = (await import("../../packages/@ezcorp/ai-kit/ezcorp.config")).default;
+    expect(manifest.permissions.hostApi).toBeDefined();
+    expect(manifest.permissions.env ?? []).not.toContain("EZCORP_API_KEY");
+    expect(manifest.permissions.env ?? []).not.toContain("EZCORP_SESSION_COOKIE");
   });
 
   test("disabling ai-kit does NOT affect other bundled extensions", () => {
@@ -109,129 +92,46 @@ describe("resolveBundledExtensions — opt-out gate", () => {
   });
 });
 
-// ── Integration: ensureBundledExtensions installs ai-kit by default ──────────
 
-describe("bundled install: ai-kit (default on)", () => {
-  test("default startup creates the ai-kit row, enabled=true", async () => {
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-    });
-    const row = store.get("ai-kit");
-    expect(row).toBeDefined();
-    expect(row!.name).toBe("ai-kit");
-    expect(row!.enabled).toBe(true);
+describe("ai-kit source registration", () => {
+  async function manifest() {
+    return discoverFirstPartyManifest(join(getProjectRoot(), "packages/@ezcorp/ai-kit"));
+  }
+
+  test("discovers the registered v4 source instead of trusting a host projection", async () => {
+    const discovered = await manifest();
+    expect(discovered.schemaVersion).toBe(4);
+    expect(discovered.name).toBe("ai-kit");
+    expect(discovered.entrypoint).toBe("./extension.ts");
   });
 
-  test("EZCORP_DISABLE_AI_KIT=1 → no ai-kit row is created", async () => {
-    await withEnv("1", async () => {
-      await ensureBundledExtensions();
-    });
-    expect(store.has("ai-kit")).toBe(false);
-    // But baseline bundled extensions still install.
-    expect(store.has("web-search")).toBe(true);
+  test("declares orchestration discovery tools in the executable manifest", async () => {
+    const names = (await manifest()).tools?.map((tool) => tool.name);
+    expect(names).toContain("list_projects");
+    expect(names).toContain("list_agents");
+    expect(names).toContain("list_extensions");
   });
 
-  test("manifest declares all 19 locked tool names", async () => {
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-    });
-    const row = store.get("ai-kit")!;
-    const manifest = row.manifest as { tools?: Array<{ name: string }> };
-    const names = (manifest.tools ?? []).map((t) => t.name).sort();
-    const expected = [
-      "assign_task",
-      "cancel_run",
-      "create_agent",
-      "generate_agent",
-      "get_agent",
-      "get_messages",
-      "list_agents",
-      "list_extensions",
-      "list_models",
-      "list_projects",
-      "list_sub_conversations",
-      "search_mentions",
-      "send_message",
-      "spawn_agents",
-      "spawn_chats",
-      "spawn_team",
-      "start_assignment",
-      "start_chat",
-      "stream_run",
-    ].sort();
-    expect(names).toEqual(expected);
+  test("declares controlled chat operations rather than shell access", async () => {
+    const discovered = await manifest();
+    const names = discovered.tools?.map((tool) => tool.name);
+    expect(names).toContain("start_chat");
+    expect(names).toContain("send_message");
+    expect(discovered.permissions.shell).toBeUndefined();
   });
 
-  test("grants localhost network permission", async () => {
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-    });
-    const row = store.get("ai-kit")!;
-    expect(row.grantedPermissions.network).toContain("localhost");
+  test("declares bounded fan-out operations in the executable source", async () => {
+    const discovered = await manifest();
+    const spawn = discovered.tools?.find((tool) => tool.name === "spawn_chats");
+    expect(spawn).toBeDefined();
+    expect(JSON.stringify(spawn?.inputSchema)).toContain('"maxItems":20');
+    expect(discovered.permissions.filesystem).toBeUndefined();
   });
 
-  test("grants EZCORP_* env vars", async () => {
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-    });
-    const row = store.get("ai-kit")!;
-    for (const key of ["EZCORP_BASE_URL", "EZCORP_API_KEY", "EZCORP_SESSION_COOKIE"]) {
-      expect(row.grantedPermissions.env).toContain(key);
-    }
-  });
-
-  test("grantedAt timestamps are numeric (registry.ts relies on this shape)", async () => {
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-    });
-    const row = store.get("ai-kit")!;
-    expect(typeof row.grantedPermissions.grantedAt["network"]).toBe("number");
-    expect(typeof row.grantedPermissions.grantedAt["env"]).toBe("number");
-    expect(typeof row.grantedPermissions.grantedAt["filesystem"]).toBe("number");
-  });
-
-  test("second startup is a no-op when already installed and enabled", async () => {
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-      const firstId = store.get("ai-kit")!.id;
-      await ensureBundledExtensions();
-      expect(store.get("ai-kit")!.id).toBe(firstId);
-    });
-  });
-
-  test("second startup RE-ENABLES a bundled extension that was previously disabled", async () => {
-    // Simulates the UX-breaking failure mode where a prior server run
-    // marked ai-kit `disabled` (e.g. old integrity-check gate, operator
-    // toggle, transient bug). We self-heal on the next boot so the
-    // default-on promise holds.
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-      const row = store.get("ai-kit")!;
-      const priorId = row.id;
-      row.enabled = false;
-      row.consecutiveFailures = 3;
-
-      await ensureBundledExtensions();
-      // Same row (no reinstall), now enabled, failures reset.
-      expect(store.get("ai-kit")!.id).toBe(priorId);
-      expect(store.get("ai-kit")!.enabled).toBe(true);
-      expect(store.get("ai-kit")!.consecutiveFailures).toBe(0);
-    });
-  });
-
-  test("operator can opt-out after an installed-then-disabled cycle without exception", async () => {
-    await withEnv(undefined, async () => {
-      await ensureBundledExtensions();
-    });
-    expect(store.has("ai-kit")).toBe(true);
-    // Now the operator sets the disable flag. A subsequent startup should
-    // leave the existing row alone (we don't auto-uninstall) but must not
-    // throw either. Disable-after-install is a deliberate hands-off policy.
-    await withEnv("1", async () => {
-      await ensureBundledExtensions();
-    });
-    // Row persists from the prior install; the disable flag governs fresh
-    // installs, not retroactive uninstalls.
-    expect(store.has("ai-kit")).toBe(true);
+  test("does not make the discovered source persistent at boot", async () => {
+    const discovered = await manifest();
+    expect(discovered.persistent).toBe(false);
+    expect(discovered.permissions.env).toBeUndefined();
+    expect(discovered.permissions.network).toBeUndefined();
   });
 });

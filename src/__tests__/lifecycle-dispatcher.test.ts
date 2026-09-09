@@ -47,6 +47,36 @@ describe("LifecycleHookDispatcher", () => {
     bus = new EventBus<AgentEvents>();
   });
 
+  test("reload adds and replaces hooks once, and removal or stop prevents delivery", () => {
+    const process = mockProc();
+    const manifests = new Map<string, { lifecycleHooks: string[] }>();
+    const registry = { ...mockRegistry(new Map([["live", process]])), getAllManifests: () => manifests.entries() };
+    const dispatcher = new LifecycleHookDispatcher(bus, registry);
+    dispatcher.reconcileFromRegistry();
+    dispatcher.start();
+    manifests.set("live", { lifecycleHooks: ["run:start"] });
+    dispatcher.reconcileFromRegistry();
+    dispatcher.start();
+    dispatcher.reconcileFromRegistry();
+    bus.emit("run:start", { run: { id: "first", agentName: "test" } } as never);
+    expect(process.calls).toHaveLength(1);
+    manifests.set("live", { lifecycleHooks: ["run:complete"] });
+    dispatcher.reconcileFromRegistry();
+    bus.emit("run:start", { run: { id: "removed" } } as never);
+    expect(process.calls).toHaveLength(1);
+    bus.emit("run:complete", { run: { id: "second" } } as never);
+    expect(process.calls).toHaveLength(2);
+    manifests.clear();
+    dispatcher.reconcileFromRegistry();
+    bus.emit("run:complete", { run: { id: "disabled" } } as never);
+    expect(process.calls).toHaveLength(2);
+    dispatcher.stop();
+    manifests.set("live", { lifecycleHooks: ["run:start"] });
+    dispatcher.reconcileFromRegistry();
+    bus.emit("run:start", { run: { id: "stopped" } } as never);
+    expect(process.calls).toHaveLength(2);
+  });
+
   test("dispatches sanitized payload when subscribed hook fires", () => {
     const proc = mockProc();
     const registry = mockRegistry(new Map([["ext-a", proc]]));

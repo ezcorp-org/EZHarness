@@ -10,27 +10,25 @@ import {
   toolError,
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
-
 // GitHub API helper — uses fetchPermitted so the host-granted network
 // allowlist (`permissions.network: ["api.github.com"]` in ezcorp.config.ts)
 // is enforced at call time. fetchPermitted throws when the hostname is
 // not present in `EZCORP_PERMITTED_HOSTS`.
 async function githubFetch(path: string): Promise<{ ok: boolean; status: number; data: unknown }> {
   const headers: Record<string, string> = { "User-Agent": "github-stats-ext" };
-
   const res = await fetchPermitted(`https://api.github.com${path}`, { headers });
   const data = await res.json();
   return { ok: res.ok, status: res.status, data };
 }
+
+// Tool handlers — each returns a ToolCallResult; host-side dispatcher
+// serializes into the JSON-RPC envelope.
 
 function githubError(status: number, notFound: string) {
   if (status === 404) return toolError(notFound);
   if (status === 403) return toolError("GitHub public API rate limit exceeded; try again later");
   return toolError(`GitHub API error: ${status}`);
 }
-
-// Tool handlers — each returns a ToolCallResult; host-side dispatcher
-// serializes into the JSON-RPC envelope.
 
 const repoStats: ToolHandler = async (args) => {
   const { owner, repo } = args as { owner: string; repo: string };
@@ -67,9 +65,6 @@ const tools: Record<string, ToolHandler> = {
   "repo-languages": repoLanguages,
 };
 
-/** Actual handlers exposed only for the in-process example tests. */
-export const _internals = { repoStats, userProfile, repoLanguages };
-
 // --- Production wiring ---
 //
 // Gated on `import.meta.main` so test imports don't open stdin. Order is
@@ -77,8 +72,13 @@ export const _internals = { repoStats, userProfile, repoLanguages };
 // `createToolDispatcher(tools)` supplies the handlers; `ch.start()` then
 // kicks off the stdin read loop.
 
-if (import.meta.main) {
+/** Actual handlers exposed only for the in-process example tests. */
+export const _internals = { repoStats, userProfile, repoLanguages };
+
+export function start(): void {
   const ch = getChannel();
   createToolDispatcher(tools);
   ch.start();
 }
+
+if (import.meta.main) start();

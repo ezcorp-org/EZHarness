@@ -1,0 +1,20 @@
+{
+  "private_inventory_bytes_verified": 85,
+  "proof_rows": 8,
+  "launcher_quartets": 11,
+  "embedding_runtime_guard_exact_once_zero": true,
+  "current_image": "125f73ea5f27fd9eccfce4a74ba27f091e3dfe06e931618842573e8d8179e103",
+  "current_app_logs_reviewed": [
+    "historical-upgrade/upgrade/assert-candidate/compose.log",
+    "historical-upgrade/upgrade/assert-restore/compose.log",
+    "delivery/runtime/compose.log",
+    "file-organizer/runtime/compose.log",
+    "revocation/runtime/compose.log",
+    "runtime/runtime/compose.log",
+    "legacy-adoption/legacy/adopt/compose.log",
+    "runtime-resources/runtime/compose.log",
+    "embeddings/runtime/compose.log"
+  ],
+  "error_fatal_records": [],
+  "checkout_tree_parent_proof": "../hosted-2bdf4708/production-checkout-parent-verification.json"
+}

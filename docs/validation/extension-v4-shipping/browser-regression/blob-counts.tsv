@@ -1,0 +1,4 @@
+mock-gate	entries=1	png_resource_entries=0	extracted_png=18
+real-auth	entries=2	png_resource_entries=0	extracted_png=33
+visual-mock	entries=1	png_resource_entries=0	extracted_png=213
+visual-real-auth	entries=2	png_resource_entries=0	extracted_png=30

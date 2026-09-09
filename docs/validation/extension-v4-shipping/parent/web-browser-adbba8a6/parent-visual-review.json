@@ -1,0 +1,18 @@
+{
+  "reviewer": "parent",
+  "source_commit_sha": "adbba8a693cdcd4410c51023dfca93517f9db1e8",
+  "full_resolution_reviewed": [
+    "visual-mock-001.png",
+    "visual-mock-100.png",
+    "real-auth-full-001.png",
+    "visual-real-auth-001.png",
+    "real-auth-full-002.png",
+    "real-auth-full-013.png",
+    "real-auth-full-017.png",
+    "real-auth-full-018.png"
+  ],
+  "result": "Reviewed admin routing, import selection, desktop/mobile human approval, narrow tool menu, stale approval denial and uninstalled state. Text and controls are readable; no overlap or viewport clipping seen in this sample.",
+  "scope": "Eight full-resolution screenshots; no claim that all294 were viewed at full resolution.",
+  "png_source_bytes_verified": 294,
+  "test_title_mapping": "Resolved from each source blob onProject test definitions using onAttach testId."
+}

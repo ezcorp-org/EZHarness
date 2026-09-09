@@ -7,7 +7,7 @@
 // in `ez_drafts`).
 
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { mock } from "bun:test";
+import { mock, spyOn } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 
@@ -709,141 +709,36 @@ describe("ezcorp/drafts — discard", () => {
 
 // ── install (agent-driven, gated upstream by the permission card) ──
 
-describe("ezcorp/drafts \u2014 install", () => {
-  test("missing draftId \u2192 -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install" }),
-      makeCtx(),
-    );
-    expect(resp.error?.code).toBe(-32602);
-  });
+test("reopen returns the immutable workspace handoff under host-owned identity", async () => {
+  const module = await import("../reopen-extension");
+  const handoff = { installationId: "owned-installation", workspaceId: "new-workspace", revision: 1, name: "owned-extension", openUrl: "/extensions/author?installation=owned-installation&workspace=new-workspace" };
+  const reopen = spyOn(module, "reopenInstalledAsDraft").mockResolvedValue(handoff);
+  try {
+    const response = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "reopen", name: handoff.name, userId: OTHER_USER }, "reopen-handoff"), makeCtx({ userId: USER }));
+    expect(reopen).toHaveBeenCalledWith(handoff.name, USER);
+    expect(response).toEqual({ jsonrpc: "2.0", id: "reopen-handoff", result: handoff });
+    expect(response.result).not.toHaveProperty("draftId");
+  } finally { reopen.mockRestore(); }
+});
 
-  test("success \u2192 {ok,extensionId,name}; passes ctx.userId + enable:true", async () => {
-    installAuthoredDraftImpl = async () => ({
-      extensionId: "ext-installed",
-      name: "weather",
-      redirectUrl: "/extensions/weather",
-    });
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install", draftId: "d-ok" }, "i-1"),
-      makeCtx({ userId: USER }),
-    );
-    expect(resp.error).toBeUndefined();
-    expect(resp.result).toEqual({ ok: true, extensionId: "ext-installed", name: "weather" });
-    expect(lastInstallArgs).toEqual({ draftId: "d-ok", userId: USER, enable: true });
-  });
-
-  test("openUrl from pipeline is surfaced in the tool result (Phase 1 D1/D2)", async () => {
-    installAuthoredDraftImpl = async () => ({
-      extensionId: "ext-installed",
-      name: "weather",
-      redirectUrl: "/extensions/weather",
-      // The pipeline emits this only when the host NAME_REGEX
-      // re-check passed; the handler must pass it through verbatim.
-      openUrl: "/extensions/weather",
-    });
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install", draftId: "d-ok" }, "i-url"),
-      makeCtx({ userId: USER }),
-    );
-    expect(resp.error).toBeUndefined();
-    expect(resp.result).toEqual({
-      ok: true,
-      extensionId: "ext-installed",
-      name: "weather",
-      openUrl: "/extensions/weather",
-    });
-  });
-
-  test("openUrl omitted by pipeline \u2192 omitted from tool result (no malformed URL)", async () => {
-    installAuthoredDraftImpl = async () => ({
-      extensionId: "ext-installed",
-      name: "weather",
-      redirectUrl: "/extensions/weather",
-      // openUrl intentionally absent (pipeline withheld it).
-    });
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install", draftId: "d-ok" }, "i-nourl"),
-      makeCtx({ userId: USER }),
-    );
-    expect(resp.error).toBeUndefined();
-    expect(resp.result).toEqual({
-      ok: true,
-      extensionId: "ext-installed",
-      name: "weather",
-    });
-    expect("openUrl" in (resp.result as Record<string, unknown>)).toBe(false);
-  });
-
-  test("AuthorInstallError \u2192 -32603, code-prefixed message + structured data.code", async () => {
-    installAuthoredDraftImpl = async () => {
-      throw new MockAuthorInstallError("VERIFY_FAILED", "smoke-test failed");
-    };
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install", draftId: "d-bad" }, "i-2"),
-      makeCtx({ userId: USER }),
-    );
-    expect(resp.error?.code).toBe(-32603);
-    // Legacy message contract is byte-identical (`${code}: ${message}`)
-    // so any existing string-only consumer is unaffected.
-    expect(resp.error?.message).toBe("VERIFY_FAILED: smoke-test failed");
-    // Structured `data` lets the bundled install_draft tool / LLM
-    // branch on the code deterministically without regex-parsing prose.
-    expect(resp.error?.data).toEqual({ code: "VERIFY_FAILED" });
-  });
-
-  test("NAME_COLLISION \u2192 structured data.code so the agent stops & asks the user", async () => {
-    installAuthoredDraftImpl = async () => {
-      throw new MockAuthorInstallError(
-        "NAME_COLLISION",
-        'Extension "weather" is already installed',
-      );
-    };
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install", draftId: "d-dup" }, "i-dup"),
-      makeCtx({ userId: USER }),
-    );
-    expect(resp.error?.code).toBe(-32603);
-    expect(resp.error?.message).toBe(
-      'NAME_COLLISION: Extension "weather" is already installed',
-    );
-    expect(resp.error?.data).toMatchObject({ code: "NAME_COLLISION" });
-  });
-
-  test("AuthorInstallError.details is passed through under data.details", async () => {
-    installAuthoredDraftImpl = async () => {
-      throw new MockAuthorInstallError("ENV_KEY_LEAK", "leaked env names", {
-        leakedNames: ["OPENAI_API_KEY"],
-      });
-    };
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install", draftId: "d-leak" }, "i-leak"),
-      makeCtx({ userId: USER }),
-    );
-    expect(resp.error?.code).toBe(-32603);
-    expect(resp.error?.data).toEqual({
-      code: "ENV_KEY_LEAK",
-      details: { leakedNames: ["OPENAI_API_KEY"] },
-    });
-  });
-
-  test("unexpected (non-AuthorInstallError) throw \u2192 -32603 generic", async () => {
-    installAuthoredDraftImpl = async () => {
-      throw new Error("kaboom");
-    };
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install", draftId: "d-x" }, "i-3"),
-      makeCtx({ userId: USER }),
-    );
-    expect(resp.error?.code).toBe(-32603);
-    expect(resp.error?.message).toContain("Install failed");
+describe("ezcorp/drafts — legacy install cutover", () => {
+  for (const [name, params, userId] of [
+    ["missing draft", {}, USER],
+    ["owned draft", { draftId: "d-ok" }, USER],
+    ["other owner", { draftId: "d-ok" }, OTHER_USER],
+    ["claimed enable", { draftId: "d-ok", enable: true }, USER],
+    ["claimed approval", { draftId: "d-ok", approved: true }, USER],
+    ["claimed owner", { draftId: "d-ok", userId: USER }, OTHER_USER],
+    ["malformed identifier", { draftId: "../host-secret" }, USER],
+    ["caller URL", { draftId: "d-ok", openUrl: "https://attacker.example" }, USER],
+  ] as const) test(`${name} cannot call the removed install pipeline`, async () => {
+    lastInstallArgs = null;
+    installAuthoredDraftImpl = async () => { throw new MockAuthorInstallError("ENV_KEY_LEAK", "HOST_SECRET_MUST_NOT_ESCAPE", { leakedNames: ["OPENAI_API_KEY"] }); };
+    const response = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "install", ...params }), makeCtx({ userId }));
+    expect(response.error?.code).toBe(-32601);
+    expect(response.error?.data).toEqual({ code: "extension_v4_required", controlUrl: "/api/extensions/control", openUrl: "/extensions/author" });
+    expect(response.result).toBeUndefined();
+    expect(lastInstallArgs).toBeNull();
+    expect(JSON.stringify(response)).not.toContain("HOST_SECRET_MUST_NOT_ESCAPE");
   });
 });

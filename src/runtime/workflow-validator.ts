@@ -268,10 +268,9 @@ function skippableSteps(steps: WorkflowStep[]): Set<string> {
 /**
  * How a nested `kind: "workflow"` target is looked up at definition time.
  *
- * Defaults to the live merged cache through the sanctioned registry seam
- * (`workflow/runtime-registry.ts`), so the API create/update routes, the
- * fork route and the dry-run route all get cycle detection with no call-site
- * change — and a test can inject a literal map instead.
+ * Defaults to public non-extension entries in the provenance-carrying live
+ * cache. User-facing callers supply their authorized resolver to validate
+ * private graphs without disclosing another principal's nested names.
  *
  * Falls back to "this definition only" when nothing is registered (a
  * backend-only boot, the CLI, or the YAML loader running before web init).
@@ -286,7 +285,7 @@ function definitionResolver(
   if (supplied) return supplied;
   const registered = getWorkflowRuntime();
   if (!registered) return (name) => (name === def.name ? def : undefined);
-  return (name) => registered.getWorkflows().find((w) => w.name === name);
+  return (name) => name === def.name ? def : registered.getCachedWorkflows?.().find(entry => entry.source !== "extension" && entry.visibility === "system" && entry.definition.name === name)?.definition;
 }
 
 export interface ValidateWorkflowOptions {

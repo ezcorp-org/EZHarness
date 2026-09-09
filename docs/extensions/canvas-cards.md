@@ -235,16 +235,16 @@ createCanvas<MyEvents>({
 
 The generic is optional — without it, every payload is `unknown` (the pre-Phase-C-fix default).
 
-## Security guarantees
+## Security boundaries
 
 The host enforces these without any per-extension code:
 
 | Guarantee | Where it's enforced |
 |---|---|
-| iframe sandbox flags can't be downgraded | [`ExtensionIframeCard.svelte`](../../web/src/lib/components/tool-cards/ExtensionIframeCard.svelte) hardcodes `sandbox="allow-scripts allow-same-origin"` |
-| Cross-origin iframe URLs refused | [`iframe-card-logic.ts:validateIframeSrc`](../../web/src/lib/components/tool-cards/iframe-card-logic.ts) |
+| Frames cannot inherit application origin authority | [`ExtensionIframeCard.svelte`](../../web/src/lib/components/tool-cards/ExtensionIframeCard.svelte) uses `sandbox="allow-scripts"`, without `allow-same-origin` |
+| App routes, sibling extension routes, and external iframe URLs refused | [`iframe-card-logic.ts:validateIframeSrc`](../../web/src/lib/components/tool-cards/iframe-card-logic.ts) |
 | Path traversal blocked in `extensionDataUrl` and the data route | SDK's `extensionDataUrl` + host route's `path.resolve` prefix check |
-| User-owns-conversation check | Both event and data routes call `getConversation(id)` and verify `userId` |
+| Conversation action ownership | The event route resolves the conversation owner and current project membership; a supplied path or identifier is not authority |
 | `toolCallId` bound to `conversationId` | Generic events route looks up `tool_calls` and rejects mismatches (F2 from Phase A review) |
 | Cross-namespace event forgery blocked | Dispatcher rejects `<other-ext>:<event>` declarations server-side (F1 + F3 from Phase B review) |
 | Platform-event shadowing blocked | Extensions named `tool`/`task`/`ask-user` can't override platform events with custom ones |
@@ -252,7 +252,7 @@ The host enforces these without any per-extension code:
 | Per-user rate limit on extension content (240 reqs/min) | Data route `__rateLimiter` |
 | CSRF | SvelteKit's same-origin POST + session cookie auth (default `csrf.checkOrigin: true`) |
 
-**CSP caveat for served extension content.** The data route's `Content-Security-Policy` allows `'unsafe-inline'` and `'unsafe-eval'` in `script-src`, plus `cdn.jsdelivr.net` (for Tailwind in self-contained drafts). This is **deliberately relaxed** so generated HTML drafts can ship inline scripts without a build step. The trust model treats extension-authored content as **partially trusted** — `frame-ancestors 'self'` keeps it from being embedded by other origins, and the iframe sandbox flags (`allow-scripts allow-same-origin`) restrict cross-frame mischief. Don't ship secrets or unauthenticated APIs same-origin if you depend on this guarantee. The full CSP is in [`+server.ts`](../../web/src/routes/api/extensions/[name]/data/[...path]/+server.ts).
+**Served documents remain untrusted.** The data route also sends CSP `sandbox allow-scripts`, so opening HTML or SVG in a new tab does not restore application-origin authority. Inline scripts can run, but `connect-src 'none'` blocks direct API and network calls. Remote scripts, styles, and `eval` are not supported. Bundle browser assets into the verified release instead of loading a CDN. Child code cannot read the parent DOM, cookies, or origin storage. Use host-owned controls for authorized actions; never add a generic authenticated fetch bridge. The full CSP is in [`+server.ts`](../../web/src/routes/api/extensions/[name]/data/[...path]/+server.ts).
 
 ## Migrating from `registerEventHandler`
 
@@ -335,10 +335,10 @@ behavior.
    only the last fires `openDock` — prevents flicker on multi-tool
    turns.
 7. **Pop out to new tab.** If your tool's result includes an `iframeSrc`
-   field (a relative path or same-origin absolute URL), the dock header
+   field (a URL under that extension's data route), the dock header
    shows a "Pop out" button that opens that URL in a new browser tab via
-   `window.open(url, '_blank', 'noopener,noreferrer')`. Cross-origin or
-   non-http(s) URLs are silently ignored — same policy as the embedded
+   `window.open(url, '_blank', 'noopener,noreferrer')`. External URLs,
+   app routes, and sibling extension routes are refused — same policy as the embedded
    iframe. No extension code needed; the convention is the contract.
 8. **Esc + close button.** The dock header's "Close" button and the Esc
    key both dismiss the dock. The closed `toolCallId` is marked
@@ -349,8 +349,8 @@ behavior.
 ### Security note
 
 The component identity is the same in both inline and dock modes. The
-iframe sandbox attribute (`allow-scripts allow-same-origin`) and the
-`validateIframeSrc` cross-origin refusal are unchanged. Dock mode only
+iframe sandbox attribute (`allow-scripts`) and the
+`validateIframeSrc` extension-data-route restriction are unchanged. Dock mode only
 relaxes presentational CSS (border, min-height) — never the
 `SANDBOX_FLAGS_STRICT` constant in `iframe-card-logic.ts`.
 

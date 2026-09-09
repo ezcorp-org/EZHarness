@@ -88,15 +88,16 @@ interface OpenMeteoForecastResponse {
   };
 }
 
-type FetchLike = typeof fetch;
-let fetchImpl: FetchLike = fetch;
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+const defaultFetch: FetchLike = (...args) => fetch(...args);
+let fetchImpl: FetchLike = defaultFetch;
 
 export function _setFetchImplForTests(fake: FetchLike): void {
   fetchImpl = fake;
 }
 
 export function _resetBindingsForTests(): void {
-  fetchImpl = fetch;
+  fetchImpl = defaultFetch;
 }
 
 function weatherCodeMeta(code: number, isDay: boolean): { condition: string; emoji: string } {

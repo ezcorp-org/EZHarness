@@ -1,0 +1,49 @@
+import { resolveModelObject } from "/home/dev/work/EZCorp/extension-v4-audit-policy/src/providers/registry.ts";
+import { piComplete } from "/home/dev/work/EZCorp/extension-v4-audit-policy/src/lib/pi-complete.ts";
+import {
+  distill,
+  _setRuntimeApiForTests as setDistillerApi,
+  _resetRuntimeApiForTests as resetDistillerApi,
+} from "/home/dev/work/EZCorp/extension-v4-audit-policy/extensions/lessons-distiller/index.ts";
+import {
+  extract,
+  _setRuntimeApiForTests as setExtractorApi,
+  _resetRuntimeApiForTests as resetExtractorApi,
+} from "/home/dev/work/EZCorp/extension-v4-audit-policy/extensions/memory-extractor/index.ts";
+
+const model = resolveModelObject("ollama", "gemma4:e2b", "http://127.0.0.1:11434");
+const liveComplete = async (opts: { systemPrompt: string; messages: Array<{role:"user";content:string}>; maxTokens: number; temperature: number }) => {
+  const result = await piComplete(model, {
+    systemPrompt: opts.systemPrompt,
+    messages: opts.messages.map((message) => ({ ...message, timestamp: Date.now() })),
+  }, { apiKey: "no-key-needed", maxTokens: Math.min(opts.maxTokens, 1024), temperature: opts.temperature, timeoutMs: 120_000 });
+  console.log(JSON.stringify({ check: "adapter-response", blocks: result.content.map((block) => ({ type: block.type, textLength: block.text?.length ?? 0 })), usage: result.usage, stopReason: result.stopReason, model: result.model }));
+  return { content: result.content.filter((block) => block.type === "text").map((block) => block.text ?? "").join("") };
+};
+
+const messages = [
+  { id: "m1", role: "user" as const, content: "For future TypeScript changes, always run the focused test before committing." },
+  { id: "m2", role: "assistant" as const, content: "Understood. I will run the focused test before each commit." },
+];
+const writes: unknown[] = [];
+try {
+  setDistillerApi({
+    llmComplete: liveComplete,
+    lessonsWrite: async (input) => { writes.push({ kind: "lesson", input }); return { created: true, lesson: { id: "temp", ...input } }; },
+  });
+  const lesson = await distill({ conversationId: "temp", messages, skipTriggerGate: true, settings: { provider: "ollama", model: "gemma4:e2b" }, projectId: "temp" });
+  console.log(JSON.stringify({ check: "lessons-distiller", outcome: lesson, writes: writes.length }));
+  if (lesson.kind === "error" || (lesson.kind === "decline" && ["llm_malformed", "llm_empty"].includes(lesson.reason))) process.exitCode = 1;
+
+  setExtractorApi({
+    getMessagesEnvelope: async () => ({ messages, projectId: "temp" }),
+    llmComplete: liveComplete,
+    dedupMemoryWrite: async (input) => { writes.push({ kind: "memory", input }); return { action: "created", memoryId: "temp" }; },
+  });
+  const memory = await extract({ conversationId: "temp", settings: { provider: "ollama", model: "gemma4:e2b" }, projectId: "temp" });
+  console.log(JSON.stringify({ check: "memory-extractor", outcome: memory, writes: writes.length }));
+  if (memory.kind === "error" || (memory.kind === "decline" && ["llm_malformed", "llm_empty"].includes(memory.reason))) process.exitCode = 1;
+} finally {
+  resetDistillerApi();
+  resetExtractorApi();
+}

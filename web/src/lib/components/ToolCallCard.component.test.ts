@@ -10,7 +10,7 @@
  */
 
 import { render, fireEvent, cleanup } from "@testing-library/svelte";
-import { describe, test, expect, afterEach, beforeAll } from "vitest";
+import { describe, test, expect, afterEach, beforeAll, vi } from "vitest";
 import ToolCallCard from "./ToolCallCard.svelte";
 import type { ToolCallState } from "$lib/stores.svelte";
 
@@ -31,7 +31,10 @@ beforeAll(() => {
 	}
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	cleanup();
+});
 
 function baseToolCall(overrides: Partial<ToolCallState> = {}): ToolCallState {
 	return {
@@ -139,6 +142,36 @@ describe("ToolCallCard expanded error block", () => {
 		await fireEvent.click(button);
 
 		expect(queryByText("Error")).toBeNull();
+	});
+});
+
+describe("ToolCallCard inline output", () => {
+	test("expanding a client inline call uses its event output without a missing-row request", async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+		const { container, findByText } = render(ToolCallCard, {
+			toolCall: baseToolCall({
+				status: "complete",
+				output: "extension returned this exact output",
+				source: "inline",
+			}),
+		});
+
+		await fireEvent.click(container.querySelector("button[aria-expanded]") as HTMLButtonElement);
+		await findByText("extension returned this exact output");
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	test("a persisted card still requests its full output on expand", async () => {
+		const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ output: "persisted full output" })));
+		vi.stubGlobal("fetch", fetchSpy);
+		const { container, findByText } = render(ToolCallCard, {
+			toolCall: baseToolCall({ status: "complete", output: "preview", source: undefined }),
+		});
+
+		await fireEvent.click(container.querySelector("button[aria-expanded]") as HTMLButtonElement);
+		await findByText("persisted full output");
+		expect(fetchSpy).toHaveBeenCalledWith("/api/tool-calls/tc-1/output");
 	});
 });
 

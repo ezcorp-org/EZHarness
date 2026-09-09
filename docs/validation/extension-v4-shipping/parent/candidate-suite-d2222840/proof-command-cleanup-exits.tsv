@@ -1,0 +1,12 @@
+proof	phase	command_exit	app_log_exit	owned_cleanup_exit	note
+file-organizer	runtime	0	0	0	launcher receipt
+embeddings	runtime	0	0	0	launcher receipt
+runtime	runtime	0	0	0	launcher receipt
+delivery	runtime	0	0	0	launcher receipt
+revocation	runtime	0	0	0	launcher receipt
+runtime-resources	runtime	0	0	0	launcher receipt
+historical-upgrade	seed-previous	0	0	0	launcher receipt
+historical-upgrade	assert-candidate	0	0	0	launcher receipt
+historical-upgrade	assert-restore	0	0	0	launcher receipt
+legacy-adoption	seed	0	0	0	phase launcher receipt
+legacy-adoption	adopt	0	0	0	phase launcher receipt

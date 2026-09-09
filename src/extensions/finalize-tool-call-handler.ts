@@ -10,8 +10,9 @@
  * Permission gate: callers must hold `appendMessages` (the same
  * permission that authorised the original insert) AND own the tool
  * call — ownership is established by matching `tool_calls.extensionId`
- * against the calling extension's id. A row whose `extensionId` doesn't
- * match the caller is rejected — no cross-extension finalize.
+ * against the calling extension's id. The current principal must also
+ * own the row's conversation and retain project access. These checks
+ * and the update share one SQL transaction, including unbound calls.
  *
  * Status enum: `"complete"` or `"error"`. The row's `success` column
  * gets `true` for complete, `false` for error; the existing card
@@ -27,12 +28,15 @@ import type {
   ToolCallResult,
 } from "./types";
 import type { PermissionEngine } from "./permission-engine";
-import { getDb } from "../db/connection";
+import { getDb, type DbTransaction } from "../db/connection";
 import { toolCalls } from "../db/schema";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
 import { redactToolCallOutputContent } from "./audit-redaction";
 import { rpcError, rpcResult } from "./json-rpc";
+import { assertConversationEventOwner } from "./domain-event-outbox";
+import { LifecycleError } from "./v4/types";
+import { verifyInvocationLocks } from "./runtime-locks";
 
 const MAX_OPS_PER_SECOND = 50;
 const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
@@ -116,7 +120,9 @@ export async function handleFinalizeToolCallRpc(
   // also pull conversationId so the response gate matches the caller's
   // wired scope — defense-in-depth against a future bug that lets
   // append-message slip a row in for the wrong conversation.
-  const rows = await getDb()
+  return getDb().transaction(async (transaction: DbTransaction) => {
+  await verifyInvocationLocks(transaction);
+  const rows = await transaction
     .select({
       id: toolCalls.id,
       extensionId: toolCalls.extensionId,
@@ -124,6 +130,7 @@ export async function handleFinalizeToolCallRpc(
     })
     .from(toolCalls)
     .where(eq(toolCalls.id, toolCallId))
+    .for("update")
     .limit(1);
 
   const row = rows[0];
@@ -133,18 +140,19 @@ export async function handleFinalizeToolCallRpc(
   if (row.extensionId !== extensionId) {
     return rpcError(req.id, -32001, "toolCall not owned by calling extension");
   }
-  // Cross-conversation check. Tool-call-driven invocations have
-  // ctx.conversationId populated (per-turn executor state); event-
-  // driven invocations (kokoro-tts:save from the card) don't. When
-  // ctx is unbound, the row's `extensionId === extensionId` check
-  // already proved ownership above — same scope guarantee, just
-  // arrived from a different direction.
   if (
     ctx.conversationId &&
     ctx.conversationId !== "unknown" &&
     row.conversationId !== ctx.conversationId
   ) {
     return rpcError(req.id, -32001, "toolCall not in calling extension's conversation");
+  }
+  if (!row.conversationId) return rpcError(req.id, -32001, "Tool call conversation access denied");
+  try {
+    await assertConversationEventOwner(transaction, ctx.userId, row.conversationId);
+  } catch (error) {
+    if (error instanceof LifecycleError && error.code === "event_not_found") return rpcError(req.id, -32001, "Tool call conversation access denied");
+    throw error;
   }
 
   const output = coerceFinalizedOutput(params.output);
@@ -155,7 +163,7 @@ export async function handleFinalizeToolCallRpc(
   // extension echoing e.g. a Bearer header into its output can't persist the
   // secret in plaintext. `redactToolCallOutputContent` never truncates, so
   // large UI-rendered outputs keep their shape.
-  await getDb()
+  await transaction
     .update(toolCalls)
     .set({
       // Persist as the same `{ content }` envelope used by persistToolCall
@@ -166,4 +174,5 @@ export async function handleFinalizeToolCallRpc(
     .where(eq(toolCalls.id, toolCallId));
 
   return rpcResult(req.id, { ok: true });
+  });
 }

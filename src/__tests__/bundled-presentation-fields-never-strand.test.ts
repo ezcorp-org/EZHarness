@@ -39,8 +39,7 @@ import {
   NON_SEMANTIC_TOOL_FIELDS,
 } from "../extensions/bundled-lock";
 import { resolveBundledExtensions, getProjectRoot } from "../extensions/bundled";
-import { loadManifestFresh } from "../extensions/loader";
-import { migrateManifestV2ToV3 } from "../extensions/manifest";
+import { discoverFirstPartyManifest as loadManifestFresh } from "./helpers/first-party-manifest";
 import type { ToolDefinition } from "../extensions/types";
 
 /**
@@ -53,7 +52,7 @@ import type { ToolDefinition } from "../extensions/types";
 const withTools: Array<{ name: string; tools: ToolDefinition[] }> = [];
 for (const entry of resolveBundledExtensions()) {
   const manifest = await loadManifestFresh(join(getProjectRoot(), entry.path));
-  const tools = (migrateManifestV2ToV3(manifest).tools ?? []) as ToolDefinition[];
+  const tools = (manifest.tools ?? []) as ToolDefinition[];
   if (tools.length > 0) withTools.push({ name: entry.name, tools });
 }
 

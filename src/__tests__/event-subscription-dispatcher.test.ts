@@ -60,13 +60,14 @@ const { EventSubscriptionDispatcher } = await import("../extensions/event-subscr
 
 interface SendCall { method: string; params: Record<string, unknown>; }
 
-function mockProc() {
+function mockProc(onSend?: () => void) {
   const calls: SendCall[] = [];
   return {
     isRunning: true,
     calls,
     sendNotification(method: string, params?: Record<string, unknown>) {
       calls.push({ method, params: params ?? {} });
+      onSend?.();
     },
   };
 }
@@ -429,6 +430,49 @@ describe("EventSubscriptionDispatcher — rate limit + audit throttle", () => {
 
 describe("EventSubscriptionDispatcher — lifecycle", () => {
   beforeEach(() => { auditCalls.length = 0; });
+
+  test("reload preserves explicit full-payload opt-in only while its declaration and grant remain", async () => {
+    const bus = new EventBus<AgentEvents>();
+    let received = () => {};
+    const proc = mockProc(() => received());
+    let includeFullPayload = true;
+    let grants = ["tool:complete"];
+    const manifest = () => ({ name: "reload-fixture", permissions: { eventSubscriptions: { events: ["tool:complete"], includeFullPayload } } });
+    const registry = {
+      ...mockRegistry(new Map([["ext-a", proc]])),
+      getManifest: manifest,
+      getAllManifests: () => new Map([["ext-a", manifest()]]).entries(),
+      getGrantedPermissions: () => ({ eventSubscriptions: grants }),
+    };
+    const dispatcher = new EventSubscriptionDispatcher(bus, registry, wireLookup({ c1: ["ext-a"] }));
+    const deliver = () => new Promise<void>(resolve => {
+      received = resolve;
+      bus.emit("tool:complete", { conversationId: "c1", input: { secret: "test" }, output: "full payload" } as never);
+    });
+    dispatcher.reconcileFromRegistry();
+    dispatcher.start();
+    await deliver();
+    expect(proc.calls[0]?.params).not.toHaveProperty("output");
+    dispatcher.setIncludeFullPayload("ext-a", true);
+    dispatcher.reconcileFromRegistry();
+    dispatcher.reconcileFromRegistry();
+    await deliver();
+    expect(proc.calls).toHaveLength(2);
+    expect(proc.calls[1]?.params.output).toBe("full payload");
+    includeFullPayload = false;
+    dispatcher.reconcileFromRegistry();
+    await deliver();
+    expect(proc.calls[2]?.params).not.toHaveProperty("output");
+    includeFullPayload = true;
+    dispatcher.setIncludeFullPayload("ext-a", true);
+    grants = [];
+    dispatcher.reconcileFromRegistry();
+    grants = ["tool:complete"];
+    dispatcher.reconcileFromRegistry();
+    await deliver();
+    expect(proc.calls[3]?.params).not.toHaveProperty("output");
+    dispatcher.stop();
+  });
 
   test("stop() unwires bus listeners — post-stop events are not delivered", async () => {
     const bus = new EventBus<AgentEvents>();

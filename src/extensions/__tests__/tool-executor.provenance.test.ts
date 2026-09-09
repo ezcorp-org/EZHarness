@@ -333,13 +333,7 @@ describe("ToolExecutor.resolveReverseRpcMeta — token-correlated provenance", (
     if (!r.ok) expect(r.errorResponse.error?.code).toBe(-32602);
   });
 
-  // ─────────────────────────────────────────────────────────────────
-  // Token / extension binding — DOCUMENTED current behavior.
-  // ─────────────────────────────────────────────────────────────────
-
-  test("token registered for ext-A resolves even when the reverse-RPC arrives on ext-B's handler (resolver does NOT bind token→extension)", () => {
-    // The snapshot's actorExtensionId is "ext-A", but resolution is
-    // requested with extensionId "ext-B".
+  test("a token registered for ext-A is refused by ext-B", () => {
     const token = registerCallProvenance({
       onBehalfOf: "user-A",
       conversationId: "conv-A",
@@ -351,29 +345,8 @@ describe("ToolExecutor.resolveReverseRpcMeta — token-correlated provenance", (
     });
     const r = resolve(executor, "ext-B", { ezCallId: token });
 
-    // ACTUAL behavior (asserted, not aspirational): resolveReverseRpcMeta
-    // resolves purely on the opaque token. `extensionId` is used ONLY
-    // for log context — it is NOT cross-checked against
-    // prov.actorExtensionId. So ext-B successfully resolves a token
-    // minted for ext-A.
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.onBehalfOf).toBe("user-A");
-      expect(r.conversationId).toBe("conv-A");
-    }
-
-    // DESIGN DECISION (implemented): resolveReverseRpcMeta now emits a
-    // warn-level TRIPWIRE when prov.actorExtensionId !== resolving
-    // extensionId, but DELIBERATELY still resolves (ok:true above). This
-    // is intentional and must NOT be "upgraded" to a hard reject: the
-    // cross-extension `ezcorp/invoke` path's exact token/extension
-    // correspondence is subtle and a false reject would break
-    // legitimate chained calls. It is safe to leave non-enforcing
-    // because the token is opaque, host-issued, single-use, and never
-    // observable by another extension's subprocess (independent review
-    // confirmed: 122-bit UUID on per-subprocess stdin). The tripwire
-    // gives observability of any real divergence without functional
-    // risk. This assertion locks the "tripwire, not gate" contract.
-    expect(r.ok).toBe(true);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errorResponse.error?.code).toBe(-32602);
+    expect(resolve(executor, "ext-A", { ezCallId: token }).ok).toBe(true);
   });
 });

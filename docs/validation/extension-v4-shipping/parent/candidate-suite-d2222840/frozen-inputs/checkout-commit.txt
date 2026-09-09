@@ -1,0 +1,5 @@
+commit=d2222840cf3d2b4963075ffc0f5cf0bdec5ef621
+tree=e197202a41667938405530f5187578d69f052495
+parent=d4ffe706c86049ee15515c79377234765ee86208
+commit_time=2026-09-07T05:13:56-04:00
+subject=test(extension): inspect the exported runner transport

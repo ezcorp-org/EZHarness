@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -45,7 +45,10 @@ afterAll(() => restoreModuleMocks());
 import { ToolExecutor, PermissionDeniedError } from "../extensions/tool-executor";
 import { ExtensionRegistry, buildAllowedEnv } from "../extensions/registry";
 import type { ExtensionManifestV2 } from "../extensions/types";
-import { computePackageChecksums } from "../extensions/checksum";
+import { FileBlobStore, putFiles, getFiles } from "../extensions/v4/blobs";
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
+import { registerCallProvenance, releaseCallProvenance } from "../extensions/call-provenance";
+import { validateManifest } from "@ezcorp/extension-contract";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -645,61 +648,47 @@ describe("registry loads only enabled extensions", () => {
 // 6. Checksum Verification Blocks Tampered Extensions
 // ═══════════════════════════════════════════════════════════════════
 
-describe("checksum verification blocks tampered extensions", () => {
-  test("getProcess() throws and disables when checksums mismatch", async () => {
-    // Compute checksums from clean files
-    writeFileSync(join(installDir, "index.ts"), 'console.log("clean")');
-    const checksums = await computePackageChecksums(installDir);
-
+describe("immutable release verification blocks tampered extensions", () => {
+  async function integrityFixture() {
+    const extensionId = "integrity-fixture";
+    const root = join(testDir, "blobs");
+    const blobs = new FileBlobStore(root);
+    const artifactDigest = await putFiles(blobs, { "extension.js": "verified bytes" });
+    const manifest = validateManifest({ ...makeManifest({ schemaVersion: 4 }), tools: [{ name: "echo", description: "Echo", inputSchema: {}, outputSchema: {} }] });
+    const fixture = releaseRuntimeFixture(extensionId, manifest, { artifactDigest, beforeStart: async (input) => { await getFiles(blobs, input.artifactDigest); }, invoke: async () => ({ content: [{ type: "text", text: "clean" }] }) });
+    fixture.configure();
     const registry = ExtensionRegistry.getInstance();
-    const manifest = makeManifest({ packageChecksums: checksums });
-    registry.setManifestForTest("ext-tampered", manifest);
-    registry.setInstallPathForTest("ext-tampered", installDir);
-    registry.setGrantedPermsForTest("ext-tampered", { grantedAt: {} });
+    registry.setManifestForTest(extensionId, manifest);
+    const invoke = async () => {
+      const token = registerCallProvenance({ onBehalfOf: "fixture-owner", actorExtensionId: extensionId, conversationId: "conversation", kind: "tool", ownerless: false, runId: null, parentCallId: null });
+      try { return await (await registry.getProcess(extensionId)).callTool("echo", {}, { ezCallId: token }); }
+      finally { releaseCallProvenance(token); }
+    };
+    const tamper = () => { chmodSync(join(root, artifactDigest), 0o600); writeFileSync(join(root, artifactDigest), "TAMPERED"); };
+    return { ...fixture, registry, invoke, tamper, extensionId };
+  }
 
-    // Tamper the file
-    writeFileSync(join(installDir, "index.ts"), "EVIL CODE INJECTED");
-
-    await expect(registry.getProcess("ext-tampered")).rejects.toThrow(
-      /ext-tampered failed integrity check/,
-    );
-
-    expect(disableExtensionCalls).toEqual(["ext-tampered"]);
+  test("tampered immutable artifact cannot start an execution worker", async () => {
+    const fixture = await integrityFixture();
+    fixture.tamper();
+    await expect(fixture.invoke()).rejects.toMatchObject({ code: "artifact_corrupt" });
+    expect(fixture.calls).toHaveLength(0);
   });
 
-  test("getProcess() succeeds when checksums match", async () => {
-    writeFileSync(join(installDir, "index.ts"), 'console.log("clean")');
-    const checksums = await computePackageChecksums(installDir);
-
-    const registry = ExtensionRegistry.getInstance();
-    const manifest = makeManifest({ packageChecksums: checksums });
-    registry.setManifestForTest("ext-clean", manifest);
-    registry.setInstallPathForTest("ext-clean", installDir);
-    registry.setGrantedPermsForTest("ext-clean", { grantedAt: {} });
-
-    const proc = await registry.getProcess("ext-clean");
-    expect(proc).toBeDefined();
-    expect(disableExtensionCalls).toHaveLength(0);
-    proc.kill();
+  test("matching immutable bytes allow the approved release invocation", async () => {
+    const fixture = await integrityFixture();
+    expect((await fixture.invoke()).content).toEqual([{ type: "text", text: "clean" }]);
+    expect(fixture.calls).toHaveLength(1);
   });
 
-  test("tampered extension is removed from registry maps after disable", async () => {
-    writeFileSync(join(installDir, "index.ts"), 'console.log("clean")');
-    const checksums = await computePackageChecksums(installDir);
-
-    const registry = ExtensionRegistry.getInstance();
-    const manifest = makeManifest({ packageChecksums: checksums });
-    registry.setManifestForTest("ext-removed", manifest);
-    registry.setInstallPathForTest("ext-removed", installDir);
-    registry.setGrantedPermsForTest("ext-removed", { grantedAt: {} });
-
-    writeFileSync(join(installDir, "index.ts"), "TAMPERED");
-
-    await expect(registry.getProcess("ext-removed")).rejects.toThrow();
-
-    // After integrity failure, internal state should be cleaned
-    expect(registry.getGrantedPermissions("ext-removed")).toBeNull();
-    expect(registry.getInstallPath("ext-removed")).toBeNull();
+  test("recreating a retired adapter cannot bypass a corrupted artifact digest", async () => {
+    const fixture = await integrityFixture();
+    await fixture.invoke();
+    fixture.tamper();
+    (await fixture.registry.getProcess(fixture.extensionId)).kill();
+    await expect(fixture.invoke()).rejects.toMatchObject({ code: "artifact_corrupt" });
+    expect(fixture.calls).toHaveLength(1);
+    expect(fixture.registry.getInstallPath(fixture.extensionId)).toBeNull();
   });
 });
 
@@ -833,3 +822,5 @@ describe("ToolExecutor request handler routing", () => {
     expect(resp.error.message).toBe("Method not found");
   });
 });
+import { mockToolEventPersistence } from "./helpers/tool-event-persistence";
+mockToolEventPersistence();

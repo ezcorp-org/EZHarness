@@ -1,0 +1,52 @@
+{
+  "source": {
+    "commit": "d4ec18c40d253a409454391f703a0fd25a8dfa8a",
+    "parent": "0728184bfec77d6b3a8dba2b38b431bfed2ad5ef",
+    "file": "web/e2e/real-auth-setup.ts",
+    "sha256": "d0b811b7b2dc85b46b7a578e4e5162bf181fe35ec98dc172c08d4ea0be4b258f"
+  },
+  "runs": [
+    {
+      "engine": "firefox",
+      "receipt": "/tmp/hosted-firefox-fix-20260907T122515Z",
+      "rawLogPrivate": "/tmp/hosted-firefox-fix-20260907T122515Z/firefox.log",
+      "exit": 0,
+      "tests": 3,
+      "duration": "1.9m",
+      "cacheInventory": [
+        ".links",
+        "ffmpeg-1011",
+        "firefox-1538"
+      ],
+      "chromiumAbsent": true,
+      "ownedServerContainer": null,
+      "testTitles": [
+        "human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension @evidence",
+        "reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence",
+        "same-session stale tabs cannot replace a new active release or restore an uninstall"
+      ]
+    },
+    {
+      "engine": "webkit",
+      "receipt": "/tmp/hosted-webkit-container-fix-20260907T124139Z",
+      "rawLogPrivate": "/tmp/hosted-webkit-container-fix-20260907T124139Z/webkit.log",
+      "exit": 0,
+      "tests": 3,
+      "duration": "2.5m",
+      "serverCacheInventory": [
+        "ffmpeg-1011",
+        "webkit-2336"
+      ],
+      "chromiumAbsent": true,
+      "ownedServerContainer": {
+        "image": "mcr.microsoft.com/playwright:v1.62.1-noble",
+        "removedAfterTest": true
+      },
+      "testTitles": [
+        "human UI creates, approves, uses, scopes, disables, re-enables, and uninstalls an extension @evidence",
+        "reloads an observed pending browser build, shows diagnostics, repairs source, and keeps the active release usable @evidence",
+        "same-session stale tabs cannot replace a new active release or restore an uninstall"
+      ]
+    }
+  ]
+}
