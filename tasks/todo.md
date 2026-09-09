@@ -502,7 +502,7 @@ Repair validation: normal commits7edeed20f and71ebd0301 both pass the full uncha
 - [x] Reproduce City Conditions enable/review failure against the local app.
 - [x] Identify and prove the cause of the missing immutable source file.
 - [x] Add a failing regression and fix storage/recovery without changing approval rules.
-- [ ] Verify the original browser journey, affected tests, types, and deployment persistence.
+- [x] Verify the original browser journey, affected tests, types, and deployment persistence.
 - [ ] Publish tested repair and verify the local app on the repaired main.
 
 Plan review: reproduce locally first; preserve database and existing extension data. Use one browser/heavy test process at a time.
@@ -510,3 +510,5 @@ Plan review: reproduce locally first; preserve database and existing extension d
 Review in progress: restored28 checksum-matching current source blobs, persisted them in ezharness_extension-releases, and verified all29 source/artifact blobs after building City Conditions. A fresh dev image exposed missing compiled package exports; Dockerfile.dev now force-builds trusted SDK/contract and harness-client exports. Recreated app with persistent releases and the isolated runner socket/secret; ready200 and realPlaywright City Conditions Enable pass. Realbuild7144cab5-be01-4f56-96a8-e759e14b4232 verified with no diagnostics; releasecf6b0388-d2ad-4270-935a-d57ce535242c is pending human approval. EZFactory historicalsource9d8fc932 remains unavailable from44Gitversions; preserve history and add explicit recoveryUI instead of raw500.
 
 Repair review: all 28 live review pages return HTTP 200. City Conditions passes the real Enable journey and isolated build. EZ Factory shows the missing-source recovery view; selecting an available workspace opens the editor. Parent checks pass: 43 deployment/config cases, 5 real file-store cases, 42 web cases, and 10 Playwright cases on desktop and mobile. All 25 measured changed source lines have coverage. The original corruption and symlink checks remain intact. Gate integrity passes without an override. Final publication hooks and hosted CI remain pending.
+
+Final local review: the Terra review identified an enabled new-approval request on the missing-source page. Its two failing assertions now pass, with all 27 component checks. Existing approved-release activation still uses the exact backend approval policy. The normal push check caught two empty-page fixture type errors; a shared typed empty-page fixture fixes both. All four typecheck sections pass, and Svelte reports zero errors. The committed changed-file secret scan reports no leaks.

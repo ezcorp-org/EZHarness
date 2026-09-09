@@ -59,6 +59,10 @@ function pageData(approval = false, canApprove = true): ComponentProps<typeof Au
   return { state, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [installation], sourceUnavailable: null, canApprove, canBindProject: false, projects: [], projectBinding: null } as ComponentProps<typeof AuthorPage>["data"];
 }
 
+function emptyPageData(): ComponentProps<typeof AuthorPage>["data"] {
+  return { ...pageData(), state: null, workspace: null, files: {}, installations: [], sourceUnavailable: null, projects: [], projectBinding: null, canBindProject: false };
+}
+
 test("human approval shows explicit opaque TCP and raw secret disclosure warnings", () => {
   const data = pageData(true);
   data.state!.releases.release = verifiedRelease();
@@ -176,7 +180,7 @@ test("missing source blocks new and pending approval controls without exposing t
 });
 
 test("empty workspace list offers an isolated scaffold, not an install shortcut", async () => {
-  const data = { ...pageData(), state: null, workspace: null, files: {}, installations: [], projects: [], projectBinding: null, canBindProject: false };
+  const data = emptyPageData();
   const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ openUrl: "/extensions/author?installation=new" }));
   vi.stubGlobal("fetch", fetcher);
   const view = render(AuthorPage, { data });
@@ -189,7 +193,7 @@ test("empty workspace list offers an isolated scaffold, not an install shortcut"
 
 test("create failures show the error and do not navigate", async () => {
   vi.stubGlobal("fetch", vi.fn(async (_url: string, _init?: RequestInit) => new Response("{}", { status: 503 })));
-  const view = render(AuthorPage, { data: { ...pageData(), state: null, workspace: null, files: {}, installations: [], projects: [], projectBinding: null, canBindProject: false } });
+  const view = render(AuthorPage, { data: emptyPageData() });
   await fireEvent.click(view.getByRole("button", { name: "Create workspace" }));
   await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Request failed (503)"));
   expect(goto).not.toHaveBeenCalled();
