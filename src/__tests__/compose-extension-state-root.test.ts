@@ -9,6 +9,16 @@ import {
   targetsOf,
 } from "./helpers/compose-volumes";
 
+function persistenceMountSource(volumes: readonly string[], target: string): string | undefined {
+  const matches = volumes
+    .map(splitMount)
+    .filter(([source, mountTarget]) =>
+      source && mountTarget && (mountTarget === target || target.startsWith(`${mountTarget}/`)),
+    )
+    .sort(([, left], [, right]) => right!.length - left!.length);
+  return matches[0]?.[0];
+}
+
 /**
  * Locks the compose bind targets for extension state to the root that
  * `getProjectRoot()` actually resolves.
@@ -145,6 +155,17 @@ describe("docker-compose.yml — extension state is anchored to getProjectRoot()
 
     expect(targetOf(vols, "ext-data")).toBe(join(webCwd, ".ezcorp"));
   });
+
+  test("release artifact blobs use a dedicated persistent mount under the project root", async () => {
+    const vols = await appVolumes("docker-compose.yml");
+    const blobRoot = join(resolvedProjectRoot(vols), ".ezcorp/extension-releases");
+
+    // `FileBlobStore` defaults to <projectRoot>/.ezcorp/extension-releases.
+    // The release database keeps only the digest, so this directory must
+    // survive a recreate just like the installed source and extension data.
+    expect(targetOf(vols, "extension-releases")).toBe(blobRoot);
+    expect(persistenceMountSource(vols, blobRoot)).toBe("extension-releases");
+  });
 });
 
 describe("compose.prod.yml — same extension-state contract", () => {
@@ -164,6 +185,9 @@ describe("compose.prod.yml — same extension-state contract", () => {
     );
     expect(targetOf(vols, "./.ezcorp/extension-data")).toBe(
       join(prodRoot, ".ezcorp/extension-data"),
+    );
+    expect(persistenceMountSource(vols, join(prodRoot, ".ezcorp/extension-releases"))).toBe(
+      "ext-data",
     );
   });
 
