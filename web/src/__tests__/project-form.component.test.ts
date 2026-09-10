@@ -26,7 +26,7 @@ describe("ProjectForm", () => {
 		createDir.mockRejectedValue(new Error("Path is not writable"));
 		fetchFavicon.mockRejectedValueOnce(new Error("No favicon found")).mockResolvedValueOnce("data:image/png;base64,icon");
 		const onsubmit = vi.fn();
-		const { getByPlaceholderText, getByText, getByRole } = render(ProjectForm, { onsubmit, project: { name: "Existing", path: "/repo", icon: null, variables: { KEEP: true } } });
+		const { getByPlaceholderText, getByText, getByRole } = render(ProjectForm, { onsubmit, project: { id: "project-1", name: "Existing", path: "/repo", icon: null, variables: { KEEP: true }, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" } });
 		await fireEvent.click(getByText("Create Folder"));
 		await waitFor(() => expect(getByText("Path is not writable")).toBeInTheDocument());
 		const favicon = getByPlaceholderText("https://example.com");
