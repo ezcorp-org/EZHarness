@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
+import { REPO_ROOT } from "../../scripts/coverage-config";
 import { lcovSourceFiles, missingWebLibCoverage } from "../../scripts/check-web-vitest-coverage";
 
 test("normalizes relative and absolute Vitest LCOV source paths", () => {
-  const files = lcovSourceFiles("SF:web/src/lib/a.ts\nDA:1,1\nend_of_record\nSF:/home/dev/work/EZCorp/testing-gaps-coverage/web/src/lib/b.ts\nDA:1,1");
+  const files = lcovSourceFiles(`SF:web/src/lib/a.ts\nDA:1,1\nend_of_record\nSF:${REPO_ROOT}/web/src/lib/b.ts\nDA:1,1`);
   expect(files).toEqual(new Set(["web/src/lib/a.ts", "web/src/lib/b.ts"]));
 });
 
