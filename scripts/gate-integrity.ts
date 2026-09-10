@@ -580,14 +580,100 @@ export function codeMask(src: string): Uint8Array {
  * Matching parentheses instead of braces covers both shapes with one rule.
  *
  * What counts as an assertion is UNCHANGED — same {@link ASSERTION} pattern,
- * applied to the same code-only text. This commit fixes WHERE the gate looks,
- * never WHAT it accepts; helper-wrapped assertions (`expectFail(…)`) remain
- * flagged and are a separate, deliberate decision.
+ * applied to the same code-only text. A test may call a locally declared
+ * helper that contains such an assertion. That is a real assertion path, so
+ * the gate follows local assertion helpers while still rejecting imported or
+ * opaque helpers.
  *
  * Hooks were never in scope and still are not: {@link TEST_OPENER} requires
  * `test`/`it` immediately followed by `(`, so `test.beforeEach(`,
  * `test.describe(` and `describe(` do not match.
  */
+function matchingDelimiter(code: string, open: number, opening: string, closing: string): number {
+  let depth = 0;
+  for (let i = open; i < code.length; i++) {
+    if (code[i] === opening) depth++;
+    else if (code[i] === closing && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/** Names of local function declarations whose body has a direct assertion. */
+function localAssertionHelpers(code: string): Set<string> {
+  const helpers = new Map<string, string>();
+  const declarations = /(?:^|[;\n])\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g;
+  const found = [...code.matchAll(declarations)].map((match) => ({
+    name: match[1]!,
+    functionStart: code.indexOf("function", match.index),
+  }));
+  for (let index = 0; index < found.length; index++) {
+    const current = found[index]!;
+    const argsOpen = code.indexOf("(", current.functionStart);
+    const argsClose = matchingDelimiter(code, argsOpen, "(", ")");
+    if (argsClose < 0) continue;
+    const bodyOpen = code.indexOf("{", argsClose);
+    // A TypeScript return annotation sits between the argument list and body.
+    // Local test helpers normally use Promise<void>; object-shaped return
+    // annotations are deliberately left opaque rather than guessed through.
+    if (bodyOpen < 0 || !/^\s*(?::\s*[\w<>,[\]|?. ]+)?\s*$/.test(code.slice(argsClose + 1, bodyOpen))) continue;
+    // Template-interpolation braces in a code mask cannot safely delimit a
+    // function body. A local helper ends before the next local helper or test
+    // declaration, both of which are code-only top-level boundaries.
+    const nextHelper = found[index + 1]?.functionStart ?? code.length;
+    const nextTestOffset = code.slice(bodyOpen + 1).search(/\n\s*(?:test|it)\s*\(/);
+    const nextTest = nextTestOffset < 0 ? code.length : bodyOpen + 1 + nextTestOffset;
+    helpers.set(current.name, code.slice(bodyOpen + 1, Math.min(nextHelper, nextTest)));
+  }
+
+  const assertionful = new Set<string>();
+  for (const [name, body] of helpers) if (ASSERTION.test(body)) assertionful.add(name);
+  // A small local wrapper around an assertion helper is still transparent. Do
+  // not accept imported helpers: only declarations discovered above can enter.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [name, body] of helpers) {
+      if (assertionful.has(name)) continue;
+      if ([...assertionful].some((helper) => new RegExp(`\\b${helper}\\s*\\(`).test(body))) {
+        assertionful.add(name);
+        changed = true;
+      }
+    }
+  }
+  return assertionful;
+}
+
+function callsLocalAssertionHelper(code: string, from: number, to: number, helpers: Set<string>): boolean {
+  const body = code.slice(from, to + 1);
+  for (const helper of helpers) {
+    const calls = new RegExp(`\\b${helper}\\s*\\(`, "g");
+    for (const call of body.matchAll(calls)) {
+      // Do not mistake a function declaration nested in the test for a call.
+      if (!/\bfunction\s*$/.test(body.slice(Math.max(0, call.index! - 16), call.index))) return true;
+    }
+  }
+  return false;
+}
+
+/** Assertions inside a nested declaration do not run unless the test calls it. */
+function hasDirectAssertion(code: string, from: number, to: number): boolean {
+  const projected = code.slice(from, to + 1).split("");
+  const declarations = /\b(?:async\s+)?function\s+[A-Za-z_$][\w$]*\s*\(/g;
+  for (const match of code.slice(from, to + 1).matchAll(declarations)) {
+    const declaration = from + match.index!;
+    const argsOpen = code.indexOf("(", declaration);
+    const argsClose = matchingDelimiter(code, argsOpen, "(", ")");
+    if (argsClose < 0) continue;
+    const bodyOpen = code.indexOf("{", argsClose);
+    if (bodyOpen < 0 || !/^\s*(?::\s*[\w<>,[\]|?. ]+)?\s*$/.test(code.slice(argsClose + 1, bodyOpen))) continue;
+    const bodyClose = matchingDelimiter(code, bodyOpen, "{", "}");
+    if (bodyClose < bodyOpen || bodyClose > to) continue;
+    for (let i = declaration; i <= bodyClose; i++) {
+      if (projected[i - from] !== "\n") projected[i - from] = " ";
+    }
+  }
+  return ASSERTION.test(projected.join(""));
+}
+
 export function unassertedAddedBlocks(fileContent: string, addedLines: Set<number>): string[] {
   const mask = codeMask(fileContent);
   // Code-only projection: non-code bytes become spaces, so offsets and line
@@ -602,6 +688,7 @@ export function unassertedAddedBlocks(fileContent: string, addedLines: Set<numbe
     return n;
   };
   const rawLines = fileContent.split("\n");
+  const assertionHelpers = localAssertionHelpers(code);
 
   const out: string[] = [];
   const opener = new RegExp(TEST_OPENER.source, "g");
@@ -638,7 +725,8 @@ export function unassertedAddedBlocks(fileContent: string, addedLines: Set<numbe
       }
     }
     if (!touched) continue;
-    if (ASSERTION.test(code.slice(kw, close + 1))) continue;
+    if (hasDirectAssertion(code, kw, close)) continue;
+    if (callsLocalAssertionHelper(code, kw, close, assertionHelpers)) continue;
     out.push(
       `vacuous test (no assertion) near line ${from}: ${(rawLines[from - 1] ?? "").trim().slice(0, 80)}`,
     );

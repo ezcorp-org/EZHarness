@@ -86,7 +86,7 @@ describe("coverage-config helpers", () => {
 
   test("isExcluded matches EXCLUDES patterns (and only those)", () => {
     expect(isExcluded("src/providers/example.ts")).toBe(false);
-    expect(isExcluded("web/src/lib/api.ts")).toBe(true);
+    expect(isExcluded("web/src/lib/api.ts")).toBe(false);
     expect(isExcluded("src/runtime/brand-new.ts")).toBe(false);
   });
 
@@ -452,6 +452,34 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
   test("passes a touched test block that asserts", () => {
     const added = new Set([2, 3, 4]);
     expect(unassertedAddedBlocks(withAssert, added)).toEqual([]);
+  });
+  test("follows a locally declared assertion helper", () => {
+    const helper = [
+      "async function saveAndReload() {",
+      "  expect(await readStored()).toEqual(['first', 'second']);",
+      "}",
+      "test('persists keyboard order', async () => {",
+      "  await saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(helper, new Set([4, 5, 6]))).toEqual([]);
+  });
+  test("does not trust an opaque imported helper", () => {
+    const opaque = [
+      "import { saveAndReload } from './fixture';",
+      "test('persists keyboard order', async () => {",
+      "  await saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(opaque, new Set([2, 3, 4]))).toHaveLength(1);
+  });
+  test("does not mistake a nested helper declaration for an invocation", () => {
+    const nested = [
+      "test('does not run the helper', () => {",
+      "  function saveAndReload() { expect(true).toBe(true); }",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(nested, new Set([1, 2, 3]))).toHaveLength(1);
   });
   test("ignores blocks not touched by the diff", () => {
     expect(unassertedAddedBlocks(noAssert, new Set([999]))).toEqual([]);

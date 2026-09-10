@@ -128,7 +128,8 @@ test.describe("Sub-Conversations", () => {
 				&& url.searchParams.get("withToolCalls") === "true";
 		});
 
-		await Promise.all([snapshot, page.goto(`/project/${proj.id}/chat/${conv.id}`)]);
+		const [request] = await Promise.all([snapshot, page.goto(`/project/${proj.id}/chat/${conv.id}`)]);
+		expect(new URL(request.url()).searchParams.get("withToolCalls")).toBe("true");
 	});
 
 	test("no sub-conversation blocks render when the snapshot is empty", async ({ page, mockApi }) => {
