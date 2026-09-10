@@ -189,3 +189,4 @@
 ## 2026-09-09 — Picker reopening
 
 - When a picker closes on a delayed blur, test immediate native reopen with fake-timer advancement beyond the prior deadline. A browser assertion alone can miss a timing race or hide it behind a fixed wait.
+- Clear delayed picker-close callbacks at unmount, and keep both the selection callback and native outside-close behavior in the regression.

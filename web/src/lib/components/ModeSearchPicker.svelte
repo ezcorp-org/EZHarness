@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { inputClass } from "$lib/styles.js";
 	import { fetchModes, type Mode } from "$lib/api";
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import SelectedPill from "./SelectedPill.svelte";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
@@ -36,6 +36,10 @@
 
 	onMount(async () => {
 		try { modes = await fetchModes(); } catch { /* non-fatal */ }
+	});
+
+	onDestroy(() => {
+		if (blurCloseTimer) clearTimeout(blurCloseTimer);
 	});
 
 	let filtered = $derived(() => {
