@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertBrowserCanonicalSources, assertCompleteRouteInventory } from "../../scripts/browser-route-coverage-manifest.ts";
 import {
@@ -9,14 +8,11 @@ import {
   verifyBrowserCoverageReceipt,
 } from "../../scripts/verify-browser-coverage-receipt.ts";
 
+import { createSourceRepository } from "./helpers/source-repository.ts";
+
 const REVISION = "a".repeat(40);
 const ROUTE = "web/src/routes/+page.svelte";
 const LCOV = `TN:ezcorp-browser-v8\nSF:/fixture/${ROUTE}\nDA:1,1\nend_of_record\n`;
-
-function git(root: string, ...args: string[]): void {
-  const process = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (process.exitCode !== 0) throw new Error(process.stderr.toString());
-}
 
 function fixture(): {
   root: string;
@@ -24,17 +20,10 @@ function fixture(): {
   lcovPath: string;
   verifier: ReturnType<typeof browserCoverageReceiptVerifierForRoot>;
 } {
-  const root = mkdtempSync(join(tmpdir(), "browser-receipt-"));
+  const root = createSourceRepository(["web/build/", "raw.json", "lcov.info"]);
   const manifest = "{\"app\":\"fixture\"}\n";
   const manifestPath = join(root, "web", "build", "client", "manifest.json");
   mkdirSync(join(root, "web", "build", "client"), { recursive: true });
-  git(root, "init", "-q");
-  git(root, "config", "user.name", "Browser receipt fixture");
-  git(root, "config", "user.email", "browser-receipt@example.invalid");
-  writeFileSync(join(root, ".gitignore"), "web/build/\nraw.json\nlcov.info\n");
-  writeFileSync(join(root, "source.ts"), "export const source = true;\n");
-  git(root, "add", ".gitignore", "source.ts");
-  git(root, "commit", "-qm", "fixture");
   writeFileSync(manifestPath, manifest);
   const rawPath = join(root, "raw.json");
   const lcovPath = join(root, "lcov.info");

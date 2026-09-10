@@ -1,29 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isExcluded, isSourceFile } from "../../scripts/coverage-config.ts";
 import { assertCleanGitWorktree, runCleanGitWorktreeCli } from "../../scripts/git-worktree-clean.ts";
 
-function git(root: string, ...args: string[]): void {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) throw new Error(result.stderr.toString());
-}
-
-function createRepository(): string {
-  const root = mkdtempSync(join(tmpdir(), "clean-worktree-"));
-  git(root, "init", "-q");
-  git(root, "config", "user.name", "Browser receipt fixture");
-  git(root, "config", "user.email", "browser-receipt@example.invalid");
-  writeFileSync(join(root, ".gitignore"), "web/build/\ntasks/testing-gaps/\n");
-  writeFileSync(join(root, "source.ts"), "export const source = true;\n");
-  git(root, "add", ".gitignore", "source.ts");
-  git(root, "commit", "-qm", "fixture");
-  return root;
-}
+import { createSourceRepository, git } from "./helpers/source-repository.ts";
 
 function withRepository(check: (root: string) => void): void {
-  const root = createRepository();
+  const root = createSourceRepository(["web/build/", "tasks/testing-gaps/"]);
   try {
     check(root);
   } finally {
