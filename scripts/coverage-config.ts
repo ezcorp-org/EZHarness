@@ -172,6 +172,7 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   // Bun counts the catch header as a separate uncovered line; direct Node
   // route tests own the executable map, including the rejection paths.
   "web/src/routes/api/conversations/[id]/messages/+server.ts",
+  "web/src/routes/api/auth/setup/+server.ts",
   "web/src/lib/components/settings/ProvidersSection.svelte",
   "web/src/lib/components/settings/TeamsSection.svelte",
   // Direct component and utility contracts own these maps. Native browser

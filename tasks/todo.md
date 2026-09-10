@@ -836,3 +836,14 @@ Review: fifth hosted run `34510858830` passed all 12 backend shards on the first
 - [ ] Push through normal hooks and require a complete green hosted run.
 
 Review: this adds a meaningful visibility assertion; it does not alter the integrity parser or use an override label.
+
+## PR256 standard setup coverage producer
+
+- [x] Preserve the seventh hosted patch-gate failure: setup staging line 79 has no positive hit in the actual submitted coverage.
+- [x] Identify the mismatch: focused diagnostics included the setup route, but the standard Node include manifest did not. Existing direct success and staging-failure tests already exercise it.
+- [x] Register setup in the canonical Node producer, require 100% of its measured lines, and add a registry-to-manifest completeness regression.
+- [x] Actual full Node launcher passes 582 files / 7,379 tests in 279.29s and retains 516 configured source records. The fresh setup source measures 31/31 lines.
+- [x] Merge standard Node output with unchanged seventh hosted producers and freshly measured configuration: all 1,625 source floors, 11 new sources and 97 changed sources pass. Gate controls pass 296 tests / 865 assertions; integrity passes.
+- [ ] Run normal integrity and push hooks, then validate a complete fresh hosted run before merge.
+
+Review: the seventh run passed 25,000 backend tests, 7,379 Node tests, 2,170 canonical browser tests, both browser engines, all 1,625 source floors and all 11 new-source checks. Its changed-line gate correctly rejected one unmeasured added line. The run is not green.

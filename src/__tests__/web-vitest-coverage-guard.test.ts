@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { BROWSER_CANONICAL_SOURCES, REPO_ROOT } from "../../scripts/coverage-config";
+import { BROWSER_CANONICAL_SOURCES, REPO_ROOT, V8_CANONICAL_SOURCES } from "../../scripts/coverage-config";
 import { scriptedRouteFiles } from "../../scripts/browser-route-coverage-manifest";
 import { canonicalWebVitestSources, configuredWebVitestSources, lcovSourceFiles, missingWebLibCoverage, webVitestIncludePatterns } from "../../scripts/check-web-vitest-coverage";
 
@@ -69,4 +69,9 @@ test("removes every browser-canonical shared UI source from the Node/V8 manifest
     expect(configured).toContain(source);
     expect(canonicalNode).not.toContain(source);
   }
+});
+
+test("every exclusively Node-owned source is measured by the standard producer", async () => {
+  const measured = new Set(await canonicalWebVitestSources());
+  expect(V8_CANONICAL_SOURCES.filter((source) => !measured.has(source))).toEqual([]);
 });

@@ -262,6 +262,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/components/review/ReviewFileTree.svelte"
     "--coverage.include=src/**/users/[[]id]/+server.ts"
     "--coverage.include=src/routes/api/health/+server.ts"
+    "--coverage.include=src/routes/api/auth/setup/+server.ts"
     "--coverage.include=src/routes/api/providers/[provider]/refresh-models/+server.ts"
     "--coverage.include=src/routes/api/conversations/[id]/export/+server.ts"
     "--coverage.include=src/routes/api/extensions/[id]/reopen/+server.ts"
