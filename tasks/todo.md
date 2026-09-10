@@ -641,7 +641,8 @@ Integration review: all13 migration producers now have direct real-database test
 - [x] Fix the stored-model load race with a controlled slow real HTTP response; require a failing baseline and passing fixed browser run.
 - [x] Isolate invite counters between serial real-auth cases while retaining the actual ten-attempt limit within each case.
 - [x] Restore the retired authoring journey through the current workspace, build, approval and activation flow.
-- [ ] Exercise all 11 deficient routes through meaningful native behavior; require every unchanged floor.
-- [ ] Freeze one revision and rerun all five browser lanes, the full backend producers and final static gates.
+Final execution remains pending in [the task gates](testing-gaps/GATES.md). Those result files are outside source control so their completion records do not change the frozen revision being tested.
 
 - Parent follow-up evidence: real model-load failing baseline and repaired goals/compaction pass; adjacent invite cases prove independent ten-attempt budgets; current v4 dependency build/approval/activation passes. Mention color regression reproduced nine light-theme failures; fixed six history cases and all six light/dark checks across three engines pass.
+
+- Parent integrated route review: 63/63 browser cases pass in 1.1 minutes. Source identity now rejects dirty tracked/staged/untracked files while allowing ignored build artifacts; parent guard tests pass 8/8. All final suite and timing claims remain pending in the task gates.
