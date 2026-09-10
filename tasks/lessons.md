@@ -190,3 +190,8 @@
 
 - When a picker closes on a delayed blur, test immediate native reopen with fake-timer advancement beyond the prior deadline. A browser assertion alone can miss a timing race or hide it behind a fixed wait.
 - Clear delayed picker-close callbacks at unmount, and keep both the selection callback and native outside-close behavior in the regression.
+
+## 2026-09-10 — Live source and process identity
+
+- Read the current manifest and its CI consumer before requesting lane changes. Historical checkpoint summaries can describe removed lanes. Existing source is authoritative; do not add overlapping lanes to solve stale checkout findings.
+- Do not stop only a flock wrapper to cancel a queued test: it can acquire the lock and start its child between inspection and termination. Serialize builds and preview runs in the same checkout from the start.
