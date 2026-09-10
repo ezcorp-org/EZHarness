@@ -53,19 +53,26 @@ describe("startAuthKeepalive", () => {
     expect(clearInterval).toHaveBeenCalledWith(42);
   });
 
-  test("absorbs a transient ping rejection", async () => {
+  test("absorbs a transient ping rejection and continues scheduling", async () => {
     let callback: (() => void) | undefined;
-    globalThis.window = {
-      setInterval: (fn: () => void) => { callback = fn; return 7; },
-      clearInterval: () => {},
-    } as unknown as Window & typeof globalThis;
+    const setInterval = mock((fn: () => void) => { callback = fn; return 7; });
+    const clearInterval = mock(() => {});
+    const fetchMock = mock<FetchHandler>(() => Promise.reject(new Error("offline")));
+    globalThis.window = { setInterval, clearInterval } as unknown as Window & typeof globalThis;
     globalThis.document = { visibilityState: "visible" } as Document;
-    globalThis.fetch = testFetch(mock<FetchHandler>(() => Promise.reject(new Error("offline"))));
+    globalThis.fetch = testFetch(fetchMock);
 
     const stop = startAuthKeepalive();
     callback?.();
     await Promise.resolve();
     await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    callback?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     stop();
+    expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 20 * 60 * 1000);
+    expect(clearInterval).toHaveBeenCalledWith(7);
   });
 });

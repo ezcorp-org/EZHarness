@@ -513,6 +513,32 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     ].join("\n");
     expect(unassertedAddedBlocks(ignored, new Set([2, 3, 4]))).toHaveLength(1);
   });
+  test("credits an awaited Testing Library waitFor callback assertion", () => {
+    const waited = [
+      'import { waitFor } from "@testing-library/svelte";',
+      "test('waits for the visible state', async () => {",
+      "  await waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(waited, new Set([2, 3, 4]))).toEqual([]);
+  });
+  test("does not trust an unawaited or locally shadowed waitFor callback", () => {
+    const unawaited = [
+      'import { waitFor } from "@testing-library/svelte";',
+      "test('does not wait', () => {",
+      "  waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    const shadowed = [
+      'import { waitFor } from "@testing-library/svelte";',
+      "test('calls a local lookalike', async () => {",
+      "  const waitFor = (_callback: () => void) => {};",
+      "  await waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(unawaited, new Set([2, 3, 4]))).toHaveLength(1);
+    expect(unassertedAddedBlocks(shadowed, new Set([2, 3, 4, 5]))).toHaveLength(1);
+  });
   test("does not borrow a nested helper with the same name from another test", () => {
     const duplicate = [
       "function saveAndReload() {}",

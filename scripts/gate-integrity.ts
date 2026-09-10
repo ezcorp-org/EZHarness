@@ -593,8 +593,19 @@ export function codeMask(src: string): Uint8Array {
 function testAssertionPaths(source: string): Map<number, boolean> {
   const file = ts.createSourceFile("gate-integrity-input.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const helpers = new Map<string, ts.FunctionDeclaration>();
+  const importedWaitFor = new Set<string>();
   for (const statement of file.statements) {
     if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) helpers.set(statement.name.text, statement);
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || !statement.moduleSpecifier.text.startsWith("@testing-library/")) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const specifier of bindings.elements) {
+      if ((specifier.propertyName?.text ?? specifier.name.text) === "waitFor") {
+        importedWaitFor.add(specifier.name.text);
+      }
+    }
   }
 
   const bindingNames = (name: ts.BindingName | undefined): string[] => {
@@ -664,9 +675,21 @@ function testAssertionPaths(source: string): Map<number, boolean> {
     if (ts.isCallExpression(node)) {
       if (callIsAssertion(node)) return true;
       if (ts.isIdentifier(node.expression)) {
-        const helper = helpers.get(node.expression.text);
-        if (helper && !shadowsFileHelper(root, node.expression.text)) {
-          if (functionHasAssertion(node.expression.text)) return true;
+        const name = node.expression.text;
+        // Testing Library's imported waitFor is a known callback invoker, but
+        // only an awaited call proves the test waits for its assertion. Do not
+        // credit a same-named local binding or arbitrary callback helper.
+        const callback = node.arguments[0];
+        if (importedWaitFor.has(name)
+          && ts.isAwaitExpression(node.parent)
+          && !shadowsFileHelper(root, name)
+          && callback
+          && ts.isFunctionLike(callback)
+          && nodeHasAssertion(callback, callback)) return true;
+
+        const helper = helpers.get(name);
+        if (helper && !shadowsFileHelper(root, name)) {
+          if (functionHasAssertion(name)) return true;
           for (const index of invokedCallbackParameters(helper)) {
             const callback = node.arguments[index];
             if (callback && ts.isFunctionLike(callback) && nodeHasAssertion(callback, callback)) return true;
