@@ -8,13 +8,19 @@
 
 import { render, fireEvent, cleanup } from "@testing-library/svelte";
 import { describe, test, expect, afterEach, vi } from "vitest";
+import { tick } from "svelte";
 import Toast from "./Toast.svelte";
-import type { ToastData } from "$lib/toast.svelte.js";
+import ToastContainer from "./ToastContainer.svelte";
+import { toastStore, type ToastData } from "$lib/toast.svelte.js";
 
 // Element.prototype.animate (Web Animations API, used by Svelte's
 // transition:fly) is polyfilled globally in vitest-setup.ts.
 
-afterEach(() => cleanup());
+afterEach(() => {
+	cleanup();
+	for (const toast of [...toastStore.toasts]) toastStore.remove(toast.id);
+	vi.useRealTimers();
+});
 
 function makeToast(overrides: Partial<ToastData> = {}): ToastData {
 	return {
@@ -82,5 +88,24 @@ describe("Toast", () => {
 		await fireEvent.click(getByRole("button", { name: "Dismiss notification" }));
 		expect(onclose).toHaveBeenCalledTimes(1);
 		expect(onclose).toHaveBeenCalledWith("abc");
+	});
+
+	test("a hovered toast resumes auto-dismiss after the pointer leaves", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+		toastStore.add({ type: "info", message: "Saving" }, 1000);
+		const { getByRole, queryByRole } = render(ToastContainer);
+		const alert = getByRole("alert");
+
+		await fireEvent.mouseEnter(alert);
+		vi.advanceTimersByTime(800);
+		await fireEvent.mouseLeave(alert);
+
+		vi.advanceTimersByTime(499);
+		await tick();
+		expect(queryByRole("alert")).toHaveTextContent("Saving");
+		vi.advanceTimersByTime(1);
+		await tick();
+		expect(toastStore.toasts).toEqual([]);
 	});
 });

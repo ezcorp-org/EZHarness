@@ -315,3 +315,16 @@
 
 - When raising a popover trigger above its backdrop, keep it below the modal layer and verify the actual pointer target. A Playwright interception alone does not prove a user-visible failure; a coordinate click may already dismiss through the backdrop.
 - For canonical browser coverage, unit V8 coverage is supplementary. Exercise both changed placement branches in the real browser and inspect remapped line hits.
+
+## 2026-09-10 — Shared coverage runners
+
+- When a parent asks for a process status before any stop, report the exact process chain and wait for the response. Do not infer approval to terminate a shared coverage run. Use the shared heavy-run lock for every broad producer.
+- When reviewing a child process runtime, inspect the exact parent command and inherited PATH before using the ambient shell binary as evidence.
+
+## 2026-09-10 — Picker geometry and approval payloads
+
+- Wait until the startup overlay is removed before a native coordinate click. Measure the anchor again after opening when selected chips can change the control's height; an old rectangle can produce a false placement failure.
+- Prove timing changes with the corrected browser test. The tick-only control passed all 55 picker/team cases, so the extra animation-frame wait was removed.
+- Measure a constrained list at its natural height on each filter/open. Measuring its previous cap can remove that cap on the next update; retain a real short-window regression.
+- Validate the complete serialized permission payload in bytes. A valid canonical route permission can exceed an arbitrary per-string character limit; preserve exact grants and human approval rather than splitting or dropping capabilities.
+- Read the API result contract before writing a control script: activation returns an operation; inspect durable installation state separately. Keep script-shape errors separate from product failures.

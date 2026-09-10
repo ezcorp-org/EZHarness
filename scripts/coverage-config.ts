@@ -163,11 +163,15 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/markdown.ts",
   "web/src/lib/chat-input-logic.ts",
   "web/src/lib/utils/relative-time.ts",
+  "web/src/lib/search-picker-position.ts",
   "web/src/lib/server/http-errors.ts",
   "web/src/lib/server/shutdown.ts",
   "web/src/lib/server/auth/session-cookie.ts",
   "web/src/lib/server/preview/dispatch.ts",
   "web/src/lib/server/preview/ws-bridge.ts",
+  // Bun counts the catch header as a separate uncovered line; direct Node
+  // route tests own the executable map, including the rejection paths.
+  "web/src/routes/api/conversations/[id]/messages/+server.ts",
   "web/src/lib/components/settings/ProvidersSection.svelte",
   "web/src/lib/components/settings/TeamsSection.svelte",
   // Direct component and utility contracts own these maps. Native browser

@@ -29,11 +29,12 @@ function rect(top: number, bottom: number): DOMRect {
 	return { x: 16, y: top, width: 320, height: bottom - top, top, right: 336, bottom, left: 16, toJSON: () => ({}) } as DOMRect;
 }
 
-async function openAt(top: number, bottom: number, dropdownHeight = 240) {
+async function openAt(top: number, bottom: number, dropdownHeight = 240, listHeight = dropdownHeight) {
 	render(AgentSearchPicker, { agents, onselect: vi.fn() });
 	const input = screen.getByRole("combobox");
 	vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
 		if (this === input) return rect(top, bottom);
+		if (this.id === "agent-picker-listbox") return rect(0, listHeight);
 		if (this.hasAttribute("data-agent-picker-popover")) return rect(0, dropdownHeight);
 		return rect(0, 0);
 	});
@@ -59,6 +60,13 @@ describe("AgentSearchPicker desktop placement", () => {
 		const picker = await openAt(560, 600);
 		await waitFor(() => expect(picker.style.bottom).toBe("162px"));
 		expect(picker.style.top).toBe("");
+	});
+
+	test("caps the list below saved-search chrome when neither side fits", async () => {
+		Object.defineProperty(window, "innerHeight", { value: 600, configurable: true });
+		const picker = await openAt(300, 340, 400, 256);
+		await waitFor(() => expect(picker.style.bottom).toBe("302px"));
+		expect(screen.getByRole("listbox").style.maxHeight).toBe("154px");
 	});
 
 	test("shows details and selects the keyboard-highlighted result", async () => {

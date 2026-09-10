@@ -6,6 +6,7 @@
 	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
 	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
+	import { fixedSearchPickerLayout } from "$lib/search-picker-position.js";
 
 	let {
 		agents,
@@ -22,10 +23,12 @@
 
 	let inputEl: HTMLInputElement | undefined = $state();
 	let dropdownEl: HTMLDivElement | undefined = $state();
+	let listEl: HTMLUListElement | undefined = $state();
 	let query = $state("");
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	let listStyle = $state("");
 	const dismissal = createSearchPickerDismissal({
 		getInput: () => inputEl,
 		isOpen: () => open,
@@ -69,7 +72,10 @@
 		}
 	}
 
-	onMount(loadPrefs);
+	onMount(async () => {
+		await loadPrefs();
+		if (open && !bp.below) await positionAfterRender();
+	});
 
 	function saveCurrentSearch(): void {
 		const q = query.trim();
@@ -120,21 +126,29 @@
 
 	function computePosition() {
 		if (!inputEl) return;
-		const rect = inputEl.getBoundingClientRect();
-		const dropdownHeight = dropdownEl?.getBoundingClientRect().height ?? 0;
-		const opensAbove = rect.bottom + 2 + dropdownHeight > window.innerHeight;
-		const verticalPosition = opensAbove
-			? `bottom:${window.innerHeight - rect.top + 2}px;`
-			: `top:${rect.bottom + 2}px;`;
-		dropdownStyle = `position:fixed;left:${rect.left}px;${verticalPosition}width:${Math.max(rect.width, 320)}px;z-index:9999;`;
+		const layout = fixedSearchPickerLayout(
+			inputEl.getBoundingClientRect(),
+			dropdownEl?.getBoundingClientRect().height ?? 0,
+			window.innerHeight,
+			320,
+			listEl?.getBoundingClientRect().height,
+		);
+		dropdownStyle = layout.dropdownStyle;
+		listStyle = layout.listStyle;
+	}
+
+	async function positionAfterRender() {
+		// Measure the natural list again after filtering or reopening.
+		listStyle = "";
+		await tick();
+		if (open && !bp.below) computePosition();
 	}
 
 	async function openDropdown() {
 		dismissal.cancelBlurDismissal();
 		open = true;
 		highlightIdx = -1;
-		await tick();
-		computePosition();
+		await positionAfterRender();
 	}
 
 	function closeDropdown() {
@@ -149,11 +163,13 @@
 		inputEl?.blur();
 	}
 
-	function onInput(event: Event) {
+	async function onInput(event: Event) {
 		query = (event.currentTarget as HTMLInputElement).value;
 		highlightIdx = -1;
 		if (!open) openDropdown();
-		else computePosition();
+		else {
+			await positionAfterRender();
+		}
 	}
 
 	function onInputClick() {
@@ -290,7 +306,9 @@
 		{/if}
 
 		<ul
+			bind:this={listEl}
 			id="agent-picker-listbox"
+			style={listStyle}
 			class="max-h-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg"
 			role="listbox"
 			aria-label="Available agents"

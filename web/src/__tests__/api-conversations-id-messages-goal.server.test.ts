@@ -58,6 +58,8 @@ const streamChat = vi.fn(
   }),
 );
 const checkTokenBudget = vi.fn();
+const checkPermissionModeCeiling = vi.fn();
+const logWarn = vi.fn();
 
 let goalHostMock: ReturnType<typeof makeFakeGoalHost> | null = null;
 
@@ -115,8 +117,23 @@ vi.mock("$lib/server/context", () => ({
   getGoalHost: () => goalHostMock,
 }));
 
+vi.mock("$server/logger", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("$server/logger")>();
+	return {
+		...actual,
+		logger: {
+			...actual.logger,
+			child: () => ({ warn: logWarn, debug: vi.fn(), error: vi.fn() }),
+		},
+	};
+});
+
 vi.mock("$lib/server/security/resource-quotas", () => ({
-  checkTokenBudget,
+	checkTokenBudget,
+}));
+
+vi.mock("$server/auth/permission-mode-ceiling", () => ({
+	checkPermissionModeCeiling,
 }));
 
 vi.mock("$lib/server/command-resolver", () => ({
@@ -192,6 +209,7 @@ beforeEach(() => {
     }),
   );
   vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true });
+	checkPermissionModeCeiling.mockResolvedValue(null);
   streamChat.mockReturnValue({ catch: () => Promise.resolve() });
   goalHostMock = makeFakeGoalHost();
 });
@@ -304,6 +322,32 @@ describe("I5b — FR-13b lazy rehydrate on a normal non-/goal POST", () => {
     // Normal streaming continues.
     expect(streamChat).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("permission-mode ceiling refusal", () => {
+	test("a denied per-turn mode returns 403 before rehydrate, persistence, or streaming", async () => {
+		checkPermissionModeCeiling.mockResolvedValue({
+			error: "permissionMode \"yolo\" widens this project's tool permission mode (\"ask\")",
+			field: "permissionMode",
+			requested: "yolo",
+			ceiling: "ask",
+		});
+
+		const res = await POST(
+			makeEvent({ locals: { user }, body: { content: "regular", permissionMode: "yolo" } }),
+		);
+
+		expect(res.status).toBe(403);
+		expect(await res.json()).toMatchObject({
+			error: "permissionMode \"yolo\" widens this project's tool permission mode (\"ask\")",
+			field: "permissionMode",
+			requested: "yolo",
+			ceiling: "ask",
+		});
+		expect(goalHostMock!.ensureGoalRecordRehydrated).not.toHaveBeenCalled();
+		expect(createMessage).not.toHaveBeenCalled();
+		expect(streamChat).not.toHaveBeenCalled();
+	});
 });
 
 // ── I5d — /goal POST passes isGoalCmd:true so rehydrate suppresses flip ──
@@ -432,12 +476,16 @@ describe("non-/goal posts bypass the goal interceptor", () => {
 // ── Rehydrate failure tolerated ────────────────────────────────────
 
 describe("ensureGoalRecordRehydrated throw is swallowed (route never crashes)", () => {
-  test("rehydrate throws → 200, streamChat still fires for a non-/goal post", async () => {
-    goalHostMock!.ensureGoalRecordRehydrated.mockRejectedValue(new Error("read explosion"));
-    const res = await POST(makeEvent({ locals: { user }, body: { content: "regular" } }));
-    expect(res.status).toBe(200);
-    expect(streamChat).toHaveBeenCalledTimes(1);
-  });
+	test("rehydrate throws → warning then normal stream for a non-/goal post", async () => {
+		goalHostMock!.ensureGoalRecordRehydrated.mockRejectedValue(new Error("read explosion"));
+		const res = await POST(makeEvent({ locals: { user }, body: { content: "regular" } }));
+		expect(res.status).toBe(200);
+		expect(goalHostMock!.ensureGoalRecordRehydrated).toHaveBeenCalledWith("c1", false);
+		expect(logWarn).toHaveBeenCalledWith("goal-host rehydrate failed (continuing)", {
+			error: "read explosion",
+		});
+		expect(streamChat).toHaveBeenCalledTimes(1);
+	});
 });
 
 // ── persistResultRow.row:null fallback (route synthesizes id) ──────

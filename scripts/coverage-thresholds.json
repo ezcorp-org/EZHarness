@@ -739,6 +739,7 @@
   "web/src/routes/api/__test/mock-llm/release/+server.ts": 100,
   "web/src/routes/api/__test/seed-static-preview/+server.ts": 100,
   "web/src/lib/search-picker-dismissal.ts": 100,
+  "web/src/lib/search-picker-position.ts": 100,
   "web/src/routes/(app)/+error.svelte": 80,
   "web/src/routes/(app)/+layout.svelte": 80,
   "web/src/routes/(app)/account/+page.svelte": 80,

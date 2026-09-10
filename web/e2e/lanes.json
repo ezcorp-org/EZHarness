@@ -44,6 +44,7 @@
     "real-auth": [
       "web/e2e/deterministic-ext-gate.spec.ts",
       "web/e2e/real-auth/admin-invite-reachable.spec.ts",
+      "web/e2e/real-auth/ai-kit-public-api.spec.ts",
       "web/e2e/real-auth/api-key-tool-policy.spec.ts",
       "web/e2e/real-auth/approval-consent-boundary.spec.ts",
       "web/e2e/real-auth/approvals-inbox-scoping.spec.ts",

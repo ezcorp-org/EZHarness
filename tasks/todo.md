@@ -776,3 +776,38 @@ Final second-repair preflight: independent Terra review is clear; combined gate,
 - [ ] Obtain the required non-author approval and merge the verified head without bypassing protection.
 
 Review: run 34494839199 passed the full production image lifecycle, including historical upgrade and legacy adoption. Its broad mock lane failed two native-action cases and its backend retry hid two first-attempt fixture failures; that run is not a clean final validation. The new repairs preserve coverage floors, real integration actions, and native browser interactions.
+
+## PR256 shared picker viewport repair
+
+- [x] Preserve the fourth hosted failure and reproduce the native extension-option click at the viewport edge.
+- [x] Share viewport placement across all five desktop search pickers; native tick-only control passes 55/55 without the extra frame wait.
+- [ ] Retain native selection and pill assertions; cover placement and asynchronous content changes where relevant.
+- [ ] Run focused mapped browser checks, types, lint, and independent Terra review.
+- [ ] Check diagnostic merged coverage before pushing; then require a clean complete hosted run and all coverage gates.
+
+Review: fourth run `34500430524` passed all 12 backend shards on the first attempt (24,999 pass, zero retries), all web unit shards, both focused browser engines, real-auth, and visual evidence. The broad mock suite passed 1,419 cases and failed the native extension option click in `picker-pills.spec.ts:326`, because the option remained outside the viewport. The failed lane cannot certify the final coverage gate.
+
+## PR256 local AI-kit deployment validation
+
+- [x] Run the real self-contained MCP subprocess/OBO path: four cases pass with pinned Bun and owned temporary data.
+- [x] Run public doctor, internal-auth, and user OBO checks against an isolated real local server: seven cases pass.
+- [x] Add those public checks and the four real subprocess cases to the standard real-auth lane; both browser wrappers pass locally in 8.2s, including unconditional persisted-owner assertions and key revocation.
+- [x] Preserve first-boot and second-boot controls for missing bundled AI-kit installation; distinguish pending human approval from active releases.
+- [x] Retry bundled staging after first-admin creation; isolated setup returns 201 in 753ms, creates a pending workspace/build, and leaves activation disabled.
+- [ ] Validate the local bundled endpoint after a real test-admin approval lifecycle; retain explicit model-dependent limits.
+- [ ] Independently review the setup change and verify its source coverage and real browser/API path before the next hosted run.
+
+Review: on an empty database, initial boot defers bundled source staging until an administrator exists. The local first-admin setup currently does not reschedule that work. A second boot stages the source but correctly holds activation for release approval. The optional bundled E2E test requires a prepared and approved local installation; its missing-extension failure does not justify automatic activation or weaker approval rules.
+
+## PR256 fifth repair verification
+
+- [x] Retain the fourth hosted raw coverage diagnostic: toast resume and message-route refusal now have direct tests; Node owns the message route's executable map.
+- [x] Reproduce AI-kit approval through the real local runner: its canonical host API grant exceeds the old 1,000-character limit.
+- [x] Test the actual bundled manifest through approval/activation; retain human review and exact grants, and reject oversized whole UTF-8 JSON payloads with the shared contract limit (7/7 lifecycle cases).
+- [ ] Complete approved AI-kit endpoint validation and verify the permanent public/subprocess CI wrapper.
+- [ ] Verify constrained picker sizing after filtering and reopening, including native browser bounds.
+- [ ] Review final changes, run static and focused coverage checks, and inspect mapped browser hits.
+- [ ] Commit and push through normal hooks; require the complete hosted run and all coverage gates to pass.
+- [ ] Merge only after required non-author approval; do not bypass repository protection.
+
+Review: Terra agents reached their usage limit after saving their work. The parent continues the remaining review and verification locally. Fourth hosted production lifecycle passed all eight proofs; the fourth CI run still failed its broad mock producer and dependent gates. No failed or cancelled run counts as final validation.

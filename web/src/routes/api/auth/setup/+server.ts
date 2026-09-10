@@ -11,6 +11,7 @@ import { validationError } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { getSessionConfig, setSessionCookie } from "$lib/server/auth/session-cookie";
+import { ensureBundledExtensions } from "$server/extensions/bundled";
 
 // First-boot bootstrap: 3 attempts / 1 hour per IP. Generous for a
 // legitimate single-shot setup, tight enough to block brute-forcing
@@ -70,6 +71,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   let ipAddress: string | null = null;
   try { ipAddress = getClientAddress(); } catch { /* proxy not configured */ }
   await createSession({ userId: user.id, tokenHash, userAgent, ipAddress, expiresAt });
+
+  // Boot starts before any initial administrator exists, so its normal bundled
+  // source staging has no eligible owner and deliberately does nothing. Retry
+  // the same reviewed staging path after the first admin is durable. It creates
+  // queued releases only; review and activation remain explicit human actions.
+  await ensureBundledExtensions().catch((error) => {
+    console.error("Bundled source staging unavailable after initial admin setup; it will retry on next boot", { error: String(error) });
+  });
 
   setSessionCookie(cookies, token);
 

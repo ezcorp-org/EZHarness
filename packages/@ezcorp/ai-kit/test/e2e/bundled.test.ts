@@ -3,19 +3,10 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient } from "../../src/client";
 import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "./_guard";
 
-/** Validates that ai-kit auto-installs on every EZCorp boot by default.
- *  Operators opt out by setting `EZCORP_DISABLE_AI_KIT=1`. Skipped cleanly
- *  when EZCORP_E2E_BASE_URL or EZCORP_E2E_API_KEY is unset. A configured
- *  target fails if it is unavailable or does not contain ai-kit.
- *
- *  To run locally:
- *    cd web && bun run dev   # default startup — ai-kit installs itself
- *    # in another terminal:
- *    export EZCORP_E2E_BASE_URL=http://localhost:5173
- *    export EZCORP_E2E_API_KEY=ez_...
- *    cd packages/@ezcorp/ai-kit && bun test test/e2e/bundled.test.ts
- *
- *  To verify opt-out works, use the dedicated bundled-extension opt-out test.
+/** Validate a bundled AI-kit release after verification, human approval, and
+ * activation on a disposable server. Set EZCORP_E2E_BASE_URL and a test API
+ * key with read/chat scopes. A configured target must expose the installed
+ * extension; an unset target leaves this optional deployed-service suite out.
  */
 
 let aiKitPresent = false;
@@ -38,7 +29,7 @@ describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: bundled ai-kit", () => {
       headers: { Authorization: `Bearer ${E2E_API_KEY!}` },
     });
     expect(res.ok).toBe(true);
-    const tools = (await res.json()) as Array<{ name: string }>;
+    const { tools } = (await res.json()) as { tools: Array<{ name: string }> };
     const names = tools.map((t) => t.name);
     // Spot-check: the four fan-out primitives must all be exposed.
     expect(names).toContain("spawn_chats");
