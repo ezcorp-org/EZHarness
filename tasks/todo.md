@@ -652,3 +652,17 @@ Final execution remains pending in [the task gates](testing-gaps/GATES.md). Thos
 - Parent preflight caught the invite limiter test in the plain web pool but absent from the coverage producer. The actual file-set regression first failed, then passed after adding it to the shared host list. All15 selection checks and the three direct invite checks pass. The new route retains its exact100% floor. The6e0c browser diagnostic was stopped after256 mock-gate passes; its interrupted cases are cancellation artifacts. Final execution restarts from the corrected source and stays pending in the local gates.
 
 - Parent complete browser diagnostic at f8dd6b217: all64 route floors pass, but the actual runner exits1 with2,148 passes and15 failures. Fourteen failures came from a model-list mock that also intercepted capabilities and default-selection requests; the shared complete route fixture passes66 related cases in Chromium and Firefox. The remaining Canvas fixture blocked first-load readiness. Its repaired test permits native send, holds a stale history read across live completion, and asserts the dock survives before any authoritative third read; both Canvas cases pass. All five lanes, full backend producers, selected-V8 preservation, and static checks will now run from the next fixed revision. Final receipts remain in the ignored task gates.
+
+### Full-producer coverage closure
+
+- [x] Preserve the complete a746 diagnostic and classify all 91 failed source floors.
+- [x] Prove full V8 preserves the old selected producer: 559 source records retained.
+- [x] Repair native help Escape and deferred composer focus; verify all three engines.
+- [x] Reproduce nested Unix socket failure and preserve an active socket when duplicate startup fails.
+- [ ] Assign one trusted producer per incompatible source map; retain strict missing-producer controls.
+- [ ] Collect existing direct utility tests in the coverage producer without duplicate execution.
+- [ ] Add direct behavior tests for uncovered components, stores, and error paths.
+- [ ] Run all five browser lanes, all backend producers, all source floors, and final static gates on one clean revision.
+- [ ] Recompute the live shard plan and complete all 23 task gates with actual receipts.
+
+Review: a746 had 2,162 browser passes and one failure; all 64 route floors passed. Full backend had 7,164 Vitest passes, two Unix runner failures, a browser-route ownership error, and 91 aggregate coverage misses. These are diagnostic receipts, not a completed green run. Terra agents own disjoint coverage and component clusters.

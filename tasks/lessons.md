@@ -254,3 +254,12 @@
 ## 2026-09-10 — Isolated stale-response races
 
 - Count the exact authoritative reads in a stale-response browser race before and after release. Without that count, an unexpected later persisted read can make the visible state pass while the intended stale overlap was never isolated.
+
+## 2026-09-10 — Full producer and native focus review
+
+- Reproduce test environments with the exact temporary-directory ancestry. Keep fixtures that assert no Git ancestor outside every checkout; preserve nested path length when diagnosing Unix sockets.
+- A failed startup has not acquired ownership of a public socket. Prove a rejected duplicate leaves the original service reachable before changing cleanup.
+- Assert modal focus after evidence capture and deferred frame callbacks. Initial focus alone can miss later composer autofocus.
+- Verify a visual evidence case is selected by the mandatory evidence lane, not merely tagged.
+- Recompute performance from the live final test inventory. Keep modeled time separate from measured hosted runtime.
+- Distinguish a passing direct test from a coverage producer. Verify each source's direct suite contributes a trusted receipt before adding replacement tests.
