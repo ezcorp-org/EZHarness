@@ -543,6 +543,28 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     ].join("\n");
     expect(unassertedAddedBlocks(shadowedLocal, new Set([2, 3, 4, 5]))).toHaveLength(1);
   });
+  test("does not treat a nested function shadow as a file helper call", () => {
+    const shadowedFunction = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "test('does not assert', () => {",
+      "  function saveAndReload() {}",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(shadowedFunction, new Set([2, 3, 4, 5]))).toHaveLength(1);
+  });
+  test("does not borrow a file helper through an enclosing describe binding", () => {
+    const enclosingShadow = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "describe('shadowed suite', () => {",
+      "  function saveAndReload() {}",
+      "  test('does not assert', () => {",
+      "    saveAndReload();",
+      "  });",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(enclosingShadow, new Set([4, 5, 6]))).toHaveLength(1);
+  });
   test("ignores blocks not touched by the diff", () => {
     expect(unassertedAddedBlocks(noAssert, new Set([999]))).toEqual([]);
   });

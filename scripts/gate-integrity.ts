@@ -605,17 +605,29 @@ function testAssertionPaths(source: string): Map<number, boolean> {
     if (ts.isIdentifier(name)) return [name.text];
     return name.elements.flatMap((element) => bindingNames(element.name));
   };
-  const shadowsFileHelper = (root: ts.FunctionLikeDeclaration, name: string): boolean => {
-    if (root.parameters.some((parameter) => bindingNames(parameter.name).includes(name))) return true;
-    let shadowed = false;
+  const scopeBindsHelper = (scope: ts.Node, name: string): boolean => {
+    if (ts.isFunctionLike(scope)
+      && scope.parameters.some((parameter) => bindingNames(parameter.name).includes(name))) return true;
+    let bound = false;
     const scan = (node: ts.Node): void => {
-      if (node !== root && ts.isFunctionLike(node)) return;
-      if (node !== root && ts.isVariableDeclaration(node) && bindingNames(node.name).includes(name)) shadowed = true;
-      if (node !== root && ts.isFunctionDeclaration(node) && node.name?.text === name) shadowed = true;
+      // The declaration itself binds in the surrounding scope, so inspect it
+      // before declining to descend into its separate lexical body.
+      if (node !== scope && ts.isFunctionDeclaration(node) && node.name?.text === name) bound = true;
+      if (node !== scope && ts.isVariableDeclaration(node) && bindingNames(node.name).includes(name)) bound = true;
+      if (node !== scope && ts.isFunctionLike(node)) return;
       ts.forEachChild(node, scan);
     };
-    scan(root);
-    return shadowed;
+    scan(scope);
+    return bound;
+  };
+  const shadowsFileHelper = (root: ts.FunctionLikeDeclaration, name: string): boolean => {
+    // Resolve every lexical function/block scope between the test callback and
+    // the source file. A matching enclosing `describe` binding is ambiguous to
+    // this static proof, so fail closed instead of borrowing the file helper.
+    for (let scope: ts.Node | undefined = root; scope && scope !== file; scope = scope.parent) {
+      if ((ts.isFunctionLike(scope) || ts.isBlock(scope)) && scopeBindsHelper(scope, name)) return true;
+    }
+    return false;
   };
 
   const state = new Map<string, "visiting" | "true" | "false">();
