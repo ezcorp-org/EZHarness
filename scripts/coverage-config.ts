@@ -84,14 +84,6 @@ export const EXCLUDES: readonly string[] = [
   // route-level `web/src/__tests__/extension-helpers-clamp.server.test.ts`.
   // The barrel has no independently instrumentable statement.
   "web/src/lib/server/extension-helpers.ts",
-  // Scaffold string-template files: lcov counts the interior of the returned
-  // template literals as missed lines even when every template function is
-  // exercised (`src/__tests__/ext-sdk-types.test.ts`). Identical justification
-  // to packages/@ezcorp/sdk/src/scaffold/templates/** above.
-  "src/extensions/sdk/templates/agent.ts",
-  "src/extensions/sdk/templates/multi.ts",
-  "src/extensions/sdk/templates/skill.ts",
-  "src/extensions/sdk/templates/tool.ts",
   // Illustrative demo extensions whose index.ts is mostly narrative tool
   // handlers + a harness; exhaustive line coverage isn't a meaningful gate for
   // sample code (they're smoke-tested, not gated at 100 like real code). The
