@@ -13,6 +13,11 @@ const REVISION = "a".repeat(40);
 const ROUTE = "web/src/routes/+page.svelte";
 const LCOV = `TN:ezcorp-browser-v8\nSF:/fixture/${ROUTE}\nDA:1,1\nend_of_record\n`;
 
+function git(root: string, ...args: string[]): void {
+  const process = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  if (process.exitCode !== 0) throw new Error(process.stderr.toString());
+}
+
 function fixture(): {
   root: string;
   rawPath: string;
@@ -23,6 +28,13 @@ function fixture(): {
   const manifest = "{\"app\":\"fixture\"}\n";
   const manifestPath = join(root, "web", "build", "client", "manifest.json");
   mkdirSync(join(root, "web", "build", "client"), { recursive: true });
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Browser receipt fixture");
+  git(root, "config", "user.email", "browser-receipt@example.invalid");
+  writeFileSync(join(root, ".gitignore"), "web/build/\nraw.json\nlcov.info\n");
+  writeFileSync(join(root, "source.ts"), "export const source = true;\n");
+  git(root, "add", ".gitignore", "source.ts");
+  git(root, "commit", "-qm", "fixture");
   writeFileSync(manifestPath, manifest);
   const rawPath = join(root, "raw.json");
   const lcovPath = join(root, "lcov.info");
@@ -60,6 +72,13 @@ test("browser receipt verifier rejects a stale source revision", async () => {
     raw.sourceRevision = "b".repeat(40);
     await Bun.write(rawPath, JSON.stringify(raw));
     await expect(verifyBrowserCoverageReceipt(rawPath, lcovPath, verifier)).rejects.toThrow("sourceRevision");
+  });
+});
+
+test("browser receipt verifier rejects dirty source bytes at the matching revision", async () => {
+  await withFixture(async ({ root, rawPath, lcovPath, verifier }) => {
+    writeFileSync(join(root, "source.ts"), "export const source = false;\n");
+    await expect(verifyBrowserCoverageReceipt(rawPath, lcovPath, verifier)).rejects.toThrow("clean Git worktree");
   });
 });
 

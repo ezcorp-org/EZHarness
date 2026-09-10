@@ -5,10 +5,12 @@ import { resolve } from "node:path";
 import { REPO_ROOT } from "./coverage-config.ts";
 import { coverageToLcovFromBuild, type RawCoverage } from "./browser-coverage-to-lcov.ts";
 import { assertBrowserCanonicalSources, assertCompleteRouteInventory } from "./browser-route-coverage-manifest.ts";
+import { assertCleanGitWorktree } from "./git-worktree-clean.ts";
 
 export type BrowserCoverageReceiptVerifier = {
   repoRoot: string;
   currentHead(): string;
+  assertCleanWorktree(): void;
   readManifest(): Promise<ArrayBuffer>;
   remap(raw: RawCoverage): Promise<string>;
   assertRouteInventory(expected: readonly string[]): void;
@@ -26,6 +28,7 @@ export function browserCoverageReceiptVerifierForRoot(
   return {
     repoRoot,
     currentHead: () => Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repoRoot }).stdout.toString().trim(),
+    assertCleanWorktree: () => assertCleanGitWorktree(repoRoot),
     readManifest: () => Bun.file(resolve(repoRoot, "web/build/client/manifest.json")).arrayBuffer(),
     remap: coverageToLcovFromBuild,
     assertRouteInventory: assertCompleteRouteInventory,
@@ -40,6 +43,7 @@ export async function verifyBrowserCoverageReceipt(
   lcovPath: string,
   verifier: BrowserCoverageReceiptVerifier = browserCoverageReceiptVerifierForRoot(REPO_ROOT),
 ): Promise<string> {
+  verifier.assertCleanWorktree();
   const raw = await Bun.file(rawPath).json() as RawCoverage;
   const head = verifier.currentHead();
   if (!/^[0-9a-f]{40}$/.test(raw.sourceRevision ?? "") || raw.sourceRevision !== head) {
