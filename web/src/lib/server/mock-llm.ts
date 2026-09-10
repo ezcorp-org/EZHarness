@@ -67,6 +67,12 @@ export interface MockFault {
 }
 
 export interface MockTurn {
+  /**
+   * Test-only hold identifier. The response sends no SSE bytes until the
+   * authenticated release route opens this exact hold. It lets browser tests
+   * cancel a real in-flight provider request without timing sleeps.
+   */
+  holdKey?: string;
   /** Assistant text for this turn (optional — a turn may be tool-only). */
   text?: string;
   /** Tool calls the assistant makes this turn (drives the real tool loop). */
@@ -81,6 +87,24 @@ export interface MockTurn {
 }
 
 const queues = new Map<string, MockTurn[]>();
+
+// Held streams are explicit test synchronization points, not delayed replies:
+// a test first observes its recorded provider request, then releases this key.
+const heldStreams = new Map<string, () => void>();
+
+function waitForMockHold(key: string): Promise<void> {
+  if (heldStreams.has(key)) throw new Error(`mock-llm hold "${key}" is already pending`);
+  return new Promise<void>((resolve) => heldStreams.set(key, resolve));
+}
+
+/** Release one held SSE turn. False means there is no matching live hold. */
+export function releaseMockHold(key: string): boolean {
+  const release = heldStreams.get(key);
+  if (!release) return false;
+  heldStreams.delete(key);
+  release();
+  return true;
+}
 
 /** Exact OpenAI-compatible body observed at the mock provider boundary. */
 export interface MockRecordedRequest {
@@ -120,6 +144,9 @@ export function dequeueMockTurn(key: string): MockTurn {
 export function clearMockScripts(): void {
   queues.clear();
   recordedRequests.clear();
+  // Do not leave an open server response behind when a test aborts early.
+  for (const release of heldStreams.values()) release();
+  heldStreams.clear();
 }
 
 /** Derive the script key from the request `model`. The harness sends
@@ -207,10 +234,22 @@ export function mockTurnToSseFrames(turn: MockTurn): string[] {
 export function buildMockStreamResponse(turn: MockTurn): Response {
   const frames = mockTurnToSseFrames(turn);
   const encoder = new TextEncoder();
+  const held = turn.holdKey ? waitForMockHold(turn.holdKey) : undefined;
+  let cancelled = false;
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      for (const f of frames) controller.enqueue(encoder.encode(f));
-      controller.close();
+      const send = () => {
+        if (cancelled) return;
+        for (const f of frames) controller.enqueue(encoder.encode(f));
+        controller.close();
+      };
+      if (held) void held.then(send);
+      else send();
+    },
+    cancel() {
+      // Keep the hold registered until release/cleanup so the test can close
+      // its synchronization point after the client cancelled the request.
+      cancelled = true;
     },
   });
   return new Response(stream, {

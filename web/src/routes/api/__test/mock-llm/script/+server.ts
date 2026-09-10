@@ -56,6 +56,9 @@ function parseTurns(raw: unknown): MockTurn[] | { error: string } {
   for (const [i, t] of raw.entries()) {
     if (!t || typeof t !== "object") return { error: `turns[${i}] must be an object` };
     const turn = t as Record<string, unknown>;
+    if (turn.holdKey !== undefined && (typeof turn.holdKey !== "string" || turn.holdKey.length === 0)) {
+      return { error: `turns[${i}].holdKey must be a non-empty string` };
+    }
     if (turn.text !== undefined && typeof turn.text !== "string") {
       return { error: `turns[${i}].text must be a string` };
     }

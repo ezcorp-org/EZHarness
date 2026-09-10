@@ -14,6 +14,7 @@ import {
   buildMockFaultResponse,
   buildMockStreamResponse,
   buildMockTurnResponse,
+  releaseMockHold,
   recordMockRequest,
 } from "$lib/server/mock-llm";
 
@@ -207,6 +208,16 @@ describe("buildMockTurnResponse (dispatcher)", () => {
   test("fault turn → failing response", () => {
     const res = buildMockTurnResponse({ fault: { status: 503 } });
     expect(res.status).toBe(503);
+  });
+
+  test("held turn sends only after its explicit release", async () => {
+    const res = buildMockStreamResponse({ holdKey: "store-hold", text: "released" });
+    const reader = res.body!.getReader();
+    const first = reader.read();
+    expect(releaseMockHold("store-hold")).toBe(true);
+    const chunk = await first;
+    expect(new TextDecoder().decode(chunk.value)).toContain("released");
+    await reader.cancel();
   });
 
   test("matches buildMockStreamResponse for a non-fault turn", () => {

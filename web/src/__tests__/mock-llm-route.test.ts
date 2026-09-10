@@ -6,7 +6,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { POST as completions } from "../routes/api/__test/mock-llm/v1/chat/completions/+server";
 import { GET as capturedRequests, POST as seedScript, DELETE as clearScript } from "../routes/api/__test/mock-llm/script/+server";
-import { dequeueMockTurn, clearMockScripts } from "$lib/server/mock-llm";
+import { POST as releaseHold } from "../routes/api/__test/mock-llm/release/+server";
+import { dequeueMockTurn, clearMockScripts, buildMockStreamResponse } from "$lib/server/mock-llm";
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
@@ -108,6 +109,20 @@ describe("completions endpoint", () => {
   });
 });
 
+describe("/release endpoint", () => {
+  test("releases a held stream once and rejects unknown holds", async () => {
+    const held = buildMockStreamResponse({ holdKey: "route-hold", text: "released" });
+    const reader = held.body!.getReader();
+    const first = reader.read();
+    const released = await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: cookieLocals } as any);
+    expect(released.status).toBe(200);
+    expect(await released.json()).toEqual({ released: true, holdKey: "route-hold" });
+    expect(new TextDecoder().decode((await first).value)).toContain("released");
+    expect((await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: cookieLocals } as any)).status).toBe(404);
+    expect((await releaseHold({ request: jsonReq({ holdKey: "" }), locals: cookieLocals } as any)).status).toBe(400);
+  });
+});
+
 describe("/script seed endpoint", () => {
   test("404 when the test surface is off", async () => {
     delete process.env.PI_E2E_REAL;
@@ -147,6 +162,7 @@ describe("/script seed endpoint", () => {
         { text: "cached", usage: { input: 10, cacheRead: 5, cacheWrite: 2, output: 3 } },
         { fault: { status: 503 } },
         { fault: { kind: "connection" } },
+        { text: "held", holdKey: "accepted-hold" },
       ] }),
       locals: cookieLocals,
     } as any);
@@ -154,6 +170,7 @@ describe("/script seed endpoint", () => {
     expect(dequeueMockTurn("ok").usage?.cacheRead).toBe(5);
     expect(dequeueMockTurn("ok").fault?.status).toBe(503);
     expect(dequeueMockTurn("ok").fault?.kind).toBe("connection");
+    expect(dequeueMockTurn("ok").holdKey).toBe("accepted-hold");
   });
 
   test("rejects bad usage shapes", async () => {
