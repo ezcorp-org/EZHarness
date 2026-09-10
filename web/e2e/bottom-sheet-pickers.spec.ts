@@ -23,6 +23,13 @@ type Picker = {
   content: (page: Page) => Locator;
 };
 const configure = async (page: Page) => { await page.getByRole("button", { name: "Configure", exact: true }).click(); };
+const searches: Record<string, { query: string; label: string; selectedLabel: string; multiple?: boolean }> = {
+  "agent-search": { query: "Picker", label: "Picker agent", selectedLabel: "Picker agent" },
+  "extension-search": { query: "Picker", label: "Picker extension", selectedLabel: "Picker extension", multiple: true },
+  "model-search": { query: "GPT", label: "GPT-4o", selectedLabel: "GPT-4o" },
+  "mode-search": { query: "Review", label: "Review", selectedLabel: "Review" },
+  "tool-search": { query: "scan", label: "scan", selectedLabel: "analyzer__scan", multiple: true },
+};
 const pickers: Picker[] = [
   { name: "assignment", path: `/project/${project.id}/chat/${conversation.id}`, trigger: "open-assignment-picker", prepare: async page => {
     await seedTaskSnapshot(page, { conversationId: conversation.id, tasks: [{ id: "picker-task", title: "Assign this task", description: "", status: "pending", priority: 0, subtasks: [], createdAt: "2026-01-01T00:00:00Z" }] });
@@ -82,6 +89,27 @@ for (const picker of pickers) {
       else if (dismiss === "escape") await page.keyboard.press("Escape");
       else await sheet.locator(':scope > button[aria-label="Close picker"]').click({ position: { x: 10, y: 10 } });
       await expect(sheet).toHaveCount(0);
+    }
+    const search = searches[picker.name];
+    if (search) {
+      await openPicker(page, picker);
+      const sheet = page.getByTestId("bottom-sheet");
+      const input = sheet.getByRole("combobox");
+      // The native modal focus trap must leave search available in the sheet.
+      await expect(input).toHaveCount(1);
+      await input.fill("no-picker-results-xyz");
+      await expect(sheet.getByText(search.label, { exact: true })).toHaveCount(0);
+      await input.fill(search.query);
+      const result = sheet.getByRole("option").filter({ has: page.getByText(search.label, { exact: true }) });
+      await expect(result).toHaveCount(1);
+      await captureEvidence(page, testInfo, `picker-${picker.name}-mobile-search`);
+      await result.getByRole("button").first().click();
+      if (search.multiple) {
+        await expect(result).toHaveAttribute("aria-selected", "true");
+        await sheet.getByRole("button", { name: "Close", exact: true }).click();
+      }
+      await expect(sheet).toHaveCount(0);
+      await expect(page.getByText(search.selectedLabel, { exact: true }).first()).toBeVisible();
     }
   });
 
