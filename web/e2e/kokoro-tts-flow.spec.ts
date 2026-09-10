@@ -9,8 +9,8 @@
  *   2. The host's selection capture + payload assembly — clicking the
  *      icon POSTs to the existing extension event route with the right
  *      shape: `{ messageId, conversationId, content, selection }`.
- *   3. `KokoroTtsPlayerCard` persisted-state rendering — when an
- *      excluded turn arrives over WS carrying a tool call with
+ *   3. `KokoroTtsPlayerCard` persisted-state rendering — when a
+ *      persisted excluded turn hydrates with a tool call carrying
  *      `output.attachmentId`, the card short-circuits synthesis and
  *      mounts an `<audio>` element bound to `/api/attachments/:id`.
  *   4. The "Excluded from chat context" pill — only renders for
@@ -46,7 +46,7 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 //             | { type: "error", id, message }
 //
 // Behavior is configurable via `window.__kokoroStub`:
-//   - calls            : array of { text, voice, id } captured per
+//   - calls            : array of { text, voice, speed, id } captured per
 //                        postMessage. Specs assert on this to prove the
 //                        bridge actually invoked the worker (or didn't —
 //                        e.g. on reload, where the persisted attachment
@@ -415,7 +415,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
     // (10) The save event POST body carries conversationId, messageId,
     // toolCallId and attachmentId — schema regression canary.
-    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBe(1);
     const saveBody = saveCalls[0]!.body as SaveBody;
     expect(saveBody.conversationId).toBe("conv-1");
     expect(saveBody.messageId).toBe("m3");
@@ -669,15 +669,15 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     await expect(page.getByTestId("kokoro-tts-audio-blob")).toBeVisible({
       timeout: 5000,
     });
-    expect(uploadHits).toBeGreaterThanOrEqual(1);
+    expect(uploadHits).toBe(1);
 
     // No second card spawned.
     const cardsAfter = await page.getByTestId("kokoro-tts-player-card").count();
     expect(cardsAfter).toBe(1);
 
     // Save event references the SAME toolCallId across the retry.
-    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBeGreaterThanOrEqual(1);
-    const saveBody = saveCalls[saveCalls.length - 1]!.body as SaveBody;
+    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBe(1);
+    const saveBody = saveCalls[0]!.body as SaveBody;
     expect(saveBody.toolCallId).toBe("tc-retry-1");
 
     // Two synthesize attempts in total — the failed one + the retry.
@@ -685,18 +685,17 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
       const stub = (window as unknown as { __kokoroStub: { calls: unknown[] } }).__kokoroStub;
       return stub.calls.length;
     });
-    expect(synthCallCount).toBeGreaterThanOrEqual(2);
+    expect(synthCallCount).toBe(2);
   });
 
   // ── Settings end-to-end (Slice 5) ────────────────────────────────
   //
-  // The user picked `bf_emma` + speed `1.5` on the extension settings
-  // page; the resolved blob lives behind `/api/extensions/<id>/settings`
-  // and is loaded into a module-scoped Svelte store on chat-page mount.
+  // A resolved `bf_emma` + speed `1.5` blob lives behind
+  // `/api/extensions/<id>/settings` and is loaded into the browser cache.
   // `KokoroTtsPlayerCard.svelte` reads voice + speed from that store and
   // forwards them to `bridge.synthesize(text, { voice, speed })`, which
   // postMessages the worker. We assert the captured worker frame carries
-  // the user's chosen values — not the hard-coded `af_bella` / `1.0`.
+  // the resolved values — not the hard-coded `af_bella` / `1.0`.
   test("chosen voice + speed reach the synth bridge", async ({
     page,
     mockApi,
@@ -734,33 +733,10 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
       if (route.request().method() !== "GET") return route.fallback();
       await route.fulfill({ json: { resolved: { voice: "bf_emma", speed: 1.5 } } });
     });
-    let userPutBody: unknown = null;
-    let userDeleted = false;
-    await page.route("**/api/extensions/ext-kokoro/settings/user", async (route) => {
-      if (route.request().method() === "PUT") {
-        userPutBody = route.request().postDataJSON();
-        return route.fulfill({ json: { ok: true, userValues: { voice: "bf_emma", speed: 1.5 } } });
-      }
-      if (route.request().method() === "DELETE") {
-        userDeleted = true;
-        return route.fulfill({ json: { ok: true } });
-      }
-      return route.fallback();
-    });
     await fulfillKokoroPost(page, "upload", { attachmentId: "att-settings-1" });
     await fulfillKokoroPost(page, "save", { ok: true });
 
     await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-    const savedSettings = await page.evaluate(async () => {
-      const response = await fetch("/api/extensions/ext-kokoro/settings/user", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ values: { voice: "bf_emma", speed: 1.5 } }),
-      });
-      return response.status;
-    });
-    expect(savedSettings).toBe(200);
-    expect(userPutBody).toEqual({ values: { voice: "bf_emma", speed: 1.5 } });
     await expect(page.getByTestId("kokoro-tts-audio-blob")).toBeVisible({ timeout: 5000 });
 
     const calls = await page.evaluate(() => {
@@ -773,10 +749,5 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     expect(calls[0]!.voice).toBe("bf_emma");
     expect(calls[0]!.speed).toBe(1.5);
 
-    const clearedSettings = await page.evaluate(async () =>
-      (await fetch("/api/extensions/ext-kokoro/settings/user", { method: "DELETE" })).status,
-    );
-    expect(clearedSettings).toBe(200);
-    expect(userDeleted).toBe(true);
   });
 });
