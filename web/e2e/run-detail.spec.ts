@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeRun } from "./fixtures/data.js";
+import { captureEvidence } from "./fixtures/evidence.js";
+import { makeRun, makeProject } from "./fixtures/data.js";
 
 test.describe("Run Detail", () => {
 	test("shows run status, agent name, and run ID", async ({ page, mockApi }) => {
@@ -118,23 +119,26 @@ test.describe("Run Detail", () => {
 		await expect(page.getByText("A brief summary")).toBeVisible();
 	});
 
-	test("shows loading state", async ({ page, mockApi }) => {
+	test("missing run shows the error after the 404 response @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ runs: [] });
+		const response = page.waitForResponse("**/api/runs/run-missing");
 		await page.goto("/runs/run-missing");
-
-		// Should show loading or not-found
-		const body = page.locator("body");
-		await expect(body).toBeVisible();
+		expect((await response).status()).toBe(404);
+		await expect(page.getByRole("alert")).toContainText("Not found");
+		await expect(page.getByText("Loading run...")).not.toBeVisible();
+		await captureEvidence(page, testInfo, "missing-run-error");
 	});
 
-	test("back link navigates to dashboard", async ({ page, mockApi }) => {
+	test("back link returns to the run project without resuming the run again", async ({ page, mockApi }) => {
 		await mockApi({
-			runs: [makeRun({ id: "run-1" })],
+			projects: [makeProject({ id: "run-project", name: "Run Project" })],
+			conversations: [],
+			runs: [makeRun({ id: "run-1", projectId: "run-project" })],
 		});
 		await page.goto("/runs/run-1");
-
-		const backLink = page.getByText("Back").first();
-		await backLink.click();
-		await expect(page).toHaveURL("/");
+		await expect(page.getByRole("heading", { name: "test-agent", exact: true })).toBeVisible();
+		await page.getByRole("link", { name: /Back/ }).click();
+		await expect(page).toHaveURL("/project/run-project/chat");
+		await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible();
 	});
 });

@@ -1,4 +1,7 @@
 {
+  "web/e2e/run-detail.spec.ts": [
+    "web/src/routes/(app)/runs/[id]/+page.svelte"
+  ],
   "web/e2e/canvas-dock-mobile-swipe.spec.ts": [
     "web/src/lib/components/tool-cards/DockHost.svelte"
   ],

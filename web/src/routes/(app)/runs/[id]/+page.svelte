@@ -7,6 +7,7 @@
 	import LogStream from "$lib/components/LogStream.svelte";
 
 	let run: Run | null = $state<Run | null>(null);
+	let errorMessage = $state("");
 	let runId = $derived(page.params.id);
 
 	// Keep in sync with store updates (from WS)
@@ -23,8 +24,8 @@
 		try {
 			const data = await fetchRun(runId);
 			run = data;
-		} catch {
-			// will show not found
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : "Could not load this run";
 		}
 	});
 
@@ -44,7 +45,7 @@
 
 <div class="space-y-6">
 	<div>
-		<a href="/" class="text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]">&larr; Back</a>
+		<a href={`/project/${run?.projectId ?? store.activeProjectId ?? "global"}/chat`} class="text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]">&larr; Back to chat</a>
 	</div>
 
 	{#if run}
@@ -86,6 +87,8 @@
 				<pre class="overflow-x-auto rounded-lg bg-[var(--color-surface-secondary)] p-4 font-mono text-sm text-green-400">{resultJson}</pre>
 			</section>
 		{/if}
+	{:else if errorMessage}
+		<p role="alert" class="text-red-700 dark:text-red-400">Could not load run: {errorMessage}</p>
 	{:else}
 		<p class="text-[var(--color-text-muted)]">Loading run...</p>
 	{/if}

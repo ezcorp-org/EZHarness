@@ -19,10 +19,11 @@ test.describe("Projects", () => {
 		});
 		await page.goto("/");
 
-		// Project rail should show project initials or icons
-		// Projects appear in the leftmost rail
-		const body = page.locator("body");
-		await expect(body).toBeVisible();
+		await expect(page.getByRole("button", { name: "Alpha", exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Beta", exact: true })).toBeVisible();
+		await page.getByRole("button", { name: "Beta", exact: true }).click();
+		await expect(page).toHaveURL(/\/project\/p2\/chat/);
+		await expect(page.getByTestId("active-context-name")).toHaveText("Beta");
 	});
 
 	test("project settings page loads", async ({ page, mockApi }) => {
@@ -30,6 +31,8 @@ test.describe("Projects", () => {
 		await mockApi({ projects: [proj] });
 		await page.goto(`/project/${proj.id}/settings`);
 
-		await expect(page.locator("body")).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Settings Project", exact: true })).toBeVisible();
+		await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("Settings Project");
+		await expect(page.getByRole("button", { name: "Update", exact: true })).toBeEnabled();
 	});
 });
