@@ -1,8 +1,9 @@
 /**
  * Search pickers mount a BottomSheet below lg. The focus trap returns focus to
- * the input on close, so a native click must reopen even when focus does not
- * fire again. The opening focus also blurs when the sheet traps focus; that
- * blur must not close the sheet.
+ * the input on close, so a click event must reopen even when focus does not
+ * fire again. The browser suite proves the equivalent native interaction.
+ * The opening focus also blurs when the sheet traps focus; that blur must not
+ * close the sheet.
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -13,8 +14,6 @@ import ModeSearchPicker from "../ModeSearchPicker.svelte";
 import ToolSearchPicker from "../ToolSearchPicker.svelte";
 
 const realInnerWidth = window.innerWidth;
-const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-
 function setInnerWidth(width: number) {
 	Object.defineProperty(window, "innerWidth", { value: width, configurable: true, writable: true });
 }
@@ -42,6 +41,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	setInnerWidth(realInnerWidth);
 	vi.unstubAllGlobals();
 });
@@ -54,41 +54,45 @@ async function verifyMobileCloseAndNativeReopen(renderPicker: () => void) {
 
 	// BottomSheet traps focus while mounting. This input blur is expected and
 	// must not dismiss the sheet the user just opened.
+	vi.useFakeTimers();
 	await fireEvent.blur(input);
-	await sleep(200);
+	// Advance past the former 150ms desktop-close deadline. If a mobile blur
+	// schedules that close, this assertion fails deterministically.
+	await vi.advanceTimersByTimeAsync(151);
 	expect(screen.queryByTestId("bottom-sheet")).not.toBeNull();
+	vi.useRealTimers();
 
 	await fireEvent.click(screen.getByRole("button", { name: "Close" }));
 	await waitFor(() => expect(screen.queryByTestId("bottom-sheet")).toBeNull());
 
-	// Focus restoration leaves the input focused. A native click must still
-	// reopen it; focus-only opening leaves this interaction inert.
+	// Focus restoration leaves the input focused. Model that state, then
+	// dispatch the click event that must reopen the picker.
 	input.focus();
 	await fireEvent.click(input);
 	await screen.findByTestId("bottom-sheet");
 }
 
 describe("search picker mobile dismissal and reopen", () => {
-	test("agent picker survives focus-trap blur and reopens from a native click", async () => {
+	test("agent picker survives focus-trap blur and reopens after a click event", async () => {
 		await verifyMobileCloseAndNativeReopen(() => render(AgentSearchPicker, {
 			agents: [{ id: "agent-a", name: "Agent A", description: "", category: "agent", prompt: "", capabilities: [], createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }],
 			onselect: vi.fn(),
 		}));
 	});
 
-	test("extension picker survives focus-trap blur and reopens from a native click", async () => {
+	test("extension picker survives focus-trap blur and reopens after a click event", async () => {
 		await verifyMobileCloseAndNativeReopen(() => render(ExtensionSearchPicker, { selected: [], onchange: vi.fn() }));
 	});
 
-	test("model picker survives focus-trap blur and reopens from a native click", async () => {
+	test("model picker survives focus-trap blur and reopens after a click event", async () => {
 		await verifyMobileCloseAndNativeReopen(() => render(ModelSearchPicker, { selected: null, onselect: vi.fn() }));
 	});
 
-	test("mode picker survives focus-trap blur and reopens from a native click", async () => {
+	test("mode picker survives focus-trap blur and reopens after a click event", async () => {
 		await verifyMobileCloseAndNativeReopen(() => render(ModeSearchPicker, { selected: null, onselect: vi.fn() }));
 	});
 
-	test("tool picker survives focus-trap blur and reopens from a native click", async () => {
+	test("tool picker survives focus-trap blur and reopens after a click event", async () => {
 		await verifyMobileCloseAndNativeReopen(() => render(ToolSearchPicker, { selected: [], onchange: vi.fn() }));
 	});
 });

@@ -222,3 +222,9 @@
 - Preserve parent-path order when adding audit annotations to chat. Sort or merge only independent annotations, deduplicate IDs, and test inverted timestamps and branch isolation.
 
 - Large validation JSON files should remain linted. Use an exact-file size-limit override instead of excluding the files; measure the added lint cost. Keep historical skipped suite declarations unchanged when only documenting their executable replacements, so diff-scoped integrity checks do not misclassify them as new skips.
+- A leading underscore is not a cleanup for a dead declaration. Remove pure unused helpers and constants with their unused imports; retain only bindings that still have a side effect or a structural use.
+
+## 2026-09-10 — Picker component timing proof
+
+- Use fake timers to cross a known dismissal deadline in a component test. Do not use a fixed wall-clock delay when the timer is the behavior under test.
+- Describe dispatched component events accurately. Reserve “native interaction” for browser-engine evidence that performs the physical click path.
