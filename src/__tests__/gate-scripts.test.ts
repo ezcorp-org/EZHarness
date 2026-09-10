@@ -85,7 +85,7 @@ describe("coverage-config helpers", () => {
   });
 
   test("isExcluded matches EXCLUDES patterns (and only those)", () => {
-    expect(isExcluded("src/providers/example.ts")).toBe(true);
+    expect(isExcluded("src/providers/example.ts")).toBe(false);
     expect(isExcluded("web/src/lib/api.ts")).toBe(true);
     expect(isExcluded("src/runtime/brand-new.ts")).toBe(false);
   });

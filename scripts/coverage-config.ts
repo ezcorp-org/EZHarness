@@ -85,37 +85,9 @@ export const EXCLUDES: readonly string[] = [
   // meaningfully in a fully-booted server (integration-only, like other boot
   // wiring).
   "web/src/lib/server/context.ts",
-  // Web logic that IS unit-tested (node-vitest leg) but can't be cleanly
-  // line-measured by this gate: the bun host/example shards transitively
-  // import these and emit their own span-filled zero-hit DA records, which
-  // merge-lcov unions with the vitest leg's clean coverage — the union of
-  // line sets drags the percentage below either measurement alone. Their
-  // tests run in the `Web tests (vitest)` CI job; coverage just can't see it
-  // under dual bun+v8 instrumentation. (Same family as the security excludes.)
-  "web/src/lib/mention-logic.ts",
-  "web/src/lib/markdown.ts",
-  "web/src/lib/chat-input-logic.ts",
-  "web/src/lib/utils/relative-time.ts",
-  "web/src/lib/server/http-errors.ts",
-  "web/src/lib/server/shutdown.ts",
-  "web/src/lib/server/auth/session-cookie.ts",
+  // `extension-helpers.ts` has no executable DA record in the current V8
+  // producer. Keep it excluded until a real extension-runtime producer exists.
   "web/src/lib/server/extension-helpers.ts",
-  // Secure-preview SvelteKit dispatch glue. These ARE exhaustively covered by
-  // their vitest `.server.test.ts` suites (dispatch 96.5%, ws-bridge 100% under
-  // the v8 leg), but `web/src/hooks.server.ts` statically imports both, so the
-  // `c2-session-revocation` bun shard (which imports hooks.server.ts to test
-  // the app-origin session path) instruments them with BUN's TypeScript-line
-  // span set. merge-lcov then unions bun's superset of "executable" lines with
-  // the vitest leg's v8 line set — and the bun-only lines have no v8 hit to
-  // offset them, dragging the merged percentage to ~75/83 % even though the
-  // dedicated vitest leg covers every reachable line. The dispatch readFile dep
-  // (`Bun.file().stream()`) is additionally Bun-runtime-only (the vitest/jsdom
-  // leg can't run it). Identical dual-instrumentation hazard to the
-  // mention-logic / context / security excludes above: covered behaviourally
-  // and gated under `Web tests (vitest)`, just not line-measurable in this
-  // merged bun+v8 lcov.
-  "web/src/lib/server/preview/dispatch.ts",
-  "web/src/lib/server/preview/ws-bridge.ts",
   // Scaffold string-template files: lcov counts the interior of the returned
   // template literals as missed lines even when every template function is
   // exercised (`src/__tests__/ext-sdk-types.test.ts`). Identical justification
@@ -186,6 +158,26 @@ const NON_SOURCE_GLOBS: readonly string[] = [
  * (default-100) key. Keep this list in sync with the catch-all keys in
  * coverage-thresholds.json.
  */
+/**
+ * These files have a canonical Node/V8 producer. Bun instruments their
+ * TypeScript spans differently when it transitively imports them, so summing
+ * the two line maps manufactures misses that neither producer observed.
+ * merge-lcov accepts only blocks with V8 `FN:` records for these paths and
+ * drops Bun-only blocks. If that V8 evidence disappears, their exact
+ * thresholds fail for missing lcov data; they cannot silently fall back.
+ */
+export const V8_CANONICAL_SOURCES: readonly string[] = [
+  "web/src/lib/mention-logic.ts",
+  "web/src/lib/markdown.ts",
+  "web/src/lib/chat-input-logic.ts",
+  "web/src/lib/utils/relative-time.ts",
+  "web/src/lib/server/http-errors.ts",
+  "web/src/lib/server/shutdown.ts",
+  "web/src/lib/server/auth/session-cookie.ts",
+  "web/src/lib/server/preview/dispatch.ts",
+  "web/src/lib/server/preview/ws-bridge.ts",
+];
+
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [
   "src/**",
   "web/src/**",

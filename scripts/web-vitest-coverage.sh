@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the canonical Vitest pool once under Node V8 coverage for shared web libs.
+# Run the canonical Vitest pool once under Node V8 coverage for shared web sources and the legacy selected route/server source manifest.
 # CI invokes one shard per existing Web tests shard; local coverage invokes it
 # unsharded. The legacy selected Vitest leg remains until the first full union
 # proves every existing threshold has identical-or-better evidence.
@@ -43,17 +43,19 @@ if [ -n "$shard" ] && ! [[ "$shard" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]]; then
 fi
 
 mkdir -p "$out_dir"
+source "$repo_root/scripts/web-vitest-coverage-includes.sh"
+web_vitest_coverage_args
 cd "$repo_root/web"
 args=(
   vitest run
   --coverage
   --coverage.provider=v8
   --coverage.reporter=lcovonly
-  --coverage.include='src/lib/**'
   --coverage.exclude='**/*.test.ts'
   --coverage.exclude='**/__tests__/**'
   --coverage.exclude='**/*.d.ts'
   "--coverage.reportsDirectory=$out_dir"
+  "${WEB_VITEST_COVERAGE_ARGS[@]}"
 )
 if [ -n "$shard" ]; then
   args+=("--shard=$shard")

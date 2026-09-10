@@ -35,6 +35,7 @@ import { join } from "node:path";
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const SETS_LIB = "scripts/lib/test-file-sets.sh";
 const RUNNER = join(REPO_ROOT, "scripts/test-coverage.sh");
+const VITEST_INCLUDE_MANIFEST = join(REPO_ROOT, "scripts/web-vitest-coverage-includes.sh");
 const WEB_ROOT = join(REPO_ROOT, "web");
 
 const LCOV = "TN:\nSF:/repo/src/x.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n";
@@ -856,8 +857,9 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
  *   - a listed test file that no longer exists. vitest does red on that today,
  *     but only as "no test files found" buried in a leg log — named here.
  *
- * Both checks run against the REAL command in scripts/test-coverage.sh, parsed
- * out of the file, so they cannot check a stale copy.
+ * The test-file list stays in the real selected command. Both producers source
+ * one checked include manifest, so that manifest is parsed directly and the
+ * selected command is pinned to source it.
  */
 describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
   const runnerSrc = Bun.file(RUNNER).text();
@@ -882,10 +884,10 @@ describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
     );
   }
 
-  /** The `--coverage.include='…'` patterns, in file order. */
+  /** The shared `--coverage.include=…` patterns, in manifest order. */
   async function includePatterns(): Promise<string[]> {
-    const block = await vitestBlock();
-    return [...block.matchAll(/--coverage\.include='([^']+)'/g)].map((m) => m[1] as string);
+    const manifest = await Bun.file(VITEST_INCLUDE_MANIFEST).text();
+    return [...manifest.matchAll(/"--coverage\.include=([^"\n]+)"/g)].map((m) => m[1] as string);
   }
 
   // Every file under web/src, expressed the way the include patterns are
@@ -909,9 +911,12 @@ describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
     return webSrcFiles.some((f) => glob.match(f));
   }
 
-  test("the parser still finds both allowlists (a rewrite must not silently empty them)", async () => {
+  test("the selected command and shared manifest retain both allowlists", async () => {
     const files = await listedTestFiles();
     const includes = await includePatterns();
+    const runner = await runnerSrc;
+    expect(runner).toContain('source "$SCRIPT_DIR/web-vitest-coverage-includes.sh"');
+    expect(runner).toContain('"$' + '{WEB_VITEST_COVERAGE_ARGS[@]}"');
     // Ratchet floors in the style of the other set-size guards: 211 test files
     // and 200 include patterns when this landed. A drop below means the parse
     // rotted or the leg was gutted — either way the two checks below would
@@ -935,7 +940,7 @@ describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
     const dead = (await includePatterns()).filter((p) => !matchesSomething(p));
     expect(
       dead,
-      `${dead.length} --coverage.include pattern(s) in scripts/test-coverage.sh match NOTHING. ` +
+      `${dead.length} --coverage.include pattern(s) in scripts/web-vitest-coverage-includes.sh match NOTHING. ` +
         `An include that matches nothing is indistinguishable from success at the leg's exit ` +
         `code — it only resurfaces downstream as the patch-coverage gate's "changed source ` +
         `file has NO lcov data" (PR #97). Fix the pattern; do not delete the ` +

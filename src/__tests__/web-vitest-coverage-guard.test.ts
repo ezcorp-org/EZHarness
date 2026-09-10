@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { REPO_ROOT } from "../../scripts/coverage-config";
-import { lcovSourceFiles, missingWebLibCoverage } from "../../scripts/check-web-vitest-coverage";
+import { configuredWebVitestSources, lcovSourceFiles, missingWebLibCoverage, webVitestIncludePatterns } from "../../scripts/check-web-vitest-coverage";
 
 test("normalizes relative and absolute Vitest LCOV source paths", () => {
   const files = lcovSourceFiles(`SF:web/src/lib/a.ts\nDA:1,1\nend_of_record\nSF:${REPO_ROOT}/web/src/lib/b.ts\nDA:1,1`);
@@ -31,4 +31,16 @@ test("requires records for executable files but permits declaration-only TypeScr
     async (file) => file.endsWith("types.ts") ? "export interface OnlyType { id: string }" : "<script>let visible = true;</script>",
   );
   expect(missing).toEqual(["web/src/lib/View.svelte"]);
+});
+
+
+test("expands the shared V8 manifest routes and shared libraries", () => {
+  const includes = webVitestIncludePatterns(`
+    "--coverage.include=src/lib/**"
+    "--coverage.include=src/routes/api/projects/[id]/+server.ts"
+  `);
+  expect(includes).toEqual(["src/lib/**", "src/routes/api/projects/[id]/+server.ts"]);
+  const sources = configuredWebVitestSources(includes);
+  expect(sources).toContain("web/src/lib/mention-logic.ts");
+  expect(sources).toContain("web/src/routes/api/projects/[id]/+server.ts");
 });
