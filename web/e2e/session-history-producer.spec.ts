@@ -31,6 +31,7 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import type { Message } from "../src/lib/api.js";
 
 test.describe("session history producer — multi-turn chat parity", () => {
 	const proj = makeProject({ id: "proj-shp", name: "Session Producer Project" });
@@ -67,34 +68,46 @@ test.describe("session history producer — multi-turn chat parity", () => {
 		await expect(thread.getByText("The code word BANANA.", { exact: true })).toBeVisible();
 
 		// Send a follow-up, then surface the normal streamed reply.
-		await Promise.all([
+		const [postResponse] = await Promise.all([
 			page.waitForResponse((response) => response.url().includes("/messages") && response.request().method() === "POST"),
 			sendComposerMessage(page, "Say it one more time."),
 		]);
+		const posted = await postResponse.json() as {
+			userMessage: Message;
+			runId: string | null;
+		};
+		if (typeof posted.runId !== "string") {
+			throw new Error("The normal chat POST must return a streaming run id.");
+		}
+		expect(posted.userMessage.content).toBe("Say it one more time.");
+		expect(posted.userMessage.parentMessageId).toBe("h-3");
+		persisted.push(posted.userMessage);
 
-		await emitSse({ type: "run:token", data: { runId: "run-stream", token: REPLY, kind: "text" } });
+		await emitSse({ type: "run:token", data: { runId: posted.runId, token: REPLY, kind: "text" } });
 		await expect(thread.getByText(REPLY, { exact: true })).toBeVisible({ timeout: 8000 });
-		persisted.push(makeMessage({
+		const reply = makeMessage({
 			id: "h-new",
 			conversationId: conv.id,
 			role: "assistant",
 			content: REPLY,
-			parentMessageId: "h-3",
-			runId: "run-stream",
-		}));
+			parentMessageId: posted.userMessage.id,
+			runId: posted.runId,
+		});
+		persisted.push(reply);
 		await emitSse({
-        type: "run:turn_saved",
-		data: { runId: "run-stream", conversationId: "conv-shp", messageId: "h-new", parentMessageId: "h-3", content: REPLY, final: true },
-      });
-      await emitSse({
-        type: "run:complete",
-		data: { run: { id: "run-stream", agentName: "chat", status: "success", startedAt: "2026-01-01T00:00:00.000Z", logs: [], result: { success: true, output: REPLY } } },
-      });
+			type: "run:turn_saved",
+			data: { runId: posted.runId, conversationId: "conv-shp", messageId: reply.id, parentMessageId: posted.userMessage.id, content: REPLY, final: true },
+		});
+		await emitSse({
+			type: "run:complete",
+			data: { run: { id: posted.runId, agentName: "chat", status: "success", startedAt: "2026-01-01T00:00:00.000Z", logs: [], result: { success: true, output: REPLY } } },
+		});
 
 		// THE CONTRACT: a normal reply rendered, the whole thread is intact,
 		// and no producer failure surfaced as an error card.
-		await expect(thread.getByText(REPLY, { exact: true })).toBeVisible();
-		await expect(thread.getByText("Got it — BANANA.", { exact: true })).toBeVisible();
+		for (const message of [...history, posted.userMessage, reply]) {
+			await expect(thread.getByText(message.content, { exact: true })).toBeVisible();
+		}
 		await expect(thread.getByText(/history producer failed|invalid_session|Error:/i)).toHaveCount(0);
 		const composer = page.getByRole("group", { name: "Chat input with file drop zone" });
 		await composer.locator("textarea").fill("One more confirmation.");

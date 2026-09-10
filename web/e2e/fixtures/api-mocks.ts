@@ -795,6 +795,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			const req = route.request();
 			const ct = req.headers()["content-type"] ?? "";
 			let content = "sent";
+			let parentMessageId: string | null = null;
 			// Match AttachmentSummary shape returned by the real server:
 			// { id, filename, mimeType, sizeBytes, kind }. Tests that inspect
 			// the optimistic card render rely on all five fields.
@@ -806,6 +807,8 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				const raw = req.postDataBuffer()?.toString("binary") ?? "";
 				const contentMatch = /name="content"\r\n\r\n([\s\S]*?)\r\n--/.exec(raw);
 				if (contentMatch) content = contentMatch[1]!;
+				const parentMatch = /name="parentMessageId"\r\n\r\n([^\r\n]+)\r\n--/.exec(raw);
+				if (parentMatch) parentMessageId = parentMatch[1]!;
 				const fileRe = /name="files";\s*filename="([^"]+)"\r\nContent-Type: ([^\r\n]+)/g;
 				let m: RegExpExecArray | null;
 				let i = 0;
@@ -824,14 +827,16 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 					});
 				}
 			} else {
-				const body = req.postDataJSON();
-				content = body?.content ?? "sent";
+				const body = req.postDataJSON() as { content?: unknown; parentMessageId?: unknown };
+				if (typeof body?.content === "string") content = body.content;
+				if (typeof body?.parentMessageId === "string") parentMessageId = body.parentMessageId;
 			}
 			const userMsg = makeMessage({
 				id: "sent-msg",
 				conversationId: convId,
 				role: "user",
 				content,
+				parentMessageId,
 				// Merge attachments onto userMessage so the optimistic replacement
 				// path exercises its attachments render.
 				...(attachments.length > 0 ? { attachments } as any : {}),
