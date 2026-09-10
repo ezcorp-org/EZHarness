@@ -246,3 +246,7 @@
 ## 2026-09-10 — Initial hydration and native composer tests
 
 - Do not hold a conversation’s first authoritative tool-history response while waiting for native composer entry. ChatThread keeps the composer disabled until that response completes. Release and assert the known initial snapshot first; hold only later refreshes when testing live-event reconciliation.
+
+## 2026-09-10 — Live-event stale history races
+
+- A delayed first-load response is not a valid live-event race if it prevents native input. Complete initial hydration, then start a separate stale history read before the event. Release it after the live event and assert the live surface remains; test the later persisted row as a separate refresh.

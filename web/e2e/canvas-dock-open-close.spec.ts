@@ -19,12 +19,16 @@ const assistantMsg = makeMessage({
 
 
 
-async function assertDock(page: Page): Promise<void> {
+async function assertLiveDock(page: Page): Promise<void> {
 	await expect(page.getByTestId("dock-host")).toBeVisible({ timeout: 3000 });
-	await expect(page.getByTestId("dock-open-pill").first()).toBeVisible();
 	await expect(page.getByTestId("knob-primaryColor")).toHaveValue("#4f46e5");
 	await expect(page.getByTestId("knob-density")).toHaveValue("cozy");
 	await expect(page.getByLabel("modified")).toHaveCount(0);
+}
+
+async function assertPersistedDock(page: Page): Promise<void> {
+	await assertLiveDock(page);
+	await expect(page.getByTestId("dock-open-pill").first()).toBeVisible();
 }
 
 async function assertCanvasThemeTokens(page: Page): Promise<void> {
@@ -36,28 +40,22 @@ async function assertCanvasThemeTokens(page: Page): Promise<void> {
 test.describe("Canvas Dock — live open and persisted restore", () => {
 	test("live SSE tool completion opens the dock and renders its opaque iframe @evidence", async ({ page, mockApi, emitSse }, testInfo) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		let releaseInitialToolHydration: (() => void) | undefined;
-		let initialToolHydrationStarted: (() => void) | undefined;
-		let releaseLaterToolHydrations: (() => void) | undefined;
+		let releaseStaleToolHydration: (() => void) | undefined;
+		let staleToolHydrationStarted: (() => void) | undefined;
 		let toolHydrationCount = 0;
-		const initialToolHydration = new Promise<void>((resolve) => {
-			initialToolHydrationStarted = resolve;
+		const staleToolHydration = new Promise<void>((resolve) => {
+			staleToolHydrationStarted = resolve;
 		});
-		const releaseInitialToolHydrationPromise = new Promise<void>((resolve) => {
-			releaseInitialToolHydration = resolve;
-		});
-		const releaseLaterToolHydrationsPromise = new Promise<void>((resolve) => {
-			releaseLaterToolHydrations = resolve;
+		const releaseStaleToolHydrationPromise = new Promise<void>((resolve) => {
+			releaseStaleToolHydration = resolve;
 		});
 		await page.route("**/api/conversations/conv-1/messages?withToolCalls=true", async (route) => {
-			const isInitialHydration = ++toolHydrationCount === 1;
-			if (isInitialHydration) {
-				initialToolHydrationStarted?.();
-				await releaseInitialToolHydrationPromise;
-			} else {
-				await releaseLaterToolHydrationsPromise;
+			const hydrationCount = ++toolHydrationCount;
+			if (hydrationCount === 2) {
+				staleToolHydrationStarted?.();
+				await releaseStaleToolHydrationPromise;
 			}
-			const completedToolCall = isInitialHydration ? [] : [{
+			const completedToolCall = hydrationCount < 3 ? [] : [{
 				id: "tc-dock-live",
 				extensionId: "claude-design",
 				toolName: "claude-design__open-canvas",
@@ -70,9 +68,11 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 				cardType: "design-canvas",
 				cardLayout: "dock",
 			}];
-			const hydrationMarker = isInitialHydration
+			const hydrationMarker = hydrationCount === 1
 				? "hydration-sentinel-initial"
-				: "hydration-sentinel-persisted";
+				: hydrationCount === 2
+					? "hydration-sentinel-stale"
+					: "hydration-sentinel-persisted";
 			const hydrationSentinel = {
 				id: hydrationMarker,
 				extensionId: "builtin",
@@ -93,18 +93,24 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await mockCanvasPreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		const textarea = page.locator("textarea.chat-textarea");
-		await initialToolHydration;
 		// ChatThread keeps the native composer disabled until its first
-		// authoritative tool-history snapshot resolves. Let that known-empty
-		// snapshot complete before the user sends a message; later refreshes
-		// remain blocked below so they cannot hide a lost live tool call.
-		releaseInitialToolHydration?.();
+		// authoritative tool-history snapshot resolves. Start only after the
+		// known-empty initial snapshot is visible to a native user.
 		await expect(page.getByRole("button", { name: /hydration-sentinel-initial/ })).toBeVisible();
 		await expect(textarea).toBeEnabled({ timeout: 15_000 });
 		await textarea.pressSequentially("Open the planning canvas");
 		const sent = page.waitForResponse((response) => response.url().includes("/messages") && response.request().method() === "POST");
 		await textarea.press("Enter");
 		await sent;
+		// Begin a known-stale tool-history read before the live completion.
+		// Its empty response crosses the event below, matching the actual
+		// reconciliation race rather than blocking first-load interaction.
+		await page.evaluate(() => {
+			window.dispatchEvent(new CustomEvent("ez:agent_complete", {
+				detail: { parentConversationId: "conv-1" },
+			}));
+		});
+		await staleToolHydration;
 		await emitSse({ type: "run:token", data: { runId: "run-canvas", token: "Opening canvas…" } });
 		await emitSse({
 			type: "tool:start",
@@ -115,14 +121,13 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			type: "tool:complete",
 			data: { conversationId: "conv-1", extensionId: "claude-design", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify(payload) }] }, duration: 50, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-live" },
 		});
-		await assertDock(page);
-		// Later refreshes stay blocked until the live call has rendered, so they
-		// cannot mask a lost event with the persisted row.
+		await assertLiveDock(page);
+		// The stale response must not erase the live dock call when it resolves.
+		releaseStaleToolHydration?.();
+		await expect(page.getByRole("button", { name: /hydration-sentinel-stale/ })).toBeVisible();
+		await assertLiveDock(page);
 		await expect(page.getByRole("complementary", { name: "Preview controls" })).toBeVisible();
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
-		// Evidence capture waits for network idle, so unblock subsequent refreshes
-		// only after the fault-sensitive initial assertion is complete.
-		releaseLaterToolHydrations?.();
 		await assertCanvasThemeTokens(page);
 		await captureEvidence(page, testInfo, "extension-iframe-live-dock-light");
 		await page.evaluate(() => {
@@ -132,7 +137,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await assertCanvasThemeTokens(page);
 		await captureEvidence(page, testInfo, "extension-iframe-live-dock-dark");
 		await page.setViewportSize({ width: 393, height: 851 });
-		await expect(page.getByTestId("dock-host")).toBeVisible();
+		await assertLiveDock(page);
 		await captureEvidence(page, testInfo, "extension-iframe-live-dock-mobile-dark");
 		await page.setViewportSize({ width: 1280, height: 720 });
 		const persistedRefresh = page.waitForResponse((response) =>
@@ -148,7 +153,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		// Every post-initial response contains the matching persisted row. A stable
 		// marker keeps this assertion independent of unrelated background refreshes.
 		await expect(page.getByRole("button", { name: /hydration-sentinel-persisted/ })).toBeVisible();
-		await expect(page.getByTestId("dock-host")).toBeVisible();
+		await assertPersistedDock(page);
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		await page.getByTestId("dock-close").click();
 		await expect(page.getByTestId("dock-host")).toHaveCount(0);
@@ -161,7 +166,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		});
 		await mockCanvasPreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await assertDock(page);
+		await assertPersistedDock(page);
 		await page.getByTestId("dock-close").click();
 		await expect(page.getByTestId("dock-host")).toHaveCount(0);
 	});
