@@ -51,9 +51,13 @@ describe("Ez API client", () => {
   });
 
   test("surfaces response text or status text when a request fails", async () => {
+    const unreadableResponse = new Response("", { status: 503, statusText: "Unavailable" });
+    Object.defineProperty(unreadableResponse, "text", {
+      value: () => Promise.reject(new Error("body gone")),
+    });
     fetchMock
       .mockResolvedValueOnce(new Response("bad input", { status: 400, statusText: "Bad Request" }))
-      .mockResolvedValueOnce({ ok: false, status: 503, statusText: "Unavailable", text: () => Promise.reject(new Error("body gone")) });
+      .mockResolvedValueOnce(unreadableResponse);
 
     await expect(getDraft("bad")).rejects.toThrow("HTTP 400: bad input");
     await expect(getOrCreateEzConversation()).rejects.toThrow("HTTP 503: Unavailable");
