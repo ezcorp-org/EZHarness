@@ -46,23 +46,32 @@ function outputLcov(coverage: ReturnType<typeof createCoverageMap>): string {
  */
 export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): Promise<string> {
   const coverage = createCoverageMap({});
+  const assets = new Map<string, Promise<{ code: string; sourceMap: SourceMap; ast: unknown }>>();
   for (const script of raw.result) {
-    const { code, map: encodedMap } = await readAsset(script.url);
-    if (!encodedMap) throw new Error(`browser coverage: ${script.url} has no source map`);
-    let sourceMap: SourceMap;
-    try {
-      sourceMap = JSON.parse(encodedMap) as SourceMap;
-    } catch {
-      throw new Error(`browser coverage: ${script.url} has an invalid source map`);
+    let cached = assets.get(script.url);
+    if (!cached) {
+      cached = (async () => {
+        const { code, map: encodedMap } = await readAsset(script.url);
+        if (!encodedMap) throw new Error(`browser coverage: ${script.url} has no source map`);
+        let sourceMap: SourceMap;
+        try {
+          sourceMap = JSON.parse(encodedMap) as SourceMap;
+        } catch {
+          throw new Error(`browser coverage: ${script.url} has an invalid source map`);
+        }
+        if (sourceMap.version !== 3 || !Array.isArray(sourceMap.sources) || typeof sourceMap.mappings !== "string") {
+          throw new Error(`browser coverage: ${script.url} has an invalid source-map shape`);
+        }
+        return { code, sourceMap, ast: await parseAstAsync(code) };
+      })();
+      assets.set(script.url, cached);
     }
-    if (sourceMap.version !== 3 || !Array.isArray(sourceMap.sources) || typeof sourceMap.mappings !== "string") {
-      throw new Error(`browser coverage: ${script.url} has an invalid source-map shape`);
-    }
+    const { code, sourceMap, ast } = await cached;
     const asset = resolve(REPO_ROOT, "web/build/client", new URL(script.url).pathname.replace(/^\//, ""));
     let converted: Record<string, unknown>;
     try {
       converted = await convert({
-        ast: parseAstAsync(code),
+        ast,
         code,
         coverage: { url: pathToFileURL(asset).href, functions: script.functions },
         sourceMap,
