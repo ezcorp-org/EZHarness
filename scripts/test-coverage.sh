@@ -85,7 +85,7 @@
 # code; callers that just want "did it work" get the right answer either way.
 #
 # $COV_OUT — directory the CI modes copy per-shard lcov into (uploaded as an
-# artifact). Unused in full mode.
+# artifact). In full mode it optionally receives a timing receipt only; local LCOV stays in coverage/lcov.info.
 set -e
 
 # Full-mode exit code for "coverage passed, tests failed". Named so the
