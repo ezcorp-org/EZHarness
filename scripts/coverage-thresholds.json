@@ -731,5 +731,6 @@
   "web/src/lib/empty-node-shim.ts": 100,
   "web/src/lib/chat/capability-annotations.ts": 100,
   "web/src/lib/extensions/list-response.ts": 100,
+  "web/src/lib/components/MobilePickerSearch.svelte": 100,
   "web/src/lib/search-picker-dismissal.ts": 100
 }
