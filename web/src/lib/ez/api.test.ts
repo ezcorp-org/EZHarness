@@ -31,7 +31,7 @@ describe("Ez API client", () => {
       .mockResolvedValueOnce(Response.json({ ok: true, conversationId: "ez-1", deletedCount: 3 }));
 
     await expect(consumeDraft("draft")).resolves.toMatchObject({ consumed: true });
-    await expect(clearEzConversation()).resolves.toEqual({ conversationId: "ez-1", deletedCount: 3 });
+    await expect(clearEzConversation()).resolves.toEqual({ ok: true, conversationId: "ez-1", deletedCount: 3 });
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/ez/drafts/draft", {
       method: "POST",
       headers: { "content-type": "application/json" },
