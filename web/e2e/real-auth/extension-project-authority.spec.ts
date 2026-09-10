@@ -64,7 +64,15 @@ test("real project binding, isolated Git read, host review and revoke @evidence"
     await reject.scrollIntoViewIfNeeded();
     await captureEvidence(page, testInfo, "extension-project-review-mobile");
     await page.getByRole("checkbox").check();
+    // The form must use SvelteKit enhancement. A native form POST could show
+    // the same server-rendered confirmation while never loading this route's
+    // client module, which would leave its interactive pending/review state
+    // untested.
+    const actionRequest = page.waitForRequest(candidate =>
+      candidate.method() === "POST" && new URL(candidate.url()).pathname === new URL(proposal.reviewUrl).pathname,
+    );
     await reject.click();
+    expect((await actionRequest).headers()["x-sveltekit-action"]).toBe("true");
     await expect(page.getByText("This decision is final.", { exact: false })).toBeVisible();
     await page.goto(created.openUrl);
     await page.getByRole("button", { name: "Revoke project access", exact: true }).click();
