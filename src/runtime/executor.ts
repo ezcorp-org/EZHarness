@@ -1394,7 +1394,10 @@ export class AgentExecutor {
         suggestFallback,
         resolveAttempt: async (suggestion) => {
           const attempt = await resolveFailoverAttempt(suggestion, credentialConversationId);
+          // GoalHost continues from run.provider/run.model, so both must
+          // identify the fallback attempt that actually served this turn.
           run.provider = attempt.provider;
+          run.model = attempt.model;
           return attempt;
         },
       });
