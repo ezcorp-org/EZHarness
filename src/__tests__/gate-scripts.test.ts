@@ -94,6 +94,7 @@ describe("gate-integrity: isolated parser dependency", () => {
       for (const relative of [
         "scripts/gate-integrity.ts",
         "scripts/coverage-config.ts",
+        "scripts/unified-diff.ts",
         ".github/gate-integrity-deps/package.json",
         ".github/gate-integrity-deps/bun.lock",
       ]) {
@@ -164,6 +165,95 @@ describe("gate-integrity: isolated parser dependency", () => {
       const vacuousTest = runGate(parserPath);
       expect(vacuousTest.exitCode).toBe(1);
       expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+describe("coverage diff gates: dependency-free Git controls", () => {
+  const repoRoot = join(import.meta.dir, "..", "..");
+
+  test("cover changes, reject missing measurements, and fail closed on an absent base", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "patch-coverage-parser-"));
+    const fixture = join(fixtureRoot, "repo");
+    try {
+      mkdirSync(join(fixture, "scripts"), { recursive: true });
+      mkdirSync(join(fixture, "src"), { recursive: true });
+      mkdirSync(join(fixture, "coverage"), { recursive: true });
+      for (const relative of [
+        "scripts/check-patch-coverage.ts",
+        "scripts/check-new-file-coverage.ts",
+        "scripts/coverage-config.ts",
+        "scripts/git-output.ts",
+        "scripts/unified-diff.ts",
+      ]) {
+        cpSync(join(repoRoot, relative), join(fixture, relative));
+      }
+      const sourcePath = join(fixture, "src/change.ts");
+      const newSourcePath = join(fixture, "src/new.ts");
+      writeFileSync(sourcePath, "export const value = 1;\n");
+      writeFileSync(join(fixture, "scripts/coverage-thresholds.json"), '{ "src/new.ts": 100 }\n');
+
+      const git = (...args: string[]) => {
+        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+        expect(proc.exitCode).toBe(0);
+      };
+      git("init", "--quiet");
+      git("config", "user.email", "patch-fixture@example.test");
+      git("config", "user.name", "Patch fixture");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("branch", "patch-base");
+      writeFileSync(sourcePath, "export const value = 2;\n");
+      writeFileSync(newSourcePath, "export const newValue = 3;\n");
+      git("add", "src/change.ts", "src/new.ts");
+      git("commit", "--quiet", "-m", "covered change");
+      const measuredLcov = [
+        `SF:${sourcePath}`,
+        "DA:1,1",
+        "end_of_record",
+        `SF:${newSourcePath}`,
+        "DA:1,1",
+        "end_of_record",
+        "",
+      ].join("\n");
+      writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
+
+      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+      const runGate = (script: string, base: string) => Bun.spawnSync([process.execPath, script], {
+        cwd: fixture,
+        env: { ...process.env, BASE_REF: base, NODE_PATH: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const covered = runGate("scripts/check-patch-coverage.ts", "patch-base");
+      expect(covered.exitCode).toBe(0);
+      expect(covered.stdout.toString()).toContain("Patch coverage gate PASSED");
+
+      const coveredNewFile = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+      expect(coveredNewFile.exitCode).toBe(0);
+      expect(coveredNewFile.stdout.toString()).toContain("New-file coverage gate PASSED");
+
+      writeFileSync(join(fixture, "coverage/lcov.info"), `SF:${sourcePath}\nDA:1,1\nend_of_record\n`);
+      const patchMissingMeasurement = runGate("scripts/check-patch-coverage.ts", "patch-base");
+      expect(patchMissingMeasurement.exitCode).toBe(1);
+      expect(patchMissingMeasurement.stderr.toString()).toContain("changed source file has NO lcov data");
+      const newFileMissingMeasurement = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+      expect(newFileMissingMeasurement.exitCode).toBe(1);
+      expect(newFileMissingMeasurement.stderr.toString()).toContain("new source file with no measured coverage");
+      writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
+
+      const missingBase = runGate("scripts/check-patch-coverage.ts", "missing-base");
+      expect(missingBase.exitCode).toBe(1);
+      expect(missingBase.stderr.toString()).toContain("Patch coverage gate ERROR (fail-closed)");
+      expect(missingBase.stderr.toString()).toContain("git diff");
+
+      const missingNewFileBase = runGate("scripts/check-new-file-coverage.ts", "missing-base");
+      expect(missingNewFileBase.exitCode).toBe(1);
+      expect(missingNewFileBase.stderr.toString()).toContain("New-file coverage gate ERROR (fail-closed)");
+      expect(missingNewFileBase.stderr.toString()).toContain("git diff");
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }

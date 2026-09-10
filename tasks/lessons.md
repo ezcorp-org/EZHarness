@@ -288,6 +288,18 @@
 
 - A drag ghost proves that the pointer crossed the library threshold, but not that the destination received a `consider` event. For a native drag across a long row, first cross the activation threshold, await the ghost, then move to the target and assert the live order before release. Do not replace that state check with a longer timeout or retry.
 
+## 2026-09-10 — Pagination controls and observers
+
+- Do not call an off-screen pagination button deterministic when scrolling it into view activates the same observer path first. Test the manual control with observer callbacks held inert, and test automatic loading with a native scroll. Keep both user-visible window and anchor assertions.
+
 ## 2026-09-10 — Browser transport diagnosis
 
 - Do not state a transport root cause from a failed browser trace alone. First compare the exact server and browser paths, retain the failed asset response evidence, and describe any transport explanation as an inference until a matching red-to-green control proves it.
+
+## 2026-09-10 — Clean coverage runners and failed Git commands
+
+- Check the import graph of each no-install CI command. Shared text parsers must not load the AST package required by another job.
+- A failed Git diff is an error, never an empty set of changes. Test invalid base revisions through the real coverage commands.
+- Assign container tests to a lane that installs and checks the exact runner image. Validate collection as well as the test result.
+
+- Distinguish an import-graph concern from a reproduced runtime failure. Pinned Bun can resolve a stub differently from Node; report the actual clean-runner command result before calling a dependency a blocker.

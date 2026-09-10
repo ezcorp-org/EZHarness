@@ -33,6 +33,7 @@ import {
   REPO_ROOT,
   type FileCov,
 } from "./coverage-config.ts";
+import { gitOutput } from "./git-output.ts";
 
 /**
  * For each added source file, return a violation message unless it is both
@@ -72,12 +73,6 @@ export function newFileViolations(
   return out;
 }
 
-async function git(args: string[]): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return code === 0 ? out : "";
-}
-
 /**
  * Parse `git diff --name-status` output into this gate's "added" list:
  * A-status paths PLUS the new path of every rename with similarity >= R50.
@@ -109,7 +104,7 @@ export function addedOrRewrittenFiles(nameStatus: string): string[] {
 
 async function main(): Promise<void> {
   const base = process.env.BASE_REF || "origin/main";
-  const nameStatus = await git([
+  const nameStatus = await gitOutput(REPO_ROOT, [
     "diff",
     "--name-status",
     "--find-renames",
@@ -142,5 +137,12 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+  } catch (err) {
+    console.error(
+      `New-file coverage gate ERROR (fail-closed): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
 }

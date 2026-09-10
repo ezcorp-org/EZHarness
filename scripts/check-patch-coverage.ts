@@ -15,12 +15,13 @@
  * components are line-measurable) and EXCLUDES entries are the reviewed
  * allowlist for everything else.
  *
- * Reuses the unified-diff parser from gate-integrity.ts and the lcov parser
- * from coverage-config.ts (DRY). Pure helper exported for unit testing.
+ * Reuses the dependency-free unified-diff parser and the lcov parser from
+ * coverage-config.ts (DRY). Pure helper exported for unit testing.
  */
 import { resolve } from "node:path";
 import { isExcluded, isSourceFile, parseHitLines, parseLcov, REPO_ROOT } from "./coverage-config.ts";
-import { parseUnifiedDiff } from "./gate-integrity.ts";
+import { gitOutput } from "./git-output.ts";
+import { parseUnifiedDiff } from "./unified-diff.ts";
 
 /**
  * Of the added lines, return those that are executable-but-uncovered: present
@@ -78,15 +79,9 @@ export function binaryDiffFiles(diff: string): string[] {
   return out;
 }
 
-async function git(args: string[]): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return code === 0 ? out : "";
-}
-
 async function main(): Promise<void> {
   const base = process.env.BASE_REF || "origin/main";
-  const diff = await git(["diff", "--unified=0", `${base}...HEAD`, "--", "*.ts", "*.svelte"]);
+  const diff = await gitOutput(REPO_ROOT, ["diff", "--unified=0", `${base}...HEAD`, "--", "*.ts", "*.svelte"]);
   const perFileDiff = parseUnifiedDiff(diff);
 
   const lcovText = await Bun.file(resolve(REPO_ROOT, "coverage/lcov.info"))
@@ -146,5 +141,12 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main();
+  try {
+    await main();
+  } catch (err) {
+    console.error(
+      `Patch coverage gate ERROR (fail-closed): ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
 }

@@ -42,6 +42,7 @@
       "web/e2e/workflows-run-output.spec.ts"
     ],
     "real-auth": [
+      "web/e2e/deterministic-ext-gate.spec.ts",
       "web/e2e/real-auth/admin-invite-reachable.spec.ts",
       "web/e2e/real-auth/api-key-tool-policy.spec.ts",
       "web/e2e/real-auth/approval-consent-boundary.spec.ts",
@@ -258,7 +259,6 @@
       "web/e2e/conversation-search.spec.ts",
       "web/e2e/conversation-tools-scope.spec.ts",
       "web/e2e/dashboard.spec.ts",
-      "web/e2e/deterministic-ext-gate.spec.ts",
       "web/e2e/diff-render.spec.ts",
       "web/e2e/empty-states.spec.ts",
       "web/e2e/entities-crud.spec.ts",

@@ -704,6 +704,10 @@ Review: prior full validation passed at dee94c744. The merge base is unchanged a
 - [x] Verify every five-lane consumer and the route merger validate the restored artifact.
 - [x] Run focused CI-contract and restored-preview checks; document results.
 
+### Review
+
+- Hosted artifact `10156093032` from run `34486963513` lacks `.svelte-kit/output/server` and fails the helper with exit 1. The current payload round-trip starts preview from the restored artifact and serves an immutable client entry plus rendered `/login` with pinned Bun 1.3.14.
+
 ## PR256 hosted mouse chip reorder
 
 - [x] Inspect the saved CI trace and identify the failed drag state before Save.
@@ -714,9 +718,16 @@ Review: prior full validation passed at dee94c744. The merge base is unchanged a
 
 - Hosted real-auth run `34486963513` failed only the mouse journey: the drag ghost appeared, but the rapid single movement crossed the destination before the visible `consider` order was established. The repaired native gesture passes the complete chip suite (5/5, 13.0s) and six consecutive mouse repetitions (6/6, 20.0s) on the existing mapped build.
 
+## PR256 hosted chat pagination
+
+- [x] Preserve the hosted mock-full failure artifact and identify the observer/click race.
+- [x] Cover manual Load-older when automatic observer callbacks do not fire.
+- [x] Cover normal automatic loading with a native wheel scroll.
+- [x] Verify the focused suite through the coverage-enabled mock configuration.
+
 ### Review
 
-- Hosted artifact `10156093032` from run `34486963513` lacks `.svelte-kit/output/server` and fails the helper with exit 1. The current payload round-trip starts preview from the restored artifact and serves an immutable client entry plus rendered `/login` with pinned Bun 1.3.14.
+- Hosted mock-full run `34490303620` has two red Load-older cases: Playwright scrolling the off-screen button into the 200px observer margin expands the window before pointer delivery, so message `m-34` intercepts and the button detaches. The red control is retained in `tasks/pr-submit/second-mock-full-ci.log` and the downloaded trace/PNG artifact under `/tmp/ezh-pr256-mockfull-pagination/`. The repaired five-case suite passes via the existing adapter server in 4.2s and via the coverage-enabled CI configuration in 6.8s, with no retry or timeout change.
 
 ## PR256 CI repair verification
 
@@ -728,3 +739,15 @@ Review: prior full validation passed at dee94c744. The merge base is unchanged a
 - [ ] Run normal commit/push hooks and validate all hosted checks on the updated head before merge.
 
 Review: the strict plain suite at ea63de53b passed 25,630 tests in 1,629 files. PR #256 is open. First hosted run exposed missing parser setup, partial browser transfer, undeclared rg dependencies, two component timing faults, native drag timing, and WebKit asset transport failures. Repairs retain coverage limits, strict failures, and browser persistence assertions. Full hosted validation and the required non-author review remain pending.
+
+## PR256 second CI repair verification
+
+- [x] Add `.github` to canonical lint scope; both lint commands cover 4540 files and the existing runtime guard passes all four tests.
+- [x] Move all three deterministic CLI cases to the runner-ready real-auth lane; actual isolated build, own-test rejection, and unattended-approval rejection pass (46.3s).
+- [x] Keep manual and automatic pagination coverage separate; all five cases pass with browser coverage (6.8s).
+- [x] Isolate the diff parser and prove both coverage commands reject missing measurements and invalid base refs without installed dependencies.
+- [ ] Independently review, run normal hooks, push, and verify all hosted checks on the final revision.
+
+Review: second hosted run `34490303620` passed 101 real-auth cases, 7 fresh setup cases, both focused browser engines, and all web shards. It exposed lint scope drift and a broad mock run with 1416 passed, 4 failed, and 1 not run. The CI dependency guard correctly rejected incomplete coverage; no failed producer was treated as passing.
+
+Final second-repair preflight: independent Terra review is clear; combined gate, lane, LCOV, and lint controls pass 273 tests and 933 assertions (9.16s). Pinned Bun reached the old patch gate without installed TypeScript, so that import was not a reproduced CI blocker. The confirmed gate defect was invalid base refs passing as empty diffs. All coverage thresholds remain unchanged.

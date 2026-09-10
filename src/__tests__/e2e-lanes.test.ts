@@ -175,6 +175,17 @@ describe("e2e lane manifest", () => {
     expect([...new Set(collected)].sort()).toEqual(lanes["real-auth"]!.slice().sort());
   }, 120_000);
 
+  test("container-backed CLI acceptance runs only in the runner-ready real-auth lane", async () => {
+    const cliAcceptance = "web/e2e/deterministic-ext-gate.spec.ts";
+    expect(lanes["mock-full"]).not.toContain(cliAcceptance);
+    expect(lanes["real-auth"]).toContain(cliAcceptance);
+
+    const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
+    const realAuth = ciJobBlock(ci, "e2e-real-auth");
+    expect(realAuth).toContain("scripts/setup-extension-runner-ci.sh --install");
+    expect(realAuth).toContain("collect-browser-route-coverage-lane.sh real-auth");
+  });
+
   test("fresh-setup config collects the manifest in the state-safe order", () => {
     const proc = Bun.spawnSync(
       ["bunx", "playwright", "test", "--config", "playwright.fresh-setup.config.ts", "--list", "--reporter=list"],

@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import type { Page } from "@playwright/test";
 
 /**
  * E2E coverage for client-side message-list windowing on the chat page.
@@ -54,11 +55,28 @@ test.describe("Chat message pagination", () => {
 		return { scrollHeight: el?.scrollHeight ?? 0, scrollTop: el?.scrollTop ?? 0 };
 	}
 
-	/** Helper: scroll the chat container to the very top (triggers IntersectionObserver). */
-	function scrollChatToTop() {
-		const live = document.querySelector('[aria-live="polite"]');
-		const el = live?.parentElement as HTMLElement | undefined;
-		if (el) el.scrollTop = 0;
+	/**
+	 * Keep the explicit button path distinct from the automatic top-sentinel
+	 * path. A browser that supports IntersectionObserver expands the window as
+	 * soon as Playwright scrolls the off-screen button into view, before its
+	 * pointer can reach the button. This fixture represents an observer that
+	 * does not deliver callbacks, so the manual control remains covered when
+	 * automatic loading does not fire. It retains a native click for that
+	 * distinct contract.
+	 */
+	async function disableAutomaticOlderLoading(page: Page): Promise<void> {
+		await page.addInitScript(() => {
+			class InertIntersectionObserver {
+				observe() {}
+				unobserve() {}
+				disconnect() {}
+				takeRecords() { return []; }
+			}
+			Object.defineProperty(window, "IntersectionObserver", {
+				configurable: true,
+				value: InertIntersectionObserver,
+			});
+		});
 	}
 
 	test("small chat (under the initial window) renders all messages with no Load-older button", async ({ page, mockApi }) => {
@@ -100,6 +118,7 @@ test.describe("Chat message pagination", () => {
 	test("clicking Load-older reveals the next 20 messages and preserves scroll anchor", async ({ page, mockApi }) => {
 		const conv = makeConversation({ id: "page-conv", projectId: "proj-1", title: "Paginated Chat" });
 		const msgs = chain("page-conv", 50);
+		await disableAutomaticOlderLoading(page);
 		await mockApi({ projects: [proj], conversations: [conv], messages: msgs });
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
@@ -113,8 +132,8 @@ test.describe("Chat message pagination", () => {
 		// Capture pre-load metrics (we'll assert scroll stays anchored, not jumps to top)
 		const before = await page.evaluate(getScrollMetrics);
 
-		// Click the explicit "Load older" button (also the IntersectionObserver
-		// path, but the button is the deterministic affordance).
+		// This remains a native click. Automatic loading is deliberately inert
+		// here; the separate observer journey below covers that supported path.
 		await page.getByRole("button", { name: "Load older messages" }).click();
 
 		// Window grew by 20 → newly visible: MSG-015 .. MSG-034
@@ -149,6 +168,7 @@ test.describe("Chat message pagination", () => {
 	test("repeated Load-older eventually reveals all messages and hides the sentinel", async ({ page, mockApi }) => {
 		const conv = makeConversation({ id: "all-conv", projectId: "proj-1", title: "Click All" });
 		const msgs = chain("all-conv", 50);
+		await disableAutomaticOlderLoading(page);
 		await mockApi({ projects: [proj], conversations: [conv], messages: msgs });
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
@@ -178,9 +198,10 @@ test.describe("Chat message pagination", () => {
 		const before = await page.evaluate(countRenderedMessages);
 		expect(before).toBe(15);
 
-		// Scrolling the message container to the very top must trigger the
+		// A user scroll, rather than the button fallback above, must trigger the
 		// IntersectionObserver attached to the top sentinel.
-		await page.evaluate(scrollChatToTop);
+		await page.getByText("MSG-049").hover();
+		await page.mouse.wheel(0, -10_000);
 
 		// New window of 35 means MSG-015 should now be in the DOM
 		await expect(page.getByText("MSG-015")).toBeVisible();
