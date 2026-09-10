@@ -263,3 +263,33 @@ describe("EntityTable — populated", () => {
 		expect(slugInput.value).toBe("");
 	});
 });
+
+describe("EntityTable — error and create journeys", () => {
+	test("renders load and delete failures without erasing the record", async () => {
+		const fetchMock = vi.fn(async (_input: string, init?: RequestInit) => {
+			if (init?.method === "DELETE") return new Response("{}", { status: 500 });
+			return new Response(JSON.stringify({ items: [{ slug: "weekly", data: { name: "Weekly" } }] }), { status: 200 });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		render(EntityTable, { props: { extensionId: "ext-1", decl: DECL } });
+		await waitFor(() => expect(screen.getByTestId("entity-row-post-type-weekly")).toBeTruthy());
+		await fireEvent.click(screen.getByTestId("entity-delete-post-type-weekly"));
+		await waitFor(() => expect(screen.getByTestId("entity-error-post-type").textContent).toContain("Delete failed (HTTP 500)"));
+		expect(screen.getByTestId("entity-row-post-type-weekly")).toBeTruthy();
+	});
+
+	test("submits a new entity and refreshes the visible saved row", async () => {
+		let records: Array<{ slug: string; data: Record<string, unknown> }> = [];
+		vi.stubGlobal("fetch", vi.fn(async (_input: string, init?: RequestInit) => {
+			if (init?.method === "POST") records = [{ slug: "weekly", data: { name: "Weekly", cadence: "weekly" } }];
+			return new Response(JSON.stringify({ items: records }), { status: 200, headers: { "content-type": "application/json" } });
+		}));
+		render(EntityTable, { props: { extensionId: "ext-1", decl: DECL } });
+		await fireEvent.click(screen.getByTestId("entity-create-post-type"));
+		await fireEvent.input(screen.getByTestId("entity-form-slug"), { target: { value: "weekly" } });
+		await fireEvent.input(screen.getByTestId("entity-input-name"), { target: { value: "Weekly" } });
+		await fireEvent.change(screen.getByTestId("entity-input-cadence"), { target: { value: "weekly" } });
+		await fireEvent.click(screen.getByTestId("entity-form-submit"));
+		await waitFor(() => expect(screen.getByTestId("entity-row-post-type-weekly")).toBeTruthy());
+	});
+});
