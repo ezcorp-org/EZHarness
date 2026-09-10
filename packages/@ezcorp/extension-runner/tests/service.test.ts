@@ -114,3 +114,21 @@ test("concurrent services allocate separate private upstream sockets", async () 
     await Promise.all([rm(firstDirectory, { recursive: true, force: true }), rm(secondDirectory, { recursive: true, force: true })]);
   }
 });
+
+test("a rejected duplicate service preserves the active public socket", async () => {
+  const directory = await mkdtemp("/tmp/ez-runner-active-");
+  const socketPath = join(directory, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  const runner = { inspect: async (id: string) => ({ id, state: "running", diagnostics: [] }) } as unknown as Runner;
+  const options = { runner, socketPath, token, allowedUid: process.getuid!() };
+  const service = await startRunnerService(options);
+  try {
+    const before = await lstat(socketPath);
+    await expect(startRunnerService(options)).rejects.toThrow("Unix peer gateway exited");
+    expect((await lstat(socketPath)).ino).toBe(before.ino);
+    await expect(new RunnerClient({ socketPath, token }).inspect("original")).resolves.toMatchObject({ id: "original" });
+  } finally {
+    await service.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

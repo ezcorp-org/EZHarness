@@ -151,7 +151,8 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       server.closeAllConnections();
       await new Promise<void>(resolve => server.close(() => resolve()));
     }
-    await rm(options.socketPath, { force: true });
+    // Before READY, the public path may belong to an active service that the
+    // gateway refused to replace. Only the private upstream is ours to remove.
     await rm(privateDirectory, { recursive: true, force: true });
     throw error;
   }
