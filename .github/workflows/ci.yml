@@ -160,10 +160,36 @@ jobs:
           playwright: "true"
       - run: bash scripts/test-web.sh
 
+  # Build source-mapped browser assets once. Each existing mandatory browser
+  # lane downloads this exact artifact, records only its own worker receipts,
+  # and the final browser route gate merges them. This avoids a second full
+  # browser sweep solely for coverage while preserving immutable build-id
+  # validation across mock and real-auth previews.
+  browser-coverage-build:
+    name: Browser coverage build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - run: bash scripts/browser-coverage-build.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-coverage-build
+          path: |
+            web/build/
+            web/.svelte-kit/output/client/
+          retention-days: 3
+          if-no-files-found: error
+
   e2e-mock-run:
     name: E2E mock lane
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -171,6 +197,10 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
       # Mock/preview e2e gate. With no DOCKER_TEST the playwright config builds
       # its own preview server (PI_SKIP_INIT=1 build + preview on :4173) and the
       # specs hit MOCKED backends — no Docker, no live container, no seed.
@@ -187,9 +217,16 @@ jobs:
       # invocation.
       - shell: bash
         run: |
-          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
-          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-gate lane args"; exit 1; }
-          cd web && bunx playwright test --project=chromium --workers=2 "${ARGS[@]}"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-gate" \
+            bash scripts/collect-browser-route-coverage-lane.sh mock-gate
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-mock-gate
+          path: tasks/testing-gaps/browser/v8-coverage/mock-gate/
+          retention-days: 3
+          if-no-files-found: error
       # Post-mortem debuggability: keep traces/screenshots when the gate fails.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
@@ -207,6 +244,7 @@ jobs:
     name: E2E mock product coverage
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -214,12 +252,23 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
       - name: Run every non-smoke mock browser journey
         shell: bash
         run: |
-          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-full)
-          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-full lane args"; exit 1; }
-          cd web && bunx playwright test --project=chromium --workers=2 "${ARGS[@]}"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-full" \
+            bash scripts/collect-browser-route-coverage-lane.sh mock-full
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-mock-full
+          path: tasks/testing-gaps/browser/v8-coverage/mock-full/
+          retention-days: 3
+          if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -235,6 +284,7 @@ jobs:
     name: E2E visual evidence
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -242,14 +292,25 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
       - name: Run every evidence journey
         shell: bash
         env:
           EZCORP_E2E_EVIDENCE: "1"
         run: |
-          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts evidence)
-          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty evidence lane args"; exit 1; }
-          cd web && bunx playwright test --project=chromium --workers=2 "${ARGS[@]}"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/evidence" \
+            bash scripts/collect-browser-route-coverage-lane.sh evidence
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-evidence
+          path: tasks/testing-gaps/browser/v8-coverage/evidence/
+          retention-days: 3
+          if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -315,14 +376,14 @@ jobs:
     name: E2E (mock, no Docker)
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [e2e-mock-run, e2e-mock-full, e2e-evidence, production-image-file-organizer, extension-browser-engines]
+    needs: [e2e-mock-run, e2e-mock-full, e2e-evidence, production-image-file-organizer, extension-browser-engines, browser-route-coverage]
     if: always()
     steps:
       - name: Aggregate required browser results
         run: |
-          echo "mock=${{ needs.e2e-mock-run.result }} mock_full=${{ needs.e2e-mock-full.result }} evidence=${{ needs.e2e-evidence.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }}"
-          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.e2e-mock-full.result }}" != success ] || [ "${{ needs.e2e-evidence.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ]; then
-            echo "::error::A required browser lane, production-image verification, or extension browser engine validation failed."
+          echo "mock=${{ needs.e2e-mock-run.result }} mock_full=${{ needs.e2e-mock-full.result }} evidence=${{ needs.e2e-evidence.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }} route_coverage=${{ needs.browser-route-coverage.result }}"
+          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.e2e-mock-full.result }}" != success ] || [ "${{ needs.e2e-evidence.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ] || [ "${{ needs.browser-route-coverage.result }}" != success ]; then
+            echo "::error::A required browser lane, route coverage, production-image verification, or extension browser engine validation failed."
             exit 1
           fi
 
@@ -370,6 +431,7 @@ jobs:
     name: E2E (real auth + real DB)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -377,16 +439,34 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
       # This installs the runner and executes PodmanRunner.initialize(), which
       # verifies that the real extension sandbox can start on the CI host.
       - run: bash scripts/setup-extension-runner-ci.sh --install
       - name: Verify fresh real-auth setup without committed storage state
         shell: bash
         run: |
-          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
-          [ "${#ARGS[@]}" -gt 0 ] || { echo "fresh-setup lane has no specs" >&2; exit 1; }
-          bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"
-      - run: bun scripts/run-real-e2e.ts real-auth
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/fresh-setup" \
+            bash scripts/collect-browser-route-coverage-lane.sh fresh-setup
+      - name: Run real-auth journeys with browser coverage
+        shell: bash
+        run: |
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/real-auth" \
+            bash scripts/collect-browser-route-coverage-lane.sh real-auth
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-real-auth
+          path: |
+            tasks/testing-gaps/browser/v8-coverage/fresh-setup/
+            tasks/testing-gaps/browser/v8-coverage/real-auth/
+          retention-days: 3
+          if-no-files-found: error
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
       # (the real config uses trace: retain-on-failure).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -394,6 +474,55 @@ jobs:
         with:
           name: e2e-real-auth-test-results
           path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # Merge only receipts produced by the mandatory browser lanes above. This
+  # job does not start Playwright or build; a missing lane artifact, a changed
+  # build id, absent route, or unmapped source fails the required E2E context.
+  browser-route-coverage:
+    name: Browser route coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [browser-coverage-build, e2e-mock-run, e2e-mock-full, e2e-evidence, e2e-real-auth]
+    if: always()
+    steps:
+      - name: Require every coverage producer
+        run: |
+          for result in "${{ needs.browser-coverage-build.result }}" "${{ needs.e2e-mock-run.result }}" "${{ needs.e2e-mock-full.result }}" "${{ needs.e2e-evidence.result }}" "${{ needs.e2e-real-auth.result }}"; do
+            [ "$result" = success ] || { echo "::error::browser coverage producer failed: $result"; exit 1; }
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: browser-v8-*
+          path: tasks/testing-gaps/browser/v8-coverage/receipts
+          merge-multiple: false
+      - name: Merge and verify browser source coverage
+        shell: bash
+        run: |
+          mapfile -t RECEIPTS < <(find tasks/testing-gaps/browser/v8-coverage/receipts -type f -name 'chromium-worker-*.json' -print | sort)
+          [ "${#RECEIPTS[@]}" -gt 0 ] || { echo "::error::browser coverage artifacts had no worker receipts"; exit 1; }
+          OUT=tasks/testing-gaps/browser/v8-coverage/merged
+          mkdir -p "$OUT"
+          bun scripts/browser-coverage-to-lcov.ts --merge-raw "$OUT/merged.json" "${RECEIPTS[@]}"
+          bun scripts/browser-route-coverage-manifest.ts --check "$OUT/merged.json"
+          bun scripts/browser-coverage-to-lcov.ts "$OUT/merged.json" "$OUT/lcov.info"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-route-coverage
+          path: |
+            tasks/testing-gaps/browser/v8-coverage/merged/merged.json
+            tasks/testing-gaps/browser/v8-coverage/merged/lcov.info
           retention-days: 3
           if-no-files-found: ignore
 

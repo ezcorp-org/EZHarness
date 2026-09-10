@@ -237,12 +237,14 @@ describe("e2e lane manifest", () => {
 
   test("ci.yml consumes the manifest via the generator (one home for the gate list)", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
-    expect(ci).toContain("bun scripts/e2e-lane-args.ts mock-gate");
-    expect(ci).toContain("bun scripts/e2e-lane-args.ts mock-full");
-    expect(ci).toContain("bun scripts/e2e-lane-args.ts evidence");
-    expect(ci).toContain("bun scripts/e2e-lane-args.ts fresh-setup");
-    expect(ci).toContain('bun scripts/run-real-e2e.ts fresh-setup "$' + '{ARGS[@]}"');
-    expect(ci).toContain("bun scripts/run-real-e2e.ts real-auth");
+    const collector = await Bun.file(join(REPO_ROOT, "scripts/collect-browser-route-coverage-lane.sh")).text();
+    for (const lane of ["mock-gate", "mock-full", "evidence"]) {
+      expect(collector).toContain(`bun scripts/e2e-lane-args.ts "$lane"`);
+      expect(ci).toContain(`collect-browser-route-coverage-lane.sh ${lane}`);
+    }
+    expect(ci).toContain("collect-browser-route-coverage-lane.sh fresh-setup");
+    expect(ci).toContain("collect-browser-route-coverage-lane.sh real-auth");
+    expect(collector).toContain('bun scripts/run-real-e2e.ts "$lane"');
     // The old hand-listed spec regexes must not resurface beside it.
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });
@@ -258,7 +260,7 @@ describe("e2e lane manifest", () => {
     for (const [job, lane] of jobs) {
       const block = ciJobBlock(ci, job);
       expect(block, `missing CI job: ${job}`).not.toBe("");
-      expect(block).toContain(`bun scripts/e2e-lane-args.ts ${lane}`);
+      expect(block).toContain(`collect-browser-route-coverage-lane.sh ${lane}`);
       expect(block).not.toContain("continue-on-error: true");
     }
 
