@@ -24,7 +24,8 @@ afterEach(() => {
 describe("AssignmentPicker", () => {
 	test("filters available teams and agents, then assigns the selected team", async () => {
 		const onclose = vi.fn();
-		const fetchMock = vi.fn(async () => new Response(JSON.stringify({ snapshot: { conversationId: "conv-1", tasks: [] } }), { status: 200 }));
+		const response = Promise.withResolvers<Response>();
+		const fetchMock = vi.fn(() => response.promise);
 		vi.stubGlobal("fetch", fetchMock);
 		const { getByText, getByPlaceholderText } = render(AssignmentPicker, {
 			open: true,
@@ -43,8 +44,13 @@ describe("AssignmentPicker", () => {
 			"/api/conversations/conv-1/tasks/task-1/assign",
 			expect.objectContaining({ method: "POST", body: JSON.stringify({ agentConfigId: "team-1" }) }),
 		));
-		expect(setTaskSnapshot).toHaveBeenCalledWith({ conversationId: "conv-1", tasks: [] });
-		expect(onclose).toHaveBeenCalledTimes(1);
+		expect(setTaskSnapshot).not.toHaveBeenCalled();
+		expect(onclose).not.toHaveBeenCalled();
+		response.resolve(new Response(JSON.stringify({ snapshot: { conversationId: "conv-1", tasks: [] } }), { status: 200 }));
+		await waitFor(() => {
+			expect(setTaskSnapshot).toHaveBeenCalledWith({ conversationId: "conv-1", tasks: [] });
+			expect(onclose).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	test("shows an empty search state and closes with Escape or an outside click", async () => {

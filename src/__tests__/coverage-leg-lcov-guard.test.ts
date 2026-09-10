@@ -28,7 +28,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1010,5 +1010,46 @@ describe("full-mode coverage timing receipt", () => {
 		expect(runner.lastIndexOf("emit_full_timing_receipt")).toBeGreaterThan(
 			runner.indexOf("MERGE_GATE_MS=$(( $(date +%s%3N) - GATE_MERGE_STARTED_MS ))"),
 		);
+	});
+});
+
+describe("canonical extras producers: portable LCOV validation", () => {
+	const LCOV_VALIDATION = join(REPO_ROOT, "scripts/lib/lcov-validation.sh");
+
+	function runLcovGuard(lcov: string, expectedSources: number, producer?: string): Run {
+		return withTmp((tmp) => {
+			const file = join(tmp, "lcov.info");
+			const bin = join(tmp, "portable-bin");
+			mkdirSync(bin);
+			for (const command of ["awk", "grep"] as const) {
+				const resolved = Bun.which(command);
+				if (!resolved) throw new Error(`test host lacks required POSIX command: ${command}`);
+				symlinkSync(resolved, join(bin, command));
+			}
+			const bash = Bun.which("bash");
+			if (!bash) throw new Error("test host lacks bash");
+			writeFileSync(file, lcov);
+			const quotedFile = JSON.stringify(file);
+			const tagCheck = producer ? `lcov_has_trusted_producer ${quotedFile} ${JSON.stringify(producer)}` : ":";
+			const body = `set -e
+source ${JSON.stringify(LCOV_VALIDATION)}
+kept=$(lcov_source_count ${quotedFile})
+[ "$kept" -eq ${expectedSources} ]
+${tagCheck}
+lcov_has_executable_da ${quotedFile}`;
+			const noRg = Bun.spawnSync([bash, "-c", "command -v rg"], { cwd: REPO_ROOT, env: { ...process.env, PATH: bin } });
+			expect(noRg.exitCode).not.toBe(0);
+			const proc = Bun.spawnSync([bash, "-c", body], { cwd: REPO_ROOT, env: { ...process.env, PATH: bin } });
+			return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+		});
+	}
+
+	test("actual shared validator accepts valid tagged records and rejects absent records, DA evidence, or producer tags without rg", () => {
+		const valid = "TN:ezcorp-bun-web-utility\nSF:web/src/lib/x.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n";
+		expect(runLcovGuard(valid, 1, "ezcorp-bun-web-utility").code).toBe(0);
+		expect(runLcovGuard("TN:ezcorp-bun-web-utility\n", 1, "ezcorp-bun-web-utility").code).not.toBe(0);
+		expect(runLcovGuard("SF:web/src/lib/x.ts\nDA:1,1\n", 1, "ezcorp-bun-web-utility").code).not.toBe(0);
+		expect(runLcovGuard("TN:ezcorp-bun-web-utility\nSF:web/src/lib/x.ts\n", 1, "ezcorp-bun-web-utility").code).not.toBe(0);
+		expect(runLcovGuard(valid, 1, "foreign-producer").code).not.toBe(0);
 	});
 });

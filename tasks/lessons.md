@@ -279,3 +279,15 @@
 - Scope repeated conversation titles to their actual UI surface. A page-wide exact-text locator can pass before hydration and fail after the same title appears in a header. Reproduce the fully loaded state, then use the named conversation navigation and its accessible row buttons.
 
 - Check Git's actual diff separately from text-search binary detection. A NUL byte beyond Git's initial sample can affect search output while Git still renders the full diff. Do not report a hidden Git diff without reproducing that result.
+
+## 2026-09-10 — Browser build artifacts
+
+- A Vite preview artifact needs SvelteKit's hidden `web/.svelte-kit/output/server` as well as `web/build` and client source maps. Test the exact upload/download root by restoring it into a clean consumer and starting preview; file-presence checks alone do not prove the server starts.
+
+## 2026-09-10 — Native drag activation
+
+- A drag ghost proves that the pointer crossed the library threshold, but not that the destination received a `consider` event. For a native drag across a long row, first cross the activation threshold, await the ghost, then move to the target and assert the live order before release. Do not replace that state check with a longer timeout or retry.
+
+## 2026-09-10 — Browser transport diagnosis
+
+- Do not state a transport root cause from a failed browser trace alone. First compare the exact server and browser paths, retain the failed asset response evidence, and describe any transport explanation as an inference until a matching red-to-green control proves it.

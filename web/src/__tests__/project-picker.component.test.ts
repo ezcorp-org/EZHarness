@@ -17,11 +17,14 @@ function projectsResponse() {
 describe("ProjectPicker", () => {
 	test("selects and removes projects, then returns to the org-wide scope", async () => {
 		const onchange = vi.fn();
-		vi.stubGlobal("fetch", vi.fn(async () => projectsResponse()));
-		const { getByTestId, getByText } = render(ProjectPicker, { selectedIds: ["alpha"], onchange });
+		const response = Promise.withResolvers<Response>();
+		vi.stubGlobal("fetch", vi.fn(() => response.promise));
+		const { getByTestId, getByText, queryByTestId, findByTestId } = render(ProjectPicker, { selectedIds: ["alpha"], onchange });
 		await waitFor(() => expect(getByTestId("open-project-picker")).toHaveTextContent("1 project"));
 		await fireEvent.click(getByTestId("open-project-picker"));
-		await fireEvent.click(getByTestId("project-picker-item-alpha"));
+		expect(queryByTestId("project-picker-item-alpha")).toBeNull();
+		response.resolve(projectsResponse());
+		await fireEvent.click(await findByTestId("project-picker-item-alpha"));
 		expect(onchange).toHaveBeenLastCalledWith([]);
 		await fireEvent.click(getByTestId("project-picker-global"));
 		expect(onchange).toHaveBeenLastCalledWith([]);
@@ -31,12 +34,13 @@ describe("ProjectPicker", () => {
 	test("filters projects and closes a single-project picker after choosing one", async () => {
 		const onchange = vi.fn();
 		vi.stubGlobal("fetch", vi.fn(async () => projectsResponse()));
-		const { getByTestId, getByPlaceholderText, queryByTestId } = render(ProjectPicker, { selectedIds: [], onchange, single: true });
+		const { getByTestId, getByPlaceholderText, queryByTestId, findByTestId } = render(ProjectPicker, { selectedIds: [], onchange, single: true });
 		await waitFor(() => expect(getByTestId("open-project-picker")).toHaveTextContent("Select project"));
 		await fireEvent.click(getByTestId("open-project-picker"));
+		await findByTestId("project-picker-item-alpha");
 		await fireEvent.input(getByPlaceholderText("Search projects..."), { target: { value: "beta" } });
 		expect(queryByTestId("project-picker-item-alpha")).toBeNull();
-		await fireEvent.click(getByTestId("project-picker-item-beta"));
+		await fireEvent.click(await findByTestId("project-picker-item-beta"));
 		expect(onchange).toHaveBeenCalledWith(["beta"]);
 		expect(queryByTestId("project-picker-dropdown")).toBeNull();
 	});

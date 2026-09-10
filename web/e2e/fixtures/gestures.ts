@@ -56,3 +56,37 @@ export async function dragTouch(
 		await touch.detach();
 	}
 }
+
+/**
+ * Drive a desktop drag in two observable stages.
+ *
+ * `svelte-dnd-action` creates its drag ghost only after the pointer crosses
+ * its activation threshold. Moving directly to a distant destination can let
+ * a busy browser process the threshold after it has already passed the target.
+ * Confirming the ghost before the destination move keeps the gesture native
+ * while making that state transition explicit.
+ */
+export async function dragMouse(
+	page: Page,
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	beforeRelease?: () => Promise<void>,
+): Promise<void> {
+	const distance = Math.hypot(to.x - from.x, to.y - from.y);
+	if (distance === 0) throw new Error("Mouse drag requires distinct start and destination points");
+	const activationDistance = Math.min(12, distance / 2);
+	const activationPoint = {
+		x: from.x + (to.x - from.x) * activationDistance / distance,
+		y: from.y + (to.y - from.y) * activationDistance / distance,
+	};
+	await page.mouse.move(from.x, from.y);
+	await page.mouse.down();
+	try {
+		await page.mouse.move(activationPoint.x, activationPoint.y);
+		await page.locator("#dnd-action-dragged-el").waitFor({ state: "visible" });
+		await page.mouse.move(to.x, to.y, { steps: 10 });
+		await beforeRelease?.();
+	} finally {
+		await page.mouse.up();
+	}
+}

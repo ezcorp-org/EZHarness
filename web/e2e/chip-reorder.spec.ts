@@ -2,7 +2,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { test as base, expect } from "./fixtures/hydration.js";
-import { dragTouch } from "./fixtures/gestures.js";
+import { dragMouse, dragTouch } from "./fixtures/gestures.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 
 interface AgentFixture { id: string; name: string; extensions: string[] }
@@ -73,11 +73,9 @@ test("mouse reorder survives Save, database read, and page reload @evidence", as
 	await openAgent(page, agent);
 	const from = await chipPoint(chips(page).nth(2));
 	const to = await chipPoint(chips(page).nth(0));
-	await page.mouse.move(from.x, from.y);
-	await page.mouse.down();
-	await page.mouse.move(to.x, to.y, { steps: 20 });
-	await expect.poll(async () => (await order(page)).slice(1)).toEqual(agent.extensions.slice(0, 2));
-	await page.mouse.up();
+	await dragMouse(page, from, to, async () => {
+		await expect.poll(async () => (await order(page)).slice(1)).toEqual(agent.extensions.slice(0, 2));
+	});
 	await saveAndReload(page, request, agent, [agent.extensions[2]!, agent.extensions[0]!, agent.extensions[1]!]);
 	await captureEvidence(page, testInfo, "agent-header-after-reorder");
 	await page.getByTestId("selected-extension-chips").scrollIntoViewIfNeeded();

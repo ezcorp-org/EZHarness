@@ -10,7 +10,7 @@ env:
 #
 # The bun pin is SINGLE-SOURCED in the top-level `.bun-version` file: the
 # composite action .github/actions/setup and every direct setup-bun call
-# (gate-integrity + coverage below — dep-free jobs that skip the composite —
+# (coverage below is dep-free; gate-integrity installs its locked parser —
 # plus visual-evidence-publish.yml, release-sdk.yml and release-image.yml)
 # read it via `bun-version-file`. Bump the pin by editing `.bun-version` only
 # (with the local re-verification above). NO workflow may use `bun-version:
@@ -176,12 +176,13 @@ jobs:
           web: "true"
           sync: "true"
       - run: bash scripts/browser-coverage-build.sh
+      - run: bash scripts/verify-browser-build-transfer.sh --round-trip-preview
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: browser-coverage-build
           path: |
             web/build/
-            web/.svelte-kit/output/client/
+            web/.svelte-kit/output/
           retention-days: 3
           if-no-files-found: error
           include-hidden-files: true
@@ -202,6 +203,7 @@ jobs:
         with:
           name: browser-coverage-build
           path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
       # Mock/preview e2e gate. With no DOCKER_TEST the playwright config builds
       # its own preview server (PI_SKIP_INIT=1 build + preview on :4173) and the
       # specs hit MOCKED backends — no Docker, no live container, no seed.
@@ -257,6 +259,7 @@ jobs:
         with:
           name: browser-coverage-build
           path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
       - name: Run every non-smoke mock browser journey
         shell: bash
         run: |
@@ -297,6 +300,7 @@ jobs:
         with:
           name: browser-coverage-build
           path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
       - name: Run every evidence journey
         shell: bash
         env:
@@ -450,6 +454,7 @@ jobs:
         with:
           name: browser-coverage-build
           path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
       # This installs the runner and executes PodmanRunner.initialize(), which
       # verifies that the real extension sandbox can start on the CI host.
       - run: bash scripts/setup-extension-runner-ci.sh --install
@@ -508,6 +513,7 @@ jobs:
         with:
           name: browser-coverage-build
           path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with: { name: browser-v8-mock-gate, path: tasks/testing-gaps/browser/v8-coverage/receipts/mock-gate }
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -607,12 +613,17 @@ jobs:
         with:
           bun-version-file: .bun-version # single pin source; see note at top
       - run: git fetch --no-tags origin main
-      # Anti-tamper / anti-cheat meta-check (no deps needed). A maintainer-only
+      # The assertion-path detector uses TypeScript's AST. Keep that parser
+      # isolated from the full workspace install and locked to its own manifest.
+      - name: Install gate-integrity parser
+        run: bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts
+      # Anti-tamper / anti-cheat meta-check. A maintainer-only
       # `gate-change-approved` label sets GATE_CHANGE_APPROVED=1 to bypass.
       - name: Gate-integrity meta-check
         env:
           BASE_REF: origin/main
           GATE_CHANGE_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'gate-change-approved') && '1' || '' }}
+          NODE_PATH: ${{ github.workspace }}/.github/gate-integrity-deps/node_modules
         run: bun scripts/gate-integrity.ts
 
   # ── Backend tests + coverage, sharded into a single per-file pass ──────────

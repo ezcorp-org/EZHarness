@@ -2,8 +2,9 @@
  * Focused cross-engine mock configuration.
  *
  * CI selects an engine explicitly from this config after its real-auth
- * lifecycle journey. It starts only `vite preview`, so it reuses the build
- * already produced for that lifecycle instead of rebuilding the application.
+ * lifecycle journey. It starts the built adapter server, so it reuses the
+ * build already produced for that lifecycle instead of rebuilding the
+ * application. This keeps both checks on the same production adapter server.
  * The default mock config remains Chromium-only for normal `test:e2e` runs.
  */
 import { defineConfig } from "@playwright/test";
@@ -34,7 +35,8 @@ if (
 }
 
 const server = Array.isArray(base.webServer) ? base.webServer[0] : base.webServer;
-const port = new URL(base.use!.baseURL!).port;
+const baseURL = base.use!.baseURL!;
+const port = new URL(baseURL).port;
 
 export default defineConfig({
 	...base,
@@ -44,7 +46,7 @@ export default defineConfig({
 	})),
 	webServer: {
 		...server,
-		command: `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${port} --strictPort`,
+		command: `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 PORT=${port} HOST=127.0.0.1 ORIGIN=${baseURL} bun build/index.js`,
 		cwd: __dirname,
 	},
 });

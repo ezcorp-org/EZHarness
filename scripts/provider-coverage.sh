@@ -7,6 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=scripts/lib/lcov-validation.sh
+source "$SCRIPT_DIR/lib/lcov-validation.sh"
 COV_OUT=${COV_OUT:-coverage-provider}
 mkdir -p "$COV_OUT"
 TMPDIR=$(mktemp -d)
@@ -66,13 +68,13 @@ bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" "$TMPDIR/merged.lcov"
 
 OUT_LCOV="$COV_OUT/lcov.info"
 bun scripts/filter-lcov-sources.ts "$TMPDIR/merged.lcov" --output "$OUT_LCOV" "${PROVIDER_SRC[@]}"
-kept=$(rg -c '^SF:' "$OUT_LCOV")
+kept=$(lcov_source_count "$OUT_LCOV")
 
 if [ "$kept" -ne "${#PROVIDER_SRC[@]}" ]; then
   echo "::error::provider producer expected ${#PROVIDER_SRC[@]} source records, got $kept" >&2
   exit 1
 fi
-if ! rg -q '^DA:[1-9][0-9]*,[0-9]+$' "$OUT_LCOV"; then
+if ! lcov_has_executable_da "$OUT_LCOV"; then
   echo "::error::provider producer emitted no executable DA records" >&2
   exit 1
 fi

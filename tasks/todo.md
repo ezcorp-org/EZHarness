@@ -675,8 +675,8 @@ Combined review: all 25 utility sources have direct Bun producers; panel persist
 - [x] Preserve full backend diagnostic: 7,358 Node/V8 tests pass; all producers emit valid receipts; one source floor and one verifier fixture fail.
 - [x] Repair the verifier fixture and missing agent-state producer ownership; existing direct tests measure all 29 lines and execute once.
 - [x] Add measured coverage for the moderation loader and extension upload handler exposed by the actual patch gate.
-- [ ] Repeat full coverage, selected-V8 preservation, coverage gates and static checks at one final clean revision.
-- [ ] Inspect initial failures as well as final exit codes; retain the isolated Bun recursive-cleanup EFAULT diagnostic without claiming a cause not proved by the evidence.
+- [x] Repeat full coverage, selected-V8 preservation, coverage gates and static checks at clean dee94c744: all 21 stages passed.
+- [x] Inspect initial failures and final exit codes: all 1,586 host files passed initially at dee94c744; retain the earlier Bun cleanup diagnostic without claiming a cause.
 
 Review: f4 browser is green, but its backend run is not. A native Bun cleanup error passed the runner retry and 12 separate diagnostic repeats; no project cause is established. The final patch-gate preflight also rejects two changed server routes with no measured records. These remain open until their real producers and final gates pass.
 
@@ -689,9 +689,42 @@ Final repair preflight: all 1,624 enforced source floors, 92 changed source file
 - [x] Confirm the review branch is clean and still based on current origin/main.
 - [x] Check the final 21-stage receipts and 23 task gates against the exact source revision.
 - [x] Make the gate script readable by text-search tools without changing runtime behavior; byte-identical compiled output and all241 gate controls pass.
-- [ ] Run required local validation and check the final diff, PR template, and repository merge rules.
-- [ ] Push the branch and open one PR with the scope, evidence, and remaining limits.
+- [x] Run required local validation and check the final diff, PR template, and repository merge rules.
+- [x] Push the branch and open PR #256 with scope, evidence, and remaining limits.
 - [ ] Fix any CI or review failures, verify required checks and approval, then squash-merge the verified PR head.
 - [ ] Verify the merge and record its result.
 
 Review: prior full validation passed at dee94c744. The merge base is unchanged at a1837d511. Main requires strict green checks, a non-author approval, and CODEOWNERS review. No approval or check will be bypassed.
+
+## PR256 browser build-transfer repair
+
+- [x] Reproduce hosted consumer failure from run 34486963513 and inspect its downloaded build artifact.
+- [x] Transfer the complete SvelteKit preview output in the shared browser artifact.
+- [x] Add a clean-checkout artifact restore and preview regression.
+- [x] Verify every five-lane consumer and the route merger validate the restored artifact.
+- [x] Run focused CI-contract and restored-preview checks; document results.
+
+## PR256 hosted mouse chip reorder
+
+- [x] Inspect the saved CI trace and identify the failed drag state before Save.
+- [x] Split native drag activation from destination movement and wait for the actual drag ghost.
+- [x] Retain and rerun live-order, PUT, database, reload, touch, keyboard, and axe contracts.
+
+### Review
+
+- Hosted real-auth run `34486963513` failed only the mouse journey: the drag ghost appeared, but the rapid single movement crossed the destination before the visible `consider` order was established. The repaired native gesture passes the complete chip suite (5/5, 13.0s) and six consecutive mouse repetitions (6/6, 20.0s) on the existing mapped build.
+
+### Review
+
+- Hosted artifact `10156093032` from run `34486963513` lacks `.svelte-kit/output/server` and fails the helper with exit 1. The current payload round-trip starts preview from the restored artifact and serves an immutable client entry plus rendered `/login` with pinned Bun 1.3.14.
+
+## PR256 CI repair verification
+
+- [x] Gate parser: locked one-package install; isolated Git fixture verifies missing-parser rejection, asserted-test success, and vacuous-test rejection.
+- [x] Portable coverage: shared LCOV predicates run without rg; valid and invalid receipt controls exercise the production helper.
+- [x] Async picker tests: deferred HTTP responses reproduce both early assertions; all 5 component tests pass with V8 coverage.
+- [x] Cross-engine reuse: existing production adapter serves the already-built app; WebKit 19/19 and isolated Firefox 19/19 pass. Compression is not established as the cause of the earlier aborted responses.
+- [x] Independent Terra review found no remaining repair blocker; combined gate/coverage/lane controls passed 267 tests, 891 assertions. Later lane contract passed 19 tests, 241 assertions.
+- [ ] Run normal commit/push hooks and validate all hosted checks on the updated head before merge.
+
+Review: the strict plain suite at ea63de53b passed 25,630 tests in 1,629 files. PR #256 is open. First hosted run exposed missing parser setup, partial browser transfer, undeclared rg dependencies, two component timing faults, native drag timing, and WebKit asset transport failures. Repairs retain coverage limits, strict failures, and browser persistence assertions. Full hosted validation and the required non-author review remain pending.

@@ -7,6 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=scripts/lib/lcov-validation.sh
+source "$SCRIPT_DIR/lib/lcov-validation.sh"
 # shellcheck source=scripts/lib/test-file-sets.sh
 source "$SCRIPT_DIR/lib/test-file-sets.sh"
 
@@ -85,7 +87,7 @@ for d in "$TMPDIR"/cov_*; do
     "$d/lcov.info"
 done
 for raw_lcov in "$TMPDIR"/cov_*/lcov.info; do
-  if ! rg -q "^TN:$UTILITY_PRODUCER\$" "$raw_lcov"; then
+  if ! lcov_has_trusted_producer "$raw_lcov" "$UTILITY_PRODUCER"; then
     echo "::error::web utility raw LCOV lacked the trusted producer tag: $raw_lcov" >&2
     exit 1
   fi
@@ -93,12 +95,12 @@ done
 bun "$REPO_ROOT/scripts/merge-lcov.ts" "$TMPDIR/cov_*/lcov.info" "$TMPDIR/merged.lcov"
 bun "$REPO_ROOT/scripts/filter-lcov-sources.ts" "$TMPDIR/merged.lcov" --output "$COV_OUT/lcov.info" "${UTILITY_SRC[@]}"
 
-kept=$(rg -c '^SF:' "$COV_OUT/lcov.info")
+kept=$(lcov_source_count "$COV_OUT/lcov.info")
 if [ "$kept" -ne "${#UTILITY_SRC[@]}" ]; then
   echo "::error::web utility producer expected ${#UTILITY_SRC[@]} source records, got $kept" >&2
   exit 1
 fi
-if ! rg -q '^DA:[1-9][0-9]*,[0-9]+$' "$COV_OUT/lcov.info"; then
+if ! lcov_has_executable_da "$COV_OUT/lcov.info"; then
   echo "::error::web utility producer emitted no executable DA records" >&2
   exit 1
 fi

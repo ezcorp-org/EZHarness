@@ -10,7 +10,7 @@
  * end-to-end verification in the plan, not here.
  */
 import { test, expect, describe } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -76,6 +76,99 @@ import {
   WORKER_ALLOWED_PREFIXES,
   WORKER_FORBIDDEN_SUBSYSTEMS,
 } from "../../scripts/check-boundaries.ts";
+
+// ── gate-integrity: isolated parser dependency ─────────────────────────────
+describe("gate-integrity: isolated parser dependency", () => {
+  const repoRoot = join(import.meta.dir, "..", "..");
+
+  test("fails closed without TypeScript, then parses asserted and vacuous changed tests", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
+    const fixture = join(fixtureRoot, "repo");
+    try {
+      mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
+      mkdirSync(join(fixture, "scripts"), { recursive: true });
+      mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
+      // Keep this independent of the caller's branches, remotes, depth and
+      // worktree state. Only the real gate, its real shared config and the
+      // locked parser setup are copied into the disposable repository.
+      for (const relative of [
+        "scripts/gate-integrity.ts",
+        "scripts/coverage-config.ts",
+        ".github/gate-integrity-deps/package.json",
+        ".github/gate-integrity-deps/bun.lock",
+      ]) {
+        cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
+      }
+      writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
+      const testPath = join(fixture, "src/__tests__/fixture.test.ts");
+      writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
+
+      const git = (...args: string[]) => {
+        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+        expect(proc.exitCode).toBe(0);
+      };
+      git("init", "--quiet");
+      git("config", "user.email", "gate-fixture@example.test");
+      git("config", "user.name", "Gate fixture");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("branch", "gate-base");
+
+      writeFileSync(testPath, [
+        'import { expect, test } from "bun:test";',
+        'test("base", () => expect(true).toBe(true));',
+        'test("new asserted test", () => expect(true).toBe(true));',
+        "",
+      ].join("\n"));
+      git("add", "src/__tests__/fixture.test.ts");
+      git("commit", "--quiet", "-m", "asserted test");
+
+      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+      const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
+        cwd: fixture,
+        env: { ...process.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const missingParser = runGate();
+      expect(missingParser.exitCode).toBe(1);
+      expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
+
+      const install = Bun.spawnSync([
+        process.execPath,
+        "install",
+        "--cwd",
+        ".github/gate-integrity-deps",
+        "--frozen-lockfile",
+        "--ignore-scripts",
+      ], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+      expect(install.exitCode).toBe(0);
+      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+
+      const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
+      const assertedTest = runGate(parserPath);
+      expect(assertedTest.exitCode).toBe(0);
+      expect(assertedTest.stdout.toString()).toContain("Gate integrity PASSED");
+
+      writeFileSync(testPath, [
+        'import { expect, test } from "bun:test";',
+        'test("base", () => expect(true).toBe(true));',
+        'test("new asserted test", () => expect(true).toBe(true));',
+        'test("vacuous test", () => { prepareOnly(); });',
+        "",
+      ].join("\n"));
+      git("add", "src/__tests__/fixture.test.ts");
+      git("commit", "--quiet", "-m", "vacuous test");
+
+      const vacuousTest = runGate(parserPath);
+      expect(vacuousTest.exitCode).toBe(1);
+      expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
 
 // ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {

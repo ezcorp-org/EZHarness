@@ -56,6 +56,19 @@ import { resolve } from "node:path";
 import ts from "typescript";
 import { REPO_ROOT } from "./coverage-config.ts";
 
+/**
+ * The vacuous-test check needs TypeScript's AST, not a lossy text heuristic.
+ * CI installs this isolated, locked dependency before running the gate.
+ */
+function typeScriptParser(): typeof ts {
+  if (!ts || typeof ts.createSourceFile !== "function" || !ts.ScriptTarget || !ts.ScriptKind) {
+    throw new Error(
+      "TypeScript AST parser is unavailable; install the locked .github/gate-integrity-deps dependency before running this gate",
+    );
+  }
+  return ts;
+}
+
 // ── Pure detection helpers (unit-tested) ───────────────────────────────────
 
 /**
@@ -443,10 +456,8 @@ function stripNoise(line: string): string {
  * `[`, `!`, `&`, `|`, `?`, `{`, `}`, `;`, or `return`/`typeof`/`case`, it
  * opens a regex.
  *
- * `scripts/gate-integrity.ts` runs in a CI job with NO dependencies installed
- * (ci.yml: "no deps needed"), so a real parser is not available here — this is
- * a lexer-grade approximation, and the tree-wide sweep in the PR body is the
- * evidence it holds on this codebase.
+ * The surrounding lexer remains intentionally small; TypeScript's AST handles
+ * lexical assertion paths after this masking step.
  */
 export function codeMask(src: string): Uint8Array {
   const mask = new Uint8Array(src.length).fill(1);
@@ -591,7 +602,8 @@ export function codeMask(src: string): Uint8Array {
  */
 /** Whether each parsed test call has a lexical path to an assertion. */
 function testAssertionPaths(source: string): Map<number, boolean> {
-  const file = ts.createSourceFile("gate-integrity-input.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const parser = typeScriptParser();
+  const file = parser.createSourceFile("gate-integrity-input.ts", source, parser.ScriptTarget.Latest, true, parser.ScriptKind.TS);
   const helpers = new Map<string, ts.FunctionDeclaration>();
   const importedWaitFor = new Set<string>();
   for (const statement of file.statements) {
@@ -1285,6 +1297,9 @@ async function showAtBase(rev: string, path: string): Promise<string | null> {
 }
 
 async function main(): Promise<void> {
+  // Check this before any diff shortcut. A missing AST parser must never let a
+  // no-test-change PR appear green while later test-changing PRs crash.
+  typeScriptParser();
   const base = process.env.BASE_REF || "origin/main";
   const approved = !!process.env.GATE_CHANGE_APPROVED;
 

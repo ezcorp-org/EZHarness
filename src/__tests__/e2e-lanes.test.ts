@@ -360,6 +360,24 @@ describe("e2e lane manifest", () => {
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });
 
+  test("browser consumers restore the complete one-build SvelteKit preview artifact", async () => {
+    const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
+    const transfer = await Bun.file(join(REPO_ROOT, "scripts/verify-browser-build-transfer.sh")).text();
+    const build = ciJobBlock(ci, "browser-coverage-build");
+    expect(build).toContain("web/build/");
+    expect(build).toContain("web/.svelte-kit/output/");
+    expect(build).toContain("include-hidden-files: true");
+    expect(build).toContain("verify-browser-build-transfer.sh --round-trip-preview");
+
+    for (const job of ["e2e-mock-run", "e2e-mock-full", "e2e-evidence", "e2e-real-auth", "browser-route-coverage"]) {
+      const block = ciJobBlock(ci, job);
+      expect(block, `missing CI job: ${job}`).toContain("verify-browser-build-transfer.sh --check");
+    }
+    expect(transfer).toContain("build .svelte-kit/output");
+    expect(transfer).toContain(".svelte-kit/output/server");
+    expect(transfer).toContain("bun run preview");
+  });
+
   test("local full coverage consumes one verified browser receipt without repeating its lanes or V8 build", async () => {
     const local = await Bun.file(join(REPO_ROOT, "scripts/ci-local.sh")).text();
     const syntax = Bun.spawnSync(["bash", "-n", "scripts/ci-local.sh"], { cwd: REPO_ROOT, stderr: "pipe" });
@@ -484,6 +502,12 @@ describe("e2e lane manifest", () => {
 	expect(engines).toContain("matrix.browser");
 	const reuseConfig = join(REPO_ROOT, "web/playwright.reuse-mock.config.ts");
 	expect(existsSync(reuseConfig), "engine CI config must be present in a clean checkout").toBe(true);
+	const reuseConfigSource = await Bun.file(reuseConfig).text();
+	expect(reuseConfigSource).toContain("bun build/index.js");
+	expect(reuseConfigSource).toContain("HOST=127.0.0.1");
+	expect(reuseConfigSource).toContain("PI_SKIP_INIT=1");
+	expect(reuseConfigSource).toContain("EZCORP_PREVIEW_APP_HOST=localhost");
+	expect(reuseConfigSource).not.toContain("bun run preview");
 	const trackedConfig = Bun.spawnSync(["git", "ls-files", "--error-unmatch", "web/playwright.reuse-mock.config.ts"], {
 		cwd: REPO_ROOT,
 		stdout: "pipe",
