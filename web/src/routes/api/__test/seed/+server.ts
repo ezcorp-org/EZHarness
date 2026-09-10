@@ -4,8 +4,8 @@
  * stand up a known project + conversation (owned by the caller) before a
  * spec, and optionally relax rate limits for high-volume runs.
  *
- * POST { projectName?, title?, rateLimitPerMin? }
- *   → { projectId, conversationId, rateLimitPerMin? }
+ * POST { projectName?, title?, rateLimitPerMin?, seedAgentConfig? }
+ *   → { projectId, conversationId, rateLimitPerMin?, agentExtensions? }
  */
 import crypto from "node:crypto";
 import { tmpdir } from "node:os";
@@ -18,6 +18,7 @@ import { isTestSurfaceEnabled } from "$lib/server/test-surface";
 import { createProject } from "$server/db/queries/projects";
 import { createConversation } from "$server/db/queries/conversations";
 import { upsertSetting } from "$server/db/queries/settings";
+import { seedAgentExtensions } from "$lib/server/test-agent-config";
 import type { RequestHandler } from "./$types";
 
 // Categories matched by hooks.server.ts RATE_LIMITED_ROUTES, overridable via
@@ -38,6 +39,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     projectName?: unknown;
     title?: unknown;
     rateLimitPerMin?: unknown;
+    seedAgentConfig?: unknown;
   };
 
   const projectName = typeof body.projectName === "string" && body.projectName.length > 0
@@ -50,6 +52,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     path: join(tmpdir(), `ezcorp-harness-${crypto.randomUUID()}`),
   });
   const conversation = await createConversation(project.id, { title, userId: user.id });
+  const agentExtensions = body.seedAgentConfig === true
+    ? await seedAgentExtensions(user.id)
+    : undefined;
 
   let rateLimitPerMin: number | undefined;
   if (typeof body.rateLimitPerMin === "number" && Number.isFinite(body.rateLimitPerMin) && body.rateLimitPerMin > 0) {
@@ -60,7 +65,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   return json(
-    { projectId: project.id, conversationId: conversation.id, ...(rateLimitPerMin ? { rateLimitPerMin } : {}) },
+    {
+      projectId: project.id,
+      conversationId: conversation.id,
+      ...(rateLimitPerMin ? { rateLimitPerMin } : {}),
+      ...(agentExtensions ? { agentExtensions } : {}),
+    },
     { status: 201 },
   );
 };

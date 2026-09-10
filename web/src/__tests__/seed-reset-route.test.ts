@@ -66,6 +66,17 @@ describe("POST /api/__test/seed", () => {
     expect(limits.chat).toBe(9999);
     expect(limits.conversationCreate).toBe(9999);
   });
+
+  test("seedAgentConfig returns three inactive picker extension records", async () => {
+    const res = await seed(ev({ seedAgentConfig: true }));
+    expect(res.status).toBe(201);
+    const out = await res.json() as { agentExtensions?: Array<{ id: string; name: string }> };
+    expect(out.agentExtensions).toHaveLength(3);
+    expect(out.agentExtensions?.map(({ name }) => name.replace(/^chip-(alpha|beta|gamma)-.+$/, "$1"))).toEqual([
+      "alpha", "beta", "gamma",
+    ]);
+    expect(out.agentExtensions?.every(({ id }) => typeof id === "string" && id.length > 0)).toBe(true);
+  });
 });
 
 describe("POST /api/__test/reset", () => {
