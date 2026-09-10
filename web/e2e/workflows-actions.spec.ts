@@ -296,9 +296,8 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 			return route.fulfill({ json: [] });
 		});
 
-		const response = await page.goto("/workflows/new");
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+		await page.goto("/workflows/new");
+		await expect(page).toHaveURL(/\/workflows\/new$/);
 
 		await page.getByLabel("Workflow Name").fill("multi");
 
@@ -336,9 +335,8 @@ test.describe("Workflows — interactions and rendering gaps", () => {
 			workflows: [],
 		});
 
-		const response = await page.goto("/workflows/new");
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+		await page.goto("/workflows/new");
+		await expect(page).toHaveURL(/\/workflows\/new$/);
 
 		await page.getByLabel("Workflow Name").fill("noagent");
 		// Deliberately leave the Agent select on the empty default.
@@ -363,12 +361,8 @@ test.describe("Workflows — inline editing", () => {
 	});
 
 	async function gotoDetail(page: Page, name: string) {
-		const response = await page.goto(`/workflows/${name}`);
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(
-			!finalUrl.startsWith("/workflows/"),
-			"auth gate redirected away from the workflow detail page in this environment",
-		);
+		await page.goto(`/workflows/${name}`);
+		await expect(page).toHaveURL(new RegExp(`/workflows/${name}$`));
 	}
 
 	test("Edit swaps the step list for the builder in place and PUTs the edited definition", async ({ page, mockApi }) => {

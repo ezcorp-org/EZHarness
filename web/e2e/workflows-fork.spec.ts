@@ -74,12 +74,8 @@ test.describe("Duplicate a workflow", () => {
 	});
 
 	async function openDetail(page: import("@playwright/test").Page, name = WORKFLOW.name) {
-		const response = await page.goto(`/workflows/${encodeURIComponent(name)}`);
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(
-			!finalUrl.startsWith("/workflows/"),
-			"auth gate redirected away from the workflow page in this environment",
-		);
+		await page.goto(`/workflows/${encodeURIComponent(name)}`);
+		await expect(page).toHaveURL(new RegExp(`/workflows/${encodeURIComponent(name)}$`));
 		await expect(page.getByRole("heading", { name })).toBeVisible({ timeout: 5000 });
 	}
 

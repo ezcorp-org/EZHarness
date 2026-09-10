@@ -369,9 +369,8 @@ test.describe("Workflow demos — run through the UI", () => {
 		// for WorkflowBuilder.svelte edits.
 		await mockApi({ agents: [makeAgent({ name: "summarizer" })], workflows: [] });
 
-		const response = await page.goto("/workflows/new");
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+		await page.goto("/workflows/new");
+		await expect(page).toHaveURL(/\/workflows\/new$/);
 
 		await page.getByLabel("Agent").selectOption("summarizer");
 		await page.getByRole("button", { name: "Save Workflow" }).click();
