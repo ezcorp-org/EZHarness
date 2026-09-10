@@ -277,3 +277,5 @@
 - Keep native runtime cleanup failures separate from assertion failures. Retain initial errors, reproduce under the exact runtime and temporary-directory shape, and do not claim that a passing retry proves a root-cause fix.
 
 - Scope repeated conversation titles to their actual UI surface. A page-wide exact-text locator can pass before hydration and fail after the same title appears in a header. Reproduce the fully loaded state, then use the named conversation navigation and its accessible row buttons.
+
+- Check Git's actual diff separately from text-search binary detection. A NUL byte beyond Git's initial sample can affect search output while Git still renders the full diff. Do not report a hidden Git diff without reproducing that result.

@@ -683,3 +683,15 @@ Review: f4 browser is green, but its backend run is not. A native Bun cleanup er
 Final repair preflight: all 1,624 enforced source floors, 92 changed source files, and 10 new source files pass using retained diagnostic receipts plus the new direct producers. Moderation is 3/3 measured lines; uploads is 99/99. All four type sections pass with zero exclusions, Svelte has zero errors/warnings, lint has zero errors/warnings and eight infos, and integrity, visual, boundaries, manifest, and discovery pass. These diagnostics do not replace the next clean full run.
 
 - Final243 browser diagnostic: mock gate256passes and mock-full1420passes/1failure. The chat-list assertion used page-wide text that became ambiguous after auto-open rendered the same title. A deterministic real-browser control first fails; the scoped navigation/button selector passes all5chat cases twice and retains the visible opened-title check. The known-red full driver was stopped with actualexit143 after evidence was saved; no cancellation is counted as a test success. Final verification restarts from the next clean revision.
+
+### Submit and merge testing infrastructure PR
+
+- [x] Confirm the review branch is clean and still based on current origin/main.
+- [x] Check the final 21-stage receipts and 23 task gates against the exact source revision.
+- [x] Make the gate script readable by text-search tools without changing runtime behavior; byte-identical compiled output and all241 gate controls pass.
+- [ ] Run required local validation and check the final diff, PR template, and repository merge rules.
+- [ ] Push the branch and open one PR with the scope, evidence, and remaining limits.
+- [ ] Fix any CI or review failures, verify required checks and approval, then squash-merge the verified PR head.
+- [ ] Verify the merge and record its result.
+
+Review: prior full validation passed at dee94c744. The merge base is unchanged at a1837d511. Main requires strict green checks, a non-author approval, and CODEOWNERS review. No approval or check will be bypassed.

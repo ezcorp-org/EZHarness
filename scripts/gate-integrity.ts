@@ -1068,7 +1068,7 @@ function collectBiomeRecords(cfg: JsonObject): BiomeRuleRecord[] {
 }
 
 const biomeRecordKey = (r: BiomeRuleRecord): string =>
-  `${r.negated ? "!" : ""}${r.scope} ${r.rule}`;
+  `${r.negated ? "!" : ""}${r.scope}\u0000${r.rule}`;
 
 const biomeRecordAt = (r: BiomeRuleRecord): string =>
   r.scope === BIOME_ROOT_SCOPE ? "linter.rules" : `${r.where} (${r.negated ? "!" : ""}${r.scope})`;
