@@ -1,9 +1,22 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { test as base, type Page, type TestInfo } from "@playwright/test";
 
 const BROWSER_COVERAGE = process.env.EZCORP_BROWSER_COVERAGE === "1";
 const CANVAS_CHAT_ROUTE = "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte";
+
+// Vite's copied client manifest contains every immutable asset name from one
+// production build. Its digest prevents range mergers from combining receipts
+// produced by different builds whose source maps might point at different
+// source text. Compute it once per worker; coverage is opt-in, so ordinary
+// mock and real journeys do not need a built manifest at collection time.
+const browserCoverageBuildId = BROWSER_COVERAGE
+	? createHash("sha256")
+		.update(readFileSync(resolve(process.cwd(), "build", "client", "manifest.json")))
+		.digest("hex")
+	: undefined;
 
 function coverageOutput(testInfo: TestInfo): string {
 	const outputDir = process.env.EZCORP_BROWSER_COVERAGE_OUTPUT
@@ -147,7 +160,11 @@ export const test = base.extend<{ browserCoverage: undefined }>({
 						: undefined;
 					const output = coverageOutput(testInfo);
 					await mkdir(dirname(output), { recursive: true });
-					await writeFile(output, JSON.stringify({ result, expectedRouteFiles }, null, 2));
+					await writeFile(output, JSON.stringify({
+						result,
+						buildId: browserCoverageBuildId,
+						expectedRouteFiles,
+					}, null, 2));
 				}
 			} catch (error) {
 				coverageError = error instanceof Error ? error : new Error(String(error));

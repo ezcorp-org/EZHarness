@@ -22,8 +22,15 @@ const PREVIEW_HOST = `${VALID_ID}.preview.localhost`;
 
 test.describe("secure preview origin — access layer", () => {
   test("test-only seed fixture requires an authenticated session", async ({ playwright, baseURL }) => {
-    const anonymous = await playwright.request.newContext({ baseURL: baseURL ?? APP });
+    const anonymous = await playwright.request.newContext({
+      baseURL: baseURL ?? APP,
+      // Test `use.storageState` is inherited unless this is explicit.
+      storageState: { cookies: [], origins: [] },
+    });
     try {
+      // Pin the isolation precondition so this denial is a real anonymous
+      // request instead of a second authenticated seed.
+      expect((await anonymous.storageState()).cookies).toEqual([]);
       const seeded = await anonymous.post("/api/__test/seed-static-preview");
       expect(seeded.status()).toBe(401);
     } finally {
