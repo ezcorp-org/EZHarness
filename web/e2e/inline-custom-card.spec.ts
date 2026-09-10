@@ -1,5 +1,13 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+
+type SseEvent = {
+	type: "tool:start" | "tool:complete";
+	data: Record<string, unknown>;
+};
+
+type EmitSse = (event: SseEvent) => Promise<void>;
 
 test.describe("Inline Tool Custom Card Rendering", () => {
 	const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -10,156 +18,97 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 		role: "user",
 		content: "Hello",
 	});
+	const taskStack = { name: "task-stack", description: "Task management", enabled: true };
+	const claudeDesign = { name: "claude-design", description: "Design canvas", enabled: true };
 
-	/**
-	 * Helper: add an inline tool call to the store via page.evaluate,
-	 * then emit runtime SSE events with a matching invocationId.
-	 */
-	async function invokeInlineTool(
-		page: any,
-		emitSse: any,
-		opts: {
-			invocationId: string;
-			extensionName: string;
-			toolName: string;
-			input: Record<string, unknown>;
-			output: unknown;
-			cardType?: string;
-			conversationId?: string;
-		},
-	) {
-		const convId = opts.conversationId ?? "conv-1";
-
-		// Step 1: Add entry to inlineToolStore (simulates what handleToolInvoke does)
-		await page.evaluate(
-			({ id, extensionName, toolName, input, conversationId }: any) => {
-				// Access the store via the module - it's a singleton
-				const event = new CustomEvent("__test_add_inline_tool", {
-					detail: { id, extensionName, toolName, input, conversationId },
-				});
-				window.dispatchEvent(event);
-			},
-			{
-				id: opts.invocationId,
-				extensionName: opts.extensionName,
-				toolName: opts.toolName,
-				input: opts.input,
-				conversationId: convId,
-			},
-		);
-
-		// Step 2: Emit tool:start through the runtime SSE transport.
-		await emitSse({
-			type: "tool:start",
-			data: {
-				conversationId: convId,
-				extensionId: opts.extensionName,
-				toolName: opts.toolName,
-				input: opts.input,
-				timestamp: Date.now(),
-				source: "inline",
-				invocationId: opts.invocationId,
-				...(opts.cardType ? { cardType: opts.cardType } : {}),
-			},
+	async function invokeFromPicker(page: Page, extensionName: string, toolName: string) {
+		let invocation: Record<string, unknown> | null = null;
+		await page.route("**/api/tool-invoke", async (route) => {
+			invocation = route.request().postDataJSON() as Record<string, unknown>;
+			await route.fulfill({ json: { success: true, durationMs: 50 } });
 		});
 
-		// Step 3: Emit tool:complete through the runtime SSE transport.
-		await emitSse({
-			type: "tool:complete",
-			data: {
-				conversationId: convId,
-				extensionId: opts.extensionName,
-				toolName: opts.toolName,
-				output: opts.output,
-				duration: 50,
-				success: true,
-				source: "inline",
-				invocationId: opts.invocationId,
-				...(opts.cardType ? { cardType: opts.cardType } : {}),
-			},
-		});
-
-		await page.waitForTimeout(300);
+		const textarea = page.locator("textarea");
+		await expect(textarea).toBeEnabled({ timeout: 10_000 });
+		await textarea.fill(`!ext:${extensionName}`);
+		await expect(page.locator("#mention-listbox").getByText(extensionName, { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		const chip = page.locator('span[role="button"]').filter({ hasText: `!${extensionName}` });
+		await expect(chip).toBeVisible();
+		await chip.click();
+		const submit = page.locator('form button[type="submit"]');
+		await expect(submit).toBeVisible();
+		await submit.click();
+		await expect.poll(() => invocation).not.toBeNull();
+		expect(invocation).toMatchObject({ extensionName, toolName, conversationId: conv.id });
+		return invocation.invocationId as string;
 	}
 
-	test("inline tool with task-list cardType renders TaskListCard", async ({ page, mockApi, emitSse }) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg],
-			routes: {
-				"tool-permission-mode": () => ({ mode: "ask" }),
-			},
+	async function completeInlineTool(
+		emitSse: EmitSse,
+		input: {
+			invocationId: string;
+			extensionId: string;
+			toolName: string;
+			output: unknown;
+			cardType: string;
+		},
+	) {
+		const data = {
+			conversationId: conv.id,
+			extensionId: input.extensionId,
+			toolName: input.toolName,
+			input: {},
+			timestamp: Date.now(),
+			source: "inline",
+			invocationId: input.invocationId,
+			cardType: input.cardType,
+		};
+		await emitSse({ type: "tool:start", data });
+		await emitSse({
+			type: "tool:complete",
+			data: { ...data, output: input.output, duration: 50, success: true },
 		});
+	}
 
-		// Intercept tool-invoke to prevent actual execution
-		await page.route("**/api/tool-invoke", async (route) => {
-			await route.fulfill({ json: { success: true, output: "[]", durationMs: 50 } });
-		});
-
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.waitForSelector("textarea");
-
-		// Add inline tool store listener for tests
-		await page.evaluate(() => {
-			window.addEventListener("__test_add_inline_tool", ((e: CustomEvent) => {
-				// Access the imported singleton — it should be available in module scope
-				import("/src/lib/inline-tool-store.svelte.js").then((mod) => {
-					mod.inlineToolStore.add(e.detail);
-				}).catch(() => {
-					// Fallback: try via window
-					(window as any).__pendingInlineTools = (window as any).__pendingInlineTools ?? [];
-					(window as any).__pendingInlineTools.push(e.detail);
-				});
-			}) as EventListener);
-		});
-
+	test("an invoked task-list tool renders its streamed task payload", async ({ page, mockApi, emitSse }) => {
 		const tasks = [
 			{ id: "t1", title: "Fix login bug", status: "pending", priority: 0 },
 			{ id: "t2", title: "Add dark mode", status: "active", priority: 1 },
 			{ id: "t3", title: "Write tests", status: "completed", priority: 2 },
 		];
-
-		await invokeInlineTool(page, emitSse, {
-			invocationId: "inv-list-1",
-			extensionName: "task-stack",
-			toolName: "task-stack.list-tasks",
-			input: {},
-			cardType: "task-list",
-			output: { content: [{ type: "text", text: JSON.stringify(tasks) }], isError: false },
-		});
-
-		// TaskListCard should show task titles
-		await expect(page.getByText("Fix login bug")).toBeVisible({ timeout: 3000 });
-		await expect(page.getByText("Add dark mode")).toBeVisible();
-		await expect(page.getByText("Write tests")).toBeVisible();
-	});
-
-	test("inline tool with task-detail cardType renders TaskDetailCard", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg],
+			extensions: [taskStack],
 			routes: {
-				"tool-permission-mode": () => ({ mode: "ask" }),
+				"tool-permission-mode": () => ({ mode: "yolo" }),
+				"extensions/task-stack/tools": () => ({
+					tools: [{ name: "list-tasks", inputSchema: { type: "object", properties: {} } }],
+				}),
 			},
 		});
-
-		await page.route("**/api/tool-invoke", async (route) => {
-			await route.fulfill({ json: { success: true } });
-		});
-
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.waitForSelector("textarea");
 
-		await page.evaluate(() => {
-			window.addEventListener("__test_add_inline_tool", ((e: CustomEvent) => {
-				import("/src/lib/inline-tool-store.svelte.js").then((mod) => {
-					mod.inlineToolStore.add(e.detail);
-				}).catch(() => {});
-			}) as EventListener);
+		const invocationId = await invokeFromPicker(page, "task-stack", "list-tasks");
+		await completeInlineTool(emitSse, {
+			invocationId,
+			extensionId: "task-stack",
+			toolName: "task-stack.list-tasks",
+			output: { content: [{ type: "text", text: JSON.stringify(tasks) }], isError: false },
+			cardType: "task-list",
 		});
 
+		const card = page.getByTestId("tool-card-task-list");
+		await expect(card).toBeVisible();
+		await expect(card.getByText("Fix login bug")).toBeVisible();
+		await expect(card.getByText("Add dark mode")).toBeVisible();
+		await expect(card.getByText("Write tests")).toBeVisible();
+		await expect(card.getByText("3 tasks")).toBeVisible();
+	});
+
+	test("an invoked task-detail tool renders its streamed task payload", async ({ page, mockApi, emitSse }) => {
 		const task = {
 			id: "t1",
 			title: "Fix critical auth bug",
@@ -169,56 +118,72 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			readyForAgent: true,
 			dueDate: "2026-04-01",
 		};
-
-		await invokeInlineTool(page, emitSse, {
-			invocationId: "inv-detail-1",
-			extensionName: "task-stack",
-			toolName: "task-stack.get-active-task",
-			input: {},
-			cardType: "task-detail",
-			output: { content: [{ type: "text", text: JSON.stringify(task) }], isError: false },
-		});
-
-		// TaskDetailCard should show task details
-		await expect(page.getByText("Fix critical auth bug")).toBeVisible({ timeout: 3000 });
-		await expect(page.getByText("agent-ready")).toBeVisible();
-	});
-
-	test("inline tool without cardType renders generic expandable card", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg],
+			extensions: [taskStack],
 			routes: {
-				"tool-permission-mode": () => ({ mode: "ask" }),
+				"tool-permission-mode": () => ({ mode: "yolo" }),
+				"extensions/task-stack/tools": () => ({
+					tools: [{ name: "get-active-task", inputSchema: { type: "object", properties: {} } }],
+				}),
 			},
 		});
-
-		await page.route("**/api/tool-invoke", async (route) => {
-			await route.fulfill({ json: { success: true } });
-		});
-
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.waitForSelector("textarea");
 
-		await page.evaluate(() => {
-			window.addEventListener("__test_add_inline_tool", ((e: CustomEvent) => {
-				import("/src/lib/inline-tool-store.svelte.js").then((mod) => {
-					mod.inlineToolStore.add(e.detail);
-				}).catch(() => {});
-			}) as EventListener);
+		const invocationId = await invokeFromPicker(page, "task-stack", "get-active-task");
+		await completeInlineTool(emitSse, {
+			invocationId,
+			extensionId: "task-stack",
+			toolName: "task-stack.get-active-task",
+			output: { content: [{ type: "text", text: JSON.stringify(task) }], isError: false },
+			cardType: "task-detail",
 		});
 
-		await invokeInlineTool(page, emitSse, {
-			invocationId: "inv-generic-1",
-			extensionName: "some-ext",
-			toolName: "some-ext.do-thing",
-			input: { query: "test" },
-			output: { content: [{ type: "text", text: "done" }], isError: false },
-			// No cardType — should render generic
+		const card = page.getByTestId("tool-card-task-detail");
+		await expect(card).toBeVisible();
+		await expect(card.getByText("Fix critical auth bug")).toBeVisible();
+		await expect(card.getByText("agent-ready")).toBeVisible();
+		await expect(card.getByText("Users getting logged out randomly")).toBeVisible();
+	});
+
+	test("an invoked canvas tool renders a sandboxed iframe from its streamed payload", async ({ page, mockApi, emitSse }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg],
+			extensions: [claudeDesign],
+			routes: {
+				"tool-permission-mode": () => ({ mode: "yolo" }),
+				"extensions/claude-design/tools": () => ({
+					tools: [{ name: "open-canvas", inputSchema: { type: "object", properties: {} } }],
+				}),
+			},
+		});
+		await page.route("**/api/extensions/claude-design/data/preview.html", async (route) => {
+			await route.fulfill({ contentType: "text/html", body: "<main>Canvas preview</main>" });
+		});
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
+		const invocationId = await invokeFromPicker(page, "claude-design", "open-canvas");
+		await completeInlineTool(emitSse, {
+			invocationId,
+			extensionId: "claude-design",
+			toolName: "claude-design.open-canvas",
+			output: {
+				content: [{ type: "text", text: JSON.stringify({
+					draftId: "draft-inline-1",
+					iframeSrc: "/api/extensions/claude-design/data/preview.html",
+				}) }],
+				isError: false,
+			},
+			cardType: "design-canvas",
 		});
 
-		// Generic card shows the summary line with tool name
-		await expect(page.getByText(/some-ext.*do-thing/)).toBeVisible({ timeout: 3000 });
+		const frame = page.getByTitle("Design canvas");
+		await expect(frame).toBeVisible();
+		await expect(frame).toHaveAttribute("src", "/api/extensions/claude-design/data/preview.html");
+		await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
 	});
 });

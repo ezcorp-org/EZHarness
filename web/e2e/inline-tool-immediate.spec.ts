@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -12,7 +13,7 @@ test.describe("Inline Tool Immediate Execution", () => {
 	});
 	const taskStack = { name: "task-stack", description: "Task management", enabled: true };
 
-	async function readyComposer(page: any) {
+	async function readyComposer(page: Page) {
 		const textarea = page.locator("textarea");
 		await expect(textarea).toBeEnabled({ timeout: 10_000 });
 		return textarea;
