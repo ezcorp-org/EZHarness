@@ -190,7 +190,6 @@ const NON_SOURCE_GLOBS: readonly string[] = [
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [
   "src/**",
   "web/src/**",
-  "web/src/lib/**",
   "packages/@ezcorp/ai-kit/src/**",
 ];
 

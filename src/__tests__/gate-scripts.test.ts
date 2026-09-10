@@ -915,9 +915,9 @@ describe("check-coverage: wildcardSourceFileDropouts", () => {
 
   test("does not turn a ratchet catch-all into an individual evidence rule", async () => {
     const v = await wildcardSourceFileDropouts(
-      ["web/src/lib/**"],
+      ["src/**"],
       [],
-      () => ["web/src/lib/existing.ts"],
+      () => ["src/existing.ts"],
       async () => "export const existing = 1;",
     );
     expect(v).toEqual([]);
