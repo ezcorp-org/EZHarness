@@ -108,14 +108,13 @@ test("final browser manifests must enumerate every scripted Svelte route", () =>
 	const routes = scriptedRouteFiles();
 	expect(currentBrowserCoverageExpectation()).toEqual({
 		routes,
-		files: ["web/src/lib/empty-node-shim.ts"],
+		files: [],
 	});
 	expect(routes).toHaveLength(64);
   expect(routes).toContain("web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte");
   expect(() => assertCompleteRouteInventory(routes.slice(1))).toThrow("browser coverage route inventory is incomplete");
   expect(() => assertCompleteRouteInventory([...routes, "web/src/routes/removed/+page.svelte"])).toThrow("extra=");
-  expect(() => assertBrowserCanonicalSources([])).toThrow("empty-node-shim");
-  expect(() => assertBrowserCanonicalSources(["web/src/lib/empty-node-shim.ts"])).not.toThrow();
+	expect(() => assertBrowserCanonicalSources([])).not.toThrow();
 });
 
 import { mergeRawCoverage } from "../../scripts/browser-coverage-to-lcov";

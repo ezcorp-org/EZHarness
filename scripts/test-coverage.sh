@@ -265,6 +265,7 @@ run_legs() {
   register_leg ai-kit cov_aikit
   register_leg providers cov_providers
   register_leg api-client cov_api_client
+  register_leg empty-node-shim cov_empty_node_shim
   register_leg worker cov_worker
   # Full local coverage needs the canonical Web Vitest receipt. CI publishes
   # the same producer from its existing three test-web shards, so it is never
@@ -379,6 +380,19 @@ run_legs() {
   ) &
   running=$((running + 1))
 
+  # This tiny browser alias is intentionally measured by its direct Bun
+  # contract: page CDP coverage cannot observe the audio Worker that imports
+  # it. Its tagged receipt is canonical, so incidental browser or host imports
+  # cannot borrow incompatible source-map counters.
+  await_leg_slot
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[empty-node-shim]}" bash "$SCRIPT_DIR/empty-node-shim-coverage.sh" \
+      > "$legs/empty-node-shim.out" 2>&1
+    echo "$?" > "$legs/empty-node-shim.code"
+  ) &
+  running=$((running + 1))
+
   # Worker/index.ts has an HTTP-boundary suite that is its canonical source
   # of truth. Keep its filtered receipt separate from incidental host imports.
   await_leg_slot
@@ -406,7 +420,7 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  local printed_legs=(sdk hc suggest aikit providers api-client worker)
+  local printed_legs=(sdk hc suggest aikit providers api-client empty-node-shim worker)
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
@@ -447,6 +461,12 @@ run_legs() {
   if [ "$API_CLIENT_EXIT" != "0" ]; then
     FAILED_FILES+=("api client coverage leg")
     echo "--- FAIL: api client coverage leg (exit $API_CLIENT_EXIT) ---"
+  fi
+
+  EMPTY_NODE_SHIM_EXIT=$(cat "$legs/empty-node-shim.code" 2>/dev/null || echo 1)
+  if [ "$EMPTY_NODE_SHIM_EXIT" != "0" ]; then
+    FAILED_FILES+=("empty Node shim coverage leg")
+    echo "--- FAIL: empty Node shim coverage leg (exit $EMPTY_NODE_SHIM_EXIT) ---"
   fi
 
   WORKER_EXIT=$(cat "$legs/worker.code" 2>/dev/null || echo 1)

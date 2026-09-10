@@ -166,15 +166,17 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/server/preview/ws-bridge.ts",
 ];
 
-/** Browser AST coverage is the sole producer for this runtime alias shim. */
-export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
-  "web/src/lib/empty-node-shim.ts",
-];
+/** Browser routes are measured from Chromium AST/source-map coverage. */
+export const BROWSER_CANONICAL_SOURCES: readonly string[] = [];
 
-/** Bun-only client transport contract producer; do not mix V8 source maps. */
-export const BUN_CANONICAL_SOURCES: readonly string[] = [
-  "web/src/lib/api.ts",
-];
+/** Bun-only contracts with source layouts that must not be mixed with V8 maps. */
+export const BUN_CANONICAL_PRODUCERS = {
+  "web/src/lib/api.ts": "ezcorp-bun-api",
+  "web/src/lib/empty-node-shim.ts": "ezcorp-bun-shim",
+} as const;
+
+/** Paths with an explicit tagged Bun producer. Derived to prevent registry drift. */
+export const BUN_CANONICAL_SOURCES: readonly string[] = Object.keys(BUN_CANONICAL_PRODUCERS);
 
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [
   "src/**",

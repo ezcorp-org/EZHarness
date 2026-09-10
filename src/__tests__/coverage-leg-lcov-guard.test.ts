@@ -78,6 +78,7 @@ const REGISTER_ALL = [
   "register_leg ai-kit cov_aikit",
   "register_leg providers cov_providers",
   "register_leg api-client cov_api_client",
+  "register_leg empty-node-shim cov_empty_node_shim",
   "register_leg worker cov_worker",
   "register_leg web-security cov_security",
   "register_leg browser cov_browser",
@@ -90,6 +91,7 @@ const ALL_DIRS: ReadonlyArray<[string, string]> = [
   ["ai-kit", "cov_aikit"],
   ["providers", "cov_providers"],
   ["api-client", "cov_api_client"],
+  ["empty-node-shim", "cov_empty_node_shim"],
   ["worker", "cov_worker"],
   ["web-security", "cov_security"],
   ["browser", "cov_browser"],
@@ -118,7 +120,7 @@ describe("check_leg_lcov: behaviour", () => {
       expect(r.stdout).toContain("(infrastructure failure)");
       // The expected path is named so the failure is actionable, not just loud.
       expect(r.stdout).toContain(join(tmp, "cov_sdk", "lcov.info"));
-      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "worker", "web-security", "browser"]) {
+      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-security", "browser"]) {
         expect(r.stdout).not.toContain(`::error::${name} coverage leg`);
       }
     });
@@ -139,7 +141,7 @@ describe("check_leg_lcov: behaviour", () => {
       seedLeg(tmp, "cov_hc", LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
-      for (const name of ["suggest", "ai-kit", "providers", "api-client", "worker", "web-security", "browser"]) {
+      for (const name of ["suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-security", "browser"]) {
         expect(r.stdout).toContain(`::error::${name} coverage leg produced no lcov output`);
       }
     });

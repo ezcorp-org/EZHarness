@@ -727,5 +727,6 @@
   "web/src/lib/server/preview/dispatch.ts": 96,
   "web/src/lib/server/preview/ws-bridge.ts": 100,
   "worker/src/index.ts": 100,
-  "web/src/lib/api.ts": 96
+  "web/src/lib/api.ts": 96,
+  "web/src/lib/empty-node-shim.ts": 100
 }

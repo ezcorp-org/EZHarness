@@ -33,13 +33,13 @@
 import { Glob } from "bun";
 import { resolve, relative, isAbsolute } from "node:path";
 import { filterNoiseDA, isNoiseLine, readSourceLines } from "./lcov-noise-filter.ts";
-import { BUN_CANONICAL_SOURCES, V8_CANONICAL_SOURCES } from "./coverage-config.ts";
+import { BUN_CANONICAL_PRODUCERS, BUN_CANONICAL_SOURCES, V8_CANONICAL_SOURCES } from "./coverage-config.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const v8CanonicalSources = new Set(V8_CANONICAL_SOURCES);
 const bunCanonicalSources = new Set(BUN_CANONICAL_SOURCES);
 const NODE_V8_PRODUCER = "ezcorp-node-v8";
-const BUN_API_PRODUCER = "ezcorp-bun-api";
+const bunCanonicalProducers = new Map<string, string>(Object.entries(BUN_CANONICAL_PRODUCERS));
 
 /** Normalise an incoming SF path to a repo-root-relative key. Robust to:
  *  - Plain absolute paths (`/home/dev/.../src/foo.ts`).
@@ -281,10 +281,11 @@ const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
   const trustedNodeV8 = block.producer === NODE_V8_PRODUCER;
   const v8Canonical = v8CanonicalSources.has(block.sf);
   const bunCanonical = bunCanonicalSources.has(block.sf);
-  if ((v8Canonical && !trustedNodeV8) || (bunCanonical && block.producer !== BUN_API_PRODUCER)) return;
+  const bunProducer = bunCanonicalProducers.get(block.sf);
+  if ((v8Canonical && !trustedNodeV8) || (bunCanonical && block.producer !== bunProducer)) return;
   const r = await rec(v8Canonical ? v8Files : files, block.sf);
   if (trustedNodeV8) r.producer = NODE_V8_PRODUCER;
-  if (bunCanonical) r.producer = BUN_API_PRODUCER;
+  if (bunProducer) r.producer = bunProducer;
   for (const [name, lineNo] of block.fn) r.fn.set(name, lineNo);
   for (const [name, hits] of block.fnda) {
     r.fnda.set(name, (r.fnda.get(name) ?? 0) + hits);

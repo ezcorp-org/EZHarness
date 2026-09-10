@@ -557,3 +557,34 @@ describe("merge-lcov: Bun API canonical source ownership", () => {
     expect(twoStage.da.get(98)).toBe(7);
   });
 });
+
+describe("merge-lcov: Bun empty Node shim canonical source ownership", () => {
+  const canonical = "web/src/lib/empty-node-shim.ts";
+
+  test("accepts only the shim contract receipt through a two-stage merge", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case13-shim";
+    const shimDir = join(root, base, "shim", "cov_0");
+    const wrongDir = join(root, base, "wrong", "cov_0");
+    const browserDir = join(root, base, "browser", "cov_0");
+    for (const dir of [shimDir, wrongDir, browserDir]) mkdirSync(dir, { recursive: true });
+    const record = (tag: string, hit: number) => [tag, `SF:${source}`, `DA:1,${hit}`, "LF:1", `LH:${hit > 0 ? 1 : 0}`, "end_of_record", ""].join("\n");
+    const unrelatedRecord = (name: string) => {
+      const unrelated = writeSource(`${base}/${name}.ts`, "export const receipt = true;\n");
+      return ["TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+    };
+    writeFileSync(join(shimDir, "lcov.info"), record("TN:ezcorp-bun-shim", 3));
+    writeFileSync(join(wrongDir, "lcov.info"), record("TN:ezcorp-bun-api", 9) + unrelatedRecord("wrong"));
+    writeFileSync(join(browserDir, "lcov.info"), record("TN:ezcorp-browser-v8", 9) + unrelatedRecord("browser"));
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case13-shim-direct.info");
+    const stage = join(root, "case13-shim-stage");
+    mkdirSync(stage, { recursive: true });
+    for (const [name, dir] of [["shim", shimDir], ["wrong", wrongDir], ["browser", browserDir]] as const) {
+      await merge(join(dir, "*.info"), `case13-shim-stage/${name}.info`);
+    }
+    const twoStage = await merge(join(stage, "*.info"), "case13-shim-twostage.info");
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-bun-shim");
+    expect(twoStage.da.get(1)).toBe(3);
+  });
+});
