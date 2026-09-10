@@ -175,7 +175,11 @@ test.describe("File Mentions (@ sigil)", () => {
 		await page.keyboard.press("Enter");
 		await expect(textarea).toHaveValue(/^@README\.md\s+$/);
 
-		// Now type an ! trigger
+		// The picker restores a display-space selection after its async DOM
+		// projection. Put the native caret after the committed chip before
+		// starting the next trigger, as a user does when continuing the draft.
+		await textarea.press("End");
+		// Now type an ! trigger.
 		await typeIntoTextarea(page, textarea, "!co");
 		await waitForPopover(page);
 		const listbox = page.locator("#mention-listbox");
