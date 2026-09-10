@@ -36,10 +36,10 @@ function parseHistory(raw: unknown): SeedHistory | null | Response {
   if (raw === undefined) return null;
   if (typeof raw !== "object" || raw === null) return errorJson(400, "`history` must be an object");
   const { turns, charsPerTurn } = raw as Record<string, unknown>;
-  if (!Number.isInteger(turns) || turns < 1 || turns > 80) {
+	if (typeof turns !== "number" || !Number.isInteger(turns) || turns < 1 || turns > 80) {
     return errorJson(400, "`history.turns` must be an integer in [1,80]");
   }
-  if (!Number.isInteger(charsPerTurn) || charsPerTurn < 32 || charsPerTurn > 8_000) {
+	if (typeof charsPerTurn !== "number" || !Number.isInteger(charsPerTurn) || charsPerTurn < 32 || charsPerTurn > 8_000) {
     return errorJson(400, "`history.charsPerTurn` must be an integer in [32,8000]");
   }
   return { turns, charsPerTurn };

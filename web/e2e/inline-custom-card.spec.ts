@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { makeExtension, makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 type SseEvent = {
 	type: "tool:start" | "tool:complete";
@@ -18,13 +18,14 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 		role: "user",
 		content: "Hello",
 	});
-	const taskStack = { name: "task-stack", description: "Task management", enabled: true };
-	const claudeDesign = { name: "claude-design", description: "Design canvas", enabled: true };
+	const taskStack = makeExtension({ name: "task-stack", description: "Task management", enabled: true });
+	const claudeDesign = makeExtension({ name: "claude-design", description: "Design canvas", enabled: true });
+	const genericExtension = makeExtension({ name: "some-ext", description: "Generic tool", enabled: true });
 
 	async function invokeFromPicker(page: Page, extensionName: string, toolName: string) {
-		let invocation: Record<string, unknown> | null = null;
+		const captured = { invocation: null as Record<string, unknown> | null };
 		await page.route("**/api/tool-invoke", async (route) => {
-			invocation = route.request().postDataJSON() as Record<string, unknown>;
+			captured.invocation = route.request().postDataJSON() as Record<string, unknown>;
 			await route.fulfill({ json: { success: true, durationMs: 50 } });
 		});
 
@@ -39,9 +40,10 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 		const submit = page.locator('form button[type="submit"]');
 		await expect(submit).toBeVisible();
 		await submit.click();
-		await expect.poll(() => invocation).not.toBeNull();
-		expect(invocation).toMatchObject({ extensionName, toolName, conversationId: conv.id });
-		return invocation.invocationId as string;
+		await expect.poll(() => captured.invocation).not.toBeNull();
+		if (!captured.invocation) throw new Error("Inline tool invocation was not captured");
+		expect(captured.invocation).toMatchObject({ extensionName, toolName, conversationId: conv.id });
+		return captured.invocation.invocationId as string;
 	}
 
 	async function completeInlineTool(
@@ -51,7 +53,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			extensionId: string;
 			toolName: string;
 			output: unknown;
-			cardType: string;
+			cardType?: string;
 		},
 	) {
 		const data = {
@@ -62,7 +64,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			timestamp: Date.now(),
 			source: "inline",
 			invocationId: input.invocationId,
-			cardType: input.cardType,
+			...(input.cardType ? { cardType: input.cardType } : {}),
 		};
 		await emitSse({ type: "tool:start", data });
 		await emitSse({
@@ -185,5 +187,34 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 		await expect(frame).toBeVisible();
 		await expect(frame).toHaveAttribute("src", "/api/extensions/claude-design/data/preview.html");
 		await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+	});
+
+	test("an invoked tool without a card type renders its expandable fallback", async ({ page, mockApi, emitSse }) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg],
+			extensions: [genericExtension],
+			routes: {
+				"tool-permission-mode": () => ({ mode: "yolo" }),
+				"extensions/some-ext/tools": () => ({
+					tools: [{ name: "do-thing", inputSchema: { type: "object", properties: {} } }],
+				}),
+			},
+		});
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
+		const invocationId = await invokeFromPicker(page, "some-ext", "do-thing");
+		await completeInlineTool(emitSse, {
+			invocationId,
+			extensionId: "some-ext",
+			toolName: "some-ext.do-thing",
+			output: { content: [{ type: "text", text: "done" }], isError: false },
+		});
+
+		const card = page.getByRole("button", { name: "some-ext > do-thing -- done (0.1s)" });
+		await expect(card).toBeVisible();
+		await card.click();
+		await expect(page.getByText("done", { exact: true })).toBeVisible();
 	});
 });

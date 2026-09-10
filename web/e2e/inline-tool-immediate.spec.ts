@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { makeExtension, makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Inline Tool Immediate Execution", () => {
 	const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -11,7 +11,7 @@ test.describe("Inline Tool Immediate Execution", () => {
 		role: "user",
 		content: "Hello",
 	});
-	const taskStack = { name: "task-stack", description: "Task management", enabled: true };
+	const taskStack = makeExtension({ name: "task-stack", description: "Task management", enabled: true });
 
 	async function readyComposer(page: Page) {
 		const textarea = page.locator("textarea");
