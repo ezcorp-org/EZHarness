@@ -28,6 +28,7 @@ import type { Message } from "$lib/api.js";
 // ── Module stubs (load-time imports of the SUT graph) ────────────────
 
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	sendMessage: vi.fn(),
 	updateConversation: vi.fn(async () => ({ id: "conv-1" })),
 	createSubConversation: vi.fn(async () => ({ id: "sub-1", agentConfigId: "" })),

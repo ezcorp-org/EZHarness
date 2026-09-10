@@ -86,6 +86,7 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 	invalidate: vi.fn(),
 }));
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	sendMessage: sendMessageMock,
 	updateConversation: vi.fn(async (id: string) => ({ id })),
 	createSubConversation: vi.fn(async () => ({ id: "s", agentConfigId: "" })),

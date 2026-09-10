@@ -185,6 +185,7 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 vi.mock("$lib/clipboard.js", () => ({ copyToClipboard: copyToClipboardMock }));
 
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	sendMessage: sendMessageMock,
 	updateConversation: updateConversationMock,
 	createSubConversation: createSubMock,
