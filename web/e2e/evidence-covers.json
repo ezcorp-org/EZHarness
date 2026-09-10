@@ -499,5 +499,8 @@
   ],
   "web/e2e/bottom-sheet-pickers.spec.ts": [
     "web/src/lib/components/ExtensionAttachPicker.svelte"
+  ],
+  "web/e2e/accessibility.spec.ts": [
+    "web/src/routes/(app)/+layout.svelte"
   ]
 }

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import AxeBuilder from "@axe-core/playwright";
 import { makeProject, makeConversation, makeMessage, makeWorkflow } from "./fixtures/data.js";
 
@@ -40,7 +40,7 @@ function formatViolations(violations: import("axe-core").Result[]): string {
 }
 
 for (const pg of pages) {
-	test(`WCAG 2.1 AA: ${pg.name} page has no accessibility violations`, async ({ page, mockApi }) => {
+	test(`WCAG 2.1 AA: ${pg.name} page has no accessibility violations${pg.url === "/docs" ? " @evidence" : ""}`, async ({ page, mockApi }, testInfo) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -63,6 +63,13 @@ for (const pg of pages) {
 
 		const results = await builder.analyze();
 
+		if (pg.url === "/docs") {
+			const docsScrollRegion = page.locator("main");
+			await expect(docsScrollRegion).toHaveAttribute("tabindex", "0");
+			await docsScrollRegion.focus();
+			await expect(docsScrollRegion).toBeFocused();
+		}
+
 		if (results.violations.length > 0) {
 			console.log(`\n--- ${pg.name} violations ---`);
 			for (const v of results.violations) {
@@ -74,8 +81,35 @@ for (const pg of pages) {
 			results.violations,
 			`Accessibility violations on ${pg.name}:\n${formatViolations(results.violations)}`,
 		).toEqual([]);
+		if (pg.url === "/docs") await captureEvidence(page, testInfo, "api-docs-keyboard-scroll");
 	});
 }
+
+test("shared application scroll region is reachable by Tab on interactive pages", async ({ page, mockApi }) => {
+	await mockApi({
+		projects: [proj],
+		conversations: [conv],
+		messages: [msg],
+		workflows: [makeWorkflow()],
+	});
+
+	await page.goto("/agents");
+	await page.waitForLoadState("networkidle");
+	const appScrollRegion = page.locator("main");
+	await expect(appScrollRegion).toHaveAttribute("tabindex", "0");
+
+	await page.locator("body").focus();
+	for (let step = 0; step < 50; step++) {
+		await page.keyboard.press("Tab");
+		if (await appScrollRegion.evaluate((element) => document.activeElement === element)) break;
+	}
+	await expect(appScrollRegion).toBeFocused();
+
+	const results = await new AxeBuilder({ page })
+		.withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+		.analyze();
+	expect(results.violations, `Accessibility violations on Agents:\n${formatViolations(results.violations)}`).toEqual([]);
+});
 
 /* ------------------------------------------------------------------ */
 /* Structural accessibility tests                                     */

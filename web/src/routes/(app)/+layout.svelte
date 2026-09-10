@@ -445,10 +445,11 @@
 	  the sidebar collapse animation (200ms) for visual consistency, and
 	  drops to 0 on mobile where the dock takes the full viewport.
 	-->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex: Axe requires keyboard focus on this shared scroll region. -->
 	<main
 		class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
 		style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
-		tabindex="-1"
+		tabindex="0"
 	>
 		<!-- Mobile/tablet header (hidden on chat routes - chat has its own header).
 		     Visible at `<lg` so tablets get the hamburger too (Phase 49.1).
