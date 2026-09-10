@@ -271,3 +271,7 @@
 - Put Svelte test hosts under `__tests__` so product coverage does not count fixtures as shipped code.
 - Run the actual web type check for browser test fixtures; backend/E2E type checks do not cover that surface.
 - Match both quote styles when a temporary review tool selects tests. Verify its actual file list and counts.
+
+- Run every coverage gate as an early diagnostic before another full browser freeze. A passing per-file floor check cannot detect a changed file that has no record; the patch gate can.
+- When a canonical source inventory changes, update positive receipt fixtures from that shared inventory and retain a negative missing-source control.
+- Keep native runtime cleanup failures separate from assertion failures. Retain initial errors, reproduce under the exact runtime and temporary-directory shape, and do not claim that a passing retry proves a root-cause fix.

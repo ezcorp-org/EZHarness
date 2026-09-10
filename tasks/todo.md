@@ -668,3 +668,16 @@ Final execution remains pending in [the task gates](testing-gaps/GATES.md). Thos
 Review: a746 had 2,162 browser passes and one failure; all 64 route floors passed. Full backend had 7,164 Vitest passes, two Unix runner failures, a browser-route ownership error, and 91 aggregate coverage misses. These are diagnostic receipts, not a completed green run. Terra agents own disjoint coverage and component clusters.
 
 Combined review: all 25 utility sources have direct Bun producers; panel persistence runs inside a real Svelte host. Direct component coverage closes the remaining source gaps, including FeatureIndex94.84%, TaskPanel90.86%, TeamChatPanel93.62%, and PanelChatInput100%. Independent review strengthened saved-result assertions and mock cleanup. The first combined preflight passed300/301 tests and exposed an entity-table readiness race; its corrected12-test suite passes. Invalid component and fetch fixtures are repaired. Final complete browser/backend coverage and all23 task gates remain pending until receipts from one clean revision pass.
+
+### Full f4 verification follow-up
+
+- [x] Preserve all-five browser success: 2,163 passes, zero failures or skips; all 64 route and 16 browser component floors pass.
+- [x] Preserve full backend diagnostic: 7,358 Node/V8 tests pass; all producers emit valid receipts; one source floor and one verifier fixture fail.
+- [x] Repair the verifier fixture and missing agent-state producer ownership; existing direct tests measure all 29 lines and execute once.
+- [x] Add measured coverage for the moderation loader and extension upload handler exposed by the actual patch gate.
+- [ ] Repeat full coverage, selected-V8 preservation, coverage gates and static checks at one final clean revision.
+- [ ] Inspect initial failures as well as final exit codes; retain the isolated Bun recursive-cleanup EFAULT diagnostic without claiming a cause not proved by the evidence.
+
+Review: f4 browser is green, but its backend run is not. A native Bun cleanup error passed the runner retry and 12 separate diagnostic repeats; no project cause is established. The final patch-gate preflight also rejects two changed server routes with no measured records. These remain open until their real producers and final gates pass.
+
+Final repair preflight: all 1,624 enforced source floors, 92 changed source files, and 10 new source files pass using retained diagnostic receipts plus the new direct producers. Moderation is 3/3 measured lines; uploads is 99/99. All four type sections pass with zero exclusions, Svelte has zero errors/warnings, lint has zero errors/warnings and eight infos, and integrity, visual, boundaries, manifest, and discovery pass. These diagnostics do not replace the next clean full run.
