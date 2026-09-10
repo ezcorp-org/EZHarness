@@ -79,7 +79,9 @@
       "web/e2e/real-auth/tier-routing-flow.spec.ts",
       "web/e2e/real-auth/web-search-flow.spec.ts",
       "web/e2e/real-auth/workflow-existence-oracle-flow.spec.ts",
-      "web/e2e/real-auth/workflow-service-release-flow.spec.ts"
+      "web/e2e/real-auth/workflow-service-release-flow.spec.ts",
+      "web/e2e/signup-token.spec.ts",
+      "web/e2e/validate-prod-shape.spec.ts"
     ],
     "evidence": [
       "web/e2e/admin-routing-cost.spec.ts",
@@ -346,7 +348,6 @@
       "web/e2e/shared-variables.spec.ts",
       "web/e2e/sidebar-mobile.spec.ts",
       "web/e2e/sidebar-search-deeplink.spec.ts",
-      "web/e2e/signup-token.spec.ts",
       "web/e2e/skeleton-loading.spec.ts",
       "web/e2e/slash-commands-panel.spec.ts",
       "web/e2e/slash-commands.spec.ts",
@@ -378,7 +379,6 @@
       "web/e2e/user-commands-chat-popover.spec.ts",
       "web/e2e/user-menu.spec.ts",
       "web/e2e/v1.3-permission-backbone.spec.ts",
-      "web/e2e/validate-prod-shape.spec.ts",
       "web/e2e/waterfall-timeline.spec.ts",
       "web/e2e/workflows-actions.spec.ts",
       "web/e2e/workflows-new.spec.ts",

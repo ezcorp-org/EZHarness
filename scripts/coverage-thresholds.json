@@ -2,6 +2,7 @@
   "src/extensions/sdk/init.ts": 100,
   "worker/src/**": 60,
   "web/src/lib/server/test-agent-config.ts": 100,
+  "web/src/lib/server/test-chat-history.ts": 100,
   "src/db/migrations/add-briefing-configs.ts": 100,
   "src/db/migrations/add-extension-rbac.ts": 100,
   "src/db/migrations/add-extension-secrets.ts": 100,

@@ -4,8 +4,8 @@
  * stand up a known project + conversation (owned by the caller) before a
  * spec, and optionally relax rate limits for high-volume runs.
  *
- * POST { projectName?, title?, provider?, model?, history?, rateLimitPerMin?, seedAgentConfig? }
- *   → { projectId, conversationId, history?, rateLimitPerMin?, agentExtensions? }
+ * POST { projectName?, title?, provider?, model?, history?, historyFixture?, rateLimitPerMin?, seedAgentConfig? }
+ *   → { projectId, conversationId, history?, historyFixture?, rateLimitPerMin?, agentExtensions? }
  */
 import crypto from "node:crypto";
 import { tmpdir } from "node:os";
@@ -18,6 +18,7 @@ import { isTestSurfaceEnabled } from "$lib/server/test-surface";
 import { createProject } from "$server/db/queries/projects";
 import { createConversation, createMessage } from "$server/db/queries/conversations";
 import { upsertSetting } from "$server/db/queries/settings";
+import { seedBlankToolHistory } from "$lib/server/test-chat-history";
 import { seedAgentExtensions } from "$lib/server/test-agent-config";
 import type { RequestHandler } from "./$types";
 
@@ -59,6 +60,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     provider?: unknown;
     model?: unknown;
     history?: unknown;
+    historyFixture?: unknown;
     rateLimitPerMin?: unknown;
     seedAgentConfig?: unknown;
   };
@@ -75,6 +77,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     : undefined;
   if (hasProvider !== hasModel || (hasProvider && !modelPin)) {
     return errorJson(400, "`provider` and `model` must be non-empty strings supplied together");
+  }
+  if (body.historyFixture !== undefined && body.historyFixture !== "blank-tool-turns") {
+    return errorJson(400, "Unknown history fixture");
+  }
+  if (body.historyFixture !== undefined && body.history !== undefined) {
+    return errorJson(400, "Choose history or historyFixture, not both");
   }
   const history = parseHistory(body.history);
   if (history instanceof Response) return history;
@@ -108,6 +116,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     seededHistory = { firstContent, lastContent, count: history.turns };
   }
+  const historyFixture = body.historyFixture === "blank-tool-turns"
+    ? await seedBlankToolHistory(conversation.id, user.id)
+    : undefined;
   const agentExtensions = body.seedAgentConfig === true
     ? await seedAgentExtensions(user.id)
     : undefined;
@@ -124,6 +135,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     {
       projectId: project.id,
       conversationId: conversation.id,
+      ...(historyFixture ? { historyFixture } : {}),
       ...(seededHistory ? { history: seededHistory } : {}),
       ...(rateLimitPerMin ? { rateLimitPerMin } : {}),
       ...(agentExtensions ? { agentExtensions } : {}),
