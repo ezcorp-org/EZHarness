@@ -38,6 +38,7 @@
 	import {
 		fetchAllMessages,
 		fetchConversationTree,
+		fetchSettings,
 		updateConversation,
 		patchMessageContent,
 		setMessageExcluded,
@@ -569,9 +570,14 @@
 	let siblingMap = $derived(buildSiblingMap(allMessages));
 
 	// ── messages path walk — copied verbatim from +page.svelte ≈ L553 ─
-	let messages = $derived.by(() =>
-		activeLeafId ? pathToRoot(allMessages, activeLeafId) : [],
-	);
+	let messages = $derived.by(() => {
+		const branch = activeLeafId ? pathToRoot(allMessages, activeLeafId) : [];
+		// Capability events are root-level audit annotations, so they must not
+		// participate in leaf selection. They still belong in the transcript:
+		// merge them into the chosen branch by time after the branch walk.
+		const annotations = allMessages.filter((message) => message.role === "capability-event");
+		return [...branch, ...annotations].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	});
 
 	// Memory-card dedup + empty-turn filter (verbatim from page).
 	let memoryCardVisibleMessageIds = $derived.by(() => {
@@ -600,6 +606,42 @@
 	let extensionsByName = $state<Map<string, { isBundled: boolean }>>(
 		new Map(),
 	);
+
+	// Capability rows are an audit stream, but installed extensions stay
+	// hidden until the user opts in. Load both inputs once per thread mount;
+	// failed reads retain the conservative empty/default state.
+	onMount(() => {
+		let mounted = true;
+		void fetchSettings()
+			.then((settings) => {
+				if (mounted) pillSettings = settings;
+			})
+			.catch(() => {});
+		void userFetch("/api/extensions")
+			.then(async (res) => {
+				if (!res.ok) return [];
+				const data = (await res.json()) as unknown;
+				return Array.isArray(data)
+					? data
+					: data && typeof data === "object" && Array.isArray((data as { extensions?: unknown }).extensions)
+						? (data as { extensions: unknown[] }).extensions
+						: [];
+			})
+			.then((extensions) => {
+				if (!mounted) return;
+				const next = new Map<string, { isBundled: boolean }>();
+				for (const extension of extensions) {
+					if (!extension || typeof extension !== "object") continue;
+					const { name, isBundled } = extension as { name?: unknown; isBundled?: unknown };
+					if (typeof name === "string") next.set(name, { isBundled: isBundled === true });
+				}
+				extensionsByName = next;
+			})
+			.catch(() => {});
+		return () => {
+			mounted = false;
+		};
+	});
 
 	let renderableMessages = $derived.by(() => {
 		const filtered = filterEmptyAssistantTurns(messages, {

@@ -1,73 +1,90 @@
 /**
- * Phase 57 — UX-03 Wave 0 RED scaffold (Playwright e2e).
+ * Agent-picker preference journeys.
  *
- * Pins the user-facing must_haves contract:
- *   "Save a search query (persists), pin agents (persists), orphaned
- *    references self-trim on read. UI is in AgentSearchPicker only —
- *    the other 8 pickers do NOT show save/pin affordances."
- *
- * Four cases — all `test.fixme` until Wave 3 (Plan 57-06) lands the
- * /api/user/agent-picker server route + the AgentSearchPicker UI.
- *
- * Run from web/:  `cd web && bunx playwright test e2e/agent-picker-prefs.spec.ts`
+ * The picker is rendered by the team builder, not the agents index. These
+ * journeys keep its server persistence boundary explicit while exercising the
+ * user-visible save, pin, reload, and stale-reference behavior.
  */
+import { test, expect } from "./fixtures/test-base.js";
+import { makeAgentConfig } from "./fixtures/data.js";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
 
-import { test, expect } from "./fixtures/hydration.js";
+type PickerPrefs = {
+	savedSearches: Array<{ query: string; createdAt: number }>;
+	pinned: string[];
+};
 
-test.describe("Agent picker saved searches & pinned agents (UX-03)", () => {
-	test("save a search query: appears in saved-searches list after reload", async ({ page }) => {
-		test.fixme(true, "Wave 3 (Plan 57-06 Tasks 1+2) impl");
-		await page.goto("/agents");
-		await page.getByTestId("open-agent-picker").click();
-		await page.getByPlaceholder("Search agents").fill("test query");
+const alpha = makeAgentConfig({ id: "agent-alpha", name: "Alpha", description: "Plans work" });
+const beta = makeAgentConfig({ id: "agent-beta", name: "Beta", description: "Reviews work" });
+
+async function openTeamPicker(
+	page: import("@playwright/test").Page,
+	mockApi: (overrides?: MockOverrides) => Promise<void>,
+	prefs: PickerPrefs,
+) {
+	await mockApi({ agentConfigs: [alpha, beta] });
+	await page.route("**/api/user/agent-picker", async (route) => {
+		if (route.request().method() === "GET") return route.fulfill({ json: prefs });
+		if (route.request().method() === "PUT") {
+			const update = route.request().postDataJSON() as Partial<PickerPrefs>;
+			if (Array.isArray(update.savedSearches)) prefs.savedSearches = update.savedSearches;
+			if (Array.isArray(update.pinned)) prefs.pinned = update.pinned;
+			return route.fulfill({ json: prefs });
+		}
+		return route.fallback();
+	});
+	await page.goto("/agents/new?type=team");
+	await expect(page.getByRole("heading", { name: "New Team" })).toBeVisible();
+	const picker = page.getByTestId("open-agent-picker");
+	await picker.focus();
+	await expect(page.getByRole("listbox", { name: "Available agents" })).toBeVisible();
+	return picker;
+}
+
+test.describe("Agent picker saved searches and pinned agents", () => {
+	test("saves a typed query and restores it after reload", async ({ page, mockApi }) => {
+		const prefs: PickerPrefs = { savedSearches: [], pinned: [] };
+		const picker = await openTeamPicker(page, mockApi, prefs);
+
+		await picker.fill("Alpha");
 		await page.getByTestId("save-search-button").click();
+		await expect.poll(() => prefs.savedSearches.map((entry) => entry.query)).toEqual(["Alpha"]);
+
 		await page.reload();
-		await page.getByTestId("open-agent-picker").click();
-		await expect(
-			page.locator("text=/test query/").first(),
-		).toBeVisible();
+		await page.getByTestId("open-agent-picker").focus();
+		await expect(page.getByTestId("saved-searches")).toContainText("Alpha");
 	});
 
-	test("pin an agent: chip with pin indicator survives reload", async ({ page }) => {
-		test.fixme(true, "Wave 3 (Plan 57-06 Tasks 1+2) impl");
-		await page.goto("/agents");
-		await page.getByTestId("open-agent-picker").click();
-		const firstAgent = page.getByTestId("agent-row").first();
-		const firstAgentName = await firstAgent.textContent();
-		await firstAgent.getByLabel("Pin agent").click();
+	test("pins a real agent and restores the pinned section after reload", async ({ page, mockApi }) => {
+		const prefs: PickerPrefs = { savedSearches: [], pinned: [] };
+		await openTeamPicker(page, mockApi, prefs);
+
+		await page.getByTestId("pin-" + alpha.id).click();
+		await expect.poll(() => prefs.pinned).toEqual([alpha.id]);
+
 		await page.reload();
-		await page.getByTestId("open-agent-picker").click();
-		// Pinned chip should appear in the pinned section AND show its
-		// label matches the agent we pinned.
-		await expect(page.getByTestId("pinned-agents")).toContainText(
-			firstAgentName ?? "",
-		);
+		await page.getByTestId("open-agent-picker").focus();
+		await expect(page.getByTestId("pinned-agents")).toContainText(alpha.name);
 	});
 
-	test("orphaned pin (deleted agent) self-trims on next read", async ({ page, request }) => {
-		test.fixme(true, "Wave 3 (Plan 57-06 Task 1) self-trim-on-read impl");
-		// 1. Pin agent (via API to keep the test deterministic).
-		await request.put("/api/user/agent-picker", {
-			data: { pinned: ["agent-doomed"] },
-		});
-		// 2. Delete the agent (simulate post-pin deletion).
-		await request.delete("/api/agent-configs/agent-doomed");
-		// 3. Reload the picker.
-		await page.goto("/agents");
-		await page.getByTestId("open-agent-picker").click();
-		// 4. The pinned list must NOT show the doomed agent.
-		await expect(page.getByTestId("pinned-agents")).not.toContainText(
-			"agent-doomed",
-		);
+	test("does not render a stale pinned identifier returned by the server", async ({ page, mockApi }) => {
+		// The route's read path removes stale ids (server coverage asserts that
+		// mutation). The client has a second guard so an in-flight old response
+		// cannot show a deleted agent as a selectable member.
+		const prefs: PickerPrefs = { savedSearches: [], pinned: ["agent-doomed"] };
+		await openTeamPicker(page, mockApi, prefs);
+
+		await expect(page.getByTestId("pinned-agents")).toHaveCount(0);
+		await expect(page.getByTestId("agent-row")).toHaveCount(2);
 	});
 
-	test("pin/save UI absent in 8 non-agent pickers (smoke)", async ({ page }) => {
-		test.fixme(true, "Wave 3 (Plan 57-06 Task 2) UI surface contract");
+	test("the extension picker does not expose agent-only save or pin controls", async ({ page, mockApi }) => {
+		await mockApi({ agentConfigs: [alpha], extensions: [] });
 		await page.goto("/agents/new");
-		await page.getByTestId("open-extension-search-picker").click();
+		await page.getByRole("button", { name: "Configure" }).click();
+		await page.getByTestId("extension-picker-combobox").locator("input[role='combobox']").click();
+
 		await expect(page.getByTestId("save-search-button")).toHaveCount(0);
-		await expect(page.getByTestId("pinned-extensions")).toHaveCount(0);
-		// Smoke is one non-agent picker; Plan 57-06 Task 2 widens to all 8
-		// once each picker's mount point ships a deterministic test-id.
+		await expect(page.getByTestId("pinned-agents")).toHaveCount(0);
 	});
 });

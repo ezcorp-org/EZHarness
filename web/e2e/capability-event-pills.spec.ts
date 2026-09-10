@@ -118,7 +118,7 @@ test.describe("Audit & Visibility settings", () => {
 // page's onMount race between pillSettings fetch and message render.
 // Deferred to a future test-infra phase.
 test.describe("Capability event pills — installed-extension default-hidden + toggle reveal", () => {
-	test.fixme("Phase 52.5.6: row hidden by default; toggle reveals; no /messages re-fetch on toggle", async ({
+	test("installed rows stay hidden by default, then appear after the user enables them without refetching messages", async ({
 		page,
 		mockApi,
 	}) => {
@@ -184,24 +184,20 @@ test.describe("Capability event pills — installed-extension default-hidden + t
 			extensions: [installedExt as any],
 		});
 
-		// Mutable mock state for the per-key settings GETs the chat
-		// page reads on mount via loadPillSettings().
+		// Mutable mock state returned by the complete settings document.
 		let installedToggle = false;
-		await page.route("**/api/settings/global:showInstalledCapabilityEvents", async (route) => {
-			if (route.request().method() === "GET") {
-				await route.fulfill({ json: { value: installedToggle } });
-			} else {
-				await route.continue();
-			}
+		// Both screens use fetchSettings(), which reads the complete settings
+		// document. Keep one mutable source of truth for the settings page and
+		// the return to chat; individual-key routes are not part of this flow.
+		await page.route("**/api/settings", async (route) => {
+			if (route.request().method() !== "GET") return route.fallback();
+			return route.fulfill({
+				json: {
+					"global:showBuiltinCapabilityEvents": true,
+					"global:showInstalledCapabilityEvents": installedToggle,
+				},
+			});
 		});
-		await page.route("**/api/settings/global:showBuiltinCapabilityEvents", async (route) => {
-			if (route.request().method() === "GET") {
-				await route.fulfill({ json: { value: true } });
-			} else {
-				await route.continue();
-			}
-		});
-
 		// Count /api/conversations/[id]/messages fetches across the
 		// whole flow — the spec contract is: toggle reveal does NOT
 		// require a re-fetch of the messages list.
