@@ -603,7 +603,7 @@ function testAssertionPaths(source: string): Map<number, boolean> {
     // without crashing the whole gate.
     if (!name) return [];
     if (ts.isIdentifier(name)) return [name.text];
-    return name.elements.flatMap((element) => bindingNames(element.name));
+    return name.elements.flatMap((element) => ts.isBindingElement(element) ? bindingNames(element.name) : []);
   };
   const scopeBindsHelper = (scope: ts.Node, name: string): boolean => {
     if (ts.isFunctionLike(scope)
@@ -683,7 +683,10 @@ function testAssertionPaths(source: string): Map<number, boolean> {
   const findTests = (node: ts.Node): void => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
       && (node.expression.text === "test" || node.expression.text === "it")) {
-      const callback = node.arguments.find((argument): argument is ts.FunctionLikeDeclaration => ts.isFunctionLike(argument));
+      const callback = node.arguments.find(
+        (argument): argument is ts.ArrowFunction | ts.FunctionExpression =>
+          ts.isArrowFunction(argument) || ts.isFunctionExpression(argument),
+      );
       if (callback) tests.set(node.expression.getStart(file), nodeHasAssertion(callback, callback));
     }
     ts.forEachChild(node, findTests);
