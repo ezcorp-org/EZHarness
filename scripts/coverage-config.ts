@@ -170,6 +170,42 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/server/preview/ws-bridge.ts",
   "web/src/lib/components/settings/ProvidersSection.svelte",
   "web/src/lib/components/settings/TeamsSection.svelte",
+  // Direct component and utility contracts own these maps. Native browser
+  // journeys still run, but their different statement spans are not merged.
+  "web/src/lib/invoke-inline-tool.ts",
+  "web/src/lib/sub-conversation-store.svelte.ts",
+  "web/src/lib/stores/extension-toolbar.svelte.ts",
+  "web/src/lib/chat/page-handlers/panel-persistence.svelte.ts",
+  "web/src/lib/components/message-toolbar-registry.ts",
+  "web/src/lib/components/ShortcutHelp.svelte",
+  "web/src/lib/components/InlineToolCard.svelte",
+  "web/src/lib/components/InlineToolForm.svelte",
+  "web/src/lib/components/SubConversationBlock.svelte",
+  "web/src/lib/components/SubConvoInput.svelte",
+  "web/src/lib/components/tool-cards/CopyButton.svelte",
+  "web/src/lib/components/tool-cards/DefaultCard.svelte",
+  "web/src/lib/components/tool-cards/SubstackReviewCard.svelte",
+  "web/src/lib/components/tool-cards/weather-card-element.ts",
+  "web/src/lib/components/ui/ComboBox.svelte",
+  "web/src/lib/components/ui/TagInput.svelte",
+  "web/src/lib/components/AgentConfigForm.svelte",
+  "web/src/lib/components/AgentDetailPanel.svelte",
+  "web/src/lib/components/AgentInputForm.svelte",
+  "web/src/lib/components/AssignmentPicker.svelte",
+  "web/src/lib/components/AssignmentPill.svelte",
+  "web/src/lib/components/MetaAgentChat.svelte",
+  "web/src/lib/components/ProjectPicker.svelte",
+  "web/src/lib/components/ProjectForm.svelte",
+  "web/src/lib/components/TaskLogsPanel.svelte",
+  "web/src/lib/components/ExtensionPanel.svelte",
+  "web/src/lib/components/PublishDialog.svelte",
+  "web/src/lib/components/ShareAgentDialog.svelte",
+  "web/src/lib/components/StuckRunBanner.svelte",
+  "web/src/lib/components/MarketplaceDetail.svelte",
+  "web/src/lib/components/FlagDialog.svelte",
+  "web/src/lib/components/EntityFormModal.svelte",
+  "web/src/lib/components/EntityTable.svelte",
+  "web/src/lib/components/FileUpload.svelte",
 ];
 
 /**
@@ -197,10 +233,41 @@ export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/components/ui/SharedFilePicker.svelte",
 ];
 
+/** Direct, isolated Bun utility tests have one bounded coverage leg. */
+export const BUN_WEB_UTILITY_COVERAGE_PRODUCER = "ezcorp-bun-web-utility";
+export const BUN_WEB_UTILITY_SOURCES: readonly string[] = [
+  "web/src/lib/actions/hover-tooltip.ts",
+  "web/src/lib/auth-keepalive.ts",
+  "web/src/lib/chat-scroll-restore.ts",
+  "web/src/lib/chat/attachment-client.ts",
+  "web/src/lib/chat/chat-window-drop.ts",
+  "web/src/lib/chat/page-handlers/inline-tool-handlers.ts",
+  "web/src/lib/clipboard.ts",
+  "web/src/lib/combobox-nav.ts",
+  "web/src/lib/commands.ts",
+  "web/src/lib/components/tool-cards/price-chart-logic.ts",
+  "web/src/lib/ez/api.ts",
+  "web/src/lib/ez/pill-visibility.ts",
+  "web/src/lib/focus-trap.ts",
+  "web/src/lib/last-model.ts",
+  "web/src/lib/markdown-speech.ts",
+  "web/src/lib/panel-persistence.ts",
+  "web/src/lib/progressive-image.ts",
+  "web/src/lib/select-mode.ts",
+  "web/src/lib/shortcuts.ts",
+  "web/src/lib/sub-agent-routing.ts",
+  "web/src/lib/theme.ts",
+  "web/src/lib/tool-display.ts",
+  "web/src/lib/workers/agent-fuzzy-search-bridge.ts",
+  "web/src/lib/workers/agent-fuzzy-search-worker.ts",
+  "web/src/lib/workers/kokoro-tts-bridge.ts",
+];
+
 /** Bun-only contracts with source layouts that must not be mixed with V8 maps. */
 export const BUN_CANONICAL_PRODUCERS = {
   "web/src/lib/api.ts": "ezcorp-bun-api",
   "web/src/lib/empty-node-shim.ts": "ezcorp-bun-shim",
+  ...Object.fromEntries<string>(BUN_WEB_UTILITY_SOURCES.map(source => [source, BUN_WEB_UTILITY_COVERAGE_PRODUCER])),
 } as const;
 
 /** Paths with an explicit tagged Bun producer. Derived to prevent registry drift. */
