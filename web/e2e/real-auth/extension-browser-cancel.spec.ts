@@ -1,5 +1,6 @@
 import { test, expect } from "../fixtures/hydration.js";
 import { extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { resumePage } from "../fixtures/page-data";
 import type { WorkspaceRecord } from "@ezcorp/extension-contract";
 
 test("private browser cancellation reaches the actual HTTP worker and prevents later effects", async ({ page, request, baseURL }) => {
@@ -19,7 +20,10 @@ test("private browser cancellation reaches the actual HTTP worker and prevents l
     const approval = await requestRelease(client, state);
     expect((await request.post(`/api/extensions/releases/${created.installation.id}/approve`, { data: { approvalId: approval.id, decision: true } })).status()).toBe(200);
     await client.extensionControl("extensions_release", { action: "activate", installationId: created.installation.id, approvalId: approval.id, idempotencyKey: crypto.randomUUID() });
-    await page.goto(`/extensions/${name}/preview`);
+    // This form starts an isolated browser session. Enter through the
+    // hydrated app shell so the page's create-conversation controls execute
+    // as client code, rather than only appearing in SSR HTML.
+    await resumePage(page, `/extensions/${name}/preview`);
     const select = page.getByLabel("New conversation project");
     await select.selectOption((await select.locator("option:not([disabled])").first().getAttribute("value"))!);
     const denied = await request.post(`/extensions/${name}/preview?/create`, { form: { projectId: await select.inputValue() }, headers: { Origin: "https://foreign.example" }, maxRedirects: 0 });

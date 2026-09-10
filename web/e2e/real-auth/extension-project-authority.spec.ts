@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { captureEvidence } from "../fixtures/evidence";
 import { extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { resumePage } from "../fixtures/page-data";
 import type { WorkspaceRecord } from "../../../src/extensions/v4/types";
 
 test("real project binding, isolated Git read, host review and revoke @evidence", async ({ page, request, baseURL }, testInfo) => {
@@ -50,7 +51,10 @@ test("real project binding, isolated Git read, host review and revoke @evidence"
     expect(seeded.status(), await seeded.text()).toBe(201);
     const proposal = await seeded.json();
     expect(proposal.controlledFixture).toBe(true);
-    await page.goto(proposal.reviewUrl);
+    // Resume through the hydrated app shell so this interactive review route
+    // loads its client chunk. A direct SSR visit validates the server page but
+    // can leave the form enhancement code unexecuted in browser coverage.
+    await resumePage(page, proposal.reviewUrl);
     await expect(page.getByRole("heading", { name: "Review project changes" })).toBeVisible();
     await expect(page.getByText("docs/controlled-fixture.md")).toBeVisible();
     const reject = page.getByRole("button", { name: "Reject without changes", exact: true });
