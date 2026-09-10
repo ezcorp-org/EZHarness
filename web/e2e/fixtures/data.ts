@@ -213,6 +213,8 @@ export interface MemoryData {
 	confidence: string;
 	status: string;
 	projectId: string | null;
+	projectIds: string[];
+	injectionEligible: boolean;
 	conversationId: string | null;
 	messageIds: string[] | null;
 	provenance: {
@@ -261,6 +263,8 @@ export function makeMemory(overrides: Partial<MemoryData> = {}): MemoryData {
 		confidence: "high",
 		status: "active",
 		projectId: "proj-1",
+		projectIds: overrides.projectId === null ? [] : [overrides.projectId ?? "proj-1"],
+		injectionEligible: true,
 		conversationId: "conv-1",
 		messageIds: ["msg-1"],
 		provenance: {

@@ -1258,6 +1258,11 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		// Memories
 		if (path === "/api/memories" && method === "GET") {
 			let filtered = [...mems];
+			const scope = url.searchParams.get("scope");
+			const projectId = url.searchParams.get("projectId");
+			if (scope === "global") filtered = filtered.filter((m) => m.projectIds.length === 0);
+			else if (scope === "project") filtered = filtered.filter((m) => projectId && m.projectIds.includes(projectId));
+			else if (projectId) filtered = filtered.filter((m) => m.projectIds.length === 0 || m.projectIds.includes(projectId));
 			const status = url.searchParams.get("status");
 			const category = url.searchParams.get("category");
 			const search = url.searchParams.get("search");
