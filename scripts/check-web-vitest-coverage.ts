@@ -6,12 +6,30 @@ import { isDeclarationOnlyTypeScript, isExcluded, REPO_ROOT } from "./coverage-c
 
 export function lcovSourceFiles(lcov: string): Set<string> {
   const files = new Set<string>();
+  let current: string | null = null;
+  let hasData = false;
+  const finish = () => {
+    if (current && hasData) files.add(current);
+    current = null;
+    hasData = false;
+  };
   for (const line of lcov.split("\n")) {
-    if (!line.startsWith("SF:")) continue;
-    const source = line.slice(3);
-    const absolute = source.startsWith("/") ? source : resolve(REPO_ROOT, source);
-    files.add(relative(REPO_ROOT, absolute).replaceAll("\\", "/"));
+    if (line.startsWith("SF:")) {
+      finish();
+      const source = line.slice(3);
+      const absolute = source.startsWith("/") ? source : resolve(REPO_ROOT, source);
+      current = relative(REPO_ROOT, absolute).replaceAll("\\", "/");
+      continue;
+    }
+    if (line === "end_of_record") {
+      finish();
+      continue;
+    }
+    if (!current || !line.startsWith("DA:")) continue;
+    const [lineNumber, hits] = line.slice(3).split(",", 2);
+    if (/^[1-9]\d*$/.test(lineNumber ?? "") && /^\d+$/.test(hits ?? "")) hasData = true;
   }
+  finish();
   return files;
 }
 

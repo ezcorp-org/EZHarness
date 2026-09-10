@@ -34,6 +34,9 @@ if [ -z "$out_dir" ]; then
   usage
   exit 2
 fi
+if [[ "$out_dir" != /* ]]; then
+  out_dir="$repo_root/$out_dir"
+fi
 if [ -n "$shard" ] && ! [[ "$shard" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]]; then
   echo "invalid Vitest shard: $shard" >&2
   exit 2

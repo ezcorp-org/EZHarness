@@ -6,6 +6,23 @@ test("normalizes relative and absolute Vitest LCOV source paths", () => {
   expect(files).toEqual(new Set(["web/src/lib/a.ts", "web/src/lib/b.ts"]));
 });
 
+test("requires a syntactically valid DA record before accepting an SF block", () => {
+  const files = lcovSourceFiles([
+    "SF:web/src/lib/empty.ts",
+    "end_of_record",
+    "SF:web/src/lib/malformed-line.ts",
+    "DA:zero,1",
+    "end_of_record",
+    "SF:web/src/lib/malformed-hits.ts",
+    "DA:1,nope",
+    "end_of_record",
+    "SF:web/src/lib/real.ts",
+    "DA:1,0",
+    "end_of_record",
+  ].join("\n"));
+  expect(files).toEqual(new Set(["web/src/lib/real.ts"]));
+});
+
 test("requires records for executable files but permits declaration-only TypeScript", async () => {
   const missing = await missingWebLibCoverage(
     ["web/src/lib/covered.ts", "web/src/lib/types.ts", "web/src/lib/View.svelte"],
