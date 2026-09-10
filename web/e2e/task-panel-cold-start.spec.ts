@@ -145,7 +145,10 @@ test.describe("Task Panel — cold start", () => {
 			route.fulfill({ json: { conversationId: "conv-1", tasks: PERSISTED, activeTaskId: "t2" } }),
 		);
 
-		// A reconnect re-opens the stream; the hydrate rides that signal.
+		// A real reconnect reports its disconnect before the new stream opens;
+		// the hydrate rides that second edge, not the page's first EventSource
+		// open during startup.
+		await emitSseEvent(page, { type: "ws:disconnected", data: {} }, RUNTIME_EVENTS_URL);
 		await emitSseEvent(page, { type: "ws:connected", data: {} }, RUNTIME_EVENTS_URL);
 
 		await expect(page.getByText("Write tests")).toBeVisible();

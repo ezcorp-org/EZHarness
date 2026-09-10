@@ -132,14 +132,21 @@ describe("attachTaskHydration", () => {
 		expect(onapply.mock.calls.map((c) => c[0])).toEqual(["conv-2"]);
 	});
 
-	test("re-hydrates when the event stream reconnects", async () => {
+	test("does not spend reconnect cooldown on the initial stream open, then re-hydrates after reconnect", async () => {
 		render(Harness, { convId: "conv-1", fetchImpl: fetchMock as never, onapply: vi.fn() });
 		await flush();
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 
+		// The first counter edge is the EventSource opening during page startup.
+		// The mount hydrate already loaded the snapshot, so this must not use
+		// the cooldown reserved for a later disconnect/reconnect.
 		hydrationStub.reconnects += 1;
 		await flush();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 
+		// The next edge represents the stream reopening after a disconnect.
+		hydrationStub.reconnects += 1;
+		await flush();
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 	});
 
@@ -153,6 +160,12 @@ describe("attachTaskHydration", () => {
 		});
 		await flush();
 
+		// First event-stream open is startup, not a reconnect.
+		hydrationStub.reconnects += 1;
+		await flush();
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+
+		// This one is the first real reconnect and starts the cooldown.
 		hydrationStub.reconnects += 1;
 		await flush();
 		for (let i = 0; i < 9; i++) hydrationStub.reconnects += 1;

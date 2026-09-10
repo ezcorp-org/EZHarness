@@ -63,6 +63,10 @@ export function attachTaskHydration(
 	let previousConvId: string | undefined;
 	let previousReconnectCount: number | undefined;
 	let previousRequestCount: number | undefined;
+	// `wsReconnectCount` is bumped when the EventSource first opens as well as
+	// after a later reconnect. The first observed open is startup: it must not
+	// consume the reconnect cooldown before a disconnect has even been possible.
+	let observedStreamConnection = false;
 	let lastReconnectHydrationAt = 0;
 	const now = options.now ?? (() => Date.now());
 
@@ -89,7 +93,10 @@ export function attachTaskHydration(
 		if (!cid) return;
 
 		let reconnectNeedsHydration = false;
-		if (reconnectChanged && !conversationChanged) {
+		const firstObservedConnection =
+			reconnectChanged && reconnectCount > 0 && !observedStreamConnection;
+		if (reconnectCount > 0) observedStreamConnection = true;
+		if (reconnectChanged && !conversationChanged && !firstObservedConnection) {
 			const currentTime = now();
 			reconnectNeedsHydration = shouldHydrateTaskSnapshotAfterReconnect(
 				lastReconnectHydrationAt,
