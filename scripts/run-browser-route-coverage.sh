@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Collect one same-build V8 receipt across every mock browser journey, then
-# fail closed for all scripted Svelte routes and browser-canonical sources.
+# Collect every mandatory browser lane against one mapped build, then use the
+# same strict aggregation path as CI. This is the complete local route-coverage
+# command, not a mock-only diagnostic.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,54 +19,44 @@ source_revision="$(cd "$repo_root" && git rev-parse HEAD)"
 export EZCORP_BROWSER_COVERAGE=1
 export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$manifest"
 export EZCORP_BROWSER_COVERAGE_SOURCE_REVISION="$source_revision"
-export EZCORP_BROWSER_COVERAGE_OUTPUT="$output_dir"
 export PI_E2E_MOCK_BASE_URL="$base_url"
 
 cd "$repo_root"
 bash scripts/browser-coverage-build.sh
-# playwright.config.ts sees EZCORP_BROWSER_COVERAGE=1 and starts preview only.
-# Do not let a second build replace the source maps whose digest the receipt
-# uses as its build identity.
+# The lane collectors start previews only under EZCORP_BROWSER_COVERAGE=1.
+# A second build would change map identities between receipts and make their
+# immutable-build merge invalid.
 [ -f "$repo_root/web/build/client/manifest.json" ] || {
 	echo "browser coverage build wrote no client manifest" >&2
 	exit 1
 }
 
-mapfile -t mock_gate < <(bun scripts/e2e-lane-args.ts mock-gate)
-mapfile -t mock_full < <(bun scripts/e2e-lane-args.ts mock-full)
-[ "${#mock_gate[@]}" -gt 0 ] && [ "${#mock_full[@]}" -gt 0 ] || {
-	echo "browser coverage requires non-empty mock-gate and mock-full lanes" >&2
-	exit 1
-}
+lane_status=0
+for lane in mock-gate mock-full evidence fresh-setup real-auth; do
+	case "$lane" in
+		fresh-setup|real-auth) lane_output="$output_dir/real-auth/$lane" ;;
+		*) lane_output="$output_dir/$lane" ;;
+	esac
+	echo "browser route coverage: collecting $lane"
+	this_lane_status=0
+	if [ "$lane" = evidence ]; then
+		EZCORP_E2E_EVIDENCE=1 EZCORP_BROWSER_COVERAGE_OUTPUT="$lane_output" \
+			bash scripts/collect-browser-route-coverage-lane.sh "$lane" || this_lane_status=$?
+	elif ! EZCORP_BROWSER_COVERAGE_OUTPUT="$lane_output" bash scripts/collect-browser-route-coverage-lane.sh "$lane"; then
+		this_lane_status=1
+	fi
+	if [ "$this_lane_status" -ne 0 ]; then
+		echo "::error::browser coverage lane failed: $lane" >&2
+		lane_status=1
+	fi
+done
 
-playwright_status=0
-(
-	cd web
-	bunx playwright test --project=chromium --workers=2 --reporter=list "${mock_gate[@]}" "${mock_full[@]}"
-) || playwright_status=$?
-
-mapfile -t receipts < <(find "$output_dir" -maxdepth 1 -type f -name 'chromium-worker-*.json' -print | sort)
-merged="$output_dir/merged.json"
-lcov="$output_dir/lcov.info"
-collector_status=0
-if [ "${#receipts[@]}" -eq 0 ]; then
-	echo "browser coverage wrote no worker receipts" >&2
-	collector_status=1
-else
-	bun scripts/browser-coverage-to-lcov.ts --merge-raw "$merged" "${receipts[@]}" || collector_status=$?
-	if [ "$collector_status" -eq 0 ]; then
-		bun scripts/browser-route-coverage-manifest.ts --check "$merged" || collector_status=$?
-	fi
-	if [ "$collector_status" -eq 0 ]; then
-		bun scripts/browser-coverage-to-lcov.ts "$merged" "$lcov" || collector_status=$?
-	fi
-	if [ -f "$merged" ]; then
-		bun -e 'const raw = await Bun.file(process.argv.at(-1)).json(); console.log(`browser coverage checkpoints: ${raw.testsWithApplicationScripts ?? 0} with scripts, ${raw.testsWithoutApplicationScripts ?? 0} without scripts`)' "$merged"
-	fi
-	[ "$collector_status" -ne 0 ] || echo "browser route coverage: ${#receipts[@]} worker receipt(s) → $lcov"
+merge_status=0
+if ! bash scripts/merge-browser-route-coverage.sh "$output_dir" "$output_dir/merged"; then
+	merge_status=1
 fi
 
-# Keep all partial receipts and converter diagnostics for a failed product
-# journey, but retain the Playwright nonzero result as the command outcome.
-if [ "$playwright_status" -ne 0 ]; then exit "$playwright_status"; fi
-exit "$collector_status"
+# Preserve all partial receipts and converter diagnostics after a product
+# failure. The result remains nonzero if any required lane or aggregate failed.
+if [ "$lane_status" -ne 0 ]; then exit "$lane_status"; fi
+exit "$merge_status"

@@ -238,6 +238,8 @@ describe("e2e lane manifest", () => {
   test("ci.yml consumes the manifest via the generator (one home for the gate list)", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
     const collector = await Bun.file(join(REPO_ROOT, "scripts/collect-browser-route-coverage-lane.sh")).text();
+    const localCoverage = await Bun.file(join(REPO_ROOT, "scripts/run-browser-route-coverage.sh")).text();
+    const merger = await Bun.file(join(REPO_ROOT, "scripts/merge-browser-route-coverage.sh")).text();
     for (const lane of ["mock-gate", "mock-full", "evidence"]) {
       expect(collector).toContain(`bun scripts/e2e-lane-args.ts "$lane"`);
       expect(ci).toContain(`collect-browser-route-coverage-lane.sh ${lane}`);
@@ -247,7 +249,17 @@ describe("e2e lane manifest", () => {
     expect(collector).toContain('bun scripts/run-real-e2e.ts "$lane"');
     expect(collector).toContain("EZCORP_BROWSER_COVERAGE_SOURCE_REVISION");
     expect(collector).toContain('git -C "$repo_root" rev-parse HEAD');
-    expect(ci).toContain("verify-browser-coverage-receipt.ts");
+    // Local route coverage must exercise the same mandatory lane set and
+    // strict aggregation path as CI. A mock-only receipt cannot establish
+    // the 64-route browser floor because authenticated and fresh journeys
+    // execute routes the mock preview cannot reach.
+    expect(localCoverage).toContain("for lane in mock-gate mock-full evidence fresh-setup real-auth; do");
+    expect(localCoverage).toContain('collect-browser-route-coverage-lane.sh "$lane"');
+    expect(localCoverage).toContain("EZCORP_E2E_EVIDENCE=1");
+    expect(localCoverage).toContain('merge-browser-route-coverage.sh "$output_dir" "$output_dir/merged"');
+    expect(ci).toContain("merge-browser-route-coverage.sh");
+    expect(merger).toContain("required_lanes=(mock-gate mock-full evidence real-auth/fresh-setup real-auth/real-auth)");
+    expect(merger).toContain("verify-browser-coverage-receipt.ts");
     // The old hand-listed spec regexes must not resurface beside it.
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });

@@ -513,26 +513,9 @@ jobs:
       - name: Merge and verify browser source coverage
         shell: bash
         run: |
-          RECEIPT_ROOT=tasks/testing-gaps/browser/v8-coverage/receipts
-          for lane in mock-gate mock-full evidence; do
-            find "$RECEIPT_ROOT/$lane" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
-              echo "::error::browser coverage artifact has no receipt for $lane"; exit 1;
-            }
-          done
-          find "$RECEIPT_ROOT/real-auth/fresh-setup" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
-            echo "::error::browser coverage artifact has no receipt for fresh-setup"; exit 1;
-          }
-          find "$RECEIPT_ROOT/real-auth/real-auth" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
-            echo "::error::browser coverage artifact has no receipt for real-auth"; exit 1;
-          }
-          mapfile -t RECEIPTS < <(find "$RECEIPT_ROOT" -type f -name 'chromium-worker-*.json' -print | sort)
-          [ "${#RECEIPTS[@]}" -gt 0 ] || { echo "::error::browser coverage artifacts had no worker receipts"; exit 1; }
-          OUT=tasks/testing-gaps/browser/v8-coverage/merged
-          mkdir -p "$OUT"
-          bun scripts/browser-coverage-to-lcov.ts --merge-raw "$OUT/merged.json" "${RECEIPTS[@]}"
-          bun scripts/browser-route-coverage-manifest.ts --check "$OUT/merged.json"
-          bun scripts/browser-coverage-to-lcov.ts "$OUT/merged.json" "$OUT/lcov.info"
-          bun scripts/verify-browser-coverage-receipt.ts "$OUT/merged.json" "$OUT/lcov.info"
+          bash scripts/merge-browser-route-coverage.sh \
+            tasks/testing-gaps/browser/v8-coverage/receipts \
+            tasks/testing-gaps/browser/v8-coverage/merged
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
