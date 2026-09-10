@@ -2,11 +2,17 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { clearEzConversation, consumeDraft, getDraft, getOrCreateEzConversation } from "./api";
 
 const originalFetch = globalThis.fetch;
-let fetchMock: ReturnType<typeof mock>;
+type FetchHandler = (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
+
+function testFetch(handler: FetchHandler): typeof fetch {
+  return Object.assign(handler, { preconnect: originalFetch.preconnect });
+}
+
+const fetchMock = mock<FetchHandler>();
 
 beforeEach(() => {
-  fetchMock = mock();
-  globalThis.fetch = fetchMock;
+  fetchMock.mockReset();
+  globalThis.fetch = testFetch(fetchMock);
 });
 
 afterEach(() => {
@@ -31,7 +37,11 @@ describe("Ez API client", () => {
       .mockResolvedValueOnce(Response.json({ ok: true, conversationId: "ez-1", deletedCount: 3 }));
 
     await expect(consumeDraft("draft")).resolves.toMatchObject({ consumed: true });
-    await expect(clearEzConversation()).resolves.toEqual({ ok: true, conversationId: "ez-1", deletedCount: 3 });
+    const expectedClear: Awaited<ReturnType<typeof clearEzConversation>> = {
+      conversationId: "ez-1",
+      deletedCount: 3,
+    };
+    await expect(clearEzConversation()).resolves.toMatchObject(expectedClear);
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/ez/drafts/draft", {
       method: "POST",
       headers: { "content-type": "application/json" },

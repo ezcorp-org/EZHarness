@@ -4,6 +4,11 @@ import { startAuthKeepalive } from "$lib/auth-keepalive.js";
 const originalWindow = globalThis.window;
 const originalDocument = globalThis.document;
 const originalFetch = globalThis.fetch;
+type FetchHandler = (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
+
+function testFetch(handler: FetchHandler): typeof fetch {
+  return Object.assign(handler, { preconnect: originalFetch.preconnect });
+}
 
 afterEach(() => {
   globalThis.window = originalWindow;
@@ -27,10 +32,10 @@ describe("startAuthKeepalive", () => {
       return 42;
     });
     const clearInterval = mock(() => {});
-    const fetchMock = mock(() => Promise.resolve(new Response()));
+    const fetchMock = mock<FetchHandler>(() => Promise.resolve(new Response()));
     globalThis.window = { setInterval, clearInterval } as unknown as Window & typeof globalThis;
     globalThis.document = { visibilityState: "visible" } as Document;
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = testFetch(fetchMock);
 
     const stop = startAuthKeepalive();
     expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 20 * 60 * 1000);
@@ -55,7 +60,7 @@ describe("startAuthKeepalive", () => {
       clearInterval: () => {},
     } as unknown as Window & typeof globalThis;
     globalThis.document = { visibilityState: "visible" } as Document;
-    globalThis.fetch = mock(() => Promise.reject(new Error("offline")));
+    globalThis.fetch = testFetch(mock<FetchHandler>(() => Promise.reject(new Error("offline"))));
 
     const stop = startAuthKeepalive();
     callback?.();
