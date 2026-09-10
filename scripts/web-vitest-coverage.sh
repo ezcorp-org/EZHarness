@@ -46,7 +46,6 @@ args=(
   --coverage
   --coverage.provider=v8
   --coverage.reporter=lcovonly
-  --coverage.all
   --coverage.include='src/lib/**'
   "--coverage.reportsDirectory=$out_dir"
 )
