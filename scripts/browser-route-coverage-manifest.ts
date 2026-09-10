@@ -31,10 +31,19 @@ export function assertBrowserCanonicalSources(expected: readonly string[]): void
   }
 }
 
+/** Exact current source inventory passed to the Node-hosted Playwright fixture. */
+export function currentBrowserCoverageExpectation(): { routes: string[]; files: string[] } {
+	return { routes: scriptedRouteFiles(), files: [...BROWSER_CANONICAL_SOURCES] };
+}
+
 if (import.meta.main) {
-  const [flag, rawPath] = process.argv.slice(2);
-  if (flag !== "--check" || !rawPath) {
-    throw new Error("usage: browser-route-coverage-manifest.ts --check <raw.json>");
+	const [flag, rawPath] = process.argv.slice(2);
+	if (flag === "--print" && rawPath === undefined) {
+		console.log(JSON.stringify(currentBrowserCoverageExpectation()));
+		process.exit(0);
+	}
+	if (flag !== "--check" || !rawPath) {
+		throw new Error("usage: browser-route-coverage-manifest.ts --print | --check <raw.json>");
   }
   const raw = await Bun.file(rawPath).json() as RawCoverage;
   assertCompleteRouteInventory(raw.expectedRouteFiles ?? []);

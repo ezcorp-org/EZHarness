@@ -6,7 +6,35 @@ import { pathToFileURL } from "node:url";
 import { test as base, type Page, type TestInfo } from "@playwright/test";
 
 const BROWSER_COVERAGE = process.env.EZCORP_BROWSER_COVERAGE === "1";
-const CANVAS_CHAT_ROUTE = "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte";
+
+type CoverageExpectedManifest = { routes: string[]; files: string[] };
+
+/** The runner supplies this JSON from the fail-closed source inventory script.
+ * It is intentionally absent for a small proof run; a final collection sets
+ * it and conversion then requires every listed route and canonical source. */
+function expectedCoverageManifest(raw: string | undefined): CoverageExpectedManifest | undefined {
+	if (raw === undefined) return undefined;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		throw new Error("browser coverage: EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST must be JSON");
+	}
+	if (!parsed || typeof parsed !== "object") {
+		throw new Error("browser coverage: expected manifest must be an object");
+	}
+	const candidate = parsed as Partial<CoverageExpectedManifest>;
+	if (!Array.isArray(candidate.routes) || !Array.isArray(candidate.files)
+		|| candidate.routes.some((path) => typeof path !== "string")
+		|| candidate.files.some((path) => typeof path !== "string")) {
+		throw new Error("browser coverage: expected manifest must contain string routes and files arrays");
+	}
+	return { routes: candidate.routes, files: candidate.files };
+}
+
+const browserCoverageExpectedManifest = BROWSER_COVERAGE
+	? expectedCoverageManifest(process.env.EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST)
+	: undefined;
 
 // Vite's copied client manifest contains every immutable asset name from one
 // production build. Its digest prevents range mergers from combining receipts
@@ -24,6 +52,7 @@ type CoverageReceipt = {
 	result: CoverageScript[];
 	buildId: string;
 	expectedRouteFiles?: string[];
+	expectedFiles?: string[];
 };
 
 type V8CoverageMerger = {
@@ -50,6 +79,7 @@ async function checkpointCoverage(
 	testInfo: TestInfo,
 	result: CoverageScript[],
 	expectedRouteFiles: string[] | undefined,
+	expectedFiles: string[] | undefined,
 ): Promise<void> {
 	const key = testInfo.workerIndex;
 	const previous = coverageByWorker.get(key);
@@ -65,6 +95,10 @@ async function checkpointCoverage(
 		expectedRouteFiles: [...new Set([
 			...(previous?.expectedRouteFiles ?? []),
 			...(expectedRouteFiles ?? []),
+		])].sort(),
+		expectedFiles: [...new Set([
+			...(previous?.expectedFiles ?? []),
+			...(expectedFiles ?? []),
 		])].sort(),
 	};
 	coverageByWorker.set(key, receipt);
@@ -172,7 +206,7 @@ export const test = base.extend<{ browserCoverage: undefined }>({
 	},
 	// The mock and real-auth tiers share this opt-in CDP collector. It captures
 	// only same-origin application chunks and makes the source-map converter
-	// fail closed when a requested Svelte route has no DA record.
+	// fail closed when a requested Svelte route or canonical source has no DA.
 	browserCoverage: [async ({ page }, use, testInfo) => {
 		if (!BROWSER_COVERAGE) {
 			await use(undefined);
@@ -207,10 +241,12 @@ export const test = base.extend<{ browserCoverage: undefined }>({
 				});
 				if (result.length === 0) coverageError = new Error("browser coverage: no same-origin /_app/ scripts were collected");
 				else {
-					const expectedRouteFiles = testInfo.file.endsWith("canvas-dock-open-close.spec.ts")
-						? [CANVAS_CHAT_ROUTE]
-						: undefined;
-					await checkpointCoverage(testInfo, result, expectedRouteFiles);
+					await checkpointCoverage(
+						testInfo,
+						result,
+						browserCoverageExpectedManifest?.routes,
+						browserCoverageExpectedManifest?.files,
+					);
 				}
 			} catch (error) {
 				coverageError = error instanceof Error ? error : new Error(String(error));
