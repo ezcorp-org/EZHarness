@@ -37,6 +37,7 @@ const SETS_LIB = "scripts/lib/test-file-sets.sh";
 const RUNNER = join(REPO_ROOT, "scripts/test-coverage.sh");
 const VITEST_INCLUDE_MANIFEST = join(REPO_ROOT, "scripts/web-vitest-coverage-includes.sh");
 const VITEST_RUNNER = join(REPO_ROOT, "scripts/web-vitest-coverage.sh");
+const WEB_UTILITY_RUNNER = join(REPO_ROOT, "scripts/web-utility-coverage.sh");
 const WEB_ROOT = join(REPO_ROOT, "web");
 
 const LCOV = "TN:\nSF:/repo/src/x.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n";
@@ -895,6 +896,35 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     const full = runCoverageVerdict(fullVerdict, { emptyNodeShim: 1 });
     expect(full.code).toBe(1);
     expect(full.stdout).toContain("empty-node-shim=1");
+  });
+});
+
+// ── direct Bun utility coverage producer ───────────────────────────────────
+describe("web utility coverage producer", () => {
+  test("rejects an invalid local worker bound before it can run a suite", () => {
+    withTmp((tmp) => {
+      const proc = Bun.spawnSync(["bash", WEB_UTILITY_RUNNER], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          COV_OUT: join(tmp, "out"),
+          WEB_UTILITY_COVERAGE_MAX_WORKERS: "0",
+        },
+      });
+      expect(proc.exitCode).toBe(2);
+      expect(proc.stderr.toString()).toContain("WEB_UTILITY_COVERAGE_MAX_WORKERS must be a positive integer");
+    });
+  });
+
+  test("stamps trusted Bun ownership into raw LCOV before the producer merge", async () => {
+    const source = await Bun.file(WEB_UTILITY_RUNNER).text();
+    const tag = "TN:ezcorp-bun-web-utility";
+    const tagIndex = source.indexOf(tag);
+    const mergeIndex = source.indexOf('merge-lcov.ts');
+    expect(tagIndex).toBeGreaterThan(-1);
+    expect(mergeIndex).toBeGreaterThan(tagIndex);
+    expect(source).toContain("web_utility_coverage_files");
+    expect(source).toContain("WEB_UTILITY_COVERAGE_MAX_WORKERS=${WEB_UTILITY_COVERAGE_MAX_WORKERS:-3}");
   });
 });
 

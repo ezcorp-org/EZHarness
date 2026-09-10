@@ -69,5 +69,6 @@ export async function consumeDraft(id: string): Promise<EzDraft> {
  */
 export async function clearEzConversation(): Promise<{ conversationId: string; deletedCount: number }> {
   const res = await fetch("/api/ez/conversation/messages", { method: "DELETE" });
-  return readJson<{ ok: boolean; conversationId: string; deletedCount: number }>(res);
+  const result = await readJson<{ ok: boolean; conversationId: string; deletedCount: number }>(res);
+  return { conversationId: result.conversationId, deletedCount: result.deletedCount };
 }

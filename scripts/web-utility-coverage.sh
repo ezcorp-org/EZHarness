@@ -15,8 +15,15 @@ mkdir -p "$COV_OUT"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 # This producer already runs each suite in its own process. Keep the local
-# fan-out bounded even on a large CI host.
-PARALLEL=${PARALLEL:-3}
+# fan-out bounded even on a large CI host, independently of host-pool width.
+WEB_UTILITY_COVERAGE_MAX_WORKERS=${WEB_UTILITY_COVERAGE_MAX_WORKERS:-3}
+case "$WEB_UTILITY_COVERAGE_MAX_WORKERS" in
+  ''|*[!0-9]*) echo "::error::WEB_UTILITY_COVERAGE_MAX_WORKERS must be a positive integer" >&2; exit 2 ;;
+esac
+if [ "$WEB_UTILITY_COVERAGE_MAX_WORKERS" -lt 1 ]; then
+  echo "::error::WEB_UTILITY_COVERAGE_MAX_WORKERS must be a positive integer" >&2
+  exit 2
+fi
 
 # Bun resolves SvelteKit aliases from this generated project file. Fresh
 # worktrees do not carry .svelte-kit, while normal web test commands create it.
@@ -34,6 +41,8 @@ fi
 # Only these sources belong in this producer. Filtering prevents transitive Bun
 # instrumentation from changing unrelated V8 source denominators.
 UTILITY_SRC=(
+  web/src/lib/actions/hover-tooltip.ts
+  web/src/lib/auth-keepalive.ts
   web/src/lib/chat-scroll-restore.ts
   web/src/lib/chat/attachment-client.ts
   web/src/lib/chat/chat-window-drop.ts
@@ -43,6 +52,7 @@ UTILITY_SRC=(
   web/src/lib/combobox-nav.ts
   web/src/lib/commands.ts
   web/src/lib/components/tool-cards/price-chart-logic.ts
+  web/src/lib/ez/api.ts
   web/src/lib/ez/pill-visibility.ts
   web/src/lib/focus-trap.ts
   web/src/lib/last-model.ts
@@ -53,12 +63,13 @@ UTILITY_SRC=(
   web/src/lib/shortcuts.ts
   web/src/lib/sub-agent-routing.ts
   web/src/lib/theme.ts
+  web/src/lib/tool-display.ts
   web/src/lib/workers/agent-fuzzy-search-bridge.ts
   web/src/lib/workers/agent-fuzzy-search-worker.ts
   web/src/lib/workers/kokoro-tts-bridge.ts
 )
 
-echo "Running ${#FILES[@]} direct web utility suites under Bun coverage (${PARALLEL} parallel)..."
+echo "Running ${#FILES[@]} direct web utility suites under Bun coverage (${WEB_UTILITY_COVERAGE_MAX_WORKERS} parallel)..."
 running=0
 for i in "${!FILES[@]}"; do
   f="${FILES[$i]}"
@@ -70,7 +81,7 @@ for i in "${!FILES[@]}"; do
     echo "$?" >"$TMPDIR/code_$i"
   ) &
   running=$((running + 1))
-  if [ "$running" -ge "$PARALLEL" ]; then wait -n || true; running=$((running - 1)); fi
+  if [ "$running" -ge "$WEB_UTILITY_COVERAGE_MAX_WORKERS" ]; then wait -n || true; running=$((running - 1)); fi
 done
 wait || true
 
@@ -85,9 +96,18 @@ for i in "${!FILES[@]}"; do
 done
 [ "$failed" = "0" ] || exit 1
 
-# Bun emits SF:src/... from web/. Make the aggregate keys repo-relative.
+# Bun emits SF:src/... from web/. Tag raw fragments before their internal
+# merge, then make source keys repo-relative. Canonical-source merging rejects
+# untagged or foreign evidence rather than mixing Bun and V8 line maps.
 for d in "$TMPDIR"/cov_*; do
-  [ -f "$d/lcov.info" ] && sed -i 's#^SF:src/#SF:web/src/#' "$d/lcov.info"
+  [ -f "$d/lcov.info" ] || continue
+  sed -i     -e 's#^TN:$#TN:ezcorp-bun-web-utility#'     -e 's#^SF:src/#SF:web/src/#'     "$d/lcov.info"
+done
+for raw_lcov in "$TMPDIR"/cov_*/lcov.info; do
+  if ! rg -q '^TN:ezcorp-bun-web-utility$' "$raw_lcov"; then
+    echo "::error::web utility raw LCOV lacked the trusted producer tag: $raw_lcov" >&2
+    exit 1
+  fi
 done
 bun "$REPO_ROOT/scripts/merge-lcov.ts" "$TMPDIR/cov_*/lcov.info" "$TMPDIR/merged.lcov"
 bun "$REPO_ROOT/scripts/filter-lcov-sources.ts" "$TMPDIR/merged.lcov" --output "$COV_OUT/lcov.info" "${UTILITY_SRC[@]}"

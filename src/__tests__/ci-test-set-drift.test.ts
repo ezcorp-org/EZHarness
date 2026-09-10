@@ -217,6 +217,7 @@ describe("web/src pass/fail gating", () => {
   const DIRECT_BUN_UTILITY_PRODUCERS = [
     "web/src/__tests__/chat-scroll-restore.integration.test.ts",
     "web/src/__tests__/chat-scroll-restore.test.ts",
+    "web/src/__tests__/auth-keepalive.test.ts",
     "web/src/__tests__/clipboard.test.ts",
     "web/src/__tests__/combobox-nav.test.ts",
     "web/src/__tests__/focus-trap.test.ts",
@@ -227,6 +228,9 @@ describe("web/src pass/fail gating", () => {
     "web/src/__tests__/sub-agent-routing.test.ts",
     "web/src/lib/__tests__/attachment-client.test.ts",
     "web/src/lib/__tests__/chat-window-drop.test.ts",
+    "web/src/lib/actions/hover-tooltip.test.ts",
+    "web/src/lib/ez/api.test.ts",
+    "web/src/lib/tool-display.test.ts",
     "web/src/lib/__tests__/commands.test.ts",
     "web/src/lib/__tests__/markdown-speech.test.ts",
     "web/src/lib/__tests__/progressive-image.test.ts",
