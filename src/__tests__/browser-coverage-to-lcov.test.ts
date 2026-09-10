@@ -96,17 +96,44 @@ test("merges same-build CDP ranges before one AST conversion", async () => {
     buildId: "immutable-build-a",
     result: [{ url: "http://app/_app/chunk.js", functions: [{ functionName: "root", isBlockCoverage: true, ranges: [{ startOffset: 0, endOffset: 10, count: 1 }] }] }],
     expectedRouteFiles: [route],
+    testsWithApplicationScripts: 1,
   };
   const second = {
     buildId: "immutable-build-a",
     result: [{ url: "http://app/_app/chunk.js", functions: [{ functionName: "root", isBlockCoverage: true, ranges: [{ startOffset: 0, endOffset: 10, count: 2 }] }] }],
     expectedFiles: ["web/src/lib/empty-node-shim.ts"],
+    testsWithApplicationScripts: 1,
+    testsWithoutApplicationScripts: 2,
   };
   const merged = await mergeRawCoverage([first, second]);
   expect(merged.result).toHaveLength(1);
   expect(merged.result[0]!.functions[0]!.ranges[0]!.count).toBe(3);
   expect(merged.expectedRouteFiles).toEqual([route]);
   expect(merged.expectedFiles).toEqual(["web/src/lib/empty-node-shim.ts"]);
+  expect(merged.testsWithApplicationScripts).toBe(2);
+  expect(merged.testsWithoutApplicationScripts).toBe(2);
+});
+
+test("keeps expected sources from a zero-script checkpoint", async () => {
+  const merged = await mergeRawCoverage([
+    {
+      buildId: "immutable-build-a",
+      result: [],
+      expectedRouteFiles: [route],
+      expectedFiles: ["web/src/lib/empty-node-shim.ts"],
+      testsWithoutApplicationScripts: 1,
+    },
+    {
+      buildId: "immutable-build-a",
+      result: [{ url: "http://app/_app/chunk.js", functions: [] }],
+      testsWithApplicationScripts: 1,
+    },
+  ]);
+  expect(merged.expectedRouteFiles).toEqual([route]);
+  expect(merged.expectedFiles).toEqual(["web/src/lib/empty-node-shim.ts"]);
+  expect(merged.testsWithApplicationScripts).toBe(1);
+  expect(merged.testsWithoutApplicationScripts).toBe(1);
+  await expect(coverageToLcov(merged, async () => ({ code: "", map: null }))).rejects.toThrow("no source map");
 });
 
 test("refuses browser raw coverage from different or unnamed builds", async () => {

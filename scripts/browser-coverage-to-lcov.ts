@@ -7,7 +7,14 @@ import { REPO_ROOT } from "./coverage-config.ts";
 
 export type Range = Profiler.CoverageRange;
 export type ScriptCoverage = Pick<Profiler.ScriptCoverage, "url" | "functions">;
-export type RawCoverage = { result: ScriptCoverage[]; expectedRouteFiles?: string[]; expectedFiles?: string[]; buildId?: string };
+export type RawCoverage = {
+  result: ScriptCoverage[];
+  expectedRouteFiles?: string[];
+  expectedFiles?: string[];
+  buildId?: string;
+  testsWithApplicationScripts?: number;
+  testsWithoutApplicationScripts?: number;
+};
 export type AssetReader = (url: string) => Promise<{ code: string; map: string | null }>;
 type SourceMap = {
   version: 3;
@@ -97,11 +104,22 @@ export async function mergeRawCoverage(receipts: readonly RawCoverage[]): Promis
   const copies = receipts.map((receipt) => structuredClone({ result: receipt.result }));
   const expectedRouteFiles = [...new Set(receipts.flatMap((receipt) => receipt.expectedRouteFiles ?? []))].sort();
   const expectedFiles = [...new Set(receipts.flatMap((receipt) => receipt.expectedFiles ?? []))].sort();
+  const testsWithApplicationScripts = receipts.reduce(
+    (total, receipt) => total + (receipt.testsWithApplicationScripts ?? 0),
+    0,
+  );
+  const testsWithoutApplicationScripts = receipts.reduce(
+    (total, receipt) => total + (receipt.testsWithoutApplicationScripts ?? 0),
+    0,
+  );
   return {
     result: mergeProcessCovs(copies).result,
     buildId: [...buildIds][0],
     ...(expectedRouteFiles.length ? { expectedRouteFiles } : {}),
     ...(expectedFiles.length ? { expectedFiles } : {}),
+    ...(testsWithApplicationScripts || testsWithoutApplicationScripts
+      ? { testsWithApplicationScripts, testsWithoutApplicationScripts }
+      : {}),
   };
 }
 function outputLcov(coverage: CoverageMap): string {

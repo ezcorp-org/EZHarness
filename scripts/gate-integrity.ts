@@ -593,11 +593,30 @@ export function codeMask(src: string): Uint8Array {
 function testAssertionPaths(source: string): Map<number, boolean> {
   const file = ts.createSourceFile("gate-integrity-input.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const helpers = new Map<string, ts.FunctionDeclaration>();
-  const visit = (node: ts.Node): void => {
-    if (ts.isFunctionDeclaration(node) && node.name && node.body) helpers.set(node.name.text, node);
-    ts.forEachChild(node, visit);
+  for (const statement of file.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) helpers.set(statement.name.text, statement);
+  }
+
+  const bindingNames = (name: ts.BindingName | undefined): string[] => {
+    // A syntactically incomplete diff can produce a recovery declaration with
+    // no name. It cannot bind a helper, so retain fail-closed assertion logic
+    // without crashing the whole gate.
+    if (!name) return [];
+    if (ts.isIdentifier(name)) return [name.text];
+    return name.elements.flatMap((element) => bindingNames(element.name));
   };
-  visit(file);
+  const shadowsFileHelper = (root: ts.FunctionLikeDeclaration, name: string): boolean => {
+    if (root.parameters.some((parameter) => bindingNames(parameter.name).includes(name))) return true;
+    let shadowed = false;
+    const scan = (node: ts.Node): void => {
+      if (node !== root && ts.isFunctionLike(node)) return;
+      if (node !== root && ts.isVariableDeclaration(node) && bindingNames(node.name).includes(name)) shadowed = true;
+      if (node !== root && ts.isFunctionDeclaration(node) && node.name?.text === name) shadowed = true;
+      ts.forEachChild(node, scan);
+    };
+    scan(root);
+    return shadowed;
+  };
 
   const state = new Map<string, "visiting" | "true" | "false">();
   const callIsAssertion = (call: ts.CallExpression): boolean => ASSERTION.test(call.expression.getText(file));
@@ -634,8 +653,8 @@ function testAssertionPaths(source: string): Map<number, boolean> {
       if (callIsAssertion(node)) return true;
       if (ts.isIdentifier(node.expression)) {
         const helper = helpers.get(node.expression.text);
-        if (functionHasAssertion(node.expression.text)) return true;
-        if (helper) {
+        if (helper && !shadowsFileHelper(root, node.expression.text)) {
+          if (functionHasAssertion(node.expression.text)) return true;
           for (const index of invokedCallbackParameters(helper)) {
             const callback = node.arguments[index];
             if (callback && ts.isFunctionLike(callback) && nodeHasAssertion(callback, callback)) return true;

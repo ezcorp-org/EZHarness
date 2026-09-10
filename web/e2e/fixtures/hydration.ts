@@ -53,6 +53,8 @@ type CoverageReceipt = {
 	buildId: string;
 	expectedRouteFiles?: string[];
 	expectedFiles?: string[];
+	testsWithApplicationScripts: number;
+	testsWithoutApplicationScripts: number;
 };
 
 type V8CoverageMerger = {
@@ -83,12 +85,12 @@ async function checkpointCoverage(
 ): Promise<void> {
 	const key = testInfo.workerIndex;
 	const previous = coverageByWorker.get(key);
-	const mergedResult = previous
+	const mergedResult = previous && result.length > 0
 		? (await v8CoverageMerger!).mergeProcessCovs([
 			structuredClone({ result: previous.result }),
 			structuredClone({ result }),
 		]).result
-		: result;
+		: previous?.result ?? result;
 	const receipt: CoverageReceipt = {
 		result: mergedResult,
 		buildId: browserCoverageBuildId!,
@@ -100,6 +102,8 @@ async function checkpointCoverage(
 			...(previous?.expectedFiles ?? []),
 			...(expectedFiles ?? []),
 		])].sort(),
+		testsWithApplicationScripts: (previous?.testsWithApplicationScripts ?? 0) + Number(result.length > 0),
+		testsWithoutApplicationScripts: (previous?.testsWithoutApplicationScripts ?? 0) + Number(result.length === 0),
 	};
 	coverageByWorker.set(key, receipt);
 	const output = coverageOutput(testInfo);
@@ -239,15 +243,15 @@ export const test = base.extend<{ browserCoverage: undefined }>({
 						return [];
 					}
 				});
-				if (result.length === 0) coverageError = new Error("browser coverage: no same-origin /_app/ scripts were collected");
-				else {
-					await checkpointCoverage(
-						testInfo,
-						result,
-						browserCoverageExpectedManifest?.routes,
-						browserCoverageExpectedManifest?.files,
-					);
-				}
+				// CLI/API-only and PWA-manifest checks can legitimately load no
+				// application chunk. Keep their checkpoint for an auditable count;
+				// the final merged route/shim manifest still requires real DA data.
+				await checkpointCoverage(
+					testInfo,
+					result,
+					browserCoverageExpectedManifest?.routes,
+					browserCoverageExpectedManifest?.files,
+				);
 			} catch (error) {
 				coverageError = error instanceof Error ? error : new Error(String(error));
 			} finally {

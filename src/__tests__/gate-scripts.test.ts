@@ -511,6 +511,38 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     ].join("\n");
     expect(unassertedAddedBlocks(ignored, new Set([2, 3, 4]))).toHaveLength(1);
   });
+  test("does not borrow a nested helper with the same name from another test", () => {
+    const duplicate = [
+      "function saveAndReload() {}",
+      "test('unrelated helper', () => {",
+      "  function saveAndReload() { expect(true).toBe(true); }",
+      "  saveAndReload();",
+      "});",
+      "test('does not assert', () => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(duplicate, new Set([6, 7, 8]))).toHaveLength(1);
+  });
+  test("does not treat a parameter that shadows a file helper as its assertion", () => {
+    const shadowedParameter = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "test('does not assert', ({ saveAndReload }) => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(shadowedParameter, new Set([2, 3, 4]))).toHaveLength(1);
+  });
+  test("does not treat a local binding that shadows a file helper as its assertion", () => {
+    const shadowedLocal = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "test('does not assert', () => {",
+      "  const saveAndReload = () => {};",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(shadowedLocal, new Set([2, 3, 4, 5]))).toHaveLength(1);
+  });
   test("ignores blocks not touched by the diff", () => {
     expect(unassertedAddedBlocks(noAssert, new Set([999]))).toEqual([]);
   });
