@@ -78,6 +78,7 @@ function makeAllowEngine(): PermissionEngine {
       _scope: AlwaysAllowScope,
       _scopeId: string,
     ): Promise<void> {},
+    async flushAudit(): Promise<void> {},
     _resetCacheForTests(): void {},
   };
 }

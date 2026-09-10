@@ -86,6 +86,7 @@ function makeRecordingEngine(): RecordingEngine {
       _scope: AlwaysAllowScope,
       _scopeId: string,
     ): Promise<void> {},
+    async flushAudit(): Promise<void> {},
     _resetCacheForTests(): void {
       calls.length = 0;
     },

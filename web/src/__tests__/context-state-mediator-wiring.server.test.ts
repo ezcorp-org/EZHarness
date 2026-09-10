@@ -103,6 +103,7 @@ vi.mock("$server/extensions/tool-executor", () => ({
 }));
 vi.mock("$server/extensions/permission-engine", () => ({
 	getPermissionEngine: vi.fn(() => ({})),
+	flushPermissionAuditForShutdown: vi.fn(async () => undefined),
 }));
 vi.mock("$lib/server/security/bundled-creds", () => ({
 	bootstrapBundledCredentials: vi.fn(async () => undefined),

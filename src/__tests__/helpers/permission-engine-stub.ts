@@ -70,6 +70,9 @@ export function createStubPermissionEngine(
     ): Promise<void> {
       // No-op for the stub.
     },
+    async flushAudit(): Promise<void> {
+      // The stub never persists coalesced rows.
+    },
     _resetCacheForTests(): void {
       calls.length = 0;
     },

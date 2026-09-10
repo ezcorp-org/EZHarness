@@ -63,8 +63,11 @@ afterAll(async () => {
 
 import {
   createPermissionEngine,
+  flushPermissionAuditForShutdown,
+  getPermissionEngine,
   primeConversationOverrideCache,
   _resetOverrideCacheForTests,
+  _resetPermissionEngineForTests,
   type AuthorizeContext,
 } from "../extensions/permission-engine";
 import { COALESCE_FLUSH_AT } from "../extensions/perm-audit-coalescer";
@@ -97,6 +100,18 @@ function engineFor(registry: ExtensionRegistry) {
       typeof createPermissionEngine
     >[0]["bus"],
     db: { _token: "deny-coalesce-test" },
+  });
+}
+
+/** Build the process engine the shutdown hook reaches in production. */
+function singletonEngineFor(registry: ExtensionRegistry) {
+  _resetPermissionEngineForTests();
+  return getPermissionEngine({
+    registry,
+    bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<
+      typeof createPermissionEngine
+    >[0]["bus"],
+    db: { _token: "deny-coalesce-shutdown-test" },
   });
 }
 
@@ -170,6 +185,32 @@ describe("a persistent deny writes one row, not one per call", () => {
     expect(rows[0]!.target).toBe(EXT_ID);
 
     engine._resetCacheForTests();
+  });
+
+  test("the production engine drains a pending tail before its database closes", async () => {
+    const engine = singletonEngineFor(revokedRegistry());
+    try {
+      for (let i = 0; i < 2; i++) {
+        expect((await engine.authorize(ctxFor(), NEEDED)).decision).toBe("deny");
+      }
+
+      // The unref'd 10-second window is intentionally still open. This is the
+      // shutdown edge: without an explicit drain, process exit loses the one
+      // suppressed refusal forever.
+      expect(await denyRows()).toHaveLength(1);
+      await flushPermissionAuditForShutdown();
+
+      const rows = await denyRows();
+      const tails = tailRows(rows);
+      expect(rows).toHaveLength(2);
+      expect(tails).toHaveLength(1);
+      const tail = tails[0]!.metadata as Record<string, unknown>;
+      expect(tail.suppressed).toBe(1);
+      expect(tail.totalInWindow).toBe(2);
+      expect(tail.headAuditId).toBe((rows.find((row) => !tails.includes(row))!.metadata as Record<string, unknown>).auditId);
+    } finally {
+      _resetPermissionEngineForTests();
+    }
   });
 
   test("the flushed tail row accounts for every suppressed refusal", async () => {

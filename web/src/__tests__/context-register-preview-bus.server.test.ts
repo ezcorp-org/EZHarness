@@ -36,6 +36,9 @@ const bootWiring = vi.hoisted(() => ({
   workflowRuntime: null as unknown,
   commandOptions: null as unknown,
 }));
+const permissionAudit = vi.hoisted(() => ({
+	flushAudit: vi.fn(async () => undefined),
+}));
 const degradedBoot = vi.hoisted(() => ({
   lifecycle: new Error("lifecycle unavailable"),
   bundled: new Error("bundled staging unavailable"),
@@ -100,7 +103,8 @@ vi.mock("$server/extensions/tool-executor", () => ({
   },
 }));
 vi.mock("$server/extensions/permission-engine", () => ({
-  getPermissionEngine: vi.fn(() => ({})),
+	getPermissionEngine: vi.fn(() => permissionAudit),
+	flushPermissionAuditForShutdown: vi.fn(async () => permissionAudit.flushAudit()),
 }));
 vi.mock("$lib/server/security/bundled-creds", () => ({
   bootstrapBundledCredentials: vi.fn(async () => undefined),
@@ -224,6 +228,16 @@ describe("ensureInitialized — registers the live preview bus (gap #3)", () => 
 
     // Wiring fired exactly once.
     expect(registerPreviewBus).toHaveBeenCalledTimes(1);
+	const drainPermissionAudit = reloadFixture.teardowns.get("permission-audit-coalescer");
+	expect(drainPermissionAudit).toBeTypeOf("function");
+	expect([...reloadFixture.teardowns.keys()].indexOf("pglite-close")).toBeLessThan(
+		[...reloadFixture.teardowns.keys()].indexOf("permission-audit-coalescer"),
+	);
+	expect([...reloadFixture.teardowns.keys()].indexOf("permission-audit-coalescer")).toBeLessThan(
+		[...reloadFixture.teardowns.keys()].indexOf("backups"),
+	);
+	await drainPermissionAudit?.();
+	expect(permissionAudit.flushAudit).toHaveBeenCalledTimes(1);
     const registeredBus = registerPreviewBus.mock.calls[0]![0];
     // The registered bus is a real, non-null object.
     expect(registeredBus).toBeTruthy();

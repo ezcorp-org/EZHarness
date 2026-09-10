@@ -50,6 +50,7 @@ function makeAllowEngine(): NetworkInternalContext["engine"] {
   return {
     authorize: async () => ({ decision: "allow", auditId: "stub-allow" }),
     resolvePrompt: async () => {},
+    flushAudit: async () => {},
     _resetCacheForTests: () => {},
   };
 }
@@ -58,6 +59,7 @@ function makeDenyEngine(reason = "no host capability"): NetworkInternalContext["
   return {
     authorize: async () => ({ decision: "deny", reason, auditId: "stub-deny" }),
     resolvePrompt: async () => {},
+    flushAudit: async () => {},
     _resetCacheForTests: () => {},
   };
 }
@@ -149,6 +151,7 @@ describe("handleNetworkInternalRpc — PDP gate", () => {
         return { decision: "allow", auditId: "x" };
       },
       resolvePrompt: async () => {},
+      flushAudit: async () => {},
       _resetCacheForTests: () => {},
     };
     await handleNetworkInternalRpc(
@@ -180,6 +183,7 @@ describe("handleNetworkInternalRpc — PDP gate", () => {
         return { decision: "allow", auditId: "x" };
       },
       resolvePrompt: async () => {},
+      flushAudit: async () => {},
       _resetCacheForTests: () => {},
     };
     await handleNetworkInternalRpc(
@@ -203,6 +207,7 @@ describe("handleNetworkInternalRpc — PDP gate", () => {
         return { decision: "allow", auditId: "x" };
       },
       resolvePrompt: async () => {},
+      flushAudit: async () => {},
       _resetCacheForTests: () => {},
     };
     await handleNetworkInternalRpc(

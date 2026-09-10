@@ -29,7 +29,10 @@ import {
 } from "$server/extensions/bundled";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { ToolExecutor } from "$server/extensions/tool-executor";
-import { getPermissionEngine } from "$server/extensions/permission-engine";
+import {
+  flushPermissionAuditForShutdown,
+  getPermissionEngine,
+} from "$server/extensions/permission-engine";
 import { reconcileExtensionLifecycle, recoverExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
 import { startExtensionDeliveryRuntime, stopExtensionDeliveryRuntime } from "$server/extensions/delivery-runtime";
 import {
@@ -122,6 +125,10 @@ export async function ensureInitialized(): Promise<void> {
   registerTeardown("pglite-close", async () => {
     await closeDb();
   });
+  // Register immediately after the DB closer. Shutdown is LIFO, so every
+  // later decision producer stops first; this then awaits pending folded
+  // permission-audit writes while PGlite is still open.
+  registerTeardown("permission-audit-coalescer", flushPermissionAuditForShutdown);
   startBackups();
   registerTeardown("backups", () => {
     stopBackups();
