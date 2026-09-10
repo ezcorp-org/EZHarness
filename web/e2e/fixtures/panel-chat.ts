@@ -23,7 +23,7 @@ const assistantMessage = makeMessage({
 	id: "panel-assistant-1",
 	conversationId: panelConversation.id,
 	role: "assistant",
-	content: '{"type":"agent_ref","agentName":"TestAgent","subConversationId":"sub-conv-1","runId":"run-1"}\n\nDelegating to TestAgent.',
+	content: "Delegating to TestAgent.",
 	parentMessageId: userMessage.id,
 	createdAt: "2026-01-01T00:00:30.000Z",
 });
@@ -46,7 +46,7 @@ const replyMessage = makeMessage({
 export function panelMock(overrides: Partial<MockOverrides> = {}): MockOverrides {
 	return {
 		projects: [panelProject],
-		conversations: [panelConversation],
+		conversations: [panelConversation, makeConversation({ id: "sub-conv-1", projectId: panelProject.id, parentConversationId: panelConversation.id, provider: "anthropic", model: "claude-sonnet-4-20250514" })],
 		messages: [userMessage, assistantMessage, taskMessage, replyMessage],
 		subConversations: [{
 			id: "sub-conv-1",
@@ -75,21 +75,15 @@ export async function openAgentPanel(page: Page, mockApi: MockApi, overrides: Pa
 }
 
 export async function openTeamPanel(page: Page, mockApi: MockApi) {
+	const task = {
+		id: "team-task", title: "Team task", description: "", status: "active" as const, priority: 0,
+		assignments: [{ id: "team-assignment", agentConfigId: "team-cfg-1", agentName: "TestTeam", isTeam: true, status: "running", assignedAt: "2026-01-01T00:00:00Z", subConversationId: "sub-conv-1" }],
+		subtasks: [], createdAt: "2026-01-01T00:00:00Z",
+	};
 	await mockApi(panelMock({
-		taskSnapshots: {
-			[panelConversation.id]: {
-				tasks: [{
-					id: "team-task", title: "Team task", description: "", status: "active", priority: 0,
-					assignments: [{ id: "team-assignment", agentConfigId: "team-cfg-1", agentName: "TestTeam", isTeam: true, status: "running", assignedAt: "2026-01-01T00:00:00Z", subConversationId: "sub-conv-1" }],
-					subtasks: [], createdAt: "2026-01-01T00:00:00Z",
-				}], activeTaskId: "team-task",
-			},
-		},
+		taskSnapshots: { [panelConversation.id]: { tasks: [task], activeTaskId: task.id } },
 		routes: {
-			"/tasks": () => ({ conversationId: panelConversation.id, tasks: [{
-				id: "team-task", title: "Team task", description: "", status: "active", priority: 0,
-				assignments: [{ id: "team-assignment", agentConfigId: "team-cfg-1", agentName: "TestTeam", isTeam: true, status: "running", assignedAt: "2026-01-01T00:00:00Z", subConversationId: "sub-conv-1" }], subtasks: [], createdAt: "2026-01-01T00:00:00Z",
-			}] }),
+			"/tasks": () => ({ conversationId: panelConversation.id, tasks: [task] }),
 			"team/team-cfg-1/messages": () => ({
 				team: { name: "TestTeam", members: [{ agentConfigId: "cfg-1", agentName: "TestAgent" }] },
 				orchestrator: { agentConfigId: "team-cfg-1", agentName: "TestAgent", subConversationId: "sub-conv-1", messages: [{ id: "team-reply", role: "assistant", content: "Team response", createdAt: "2026-01-01T00:01:00Z", toolCalls: [] }] },

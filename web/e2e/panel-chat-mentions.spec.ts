@@ -98,6 +98,10 @@ test.describe("AgentDetailPanel scroll-to-bottom button", () => {
 		await expect(jump).toBeVisible();
 		await jump.click();
 		await expect(jump).toBeHidden();
+		await expect.poll(() => scroller.evaluate((element) =>
+			element.scrollHeight - element.scrollTop - element.clientHeight,
+		)).toBeLessThanOrEqual(2);
+		await expect(panel.getByText("Long panel response 29", { exact: false })).toBeInViewport();
 	});
 });
 
@@ -120,20 +124,17 @@ test.describe("Panel chat input sends mentions with message", () => {
 	test("submitted message includes mention token", async ({ page, mockApi }) => {
 		const panel = await openMentionPanel(page, mockApi);
 		await installMentionSearch(page);
-		let body: unknown;
-		await page.route("**/api/conversations/sub-conv-1/messages", async (route) => {
-			if (route.request().method() !== "POST") return route.continue();
-			body = route.request().postDataJSON();
-			return route.fulfill({ json: { userMessage: { id: "sent", conversationId: "sub-conv-1", role: "user", content: (body as { content: string }).content, createdAt: "2026-01-01T00:02:00Z" }, runId: "run-sent", attachments: [], ezActionResults: [] } });
-		});
 		const textarea = panel.locator("textarea");
 		await selectCoder(panel, textarea);
 		await expect(textarea).toHaveValue(/!Coder/);
 		await textarea.press("End");
 		await textarea.pressSequentially("please review this");
-		const request = page.waitForRequest((candidate) => candidate.method() === "POST" && new URL(candidate.url()).pathname === "/api/conversations/sub-conv-1/messages");
+		const sent = page.waitForResponse((response) => response.request().method() === "POST"
+			&& new URL(response.url()).pathname === "/api/conversations/sub-conv-1/messages");
 		await panel.getByRole("button", { name: "Send message" }).click();
-		await request;
-		expect(body).toMatchObject({ content: "![agent:Coder] please review this" });
+		const response = await sent;
+		expect(response.status()).toBe(200);
+		expect(response.request().postDataJSON()).toMatchObject({ content: "![agent:Coder] please review this" });
+		await expect(panel.getByTestId("chat-messages-container").getByText("please review this", { exact: false })).toBeVisible();
 	});
 });

@@ -1,11 +1,36 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeAgent } from "./fixtures/data.js";
 import { openAgentPanel, openTeamPanel, type MockApi } from "./fixtures/panel-chat.js";
-import type { Page } from "@playwright/test";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
+import type { Locator, Page } from "@playwright/test";
 
 const agents = [makeAgent({ name: "TestAgent", description: "Delegated agent" })];
+const selectedModel = { provider: "openai", model: "gpt-4o" };
 async function open(page: Page, mockApi: MockApi) {
 	return openAgentPanel(page, mockApi, { agents });
+}
+
+async function selectModel(page: Page, panel: Locator) {
+	const picker = panel.getByTestId("model-selector");
+	await expect(picker.getByRole("button")).toContainText("Claude Sonnet 4");
+	await picker.getByRole("button").click();
+	const updated = page.waitForResponse((response) => response.request().method() === "PUT"
+		&& new URL(response.url()).pathname === "/api/conversations/sub-conv-1");
+	await page.getByRole("option", { name: /GPT-4o/ }).click();
+	const response = await updated;
+	expect(response.status()).toBe(200);
+	expect(response.request().postDataJSON()).toEqual(selectedModel);
+	await expect(picker.getByRole("button")).toContainText("GPT-4o");
+}
+
+async function send(page: Page, panel: Locator, text: string) {
+	const sent = page.waitForResponse((response) => response.request().method() === "POST"
+		&& new URL(response.url()).pathname === "/api/conversations/sub-conv-1/messages");
+	await sendComposerMessage(panel, text);
+	const response = await sent;
+	expect(response.status()).toBe(200);
+	await expect(threadMessages(panel).getByText(text, { exact: true })).toBeVisible();
+	return response.request().postDataJSON();
 }
 
 test.describe("AgentDetailPanel Chat Input", () => {
@@ -19,74 +44,30 @@ test.describe("AgentDetailPanel Chat Input", () => {
 		await expect(send).toBeEnabled();
 	});
 
-	test("sends message via agent-chat endpoint on submit", async ({ page, mockApi }) => {
+	test("sends a visible message through the sub-conversation messages endpoint", async ({ page, mockApi }) => {
 		const panel = await open(page, mockApi);
-		let body: unknown;
-		await page.route("**/api/conversations/sub-conv-1/messages", async (route) => {
-			if (route.request().method() !== "POST") return route.continue();
-			body = route.request().postDataJSON();
-			return route.fulfill({ json: { userMessage: { id: "sent", conversationId: "sub-conv-1", role: "user", content: "Focus on tests first", createdAt: "2026-01-01T00:02:00Z" }, runId: "run-sent", attachments: [], ezActionResults: [] } });
-		});
-		await panel.locator("textarea").fill("Focus on tests first");
-		const sent = page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/conversations/sub-conv-1/messages");
-		await panel.getByRole("button", { name: "Send message" }).click();
-		await sent;
-		expect(body).toMatchObject({ content: "Focus on tests first" });
+		expect(await send(page, panel, "Focus on tests first")).toMatchObject({ content: "Focus on tests first" });
 	});
 });
 
 test.describe("AgentDetailPanel Model Picker", () => {
 	test("picker is visible and shows the agent's last-used model", async ({ page, mockApi }) => {
 		const panel = await open(page, mockApi);
-		const picker = panel.getByTestId("model-selector");
-		await expect(picker).toBeVisible();
-		await expect(picker.getByRole("button")).toBeVisible();
+		await expect(panel.getByTestId("model-selector").getByRole("button")).toContainText("Claude Sonnet 4");
 	});
 
-	test("switching the model PUTs { provider, model } to the sub-conv endpoint", async ({ page, mockApi }) => {
+	test("switching the model persists the exact provider and model", async ({ page, mockApi }) => {
 		const panel = await open(page, mockApi);
-		let update: unknown;
-		await page.route("**/api/conversations/sub-conv-1", async (route) => {
-		if (route.request().method() !== "PUT") return route.continue();
-			update = route.request().postDataJSON();
-			return route.fulfill({ json: {} });
-		});
-		const picker = panel.getByTestId("model-selector");
-		await picker.getByRole("button").click();
-		const option = page.getByRole("option").nth(1);
-		await expect(option).toBeVisible();
-		const updated = page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname === "/api/conversations/sub-conv-1");
-		await option.click();
-		await updated;
-		expect(update).toEqual(expect.objectContaining({ provider: expect.any(String), model: expect.any(String) }));
+		await selectModel(page, panel);
+		await page.reload();
+		await expect(panel).toBeVisible();
+		await expect(panel.getByTestId("model-selector").getByRole("button")).toContainText("GPT-4o");
 	});
 
-	test("sending a message after switching includes the new { provider, model } in the agent-chat body", async ({ page, mockApi }) => {
+	test("sending after switching uses the new provider and model", async ({ page, mockApi }) => {
 		const panel = await open(page, mockApi);
-		let update: { provider: string; model: string } | undefined;
-		let body: unknown;
-		await page.route("**/api/conversations/sub-conv-1", async (route) => {
-			if (route.request().method() !== "PUT") return route.continue();
-			update = route.request().postDataJSON() as { provider: string; model: string };
-			return route.fulfill({ json: {} });
-		});
-		await page.route("**/api/conversations/sub-conv-1/messages", async (route) => {
-			if (route.request().method() !== "POST") return route.continue();
-			body = route.request().postDataJSON();
-			return route.fulfill({ json: { userMessage: { id: "sent", conversationId: "sub-conv-1", role: "user", content: "Try again", createdAt: "2026-01-01T00:02:00Z" }, runId: "run-sent", attachments: [], ezActionResults: [] } });
-		});
-		const picker = panel.getByTestId("model-selector");
-		await picker.getByRole("button").click();
-		const option = page.getByRole("option").nth(1);
-		const updated = page.waitForRequest((request) => request.method() === "PUT" && new URL(request.url()).pathname === "/api/conversations/sub-conv-1");
-		await option.click();
-		await updated;
-		expect(update).toEqual(expect.objectContaining({ provider: expect.any(String), model: expect.any(String) }));
-		await panel.locator("textarea").fill("Try again");
-		const sent = page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/conversations/sub-conv-1/messages");
-		await panel.getByRole("button", { name: "Send message" }).click();
-		await sent;
-		expect(body).toMatchObject({ content: "Try again", ...update });
+		await selectModel(page, panel);
+		expect(await send(page, panel, "Try again")).toMatchObject({ content: "Try again", ...selectedModel });
 	});
 });
 
