@@ -32,109 +32,7 @@ import type { Page } from "@playwright/test";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
-// ── Fake-worker init script ─────────────────────────────────────────
-//
-// Replaces `window.Worker` BEFORE the page boots so the kokoro-tts-bridge
-// (which spawns its worker lazily on first synthesize() call via
-// `new Worker(new URL(..., import.meta.url), { type: "module" })`) gets
-// our stub instead of trying to load the real kokoro-js bundle.
-//
-// The stub speaks the same wire protocol as `kokoro-tts-worker.ts`:
-//   request:  { type: "synthesize", id, text, voice }
-//   response: { type: "loading", id, phase } | { type: "ready", id }
-//             | { type: "audio", id, wav: ArrayBuffer }
-//             | { type: "error", id, message }
-//
-// Behavior is configurable via `window.__kokoroStub`:
-//   - calls            : array of { text, voice, speed, id } captured per
-//                        postMessage. Specs assert on this to prove the
-//                        bridge actually invoked the worker (or didn't —
-//                        e.g. on reload, where the persisted attachment
-//                        should bypass synthesis entirely).
-//   - failNextN        : count of synthesize() calls to fail before
-//                        succeeding. Drives the retry-path spec.
-//   - failureMessage   : error message string. Defaults to
-//                        "synthesis failed: stub".
-interface KokoroStubOptions {
-  failNextN?: number;
-  failureMessage?: string;
-}
-
-async function installWorkerStub(page: Page, options: KokoroStubOptions = {}): Promise<void> {
-  await page.addInitScript((initial: KokoroStubOptions) => {
-    const w = window as unknown as Record<string, unknown>;
-    w.__kokoroStub = {
-      calls: [] as Array<{ text: string; voice: string | undefined; speed: number | undefined; id: string }>,
-      failNextN: initial.failNextN ?? 0,
-      failureMessage: initial.failureMessage ?? "synthesis failed: stub",
-    };
-    // 4-byte ArrayBuffer is enough — the card wraps it as a Blob and the
-    // <audio> element doesn't try to actually decode it in this spec.
-    function makeFakeWav(): ArrayBuffer {
-      return new Uint8Array([0, 0, 0, 0]).buffer;
-    }
-
-    class StubWorker {
-      private listeners: Record<string, Array<(e: Event) => void>> = {
-        message: [],
-        error: [],
-        messageerror: [],
-      };
-      onmessage: ((e: MessageEvent) => void) | null = null;
-      onerror: ((e: Event) => void) | null = null;
-      onmessageerror: ((e: Event) => void) | null = null;
-
-      postMessage(msg: unknown): void {
-        const stub = (window as unknown as { __kokoroStub: {
-          calls: Array<{ text: string; voice: string | undefined; speed: number | undefined; id: string }>;
-          failNextN: number;
-          failureMessage: string;
-        } }).__kokoroStub;
-        if (
-          msg == null ||
-          typeof msg !== "object" ||
-          (msg as Record<string, unknown>).type !== "synthesize"
-        ) return;
-        const req = msg as { type: "synthesize"; id: string; text: string; voice?: string; speed?: number };
-        stub.calls.push({ text: req.text, voice: req.voice, speed: req.speed, id: req.id });
-
-        const dispatch = (data: unknown) => {
-          const ev = new MessageEvent("message", { data });
-          this.onmessage?.(ev);
-          for (const fn of this.listeners.message ?? []) fn(ev);
-        };
-
-        // Microtask cadence: loading → ready → audio (or error). Mirrors
-        // the real worker enough that the card walks through its
-        // "Loading model…" → "Synthesizing…" → "audio plays" states.
-        queueMicrotask(() => {
-          if (stub.failNextN > 0) {
-            stub.failNextN--;
-            dispatch({ type: "error", id: req.id, message: stub.failureMessage });
-            return;
-          }
-          dispatch({ type: "loading", id: req.id, phase: "model" });
-          queueMicrotask(() => {
-            dispatch({ type: "ready", id: req.id });
-            queueMicrotask(() => {
-              dispatch({ type: "audio", id: req.id, wav: makeFakeWav() });
-            });
-          });
-        });
-      }
-
-      addEventListener(type: string, fn: (e: Event) => void): void {
-        (this.listeners[type] ??= []).push(fn);
-      }
-      removeEventListener(type: string, fn: (e: Event) => void): void {
-        const arr = this.listeners[type];
-        if (arr) this.listeners[type] = arr.filter((f) => f !== fn);
-      }
-      terminate(): void {}
-    }
-    (window as unknown as { Worker: unknown }).Worker = StubWorker as unknown;
-  }, options);
-}
+import { installKokoroWorkerStub } from "./fixtures/kokoro-worker.js";
 
 // ── Toolbar contribution fixture ─────────────────────────────────────
 //
@@ -375,7 +273,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     page,
     mockApi,
   }) => {
-    await installWorkerStub(page);
+    await installKokoroWorkerStub(page);
 
     // (10) Save: capture so we can assert the body shape carries
     // conversationId (the recent "Invalid body" 400 regression).
@@ -435,7 +333,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     page,
     mockApi,
   }) => {
-    await installWorkerStub(page);
+    await installKokoroWorkerStub(page);
 
     // Persisted extension turn — already in the conversation history.
     const ttsTurn = makeMessage({
@@ -607,7 +505,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     page,
     mockApi,
   }) => {
-    await installWorkerStub(page, { failNextN: 1, failureMessage: "model load timed out" });
+    await installKokoroWorkerStub(page, { failNextN: 1, failureMessage: "model load timed out" });
 
     // A real extension event persists the turn before this page reloads.
     // Hydrate that current API contract so the card starts its first attempt.
@@ -700,7 +598,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     page,
     mockApi,
   }) => {
-    await installWorkerStub(page);
+    await installKokoroWorkerStub(page);
     const ttsTurn = makeMessage({
       id: "m3", conversationId: conv.id, role: "extension",
       content: "🔊 TTS of message (n chars)", excluded: true,

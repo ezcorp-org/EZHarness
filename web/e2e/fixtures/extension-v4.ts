@@ -76,8 +76,15 @@ export async function importAndActivateBundledExtension({ page, request, baseURL
   const release = state.releases[state.operations[created.operation.id]!.releaseId!]!;
   expect(release.manifest.name).toBe(name);
   const active = await approveAndActivateWorkspace(page, client, created, state, release.id);
-  const tools = await request.get(`/api/extensions/${encodeURIComponent(name)}/tools`);
-  expect(tools.status(), await tools.text()).toBe(200);
-  expect((await tools.json()).tools.map((tool: { name: string }) => tool.name).sort()).toEqual((release.manifest.tools ?? []).map(tool => tool.name).sort());
+  // Event-only extensions (for example Kokoro TTS) intentionally have no
+  // tool endpoint. Query and compare the registry only when the release
+  // actually declares callable tools; a 404 is meaningful for an event-only
+  // manifest and must not make activation appear to fail.
+  const declaredTools = release.manifest.tools ?? [];
+  if (declaredTools.length > 0) {
+    const tools = await request.get(`/api/extensions/${encodeURIComponent(name)}/tools`);
+    expect(tools.status(), await tools.text()).toBe(200);
+    expect((await tools.json()).tools.map((tool: { name: string }) => tool.name).sort()).toEqual(declaredTools.map(tool => tool.name).sort());
+  }
   return { client, state: active };
 }

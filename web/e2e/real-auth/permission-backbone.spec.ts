@@ -6,9 +6,9 @@
  * all use the real PGlite-backed application.
  */
 import { test, expect } from "../fixtures/hydration.js";
-import type { Page } from "@playwright/test";
 import { importAndActivateBundledExtension } from "../fixtures/extension-v4.js";
 import { createMemberSession } from "../fixtures/member-session.js";
+import { installKokoroWorkerStub } from "../fixtures/kokoro-worker.js";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -31,56 +31,6 @@ type AuditEntry = {
   action: string;
   metadata: Record<string, unknown> | null;
 };
-
-/**
- * Reuse the browser-only Worker seam that the Kokoro card needs. Its audio
- * bytes travel through the actual upload and save routes; no application API,
- * audit, event, or runtime route is intercepted.
- */
-async function installKokoroWorker(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    class DeterministicAudioWorker {
-      private listeners: Record<string, Array<(event: Event) => void>> = {
-        message: [],
-        error: [],
-        messageerror: [],
-      };
-
-      postMessage(raw: unknown): void {
-        if (!raw || typeof raw !== "object") return;
-        const request = raw as { type?: unknown; id?: unknown };
-        if (request.type !== "synthesize" || typeof request.id !== "string") return;
-        const send = (data: unknown) => {
-          const event = new MessageEvent("message", { data });
-          for (const listener of this.listeners.message) listener(event);
-        };
-        queueMicrotask(() => {
-          send({ type: "loading", id: request.id, phase: "model" });
-          queueMicrotask(() => {
-            send({ type: "ready", id: request.id });
-            queueMicrotask(() => {
-              // A non-empty WAV-typed blob is sufficient for the host upload
-              // contract. Browser media decoding is not part of this control.
-              send({ type: "audio", id: request.id, wav: new Uint8Array([82, 73, 70, 70]).buffer });
-            });
-          });
-        });
-      }
-
-      addEventListener(type: string, listener: (event: Event) => void): void {
-        (this.listeners[type] ??= []).push(listener);
-      }
-
-      removeEventListener(type: string, listener: (event: Event) => void): void {
-        this.listeners[type] = (this.listeners[type] ?? []).filter(candidate => candidate !== listener);
-      }
-
-      terminate(): void {}
-    }
-
-    window.Worker = DeterministicAudioWorker as unknown as typeof Worker;
-  });
-}
 
 test.describe("permission backbone — native toolbar and retired reapproval", () => {
   test("anonymous audit navigation is redirected to sign in", async ({ browser, baseURL }) => {
@@ -114,7 +64,7 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
   });
   test("toolbar click records an allowed append decision and durable tool output", async ({ page, request, baseURL }) => {
     test.setTimeout(300_000);
-    await installKokoroWorker(page);
+    await installKokoroWorkerStub(page);
 
     const { state } = await importAndActivateBundledExtension({
       page,
