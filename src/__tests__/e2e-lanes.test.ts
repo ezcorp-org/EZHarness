@@ -245,6 +245,9 @@ describe("e2e lane manifest", () => {
     expect(ci).toContain("collect-browser-route-coverage-lane.sh fresh-setup");
     expect(ci).toContain("collect-browser-route-coverage-lane.sh real-auth");
     expect(collector).toContain('bun scripts/run-real-e2e.ts "$lane"');
+    expect(collector).toContain("EZCORP_BROWSER_COVERAGE_SOURCE_REVISION");
+    expect(collector).toContain('git -C "$repo_root" rev-parse HEAD');
+    expect(ci).toContain("verify-browser-coverage-receipt.ts");
     // The old hand-listed spec regexes must not resurface beside it.
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });

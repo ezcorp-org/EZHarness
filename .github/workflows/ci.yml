@@ -532,6 +532,7 @@ jobs:
           bun scripts/browser-coverage-to-lcov.ts --merge-raw "$OUT/merged.json" "${RECEIPTS[@]}"
           bun scripts/browser-route-coverage-manifest.ts --check "$OUT/merged.json"
           bun scripts/browser-coverage-to-lcov.ts "$OUT/merged.json" "$OUT/lcov.info"
+          bun scripts/verify-browser-coverage-receipt.ts "$OUT/merged.json" "$OUT/lcov.info"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
