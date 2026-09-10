@@ -161,3 +161,9 @@
 
 - A failover test that writes context state directly does not cover the event bridge that supplies it. For each newly persisted bridge field, emit the real terminal event in a direct bridge test and assert the field before relying on end-to-end coverage.
 - A transport isolation probe must fail closed. Its spy may count an unexpected call, but must never forward it to the original transport.
+
+## 2026-09-09 — Coverage receipt accuracy
+
+- Read pass, failure, and skip counts from the complete runner summary. Do not infer passes by subtracting failures from collected tests: skipped tests are separate.
+- Keyboard model selection follows visible group order, not fixture insertion order. Assert the selected label and choose a reasoning model explicitly before testing its thinking control.
+- Cancelling Playwright can leave its preview child bound to the private port. Check the listener and working directory, stop only that owned process, then rerun. A port collision is not a product failure.
