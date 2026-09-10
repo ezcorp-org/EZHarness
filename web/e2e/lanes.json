@@ -334,7 +334,6 @@
       "web/e2e/project.spec.ts",
       "web/e2e/pwa.spec.ts",
       "web/e2e/quickstart-checklist.spec.ts",
-      "web/e2e/register-redirects.spec.ts",
       "web/e2e/reliability.spec.ts",
       "web/e2e/rendering-edge-cases.spec.ts",
       "web/e2e/run-detail.spec.ts",
