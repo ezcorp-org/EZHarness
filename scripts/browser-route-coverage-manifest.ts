@@ -9,8 +9,10 @@ export function scriptedRouteFiles(): string[] {
     .sort();
 }
 
-export function assertCompleteRouteInventory(expected: readonly string[]): void {
-  const actual = scriptedRouteFiles();
+export function assertCompleteRouteInventory(
+  expected: readonly string[],
+  actual: readonly string[] = scriptedRouteFiles(),
+): void {
   const given = [...expected].sort();
   const duplicates = given.filter((path, i) => i > 0 && path === given[i - 1]);
   const missing = actual.filter((path) => !given.includes(path));
