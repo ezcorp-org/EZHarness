@@ -8,8 +8,14 @@ import { RunnerClient, executionLimits, buildLimits, filesDigest } from "../src"
 import { command } from "../src/core";
 
 test("Unix API checks peer UID and bearer and carries bidirectional RPC", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ez-runner-socket-"));
+  // Use a controlled short public path. The inherited test TMPDIR can already
+  // be nested; this keeps the public path valid while the former UUID child
+  // still exceeds Linux's AF_UNIX byte limit.
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-nested-");
+  const nestedDirectory = await mkdtemp(join(temporaryRoot, "tmp."));
+  const directory = await mkdtemp(join(nestedDirectory, "ez-runner-socket-"));
   const socketPath = join(directory, "runner.sock");
+  expect(Buffer.byteLength(join(directory, `.private-${"x".repeat(36)}`, "runner.sock"))).toBeGreaterThan(107);
   await command("python3", ["-c", "import socket,sys; connection=socket.socket(socket.AF_UNIX); connection.bind(sys.argv[1]); connection.close()", socketPath]);
   const token = "test-service-credential-32-bytes-minimum";
   let closed = false;
@@ -47,7 +53,7 @@ test("Unix API checks peer UID and bearer and carries bidirectional RPC", async 
     expect(await notification).toEqual({ method: "changed", params: { key: "updated" } });
     await execution.close();
     expect(closed).toBe(true);
-  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+  } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
 }, 15_000);
 
 test("wrong OS peer UID cannot reach the private runner", async () => {
@@ -57,4 +63,24 @@ test("wrong OS peer UID cannot reach the private runner", async () => {
   const runner = { inspect: async () => { throw new Error("must never reach handler"); } } as unknown as Runner;
   const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() + 1 });
   try { await expect(new RunnerClient({ socketPath, token }).inspect("worker")).rejects.toThrow(); } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("concurrent services allocate separate private upstream sockets", async () => {
+  const [firstDirectory, secondDirectory] = await Promise.all([
+    mkdtemp(join(tmpdir(), "ez-runner-first-")),
+    mkdtemp(join(tmpdir(), "ez-runner-second-")),
+  ]);
+  const token = "test-service-credential-32-bytes-minimum";
+  const runner = { inspect: async (id: string) => ({ id, state: "running", diagnostics: [] }) } as unknown as Runner;
+  const [first, second] = await Promise.all([
+    startRunnerService({ runner, socketPath: join(firstDirectory, "runner.sock"), token, allowedUid: process.getuid!() }),
+    startRunnerService({ runner, socketPath: join(secondDirectory, "runner.sock"), token, allowedUid: process.getuid!() }),
+  ]);
+  try {
+    await expect(new RunnerClient({ socketPath: join(firstDirectory, "runner.sock"), token }).inspect("first")).resolves.toMatchObject({ id: "first" });
+    await expect(new RunnerClient({ socketPath: join(secondDirectory, "runner.sock"), token }).inspect("second")).resolves.toMatchObject({ id: "second" });
+  } finally {
+    await Promise.all([first.close(), second.close()]);
+    await Promise.all([rm(firstDirectory, { recursive: true, force: true }), rm(secondDirectory, { recursive: true, force: true })]);
+  }
 });

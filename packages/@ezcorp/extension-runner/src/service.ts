@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { chmod, lstat, mkdir, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { BuildRequest, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
@@ -16,8 +16,16 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
   await mkdir(directory, { recursive: true, mode: 0o750 });
   const status = await lstat(directory);
   if (status.isSymbolicLink() || !status.isDirectory() || (status.mode & 0o022) !== 0 || status.uid !== process.getuid?.()) throw new RunnerError("unsafe_socket", "Runner socket directory must be owned by runner and not writable by others");
-  const privateDirectory = join(directory, `.private-${randomUUID()}`);
-  await mkdir(privateDirectory, { mode: 0o700 });
+  // The public socket can live in a service-specific nested directory. Keep
+  // the upstream socket short: Unix-domain socket paths have a small fixed
+  // byte limit, and the UUID directory below the public path can exceed it.
+  const privateDirectory = await mkdtemp("/tmp/ez-runner-");
+  await chmod(privateDirectory, 0o700);
+  const privateStatus = await lstat(privateDirectory);
+  if (privateStatus.isSymbolicLink() || !privateStatus.isDirectory() || (privateStatus.mode & 0o077) !== 0 || privateStatus.uid !== process.getuid?.()) {
+    await rm(privateDirectory, { recursive: true, force: true });
+    throw new RunnerError("unsafe_socket", "Runner private socket directory must be owned by runner and inaccessible to others");
+  }
   const privatePath = join(privateDirectory, "runner.sock");
   const sessions = new Map<string, Session>();
   let starting = 0;
