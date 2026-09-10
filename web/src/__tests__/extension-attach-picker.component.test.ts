@@ -74,7 +74,8 @@ describe("ExtensionAttachPicker", () => {
 		expect(cards[0]!.textContent).toContain("summarizer");
 		expect(cards[0]!.textContent).toContain("2 tools");
 		expect(cards[1]!.textContent).toContain("translator");
-		expect(cards[1]!.textContent).toContain("1 tools");
+		expect(cards[1]!.textContent).toContain("1 tool");
+		expect(cards[1]!.textContent).not.toContain("1 tools");
 	});
 
 	test("search filters cards by name/description (fuzzy)", async () => {

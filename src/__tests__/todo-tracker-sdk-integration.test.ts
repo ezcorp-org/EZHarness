@@ -38,7 +38,7 @@ const EXT_DIR = join(import.meta.dir, "..", "..", "docs", "extensions", "example
 // EXTENSION_V4_REQUIRED. The executable replacement builds and runs the v4
 // entrypoint through ExtensionProcess in
 // docs/extensions/examples/todo-tracker/e2e-server-pipeline.test.ts.
-describe.skip("todo-tracker retired createTestExtension contract", () => {
+describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", () => {
   let proc: ExtensionProcess | undefined;
   let cwd: string;
   let originalCwd: string;

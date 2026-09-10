@@ -51,7 +51,7 @@ const EXT_DIR = join(import.meta.dir, "..", "..", "docs", "extensions", "example
 // EXTENSION_V4_REQUIRED. The executable replacement builds and runs the v4
 // entrypoint through ExtensionProcess in
 // docs/extensions/examples/task-stack/e2e-server-pipeline.test.ts.
-describe.skip("task-stack retired createTestExtension contract", () => {
+describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () => {
   let proc: ExtensionProcess | undefined;
   let cwd: string;
   let originalCwd: string;

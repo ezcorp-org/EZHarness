@@ -34,7 +34,7 @@ test.describe("Global chat + handoff", () => {
 		await mockApi({ projects: [globalProj] });
 
 		await page.goto("/");
-		await page.waitForURL(/\/project\/global\/chat/);
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
 	});
 
 	test("Sidebar shows Chat link on Global and navigates to /project/global/chat", async ({

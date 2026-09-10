@@ -220,3 +220,5 @@
 - For retry tests, assert a successful response and new visible data. A timed error toast is separate state; its continued display does not prove that the retry failed.
 - Review every lint auto-fix, including all fake constructors, and remove unused pure declarations instead of hiding them with underscore names.
 - Preserve parent-path order when adding audit annotations to chat. Sort or merge only independent annotations, deduplicate IDs, and test inverted timestamps and branch isolation.
+
+- Large validation JSON files should remain linted. Use an exact-file size-limit override instead of excluding the files; measure the added lint cost. Keep historical skipped suite declarations unchanged when only documenting their executable replacements, so diff-scoped integrity checks do not misclassify them as new skips.
