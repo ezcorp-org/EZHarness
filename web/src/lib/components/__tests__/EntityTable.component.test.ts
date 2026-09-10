@@ -316,7 +316,7 @@ test("shows declaration guidance and honors a cancelled delete", async () => {
 	vi.stubGlobal("fetch", fetchMock);
 	render(EntityTable, { props: { extensionId: "ext-1", decl } });
 	await waitFor(() => expect(screen.getByText("A typed post record")).toBeTruthy());
-	await fireEvent.click(screen.getByTestId("entity-delete-post-type-weekly"));
+	await fireEvent.click(await screen.findByTestId("entity-delete-post-type-weekly"));
 	expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
