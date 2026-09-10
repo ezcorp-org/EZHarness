@@ -193,10 +193,21 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
   }
   const lcov = outputLcov(coverage);
   if (!lcov) throw new Error("browser coverage: no original Svelte route or shared-library records");
-  const files = new Set([...lcov.matchAll(/^SF:(.+)$/gm)].map((match) => repoFile(match[1]!)));
+  const recordEvidence = new Map<string, { hasDa: boolean; hasHit: boolean }>();
+  for (const record of lcov.split("end_of_record")) {
+    const source = record.match(/^SF:(.+)$/m)?.[1];
+    if (!source) continue;
+    const evidence = {
+      hasDa: /^DA:\d+,\d+$/m.test(record),
+      hasHit: /^DA:\d+,[1-9]\d*$/m.test(record),
+    };
+    recordEvidence.set(repoFile(source), evidence);
+  }
   for (const expected of expectedSources(raw)) {
     if (!isBrowserSource(expected)) throw new Error(`browser coverage: invalid expected source ${expected}`);
-    if (!files.has(expected)) throw new Error(`browser coverage: expected source has no mapped DA record: ${expected}`);
+    const evidence = recordEvidence.get(expected);
+    if (!evidence?.hasDa) throw new Error(`browser coverage: expected source has no mapped DA record: ${expected}`);
+    if (!evidence.hasHit) throw new Error(`browser coverage: expected source has only zero-hit DA records: ${expected}`);
   }
   return lcov;
 }

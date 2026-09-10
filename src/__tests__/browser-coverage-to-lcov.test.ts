@@ -76,6 +76,20 @@ test("checks missing routes even when a canonical shared source has mapped DA", 
   );
 });
 
+test("rejects an expected route with mapped but only zero-hit DA records", async () => {
+  const noHit = [{
+    functionName: "root",
+    isBlockCoverage: true,
+    ranges: [{ startOffset: 0, endOffset: code.length, count: 0 }],
+  }];
+  await expect(coverageToLcov({
+    result: [{ url: "http://app/_app/unvisited-route.js", functions: noHit }],
+    expectedRouteFiles: [route],
+  }, async () => ({ code, map: routeMap }))).rejects.toThrow(
+    "expected source has only zero-hit DA records",
+  );
+});
+
 test("resolves nested Vite map sources against the emitted chunk", async () => {
   const nestedMap = JSON.stringify({
     ...JSON.parse(routeMap),
