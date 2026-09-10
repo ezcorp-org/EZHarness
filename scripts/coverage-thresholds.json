@@ -728,5 +728,7 @@
   "web/src/lib/server/preview/ws-bridge.ts": 100,
   "worker/src/index.ts": 100,
   "web/src/lib/api.ts": 96,
-  "web/src/lib/empty-node-shim.ts": 100
+  "web/src/lib/empty-node-shim.ts": 100,
+  "web/src/lib/chat/capability-annotations.ts": 100,
+  "web/src/lib/extensions/list-response.ts": 100
 }
