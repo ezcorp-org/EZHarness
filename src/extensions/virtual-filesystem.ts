@@ -105,7 +105,7 @@ export async function handleVirtualFilesystemRpc(operation: VirtualFsOperation, 
     if (namedTool?.capabilities?.filesystem && !namedTool.capabilities.filesystem.mode.includes(writing ? "write" : "read")) return fail(-32001, "The current tool does not permit this filesystem operation.");
     const roots = await ports.roots({ extensionId: context.extensionId, extensionName: manifest.name, userId: context.userId, conversationId: context.conversationId === "unknown" ? null : context.conversationId, ...(context.serviceInvocation ? { serviceInvocation: context.serviceInvocation } : {}) });
     const root = roots[path.root];
-    if (!root || !root.startsWith("/")) return fail(-32001, "The requested virtual root is unavailable in this invocation.");
+    if (!root?.startsWith("/")) return fail(-32001, "The requested virtual root is unavailable in this invocation.");
     const actual = resolve(root, ...path.parts);
     if (await isReservedSensitivePath(actual)) return fail(-32001, "The path is reserved by the host.");
     const needed = [{ kind: writing ? "fs.write" : operation === "list" ? "fs.list" : operation === "stat" ? "fs.stat" : "fs.read", value: path.virtual }] as const;

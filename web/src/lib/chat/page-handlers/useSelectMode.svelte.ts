@@ -272,7 +272,7 @@ export function computeAllSelectedExcluded(
 	if (state.selectedIds.size === 0) return false;
 	for (const id of state.selectedIds) {
 		const msg = allMessages.find((m) => m.id === id);
-		if (!msg || !msg.excluded) return false;
+		if (!msg?.excluded) return false;
 	}
 	return true;
 }

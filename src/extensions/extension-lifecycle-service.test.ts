@@ -1,10 +1,9 @@
-import { describe, expect, mock, spyOn, test } from "bun:test";
-import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
-import { recoverInstallation, recoverInstallations, recoveryDeadline, runStorageMigration, verifyExtensionCandidate } from "./extension-lifecycle-service";
+import { expect, mock, spyOn, test } from "bun:test";
+import { recoverInstallation, recoverInstallations, recoveryDeadline, } from "./extension-lifecycle-service";
 import type { InstallationRecord, InstallationState } from "./v4";
 import type { RecoveryServices } from "./extension-lifecycle-service";
 
-import { installation, release } from "../__tests__/helpers/lifecycle-policy-fixture";
+import { installation, } from "../__tests__/helpers/lifecycle-policy-fixture";
 
 type DeferredTimer = () => Promise<void>;
 

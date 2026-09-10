@@ -49,7 +49,7 @@ function scoreAgent(
   else if (caps.some((c) => c.includes(ql))) score += 15;
   if (prompt.includes(ql)) score += 10;
   if (desc.includes(ql)) score += 8;
-  if (cat && cat.includes(ql)) score += 5;
+  if (cat?.includes(ql)) score += 5;
   return score;
 }
 

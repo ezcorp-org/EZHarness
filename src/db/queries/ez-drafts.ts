@@ -352,7 +352,7 @@ export async function sweepExpired(now: Date = new Date()): Promise<number> {
   for (const row of rows) {
     if (row.kind !== "extension") continue;
     const payload = row.payload as Record<string, unknown> | null;
-    if (!payload || payload.mode !== "author") continue;
+    if (payload?.mode !== "author") continue;
 
     if (projectRoot === null) {
       // getProjectRoot() never throws (env -> import-meta -> git-walk

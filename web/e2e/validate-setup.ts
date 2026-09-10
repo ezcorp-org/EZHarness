@@ -4,7 +4,6 @@
  */
 import { chromium } from "@playwright/test";
 import * as path from "path";
-import * as fs from "fs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:5173";
 

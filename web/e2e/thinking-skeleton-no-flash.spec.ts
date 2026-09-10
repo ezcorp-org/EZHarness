@@ -64,7 +64,7 @@ async function installFakeTransports(page: Page) {
 			readyState: 1, send() {}, close() {},
 			addEventListener() {}, removeEventListener() {},
 		};
-		(window as any).WebSocket = function () { return fakeWs; };
+		(window as any).WebSocket = () => fakeWs;
 		(window as any).WebSocket.CONNECTING = 0;
 		(window as any).WebSocket.OPEN = 1;
 		(window as any).WebSocket.CLOSING = 2;

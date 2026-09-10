@@ -206,7 +206,7 @@ export function _resetScrollCache(): void {
 	const toRemove: string[] = [];
 	for (let i = 0; i < storage.length; i++) {
 		const key = storage.key(i);
-		if (key && key.startsWith(STORAGE_PREFIX)) toRemove.push(key);
+		if (key?.startsWith(STORAGE_PREFIX)) toRemove.push(key);
 	}
 	for (const key of toRemove) {
 		try {

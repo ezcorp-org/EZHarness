@@ -91,7 +91,7 @@ describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", (
     const result = await proc.callTool("scan-todos", {});
     assertToolResult(result, { isError: false });
     const first = result.content[0];
-    if (!first || first.type !== "text") throw new Error("expected text content");
+    if (first?.type !== "text") throw new Error("expected text content");
     expect(first.text).toContain("write the feature");
     expect(first.text).toContain("flaky under load");
     expect(first.text).toContain("patch until upstream fix");
@@ -104,7 +104,7 @@ describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", (
     const result = await proc.callTool("scan-todos", { searchQuery: "router" });
     expect(result.isError).toBe(false);
     const first = result.content[0];
-    if (!first || first.type !== "text") throw new Error("expected text content");
+    if (first?.type !== "text") throw new Error("expected text content");
     expect(first.text).toContain("refactor router");
     expect(first.text).not.toContain("add docs");
   }, 30_000);
@@ -126,7 +126,7 @@ describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", (
       const r = await proc.callTool("scan-todos", {});
       expect(r.isError).toBe(false);
       const first = r.content[0];
-      if (!first || first.type !== "text") throw new Error("expected text content");
+      if (first?.type !== "text") throw new Error("expected text content");
       expect(first.text).toContain("only one");
     }
     expect(proc.isRunning).toBe(true);

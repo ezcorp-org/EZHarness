@@ -55,7 +55,7 @@ export function expectText(result: AnyToolResult, contains?: string): string {
     );
   }
   const first = result.content[0];
-  if (!first || first.type !== "text") {
+  if (first?.type !== "text") {
     throw new Error(
       `expectText: first content block is not text (got type='${first?.type}'). Full content: ${JSON.stringify(result.content)}`,
     );

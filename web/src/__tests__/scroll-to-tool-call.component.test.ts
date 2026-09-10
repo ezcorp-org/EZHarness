@@ -43,6 +43,7 @@ describe("scrollToToolCall", () => {
 		document.body.innerHTML = "";
 	});
 
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: The test name documents the literal DOM id template.
 	test("anchors lookup uses the `tool-call-${id}` id prefix", () => {
 		// The chat-page anchor convention (ChatMessage.svelte's wrapper +
 		// InlineToolCard list on +page.svelte) MUST stay in sync with this

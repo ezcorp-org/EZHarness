@@ -153,7 +153,7 @@ mock.module("$server/db/queries/extensions", () => ({
 	// src/__tests__/mcp-secrets-query.test.ts.
 	redactExtensionSecrets: (ext: any) => {
 		const m = ext?.manifest;
-		if (!m || m.kind !== "mcp" || !m.mcpServers?.length) return ext;
+		if (m?.kind !== "mcp" || !m.mcpServers?.length) return ext;
 		const blank = (map: any) =>
 			Object.fromEntries(Object.keys(map ?? {}).map((k) => [k, ""]));
 		return {

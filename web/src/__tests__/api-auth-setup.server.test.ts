@@ -33,7 +33,6 @@ vi.mock("$server/db/queries/sessions", () => ({
 
 const { getUserCount, createUser } = await import("$server/db/queries/users");
 const { upsertSetting } = await import("$server/db/queries/settings");
-const { createSession } = await import("$server/db/queries/sessions");
 const { POST, __rateLimiter } = await import("../routes/api/auth/setup/+server");
 
 function makeCookies() {

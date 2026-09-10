@@ -91,7 +91,7 @@ function makeFakeSpawn(opts: {
 function expectText(out: unknown): string {
   const o = out as { content?: Array<{ type: string; text: string }> };
   const first = o.content?.[0];
-  if (!first || first.type !== "text") throw new Error("tool-result has no text content");
+  if (first?.type !== "text") throw new Error("tool-result has no text content");
   return first.text;
 }
 

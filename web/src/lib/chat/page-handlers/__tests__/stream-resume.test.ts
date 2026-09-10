@@ -382,6 +382,7 @@ describe("runActiveRunCheck (checkActiveRun)", () => {
 		expect(calls!.length).toBe(1);
 	});
 
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: The test name documents the literal streaming placeholder id.
 	test("streaming-${runId} placeholder dedups — re-running does NOT push a second placeholder", async () => {
 		// Companion to the above: the placeholder-message push at the end
 		// of the resume path also has to dedup, otherwise Svelte ends up

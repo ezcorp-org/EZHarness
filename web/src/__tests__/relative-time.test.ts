@@ -33,8 +33,8 @@
 import { describe, test, expect } from "vitest";
 import { formatTtl, humanizeDuration } from "$lib/utils/relative-time";
 
-const MIN_MS = 60_000;
-const HOUR_MS = 3_600_000;
+const _MIN_MS = 60_000;
+const _HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
 // Locale availability probe. If "en" is missing from

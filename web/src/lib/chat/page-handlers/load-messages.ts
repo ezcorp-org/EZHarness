@@ -361,7 +361,7 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 				{},
 				{ minIntervalMs: 5000 },
 			);
-			if (!res || !res.ok) return;
+			if (!res?.ok) return;
 			const data = (await res.json()) as MessagesWithToolCallsResponse;
 			const bundle = hydrateToolCallsFromApiData(data);
 
@@ -429,7 +429,7 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 				{},
 				{ minIntervalMs: 5000 },
 			);
-			if (msgsRes && msgsRes.ok) {
+			if (msgsRes?.ok) {
 				host.allMessages.set((await msgsRes.json()) as Message[]);
 			} else if (msgsRes === null) {
 				// Throttled; skip this refresh. Existing allMessages stays
@@ -443,7 +443,7 @@ export function makeLoadMessages(host: LoadMessagesHost): LoadMessagesApi {
 				{},
 				{ minIntervalMs: 5000 },
 			);
-			if (convRes && convRes.ok) {
+			if (convRes?.ok) {
 				host.currentConversation.set((await convRes.json()) as Conversation);
 			}
 

@@ -25,7 +25,7 @@ const log = logger.child("bearer-auth");
  *  header — it's set by the executor via a `_meta.ezOnBehalfOf` side
  *  channel in the subprocess JSON-RPC request (see ToolExecutor + ai-kit's
  *  MCP server for the full propagation chain). */
-const ON_BEHALF_OF_HEADER = "X-Ezcorp-On-Behalf-Of";
+const _ON_BEHALF_OF_HEADER = "X-Ezcorp-On-Behalf-Of";
 
 export interface BearerAuthEvent {
   locals: {
@@ -184,7 +184,7 @@ export async function attachBearerAuth(
     // Scopes are NOT clamped here (unchanged pre-existing semantics; the scope
     // ceiling is enforced at mint time).
     const owner = await getUserById(keyData.userId);
-    if (!owner || owner.status !== "active") return false;
+    if (owner?.status !== "active") return false;
     const effectiveRole =
       keyData.role === "admin" && owner.role === "admin" ? "admin" : "member";
 

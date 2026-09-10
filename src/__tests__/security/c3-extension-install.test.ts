@@ -1,8 +1,7 @@
-import { controlActor, controlFixture, controlInstallation as installation, controlWorkspace as workspace } from "../helpers/extension-control-fixture";
+
 import { afterAll, expect, mock, test, beforeAll } from "bun:test";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
 import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "../helpers/mock-request";
-import { redactExtensionSecrets } from "../../extensions/mcp-secret-redaction";
 
 mockServerAlias();
 const scopes = () => ({ requireScope: () => null });
@@ -32,7 +31,7 @@ test("unauthenticated requests remain denied before the retirement response", as
   expect(response.status).toBe(401);
 });
 
-async function retiredInstall(user: typeof ADMIN_USER | typeof MEMBER_USER, body: unknown) {
+async function _retiredInstall(user: typeof ADMIN_USER | typeof MEMBER_USER, body: unknown) {
   return POST(createMockEvent({ method: "POST", url: "http://localhost/api/extensions", user, body }) as never);
 }
 

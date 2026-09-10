@@ -43,7 +43,7 @@ export function shouldShowPill(
   extension: PillVisibilityExtension | null | undefined,
   settings: PillVisibilitySettings | null | undefined,
 ): boolean {
-  if (!message || message.role !== "capability-event") return false;
+  if (message?.role !== "capability-event") return false;
   const s = settings ?? {};
   // `extension?.isBundled` resolves true only when we have a known
   // extension AND the column is true. Missing/unknown extension is

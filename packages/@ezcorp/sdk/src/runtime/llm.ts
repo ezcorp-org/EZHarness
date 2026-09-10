@@ -140,7 +140,6 @@ export class Llm {
     }
   }
 
-  // biome-ignore lint/correctness/useYield: stub-only; throws before any yield is meaningful.
   async *stream(_opts: LlmCompleteOpts): AsyncIterable<{ delta: string; usage?: LlmUsage }> {
     // The throw makes the generator unreachable past this point; we
     // need the `yield` to satisfy the AsyncIterable protocol shape so

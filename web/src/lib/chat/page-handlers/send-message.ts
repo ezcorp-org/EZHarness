@@ -730,7 +730,7 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		const msgIndex = messagesNow.findIndex((m) => m.id === msg.id);
 		if (msgIndex <= 0) return;
 		const precedingUserMsg = messagesNow[msgIndex - 1];
-		if (!precedingUserMsg || precedingUserMsg.role !== "user") return;
+		if (precedingUserMsg?.role !== "user") return;
 
 		try {
 			// Re-send the user message content with editOf pointing to
@@ -937,7 +937,7 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		const idx = messagesNow.findIndex((m) => m.id === msg.id);
 		if (idx <= 0) return;
 		const userMsg = messagesNow[idx - 1];
-		if (!userMsg || userMsg.role !== "user") return;
+		if (userMsg?.role !== "user") return;
 
 		// Remove the error message, then re-send with suggested
 		// provider/model.

@@ -98,7 +98,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     assertToolResult(listed, { isError: false, text: "integration-test task" });
 
     const firstItem = listed.content[0];
-    if (!firstItem || firstItem.type !== "text") throw new Error("expected text content");
+    if (firstItem?.type !== "text") throw new Error("expected text content");
     const parsed = JSON.parse(firstItem.text) as Array<{ title: string; status: string }>;
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.title).toBe("integration-test task");
@@ -141,7 +141,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     const listed = await proc.callTool("list-tasks", {});
     expect(listed.isError).toBe(false);
     const firstItem = listed.content[0];
-    if (!firstItem || firstItem.type !== "text") throw new Error("expected text content");
+    if (firstItem?.type !== "text") throw new Error("expected text content");
     const parsed = JSON.parse(firstItem.text) as Array<{ title: string }>;
     expect(parsed).toHaveLength(5);
     const persistedTitles = new Set(parsed.map((t) => t.title));
@@ -156,7 +156,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     const added = await proc.callTool("add-task", { title: "lifecycle task" });
     expect(added.isError).toBe(false);
     const addedFirst = added.content[0];
-    if (!addedFirst || addedFirst.type !== "text") throw new Error("expected text content");
+    if (addedFirst?.type !== "text") throw new Error("expected text content");
     const taskId = (JSON.parse(addedFirst.text) as { id: string }).id;
 
     const started = await proc.callTool("start-task", { taskId });
@@ -165,14 +165,14 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     const active = await proc.callTool("get-active-task", {});
     expect(active.isError).toBe(false);
     const activeFirst = active.content[0];
-    if (!activeFirst || activeFirst.type !== "text") throw new Error("expected text content");
+    if (activeFirst?.type !== "text") throw new Error("expected text content");
     expect((JSON.parse(activeFirst.text) as { id: string; status: string }).id).toBe(taskId);
     expect((JSON.parse(activeFirst.text) as { id: string; status: string }).status).toBe("active");
 
     const finished = await proc.callTool("finish-task", { taskId, summary: "done" });
     expect(finished.isError).toBe(false);
     const finishedFirst = finished.content[0];
-    if (!finishedFirst || finishedFirst.type !== "text") throw new Error("expected text content");
+    if (finishedFirst?.type !== "text") throw new Error("expected text content");
     const finishedTask = JSON.parse(finishedFirst.text) as {
       status: string;
       completionSummary: string;

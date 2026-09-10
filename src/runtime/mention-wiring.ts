@@ -950,7 +950,7 @@ export async function resolveMentionedTeams(
   for (const mention of mentions) {
     if (mention.kind !== "team") continue;
     const config = teamConfigByName.get(mention.name);
-    if (!config || config.category !== "team" || seenTeamIds.has(config.id)) continue;
+    if (config?.category !== "team" || seenTeamIds.has(config.id)) continue;
     seenTeamIds.add(config.id);
     const refs = config.references as { agents?: string[]; extensions?: string[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope } | null;
     teamRecords.push({ config, refs });

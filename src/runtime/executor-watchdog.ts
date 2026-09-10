@@ -210,7 +210,7 @@ export class WatchdogManager {
             const convId = this.host.runConversations.get(runId);
             if (convId) {
               const dbRun = await activeRunsDb.getActiveRun(convId);
-              if (!dbRun || dbRun.status !== "running") {
+              if (dbRun?.status !== "running") {
                 log.info("Aborting orphaned in-memory run", { runId });
                 ctrl.abort();
               }
@@ -366,7 +366,7 @@ export class WatchdogManager {
     this.lastHeartbeatWriteAt.set(runId, Date.now());
     const tick = async () => {
       const run = this.host.runs.get(runId);
-      if (!run || run.status !== "running") return;
+      if (run?.status !== "running") return;
       const now = Date.now();
       const last = this.lastActivityAt.get(runId) ?? run.startedAt;
       const idleMs = now - last;

@@ -76,7 +76,7 @@ export interface CapabilityForm {
  *  DRY: no divergent hardcoded list on the web side. */
 export function providerOptions(c: HeldCapabilityView): string[] {
   const f = c.schema.find((s) => s.key === "providers")?.field;
-  if (!f || f.type !== "select") return [];
+  if (f?.type !== "select") return [];
   return f.options.map((o) => o.value).filter((v) => v !== "inherit");
 }
 

@@ -28,7 +28,9 @@
 			"!**/*.svelte",
 			"!**/*.css",
 			"!**/*.svg",
-			"!docs/extensions/examples"
+			"!docs/extensions/examples",
+			"!!docs/validation/extension-v4-shipping/parent/expanded-staged-scan-2c542bac/expanded-inputs.json",
+			"!!docs/validation/extension-v4-shipping/parent/resource-soak-2c542bac/samples/r4-resource-samples.json"
 		]
 	},
 	"formatter": {
