@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 import { mockPageData, resumePage } from "./fixtures/page-data.js";
@@ -12,6 +13,26 @@ async function gotoLogin(page: Page, search = "", returnTo = "/") {
 }
 
 test.describe("Auth — Login Page", () => {
+	for (const colorScheme of ["light", "dark"] as const) {
+		test(`${colorScheme}: expired-session and login-error messages are readable`, async ({ page, mockApi }, testInfo) => {
+			await page.emulateMedia({ colorScheme });
+			await mockApi({});
+			await page.route("**/api/auth/login", route => route.fulfill({ status: 401, json: { error: "Invalid email or password" } }));
+			await gotoLogin(page, "?reason=session_expired");
+			await expect(page.getByText("Your session has expired. Please log in again.", { exact: true })).toBeVisible();
+			const warning = await new AxeBuilder({ page }).include(".max-w-md").analyze();
+			expect.soft(warning.violations).toEqual([]);
+			await captureEvidence(page, testInfo, `login-warning-${colorScheme}`);
+			await page.getByLabel("Email", { exact: true }).fill("invalid@example.com");
+			await page.getByLabel("Password", { exact: true }).fill("password123");
+			await page.getByRole("button", { name: "Sign In", exact: true }).click();
+			await expect(page.getByText("Invalid email or password", { exact: true })).toBeVisible();
+			const error = await new AxeBuilder({ page }).include(".max-w-md").analyze();
+			expect.soft(error.violations).toEqual([]);
+			await captureEvidence(page, testInfo, `login-error-${colorScheme}`);
+		});
+	}
+
 	test("login form renders with email, password, and submit button", async ({ page, mockApi }) => {
 		await mockApi({});
 		await gotoLogin(page);
