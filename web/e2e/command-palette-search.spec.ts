@@ -105,15 +105,6 @@ function paletteInput(page: Page) {
 }
 
 /**
- * The palette's command rows. The built palette tags each command row with
- * `data-row-kind="command"` (no dedicated testid), so the spec targets that
- * attribute rather than a `palette-command` testid.
- */
-function paletteCommands(page: Page) {
-	return palette(page).locator('[data-row-kind="command"]');
-}
-
-/**
  * The palette's message-hit rows. The built palette tags each hit row with
  * `data-row-kind="hit"` (no dedicated testid), so the spec targets that
  * attribute rather than a `message-hit` testid.
@@ -403,7 +394,10 @@ test.describe("Command palette search — desktop (PAL-01/02/06/05)", () => {
  * `conversation-search.spec.ts`.
  */
 test.describe("Command palette search — mobile BottomSheet (PAL-07)", () => {
-	test.skip(({ viewport }) => (viewport?.width ?? 0) >= LG, "mobile-only: <lg BottomSheet fallback");
+	// Exercise the mobile adapter directly in every configured browser project.
+	// A conditional skip here left the BottomSheet behavior undiscovered under
+	// the default Chromium lane.
+	test.use({ viewport: { width: 393, height: 851 } });
 
 	const mobileMsgs = chain("other-conv", 5, "m");
 
