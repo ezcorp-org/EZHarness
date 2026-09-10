@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -372,14 +372,16 @@ test.describe("Keyboard Shortcuts", () => {
 		await expect(page.getByText("Toggle sidebar", { exact: true })).toBeVisible();
 	});
 
-	test("help panel closes on Escape", async ({ page, mockApi }) => {
+	test("@evidence help panel closes on Escape", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.keyboard.press("Control+/");
 		await expect(page.getByRole("heading", { name: "Keyboard Shortcuts" })).toBeVisible();
+		const close = page.getByRole("button", { name: "Close" });
+		await expect(close).toBeFocused();
+		await captureEvidence(page, testInfo, "keyboard-shortcuts-open");
 
-		// Press Escape to close
 		await page.keyboard.press("Escape");
 
 		await expect(page.getByRole("heading", { name: "Keyboard Shortcuts" })).toHaveCount(0);

@@ -12,24 +12,34 @@
 
 	let shortcuts = $derived(open ? loadCustomShortcuts() : []);
 	let dialogEl = $state<HTMLElement | null>(null);
-	let cleanupTrap: (() => void) | null = null;
 
 	$effect(() => {
-		if (open && dialogEl) {
-			cleanupTrap = createFocusTrap(dialogEl);
-		}
-		if (!open) {
-			cleanupTrap?.();
-			cleanupTrap = null;
-		}
-	});
-
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === "Escape") {
+		if (!open || !dialogEl) return;
+		const cleanupTrap = createFocusTrap(dialogEl);
+		function closeOnEscape(e: KeyboardEvent) {
+			if (e.key !== "Escape") return;
+			const activeElement = document.activeElement;
+			// A dialog opened above this one owns Escape. The help dialog's focus
+			// trap keeps its own close button active during normal use.
+			if (
+				activeElement !== document.body &&
+				activeElement !== document.documentElement &&
+				!(activeElement instanceof Node && dialogEl?.contains(activeElement))
+			) {
+				return;
+			}
+			e.preventDefault();
 			e.stopPropagation();
 			onclose();
 		}
-	}
+		// Capture precedes child bubble handlers. A composer or focus trap may
+		// stop Escape after this dialog has opened, but must not strand it.
+		window.addEventListener("keydown", closeOnEscape, true);
+		return () => {
+			window.removeEventListener("keydown", closeOnEscape, true);
+			cleanupTrap();
+		};
+	});
 
 	function handleBackdropClick(e: MouseEvent) {
 		if (e.target === e.currentTarget) onclose();
@@ -37,11 +47,12 @@
 </script>
 
 {#if open}
+	<!-- Escape is handled in capture phase above, so child handlers cannot strand the dialog. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
 		onclick={handleBackdropClick}
-		onkeydown={handleKeydown}
 	>
 		<div
 			bind:this={dialogEl}

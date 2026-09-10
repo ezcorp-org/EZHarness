@@ -4,11 +4,12 @@
  * - role/dialog + aria-modal when open
  * - Renders one row per shortcut (default set when no customization stored)
  * - Close button fires onclose
- * - Escape keydown on the backdrop fires onclose
+ * - Escape keydown from the document fires onclose
  * - Clicking the backdrop (but not the inner dialog) fires onclose
  */
 
 import { render, fireEvent, cleanup } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import ShortcutHelp from "./ShortcutHelp.svelte";
 import { DEFAULT_SHORTCUTS } from "$lib/shortcuts.js";
@@ -48,13 +49,33 @@ describe("ShortcutHelp", () => {
 		expect(onclose).toHaveBeenCalledTimes(1);
 	});
 
-	test("Escape keydown on backdrop fires onclose", async () => {
+	test("Escape keydown on the document fires onclose", async () => {
 		const onclose = vi.fn();
-		const { container } = render(ShortcutHelp, { open: true, onclose });
-		const backdrop = container.querySelector(".fixed.inset-0") as HTMLElement;
-		expect(backdrop).not.toBeNull();
-		await fireEvent.keyDown(backdrop, { key: "Escape" });
+		const { getByLabelText } = render(ShortcutHelp, { open: true, onclose });
+		await tick();
+		expect(document.activeElement).toBe(getByLabelText("Close"));
+		await fireEvent.keyDown(document, { key: "Escape" });
 		expect(onclose).toHaveBeenCalledTimes(1);
+	});
+
+	test("Escape closes even when a focused child stops its bubbling handler", async () => {
+		const onclose = vi.fn();
+		const { getByLabelText } = render(ShortcutHelp, { open: true, onclose });
+		const close = getByLabelText("Close");
+		close.addEventListener("keydown", (event) => event.stopPropagation());
+		await fireEvent.keyDown(close, { key: "Escape" });
+		expect(onclose).toHaveBeenCalledTimes(1);
+	});
+
+	test("Escape leaves the help dialog open when another dialog owns focus", async () => {
+		const onclose = vi.fn();
+		render(ShortcutHelp, { open: true, onclose });
+		const otherDialogControl = document.createElement("button");
+		document.body.append(otherDialogControl);
+		otherDialogControl.focus();
+		await fireEvent.keyDown(otherDialogControl, { key: "Escape" });
+		expect(onclose).not.toHaveBeenCalled();
+		otherDialogControl.remove();
 	});
 
 	test("clicking backdrop surface fires onclose; clicking inner dialog does not", async () => {
