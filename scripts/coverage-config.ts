@@ -108,6 +108,7 @@ export const EXCLUDES: readonly string[] = [
  */
 export const SOURCE_GLOBS: readonly string[] = [
   "src/**/*.ts",
+  "scripts/**/*.ts",
   "web/src/**/*.ts",
   "web/src/**/*.svelte",
   "packages/@ezcorp/sdk/src/**/*.ts",

@@ -51,8 +51,14 @@ export function assertCleanGitWorktree(
   }
 }
 
-if (import.meta.main) {
-  const repoRoot = process.argv[2] ?? process.cwd();
+export function runCleanGitWorktreeCli(
+  args: readonly string[],
+  cwd: string = process.cwd(),
+  output: (message: string) => void = console.log,
+): void {
+  const repoRoot = args[0] ?? cwd;
   assertCleanGitWorktree(repoRoot);
-  console.log("verified clean Git worktree: " + repoRoot);
+  output("verified clean Git worktree: " + repoRoot);
 }
+
+if (import.meta.main) runCleanGitWorktreeCli(process.argv.slice(2));

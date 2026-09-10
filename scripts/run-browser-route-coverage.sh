@@ -10,7 +10,7 @@ base_url="${PI_E2E_MOCK_BASE_URL:-http://localhost:4173}"
 
 # The source revision in the raw receipt must identify the exact bytes built.
 # Ignored mapped-build and receipt artifacts do not appear in this Git check.
-bun scripts/git-worktree-clean.ts "$repo_root"
+bun "$repo_root/scripts/git-worktree-clean.ts" "$repo_root"
 
 if [ -e "$output_dir" ] && find "$output_dir" -mindepth 1 -maxdepth 1 -print -quit | grep --line-buffered -q .; then
 	echo "browser coverage output must be empty: $output_dir" >&2
