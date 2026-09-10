@@ -18,12 +18,15 @@
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
+const BASH = Bun.which("bash");
+if (!BASH) throw new Error("bash is required for CI shell contract tests");
 const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model"] as const;
 const OPTIONAL_OPERATOR_LANES = ["external-model"] as const;
 
@@ -44,6 +47,80 @@ function ciJobBlock(ci: string, job: string): string {
   if (start < 0) return "";
 	const next = ci.slice(start + 1).search(/^ {2}[A-Za-z][A-Za-z0-9-]*:\n/m);
   return next < 0 ? ci.slice(start) : ci.slice(start, start + 1 + next);
+}
+
+type LocalCiMode = "success" | "browser-failure" | "backend-failure";
+
+type LocalCiRun = {
+  code: number;
+  stdout: string;
+  stderr: string;
+  trace: string[];
+  browserReceiptDir: string;
+  dispose(): void;
+};
+
+/**
+ * Exercise ci-local's real shell control flow without a build, browser, or
+ * test pool. The fake commands replace process boundaries only: the script
+ * still creates its receipt directory, exports the receipt paths through
+ * `env`, records step failures, and prints its own final summary.
+ */
+function runLocalCi(mode: LocalCiMode): LocalCiRun {
+  const fixture = mkdtempSync(join(tmpdir(), "ci-local-boundary-"));
+  const bin = join(fixture, "bin");
+  const tracePath = join(fixture, "trace.log");
+  mkdirSync(bin);
+
+  const writeExecutable = (name: string, source: string) => {
+    const path = join(bin, name);
+    writeFileSync(path, source, { mode: 0o700 });
+  };
+  writeExecutable("git", `#!${BASH}\nexit 0\n`);
+  writeExecutable("bun", `#!${BASH}
+printf 'bun\\t%s\\t%s\\t%s\\n' "$*" "\${BROWSER_COVERAGE_RAW:-}" "\${BROWSER_COVERAGE_LCOV:-}" >> "$CI_LOCAL_TRACE"
+if [ "$1" = "run" ] && [ "$2" = "lint" ]; then printf 'Checked 1 file\\n'; fi
+if [ "$1" = "run" ] && [ "$2" = "test:coverage" ]; then
+  test -s "\${BROWSER_COVERAGE_RAW:-}" || exit 91
+  test -s "\${BROWSER_COVERAGE_LCOV:-}" || exit 92
+  [ "\${CI_LOCAL_MODE}" != "backend-failure" ] || exit 23
+fi
+`);
+  writeExecutable("bash", `#!${BASH}
+if [ "$1" = "scripts/run-browser-route-coverage.sh" ]; then
+  printf 'browser\\t%s\\n' "\${EZCORP_BROWSER_COVERAGE_OUTPUT:-}" >> "$CI_LOCAL_TRACE"
+  mkdir -p "\${EZCORP_BROWSER_COVERAGE_OUTPUT}/merged"
+  if [ "\${CI_LOCAL_MODE}" = "browser-failure" ]; then
+    printf 'partial receipt\\n' > "\${EZCORP_BROWSER_COVERAGE_OUTPUT}/partial.json"
+    exit 17
+  fi
+  printf '{"raw":true}\\n' > "\${EZCORP_BROWSER_COVERAGE_OUTPUT}/merged/merged.json"
+  printf 'TN:fixture\\nSF:fixture.ts\\nDA:1,1\\nend_of_record\\n' > "\${EZCORP_BROWSER_COVERAGE_OUTPUT}/merged/lcov.info"
+fi
+exit 0
+`);
+
+  const proc = Bun.spawnSync([BASH, "scripts/ci-local.sh"], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      CI_LOCAL_MODE: mode,
+      CI_LOCAL_TRACE: tracePath,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const trace = existsSync(tracePath) ? readFileSync(tracePath, "utf8").trim().split("\n").filter(Boolean) : [];
+  const browserReceiptDir = trace.find((line) => line.startsWith("browser\t"))?.slice("browser\t".length) ?? "";
+  return {
+    code: proc.exitCode,
+    stdout: proc.stdout.toString(),
+    stderr: proc.stderr.toString(),
+    trace,
+    browserReceiptDir,
+    dispose: () => rmSync(fixture, { recursive: true, force: true }),
+  };
 }
 
 const lanes = lanesManifest.lanes as Record<string, string[]>;
@@ -282,12 +359,14 @@ describe("e2e lane manifest", () => {
     const fullStart = local.indexOf('if [ "$FAST" = "0" ]; then');
     const browserReceipt = local.indexOf("bash scripts/run-browser-route-coverage.sh", fullStart);
     const coverage = local.indexOf("bun run test:coverage", fullStart);
+    const browserStep = local.indexOf('run_step "Browser route coverage', fullStart);
     expect(fullStart).toBeGreaterThan(-1);
     expect(browserReceipt).toBeGreaterThan(fullStart);
     expect(coverage).toBeGreaterThan(browserReceipt);
     expect((local.match(/bash scripts\/run-browser-route-coverage\.sh/g) ?? [])).toHaveLength(1);
-    const browserCommand = local.slice(local.lastIndexOf('run_step "Browser route coverage', browserReceipt), coverage);
+    const browserCommand = local.slice(fullStart, coverage);
     expect(browserCommand).toContain('EZCORP_BROWSER_COVERAGE_OUTPUT="$BROWSER_COVERAGE_OUTPUT"');
+    expect(browserStep).toBeGreaterThan(browserReceipt);
     const coverageCommand = local.slice(local.lastIndexOf('run_step "Coverage + per-file thresholds"', coverage), local.indexOf("# Both diff gates", coverage));
     expect(coverageCommand).toContain('BROWSER_COVERAGE_RAW="$BROWSER_COVERAGE_OUTPUT/merged/merged.json"');
     expect(coverageCommand).toContain('BROWSER_COVERAGE_LCOV="$BROWSER_COVERAGE_OUTPUT/merged/lcov.info"');
@@ -308,6 +387,55 @@ describe("e2e lane manifest", () => {
     expect(fast).toContain("bun run build");
     expect(full).not.toContain("npx vitest run");
     expect(full).not.toContain("bun run build");
+  });
+
+  test("local CI command passes one browser receipt to coverage and removes it after success", () => {
+    const run = runLocalCi("success");
+    try {
+      expect(run.code, `${run.stdout}\n${run.stderr}`).toBe(0);
+      expect(run.stdout).toContain("PASS  Browser route coverage (mandatory Chromium lanes)");
+      expect(run.stdout).toContain("PASS  Coverage + per-file thresholds");
+      expect(run.stdout).toContain("ci-local: all executed gates PASSED.");
+      expect(run.trace.filter((line) => line.startsWith("browser\t"))).toHaveLength(1);
+      const coverage = run.trace.filter((line) => line.startsWith("bun\trun test:coverage\t"));
+      expect(coverage).toEqual([
+        `bun\trun test:coverage\t${run.browserReceiptDir}/merged/merged.json\t${run.browserReceiptDir}/merged/lcov.info`,
+      ]);
+      expect(run.trace.some((line) => line.includes("npx vitest run"))).toBe(false);
+      expect(run.trace.some((line) => line.includes("run build"))).toBe(false);
+      expect(existsSync(run.browserReceiptDir)).toBe(false);
+    } finally {
+      run.dispose();
+    }
+  });
+
+  test("local CI command fails and retains browser receipts when collection fails", () => {
+    const run = runLocalCi("browser-failure");
+    try {
+      expect(run.code).toBe(1);
+      expect(run.stdout).toContain("FAIL  Browser route coverage (mandatory Chromium lanes)");
+      expect(run.stdout).toContain("FAIL  Coverage + per-file thresholds");
+      expect(run.stdout).toContain("ci-local: FAILED");
+      expect(run.stderr).toContain(`retained failed browser coverage receipts: ${run.browserReceiptDir}`);
+      expect(readFileSync(join(run.browserReceiptDir, "partial.json"), "utf8")).toContain("partial receipt");
+    } finally {
+      run.dispose();
+      rmSync(run.browserReceiptDir, { recursive: true, force: true });
+    }
+  });
+
+  test("local CI command propagates a backend coverage failure without retaining a good browser receipt", () => {
+    const run = runLocalCi("backend-failure");
+    try {
+      expect(run.code).toBe(1);
+      expect(run.stdout).toContain("PASS  Browser route coverage (mandatory Chromium lanes)");
+      expect(run.stdout).toContain("FAIL  Coverage + per-file thresholds");
+      expect(run.stdout).toContain("ci-local: FAILED");
+      expect(run.stderr).not.toContain("retained failed browser coverage receipts");
+      expect(existsSync(run.browserReceiptDir)).toBe(false);
+    } finally {
+      run.dispose();
+    }
   });
 
   test("every standard browser lane is a hard CI dependency", async () => {

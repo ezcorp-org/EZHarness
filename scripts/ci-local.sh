@@ -107,9 +107,22 @@ if [ "$FAST" = "0" ]; then
     echo "ci-local: could not create an isolated browser coverage receipt directory." >&2
     exit 1
   }
-  trap 'rm -rf "$BROWSER_COVERAGE_OUTPUT"' EXIT
-  run_step "Browser route coverage (mandatory Chromium lanes)" \
-    env EZCORP_BROWSER_COVERAGE_OUTPUT="$BROWSER_COVERAGE_OUTPUT" bash scripts/run-browser-route-coverage.sh
+  BROWSER_RECEIPT_FAILED=0
+  cleanup_browser_coverage() {
+    if [ "$BROWSER_RECEIPT_FAILED" = "1" ]; then
+      echo "ci-local: retained failed browser coverage receipts: $BROWSER_COVERAGE_OUTPUT" >&2
+    else
+      rm -rf "$BROWSER_COVERAGE_OUTPUT"
+    fi
+  }
+  trap cleanup_browser_coverage EXIT
+  browser_route_coverage_step() {
+    env EZCORP_BROWSER_COVERAGE_OUTPUT="$BROWSER_COVERAGE_OUTPUT" bash scripts/run-browser-route-coverage.sh || {
+      BROWSER_RECEIPT_FAILED=1
+      return 1
+    }
+  }
+  run_step "Browser route coverage (mandatory Chromium lanes)" browser_route_coverage_step
   # Full mode merges every shard into coverage/lcov.info AND enforces
   # coverage-thresholds.json — the local twin of CI's "Per-file coverage gate".
   # The strict receipt verifier checks both paths against this checkout's
