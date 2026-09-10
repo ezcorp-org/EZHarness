@@ -520,10 +520,10 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # SDK + harness-client + suggest + ai-kit + node-vitest coverage legs
-  # (node 22 for coverage-v8). SDK + harness-client + ai-kit + vitest gate
-  # pass/fail; suggest also gates through residual-tests. Leg file sets live
-  # in scripts/lib/test-file-sets.sh.
+  # SDK + harness-client + suggest + ai-kit + provider coverage legs. Canonical
+  # Vitest V8 artifacts come from test-web-shard, so this job does not rerun them.
+  # SDK, harness-client, ai-kit, and provider legs gate pass/fail; suggest also
+  # gates through residual-tests. Leg file sets live in scripts/lib/test-file-sets.sh.
   cov-extras:
     name: Coverage extras (legs)
     runs-on: ubuntu-latest
@@ -534,10 +534,6 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      # @vitest/coverage-v8 needs node:inspector's Coverage domain (Bun lacks it).
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
       - run: bash scripts/setup-extension-runner-ci.sh --install
       - name: Run coverage legs
         env:

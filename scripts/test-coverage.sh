@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Per-file --coverage runner for the host/example pool + the SDK, harness-client
-# and node-vitest coverage legs. Each host file runs in its own bun process
+# Per-file --coverage runner for the host/example pool plus package, provider,
+# API-client, and Worker legs. The canonical Web Vitest V8 producer runs here
+# only in full local mode; CI receives its three receipts from test-web-shard.
+# Each host file runs in its own bun process
 # (mock.module() isolation; mirrors scripts/test.sh). The file sets live in
 # scripts/lib/test-file-sets.sh so the coverage set and the pass/fail set can
 # never drift apart.
@@ -50,8 +52,8 @@
 #       (the runner couldn't execute). No legs/merge/check here.
 #
 #   legs-only (CI; COVERAGE_LEGS_ONLY=1):
-#       Run ONLY the SDK + harness-client + suggest + ai-kit + node-vitest
-#       coverage legs and emit their lcov into $COV_OUT. No host files, no
+#       Run ONLY the package, provider, API-client, and Worker coverage legs
+#       and emit their lcov into $COV_OUT. No host files, no
 #       merge, no threshold check.
 #
 # PRODUCER INTEGRITY (all three modes): a producer that runs must emit an
@@ -66,7 +68,8 @@
 #
 #   0  coverage gate passed AND no pass/fail-gated test failed.
 #   1  the COVERAGE verdict failed — check-coverage.ts, a gating leg's exit
-#      code (harness-client / ai-kit / node-vitest / web-security), or a
+#      code (harness-client / ai-kit / provider / API-client / Worker /
+#      web-security), or a
 #      producer-integrity guard (dead leg, empty host pool). Unchanged, so
 #      every existing `if ! bash scripts/test-coverage.sh` consumer keeps its
 #      meaning.
@@ -219,15 +222,17 @@ tally() {
   TOTAL_FAIL=$((TOTAL_FAIL + ${f:-0}))
 }
 
-# ── SDK + harness-client + suggest + ai-kit + node-vitest legs ──────────────
+# ── Package, provider, API-client, and Worker legs ─────────────────────────
 run_legs() {
-  # The 5 legs are independent (disjoint covdirs, own exit codes) and run
+  # The four package legs run concurrently. Provider, API-client, and Worker
+  # producers follow in the same process budget instead of adding three more
+  # simultaneous coverage workers.
   # CONCURRENTLY — cov-extras wall clock = max(legs), not their sum. Each
   # leg's combined stdout/stderr is captured to its own file and printed
   # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
   # semantics: the suggest leg is pass/fail-tolerated here because its tests
   # also gate in the residual job. The SDK (SDK_LEG_EXIT), harness-client
-  # (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest (VITEST_EXIT) legs gate. A
+  # (HC_EXIT), ai-kit (AIKIT_EXIT), provider, API-client, and Worker legs gate. A
   # leg that dies without writing its
   # exit-code file counts as exit 1 for the gating legs (fail-closed).
   local legs="$TMPDIR/legs"
@@ -246,12 +251,9 @@ run_legs() {
   register_leg providers cov_providers
   register_leg api-client cov_api_client
   register_leg worker cov_worker
-  register_leg web-vitest cov_vitest
-  # Transitional local producer for the entire canonical Vitest pool. CI will
-  # publish the same three shard artifacts from its existing test-web jobs;
-  # keep the old selected leg until that full-source union is compared against
-  # every existing threshold. Never register this in legs-only mode: that CI
-  # job receives its full-pool LCOV from test-web, not from cov-extras.
+  # Full local coverage needs the canonical Web Vitest receipt. CI publishes
+  # the same producer from its existing three test-web shards, so it is never
+  # registered in legs-only mode.
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then
     register_leg web-vitest-full cov_vitest_full
   fi
@@ -359,352 +361,6 @@ run_legs() {
     echo "$?" > "$legs/worker.code"
   )
 
-  # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
-  # needs node:inspector's Coverage domain, which Bun does not implement, so this
-  # leg MUST run under node (CI provisions node 22). --coverage.include is scoped
-  # to JUST the target lib paths so the leg doesn't pull all of web/src/lib/**
-  # into the gate. Subshell so `cd web` never leaks.
-  #
-  # THIS LEG IS TWO HAND-MAINTAINED ALLOWLISTS AND THEY MUST AGREE. The test
-  # files below say WHAT RUNS; the --coverage.include patterns further down say
-  # WHAT IS MEASURED. A module is only covered in this leg when it is on BOTH,
-  # and neither list is derived from the other, so a suite can be thoroughly
-  # green and still report as untested — the "tested but unmeasured" trap this
-  # file already documents from PR #97, reached the other way round.
-  #
-  # Measured instance (2026-08-05): `src/hooks.server.ts` was on NEITHER list,
-  # so EVERY `src/__tests__/hooks-server-*.server.test.ts` suite was
-  # unmeasured. A change to hooks.server.ts read as uncovered against the
-  # `web/src/**` catch-all no matter how many tests covered it, and the last
-  # author to hit this worked around the gate by porting a green vitest suite
-  # into the bun pool. Both lists now carry it.
-  #
-  # ANTI-ROT: src/__tests__/coverage-leg-lcov-guard.test.ts parses this
-  # command and fails if any listed test file is missing from disk, or if any
-  # --coverage.include pattern matches NOTHING under web/ — the silent
-  # no-match that looks identical to success at this leg's exit code. Adding
-  # to either list is cheap; adding to only one is the bug.
-  #
-  # DYNAMIC ROUTE SEGMENTS IN --coverage.include: a SvelteKit `[param]` segment
-  # is matched VERBATIM by vitest 4.1.6 — it is not a Bun-`Glob`-style character
-  # class, so the bare form (`.../[provider]/...`) is correct and the escaped
-  # `[[]id]` form below is belt-and-braces, not a requirement. MEASURED both
-  # ways rather than assumed: the bare form emits a real record
-  # (`SF:src/routes/api/providers/[provider]/refresh-models/+server.ts`,
-  # LF:21 LH:21), while deliberately-wrong `[xyz]` / `refresh-modelsX` variants
-  # emit ZERO records. Verify any NEW dynamic-segment include the same way —
-  # an include that silently matches nothing looks identical to success at this
-  # leg's exit code, and only reappears downstream as the patch-coverage gate's
-  # "changed source file has NO lcov data". That is exactly how
-  # api/health/+server.ts and the refresh-models handler reached CI tested but
-  # unmeasured (PR #97).
-  VITEST_COV="${LEG_COV_DIR[web-vitest]}"
-  # One manifest feeds this selected legacy receipt and the full pool.
-  source "$SCRIPT_DIR/web-vitest-coverage-includes.sh"
-  web_vitest_coverage_args
-  (
-  set +e
-  ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
-      src/__tests__/bounded-json.server.test.ts \
-      src/__tests__/api-tool-invoke.server.test.ts \
-      src/__tests__/api-conversations-id-active-run.server.test.ts \
-      src/__tests__/api-marketplace-id-install.server.test.ts \
-      src/__tests__/api-marketplace-export-v4.server.test.ts \
-      src/__tests__/task-helpers-load-snapshot.server.test.ts \
-      src/__tests__/task-helpers-write-and-broadcast.server.test.ts \
-      src/__tests__/task-helpers-find-assignment.server.test.ts \
-      src/__tests__/task-helpers-pick-spawn-agent-config.server.test.ts \
-      src/__tests__/task-helpers-broadcast-assignment-update.server.test.ts \
-      src/__tests__/extension-author-page-server-load.server.test.ts \
-      src/__tests__/extension-author-page.component.test.ts \
-      src/lib/components/extensions/ExtensionBrowser.component.test.ts \
-      'src/routes/(app)/extensions/[id]/preview/page.component.test.ts' \
-      src/__tests__/extension-control-routes.server.test.ts \
-      src/__tests__/api-extensions-id-permissions.server.test.ts \
-      src/__tests__/extension-project-binding.server.test.ts \
-      src/__tests__/project-proposal-fixture.server.test.ts \
-      src/__tests__/marketplace-release-fixture.server.test.ts \
-      src/__tests__/project-proposal-review.server.test.ts \
-      src/__tests__/project-proposal-review.component.test.ts \
-      src/__tests__/extension-review-location.server.test.ts \
-      src/__tests__/mcp-control-request.server.test.ts \
-      src/__tests__/mcp-staging-client.unit.test.ts \
-      src/__tests__/extension-credential-resolver.server.test.ts \
-      src/__tests__/extension-host-api-transport.server.test.ts \
-      src/__tests__/extension-legacy-cutover.server.test.ts \
-      src/__tests__/extension-source-import-page.server.test.ts \
-      src/__tests__/extension-source-import-page.component.test.ts \
-      src/__tests__/api-workflows.server.test.ts \
-      src/__tests__/api-workflows-name.server.test.ts \
-      src/__tests__/api-workflows-name-run.server.test.ts \
-      src/__tests__/api-workflows-run-control.server.test.ts \
-      src/__tests__/api-workflows-run-trace.server.test.ts \
-      src/__tests__/api-workflows-runs-client-contract.server.test.ts \
-      src/__tests__/api-workflows-approvals-list.server.test.ts \
-      src/__tests__/api-workflows-approvals-answer.server.test.ts \
-      src/__tests__/workflow-approvals-logic.unit.test.ts \
-      src/__tests__/api-workflows-fork.server.test.ts \
-      src/__tests__/api-workflows-dry-run.server.test.ts \
-      src/__tests__/api-workflows-claim-versions.server.test.ts \
-      src/__tests__/api-workflows-delegations.server.test.ts \
-      src/__tests__/api-workflows-delegations-preview.server.test.ts \
-      src/__tests__/workflow-delegations-logic.unit.test.ts \
-      src/__tests__/delegation-consent.server.test.ts \
-      src/__tests__/agent-config-extension-gate.server.test.ts \
-      src/__tests__/workflow-access-delegation.server.test.ts \
-      src/__tests__/workflow-route-ladder.server.test.ts \
-      src/__tests__/pipelines-redirect.server.test.ts \
-      src/lib/components/WorkflowStepForm.component.test.ts \
-      src/lib/components/WorkflowBuilder.component.test.ts \
-      src/__tests__/onboarding-page.server.test.ts \
-      src/__tests__/onboarding-wizard.integration.component.test.ts \
-      src/lib/__tests__/provider-access.unit.test.ts \
-      src/lib/components/ProviderSettings.component.test.ts \
-      src/__tests__/stores-quickstart-refresh.component.test.ts \
-      src/__tests__/stores-quickstart-events.component.test.ts \
-      src/__tests__/dock-store.integration.component.test.ts \
-      src/__tests__/ConversationSettings.component.test.ts \
-      src/lib/components/__tests__/Tooltip.component.test.ts \
-      src/lib/components/chat/__tests__/ChatHeader.component.test.ts \
-      src/__tests__/chat-no-provider-banner.integration.component.test.ts \
-      src/__tests__/quickstart-checklist-dismiss-gate.component.test.ts \
-      src/__tests__/api-hooks.server.test.ts \
-      src/__tests__/webhook-pipeline.server.test.ts \
-      src/__tests__/api-webhook-rotate.server.test.ts \
-      src/__tests__/deep-link-resolve.unit.test.ts \
-      src/lib/components/goal-row-logic.unit.test.ts \
-      src/lib/components/UpdateBanner.component.test.ts \
-      src/__tests__/version-endpoint.server.test.ts \
-      src/__tests__/relative-time.unit.test.ts \
-      src/__tests__/relative-time.test.ts \
-      src/__tests__/http-errors.unit.test.ts \
-      src/__tests__/session-cookie.server.test.ts \
-      src/__tests__/hooks-server-dev-indicator.server.test.ts \
-      src/__tests__/hooks-server-failed-bearer-ratelimit.server.test.ts \
-      src/__tests__/hooks-server-gate-initiator.server.test.ts \
-      src/__tests__/hooks-server-get-client-ip.server.test.ts \
-      src/__tests__/hooks-server-invite-public-path.server.test.ts \
-      src/__tests__/hooks-server-onboarding-redirect.server.test.ts \
-      src/__tests__/hooks-server-return-to.server.test.ts \
-      src/__tests__/hooks-server-route-allowlist.server.test.ts \
-      src/__tests__/hooks-server-session-refresh.server.test.ts \
-      src/__tests__/hooks-server-session-refresh-e2e.server.test.ts \
-      src/__tests__/hooks-server-setup-redirect.server.test.ts \
-      src/__tests__/shutdown.server.test.ts \
-      src/__tests__/extension-helpers-clamp.server.test.ts \
-      src/__tests__/conversation-ownership.server.test.ts \
-      src/__tests__/mention-logic.unit.test.ts \
-      src/__tests__/mention-logic-EZ-sigil.unit.test.ts \
-      src/__tests__/mention-logic-feature.unit.test.ts \
-      src/__tests__/mention-logic-lesson-sigil.unit.test.ts \
-      src/lib/__tests__/markdown.unit.test.ts \
-      src/lib/__tests__/safe-redirect.unit.test.ts \
-      src/__tests__/fuzzy-match.unit.test.ts \
-      src/__tests__/chat-input-logic.unit.test.ts \
-      src/__tests__/api-preview-consent.server.test.ts \
-      src/__tests__/preview-dispatch.server.test.ts \
-      src/__tests__/preview-ws-bridge.server.test.ts \
-      src/__tests__/context-register-preview-bus.server.test.ts \
-      src/lib/components/tool-cards/preview-consent-card-logic.unit.test.ts \
-      src/__tests__/ExtensionToolSelector.component.test.ts \
-      src/lib/components/hub/HubPageView.component.test.ts \
-      src/lib/components/hub/HubNavSection.component.test.ts \
-      src/lib/components/extensions/UninstallDialog.component.test.ts \
-      src/__tests__/extensions-page-loader.server.test.ts \
-      src/lib/components/hub/HubComponentRenderer.component.test.ts \
-      src/lib/server/hub-render-pull.page-state.unit.test.ts \
-      src/lib/__tests__/project-icon.unit.test.ts \
-      src/lib/hub-last-page.unit.test.ts \
-      src/lib/components/__tests__/ModeFormModal.component.test.ts \
-      src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
-      src/__tests__/tools-api-mode-scope.server.test.ts \
-      src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
-      src/__tests__/api-conversations-id-tree.server.test.ts \
-      src/__tests__/api-conversations-id-graph.server.test.ts \
-      src/lib/components/chat/__tests__/GraphCanvas.component.test.ts \
-      src/lib/components/chat/__tests__/ChatGraphPanel.component.test.ts \
-      src/__tests__/api-conversations-id-rewind.server.test.ts \
-      src/__tests__/api-conversations-id-messages-mid-retry.server.test.ts \
-      src/lib/hub.unit.test.ts \
-      src/lib/settings-nav.unit.test.ts \
-      src/lib/settings-search.unit.test.ts \
-      src/lib/settings-search-config.unit.test.ts \
-      src/__tests__/api-search-backend.server.test.ts \
-      src/lib/components/__tests__/SearchDefaultsSection.component.test.ts \
-      src/lib/components/__tests__/SearchBackendSection.component.test.ts \
-      "src/routes/(app)/settings/search/__tests__/page.component.test.ts" \
-      src/lib/capability-policy-ui.unit.test.ts \
-      src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
-      src/lib/ezcorp-config-edit.unit.test.ts \
-      src/lib/workflow-run-display.unit.test.ts \
-      src/lib/workflow-trace-logic.unit.test.ts \
-      src/lib/workflow-run-history.unit.test.ts \
-      src/__tests__/RunPayload.component.test.ts \
-      src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
-      src/lib/components/__tests__/UsesList.component.test.ts \
-      src/__tests__/api-users.server.test.ts \
-      src/lib/audit-log-view.unit.test.ts \
-      src/lib/settings-models.unit.test.ts \
-      src/lib/provider-meta.unit.test.ts \
-      src/lib/tier-ladder-view.unit.test.ts \
-      src/lib/components/__tests__/TierLadderSection.component.test.ts \
-      src/lib/components/__tests__/DefaultSelectionSection.component.test.ts \
-      src/lib/components/__tests__/ToolResultCapSection.component.test.ts \
-      src/lib/components/__tests__/RoutingExperimentsSection.component.test.ts \
-      src/lib/routing-experiments-view.unit.test.ts \
-      src/__tests__/api-settings-key.server.test.ts \
-      src/__tests__/model-selector-logic.unit.test.ts \
-      src/lib/save-flash.unit.test.ts \
-      src/lib/admin-guard.unit.test.ts \
-      src/lib/scroll-to-hash.unit.test.ts \
-      src/lib/chat-prompt-nav.unit.test.ts \
-      src/lib/chat-turn-collapse.unit.test.ts \
-      src/lib/components/TurnCollapsedSummary.component.test.ts \
-      src/lib/extensions/extension-sort.unit.test.ts \
-      src/lib/__tests__/rbac-grants-logic.unit.test.ts \
-      src/__tests__/resume-path.unit.test.ts \
-      src/__tests__/pull-to-refresh-logic.unit.test.ts \
-      src/__tests__/sw-runtime.unit.test.ts \
-      src/__tests__/service-worker.shell.unit.test.ts \
-      src/lib/components/__tests__/AuditLogSection.component.test.ts \
-      src/lib/components/__tests__/CustomModelsSection.component.test.ts \
-      src/lib/components/__tests__/SystemHealth.component.test.ts \
-      src/lib/components/__tests__/UsersSection.component.test.ts \
-      src/lib/components/__tests__/settings-save-model.component.test.ts \
-      src/lib/components/__tests__/InvitesSection.component.test.ts \
-      src/lib/components/__tests__/TeamsSection.component.test.ts \
-      src/lib/components/__tests__/ProvidersSection.component.test.ts \
-      src/lib/components/__tests__/ApiKeyManager.component.test.ts \
-      src/lib/components/__tests__/ModesSection.component.test.ts \
-      src/lib/components/__tests__/SaveIndicator.component.test.ts \
-      src/lib/components/__tests__/SettingsSection.component.test.ts \
-      src/__tests__/settings-layout.component.test.ts \
-      src/lib/components/preprocess-result-logic.unit.test.ts \
-      src/lib/components/tool-cards/grade-delta-logic.unit.test.ts \
-      src/lib/components/tool-cards/ez-draft-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/tool-cards-logic.unit.test.ts \
-      src/__tests__/extension-author-install.server.test.ts \
-      src/__tests__/extension-author-page-logic.server.test.ts \
-      src/__tests__/extension-author-page-server-load.server.test.ts \
-      src/__tests__/extension-audit-page-loader.server.test.ts \
-      src/lib/components/tool-cards/failure-class.unit.test.ts \
-      src/__tests__/author-draft-files.unit.test.ts \
-      src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
-      src/lib/components/tool-cards/city-conditions-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/CityConditionsCard.component.test.ts \
-      src/lib/components/tool-cards/workflow-run-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/WorkflowRunCard.component.test.ts \
-      src/lib/components/tool-cards/web-context-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/WebContextCard.component.test.ts \
-      src/__tests__/pending-permission-tray.component.test.ts \
-      src/__tests__/stores-pending-permission-tray.integration.component.test.ts \
-      src/__tests__/pending-decisions-tray.component.test.ts \
-      src/__tests__/stores-pending-approval-tray.integration.component.test.ts \
-      src/__tests__/inline-tool-store.test.ts \
-      src/lib/components/tool-cards/DockHost.component.test.ts \
-      src/lib/components/tool-cards/PendingApprovalCard.component.test.ts \
-      src/__tests__/stores-ask-user-dedup.integration.component.test.ts \
-      src/__tests__/composer-suggest-logic.unit.test.ts \
-      src/__tests__/api-composer-suggest.server.test.ts \
-      src/__tests__/api-composer-suggest-feedback.server.test.ts \
-      src/lib/components/__tests__/SuggestionPopover.component.test.ts \
-      src/lib/components/__tests__/ComposerSuggestSection.component.test.ts \
-      src/__tests__/sse-resume-buffer.unit.test.ts \
-      src/__tests__/fetch-policy-dedup-clone.unit.test.ts \
-      src/lib/chat/page-handlers/__tests__/stream-resume.unit.test.ts \
-      src/lib/chat/page-handlers/__tests__/stream-resume-attach.component.test.ts \
-      src/lib/chat/page-handlers/__tests__/task-hydrate-attach.component.test.ts \
-      src/__tests__/api-conversations-id-tasks-assign.server.test.ts \
-      src/__tests__/api-conversations-id-tasks-retry.server.test.ts \
-      src/__tests__/api-conversations-id-tasks-assignments-start.server.test.ts \
-      src/__tests__/api-conversations-id-tasks-assignments-stop.server.test.ts \
-      src/__tests__/stores-task-snapshot.integration.component.test.ts \
-      src/__tests__/api-conversations-id-tasks.server.test.ts \
-      src/lib/dev-badge.unit.test.ts \
-      src/lib/components/DevBadge.component.test.ts \
-      src/lib/ez/__tests__/page-context.unit.test.ts \
-      src/lib/ez/__tests__/client-tool-dispatcher.unit.test.ts \
-      src/__tests__/api-projects-id-features-scan.server.test.ts \
-      src/lib/topic-contexts-logic.unit.test.ts \
-      src/lib/components/__tests__/TopicPills.component.test.ts \
-      src/lib/components/__tests__/TopicsPopover.component.test.ts \
-      src/lib/components/__tests__/TopicContextsSection.component.test.ts \
-      src/__tests__/api-context-types.server.test.ts \
-      src/__tests__/api-contexts.server.test.ts \
-      src/__tests__/api-conversations-topics.server.test.ts \
-      src/__tests__/api-topics-extract.server.test.ts \
-      src/__tests__/security-web-active-run-idor.server.test.ts \
-      src/__tests__/security-web-tool-call-output-idor.server.test.ts \
-      src/__tests__/api-mcp-servers-id-put.server.test.ts \
-      src/__tests__/api-extensions-id-modifiable.server.test.ts \
-      src/__tests__/api-extensions-id-settings-user.server.test.ts \
-      src/__tests__/security-web-invite-claim-order.server.test.ts \
-      src/__tests__/security-web-conversations-parent-idor.server.test.ts \
-      src/__tests__/api-extensions.server.test.ts \
-      src/__tests__/api-users-id.server.test.ts \
-      src/__tests__/api-models-default-selection.server.test.ts \
-      src/__tests__/api-models-capabilities.server.test.ts \
-      src/__tests__/provider-availability.server.test.ts \
-      src/lib/chat/page-handlers/__tests__/send-message.test.ts \
-      src/lib/chat/page-handlers/__tests__/load-messages.test.ts \
-      src/lib/command-registry.unit.test.ts \
-      src/lib/components/DiffSummaryPanel.component.test.ts \
-      src/__tests__/api-write-scope-gates.server.test.ts \
-      src/__tests__/api-memories.server.test.ts \
-      src/__tests__/api-memories-id.server.test.ts \
-      src/__tests__/api-memories-patch.server.test.ts \
-      src/__tests__/api-memories-list-scope.server.test.ts \
-      src/__tests__/api-projects.server.test.ts \
-      src/__tests__/api-projects-id.server.test.ts \
-      src/__tests__/api-projects-path-validation.server.test.ts \
-      src/__tests__/api-knowledge-base.server.test.ts \
-      src/__tests__/api-knowledge-base-id.server.test.ts \
-      src/__tests__/api-lessons.server.test.ts \
-      src/__tests__/api-lessons-id.server.test.ts \
-      src/__tests__/api-fs-mkdir.server.test.ts \
-      src/__tests__/api-ez-actions.server.test.ts \
-      src/__tests__/api-ez-actions-distill.server.test.ts \
-      src/__tests__/api-ez-actions-generic.server.test.ts \
-      src/__tests__/api-audit.server.test.ts \
-      src/__tests__/api-extensions-id-audit.server.test.ts \
-      src/__tests__/api-extensions-id-audit-stats.server.test.ts \
-      src/__tests__/api-extensions-id-confirm.server.test.ts \
-      src/__tests__/extensions-reapprove-route.server.test.ts \
-      src/__tests__/api-settings.server.test.ts \
-      src/__tests__/api-service-accounts.server.test.ts \
-      src/__tests__/api-service-accounts-id.server.test.ts \
-      src/__tests__/api-service-accounts-daily-cap.server.test.ts \
-      src/lib/components/DelegationConsentDialog.component.test.ts \
-      src/__tests__/api-health.server.test.ts \
-      src/__tests__/api-providers-refresh-models.server.test.ts \
-      src/__tests__/api-conversations-id-export.server.test.ts \
-      src/__tests__/api-extensions-id-reopen.server.test.ts \
-      src/__tests__/test-only-endpoints.server.test.ts \
-      src/lib/__tests__/extract-tool-output.unit.test.ts \
-      src/__tests__/context-usage-logic.test.ts \
-      src/__tests__/format-map.test.ts \
-      src/__tests__/inline-tool-store.test.ts \
-      src/__tests__/inline-tool-store-upsert.test.ts \
-      src/__tests__/api-agent-configs.server.test.ts \
-      src/__tests__/api-agent-configs-id.server.test.ts \
-      src/__tests__/api-agent-configs-generate.server.test.ts \
-      src/__tests__/api-projects-id-tool-permission-mode.server.test.ts \
-      src/__tests__/api-caller-tools.server.test.ts \
-      src/__tests__/tools-api-caller-parity.server.test.ts \
-      src/__tests__/api-conversations-tool-results.server.test.ts \
-      src/__tests__/api-conversations-id-messages.server.test.ts \
-      src/__tests__/api-conversations-id-messages-coverage.server.test.ts \
-      src/__tests__/api-conversations-id-messages-goal.server.test.ts \
-      src/__tests__/api-search-messages.server.test.ts \
-      src/__tests__/api-conversations-id-agent-chat.server.test.ts \
-      src/__tests__/api-settings-developer-api-keys.server.test.ts \
-      --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
-      --coverage.reportsDirectory="$VITEST_COV" \
-      "${WEB_VITEST_COVERAGE_ARGS[@]}" ) \
-    > "$legs/vitest.out" 2>&1
-  echo "$?" > "$legs/vitest.code"
-  ) &
-
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then
     (
       set +e
@@ -719,7 +375,7 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  local printed_legs=(sdk hc suggest aikit providers api-client worker vitest)
+  local printed_legs=(sdk hc suggest aikit providers api-client worker)
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
@@ -773,17 +429,6 @@ run_legs() {
   SUGGEST_LEG_EXIT=$(cat "$legs/suggest.code" 2>/dev/null || echo "?")
   echo "tolerated leg exit code (not gated here): suggest=$SUGGEST_LEG_EXIT"
 
-  VITEST_EXIT=$(cat "$legs/vitest.code" 2>/dev/null || echo 1)
-  # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
-  # resolves them against the repo root and the web/src/... threshold keys match.
-  if [ -f "$VITEST_COV/lcov.info" ]; then
-    sed -i 's#^SF:src/#SF:web/src/#; s#^TN:.*#TN:ezcorp-node-v8#' "$VITEST_COV/lcov.info"
-    bun "$SCRIPT_DIR/filter-web-vitest-lcov.ts" "$VITEST_COV/lcov.info"
-  fi
-  if [ "$VITEST_EXIT" != "0" ]; then
-    FAILED_FILES+=("web vitest-coverage leg")
-    echo "--- FAIL: web vitest-coverage leg (exit $VITEST_EXIT) ---"
-  fi
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then
     FULL_VITEST_EXIT=$(cat "$legs/vitest-full.code" 2>/dev/null || echo 1)
     if [ "$FULL_VITEST_EXIT" != "0" ]; then
@@ -883,7 +528,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
   # The SDK (SDK_LEG_EXIT), harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
-  # node-vitest (VITEST_EXIT) legs GATE here. Suggest stays pass/fail-tolerant
+  # provider, API-client, and Worker legs GATE here. Suggest stays pass/fail-tolerant
   # because it also gates via the residual job. A MISSING LCOV gates for every
   # leg regardless: pass/fail tolerance
   # is about assertions, never about a producer that didn't produce. This is
@@ -892,7 +537,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     echo "::error::sdk coverage leg failed (exit $SDK_LEG_EXIT)"
     exit 1
   fi
-  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
+  if [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
      [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
@@ -1157,7 +802,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # 1 means no existing consumer's meaning changes. Both verdicts are always
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
-if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
+if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
    [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
@@ -1171,7 +816,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi

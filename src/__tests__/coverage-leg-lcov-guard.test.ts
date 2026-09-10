@@ -36,6 +36,7 @@ const REPO_ROOT = join(import.meta.dir, "..", "..");
 const SETS_LIB = "scripts/lib/test-file-sets.sh";
 const RUNNER = join(REPO_ROOT, "scripts/test-coverage.sh");
 const VITEST_INCLUDE_MANIFEST = join(REPO_ROOT, "scripts/web-vitest-coverage-includes.sh");
+const VITEST_RUNNER = join(REPO_ROOT, "scripts/web-vitest-coverage.sh");
 const WEB_ROOT = join(REPO_ROOT, "web");
 
 const LCOV = "TN:\nSF:/repo/src/x.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n";
@@ -78,7 +79,6 @@ const REGISTER_ALL = [
   "register_leg providers cov_providers",
   "register_leg api-client cov_api_client",
   "register_leg worker cov_worker",
-  "register_leg web-vitest cov_vitest",
   "register_leg web-security cov_security",
 ].join("\n");
 
@@ -90,7 +90,6 @@ const ALL_DIRS: ReadonlyArray<[string, string]> = [
   ["providers", "cov_providers"],
   ["api-client", "cov_api_client"],
   ["worker", "cov_worker"],
-  ["web-vitest", "cov_vitest"],
   ["web-security", "cov_security"],
 ];
 
@@ -117,7 +116,7 @@ describe("check_leg_lcov: behaviour", () => {
       expect(r.stdout).toContain("(infrastructure failure)");
       // The expected path is named so the failure is actionable, not just loud.
       expect(r.stdout).toContain(join(tmp, "cov_sdk", "lcov.info"));
-      for (const name of ["harness-client", "suggest", "ai-kit", "api-client", "worker", "web-vitest", "web-security"]) {
+      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "worker", "web-security"]) {
         expect(r.stdout).not.toContain(`::error::${name} coverage leg`);
       }
     });
@@ -125,10 +124,10 @@ describe("check_leg_lcov: behaviour", () => {
 
   test("an EMPTY lcov counts as missing (it merges to nothing either way)", () => {
     withTmp((tmp) => {
-      for (const [name, dir] of ALL_DIRS) seedLeg(tmp, dir, name === "web-vitest" ? "" : LCOV);
+      for (const [name, dir] of ALL_DIRS) seedLeg(tmp, dir, name === "providers" ? "" : LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
-      expect(r.stdout).toContain("::error::web-vitest coverage leg produced no lcov output");
+      expect(r.stdout).toContain("::error::providers coverage leg produced no lcov output");
     });
   });
 
@@ -138,7 +137,7 @@ describe("check_leg_lcov: behaviour", () => {
       seedLeg(tmp, "cov_hc", LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
-      for (const name of ["suggest", "ai-kit", "api-client", "worker", "web-vitest", "web-security"]) {
+      for (const name of ["suggest", "ai-kit", "providers", "api-client", "worker", "web-security"]) {
         expect(r.stdout).toContain(`::error::${name} coverage leg produced no lcov output`);
       }
     });
@@ -285,9 +284,9 @@ describe("test-coverage.sh: every producer shares one per-test timeout", () => {
     expect(naked, `un-timed bun test invocation(s) in ${SETS_LIB}`).toEqual([]);
   });
 
-  test("the vitest leg gets it too — vitest's own default is also 5s", async () => {
-    const src = await runner;
-    expect(src).toContain('npx vitest run --testTimeout="$TEST_TIMEOUT_MS"');
+  test("the canonical Vitest launcher gets an explicit timeout too", async () => {
+    const src = await Bun.file(VITEST_RUNNER).text();
+    expect(src).toContain("--testTimeout=30000");
     // …and no config override silently reinstates the 5s default underneath it.
     const vitestConfig = await Bun.file(join(WEB_ROOT, "vitest.config.ts")).text();
     expect(vitestConfig).not.toMatch(/testTimeout\s*:/);
@@ -819,7 +818,7 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     const legsVerdict = legsOnlyBranch.slice(legsVerdictStart, legsOnlyBranch.lastIndexOf("fi\n") + 3);
 
     const runVerdict = (body: string, sdkExit: number): Run => {
-      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nVITEST_EXIT=0\nFULL_VITEST_EXIT=0\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
       return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
     };
 
@@ -844,147 +843,58 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
   });
 });
 
-// ── vitest-leg allowlist integrity ──────────────────────────────────────────
+// ── canonical Vitest V8 coverage integrity ──────────────────────────────────
 /**
- * The node/vitest leg is TWO hand-maintained allowlists that must agree: the
- * explicit test-file arguments (what RUNS) and the `--coverage.include`
- * patterns (what is MEASURED). A module is covered by this leg only when it is
- * on BOTH, and neither list is derived from the other — so a suite can be
- * thoroughly green and still report as untested.
- *
- * Two ways that goes wrong, both silent at the leg's exit code:
- *   - an include pattern that matches NOTHING (a typo, a moved file, or a
- *     SvelteKit `[param]` segment written in a form the matcher doesn't take).
- *     This is how `api/health/+server.ts` and the refresh-models handler
- *     reached CI tested-but-unmeasured in PR #97; the only downstream symptom
- *     was the patch gate's "changed source file has NO lcov data".
- *   - a listed test file that no longer exists. vitest does red on that today,
- *     but only as "no test files found" buried in a leg log — named here.
- *
- * The test-file list stays in the real selected command. Both producers source
- * one checked include manifest, so that manifest is parsed directly and the
- * selected command is pinned to source it.
+ * The old selected V8 invocation duplicated a subset of the canonical Vitest
+ * pool. The three existing Web tests shards now run that pool once and produce
+ * its LCOV artifacts. These checks keep discovery and measurement fail-closed:
+ * the launcher must use the full Vitest selection, source the shared manifest,
+ * and remain wired into those automatic CI shards.
  */
-describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
-  const runnerSrc = Bun.file(RUNNER).text();
+describe("canonical Vitest V8 coverage launcher", () => {
+  const runnerSrc = Bun.file(VITEST_RUNNER).text();
 
-  /** The `( cd web && npx vitest run … )` invocation, verbatim. */
-  async function vitestBlock(): Promise<string> {
-    const src = await runnerSrc;
-    const start = src.indexOf("npx vitest run");
-    const end = src.indexOf('> "$legs/vitest.out"', start);
-    expect(start, "the vitest leg invocation moved — update this parser").toBeGreaterThan(-1);
-    expect(end, "the vitest leg's output redirect moved — update this parser").toBeGreaterThan(
-      start,
-    );
-    return src.slice(start, end);
-  }
-
-  /** Repo-relative-to-`web/` test files passed as positional args. */
-  async function listedTestFiles(): Promise<string[]> {
-    const block = await vitestBlock();
-    return [...block.matchAll(/^\s*"?(src\/[^\s"\\]+\.test\.ts)"?\s*\\?\s*$/gm)].map(
-      (m) => m[1] as string,
-    );
-  }
-
-  /** The shared `--coverage.include=…` patterns, in manifest order. */
   async function includePatterns(): Promise<string[]> {
     const manifest = await Bun.file(VITEST_INCLUDE_MANIFEST).text();
     return [...manifest.matchAll(/"--coverage\.include=([^"\n]+)"/g)].map((m) => m[1] as string);
   }
 
-  // Every file under web/src, expressed the way the include patterns are
-  // (relative to `web/`, since the leg runs with cwd=web).
   const webSrcFiles = [...new Glob("**/*").scanSync({ cwd: join(WEB_ROOT, "src") })].map(
     (p) => `src/${p.split("\\").join("/")}`,
   );
 
-  /**
-   * Match one include pattern against the tree. Bun's `Glob` reads `[id]` as a
-   * character class, so a literal SvelteKit segment has to be escaped — and
-   * the script already carries two patterns pre-escaped for VITEST's matcher
-   * in the `[[]id]` form, which means the same literal `[id]`. Normalise that
-   * back first, then escape for Bun. (See the DYNAMIC ROUTE SEGMENTS note in
-   * scripts/test-coverage.sh for why the bare form is what vitest wants.)
-   */
   function matchesSomething(pattern: string): boolean {
     const literal = pattern.replace(/\[\[\]/g, "[");
     const escaped = literal.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
-    const glob = new Glob(escaped);
-    return webSrcFiles.some((f) => glob.match(f));
+    return webSrcFiles.some((file) => new Glob(escaped).match(file));
   }
 
-  test("the selected command and shared manifest retain both allowlists", async () => {
-    const files = await listedTestFiles();
-    const includes = await includePatterns();
+  test("CI runs the canonical launcher once across the existing Web tests shards", async () => {
     const runner = await runnerSrc;
-    expect(runner).toContain('source "$SCRIPT_DIR/web-vitest-coverage-includes.sh"');
-    expect(runner).toContain('"$' + '{WEB_VITEST_COVERAGE_ARGS[@]}"');
-    // Ratchet floors in the style of the other set-size guards: 211 test files
-    // and 200 include patterns when this landed. A drop below means the parse
-    // rotted or the leg was gutted — either way the two checks below would
-    // pass vacuously, which is the failure mode worth catching.
-    expect(files.length, "vitest leg test-file list looks truncated").toBeGreaterThanOrEqual(200);
-    expect(includes.length, "vitest leg include list looks truncated").toBeGreaterThanOrEqual(190);
-    expect(webSrcFiles.length).toBeGreaterThan(500);
+    const ci = readFileSync(join(REPO_ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(runner).toContain('source "$repo_root/scripts/web-vitest-coverage-includes.sh"');
+    expect(runner).toContain('npx "${args[@]}"');
+    expect(runner).toContain('args+=("--shard=$shard")');
+    expect(ci).toContain("bash scripts/web-vitest-coverage.sh --output coverage-shard/web-vitest-${{ matrix.i }} --shard ${{ matrix.i }}/3");
+    expect((ci.match(/web-vitest-coverage\.sh/g) ?? [])).toHaveLength(1);
+    expect(await Bun.file(RUNNER).text()).not.toContain("npx vitest run");
   });
 
-  test("every test file the vitest leg runs exists on disk", async () => {
-    const missing = (await listedTestFiles()).filter((f) => !existsSync(join(WEB_ROOT, f)));
-    expect(
-      missing,
-      `${missing.length} test file(s) are passed to the vitest coverage leg but do not ` +
-        `exist under web/ — the leg dies with "no test files found" and every module ` +
-        `they were the only measurer of drops out of the merged lcov:\n  ${missing.join("\n  ")}`,
-    ).toEqual([]);
+  test("every configured source include pattern matches a web source", async () => {
+    const includes = await includePatterns();
+    expect(includes.length).toBeGreaterThanOrEqual(190);
+    const dead = includes.filter((pattern) => !matchesSomething(pattern));
+    expect(dead).toEqual([]);
   });
 
-  test("every --coverage.include pattern matches at least one file under web/", async () => {
-    const dead = (await includePatterns()).filter((p) => !matchesSomething(p));
-    expect(
-      dead,
-      `${dead.length} --coverage.include pattern(s) in scripts/web-vitest-coverage-includes.sh match NOTHING. ` +
-        `An include that matches nothing is indistinguishable from success at the leg's exit ` +
-        `code — it only resurfaces downstream as the patch-coverage gate's "changed source ` +
-        `file has NO lcov data" (PR #97). Fix the pattern; do not delete the ` +
-        `measurement:\n  ${dead.join("\n  ")}`,
-    ).toEqual([]);
-  });
-
-  test("search messages has both a running suite and a measurement include", async () => {
-    // This route used to have a passing server suite that the coverage producer
-    // never ran or included. Pin both sides of producer ownership here so a
-    // future allowlist edit cannot restore that silent blind spot.
-    expect(await listedTestFiles()).toContain("src/__tests__/api-search-messages.server.test.ts");
-    expect(await includePatterns()).toContain("src/routes/api/search/messages/+server.ts");
-  });
-
-  test("web/src/hooks.server.ts is measured, and its suites are the leg's to run", async () => {
-    // Pinned by name, unlike every other module here, because hooks.server.ts
-    // is one the gate CANNOT self-diagnose. A file with an exact key in
-    // coverage-thresholds.json that stops being measured fails loudly on its
-    // own ("listed in thresholds but no lcov data"); hooks.server.ts has no
-    // exact key, it falls under the `web/src/**` catch-all, so going
-    // unmeasured produced no violation at all — it just quietly reported
-    // whatever incidental number the bun host shards happened to instrument.
-    // That is how nine green suites sat unmeasured, and how the last author to
-    // hit it ended up porting a passing vitest suite into the bun pool to work
-    // around the gate rather than fixing the leg.
+  test("hooks.server is measured by a suite that the canonical Vitest config discovers", async () => {
     const includes = await includePatterns();
     expect(includes).toContain("src/hooks.server.ts");
-
+    const config = readFileSync(join(WEB_ROOT, "vitest.config.ts"), "utf8");
+    expect(config).toContain('"src/**/*.server.test.ts"');
     const onDisk = [...new Glob("hooks-server-*.server.test.ts").scanSync({
       cwd: join(WEB_ROOT, "src/__tests__"),
-    })].map((f) => `src/__tests__/${f}`);
+    })];
     expect(onDisk.length).toBeGreaterThanOrEqual(9);
-
-    const listed = new Set(await listedTestFiles());
-    const unrun = onDisk.filter((f) => !listed.has(f));
-    expect(
-      unrun,
-      `${unrun.length} hooks.server.ts suite(s) exist but the vitest coverage leg does not ` +
-        `run them, so their coverage of hooks.server.ts is not measured:\n  ${unrun.join("\n  ")}`,
-    ).toEqual([]);
   });
 });

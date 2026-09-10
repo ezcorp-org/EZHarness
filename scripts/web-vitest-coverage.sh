@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Run the canonical Vitest pool once under Node V8 coverage for shared web sources and the legacy selected route/server source manifest.
-# CI invokes one shard per existing Web tests shard; local coverage invokes it
-# unsharded. The legacy selected Vitest leg remains until the first full union
-# proves every existing threshold has identical-or-better evidence.
+# Run the canonical Vitest pool once under Node V8 coverage. CI invokes one
+# shard per existing Web tests shard; local coverage invokes it unsharded.
+# Its union was proven to supersede the retired selected V8 leg before that
+# duplicate producer was removed from cov-extras.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
@@ -48,6 +48,7 @@ web_vitest_coverage_args
 cd "$repo_root/web"
 args=(
   vitest run
+  --testTimeout=30000
   --coverage
   --coverage.provider=v8
   --coverage.reporter=lcovonly
