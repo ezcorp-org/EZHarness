@@ -2,7 +2,7 @@
 /** Fail when a shipped, executable shared-web source has no V8 DA record. */
 import { Glob } from "bun";
 import { relative, resolve } from "node:path";
-import { BROWSER_CANONICAL_SOURCES, isDeclarationOnlyTypeScript, isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
+import { BROWSER_CANONICAL_SOURCES, BUN_CANONICAL_SOURCES, isDeclarationOnlyTypeScript, isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
 
 export function lcovSourceFiles(lcov: string): Set<string> {
   const files = new Set<string>();
@@ -61,9 +61,9 @@ export function configuredWebVitestSources(patterns: readonly string[]): string[
  */
 export async function canonicalWebVitestSources(): Promise<string[]> {
   const manifest = await Bun.file(WEB_VITEST_INCLUDE_MANIFEST).text();
-  const browserCanonical = new Set(BROWSER_CANONICAL_SOURCES);
+  const nonNodeCanonical = new Set([...BROWSER_CANONICAL_SOURCES, ...BUN_CANONICAL_SOURCES]);
   return configuredWebVitestSources(webVitestIncludePatterns(manifest))
-    .filter((file) => isSourceFile(file) && !browserCanonical.has(file));
+    .filter((file) => isSourceFile(file) && !nonNodeCanonical.has(file));
 }
 
 export async function missingWebLibCoverage(

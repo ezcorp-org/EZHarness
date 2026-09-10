@@ -33,11 +33,13 @@
 import { Glob } from "bun";
 import { resolve, relative, isAbsolute } from "node:path";
 import { filterNoiseDA, isNoiseLine, readSourceLines } from "./lcov-noise-filter.ts";
-import { V8_CANONICAL_SOURCES } from "./coverage-config.ts";
+import { BUN_CANONICAL_SOURCES, V8_CANONICAL_SOURCES } from "./coverage-config.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const v8CanonicalSources = new Set(V8_CANONICAL_SOURCES);
+const bunCanonicalSources = new Set(BUN_CANONICAL_SOURCES);
 const NODE_V8_PRODUCER = "ezcorp-node-v8";
+const BUN_API_PRODUCER = "ezcorp-bun-api";
 
 /** Normalise an incoming SF path to a repo-root-relative key. Robust to:
  *  - Plain absolute paths (`/home/dev/.../src/foo.ts`).
@@ -268,19 +270,21 @@ type InputBlock = {
 };
 
 /**
- * The trusted Node/Vitest producer writes `TN:ezcorp-node-v8`. For the small
- * set whose TypeScript maps disagree, choose only that explicitly-marked
- * producer. Browser AST coverage may have DA records but is not this canonical
- * producer. A Bun-only input is deliberately discarded: after its exact
- * threshold is enabled, the final gate fails loud until Node/Vitest returns.
+ * Canonical sources accept only their named producer: Node/Vitest uses
+ * `TN:ezcorp-node-v8`; the API transport contract uses `TN:ezcorp-bun-api`.
+ * Browser AST coverage and untagged receipts may contain DA records, but they
+ * cannot supply either canonical source. This makes a missing canonical
+ * producer fail at its exact threshold instead of borrowing incompatible maps.
  */
 const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
   if (!block) return;
   const trustedNodeV8 = block.producer === NODE_V8_PRODUCER;
-  const canonical = v8CanonicalSources.has(block.sf);
-  if (canonical && !trustedNodeV8) return;
-  const r = await rec(canonical ? v8Files : files, block.sf);
+  const v8Canonical = v8CanonicalSources.has(block.sf);
+  const bunCanonical = bunCanonicalSources.has(block.sf);
+  if ((v8Canonical && !trustedNodeV8) || (bunCanonical && block.producer !== BUN_API_PRODUCER)) return;
+  const r = await rec(v8Canonical ? v8Files : files, block.sf);
   if (trustedNodeV8) r.producer = NODE_V8_PRODUCER;
+  if (bunCanonical) r.producer = BUN_API_PRODUCER;
   for (const [name, lineNo] of block.fn) r.fn.set(name, lineNo);
   for (const [name, hits] of block.fnda) {
     r.fnda.set(name, (r.fnda.get(name) ?? 0) + hits);

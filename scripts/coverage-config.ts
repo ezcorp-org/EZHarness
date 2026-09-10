@@ -78,9 +78,6 @@ export const EXCLUDES: readonly string[] = [
   // uploaded as an `lcov-cov-*` artifact by the CI `web-security-coverage` job.
   // Each clears the `web/src/lib/**` 90% floor (measured 97.78–100%). Their
   // suites are ALSO run for pass/fail by the `web-bun-tests` job.
-  // Thin typed fetch client (~75 `fetch().then(json)` wrappers, no branching) —
-  // UI I/O glue, same spirit as the excluded `web/src/routes/**/+*.svelte`.
-  "web/src/lib/api.ts",
   // Process-boot singleton orchestrator; its accessors only execute
   // meaningfully in a fully-booted server (integration-only, like other boot
   // wiring).
@@ -184,6 +181,11 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
 /** Browser AST coverage is the sole producer for this runtime alias shim. */
 export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/empty-node-shim.ts",
+];
+
+/** Bun-only client transport contract producer; do not mix V8 source maps. */
+export const BUN_CANONICAL_SOURCES: readonly string[] = [
+  "web/src/lib/api.ts",
 ];
 
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [

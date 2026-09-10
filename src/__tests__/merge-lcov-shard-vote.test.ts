@@ -522,3 +522,38 @@ describe("merge-lcov: V8 canonical source ownership", () => {
     expect(text).toContain(`SF:${unrelated}`);
   });
 });
+
+describe("merge-lcov: Bun API canonical source ownership", () => {
+  const canonical = "web/src/lib/api.ts";
+
+  test("accepts only the marked Bun receipt through a two-stage merge", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case12-api";
+    const apiDir = join(root, base, "api", "cov_0");
+    const blankDir = join(root, base, "blank", "cov_0");
+    const nodeDir = join(root, base, "node", "cov_0");
+    const browserDir = join(root, base, "browser", "cov_0");
+    for (const dir of [apiDir, blankDir, nodeDir, browserDir]) mkdirSync(dir, { recursive: true });
+    const record = (tag: string, hit: number) => [tag, `SF:${source}`, `DA:98,${hit}`, "LF:1", `LH:${hit > 0 ? 1 : 0}`, "end_of_record", ""].join("\n");
+    const unrelatedRecord = (name: string) => {
+      const unrelated = writeSource(`${base}/${name}.ts`, "export const receipt = true;\n");
+      return ["TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+    };
+    writeFileSync(join(apiDir, "lcov.info"), record("TN:ezcorp-bun-api", 7) + unrelatedRecord("api"));
+    writeFileSync(join(blankDir, "lcov.info"), record("TN:", 0) + unrelatedRecord("blank"));
+    writeFileSync(join(nodeDir, "lcov.info"), record("TN:ezcorp-node-v8", 99) + unrelatedRecord("node"));
+    writeFileSync(join(browserDir, "lcov.info"), record("TN:ezcorp-browser-v8", 99) + unrelatedRecord("browser"));
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case12-api-direct.info");
+    const stage = join(root, "case12-api-stage");
+    mkdirSync(stage, { recursive: true });
+    for (const [name, dir] of [["api", apiDir], ["blank", blankDir], ["node", nodeDir], ["browser", browserDir]] as const) {
+      // Bun.Glob intentionally requires a pattern. Keep this one-record
+      // pre-merge shaped exactly like CI's shard pre-merge.
+      await merge(join(dir, "*.info"), `case12-api-stage/${name}.info`);
+    }
+    const twoStage = await merge(join(stage, "*.info"), "case12-api-twostage.info");
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-bun-api");
+    expect(twoStage.da.get(98)).toBe(7);
+  });
+});

@@ -177,3 +177,6 @@
 
 ## 2026-09-10 — Coverage worker limits
 - `scripts/test-coverage.sh` default host pool can exceed the authorized backend worker cap. Record its actual concurrency as evidence, and pass `PARALLEL=3` for every later focused/backend coverage run unless the coordinator explicitly changes the limit.
+
+## 2026-09-10 — Canonical producer identity
+- A blank LCOV `TN:` is not producer evidence. Canonical sources must require a unique producer tag and preserve it through both merge stages; prove blank and other trusted-producer tags cannot supply that source.

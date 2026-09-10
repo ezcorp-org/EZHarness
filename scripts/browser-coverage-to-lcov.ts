@@ -111,7 +111,7 @@ function outputLcov(coverage: CoverageMap): string {
     if (!isBrowserSource(file)) continue;
     const lines = coverage.fileCoverageFor(path).getLineCoverage();
     if (Object.keys(lines).length === 0) continue;
-    output += `TN:\nSF:${resolve(REPO_ROOT, file)}\n`;
+    output += `TN:ezcorp-browser-v8\nSF:${resolve(REPO_ROOT, file)}\n`;
     for (const [line, hits] of Object.entries(lines).sort(([a], [b]) => Number(a) - Number(b))) {
       output += `DA:${line},${hits}\n`;
     }

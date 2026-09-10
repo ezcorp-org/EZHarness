@@ -244,6 +244,7 @@ run_legs() {
   register_leg suggest cov_suggest
   register_leg ai-kit cov_aikit
   register_leg providers cov_providers
+  register_leg api-client cov_api_client
   register_leg worker cov_worker
   register_leg web-vitest cov_vitest
   # Transitional local producer for the entire canonical Vitest pool. CI will
@@ -341,6 +342,12 @@ run_legs() {
     set +e
     COV_OUT="${LEG_COV_DIR[providers]}" bash "$SCRIPT_DIR/provider-coverage.sh"       > "$legs/providers.out" 2>&1
     echo "$?" > "$legs/providers.code"
+  )
+
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[api-client]}" bash "$SCRIPT_DIR/api-client-coverage.sh" > "$legs/api-client.out" 2>&1
+    echo "$?" > "$legs/api-client.code"
   )
 
   # Worker/index.ts has an HTTP-boundary suite that is its canonical source
@@ -712,7 +719,7 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  local printed_legs=(sdk hc suggest aikit providers worker vitest)
+  local printed_legs=(sdk hc suggest aikit providers api-client worker vitest)
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
@@ -747,6 +754,12 @@ run_legs() {
   if [ "$PROVIDER_EXIT" != "0" ]; then
     FAILED_FILES+=("provider coverage leg")
     echo "--- FAIL: provider coverage leg (exit $PROVIDER_EXIT) ---"
+  fi
+
+  API_CLIENT_EXIT=$(cat "$legs/api-client.code" 2>/dev/null || echo 1)
+  if [ "$API_CLIENT_EXIT" != "0" ]; then
+    FAILED_FILES+=("api client coverage leg")
+    echo "--- FAIL: api client coverage leg (exit $API_CLIENT_EXIT) ---"
   fi
 
   WORKER_EXIT=$(cat "$legs/worker.code" 2>/dev/null || echo 1)
@@ -880,7 +893,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     exit 1
   fi
   if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
-     [ "$PROVIDER_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
+     [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -1145,7 +1158,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+   [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 
