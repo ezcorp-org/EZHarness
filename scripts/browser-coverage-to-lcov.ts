@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /** Convert Chromium precise coverage into AST-derived original-source LCOV. */
-import { relative, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Profiler } from "node:inspector";
 import { REPO_ROOT } from "./coverage-config.ts";
@@ -15,6 +15,7 @@ type SourceMap = {
   sourcesContent?: Array<string | null>;
   mappings: string;
   names: string[];
+  sourceRoot?: string;
 };
 type CoverageMap = {
   files(): string[];
@@ -50,6 +51,22 @@ const browserCoverageModules: Promise<BrowserCoverageModules> = (async () => {
 function repoFile(path: string): string {
   return relative(REPO_ROOT, path).replaceAll("\\", "/");
 }
+
+/** Vite writes map `sources` relative to the emitted chunk. ast-v8-to-istanbul
+ * preserves those paths, so make their original-source location explicit before
+ * conversion; otherwise nested `/_app/immutable/**` chunks disappear at output. */
+function resolveSourceMapSources(sourceMap: SourceMap, asset: string): SourceMap {
+  const root = sourceMap.sourceRoot
+    ? (isAbsolute(sourceMap.sourceRoot) ? sourceMap.sourceRoot : resolve(dirname(asset), sourceMap.sourceRoot))
+    : dirname(asset);
+  return {
+    ...sourceMap,
+    sources: sourceMap.sources.map((source) =>
+      isAbsolute(source) ? source : resolve(root, source),
+    ),
+    sourceRoot: undefined,
+  };
+}
 function isBrowserSource(file: string): boolean {
   return (file.startsWith("web/src/routes/") && file.endsWith(".svelte")) ||
     file.startsWith("web/src/lib/");
@@ -83,6 +100,7 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
   const coverage = createCoverageMap();
   const assets = new Map<string, Promise<{ code: string; sourceMap: SourceMap; ast: unknown }>>();
   for (const script of raw.result) {
+    const asset = resolve(REPO_ROOT, "web/build/client", new URL(script.url).pathname.replace(/^\//, ""));
     let cached = assets.get(script.url);
     if (!cached) {
       cached = (async () => {
@@ -97,12 +115,11 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
         if (sourceMap.version !== 3 || !Array.isArray(sourceMap.sources) || typeof sourceMap.mappings !== "string") {
           throw new Error(`browser coverage: ${script.url} has an invalid source-map shape`);
         }
-        return { code, sourceMap, ast: await parseAstAsync(code) };
+        return { code, sourceMap: resolveSourceMapSources(sourceMap, asset), ast: await parseAstAsync(code) };
       })();
       assets.set(script.url, cached);
     }
     const { code, sourceMap, ast } = await cached;
-    const asset = resolve(REPO_ROOT, "web/build/client", new URL(script.url).pathname.replace(/^\//, ""));
     let converted: Record<string, unknown>;
     try {
       converted = await convert({

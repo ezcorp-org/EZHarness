@@ -60,3 +60,15 @@ test("browser converter rejects a requested source absent from raw browser recor
     expectedFiles: ["web/src/routes/missing/+page.svelte"],
   }, async () => ({ code, map: routeMap }))).rejects.toThrow("expected source has no mapped DA record");
 });
+
+test("resolves nested Vite map sources against the emitted chunk", async () => {
+  const nestedMap = JSON.stringify({
+    ...JSON.parse(routeMap),
+    sources: ["../../../../../src/routes/+page.svelte"],
+  });
+  const lcov = await coverageToLcov({
+    result: [{ url: "http://app/_app/immutable/nodes/route.js", functions: covered }],
+    expectedRouteFiles: [route],
+  }, async () => ({ code, map: nestedMap }));
+  expect(lcov).toContain(`SF:${process.cwd()}/${route}`);
+});
