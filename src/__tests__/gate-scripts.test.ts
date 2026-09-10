@@ -481,6 +481,36 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     ].join("\n");
     expect(unassertedAddedBlocks(nested, new Set([1, 2, 3]))).toHaveLength(1);
   });
+  test("does not borrow an assertion after an empty helper body", () => {
+    const empty = [
+      "function saveAndReload() {}",
+      "expect(true).toBe(true);",
+      "test('does not assert', () => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(empty, new Set([3, 4, 5]))).toHaveLength(1);
+  });
+  test("does not borrow a never-called nested helper assertion", () => {
+    const nested = [
+      "function saveAndReload() {",
+      "  function assertionOnly() { expect(true).toBe(true); }",
+      "}",
+      "test('does not assert', () => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(nested, new Set([4, 5, 6]))).toHaveLength(1);
+  });
+  test("does not trust a callback passed to a helper that never invokes it", () => {
+    const ignored = [
+      "function ignore(callback: () => void) {}",
+      "test('does not assert', () => {",
+      "  ignore(() => expect(true).toBe(true));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(ignored, new Set([2, 3, 4]))).toHaveLength(1);
+  });
   test("ignores blocks not touched by the diff", () => {
     expect(unassertedAddedBlocks(noAssert, new Set([999]))).toEqual([]);
   });
