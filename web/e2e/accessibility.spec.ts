@@ -9,7 +9,7 @@ const docsRoutes = Array.from({ length: 24 }, (_, index) => ({
 	method: index % 2 === 0 ? "GET" : "POST",
 	path: `/api/reference/${index + 1}`,
 	description: `Reference endpoint ${index + 1}`,
-	category: "reference",
+	category: index % 2 === 0 ? "auth" : "conversations",
 }));
 
 /**
@@ -71,6 +71,8 @@ for (const pg of pages) {
 		const results = await builder.analyze();
 
 		if (pg.url === "/docs") {
+			await expect(page.getByText("24 endpoints across 2 categories")).toBeVisible();
+			await expect(page.getByText("/api/reference/1")).toBeVisible();
 			const docsScrollRegion = page.locator("main");
 			const dimensions = await docsScrollRegion.evaluate((element) => ({
 				clientHeight: element.clientHeight,
