@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
@@ -63,6 +63,36 @@ test("wrong OS peer UID cannot reach the private runner", async () => {
   const runner = { inspect: async () => { throw new Error("must never reach handler"); } } as unknown as Runner;
   const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() + 1 });
   try { await expect(new RunnerClient({ socketPath, token }).inspect("worker")).rejects.toThrow(); } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
+test("failed gateway startup removes owner-only private and public sockets", async () => {
+  const directory = await mkdtemp("/tmp/ez-runner-gateway-");
+  const socketPath = join(directory, "runner.sock");
+  const wrapperPath = join(directory, "failed-gateway.py");
+  const observationPath = join(directory, "failed-gateway.result");
+  await writeFile(wrapperPath, `#!/usr/bin/env python3
+from pathlib import Path
+import sys
+private_path = Path(sys.argv[3])
+status = private_path.parent.stat()
+Path(__file__).with_suffix(".result").write_text(f"{private_path}\\n{status.st_uid}\\n{status.st_mode & 0o777:o}\\n")
+sys.exit(1)
+`);
+  await chmod(wrapperPath, 0o700);
+  try {
+    await expect(startRunnerService({
+      runner: { inspect: async () => ({}) } as unknown as Runner,
+      socketPath,
+      token: "test-service-credential-32-bytes-minimum",
+      allowedUid: process.getuid!(),
+      python: wrapperPath,
+    })).rejects.toThrow("Unix peer gateway exited");
+    const [privatePath, owner, mode] = (await readFile(observationPath, "utf8")).trim().split("\n");
+    expect(owner).toBe(String(process.getuid!()));
+    expect(mode).toBe("700");
+    await expect(lstat(privatePath)).rejects.toThrow();
+    await expect(lstat(socketPath)).rejects.toThrow();
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("concurrent services allocate separate private upstream sockets", async () => {

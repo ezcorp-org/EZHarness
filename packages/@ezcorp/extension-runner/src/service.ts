@@ -20,12 +20,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
   // the upstream socket short: Unix-domain socket paths have a small fixed
   // byte limit, and the UUID directory below the public path can exceed it.
   const privateDirectory = await mkdtemp("/tmp/ez-runner-");
-  await chmod(privateDirectory, 0o700);
-  const privateStatus = await lstat(privateDirectory);
-  if (privateStatus.isSymbolicLink() || !privateStatus.isDirectory() || (privateStatus.mode & 0o077) !== 0 || privateStatus.uid !== process.getuid?.()) {
-    await rm(privateDirectory, { recursive: true, force: true });
-    throw new RunnerError("unsafe_socket", "Runner private socket directory must be owned by runner and inaccessible to others");
-  }
+  // mkdtemp is atomic and creates a new owner-only directory.
   const privatePath = join(privateDirectory, "runner.sock");
   const sessions = new Map<string, Session>();
   let starting = 0;
@@ -130,23 +125,34 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     for (const pending of session.pending.values()) { clearTimeout(pending.timer); pending.reject(new RunnerError("cancelled", "Worker session closed")); }
     await session.execution.close();
   }
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(privatePath, resolve); });
-  await chmod(privatePath, 0o600);
-  const gateway = processSpawn(options.python ?? "python3", [new URL("./peer-gateway.py", import.meta.url).pathname, options.socketPath, privatePath, String(options.allowedUid)]);
+  let cleanupGateway: ReturnType<typeof processSpawn> | undefined;
   try {
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(privatePath, resolve); });
+    await chmod(privatePath, 0o600);
+    const gateway = processSpawn(options.python ?? "python3", [new URL("./peer-gateway.py", import.meta.url).pathname, options.socketPath, privatePath, String(options.allowedUid)]);
+    cleanupGateway = gateway;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new RunnerError("peer_gateway_failed", "Unix peer identity gateway did not start")), 5000);
       gateway.stdout.once("data", chunk => { clearTimeout(timer); if (chunk.toString().trim() === "READY") resolve(); else reject(new RunnerError("peer_gateway_failed", "Invalid peer gateway startup")); });
       gateway.once("error", error => { clearTimeout(timer); reject(error); });
       gateway.once("exit", () => { clearTimeout(timer); reject(new RunnerError("peer_gateway_failed", "Unix peer gateway exited")); });
     });
-  } catch (error) { gateway.kill(); server.close(); await rm(privateDirectory, { recursive: true, force: true }); throw error; }
-  return { async close() {
-    gateway.kill("SIGTERM");
-    await Promise.all([...sessions.keys()].map(closeSession));
-    server.closeAllConnections();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    return { async close() {
+      gateway.kill("SIGTERM");
+      await Promise.all([...sessions.keys()].map(closeSession));
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      await rm(options.socketPath, { force: true });
+      await rm(privateDirectory, { recursive: true, force: true });
+    } };
+  } catch (error) {
+    cleanupGateway?.kill("SIGTERM");
+    if (server.listening) {
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
     await rm(options.socketPath, { force: true });
     await rm(privateDirectory, { recursive: true, force: true });
-  } };
+    throw error;
+  }
 }
