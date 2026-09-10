@@ -7,6 +7,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/server/security/payload.ts"
     "--coverage.include=src/lib/server/task-helpers.ts"
     "--coverage.include=src/routes/api/tool-invoke/+server.ts"
+    "--coverage.include=src/routes/**/admin/moderation/+page.server.ts"
     "--coverage.include=**/api/marketplace/*/install/+server.ts"
     "--coverage.include=**/api/marketplace/export/*/+server.ts"
     "--coverage.include=src/lib/server/extensions/*.ts"

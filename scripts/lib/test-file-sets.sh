@@ -221,8 +221,8 @@ web_host_files() {
     find web/src/routes/api/import -name "*.test.ts"
     # github-projects web route tests.
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
-    # extension web entry-route tests.
-    find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
+    # Extension entry routes and nested handler tests share the measured host pool.
+    find web/src/routes/api/extensions -name "*.test.ts"
     # extension-RBAC grants API route tests (coverage for the two rbac
     # +server.ts files pinned at 100 in coverage-thresholds.json).
     find web/src/routes/api/rbac/__tests__ -name "*.test.ts"

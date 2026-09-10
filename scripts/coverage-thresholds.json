@@ -1,5 +1,7 @@
 {
   "scripts/git-worktree-clean.ts": 100,
+  "web/src/routes/(app)/admin/moderation/+page.server.ts": 100,
+  "web/src/routes/api/extensions/[name]/uploads/+server.ts": 100,
   "src/extensions/sdk/init.ts": 100,
   "worker/src/**": 60,
   "web/src/lib/server/test-agent-config.ts": 100,

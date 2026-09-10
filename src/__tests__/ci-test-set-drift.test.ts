@@ -248,6 +248,7 @@ describe("web/src pass/fail gating", () => {
   test.each([
     ["isolated Hub worker suite", "web/src/__tests__/hub-isolated-action.integration.test.ts"],
     ["invite limiter isolation", "web/src/__tests__/invite-rate-limit-isolation.test.ts"],
+    ["nested extension uploads", "web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts"],
   ])("%s runs in prepared root host lanes, not web orphans", (_name, file) => {
     expect(inP.has(file)).toBe(true);
     expect(coverageFiles).toContain(file);
