@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { inputClass } from "$lib/styles.js";
 	import type { AgentConfig } from "$lib/api";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
+	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
 	let {
 		agents,
@@ -23,6 +24,14 @@
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	const dismissal = createSearchPickerDismissal({
+		getInput: () => inputEl,
+		isOpen: () => open,
+		dismiss: closeDropdown,
+		isInsidePicker: (target) => !!target.closest("[data-agent-picker-body]"),
+	});
+
+	onDestroy(dismissal.destroy);
 
 	// Phase 57 UX-03 Wave 3: saved-search + pinned-agent prefs.
 	// Source-of-truth is /api/user/agent-picker (settings KV); silent
@@ -115,6 +124,7 @@
 	}
 
 	function openDropdown() {
+		dismissal.cancelBlurDismissal();
 		open = true;
 		highlightIdx = -1;
 		computePosition();
@@ -139,12 +149,16 @@
 		else computePosition();
 	}
 
+	function onInputClick() {
+		if (!open) openDropdown();
+	}
+
 	function onFocus() {
 		if (!open) openDropdown();
 	}
 
 	function onBlur() {
-		setTimeout(closeDropdown, 150);
+		if (!bp.below) dismissal.scheduleBlurDismissal();
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -164,21 +178,9 @@
 		}
 	}
 
-	function onClickOutside(e: MouseEvent) {
-		if (!open) return;
-		if (inputEl?.contains(e.target as Node)) return;
-		// Don't close if click landed inside the picker body (saved/pinned
-		// affordances live there). Tag the body wrapper with a known data
-		// attribute and walk up from the event target.
-		const target = e.target as Node | null;
-		if (target instanceof Element) {
-			if (target.closest("[data-agent-picker-body]")) return;
-		}
-		closeDropdown();
-	}
 </script>
 
-<svelte:document onclick={onClickOutside} />
+<svelte:document onpointerdown={dismissal.onDocumentPointerDown} onclick={dismissal.onDocumentClick} />
 
 <div class="relative">
 	<div class="relative">
@@ -190,6 +192,7 @@
 			bind:this={inputEl}
 			value={query}
 			oninput={onInput}
+			onclick={onInputClick}
 			onfocus={onFocus}
 			onblur={onBlur}
 			onkeydown={onKeydown}

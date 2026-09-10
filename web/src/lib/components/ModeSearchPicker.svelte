@@ -5,6 +5,7 @@
 	import SelectedPill from "./SelectedPill.svelte";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
+	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
 	let {
 		selected = null,
@@ -32,15 +33,17 @@
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
-	let blurCloseTimer: ReturnType<typeof setTimeout> | undefined;
+	const dismissal = createSearchPickerDismissal({
+		getInput: () => inputEl,
+		isOpen: () => open,
+		dismiss: closeDropdown,
+	});
 
 	onMount(async () => {
 		try { modes = await fetchModes(); } catch { /* non-fatal */ }
 	});
 
-	onDestroy(() => {
-		if (blurCloseTimer) clearTimeout(blurCloseTimer);
-	});
+	onDestroy(dismissal.destroy);
 
 	let filtered = $derived(() => {
 		if (!query.trim()) return modes;
@@ -66,10 +69,7 @@
 	}
 
 	function openDropdown() {
-		if (blurCloseTimer) {
-			clearTimeout(blurCloseTimer);
-			blurCloseTimer = undefined;
-		}
+		dismissal.cancelBlurDismissal();
 		open = true;
 		highlightIdx = -1;
 		query = "";
@@ -101,10 +101,7 @@
 	}
 	function onFocus() { if (!open) openDropdown(); }
 	function onBlur() {
-		blurCloseTimer = setTimeout(() => {
-			blurCloseTimer = undefined;
-			closeDropdown();
-		}, 150);
+		if (!bp.below) dismissal.scheduleBlurDismissal();
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -126,14 +123,9 @@
 		}
 	}
 
-	function onClickOutside(e: MouseEvent) {
-		if (!open) return;
-		if (pickerEl?.contains(e.target as Node)) return;
-		closeDropdown();
-	}
 </script>
 
-<svelte:document onclick={onClickOutside} />
+<svelte:document onpointerdown={dismissal.onDocumentPointerDown} onclick={dismissal.onDocumentClick} />
 
 <!-- Combobox chrome — single-select. Pill (when set) sits on a row above
      the input so the input keeps its full width. × on the pill clears the

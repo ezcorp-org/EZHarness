@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { inputClass } from "$lib/styles.js";
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import SelectedPill from "$lib/components/SelectedPill.svelte";
 	// Phase 57 UX-04 — drag-reorderable extension chip row.
 	// `use:dndzone` MUST attach to a native <div> (Pitfall 1 — Svelte
@@ -10,6 +10,7 @@
 	import { dndzone } from "svelte-dnd-action";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
+	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
 	interface ExtensionItem {
 		id: string;
@@ -49,6 +50,13 @@
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	const dismissal = createSearchPickerDismissal({
+		getInput: () => inputEl,
+		isOpen: () => open,
+		dismiss: closeDropdown,
+	});
+
+	onDestroy(dismissal.destroy);
 
 	onMount(async () => {
 		try {
@@ -90,19 +98,22 @@
 		dropdownStyle = `position:fixed;left:${rect.left}px;top:${rect.bottom + 2}px;width:${Math.max(rect.width, 320)}px;z-index:9999;`;
 	}
 
-	function openDropdown() { open = true; highlightIdx = -1; computePosition(); }
+	function openDropdown() { dismissal.cancelBlurDismissal(); open = true; highlightIdx = -1; computePosition(); }
 	function closeDropdown() { open = false; highlightIdx = -1; }
 	function onInput() {
 		query = inputEl?.value ?? "";
 		highlightIdx = -1;
 		if (!open) openDropdown(); else computePosition();
 	}
+	function onInputClick() {
+		if (!open) openDropdown();
+	}
 	function onFocus() { if (!open) openDropdown(); }
 	// Blur-close is a desktop-dropdown idiom only. Below lg the body is
 	// wrapped in a BottomSheet whose focus trap steals focus on mount —
 	// closing on that blur would dismiss the sheet ~150ms after it opens.
 	// The sheet owns its dismissal there (backdrop / close button / ESC).
-	function onBlur() { if (!bp.below) setTimeout(closeDropdown, 150); }
+	function onBlur() { if (!bp.below) dismissal.scheduleBlurDismissal(); }
 	function onKeydown(e: KeyboardEvent) {
 		const items = filtered();
 		if (!open || items.length === 0) return;
@@ -111,28 +122,9 @@
 		else if (e.key === "Enter" && highlightIdx >= 0) { e.preventDefault(); toggle(items[highlightIdx]!); }
 		else if (e.key === "Escape") { closeDropdown(); }
 	}
-	// Whether the current pointer gesture STARTED on the input. Opening the
-	// picker on focus mounts the BottomSheet mid-click (below lg), so the
-	// click's release lands on the sheet and the event retargets to a common
-	// ancestor — without this, the very tap that opens the sheet "clicks
-	// outside" and dismisses it instantly.
-	let pressBeganOnInput = false;
-	function onDocPointerDown(e: PointerEvent) {
-		pressBeganOnInput = !!inputEl?.contains(e.target as Node);
-	}
-	function onClickOutside(e: MouseEvent) {
-		if (!open) return;
-		if (pressBeganOnInput) return;
-		const t = e.target as Node | null;
-		if (!t || inputEl?.contains(t)) return;
-		// Inside the BottomSheet the sheet owns dismissal (backdrop / close
-		// button / ESC) — selection taps must not tear it down.
-		if (t instanceof Element && t.closest("[data-testid='bottom-sheet']")) return;
-		closeDropdown();
-	}
 </script>
 
-<svelte:document onpointerdown={onDocPointerDown} onclick={onClickOutside} />
+<svelte:document onpointerdown={dismissal.onDocumentPointerDown} onclick={dismissal.onDocumentClick} />
 
 <!-- Combobox chrome — pills wrap on their own row(s) above the input; the
      input keeps full chrome width on its own row below. -->
@@ -176,6 +168,7 @@
 			bind:this={inputEl}
 			value={query}
 			oninput={onInput}
+			onclick={onInputClick}
 			onfocus={onFocus}
 			onblur={onBlur}
 			onkeydown={onKeydown}

@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { inputClass } from "$lib/styles.js";
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import ProviderIcon from "./ProviderIcon.svelte";
 	import SelectedPill from "./SelectedPill.svelte";
 	import { PROVIDER_META, canonicalProvider } from "$lib/provider-meta.js";
 	import { CURRENT_MODEL_SENTINEL } from "$lib/api";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
+	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
 	interface ModelOption {
 		provider: string;
@@ -59,6 +60,13 @@
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	const dismissal = createSearchPickerDismissal({
+		getInput: () => inputEl,
+		isOpen: () => open,
+		dismiss: closeDropdown,
+	});
+
+	onDestroy(dismissal.destroy);
 
 	onMount(async () => {
 		try {
@@ -102,6 +110,7 @@
 	}
 
 	function openDropdown() {
+		dismissal.cancelBlurDismissal();
 		open = true;
 		highlightIdx = -1;
 		query = "";
@@ -127,12 +136,16 @@
 		else computePosition();
 	}
 
+	function onInputClick() {
+		if (!open) openDropdown();
+	}
+
 	function onFocus() {
 		if (!open) openDropdown();
 	}
 
 	function onBlur() {
-		setTimeout(closeDropdown, 150);
+		if (!bp.below) dismissal.scheduleBlurDismissal();
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -152,14 +165,9 @@
 		}
 	}
 
-	function onClickOutside(e: MouseEvent) {
-		if (!open) return;
-		if (inputEl?.contains(e.target as Node)) return;
-		closeDropdown();
-	}
 </script>
 
-<svelte:document onclick={onClickOutside} />
+<svelte:document onpointerdown={dismissal.onDocumentPointerDown} onclick={dismissal.onDocumentClick} />
 
 <!-- Combobox chrome — single-select. Pill sits on its own row above the
      input so the input keeps its full chrome width. The pill's × fires
@@ -188,6 +196,7 @@
 			bind:this={inputEl}
 			value={open ? query : ""}
 			oninput={onInput}
+			onclick={onInputClick}
 			onfocus={onFocus}
 			onblur={onBlur}
 			onkeydown={onKeydown}
