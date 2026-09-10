@@ -12,6 +12,8 @@
  * save or reset.
  */
 
+import { extensionListFromResponse } from "$lib/extensions/list-response.js";
+
 type ResolvedSettings = Record<string, unknown>;
 
 interface ExtensionLookup {

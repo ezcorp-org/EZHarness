@@ -82,6 +82,8 @@
 	} from "$lib/model-selector-logic.js";
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
 	import { shouldShowPill } from "$lib/ez/pill-visibility";
+	import { appendCapabilityAnnotations } from "$lib/chat/capability-annotations.js";
+	import { extensionListFromResponse } from "$lib/extensions/list-response.js";
 	import { parseCapabilityEventContent } from "$lib/components/CapabilityEventPill.svelte";
 	import { getHistoricalToolCalls as mapHistoricalToolCalls } from "$lib/chat/historical-tool-calls.js";
 	import {
@@ -573,10 +575,9 @@
 	let messages = $derived.by(() => {
 		const branch = activeLeafId ? pathToRoot(allMessages, activeLeafId) : [];
 		// Capability events are root-level audit annotations, so they must not
-		// participate in leaf selection. They still belong in the transcript:
-		// merge them into the chosen branch by time after the branch walk.
-		const annotations = allMessages.filter((message) => message.role === "capability-event");
-		return [...branch, ...annotations].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+		// participate in leaf selection. Keep the selected branch's native order
+		// and append each unseen annotation once for transcript rendering.
+		return appendCapabilityAnnotations(branch, allMessages);
 	});
 
 	// Memory-card dedup + empty-turn filter (verbatim from page).
@@ -620,12 +621,7 @@
 		void userFetch("/api/extensions")
 			.then(async (res) => {
 				if (!res.ok) return [];
-				const data = (await res.json()) as unknown;
-				return Array.isArray(data)
-					? data
-					: data && typeof data === "object" && Array.isArray((data as { extensions?: unknown }).extensions)
-						? (data as { extensions: unknown[] }).extensions
-						: [];
+				return extensionListFromResponse(await res.json());
 			})
 			.then((extensions) => {
 				if (!mounted) return;
