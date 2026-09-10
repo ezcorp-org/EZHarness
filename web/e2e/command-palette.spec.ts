@@ -30,11 +30,10 @@ test.describe("Command Palette", () => {
 	test("palette opens on root page via sidebar button (global context)", async ({
 		page,
 		mockApi,
-		isMobile,
 	}) => {
-		// The palette trigger lives in the DESKTOP sidebar (hidden lg:flex);
-		// mobile has no sidebar button to click at this route.
-		test.skip(isMobile, "palette sidebar button only exists on desktop");
+		// This asserts the desktop trigger. Set its viewport here so every
+		// configured browser project exercises the positive desktop path.
+		await page.setViewportSize({ width: 1024, height: 768 });
 		await mockApi({ projects: [proj] });
 		await page.goto("/");
 

@@ -576,11 +576,10 @@ test.describe("Hub", () => {
 	test("Hub nav link renders on the Global project sidebar (global navLinks branch)", async ({
 		page,
 		mockApi,
-		isMobile,
 	}) => {
-		// Mobile renders the project-menu UI on /project/global — there is
-		// no sidebar (and no hamburger) to host navLinks at this route.
-		test.skip(isMobile, "global project route has no sidebar on mobile");
+		// This is the desktop sidebar contract. Set its viewport explicitly so
+		// the same positive journey runs under every Playwright project.
+		await page.setViewportSize({ width: 1024, height: 768 });
 		const globalProj = makeProject({ id: "global", name: "Global" });
 		await mockApi({ projects: [globalProj] });
 		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: { pages: [] } }));

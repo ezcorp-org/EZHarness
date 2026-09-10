@@ -243,12 +243,8 @@ test.describe("/commands authoring UI", () => {
 	test("sidebar Commands link navigates to /commands (desktop)", async ({
 		page,
 		mockApi,
-		viewport,
 	}) => {
-		test.skip(
-			!!viewport && viewport.width < 1024,
-			"Inline sidebar only renders at >=lg; mobile path covered in the next case.",
-		);
+		await page.setViewportSize({ width: 1024, height: 768 });
 		await mockApi({ userCommands: [] });
 		await page.goto("/");
 		// Sidebar shows the Build group with the new Commands entry.
@@ -265,12 +261,8 @@ test.describe("/commands authoring UI", () => {
 	test("sidebar Commands link navigates to /commands (mobile drawer)", async ({
 		page,
 		mockApi,
-		viewport,
 	}) => {
-		test.skip(
-			!viewport || viewport.width >= 1024,
-			"Mobile drawer only renders at <lg; desktop path covered in the previous case.",
-		);
+		await page.setViewportSize({ width: 375, height: 812 });
 		await mockApi({ userCommands: [] });
 		// Use a non-chat route as the starting point — `/` redirects to
 		// the active chat and the (app) layout hides the mobile header

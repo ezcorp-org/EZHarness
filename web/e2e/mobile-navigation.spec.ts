@@ -161,6 +161,8 @@ test.describe("Mobile navigation", () => {
     // The persistent ProjectRail takes 72px. The list must fill the remaining
     // content column instead of collapsing to its desktop sidebar width.
     expect(box!.width).toBeGreaterThanOrEqual(MOBILE_WIDTH - 72 - 20);
+		expect(box!.x).toBeGreaterThanOrEqual(0);
+		expect(box!.x + box!.width).toBeLessThanOrEqual(MOBILE_WIDTH);
   });
 
   test("mobile drawer closes when backdrop is clicked", async ({

@@ -15,7 +15,7 @@ test.describe("Root resume shell", () => {
 
 		await page.goto("/");
 
-		await page.waitForURL(/\/project\/global\/chat$/);
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
 	});
 
 	test("opens the saved project chat when it is still available", async ({ page, mockApi }) => {
@@ -28,7 +28,7 @@ test.describe("Root resume shell", () => {
 
 		await page.goto("/");
 
-		await page.waitForURL(new RegExp(`/project/${project.id}/chat$`));
+		await expect(page).toHaveURL(new RegExp(`/project/${project.id}/chat$`));
 	});
 
 	test("restores a saved route before the saved project", async ({ page, mockApi }) => {
@@ -41,7 +41,7 @@ test.describe("Root resume shell", () => {
 
 		await page.goto("/");
 
-		await page.waitForURL(/\/agents\?tab=teams$/);
+		await expect(page).toHaveURL(/\/agents\?tab=teams$/);
 		await expect(page.getByRole("link", { name: "+ New Team" })).toBeVisible();
 	});
 
@@ -53,7 +53,7 @@ test.describe("Root resume shell", () => {
 
 		await page.goto("/");
 
-		await page.waitForURL(/\/project\/global\/chat$/);
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
 		await expect.poll(async () => page.evaluate((key) => localStorage.getItem(key), ACTIVE_PROJECT_KEY)).toBeNull();
 	});
 
@@ -67,7 +67,7 @@ test.describe("Root resume shell", () => {
 
 		await page.goto("/");
 
-		await page.waitForURL(new RegExp(`/project/${project.id}/chat$`));
+		await expect(page).toHaveURL(new RegExp(`/project/${project.id}/chat$`));
 	});
 
 	test("falls back to Global when the project lookup fails", async ({ page, mockApi }) => {
@@ -79,7 +79,7 @@ test.describe("Root resume shell", () => {
 
 		await page.goto("/");
 
-		await page.waitForURL(/\/project\/global\/chat$/);
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
 	});
 
 	// `/pipelines` is the legacy path — it redirects to `/workflows`; both
@@ -88,20 +88,21 @@ test.describe("Root resume shell", () => {
 		const project = makeProject({ id: "proj-1", name: "Smoke Project" });
 		await mockApi({ projects: [project] });
 
-		for (const path of ["/agents", "/pipelines"]) {
-			const errors: string[] = [];
-			page.on("console", (msg) => {
-				if (msg.type() === "error") errors.push(msg.text());
-			});
-			page.on("pageerror", (err) => errors.push(err.message));
+		const errors: string[] = [];
+		page.on("console", (message) => {
+			if (message.type() === "error") errors.push(message.text());
+		});
+		page.on("pageerror", (error) => errors.push(error.message));
 
-			await page.goto(path);
-			await expect(page.locator("body")).toBeVisible();
-
-			const realErrors = errors.filter(
-				(error) => !error.includes("WebSocket") && !error.includes("ERR_CONNECTION_REFUSED"),
-			);
-			expect(realErrors, `Console errors on ${path}: ${realErrors.join("\n")}`).toEqual([]);
+		for (const journey of [
+			{ path: "/agents", url: /\/agents$/, heading: "Agents" },
+			{ path: "/pipelines", url: /\/workflows$/, heading: "Workflows" },
+		]) {
+			errors.length = 0;
+			await page.goto(journey.path);
+			await expect(page).toHaveURL(journey.url);
+			await expect(page.getByRole("heading", { name: journey.heading, exact: true })).toBeVisible();
+			expect(errors, `Unexpected browser errors on ${journey.path}`).toEqual([]);
 		}
 	});
 });
