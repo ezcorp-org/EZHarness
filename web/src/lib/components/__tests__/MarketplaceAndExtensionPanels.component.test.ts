@@ -19,7 +19,7 @@ const versions = [{ id: "v2", version: "2.0.0", createdAt: "2026-01-02T00:00:00.
 
 describe("ExtensionPanel", () => {
 	test("renders every supported panel component and persists collapse state", async () => {
-		vi.mocked(readExtPanel).mockReturnValue(undefined);
+		vi.mocked(readExtPanel).mockReturnValue(null);
 		const state = { title: "Run status", components: [
 			{ type: "header", title: "Plan", subtitle: "Current work" },
 			{ type: "text", content: "Important note", variant: "emphasis" },

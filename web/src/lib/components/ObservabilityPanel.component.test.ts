@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 const { getActiveRunIdForConversation, getStreamingToolCalls } = vi.hoisted(() => ({
@@ -38,7 +38,29 @@ describe("ObservabilityPanel", () => {
 			conversationId: "conversation-1",
 			open: true,
 			onclose: vi.fn(),
-			taskSnapshot: { tasks: [{ assignments: [{ subConversationId: "sub-1", status: "failed" }] }] },
+		taskSnapshot: {
+			conversationId: "conversation-1",
+			tasks: [{
+				id: "task-1",
+				title: "Build release",
+				description: "Prepare artifacts",
+				status: "failed",
+				subtasks: [],
+				assignments: [{
+					id: "assignment-1",
+					agentConfigId: "agent-1",
+					agentName: "Builder",
+					isTeam: false,
+					subConversationId: "sub-1",
+					status: "failed",
+					assignedAt: "2026-01-01T10:00:00.000Z",
+					failedAt: "2026-01-01T10:00:02.000Z",
+				}],
+				createdAt: "2026-01-01T10:00:00.000Z",
+				failedAt: "2026-01-01T10:00:02.000Z",
+				priority: 0,
+			}],
+		},
 		});
 		await screen.findByText("Token Usage");
 		expect(screen.getByText("1.3K")).toBeInTheDocument();
@@ -51,14 +73,37 @@ describe("ObservabilityPanel", () => {
 		expect(fetch).toHaveBeenCalledWith("/api/observability/conversation-1");
 	});
 
-	test("uses live tool state during a stream and handles a failed request without stale content", async () => {
+	test("uses live tool state during a stream", async () => {
 		getActiveRunIdForConversation.mockReturnValue("run-live");
-		getStreamingToolCalls.mockReturnValue([{ id: "live-tool", toolName: "read_file", status: "running" }]);
+		getStreamingToolCalls.mockReturnValue([{
+			id: "live-tool",
+			toolName: "read_file",
+			status: "running",
+			startedAt: Date.now() - 100,
+			input: { path: "release.md" },
+			output: "release notes",
+		}]);
+		vi.stubGlobal("fetch", vi.fn(async () => response({
+			stats: { totalInputTokens: 0, totalOutputTokens: 0, totalToolCalls: 1, avgDurationMs: 0, turnCount: 1 },
+			events: [],
+		})));
+		const onclose = vi.fn();
+		render(ObservabilityPanel, { conversationId: "conversation-2", open: true, onclose });
+		await screen.findByText("Execution Timeline");
+		expect(screen.getByText("read_file")).toBeInTheDocument();
+		await fireEvent.click(screen.getByText("read_file"));
+		expect(screen.getByText(/release notes/)).toBeInTheDocument();
+		expect(getStreamingToolCalls).toHaveBeenCalledWith("run-live");
+	});
+
+	test("keeps the panel usable after a failed request", async () => {
+		getActiveRunIdForConversation.mockReturnValue(undefined);
 		vi.stubGlobal("fetch", vi.fn(async () => new Response("no", { status: 503 })));
 		const onclose = vi.fn();
 		render(ObservabilityPanel, { conversationId: "conversation-2", open: true, onclose });
 		await waitFor(() => expect(fetch).toHaveBeenCalled());
 		expect(screen.queryByText("Token Usage")).toBeNull();
-		expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+		await fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		expect(onclose).toHaveBeenCalledOnce();
 	});
 });

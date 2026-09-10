@@ -9,7 +9,7 @@
  */
 
 import { fireEvent, render, cleanup } from "@testing-library/svelte";
-import { describe, test, expect, afterEach } from "vitest";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import AssignmentPill from "./AssignmentPill.svelte";
 import type { TaskAssignment } from "$lib/stores.svelte.js";
 
