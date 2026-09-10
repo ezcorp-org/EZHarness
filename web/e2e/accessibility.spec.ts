@@ -5,6 +5,12 @@ import { makeProject, makeConversation, makeMessage, makeWorkflow } from "./fixt
 const proj = makeProject({ id: "proj-1", name: "A11y Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 const msg = makeMessage({ id: "msg-1", conversationId: "conv-1", role: "user", content: "Hello" });
+const docsRoutes = Array.from({ length: 24 }, (_, index) => ({
+	method: index % 2 === 0 ? "GET" : "POST",
+	path: `/api/reference/${index + 1}`,
+	description: `Reference endpoint ${index + 1}`,
+	category: "reference",
+}));
 
 /**
  * Pages to scan for WCAG 2.1 AA compliance via axe-core.
@@ -46,6 +52,7 @@ for (const pg of pages) {
 			conversations: [conv],
 			messages: [msg],
 			workflows: [makeWorkflow()],
+			...(pg.url === "/docs" ? { routes: { "/api/docs": () => ({ routes: docsRoutes }) } } : {}),
 		});
 
 		await page.goto(pg.url);
@@ -65,9 +72,17 @@ for (const pg of pages) {
 
 		if (pg.url === "/docs") {
 			const docsScrollRegion = page.locator("main");
+			const dimensions = await docsScrollRegion.evaluate((element) => ({
+				clientHeight: element.clientHeight,
+				scrollHeight: element.scrollHeight,
+			}));
+			expect(dimensions.scrollHeight).toBeGreaterThan(dimensions.clientHeight);
 			await expect(docsScrollRegion).toHaveAttribute("tabindex", "0");
 			await docsScrollRegion.focus();
 			await expect(docsScrollRegion).toBeFocused();
+			const initialScrollTop = await docsScrollRegion.evaluate((element) => element.scrollTop);
+			await page.keyboard.press("PageDown");
+			await expect.poll(() => docsScrollRegion.evaluate((element) => element.scrollTop)).toBeGreaterThan(initialScrollTop);
 		}
 
 		if (results.violations.length > 0) {
@@ -85,7 +100,7 @@ for (const pg of pages) {
 	});
 }
 
-test("shared application scroll region is reachable by Tab on interactive pages", async ({ page, mockApi }) => {
+test("shared application scroll region is reachable by Tab on interactive pages @evidence", async ({ page, mockApi }, testInfo) => {
 	await mockApi({
 		projects: [proj],
 		conversations: [conv],
@@ -109,6 +124,7 @@ test("shared application scroll region is reachable by Tab on interactive pages"
 		.withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
 		.analyze();
 	expect(results.violations, `Accessibility violations on Agents:\n${formatViolations(results.violations)}`).toEqual([]);
+	await captureEvidence(page, testInfo, "agents-keyboard-scroll-region");
 });
 
 /* ------------------------------------------------------------------ */
