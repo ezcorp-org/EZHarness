@@ -250,3 +250,7 @@
 ## 2026-09-10 — Live-event stale history races
 
 - A delayed first-load response is not a valid live-event race if it prevents native input. Complete initial hydration, then start a separate stale history read before the event. Release it after the live event and assert the live surface remains; test the later persisted row as a separate refresh.
+
+## 2026-09-10 — Isolated stale-response races
+
+- Count the exact authoritative reads in a stale-response browser race before and after release. Without that count, an unexpected later persisted read can make the visible state pass while the intended stale overlap was never isolated.

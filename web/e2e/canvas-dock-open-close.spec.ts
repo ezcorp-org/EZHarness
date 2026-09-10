@@ -123,9 +123,11 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		});
 		await assertLiveDock(page);
 		// The stale response must not erase the live dock call when it resolves.
+		expect(toolHydrationCount).toBe(2);
 		releaseStaleToolHydration?.();
 		await expect(page.getByRole("button", { name: /hydration-sentinel-stale/ })).toBeVisible();
 		await assertLiveDock(page);
+		expect(toolHydrationCount).toBe(2);
 		await expect(page.getByRole("complementary", { name: "Preview controls" })).toBeVisible();
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		await assertCanvasThemeTokens(page);
@@ -150,7 +152,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			}));
 		});
 		await persistedRefresh;
-		// Every post-initial response contains the matching persisted row. A stable
+		// Every post-stale response contains the matching persisted row. A stable
 		// marker keeps this assertion independent of unrelated background refreshes.
 		await expect(page.getByRole("button", { name: /hydration-sentinel-persisted/ })).toBeVisible();
 		await assertPersistedDock(page);
