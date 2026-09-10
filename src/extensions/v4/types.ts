@@ -45,7 +45,8 @@ export interface LifecycleDependencies {
   buildLimits: ResourceLimits;
   authorize(actor: LifecycleActor, action: "workspace" | "build" | "approve" | "activate" | "disable" | "uninstall", release?: LifecycleRelease, grants?: string[]): Promise<void>;
   authorizeAccess?(actor: LifecycleActor, installation: InstallationRecord): Promise<void>;
-  verifyCandidate(release: LifecycleRelease, artifacts: WorkspaceFiles): Promise<CandidateVerificationReport | undefined>;
+  // biome-ignore lint/suspicious/noConfusingVoidType: Lifecycle implementations use Promise<void> for a successful no-report verification.
+  verifyCandidate(release: LifecycleRelease, artifacts: WorkspaceFiles): Promise<CandidateVerificationReport | void>;
   prepareActivation?(installation: InstallationRecord, previous: LifecycleRelease | null, release: LifecycleRelease, operation: LifecycleOperation): Promise<void>;
   abortActivation?(installationId: string, operation: LifecycleOperation): Promise<void>;
   publish(installation: InstallationRecord, release: LifecycleRelease | null): Promise<void>;

@@ -18,15 +18,6 @@ import { logger } from "$server/logger";
 
 const log = logger.child("bearer-auth");
 
-/** HTTP header an internal-auth (bundled-extension) caller uses to indicate
- *  the human user whose session triggered the call. The server trusts this
- *  header ONLY when the caller has already authenticated as a system
- *  principal AND is on loopback. LLM-visible tool args can NOT reach this
- *  header — it's set by the executor via a `_meta.ezOnBehalfOf` side
- *  channel in the subprocess JSON-RPC request (see ToolExecutor + ai-kit's
- *  MCP server for the full propagation chain). */
-const _ON_BEHALF_OF_HEADER = "X-Ezcorp-On-Behalf-Of";
-
 export interface BearerAuthEvent {
   locals: {
     user?: { id: string; email: string; name: string; role: string };
