@@ -20,6 +20,42 @@ const accountData = {
 	createdAt: "2026-01-15T00:00:00.000Z",
 };
 
+const embedProgressData = {
+	backlog: { pending: 0, inProgress: 0, failed: 0, total: 0 },
+	coverage: { eligibleMessages: 0, embeddedMessages: 0 },
+};
+
+const analyticsData = {
+	chatActivity: [],
+	modelUsage: [],
+	agentStats: [],
+	extensionStats: [],
+	userStats: { totalUsers: 10, activeUsers30d: 5, signupsLast30d: [] },
+};
+
+const systemData = {
+	health: {
+		dbSizeBytes: 1024000,
+		uptimeSeconds: 3600,
+		tableRowCounts: { conversations: 50, messages: 200, agents: 5, users: 10 },
+	},
+	activityFeed: [],
+	errorSummary: {
+		totalErrors: 3,
+		errorRate: [],
+		recentErrors: [
+			{ id: "err-1", level: "error", message: "Test error", createdAt: "2026-03-24T00:00:00Z" },
+		],
+	},
+};
+
+const adminDashboardRoutes = {
+	"/api/auth/me": () => meAdmin,
+	"/api/admin/analytics": () => analyticsData,
+	"/api/admin/system": () => systemData,
+	"/api/admin/embed-progress": () => embedProgressData,
+};
+
 const sessionData = {
 	sessions: [
 		{
@@ -54,49 +90,24 @@ test.describe("Mobile UX", () => {
 	test("admin dashboard shows card stacks on mobile", async ({ page, mockApi }) => {
 		await page.setViewportSize(mobile);
 
-		const analyticsData = {
-			chatActivity: [],
-			modelUsage: [],
-			agentStats: [],
-			extensionStats: [],
-			userStats: { totalUsers: 10, activeUsers30d: 5, signupsLast30d: [] },
-		};
-
-		const systemData = {
-			health: {
-				dbSizeBytes: 1024000,
-				uptimeSeconds: 3600,
-				tableRowCounts: { conversations: 50, messages: 200, agents: 5, users: 10 },
-			},
-			activityFeed: [],
-			errorSummary: {
-				totalErrors: 3,
-				errorRate: [],
-				recentErrors: [
-					{ id: "err-1", level: "error", message: "Test error", createdAt: "2026-03-24T00:00:00Z" },
-				],
-			},
-		};
-
 		await mockApi({
 			projects: [proj],
-			routes: {
-				"/api/auth/me": () => meAdmin,
-				"/api/admin/analytics": () => analyticsData,
-				"/api/admin/system": () => systemData,
-			},
+			routes: adminDashboardRoutes,
 		});
 
 		await page.goto("/admin/dashboard");
 		await expect(page.getByText("Admin Dashboard")).toBeVisible({ timeout: 5000 });
 
-		// Switch to System tab to see card stacks
 		await page.getByRole("button", { name: "System" }).click();
 
-		// On mobile, resource grid should be hidden and MobileCardStack visible
-		// MobileCardStack renders with md:hidden class
-		const mobileCards = page.locator(".md\\:hidden");
-		await expect(mobileCards.first()).toBeVisible({ timeout: 3000 });
+		const resourceSection = page.getByRole("heading", { name: "Resource Counts" }).locator("..");
+		const desktopGrid = resourceSection.locator(":scope > .hidden.md\\:block");
+		const mobileCards = resourceSection.locator(":scope > .md\\:hidden > .md\\:hidden");
+
+		await expect(desktopGrid).toBeHidden();
+		await expect(mobileCards).toBeVisible();
+		await expect(mobileCards.getByText("conversations", { exact: true })).toBeVisible();
+		await expect(mobileCards.getByText("50", { exact: true })).toBeVisible();
 	});
 
 	test("account page sessions show as cards on mobile", async ({ page, mockApi }) => {
@@ -178,37 +189,9 @@ test.describe("Mobile UX", () => {
 	test("desktop viewport hides mobile card stacks and shows tables", async ({ page, mockApi }) => {
 		await page.setViewportSize(desktop);
 
-		const analyticsData = {
-			chatActivity: [],
-			modelUsage: [],
-			agentStats: [],
-			extensionStats: [],
-			userStats: { totalUsers: 10, activeUsers30d: 5, signupsLast30d: [] },
-		};
-
-		const systemData = {
-			health: {
-				dbSizeBytes: 1024000,
-				uptimeSeconds: 3600,
-				tableRowCounts: { conversations: 50, messages: 200, agents: 5, users: 10 },
-			},
-			activityFeed: [],
-			errorSummary: {
-				totalErrors: 3,
-				errorRate: [],
-				recentErrors: [
-					{ id: "err-1", level: "error", message: "Test error", createdAt: "2026-03-24T00:00:00Z" },
-				],
-			},
-		};
-
 		await mockApi({
 			projects: [proj],
-			routes: {
-				"/api/auth/me": () => meAdmin,
-				"/api/admin/analytics": () => analyticsData,
-				"/api/admin/system": () => systemData,
-			},
+			routes: adminDashboardRoutes,
 		});
 
 		await page.goto("/admin/dashboard");
@@ -216,18 +199,14 @@ test.describe("Mobile UX", () => {
 
 		await page.getByRole("button", { name: "System" }).click();
 
-		// On desktop, md:hidden card stacks should NOT be visible
-		const mobileCards = page.locator(".md\\:hidden");
-		const mobileCount = await mobileCards.count();
-		for (let i = 0; i < mobileCount; i++) {
-			await expect(mobileCards.nth(i)).not.toBeVisible();
-		}
+		const resourceSection = page.getByRole("heading", { name: "Resource Counts" }).locator("..");
+		const desktopGrid = resourceSection.locator(":scope > .hidden.md\\:block");
+		const mobileCards = resourceSection.locator(":scope > .md\\:hidden");
 
-		// On desktop, hidden md:block tables should be visible
-		const desktopTables = page.locator(".hidden.md\\:block");
-		const tableCount = await desktopTables.count();
-		expect(tableCount).toBeGreaterThan(0);
-		await expect(desktopTables.first()).toBeVisible();
+		await expect(mobileCards).toBeHidden();
+		await expect(desktopGrid).toBeVisible();
+		await expect(desktopGrid.getByText("conversations", { exact: true })).toBeVisible();
+		await expect(desktopGrid.getByText("50", { exact: true })).toBeVisible();
 	});
 
 	test("breadcrumb links are clickable and navigate correctly", async ({ page, mockApi }) => {
