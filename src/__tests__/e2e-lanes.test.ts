@@ -287,6 +287,15 @@ describe("e2e lane manifest", () => {
     const shipping = await Bun.file(join(REPO_ROOT, "scripts/verify-shipping-production-suite.sh")).text();
     expect(shipping).toContain("replay-file-organizer-runtime.sh");
 
+    const engines = ciJobBlock(ci, "extension-browser-engines");
+    expect(engines, "missing CI job: extension-browser-engines").not.toBe("");
+    expect(engines).toContain("e2e/bottom-sheet-pickers.spec.ts");
+    expect(engines).toContain("--project=");
+    expect(engines).toContain("matrix.browser");
+    const mockConfig = await Bun.file(join(REPO_ROOT, "web/playwright.config.ts")).text();
+    expect(mockConfig).toContain('{ name: "firefox", use: { browserName: "firefox" } }');
+    expect(mockConfig).toContain('{ name: "webkit", use: { browserName: "webkit" } }');
+
     const aggregate = ciJobBlock(ci, "e2e-mock");
     for (const [job] of jobs) expect(aggregate).toContain(job);
     expect(aggregate).toContain("production-image-file-organizer");
