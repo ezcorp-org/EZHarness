@@ -17,6 +17,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 
 const EXT_ID = "ext-weather";
 const OWNER = "user-owner";
@@ -67,6 +68,7 @@ test.describe("extension detail — modify gating", () => {
         "/api/auth/me": () => meAs(OWNER, "member"),
       },
     });
+		const review = await setupAuthorReviewMock(page, { installationId: EXT_ID });
     await page.goto(`/extensions/${EXT_ID}`);
 
     await expect(page.getByTestId("modify-extension-section")).toBeVisible({
@@ -79,7 +81,8 @@ test.describe("extension detail — modify gating", () => {
     await expect(page.getByTestId("modifiable-toggle")).toBeDisabled();
 
     await btn.click();
-    await page.waitForURL(new RegExp(`/extensions/author\\?installation=${EXT_ID}$`));
+		await expect(page).toHaveURL(new RegExp(`/extensions/author\\?installation=${EXT_ID}$`));
+		await review.expectReview();
   });
 
   test("owner + NOT modifiable → ask-an-admin hint, no button", async ({

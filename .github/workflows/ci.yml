@@ -514,13 +514,16 @@ jobs:
         shell: bash
         run: |
           RECEIPT_ROOT=tasks/testing-gaps/browser/v8-coverage/receipts
-          for lane in mock-gate mock-full evidence real-auth; do
+          for lane in mock-gate mock-full evidence; do
             find "$RECEIPT_ROOT/$lane" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
               echo "::error::browser coverage artifact has no receipt for $lane"; exit 1;
             }
           done
           find "$RECEIPT_ROOT/real-auth/fresh-setup" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
             echo "::error::browser coverage artifact has no receipt for fresh-setup"; exit 1;
+          }
+          find "$RECEIPT_ROOT/real-auth/real-auth" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
+            echo "::error::browser coverage artifact has no receipt for real-auth"; exit 1;
           }
           mapfile -t RECEIPTS < <(find "$RECEIPT_ROOT" -type f -name 'chromium-worker-*.json' -print | sort)
           [ "${#RECEIPTS[@]}" -gt 0 ] || { echo "::error::browser coverage artifacts had no worker receipts"; exit 1; }
