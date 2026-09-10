@@ -9,6 +9,7 @@
 	// from the parent.
 	import { dndzone } from "svelte-dnd-action";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
+	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
 	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
@@ -100,8 +101,8 @@
 
 	function openDropdown() { dismissal.cancelBlurDismissal(); open = true; highlightIdx = -1; computePosition(); }
 	function closeDropdown() { open = false; highlightIdx = -1; }
-	function onInput() {
-		query = inputEl?.value ?? "";
+	function onInput(event: Event) {
+		query = (event.currentTarget as HTMLInputElement).value;
 		highlightIdx = -1;
 		if (!open) openDropdown(); else computePosition();
 	}
@@ -186,6 +187,17 @@
 </div>
 
 {#snippet pickerBody()}
+	{#if bp.below}
+		<MobilePickerSearch
+			value={query}
+			{placeholder}
+			ariaLabel="Search extensions"
+			controls="extension-picker-listbox"
+			activeDescendant={highlightIdx >= 0 ? `extension-picker-item-${highlightIdx}` : undefined}
+			oninput={onInput}
+			onkeydown={onKeydown}
+		/>
+	{/if}
 	{@const items = filtered()}
 	<ul
 		id="extension-picker-listbox"

@@ -6,6 +6,7 @@
 	import { PROVIDER_META, canonicalProvider } from "$lib/provider-meta.js";
 	import { CURRENT_MODEL_SENTINEL } from "$lib/api";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
+	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
 	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
@@ -129,8 +130,8 @@
 		inputEl?.blur();
 	}
 
-	function onInput() {
-		query = inputEl?.value ?? "";
+	function onInput(event: Event) {
+		query = (event.currentTarget as HTMLInputElement).value;
 		highlightIdx = -1;
 		if (!open) openDropdown();
 		else computePosition();
@@ -216,6 +217,17 @@
 </div>
 
 {#snippet pickerBody()}
+	{#if bp.below}
+		<MobilePickerSearch
+			value={query}
+			{placeholder}
+			ariaLabel="Search models"
+			controls="model-picker-listbox"
+			activeDescendant={highlightIdx >= 0 ? `model-picker-item-${highlightIdx}` : undefined}
+			oninput={onInput}
+			onkeydown={onKeydown}
+		/>
+	{/if}
 	{@const items = filtered()}
 	<ul
 		id="model-picker-listbox"

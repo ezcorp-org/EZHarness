@@ -3,6 +3,7 @@
 	import { inputClass } from "$lib/styles.js";
 	import type { AgentConfig } from "$lib/api";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
+	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
 	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
@@ -84,7 +85,6 @@
 
 	function applySavedSearch(q: string): void {
 		query = q;
-		if (inputEl) inputEl.value = q;
 		highlightIdx = -1;
 	}
 
@@ -142,8 +142,8 @@
 		inputEl?.blur();
 	}
 
-	function onInput() {
-		query = inputEl?.value ?? "";
+	function onInput(event: Event) {
+		query = (event.currentTarget as HTMLInputElement).value;
 		highlightIdx = -1;
 		if (!open) openDropdown();
 		else computePosition();
@@ -211,6 +211,17 @@
 </div>
 
 {#snippet pickerBody()}
+	{#if bp.below}
+		<MobilePickerSearch
+			value={query}
+			{placeholder}
+			ariaLabel="Search agents"
+			controls="agent-picker-listbox"
+			activeDescendant={highlightIdx >= 0 ? `agent-picker-item-${highlightIdx}` : undefined}
+			oninput={onInput}
+			onkeydown={onKeydown}
+		/>
+	{/if}
 	{@const items = filtered()}
 	{@const pinnedList = pinnedAgents()}
 	<div data-agent-picker-body class="flex flex-col gap-1">

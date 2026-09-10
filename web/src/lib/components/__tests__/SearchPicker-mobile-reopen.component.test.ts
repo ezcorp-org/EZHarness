@@ -5,7 +5,7 @@
  * The opening focus also blurs when the sheet traps focus; that blur must not
  * close the sheet.
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import AgentSearchPicker from "../AgentSearchPicker.svelte";
 import ExtensionSearchPicker from "../ExtensionSearchPicker.svelte";
@@ -46,11 +46,17 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-async function verifyMobileCloseAndNativeReopen(renderPicker: () => void) {
+async function verifyMobileCloseAndNativeReopen(renderPicker: () => void, resultLabel: string) {
 	renderPicker();
 	const input = screen.getByRole("combobox");
 	await fireEvent.focus(input);
-	await screen.findByTestId("bottom-sheet");
+	const sheet = await screen.findByTestId("bottom-sheet");
+	const sheetInput = within(sheet).getByRole("combobox");
+	expect(sheetInput).not.toBe(input);
+	await fireEvent.input(sheetInput, { target: { value: "no-picker-results-xyz" } });
+	await waitFor(() => expect(within(sheet).queryByText(resultLabel, { exact: true })).toBeNull());
+	await fireEvent.input(sheetInput, { target: { value: resultLabel } });
+	await within(sheet).findByText(resultLabel, { exact: true });
 
 	// BottomSheet traps focus while mounting. This input blur is expected and
 	// must not dismiss the sheet the user just opened.
@@ -77,22 +83,22 @@ describe("search picker mobile dismissal and reopen", () => {
 		await verifyMobileCloseAndNativeReopen(() => render(AgentSearchPicker, {
 			agents: [{ id: "agent-a", name: "Agent A", description: "", category: "agent", prompt: "", capabilities: [], createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" }],
 			onselect: vi.fn(),
-		}));
+		}), "Agent A");
 	});
 
 	test("extension picker survives focus-trap blur and reopens after a click event", async () => {
-		await verifyMobileCloseAndNativeReopen(() => render(ExtensionSearchPicker, { selected: [], onchange: vi.fn() }));
+		await verifyMobileCloseAndNativeReopen(() => render(ExtensionSearchPicker, { selected: [], onchange: vi.fn() }), "Extension A");
 	});
 
 	test("model picker survives focus-trap blur and reopens after a click event", async () => {
-		await verifyMobileCloseAndNativeReopen(() => render(ModelSearchPicker, { selected: null, onselect: vi.fn() }));
+		await verifyMobileCloseAndNativeReopen(() => render(ModelSearchPicker, { selected: null, onselect: vi.fn() }), "model-a");
 	});
 
 	test("mode picker survives focus-trap blur and reopens after a click event", async () => {
-		await verifyMobileCloseAndNativeReopen(() => render(ModeSearchPicker, { selected: null, onselect: vi.fn() }));
+		await verifyMobileCloseAndNativeReopen(() => render(ModeSearchPicker, { selected: null, onselect: vi.fn() }), "Mode A");
 	});
 
 	test("tool picker survives focus-trap blur and reopens after a click event", async () => {
-		await verifyMobileCloseAndNativeReopen(() => render(ToolSearchPicker, { selected: [], onchange: vi.fn() }));
+		await verifyMobileCloseAndNativeReopen(() => render(ToolSearchPicker, { selected: [], onchange: vi.fn() }), "tool-a");
 	});
 });

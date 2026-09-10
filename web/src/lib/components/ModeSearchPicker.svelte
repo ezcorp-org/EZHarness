@@ -4,6 +4,7 @@
 	import { onDestroy, onMount } from "svelte";
 	import SelectedPill from "./SelectedPill.svelte";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
+	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
 	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
 
@@ -88,8 +89,8 @@
 		inputEl?.blur();
 	}
 
-	function onInput() {
-		query = inputEl?.value ?? "";
+	function onInput(event: Event) {
+		query = (event.currentTarget as HTMLInputElement).value;
 		highlightIdx = -1;
 		if (!open) openDropdown();
 		else computePosition();
@@ -168,6 +169,17 @@
 </div>
 
 {#snippet pickerBody()}
+	{#if bp.below}
+		<MobilePickerSearch
+			value={query}
+			{placeholder}
+			ariaLabel="Search modes"
+			controls="mode-picker-listbox"
+			activeDescendant={highlightIdx >= 0 ? `mode-picker-item-${highlightIdx}` : undefined}
+			oninput={onInput}
+			onkeydown={onKeydown}
+		/>
+	{/if}
 	{@const items = filtered()}
 	<ul
 		id="mode-picker-listbox"
