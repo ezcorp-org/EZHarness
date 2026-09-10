@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
+import { selectExtensionMention } from "./fixtures/composer.js";
 
 const proj = makeProject({ id: "proj-sv", name: "Shared Vars Project" });
 const conv = makeConversation({ id: "conv-sv", projectId: "proj-sv" });
@@ -31,29 +32,18 @@ async function setupPage(page: any, mockApi: any) {
 }
 
 async function openToolForm(page: any, mockApi: any, toolsData: any[]) {
-	const textarea = await setupPage(page, mockApi);
+	await setupPage(page, mockApi);
 
 	await page.route("**/api/extensions/*/tools", (route: any) => {
 		route.fulfill({ json: { tools: toolsData } });
 	});
 
-	await textarea.focus();
-	await textarea.pressSequentially(`@ext:${EXT_NAME}`, { delay: 50 });
-	await page.waitForTimeout(350);
-
-	const listbox = page.locator("#mention-listbox");
-	await expect(listbox).toBeVisible({ timeout: 5000 });
-	await expect(listbox.getByText(EXT_NAME, { exact: true })).toBeVisible({ timeout: 3000 });
-
-	await page.keyboard.press("Enter");
-	await expect(listbox).not.toBeVisible({ timeout: 3000 });
-
-	const chip = page.locator(`span[role="button"]`).filter({ hasText: `@${EXT_NAME}` });
-	await expect(chip).toBeVisible({ timeout: 3000 });
+	// Click the native picker result. Enter leaves the typed sigil in the
+	// composer on current ChatInput, while this helper verifies the committed
+	// mention chip that exposes the form.
+	const chip = await selectExtensionMention(page, EXT_NAME);
 	await chip.click();
-
-	await expect(page.locator('form button[type="submit"]')).toBeVisible({ timeout: 5000 });
-	return textarea;
+	await expect(page.locator('form button[type="submit"]')).toBeVisible();
 }
 
 // ---------------------------------------------------------------------------
@@ -84,13 +74,23 @@ test("x-shared file-path field shows in form and is submittable", async ({ page,
 
 	await openToolForm(page, mockApi, tools);
 
-	// The form should have labels for both fields
-	await expect(page.locator('label').filter({ hasText: "sourcePath" })).toBeVisible();
-	await expect(page.locator('label').filter({ hasText: "convention" })).toBeVisible();
+	const sourcePath = page.locator('label[for="field-sourcePath"]').locator('xpath=..').locator('input');
+	const convention = page.locator('#field-convention');
+	await expect(sourcePath).toHaveValue("/tmp/test-project");
+	await convention.fill("kebab-case");
 
-	// The form should be visible and have a submit button
-	const submitBtn = page.locator('form button[type="submit"]');
-	await expect(submitBtn).toBeVisible();
+	let invoked: Record<string, unknown> | null = null;
+	await page.route("**/api/tool-invoke", async (route: any) => {
+		invoked = route.request().postDataJSON();
+		await route.fulfill({ json: { success: true } });
+	});
+	await page.locator('form button[type="submit"]').click();
+	await expect.poll(() => invoked).not.toBeNull();
+	expect(invoked).toMatchObject({
+		extensionName: EXT_NAME,
+		toolName: "rename-files",
+		input: { sourcePath: "/tmp/test-project", convention: "kebab-case" },
+	});
 });
 
 test("form renders field with x-shared annotation alongside regular fields", async ({ page, mockApi }) => {
@@ -115,11 +115,8 @@ test("form renders field with x-shared annotation alongside regular fields", asy
 
 	await openToolForm(page, mockApi, tools);
 
-	// Both fields should be rendered
-	await expect(page.locator('label').filter({ hasText: "path" })).toBeVisible();
-	await expect(page.locator('label').filter({ hasText: "depth" })).toBeVisible();
-
-	// The descriptions should show
+	await expect(page.locator('#field-path')).toHaveValue("/tmp/test-project");
+	await expect(page.locator('#field-depth')).toHaveValue("");
 	await expect(page.getByText("Project path")).toBeVisible();
 	await expect(page.getByText("Analysis depth")).toBeVisible();
 });

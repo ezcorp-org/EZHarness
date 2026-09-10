@@ -20,7 +20,7 @@ test.describe("Task Stack Card Rendering", () => {
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
-	test("task-detail tool:complete renders TaskDetailCard with title and status badge", async ({ page, mockApi, emitWs }) => {
+	test("task-detail tool:complete renders TaskDetailCard with title and status badge", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -34,13 +34,13 @@ test.describe("Task Stack Card Rendering", () => {
 			sendComposerMessage(page, "Add a task"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Working..." },
 		});
 
 		// Emit tool:start with task-detail cardType
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -53,7 +53,7 @@ test.describe("Task Stack Card Rendering", () => {
 		});
 
 		// Emit tool:complete with task detail output
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -77,7 +77,7 @@ test.describe("Task Stack Card Rendering", () => {
 		await expect(page.getByText("Due: 2026-04-01")).toBeVisible();
 	});
 
-	test("task-list tool:complete renders TaskListCard with task items", async ({ page, mockApi, emitWs }) => {
+	test("task-list tool:complete renders TaskListCard with task items", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -90,12 +90,12 @@ test.describe("Task Stack Card Rendering", () => {
 			sendComposerMessage(page, "List tasks"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Listing..." },
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -107,7 +107,7 @@ test.describe("Task Stack Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -131,10 +131,10 @@ test.describe("Task Stack Card Rendering", () => {
 		// Verify item count shown in header
 		await expect(page.getByText("3 tasks")).toBeVisible();
 		// Verify agent badge for readyForAgent task
-		await expect(page.getByText("agent")).toBeVisible();
+		await expect(page.getByTestId("task-card-t-3").getByText("agent", { exact: true })).toBeVisible();
 	});
 
-	test("task-list renders stacks when items have name but no status", async ({ page, mockApi, emitWs }) => {
+	test("task-list renders stacks when items have name but no status", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -149,12 +149,12 @@ test.describe("Task Stack Card Rendering", () => {
 			textarea.press("Enter"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Listing..." },
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -166,7 +166,7 @@ test.describe("Task Stack Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -188,7 +188,7 @@ test.describe("Task Stack Card Rendering", () => {
 		await expect(page.getByText("2 stacks")).toBeVisible();
 	});
 
-	test("task-detail shows completion summary for finished task", async ({ page, mockApi, emitWs }) => {
+	test("task-detail shows completion summary for finished task", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -203,12 +203,12 @@ test.describe("Task Stack Card Rendering", () => {
 			textarea.press("Enter"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Finishing..." },
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -220,7 +220,7 @@ test.describe("Task Stack Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -240,11 +240,11 @@ test.describe("Task Stack Card Rendering", () => {
 		});
 
 		await expect(page.getByText("Setup DB")).toBeVisible();
-		await expect(page.getByText("Completed")).toBeVisible();
+		await expect(page.getByText("Completed", { exact: true })).toBeVisible();
 		await expect(page.getByText("Database schema created and migrations run")).toBeVisible();
 	});
 
-	test("tool without cardType renders DefaultCard (not TaskCard)", async ({ page, mockApi, emitWs }) => {
+	test("tool without cardType renders DefaultCard (not TaskCard)", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -259,13 +259,13 @@ test.describe("Task Stack Card Rendering", () => {
 			textarea.press("Enter"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Updating..." },
 		});
 
 		// tool:start without cardType -> should use DefaultCard
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -277,7 +277,7 @@ test.describe("Task Stack Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
