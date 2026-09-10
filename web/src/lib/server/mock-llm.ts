@@ -82,9 +82,30 @@ export interface MockTurn {
 
 const queues = new Map<string, MockTurn[]>();
 
+/** Exact OpenAI-compatible body observed at the mock provider boundary. */
+export interface MockRecordedRequest {
+  model: unknown;
+  messages: unknown;
+}
+
+const recordedRequests = new Map<string, MockRecordedRequest[]>();
+
 /** Replace the scripted turns for a key (idempotent test setup). */
 export function setMockScript(key: string, turns: MockTurn[]): void {
   queues.set(key, [...turns]);
+  recordedRequests.delete(key);
+}
+
+/** Record a provider request after JSON parsing, before its scripted turn dequeues. */
+export function recordMockRequest(key: string, request: MockRecordedRequest): void {
+  const requests = recordedRequests.get(key) ?? [];
+  requests.push(structuredClone(request));
+  recordedRequests.set(key, requests);
+}
+
+/** Return a detached snapshot so test callers cannot mutate provider evidence. */
+export function getMockRequests(key: string): MockRecordedRequest[] {
+  return structuredClone(recordedRequests.get(key) ?? []);
 }
 
 /** Pull the next scripted turn for a key (FIFO). Returns a clear sentinel
@@ -98,6 +119,7 @@ export function dequeueMockTurn(key: string): MockTurn {
 
 export function clearMockScripts(): void {
   queues.clear();
+  recordedRequests.clear();
 }
 
 /** Derive the script key from the request `model`. The harness sends

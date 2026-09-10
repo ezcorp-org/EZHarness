@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { POST as completions } from "../routes/api/__test/mock-llm/v1/chat/completions/+server";
-import { POST as seedScript, DELETE as clearScript } from "../routes/api/__test/mock-llm/script/+server";
+import { GET as capturedRequests, POST as seedScript, DELETE as clearScript } from "../routes/api/__test/mock-llm/script/+server";
 import { dequeueMockTurn, clearMockScripts } from "$lib/server/mock-llm";
 
 const savedE2E = process.env.PI_E2E_REAL;
@@ -55,6 +55,21 @@ describe("completions endpoint", () => {
     expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
   });
 
+  test("records the exact parsed provider request for its script", async () => {
+    await seedScript({ request: jsonReq({ scriptKey: "capture", turns: [{ text: "ok" }] }), locals: cookieLocals } as any);
+    await completions({
+      request: jsonReq({ model: "mock:capture", messages: [{ role: "user", content: "ACTIVE_PROMPT" }] }),
+    } as any);
+    const res = await capturedRequests({
+      url: new URL("http://127.0.0.1/x?scriptKey=capture"), locals: cookieLocals,
+    } as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      scriptKey: "capture",
+      requests: [{ model: "mock:capture", messages: [{ role: "user", content: "ACTIVE_PROMPT" }] }],
+    });
+  });
+
   test("unseeded key → sentinel stop turn (debuggable, not a hang)", async () => {
     const res = await completions({ request: jsonReq({ model: "mock:unseeded" }) } as any);
     const text = await res.text();
@@ -98,6 +113,11 @@ describe("/script seed endpoint", () => {
     delete process.env.PI_E2E_REAL;
     const res = await seedScript({ request: jsonReq({ scriptKey: "k", turns: [] }), locals: cookieLocals } as any);
     expect(res.status).toBe(404);
+  });
+
+  test("GET rejects a missing script key", async () => {
+    const res = await capturedRequests({ url: new URL("http://127.0.0.1/x"), locals: cookieLocals } as any);
+    expect(res.status).toBe(400);
   });
 
   test("seeds turns that the completions endpoint then dequeues in order", async () => {

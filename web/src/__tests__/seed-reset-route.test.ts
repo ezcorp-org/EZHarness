@@ -77,6 +77,30 @@ describe("POST /api/__test/seed", () => {
     ]);
     expect(out.agentExtensions?.every(({ id }) => typeof id === "string" && id.length > 0)).toBe(true);
   });
+
+  test("pins a model and creates a bounded chained history", async () => {
+    const res = await seed(ev({
+      provider: "ezcorp-mock",
+      model: "mock:history",
+      history: { turns: 3, charsPerTurn: 32 },
+    }));
+    expect(res.status).toBe(201);
+    const out = await res.json() as {
+      conversationId: string;
+      history?: { firstContent: string; lastContent: string; count: number };
+    };
+    expect(out.history?.count).toBe(3);
+    expect(out.history?.firstContent).toContain("E2E_HISTORY_");
+    expect(out.history?.lastContent).toContain("_2:");
+    const conv = await getConversation(out.conversationId);
+    expect(conv).toMatchObject({ provider: "ezcorp-mock", model: "mock:history" });
+  });
+
+  test("rejects partial model pins and invalid history bounds", async () => {
+    expect((await seed(ev({ provider: "ezcorp-mock" }))).status).toBe(400);
+    expect((await seed(ev({ history: { turns: 81, charsPerTurn: 32 } }))).status).toBe(400);
+    expect((await seed(ev({ history: { turns: 1, charsPerTurn: 31 } }))).status).toBe(400);
+  });
 });
 
 describe("POST /api/__test/reset", () => {

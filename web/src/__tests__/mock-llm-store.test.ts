@@ -6,6 +6,7 @@ import {
   setMockScript,
   dequeueMockTurn,
   clearMockScripts,
+  getMockRequests,
   mockScriptKeyFromModel,
   mockTurnToChunks,
   mockTurnToSseFrames,
@@ -13,6 +14,7 @@ import {
   buildMockFaultResponse,
   buildMockStreamResponse,
   buildMockTurnResponse,
+  recordMockRequest,
 } from "$lib/server/mock-llm";
 
 afterEach(() => clearMockScripts());
@@ -47,6 +49,18 @@ describe("store FIFO + sentinel", () => {
     setMockScript("k", [{ text: "a" }]);
     setMockScript("k", [{ text: "b" }]);
     expect(dequeueMockTurn("k").text).toBe("b");
+  });
+
+  test("records detached provider requests and resets them with a new script", () => {
+    setMockScript("capture", [{ text: "ok" }]);
+    const request = { model: "mock:capture", messages: [{ role: "user", content: "hello" }] };
+    recordMockRequest("capture", request);
+    request.messages[0]!.content = "mutated outside the store";
+    expect(getMockRequests("capture")).toEqual([
+      { model: "mock:capture", messages: [{ role: "user", content: "hello" }] },
+    ]);
+    setMockScript("capture", []);
+    expect(getMockRequests("capture")).toEqual([]);
   });
 });
 
