@@ -1,8 +1,44 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { measureContrast, useLightTheme, useDarkTheme } from "./fixtures/readable.js";
 
 const proj = makeProject({ id: "proj-1", name: "Pill Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
+
+const coloredMentions = [
+	{ kind: "agent", token: "![agent:Coder]" },
+	{ kind: "team", token: "![team:Reviewers]" },
+	{ kind: "EZ", token: "![EZ:distill]" },
+	{ kind: "file", token: "@[file:src/app.ts]" },
+	{ kind: "dir", token: "@[dir:src]" },
+	{ kind: "command", token: "/[cmd:review]" },
+	{ kind: "lesson", token: "%[lesson:validation]" },
+	{ kind: "workflow", token: "![workflow:deploy]" },
+	{ kind: "feature", token: "$[feature:login]" },
+	{ kind: "extension", token: "![ext:analyzer]" },
+];
+
+for (const [theme, useTheme] of [["light", useLightTheme], ["dark", useDarkTheme]] as const) {
+	test(`mention labels remain readable in ${theme} theme @evidence`, async ({ page, mockApi }, testInfo) => {
+		await useTheme(page);
+		await mockApi({ projects: [proj], conversations: [conv], messages: [makeMessage({
+			id: "mention-colors", conversationId: conv.id, role: "user",
+			content: coloredMentions.map(({ token }) => token).join(" "),
+		})] });
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		await expect(page.locator("#splash")).toHaveCount(0);
+		const failures = [];
+		for (const { kind } of coloredMentions) {
+			const chip = page.getByTestId("chat-messages-container").locator(`[data-mention-kind="${kind}"]`);
+			await expect(chip).toBeVisible();
+			const measured = await measureContrast(chip);
+			expect(measured.dark).toBe(theme === "dark");
+			if (measured.ratio < 4.5) failures.push({ kind, ...measured });
+		}
+		expect(failures, "Every mention label must have at least 4.5:1 contrast").toEqual([]);
+		await captureEvidence(page, testInfo, `mention-labels-${theme}`);
+	});
+}
 
 test.describe("Mention pills in chat history", () => {
 	test("assistant message renders extension mention as purple pill", async ({ page, mockApi }) => {

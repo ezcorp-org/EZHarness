@@ -502,5 +502,8 @@
   ],
   "web/e2e/accessibility.spec.ts": [
     "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/mention-pill-history.spec.ts": [
+    "web/src/lib/components/MentionChip.svelte"
   ]
 }

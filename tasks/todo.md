@@ -633,3 +633,15 @@ Integration review: all13 migration producers now have direct real-database test
 
 - Final shutdown review: permission-audit tail writes now drain before database close. Parent real PGlite/coalescer group passes 37 tests/515 assertions in 3.36s. The stronger awaited-write test covers both an open window and an already-started threshold flush; removing the await fails both controls, and the restored source passes both.
 - Parent local CI review verifies browser collection precedes full coverage, avoids the duplicate plain V8/build/browser runs, and retains browser raw data on any failed full run. Exact command-level success/failure paths are covered by the CLI harness. Provider-only isolation rejects before configuration reads; nine provider tests pass in454ms. The visual-evidence gate passes for24 changed visual surfaces and138 changed specs.
+
+### Final browser diagnostic follow-up (2fcc1fa4e)
+
+- [x] Preserve the all-five diagnostic: 2,124 passes, 17 failures; strict raw conversion rejected two unmapped routes.
+- [x] Review and integrate the verified reconnect, mobile, MCP, capability and provider-order repairs.
+- [x] Fix the stored-model load race with a controlled slow real HTTP response; require a failing baseline and passing fixed browser run.
+- [x] Isolate invite counters between serial real-auth cases while retaining the actual ten-attempt limit within each case.
+- [x] Restore the retired authoring journey through the current workspace, build, approval and activation flow.
+- [ ] Exercise all 11 deficient routes through meaningful native behavior; require every unchanged floor.
+- [ ] Freeze one revision and rerun all five browser lanes, the full backend producers and final static gates.
+
+- Parent follow-up evidence: real model-load failing baseline and repaired goals/compaction pass; adjacent invite cases prove independent ten-attempt budgets; current v4 dependency build/approval/activation passes. Mention color regression reproduced nine light-theme failures; fixed six history cases and all six light/dark checks across three engines pass.
