@@ -277,7 +277,7 @@ test.describe("Memories Block", () => {
 		test("Memories card does not appear during a streaming response", async ({
 			page,
 			mockApi,
-			emitWs,
+			emitSse,
 		}) => {
 			await mockApi({
 				projects: [proj],
@@ -293,7 +293,7 @@ test.describe("Memories Block", () => {
 				sendComposerMessage(page, "Streaming turn"),
 			]);
 
-			await emitWs({
+			await emitSse({
 				type: "run:token",
 				data: { runId: "run-stream", token: "streaming...", kind: "text" },
 			});

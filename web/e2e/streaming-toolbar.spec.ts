@@ -339,7 +339,7 @@ test.describe("Message Toolbar", () => {
 		await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible({ timeout: 3000 });
 
 		// The textarea in the edit form should contain the original message content
-		const editTextarea = page.locator("textarea").first();
+		const editTextarea = threadMessages(page).locator("textarea");
 		await expect(editTextarea).toHaveValue("Hello from the user");
 	});
 });
