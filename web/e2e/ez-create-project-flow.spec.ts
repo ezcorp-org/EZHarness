@@ -19,7 +19,7 @@ import { filePickerValue } from "./fixtures/picker-helpers.js";
 test.describe("Ez — create project flow", () => {
 	const proj = makeProject({ id: "proj-1", name: "Existing" });
 
-	test("propose card → opens prefilled /new-project → form is hydrated", async ({ page, mockApi }) => {
+	test("propose card → opens prefilled /new-project → creates the drafted project", async ({ page, mockApi }) => {
 		const draftPayload = { name: "Demo App", path: "/srv/demo" };
 		const proposeOutput = JSON.stringify({
 			draftId: "d-create-project",
@@ -63,6 +63,15 @@ test.describe("Ez — create project flow", () => {
 			},
 			ezDrafts: { "d-create-project": { kind: "project", payload: draftPayload } },
 		});
+		let mkdirPayload: unknown;
+		// The filesystem boundary needs an explicit successful response. Project
+		// and draft writes stay on the stateful shared fixture so their later GETs
+		// prove the same saved rows are visible after navigation and reload.
+		await page.route("**/api/fs/mkdir", async (route) => {
+			if (route.request().method() !== "POST") return route.fallback();
+			mkdirPayload = route.request().postDataJSON();
+			return route.fulfill({ json: { path: draftPayload.path } });
+		});
 
 		await page.goto(`/project/${proj.id}/chat`);
 		await page.getByTestId("ez-button").click();
@@ -81,5 +90,34 @@ test.describe("Ez — create project flow", () => {
 		// Read through the helper: below lg the FilePicker collapses to a
 		// trigger button and there is no inline input to query by placeholder.
 		expect(await filePickerValue(page)).toBe("/srv/demo");
+
+		const madeDirectory = page.waitForResponse((response) =>
+			new URL(response.url()).pathname === "/api/fs/mkdir" && response.request().method() === "POST",
+		);
+		const createdProject = page.waitForResponse((response) =>
+			new URL(response.url()).pathname === "/api/projects" && response.request().method() === "POST",
+		);
+		const projectRequest = page.waitForRequest((request) =>
+			new URL(request.url()).pathname === "/api/projects" && request.method() === "POST",
+		);
+		const consumedDraft = page.waitForResponse((response) =>
+			new URL(response.url()).pathname === "/api/ez/drafts/d-create-project" && response.request().method() === "POST",
+		);
+		const consumeRequest = page.waitForRequest((request) =>
+			new URL(request.url()).pathname === "/api/ez/drafts/d-create-project" && request.method() === "POST",
+		);
+		await page.getByRole("button", { name: "Create", exact: true }).click();
+		expect((await madeDirectory).status()).toBe(200);
+		expect((await createdProject).status()).toBe(200);
+		expect((await consumedDraft).status()).toBe(200);
+		expect(mkdirPayload).toEqual({ path: "/srv/demo" });
+		expect((await projectRequest).postDataJSON()).toMatchObject({ name: "Demo App", path: "/srv/demo" });
+		expect((await consumeRequest).postDataJSON()).toEqual({ action: "consume" });
+		await expect(page).toHaveURL("/project/new-proj/chat");
+		await expect(page.getByRole("button", { name: "Demo App", exact: true })).toBeVisible();
+
+		await page.reload();
+		await expect(page).toHaveURL("/project/new-proj/chat");
+		await expect(page.getByRole("button", { name: "Demo App", exact: true })).toBeVisible();
 	});
 });

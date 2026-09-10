@@ -309,10 +309,12 @@ const DEFAULT_AGENT = makeAgent({ name: "summarizer", description: "Summarizes t
 const DEFAULT_CONV = makeConversation({ id: "conv-1", projectId: "proj-1", title: "Hello Chat" });
 
 export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
+	// Project and conversation writes are visible to subsequent loads in the
+	// browser. Copy seed arrays so appending rows cannot change another test's seed.
 	const projects = [...(overrides.projects ?? [DEFAULT_PROJECT])];
 	const agents = overrides.agents ?? [DEFAULT_AGENT];
 	const runs = overrides.runs ?? [];
-	const conversations = overrides.conversations ?? [DEFAULT_CONV];
+	const conversations = [...(overrides.conversations ?? [DEFAULT_CONV])];
 	// Mutable copy: the POST handler appends its saved user row so later
 	// history refreshes mirror the server instead of returning the seed only.
 	const messages = [...(overrides.messages ?? [])];
@@ -594,7 +596,14 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill(proj ? { json: proj } : { status: 404, json: { error: "Not found" } });
 		}
 		if (path === "/api/projects" && method === "POST") {
-			return route.fulfill({ json: makeProject({ id: "new-proj" }) });
+			const body = route.request().postDataJSON() ?? {};
+			const project = makeProject({
+				id: "new-proj",
+				name: typeof body.name === "string" ? body.name : "New Project",
+				path: typeof body.path === "string" ? body.path : "/tmp/new-project",
+			});
+			projects.push(project);
+			return route.fulfill({ json: project });
 		}
 		if (path.match(/^\/api\/projects\/[^/]+$/) && method === "PUT") {
 			const id = path.split("/").pop()!;
@@ -683,13 +692,15 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		}
 		if (path === "/api/conversations" && method === "POST") {
 			const body = route.request().postDataJSON();
-			return route.fulfill({ json: makeConversation({
+			const conversation = makeConversation({
 				id: "new-conv",
 				projectId: body?.projectId ?? "proj-1",
 				title: body?.title ?? "New Conversation",
 				agentConfigId: body?.agentConfigId ?? null,
 				systemPrompt: body?.systemPrompt ?? null,
-			}) });
+			});
+			conversations.push(conversation);
+			return route.fulfill({ json: conversation });
 		}
 		if (path.match(/^\/api\/conversations\/[^/]+$/) && method === "PUT") {
 			const id = path.split("/").pop()!;

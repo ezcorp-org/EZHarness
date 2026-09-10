@@ -106,5 +106,38 @@ test.describe("Setup — first run", () => {
     // A new account is authenticated but has not yet completed onboarding.
     await expect(page).toHaveURL(/\/onboarding$/);
     await expect(page.getByRole("heading", { name: "Welcome, First Admin" })).toBeVisible();
+
+    // There is intentionally no provider in this fresh workspace. The admin
+    // can skip provider setup, select a default tier, and still finish the
+    // native three-step wizard. This keeps first-run setup and its follow-up
+    // onboarding in one real database lifecycle.
+    await page.getByTestId("onboarding-step1-skip").click();
+    await expect(page.getByRole("heading", { name: "Pick a default tier" })).toBeVisible();
+    await page.getByText("Quality", { exact: true }).click();
+    await expect(page.getByTestId("tier-quality")).toBeChecked();
+    const savedTier = page.waitForResponse((response) =>
+      response.url().endsWith("/api/settings/provider:defaultTier") && response.request().method() === "PUT",
+    );
+    const tierRequest = page.waitForRequest((request) =>
+      request.url().endsWith("/api/settings/provider:defaultTier") && request.method() === "PUT",
+    );
+    await page.getByTestId("onboarding-step2-continue").click();
+    expect((await savedTier).status()).toBe(200);
+    expect((await tierRequest).postDataJSON()).toEqual({ value: "quality" });
+    await expect(page.getByRole("heading", { name: "Three keystrokes to know" })).toBeVisible();
+
+    const completed = page.waitForResponse((response) =>
+      response.url().endsWith("/api/onboarding/complete") && response.request().method() === "POST",
+    );
+    await page.getByTestId("onboarding-finish").click();
+    expect((await completed).status()).toBe(204);
+    await expect(page).not.toHaveURL(/\/onboarding$/);
+    const persistedTier = await page.request.get("/api/settings/provider:defaultTier");
+    expect(persistedTier.status()).toBe(200);
+    expect(await persistedTier.json()).toEqual({ value: "quality" });
+
+    await page.reload();
+    await expect(page).toHaveURL(/\/project\/global\/chat$/);
+    await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible();
   });
 });
