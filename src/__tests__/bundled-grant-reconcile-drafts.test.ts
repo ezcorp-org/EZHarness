@@ -56,7 +56,7 @@ test.each([
   const build = fixture.dependencies.runner.build;
   fixture.dependencies.runner.build = async (request) => {
     const result = await build(request);
-    if (result.state !== "succeeded") throw new Error("fixture build must succeed");
+    if (result.state !== "succeeded" || !result.manifest || !result.evidence) throw new Error("fixture build must include a verified manifest");
     const manifest = { ...result.manifest, permissions: aiKitManifest.permissions };
     return { ...result, manifest, evidence: { ...result.evidence, discoveryDigest: digestObject(manifest) } };
   };
