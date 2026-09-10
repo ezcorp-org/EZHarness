@@ -121,6 +121,7 @@ TOTAL_FAIL=0
 FULL_VITEST_EXIT=0
 PROVIDER_EXIT=0
 WORKER_EXIT=0
+WEB_UTILITY_EXIT=0
 WEB_VITEST_SOURCE_GUARD_EXIT=0
 BROWSER_RECEIPT_EXIT=0
 HOST_POOL_MS=0
@@ -275,6 +276,7 @@ run_legs() {
   register_leg api-client cov_api_client
   register_leg empty-node-shim cov_empty_node_shim
   register_leg worker cov_worker
+  register_leg web-utility cov_web_utility
   # Full local coverage needs the canonical Web Vitest receipt. CI publishes
   # the same producer from its existing three test-web shards, so it is never
   # registered in legs-only mode.
@@ -412,6 +414,17 @@ run_legs() {
   ) &
   running=$((running + 1))
 
+  # These web Bun suites need web/ as cwd for SvelteKit aliases. The producer
+  # filters to its direct utility sources, so it cannot perturb V8-only maps.
+  await_leg_slot
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[web-utility]}" bash "$SCRIPT_DIR/web-utility-coverage.sh" \
+      > "$legs/web-utility.out" 2>&1
+    echo "$?" > "$legs/web-utility.code"
+  ) &
+  running=$((running + 1))
+
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then
     await_leg_slot
     (
@@ -428,7 +441,7 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  local printed_legs=(sdk hc suggest aikit providers api-client empty-node-shim worker)
+  local printed_legs=(sdk hc suggest aikit providers api-client empty-node-shim worker web-utility)
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
@@ -481,6 +494,12 @@ run_legs() {
   if [ "$WORKER_EXIT" != "0" ]; then
     FAILED_FILES+=("worker coverage leg")
     echo "--- FAIL: worker coverage leg (exit $WORKER_EXIT) ---"
+  fi
+
+  WEB_UTILITY_EXIT=$(cat "$legs/web-utility.code" 2>/dev/null || echo 1)
+  if [ "$WEB_UTILITY_EXIT" != "0" ]; then
+    FAILED_FILES+=("web utility coverage leg")
+    echo "--- FAIL: web utility coverage leg (exit $WEB_UTILITY_EXIT) ---"
   fi
 
   # The suggest leg is pass/fail-gated by the residual job. Keep its local
@@ -645,7 +664,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     exit 1
   fi
   if [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || \
-     [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
+     [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -921,7 +940,7 @@ emit_full_timing_receipt
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$BROWSER_RECEIPT_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 
@@ -934,7 +953,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT web_utility=$WEB_UTILITY_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi

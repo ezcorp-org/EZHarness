@@ -170,9 +170,44 @@ passfail_files() {
 # files still cannot orphan.
 #
 # A genuinely env-dependent web suite must be excluded from P HERE by name,
-# with its reason — never by listing it in coverage_host_files only. There are
-# no such exclusions today: all 34 were verified deterministic under isolated
-# `bun test ./<f> --timeout 30000`, 3 runs each.
+# with its reason — never by listing it in coverage_host_files only.
+#
+# Direct utility suites historically belonged only to `web_bunleg_files`: they
+# proved behavior in plain Bun, but emitted no LCOV. Several product modules
+# therefore appeared only through incidental Vitest imports; a fully-tested
+# chat-window drop helper even had 0 DA. Keep these deterministic, isolated
+# Bun suites in the pass/fail set P. Their producer runs from web/ (the aliases
+# cannot resolve from the root host pool), so coverage_host_files subtracts this
+# set and the dedicated coverage leg owns its one instrumented execution.
+# `web_bunleg_files` subtracts P ∪ C, so no plain duplicate remains.
+web_utility_coverage_files() {
+  printf '%s\n' \
+    web/src/__tests__/chat-scroll-restore.integration.test.ts \
+    web/src/__tests__/chat-scroll-restore.test.ts \
+    web/src/__tests__/clipboard.test.ts \
+    web/src/__tests__/combobox-nav.test.ts \
+    web/src/__tests__/focus-trap.test.ts \
+    web/src/__tests__/last-model.test.ts \
+    web/src/__tests__/panel-persistence.test.ts \
+    web/src/__tests__/pill-visibility.test.ts \
+    web/src/__tests__/stores-team-panel-persistence.test.ts \
+    web/src/__tests__/sub-agent-routing.test.ts \
+    web/src/lib/__tests__/attachment-client.test.ts \
+    web/src/lib/__tests__/chat-window-drop.test.ts \
+    web/src/lib/__tests__/commands.test.ts \
+    web/src/lib/__tests__/markdown-speech.test.ts \
+    web/src/lib/__tests__/progressive-image.test.ts \
+    web/src/lib/__tests__/select-mode.test.ts \
+    web/src/lib/__tests__/shortcuts.test.ts \
+    web/src/lib/__tests__/theme.test.ts \
+    web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts \
+    web/src/lib/chat/page-handlers/__tests__/panel-persistence.test.ts \
+    web/src/lib/components/tool-cards/price-chart-logic.test.ts \
+    web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts \
+    web/src/lib/workers/__tests__/agent-fuzzy-search-worker.test.ts \
+    web/src/lib/workers/__tests__/kokoro-tts-bridge.test.ts
+}
+
 web_host_files() {
   {
     # See passfail_files: scoped `set +e` so a missing dir doesn't silently
@@ -216,6 +251,7 @@ web_host_files() {
     # hard gate (see passfail_files); it covers only the already-pinned
     # harness-client route table + the unpinned api-registry, so measuring it
     # would add no threshold-gated coverage.
+    web_utility_coverage_files
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
       web/src/__tests__/message-toolbar-extension-actions.test.ts \
@@ -315,7 +351,9 @@ coverage_host_files() {
     script_test_files
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
-  } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)
+  } 2>/dev/null | sort -u | comm -23 - <(
+    { suggest_leg_files; web_utility_coverage_files; } | sort -u
+  )
 }
 
 # ── cov-extras leg sets ─────────────────────────────────────────────────────
@@ -370,7 +408,11 @@ aikit_leg_files() {
 # coverage excludes). These must still run for pass/fail somewhere — the CI
 # `residual-tests` job runs exactly this set (empty is fine: prints nothing).
 residual_passfail_files() {
-  comm -23 <(passfail_files) <(coverage_host_files)
+  # web_utility_coverage_files is a coverage leg, not a root host file. Keep
+  # it out of the residual plain runner: the leg is its sole P execution.
+  comm -23 <(passfail_files) <(
+    { coverage_host_files; web_utility_coverage_files; } | sort -u
+  )
 }
 
 # W — the orphaned web bun-leg set. Plain `web/src/**/*.test.ts` files that are

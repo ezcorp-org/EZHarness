@@ -80,6 +80,7 @@ const REGISTER_ALL = [
   "register_leg api-client cov_api_client",
   "register_leg empty-node-shim cov_empty_node_shim",
   "register_leg worker cov_worker",
+  "register_leg web-utility cov_web_utility",
   "register_leg web-security cov_security",
   "register_leg browser cov_browser",
 ].join("\n");
@@ -93,6 +94,7 @@ const ALL_DIRS: ReadonlyArray<[string, string]> = [
   ["api-client", "cov_api_client"],
   ["empty-node-shim", "cov_empty_node_shim"],
   ["worker", "cov_worker"],
+  ["web-utility", "cov_web_utility"],
   ["web-security", "cov_security"],
   ["browser", "cov_browser"],
 ];
@@ -120,7 +122,7 @@ describe("check_leg_lcov: behaviour", () => {
       expect(r.stdout).toContain("(infrastructure failure)");
       // The expected path is named so the failure is actionable, not just loud.
       expect(r.stdout).toContain(join(tmp, "cov_sdk", "lcov.info"));
-      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-security", "browser"]) {
+      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-utility", "web-security", "browser"]) {
         expect(r.stdout).not.toContain(`::error::${name} coverage leg`);
       }
     });
@@ -141,7 +143,7 @@ describe("check_leg_lcov: behaviour", () => {
       seedLeg(tmp, "cov_hc", LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
-      for (const name of ["suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-security", "browser"]) {
+      for (const name of ["suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-utility", "web-security", "browser"]) {
         expect(r.stdout).toContain(`::error::${name} coverage leg produced no lcov output`);
       }
     });
@@ -772,10 +774,11 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
   }
 
   /** Execute the extracted real verdict with every unrelated producer green. */
-  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number } = {}): Run {
+  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number; webUtility?: number } = {}): Run {
     const sdk = exits.sdk ?? 0;
     const emptyNodeShim = exits.emptyNodeShim ?? 0;
-    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+    const webUtility = exits.webUtility ?? 0;
+    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_UTILITY_EXIT=${webUtility}\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
     return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
   }
 
@@ -847,6 +850,24 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(fullRed.stdout).toContain("COVERAGE: FAILED (check=0 sdk=1");
     expect(runCoverageVerdict(fullVerdict).code).toBe(0);
     expect(fullVerdict).not.toContain("tolerated (not gated here): sdk=");
+  });
+
+  test("web utility producer failure gates both verdicts", async () => {
+    const src = await runner;
+    const legsOnlyStart = src.indexOf('if [ -n "$COVERAGE_LEGS_ONLY" ]');
+    const shardStart = src.indexOf("# Build the host file list (sliced for shard mode).");
+    const legsVerdictStart = src.indexOf('echo "  $' + '{TOTAL_PASS} pass | $' + '{TOTAL_FAIL} fail | legs"', legsOnlyStart);
+    const legsVerdict = src.slice(legsVerdictStart, src.lastIndexOf("fi\n", shardStart) + 3);
+    const tail = await fullModeTail();
+    const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
+    const fullExit = 'if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi';
+    const fullVerdict = tail.slice(fullVerdictStart, tail.indexOf(fullExit, fullVerdictStart) + fullExit.length);
+
+    const legs = runCoverageVerdict(legsVerdict, { webUtility: 1 });
+    expect(legs.code).toBe(1);
+    const full = runCoverageVerdict(fullVerdict, { webUtility: 1 });
+    expect(full.code).toBe(1);
+    expect(full.stdout).toContain("web_utility=1");
   });
 
   test("empty Node shim failure gates both verdicts even after its lcov guard passed", async () => {
