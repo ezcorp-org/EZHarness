@@ -27,28 +27,17 @@
 		onchange: (ids: string[]) => void;
 	} = $props();
 
-	// svelte-dnd-action requires `{ id: string, ...rest }` shape on each
-	// item (the `id` is the stable key it tracks DOM nodes by). `selected`
-	// is already a string[] of extension IDs — wrap each entry into the
-	// expected shape.
-	function chipItems(): Array<{ id: string }> {
-		return selected.map((id) => ({ id }));
-	}
+	// Keep the drag library's full item objects, including its temporary
+	// shadow marker. Only final orders belong in the saved extension IDs.
+	let chipItems = $derived(selected.map((id) => ({ id })));
 
-	// Drop event — persist the new order. svelte-dnd-action wires this as
-	// a `finalize` CustomEvent on the dndzone container; the existing
-	// `onchange` callback (already wired in AgentConfigForm.svelte:177)
-	// writes the array to `extensions` which the existing PATCH
-	// /api/agents/:name route serializes to agentConfigs.extensions JSONB.
-	function handleFinalize(e: CustomEvent<{ items: Array<{ id: string }> }>) {
-		onchange(e.detail.items.map((it) => it.id));
-	}
-
-	// In-flight drag event — emit the live reorder so parent's $state
-	// mirrors the drag visually (svelte-dnd-action requires the items
-	// reference to mutate during drag, otherwise the reorder snaps back).
 	function handleConsider(e: CustomEvent<{ items: Array<{ id: string }> }>) {
-		onchange(e.detail.items.map((it) => it.id));
+		chipItems = e.detail.items;
+	}
+
+	function handleFinalize(e: CustomEvent<{ items: Array<{ id: string }> }>) {
+		chipItems = e.detail.items;
+		onchange(chipItems.map((item) => item.id));
 	}
 
 	// Phase 57 UX-01 Wave 2: wrap picker body in BottomSheet on <lg.
@@ -162,14 +151,14 @@
 		<div
 			data-testid="selected-extension-chips"
 			class="flex flex-wrap gap-1"
-			use:dndzone={{ items: chipItems(), flipDurationMs: 200, type: "ext-chips" }}
+			use:dndzone={{ items: chipItems, flipDurationMs: 200, type: "ext-chips" }}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}
 			role="list"
 			aria-roledescription="sortable"
 			aria-label="Reorderable extension list — Space to grab, arrows to move, Enter to drop, Escape to cancel"
 		>
-			{#each chipItems() as item (item.id)}
+			{#each chipItems as item (item.id)}
 				<SelectedPill
 					chipId={item.id}
 					label={nameFor(item.id)}

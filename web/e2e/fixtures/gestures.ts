@@ -39,6 +39,7 @@ export async function dragTouch(
 	page: Page,
 	from: { x: number; y: number },
 	to: { x: number; y: number },
+	beforeRelease?: () => Promise<void>,
 ): Promise<void> {
 	const touch = await page.context().newCDPSession(page);
 	try {
@@ -49,6 +50,7 @@ export async function dragTouch(
 				touchPoints: [{ x: from.x + (to.x - from.x) * step / 10, y: from.y + (to.y - from.y) * step / 10 }],
 			});
 		}
+		await beforeRelease?.();
 		await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
 	} finally {
 		await touch.detach();
