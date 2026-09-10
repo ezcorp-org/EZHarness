@@ -346,7 +346,8 @@ describe("flushAll and dropAll are different on purpose", () => {
     expect(coalescer.size()).toBe(0);
   });
 
-  test("flushAll awaits an already-started asynchronous summary write", async () => {
+  for (const startedBeforeDrain of [false, true]) {
+  test(`flushAll awaits a summary write (started before drain: ${startedBeforeDrain})`, async () => {
     let release: () => void = () => {};
     const persisted: CoalescedPermSummary[] = [];
     const coalescer = createPermAuditCoalescer(async (summary) => {
@@ -354,17 +355,27 @@ describe("flushAll and dropAll are different on purpose", () => {
         release = resolve;
       });
       persisted.push(summary);
-    });
+    }, { flushAt: 1 });
     coalescer.shouldWrite(KEY, "a1");
     coalescer.shouldWrite(KEY, "a2");
+    // The third decision starts an asynchronous threshold flush. Its new
+    // window has no suppressed decisions; shutdown must still await that
+    // earlier write as well as writes it starts itself.
+    if (startedBeforeDrain) coalescer.shouldWrite(KEY, "a3");
 
-    const draining = coalescer.flushAll();
+    let drained = false;
+    const draining = coalescer.flushAll().then(() => { drained = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(drained).toBe(false);
     expect(persisted).toEqual([]);
     release();
     await draining;
+    expect(drained).toBe(true);
     expect(persisted).toHaveLength(1);
     expect(persisted[0]?.suppressed).toBe(1);
   });
+  }
 
   test("dropAll discards WITHOUT emitting — test isolation, not shutdown", async () => {
     const { coalescer, summaries } = harness({ windowMs: 20 });
