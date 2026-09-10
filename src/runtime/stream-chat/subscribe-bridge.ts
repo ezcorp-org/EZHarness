@@ -382,6 +382,13 @@ export function subscribeBridge(
         const msg = event.message;
         if (msg && "role" in msg && msg.role === "assistant") {
           const am = msg as AssistantMessage;
+          // Keep the provider's exact terminal error at the event boundary.
+          // The failover loop reads this after `prompt()` returns; relying
+          // only on an Agent state mirror turns some adapters' 4xx responses
+          // into a false successful empty turn.
+          if (am.stopReason === "error" && am.errorMessage) {
+            ctx.providerErrorMessage = am.errorMessage;
+          }
           ctx.totalUsage = am.usage;
           host.bus.emit("run:usage", { runId: run.id, usage: am.usage });
 

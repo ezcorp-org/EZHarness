@@ -52,12 +52,11 @@ async function scriptProvider(
   expect(scripted.status(), await scripted.text()).toBe(201);
 }
 
-async function capturedProviderRequest(request: APIRequestContext, scriptKey: string): Promise<CapturedRequest> {
+async function capturedProviderRequests(request: APIRequestContext, scriptKey: string): Promise<CapturedRequest[]> {
   const captured = await request.get(`/api/__test/mock-llm/script?scriptKey=${encodeURIComponent(scriptKey)}`);
   expect(captured.status(), await captured.text()).toBe(200);
   const body = (await captured.json()) as { requests: CapturedRequest[] };
-  expect(body.requests).toHaveLength(1);
-  return body.requests[0]!;
+  return body.requests;
 }
 
 test.describe("real browser context compaction", () => {
@@ -73,7 +72,8 @@ test.describe("real browser context compaction", () => {
     await sendComposerMessage(page, prompt);
     await expect(threadMessages(page).getByText(answer, { exact: true })).toBeVisible({ timeout: 30_000 });
 
-    const captured = await capturedProviderRequest(request, scriptKey);
+    const [captured] = await capturedProviderRequests(request, scriptKey);
+    expect(captured).toBeDefined();
     expect(captured.model).toBe(`mock:${scriptKey}`);
     expect(Array.isArray(captured.messages)).toBe(true);
     const messages = captured.messages as Array<{ role?: unknown; content?: unknown }>;
@@ -97,12 +97,27 @@ test.describe("real browser context compaction", () => {
   test("a real provider overflow renders an error and leaves the composer usable", async ({ page, request }) => {
     const scriptKey = "context-compaction-overflow";
     const seeded = await seedLongConversation(request, scriptKey);
-    await scriptProvider(request, scriptKey, [{ fault: { status: 400, message: "context_length_exceeded" } }]);
+    const recovery = "OVERFLOW_RECOVERY_PROVIDER_SUCCESS";
+    await scriptProvider(request, scriptKey, [
+      { fault: { status: 400, message: "context_length_exceeded" } },
+      { text: recovery },
+    ]);
 
     await page.goto(`/project/${seeded.projectId}/chat/${seeded.conversationId}`);
     await sendComposerMessage(page, "ACTIVE_OVERFLOW_PROMPT");
-    await expect(page.getByText(/context_length_exceeded/i)).toBeVisible({ timeout: 30_000 });
+    // A 400 context error is a caller error, so it must be shown unchanged;
+    // it must not silently complete the run or route to another provider.
+    await expect(threadMessages(page).getByText(/context_length_exceeded/i)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole("button", { name: "Send message" })).toHaveAttribute("title", "Send message");
     await expect(page.locator("textarea")).toBeEnabled();
+
+    await sendComposerMessage(page, "ACTIVE_RECOVERY_PROMPT");
+    await expect(threadMessages(page).getByText(recovery, { exact: true })).toBeVisible({ timeout: 30_000 });
+
+    const captured = await capturedProviderRequests(request, scriptKey);
+    expect(captured).toHaveLength(2);
+    expect(captured.map(({ model }) => model)).toEqual([`mock:${scriptKey}`, `mock:${scriptKey}`]);
+    const requests = captured.map(({ messages }) => messages as Array<{ content?: unknown }>);
+    expect(requests[1]!.some(({ content }) => messageText(content).includes("ACTIVE_RECOVERY_PROMPT"))).toBe(true);
   });
 });

@@ -49,10 +49,31 @@ afterEach(() => {
 afterAll(() => restoreModuleMocks());
 
 describe("resolveModel: ezcorp-mock", () => {
-  test("isolated harness rejects a real provider before credential or network resolution", async () => {
+  test("isolated harness rejects a real provider before any transport starts", async () => {
     process.env.PI_E2E_ISOLATE_PROVIDERS = "1";
-    await expect(resolveModel("openai", "gpt-5")).rejects.toThrow(/Real provider access is disabled/);
-    expect(await suggestFallback("ezcorp-mock", "balanced")).toBeNull();
+    const originalFetch = globalThis.fetch;
+    let transportCalls = 0;
+    globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+      transportCalls++;
+      return originalFetch(...args);
+    }) as typeof fetch;
+    try {
+      await expect(resolveModel("openai", "gpt-5")).rejects.toThrow(/Real provider access is disabled/);
+      expect(await suggestFallback("ezcorp-mock", "balanced")).toBeNull();
+      expect(transportCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("without the test surface, the E2E isolation flag leaves provider routing intact", async () => {
+    enableSurface(false);
+    process.env.PI_E2E_ISOLATE_PROVIDERS = "1";
+
+    const resolved = await resolveModel("openai", "gpt-5");
+
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5");
   });
   test("under the surface → custom openai-completions model at loopback mock baseUrl", async () => {
     // mockLlmBaseUrl() requires one of EZCORP_MOCK_LLM_BASE_URL / PORT /

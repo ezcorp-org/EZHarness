@@ -519,6 +519,18 @@ Coverage repair review: added one regression to the existing Bun installer/autho
 
 ## Test infrastructure review — 2026-09-09
 
+## Provider-error composer recovery and context compaction — 2026-09-09
+
+- [x] Reproduce the isolated real-auth mock-provider overflow in a browser and retain the captured provider request.
+- [x] Trace the terminal run state to find why the next send loses the seeded `ezcorp-mock` pin or remains disabled.
+- [x] Add a regression that proves the original provider error remains visible, the composer recovers, and a second mock turn succeeds with no external transport.
+- [x] Verify the production isolation flag remains opt-in and normal provider routing is unchanged when it is off.
+- [x] Run the focused backend, web, and real-auth browser checks; record exact results below.
+
+Plan review: use the existing real-auth browser and in-process mock HTTP endpoint. Do not add browser route stubs, force clicks, or synthetic event streams. Keep `PI_E2E_ISOLATE_PROVIDERS=1` as a test-only outbound boundary.
+
+Review: a terminal provider error could end an empty turn without populating `agent.state.errorMessage`; the bridge now retains its original error for failover classification. The real-auth run passes both context-compaction cases through the local HTTP provider, including a visible 400 and a successful second submitted message. Focused backend tests pass with isolation transport and test-surface-off routing assertions.
+
 Scope: EZHarness current origin/main, a1837d51181ae0b2d1093483166f7d50d1fbc134, in an isolated checkout. Keep existing checkout edits intact.
 
 - [x] Read project rules and lessons; inspect the test entry points and CI jobs.
