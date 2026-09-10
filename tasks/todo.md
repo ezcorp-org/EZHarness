@@ -537,3 +537,15 @@ Plan review: compare local commands with CI, test failure handling as well as su
 Completed review. Fixed two omitted script test suites and the missing local dependency-boundary check in commit `a1b5a6835`. Backend: 24,875 passes, plus 10 restored script tests. Web Bun: 4,094 passes. Node Vitest: 7,146 passes. Browser lanes: 256 mock + 3 setup + 62 real-auth passes, with 13 configured mock skips. Full coverage passes all 1,265 thresholds (26,141 Bun tests and 4,717 Node tests). Types, lint, Svelte check, build, manifest, boundary, gate-integrity, and diff-coverage checks pass.
 
 Current main CI has 35 successful jobs, including production-image and Firefox/WebKit proofs. Its separate external-Postgres job still has an unexplained 5-second pool-one test timeout; 11 complete local Postgres runs and 20 focused runs passed without a retry or timeout change. The report records 226 unwired browser specs and existing warning/type-check backlogs. Local test databases and the review Postgres container were cleaned up. The primary checkout is unchanged; no push or settings change occurred. Full local report and logs: `tasks/testing-infrastructure-review-2026-09-09.md`.
+
+## Close coverage gaps with Terra team — 2026-09-09
+
+- [x] Write ownership contracts and acceptance gates before delegation.
+- [ ] Close browser coverage and CI discovery gaps.
+- [ ] Enforce excluded executable source coverage.
+- [ ] Remove all test type-check exclusions.
+- [ ] Resolve and verify the real Postgres timeout.
+- [ ] Independently verify integration and measure performance.
+- [ ] Record final review and evidence.
+
+Plan review: four isolated Terra agents own disjoint work; the parent verifies and integrates. Heavy work uses one shared lock. No weakened gates or unverified completion.
