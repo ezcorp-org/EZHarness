@@ -634,8 +634,8 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   check_leg_lcov || LEG_LCOV_EXIT=1
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
-  # The SDK (SDK_LEG_EXIT), harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
-  # provider, API-client, and Worker legs GATE here. Suggest stays pass/fail-tolerant
+  # The SDK (SDK_LEG_EXIT), harness-client (HC_EXIT), ai-kit (AIKIT_EXIT),
+  # empty Node shim, provider, API-client, and Worker legs GATE here. Suggest stays pass/fail-tolerant
   # because it also gates via the residual job. A MISSING LCOV gates for every
   # leg regardless: pass/fail tolerance
   # is about assertions, never about a producer that didn't produce. This is
@@ -644,7 +644,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     echo "::error::sdk coverage leg failed (exit $SDK_LEG_EXIT)"
     exit 1
   fi
-  if [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
+  if [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || \
      [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
@@ -921,7 +921,7 @@ emit_full_timing_receipt
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$BROWSER_RECEIPT_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 
@@ -934,7 +934,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi

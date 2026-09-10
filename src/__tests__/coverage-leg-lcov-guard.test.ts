@@ -771,6 +771,14 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     return src.slice(i);
   }
 
+  /** Execute the extracted real verdict with every unrelated producer green. */
+  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number } = {}): Run {
+    const sdk = exits.sdk ?? 0;
+    const emptyNodeShim = exits.emptyNodeShim ?? 0;
+    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+    return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+  }
+
   test("both host-pool modes call the shared gate — neither has a private copy", async () => {
     const src = await runner;
     const calls = [...src.matchAll(/^\s*gate_host_failures\s*$/gm)];
@@ -821,15 +829,10 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(legsVerdictStart).toBeGreaterThan(-1);
     const legsVerdict = legsOnlyBranch.slice(legsVerdictStart, legsOnlyBranch.lastIndexOf("fi\n") + 3);
 
-    const runVerdict = (body: string, sdkExit: number): Run => {
-      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
-      return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
-    };
-
-    const legsRed = runVerdict(legsVerdict, 1);
+    const legsRed = runCoverageVerdict(legsVerdict, { sdk: 1 });
     expect(legsRed.code).toBe(1);
     expect(legsRed.stdout).toContain("::error::sdk coverage leg failed (exit 1)");
-    expect(runVerdict(legsVerdict, 0).code).toBe(0);
+    expect(runCoverageVerdict(legsVerdict).code).toBe(0);
 
     const tail = await fullModeTail();
     const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
@@ -839,11 +842,38 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(fullVerdictStart).toBeGreaterThan(-1);
     expect(fullVerdictExit).toBeGreaterThan(fullVerdictStart);
     const fullVerdict = tail.slice(fullVerdictStart, fullVerdictEnd);
-    const fullRed = runVerdict(fullVerdict, 1);
+    const fullRed = runCoverageVerdict(fullVerdict, { sdk: 1 });
     expect(fullRed.code).toBe(1);
     expect(fullRed.stdout).toContain("COVERAGE: FAILED (check=0 sdk=1");
-    expect(runVerdict(fullVerdict, 0).code).toBe(0);
+    expect(runCoverageVerdict(fullVerdict).code).toBe(0);
     expect(fullVerdict).not.toContain("tolerated (not gated here): sdk=");
+  });
+
+  test("empty Node shim failure gates both verdicts even after its lcov guard passed", async () => {
+    const src = await runner;
+    const legsOnlyStart = src.indexOf('if [ -n "$COVERAGE_LEGS_ONLY" ]');
+    const shardStart = src.indexOf("# Build the host file list (sliced for shard mode).");
+    const legsVerdictStart = src.indexOf('echo "  $' + '{TOTAL_PASS} pass | $' + '{TOTAL_FAIL} fail | legs"', legsOnlyStart);
+    const legsVerdict = src.slice(legsVerdictStart, src.lastIndexOf("fi\n", shardStart) + 3);
+    const tail = await fullModeTail();
+    const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
+    const fullExit = 'if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi';
+    const fullVerdict = tail.slice(fullVerdictStart, tail.indexOf(fullExit, fullVerdictStart) + fullExit.length);
+
+    // First prove the actual producer-integrity guard accepts the shim's
+    // non-empty LCOV. LEG_LCOV_EXIT=0 then models that passed guard inside the
+    // extracted verdict; its own failed floor/check exit must still red both
+    // modes.
+    withTmp((tmp) => {
+      seedLeg(tmp, "cov_empty_node_shim", LCOV);
+      const guard = runGuard(tmp, "register_leg empty-node-shim cov_empty_node_shim\ncheck_leg_lcov");
+      expect(guard.code).toBe(0);
+    });
+    const legs = runCoverageVerdict(legsVerdict, { emptyNodeShim: 1 });
+    expect(legs.code).toBe(1);
+    const full = runCoverageVerdict(fullVerdict, { emptyNodeShim: 1 });
+    expect(full.code).toBe(1);
+    expect(full.stdout).toContain("empty-node-shim=1");
   });
 });
 
