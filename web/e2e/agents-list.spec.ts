@@ -218,6 +218,31 @@ test.describe("Agents List Page", () => {
 			await expect(page).toHaveURL(chatUrl);
 			await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toBeVisible();
 			await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
+
+			if (journey.name === "agent") {
+				const secondCreated = page.waitForResponse((response) =>
+					new URL(response.url()).pathname === "/api/conversations" && response.request().method() === "POST",
+				);
+				await page.getByRole("navigation", { name: "Conversations" }).getByRole("button", { name: "New Chat" }).click();
+				expect(await (await secondCreated).json()).toMatchObject({
+					id: "new-conv-2",
+					projectId: journey.project.id,
+				});
+				const secondChatUrl = `/project/${journey.project.id}/chat/new-conv-2`;
+				await expect(page).toHaveURL(secondChatUrl);
+
+				const reloadedConversations = page.waitForResponse((response) => {
+					const url = new URL(response.url());
+					return url.pathname === "/api/conversations" && response.request().method() === "GET" && url.searchParams.get("projectId") === journey.project.id;
+				});
+				await page.reload();
+				expect((await (await reloadedConversations).json()).map((conversation: { id: string }) => conversation.id)).toEqual(
+					expect.arrayContaining(["new-conv", "new-conv-2"]),
+				);
+				await expect(page).toHaveURL(secondChatUrl);
+				await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toHaveCount(2);
+				await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
+			}
 		});
 	}
 

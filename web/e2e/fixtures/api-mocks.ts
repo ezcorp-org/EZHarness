@@ -308,6 +308,14 @@ const DEFAULT_PROJECT = makeProject({ id: "proj-1", name: "My Project" });
 const DEFAULT_AGENT = makeAgent({ name: "summarizer", description: "Summarizes text" });
 const DEFAULT_CONV = makeConversation({ id: "conv-1", projectId: "proj-1", title: "Hello Chat" });
 
+function nextFixtureId(rows: ReadonlyArray<{ id: string }>, firstId: string): string {
+	if (!rows.some((row) => row.id === firstId)) return firstId;
+	for (let suffix = 2; ; suffix += 1) {
+		const candidate = `${firstId}-${suffix}`;
+		if (!rows.some((row) => row.id === candidate)) return candidate;
+	}
+}
+
 export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	// Project and conversation writes are visible to subsequent loads in the
 	// browser. Copy seed arrays so appending rows cannot change another test's seed.
@@ -598,7 +606,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path === "/api/projects" && method === "POST") {
 			const body = route.request().postDataJSON() ?? {};
 			const project = makeProject({
-				id: "new-proj",
+				id: nextFixtureId(projects, "new-proj"),
 				name: typeof body.name === "string" ? body.name : "New Project",
 				path: typeof body.path === "string" ? body.path : "/tmp/new-project",
 			});
@@ -693,7 +701,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path === "/api/conversations" && method === "POST") {
 			const body = route.request().postDataJSON();
 			const conversation = makeConversation({
-				id: "new-conv",
+				id: nextFixtureId(conversations, "new-conv"),
 				projectId: body?.projectId ?? "proj-1",
 				title: body?.title ?? "New Conversation",
 				agentConfigId: body?.agentConfigId ?? null,
