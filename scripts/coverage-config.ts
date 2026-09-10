@@ -28,13 +28,11 @@ export const REPO_ROOT = resolve(import.meta.dir, "..");
 // `gate-change-approved` label. Keep one path (or wildcard) per line with a
 // justification comment so the diff is reviewable.
 export const EXCLUDES: readonly string[] = [
-  "web/src/routes/**/+*.svelte",
   "web/e2e/**",
   // Template-string files: lcov counts the interior of returned
   // template literals as "missed lines" even when every template
   // function is exercised end-to-end via sdk-scaffold.test.ts. There's
-  // no executable code path inside the strings — they're literal
-  // output. Same justification as `web/src/routes/**/+*.svelte`.
+  // no executable code path inside the strings — they're literal output.
   "packages/@ezcorp/sdk/src/scaffold/templates/**",
   // Verbatim copied-into-the-extension skill runner: its `main()` +
   // stdin loop are process-level (only execute as a spawned

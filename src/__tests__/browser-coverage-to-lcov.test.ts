@@ -102,6 +102,7 @@ test("resolves nested Vite map sources against the emitted chunk", async () => {
   expect(lcov).toContain(`SF:${process.cwd()}/${route}`);
 });
 
+import { isExcluded } from "../../scripts/coverage-config";
 import { assertBrowserCanonicalSources, assertCompleteRouteInventory, currentBrowserCoverageExpectation, scriptedRouteFiles } from "../../scripts/browser-route-coverage-manifest";
 
 test("final browser manifests must enumerate every scripted Svelte route", () => {
@@ -115,6 +116,20 @@ test("final browser manifests must enumerate every scripted Svelte route", () =>
   expect(() => assertCompleteRouteInventory(routes.slice(1))).toThrow("browser coverage route inventory is incomplete");
   expect(() => assertCompleteRouteInventory([...routes, "web/src/routes/removed/+page.svelte"])).toThrow("extra=");
 	expect(() => assertBrowserCanonicalSources([])).not.toThrow();
+});
+
+test("every scripted route has an enforced per-file floor", async () => {
+  const thresholds = await Bun.file(new URL("../../scripts/coverage-thresholds.json", import.meta.url)).json() as Record<string, number>;
+  const exactHundred = new Set([
+    "web/src/routes/(app)/extensions/[id]/preview/+page.svelte",
+    "web/src/routes/(app)/extensions/import-source/+page.svelte",
+    "web/src/routes/(app)/extensions/project-proposals/[id]/+page.svelte",
+  ]);
+
+  for (const route of scriptedRouteFiles()) {
+    expect(isExcluded(route)).toBe(false);
+    expect(thresholds[route]).toBe(exactHundred.has(route) ? 100 : 80);
+  }
 });
 
 import { mergeRawCoverage } from "../../scripts/browser-coverage-to-lcov";

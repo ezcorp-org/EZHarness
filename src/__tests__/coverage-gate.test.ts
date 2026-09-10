@@ -410,7 +410,7 @@ describe("coverage-gate semantics: #3 wildcard precedence", () => {
 //    check-coverage.ts are never counted toward failure, even if a
 //    threshold would otherwise enforce them.
 //
-// Representative executable exclusions: route Svelte markup and e2e specs.
+// Representative executable exclusion: e2e specs.
 // ---------------------------------------------------------------------------
 describe("coverage-gate semantics: #4 exclusion enforcement", () => {
   test("excluded files are never counted as violations", async () => {
@@ -420,7 +420,6 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // coverage. Also add a 100%-covered canary to prove the gate is
       // running enforcement (not accidentally vacuous).
       const excludedFiles = [
-        "web/src/routes/foo/+page.svelte",
         "web/e2e/login.spec.ts",
       ];
       const canary = "packages/@ezcorp/sdk/src/runtime/canary.ts";
@@ -434,7 +433,6 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // Thresholds that would fail every excluded file if not excluded.
       const thresholds: Record<string, number> = {
         "src/extensions/sdk/**": 100,
-        "web/src/routes/**": 100,
         "web/e2e/**": 100,
         "packages/@ezcorp/sdk/src/**": 100,
       };
@@ -446,6 +444,23 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
         expect(r.stderr).not.toContain(f);
       }
       expect(r.stdout).toContain("1 enforced file(s)");
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  test("scripted Svelte routes are enforced after route coverage activation", async () => {
+    const sb = makeSandbox();
+    try {
+      const route = "web/src/routes/foo/+page.svelte";
+      await writeFixtures(sb.root, lcovRecord(sb.root, route, 10, [1, 2]), {
+        "web/src/routes/**": 80,
+      });
+      const r = await runCheck(sb.root);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain(route);
+      expect(r.stderr).toContain("20.00%");
+      expect(r.stderr).toContain("< 80%");
     } finally {
       sb.cleanup();
     }
