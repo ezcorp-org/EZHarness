@@ -79,6 +79,13 @@ test("real project binding, isolated Git read, host review and revoke @evidence"
     await expect(page.getByRole("status")).toContainText("Project access revoked");
     const revoked = await client.invokeExtensionTool(conversation.id, name, "echo", { text: "binding" });
     expect(JSON.stringify(revoked.output)).toContain("Host capability denied or failed");
+		// A document reload must retain the revoked binding state. This also
+		// exercises the author → root → proposal client transition, then the
+		// final author document, through the coverage collector's navigation
+		// checkpoints.
+		await page.reload();
+		await expect(page.getByRole("button", { name: "Revoke project access", exact: true })).toBeDisabled();
+		await expect(page.getByText(/^Bound project:/)).toHaveCount(0);
     expect((await request.get(proposal.reviewUrl)).status()).toBe(403);
   } finally {
     if (installationId) await client.extensionControl("extensions_release", { action: "uninstall", installationId });
