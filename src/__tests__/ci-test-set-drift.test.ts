@@ -226,6 +226,7 @@ describe("web/src pass/fail gating", () => {
     "web/src/__tests__/pill-visibility.test.ts",
     "web/src/__tests__/stores-team-panel-persistence.test.ts",
     "web/src/__tests__/sub-agent-routing.test.ts",
+    "web/src/__tests__/sub-convo-agent-state.test.ts",
     "web/src/lib/__tests__/attachment-client.test.ts",
     "web/src/lib/__tests__/chat-window-drop.test.ts",
     "web/src/lib/actions/hover-tooltip.test.ts",

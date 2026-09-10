@@ -266,6 +266,7 @@ export const BUN_WEB_UTILITY_SOURCES: readonly string[] = [
   "web/src/lib/select-mode.ts",
   "web/src/lib/shortcuts.ts",
   "web/src/lib/sub-agent-routing.ts",
+  "web/src/lib/sub-convo-agent-state.ts",
   "web/src/lib/theme.ts",
   "web/src/lib/tool-display.ts",
   "web/src/lib/workers/agent-fuzzy-search-bridge.ts",
