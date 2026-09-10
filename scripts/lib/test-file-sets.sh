@@ -261,6 +261,7 @@ web_host_files() {
       web/src/__tests__/runs-wait-route.test.ts \
       web/src/__tests__/seed-reset-route.test.ts \
       web/src/__tests__/seed-static-preview-route.test.ts \
+      web/src/__tests__/invite-rate-limit-isolation.test.ts \
       web/src/__tests__/test-agent-config.test.ts \
       web/src/__tests__/extensions-events-route.test.ts \
       web/src/__tests__/chat-scroll.test.ts \

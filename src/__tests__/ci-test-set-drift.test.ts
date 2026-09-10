@@ -213,8 +213,10 @@ describe("web/src pass/fail gating", () => {
   const coverageFiles = setMembers("coverage_host_files");
   const webInC = coverageFiles.filter((f) => f.startsWith("web/src/"));
 
-  test("isolated Hub workers run in prepared host lanes, not web orphans", () => {
-    const file = "web/src/__tests__/hub-isolated-action.integration.test.ts";
+  test.each([
+    ["isolated Hub worker suite", "web/src/__tests__/hub-isolated-action.integration.test.ts"],
+    ["invite limiter isolation", "web/src/__tests__/invite-rate-limit-isolation.test.ts"],
+  ])("%s runs in prepared host lanes, not web orphans", (_name, file) => {
     expect(inP.has(file)).toBe(true);
     expect(coverageFiles).toContain(file);
     expect(bashLines(`source ${SETS_LIB}; web_host_files`)).toContain(file);
