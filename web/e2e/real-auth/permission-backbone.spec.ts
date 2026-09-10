@@ -38,11 +38,9 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
     try {
       const page = await anonymous.newPage();
       await page.goto("/audit");
-      await page.waitForURL(/\/login(?:[?#]|$)/, { timeout: 10_000 });
-      expect(new URL(page.url()).pathname).toBe("/login");
+      await expect(page).toHaveURL(/\/login(?:[?#]|$)/, { timeout: 10_000 });
       await page.goto("/admin/moderation");
-      await page.waitForURL(/\/login(?:[?#]|$)/, { timeout: 10_000 });
-      expect(new URL(page.url()).pathname).toBe("/login");
+      await expect(page).toHaveURL(/\/login(?:[?#]|$)/, { timeout: 10_000 });
     } finally {
       await anonymous.close();
     }
@@ -51,6 +49,10 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
   test("an invited member cannot load audit or moderation", async ({ request, baseURL }) => {
     const member = await createMemberSession(request, baseURL!, "Permission audit member");
     try {
+      // Invited members start in onboarding. Complete that real authenticated
+      // transition before exercising the protected loaders themselves.
+      const onboarded = await member.post("/api/onboarding/complete");
+      expect(onboarded.status(), await onboarded.text()).toBe(200);
       const page = await member.get("/audit");
       expect(page.status(), await page.text()).toBe(403);
       const api = await member.get("/api/audit");
@@ -134,7 +136,7 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
     expect(toolCall).toMatchObject({
       toolName: "kokoro-tts.synthesize",
       cardType: "kokoro-tts-player",
-      status: "complete",
+      status: "success",
     });
     expect(toolCall?.output).toMatch(/"attachmentId":"[^"]+"/);
 
