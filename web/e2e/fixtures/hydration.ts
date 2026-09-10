@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { test as base, request as playwrightRequest, type Page, type TestInfo } from "@playwright/test";
+import { test as base, request as playwrightRequest, type Frame, type Page, type TestInfo } from "@playwright/test";
 
 const BROWSER_COVERAGE = process.env.EZCORP_BROWSER_COVERAGE === "1";
 
@@ -292,13 +292,18 @@ export const test = base.extend<{ browserCoverage: undefined; inviteRateLimitIso
 		const checkpointBeforeTopLevelNavigation = (request: { isNavigationRequest(): boolean; frame(): ReturnType<Page["mainFrame"]> }) => {
 			if (request.isNavigationRequest() && request.frame() === page.mainFrame()) void snapshotCurrentDocument();
 		};
+		const checkpointAfterTopLevelNavigation = (frame: Frame) => {
+			if (frame === page.mainFrame()) void snapshotCurrentDocument();
+		};
 		page.on("request", checkpointBeforeTopLevelNavigation);
+		page.on("framenavigated", checkpointAfterTopLevelNavigation);
 		let coverageError: Error | undefined;
 		try {
 			await use(undefined);
 		} finally {
 			try {
 				page.off("request", checkpointBeforeTopLevelNavigation);
+				page.off("framenavigated", checkpointAfterTopLevelNavigation);
 				await snapshotCurrentDocument();
 				await snapshotQueue;
 				if (snapshotError) {
