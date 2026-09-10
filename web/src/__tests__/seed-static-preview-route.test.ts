@@ -33,7 +33,7 @@ function deleteRequest(body: unknown): Request {
 	});
 }
 
-async function expectUnauthorized(call: () => Promise<Response>): Promise<void> {
+async function expectUnauthorized(call: () => ReturnType<typeof POST>): Promise<void> {
 	let denial: unknown;
 	try {
 		await call();
