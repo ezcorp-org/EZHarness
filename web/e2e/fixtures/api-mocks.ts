@@ -604,6 +604,13 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			projects[index] = { ...projects[index]!, ...update };
 			return route.fulfill({ json: projects[index] });
 		}
+		if (path.match(/^\/api\/projects\/[^/]+$/) && method === "DELETE") {
+			const id = path.split("/").pop()!;
+			const index = projects.findIndex((project) => project.id === id);
+			if (index < 0) return route.fulfill({ status: 404, json: { error: "Not found" } });
+			projects.splice(index, 1);
+			return route.fulfill({ json: { ok: true } });
+		}
 
 		// Agents
 		if (path === "/api/agents" && method === "GET") {

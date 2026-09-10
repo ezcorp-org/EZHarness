@@ -8,13 +8,15 @@
 	import InfoTooltip from "$lib/components/InfoTooltip.svelte";
 	import FeatureIndex from "$lib/components/FeatureIndex.svelte";
 	import ComposerSuggestSection from "$lib/components/settings/ComposerSuggestSection.svelte";
+	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
+	import { createSaveFlash } from "$lib/save-flash.svelte.js";
 
-	let submitting = $state(false);
 	let globalPrompt = $state("");
 	let projectPrompt = $state("");
-	let savingGlobal = $state(false);
-	let savingProject = $state(false);
 	let projectSuggestEnabled = $state(true);
+	const globalPromptFlash = createSaveFlash();
+	const projectPromptFlash = createSaveFlash();
+	const projectUpdateFlash = createSaveFlash();
 
 	// ── GitHub Projects integration summary ────────────────────────────────
 	// One-line connected/paused status for the Integrations section. The full
@@ -68,22 +70,12 @@
 	});
 
 	async function saveGlobalPrompt() {
-		savingGlobal = true;
-		try {
-			await upsertSetting("global:systemPrompt", globalPrompt);
-		} finally {
-			savingGlobal = false;
-		}
+		await globalPromptFlash.run(() => upsertSetting("global:systemPrompt", globalPrompt));
 	}
 
 	async function saveProjectPrompt() {
 		if (!projectId) return;
-		savingProject = true;
-		try {
-			await upsertSetting(`project:${projectId}:systemPrompt`, projectPrompt);
-		} finally {
-			savingProject = false;
-		}
+		await projectPromptFlash.run(() => upsertSetting(`project:${projectId}:systemPrompt`, projectPrompt));
 	}
 
 	$effect(() => {
@@ -95,13 +87,8 @@
 
 	async function handleUpdate(data: { name: string; path: string; icon?: string | null; variables: Record<string, unknown> }) {
 		if (!projectId) return;
-		submitting = true;
-		try {
-			await updateProject(projectId, data);
-			refreshProjects();
-		} finally {
-			submitting = false;
-		}
+		const updated = await projectUpdateFlash.run(() => updateProject(projectId, data));
+		if (updated) refreshProjects();
 	}
 
 	async function handleDelete() {
@@ -130,7 +117,8 @@
 					Delete
 				</button>
 			</div>
-			<ProjectForm {project} onsubmit={handleUpdate} {submitting} />
+			<ProjectForm {project} onsubmit={handleUpdate} submitting={projectUpdateFlash.saving} />
+			<div class="mt-2"><SaveIndicator saved={projectUpdateFlash.saved} error={projectUpdateFlash.error} /></div>
 		</div>
 		<!-- Feature Index -->
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
@@ -190,13 +178,16 @@
 				class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none resize-y"
 				placeholder="e.g. You are a coding assistant for this project..."
 			></textarea>
-			<button
-				onclick={saveProjectPrompt}
-				disabled={savingProject}
-				class="mt-2 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
-			>
-				{savingProject ? "Saving..." : "Save Project Instructions"}
-			</button>
+			<div class="mt-2 flex items-center gap-3">
+				<button
+					onclick={saveProjectPrompt}
+					disabled={projectPromptFlash.saving}
+					class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+				>
+					{projectPromptFlash.saving ? "Saving..." : "Save Project Instructions"}
+				</button>
+				<SaveIndicator saved={projectPromptFlash.saved} error={projectPromptFlash.error} />
+			</div>
 		</div>
 
 		<!-- Global Custom Instructions -->
@@ -209,13 +200,16 @@
 				class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none resize-y"
 				placeholder="e.g. You are a helpful AI assistant..."
 			></textarea>
-			<button
-				onclick={saveGlobalPrompt}
-				disabled={savingGlobal}
-				class="mt-2 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
-			>
-				{savingGlobal ? "Saving..." : "Save Global Instructions"}
-			</button>
+			<div class="mt-2 flex items-center gap-3">
+				<button
+					onclick={saveGlobalPrompt}
+					disabled={globalPromptFlash.saving}
+					class="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+				>
+					{globalPromptFlash.saving ? "Saving..." : "Save Global Instructions"}
+				</button>
+				<SaveIndicator saved={globalPromptFlash.saved} error={globalPromptFlash.error} />
+			</div>
 		</div>
 	{:else}
 		<p class="text-[var(--color-text-muted)]">Project not found.</p>
