@@ -1,4 +1,6 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { makeExtension, makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-file", name: "File Mention Project" });
@@ -27,7 +29,14 @@ const files = [
 	{ name: "output", description: "/tmp/proj/output", kind: "dir" as const },
 ];
 
-async function setupAndFocus(page: any, mockApi: any) {
+async function focusComposer(page: Page) {
+	const textarea = page.locator("textarea");
+	await expect(textarea).toBeEnabled({ timeout: 5000 });
+	await textarea.click();
+	return textarea;
+}
+
+async function setupAndFocus(page: Page, mockApi: (overrides?: MockOverrides) => Promise<void>) {
 	await mockApi({
 		projects: [proj],
 		conversations: [conv],
@@ -50,30 +59,16 @@ async function setupAndFocus(page: any, mockApi: any) {
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 	await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-	const textarea = page.locator("textarea");
-	await page.waitForFunction(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		if (listeners?.open) {
-			for (const fn of listeners.open) {
-				try { fn(new Event("open")); } catch {}
-			}
-		}
-		const ta = document.querySelector("textarea");
-		return ta && !(ta as HTMLTextAreaElement).disabled;
-	}, { timeout: 5000 });
-	await expect(textarea).toBeEnabled({ timeout: 5000 });
-	await page.waitForTimeout(100);
-	await textarea.click();
-	return textarea;
+	return focusComposer(page);
 }
 
-async function typeIntoTextarea(page: any, textarea: any, text: string) {
+async function typeIntoTextarea(page: Page, textarea: Awaited<ReturnType<typeof focusComposer>>, text: string) {
 	await textarea.focus();
 	await textarea.pressSequentially(text, { delay: 50 });
 	await page.waitForTimeout(350);
 }
 
-async function waitForPopover(page: any) {
+async function waitForPopover(page: Page) {
 	await expect(page.locator("#mention-listbox")).toBeVisible({ timeout: 5000 });
 }
 
@@ -141,6 +136,26 @@ test.describe("File Mentions (@ sigil)", () => {
 		const chip = page.locator(".chat-textarea-overlay [data-mention-kind=\"file\"]");
 		await expect(chip).toBeVisible({ timeout: 3000 });
 		await expect(chip).toHaveClass(/green/);
+	});
+
+	test("submitting a selected file sends its full wire token", async ({ page, mockApi }) => {
+		const textarea = await setupAndFocus(page, mockApi);
+		await typeIntoTextarea(page, textarea, "@app");
+		await waitForPopover(page);
+		await expect(page.locator("#mention-listbox").getByText("src/app.ts", { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		await typeIntoTextarea(page, textarea, "review this");
+
+		const sent = page.waitForRequest((request) =>
+			request.method() === "POST" && request.url().includes(`/api/conversations/${conv.id}/messages`),
+		);
+		const send = page.getByRole("button", { name: "Send message" });
+		await expect(send).toBeEnabled();
+		await send.click();
+		const request = await sent;
+		expect(request.postDataJSON()).toMatchObject({
+			content: "@[file:src/app.ts] review this",
+		});
 	});
 
 	test("Escape dismisses the file popover", async ({ page, mockApi }) => {
@@ -435,20 +450,7 @@ test.describe("Regression: projectId wiring from URL", () => {
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		const textarea = page.locator("textarea");
-		await page.waitForFunction(() => {
-			const listeners = (window as any).__fakeWsListeners;
-			if (listeners?.open) {
-				for (const fn of listeners.open) {
-					try { fn(new Event("open")); } catch {}
-				}
-			}
-			const ta = document.querySelector("textarea");
-			return ta && !(ta as HTMLTextAreaElement).disabled;
-		}, { timeout: 5000 });
-		await expect(textarea).toBeEnabled({ timeout: 5000 });
-		await page.waitForTimeout(100);
-		await textarea.click();
+		const textarea = await focusComposer(page);
 		await textarea.pressSequentially("@", { delay: 50 });
 		await page.waitForTimeout(350);
 
@@ -482,19 +484,7 @@ test.describe("Regression: projectId wiring from URL", () => {
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		const textarea = page.locator("textarea");
-		await page.waitForFunction(() => {
-			const listeners = (window as any).__fakeWsListeners;
-			if (listeners?.open) {
-				for (const fn of listeners.open) {
-					try { fn(new Event("open")); } catch {}
-				}
-			}
-			const ta = document.querySelector("textarea");
-			return ta && !(ta as HTMLTextAreaElement).disabled;
-		}, { timeout: 5000 });
-		await expect(textarea).toBeEnabled({ timeout: 5000 });
-		await textarea.click();
+		const textarea = await focusComposer(page);
 		await textarea.pressSequentially("@", { delay: 50 });
 		await page.waitForTimeout(400);
 
