@@ -104,7 +104,22 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      - run: cd web && bunx --bun vitest run --shard=${{ matrix.i }}/3
+      # @vitest/coverage-v8 uses Node's inspector Coverage domain. This runs
+      # the exact same three shards as the pass/fail job while producing the
+      # full shared-library LCOV used by the existing coverage gate.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Run Vitest shard with V8 coverage
+        run: |
+          bash scripts/web-vitest-coverage.sh --output coverage-shard/web-vitest-${{ matrix.i }} --shard ${{ matrix.i }}/3
+          cp coverage-shard/web-vitest-${{ matrix.i }}/lcov.info coverage-shard/lcov_web_vitest_${{ matrix.i }}.info
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-web-vitest-${{ matrix.i }}
+          path: coverage-shard
+          retention-days: 3
+          if-no-files-found: error
 
   # Required check (branch protection): thin aggregator that KEEPS the pinned
   # required-check name over the sharded vitest matrix — green iff every
@@ -160,11 +175,9 @@ jobs:
       # its own preview server (PI_SKIP_INIT=1 build + preview on :4173) and the
       # specs hit MOCKED backends — no Docker, no live container, no seed.
       #
-      # SCOPED to a stable, preview-runnable spec set (NOT a blanket
-      # `playwright test`): the file-organizer + Hub + extension-library/detail
-      # surface. A blanket run pulls in ~240 specs, many DOCKER_TEST-gated or
-      # seed-dependent that would fail/flake here with no live backend.
-      # file-organizer-real.spec.ts self-skips its real-backend cases.
+      # SCOPED to the stable smoke set. The broader mock-preview product suite
+      # runs in e2e-mock-full below, while Docker and real-PGlite journeys use
+      # their dedicated environments.
       #
       # The blocking list has ONE home: the `mock-gate` lane of
       # web/e2e/lanes.json. scripts/e2e-lane-args.ts turns it into ANCHORED
@@ -176,13 +189,74 @@ jobs:
         run: |
           mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
           [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-gate lane args"; exit 1; }
-          cd web && bunx playwright test --project=chromium "${ARGS[@]}"
+          cd web && bunx playwright test --project=chromium --workers=2 "${ARGS[@]}"
       # Post-mortem debuggability: keep traces/screenshots when the gate fails.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: e2e-mock-test-results
           path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # The broader mock-preview product suite is deliberately separate from the
+  # fast protected smoke set above. It retains the same strict first-failure
+  # policy, runs every former backlog spec, and uses two browser workers so its
+  # host resource use stays bounded.
+  e2e-mock-full:
+    name: E2E mock product coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - name: Run every non-smoke mock browser journey
+        shell: bash
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-full)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-full lane args"; exit 1; }
+          cd web && bunx playwright test --project=chromium --workers=2 "${ARGS[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-mock-full-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # Evidence is behavior coverage, not a best-effort gallery. Every tagged
+  # spec runs automatically with its owned capture helper and blocks the E2E
+  # aggregate on its first failure.
+  e2e-evidence:
+    name: E2E visual evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - name: Run every evidence journey
+        shell: bash
+        env:
+          EZCORP_E2E_EVIDENCE: "1"
+        run: |
+          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts evidence)
+          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty evidence lane args"; exit 1; }
+          cd web && bunx playwright test --project=chromium --workers=2 "${ARGS[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: e2e-evidence-results
+          path: |
+            web/test-results/
+            web/blob-report/
           retention-days: 3
           if-no-files-found: ignore
 
@@ -235,20 +309,20 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
-  # Existing protected context. It stays green only if the parallel mock lane
-  # and the candidate-image File Organizer replay both succeed.
+  # Existing protected context. It stays green only if every automatic browser
+  # lane and the candidate-image lifecycle proof succeed.
   e2e-mock:
     name: E2E (mock, no Docker)
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [e2e-mock-run, production-image-file-organizer, extension-browser-engines]
+    needs: [e2e-mock-run, e2e-mock-full, e2e-evidence, production-image-file-organizer, extension-browser-engines]
     if: always()
     steps:
-      - name: Aggregate mock and candidate-image E2E results
+      - name: Aggregate required browser results
         run: |
-          echo "mock=${{ needs.e2e-mock-run.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }}"
-          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ]; then
-            echo "::error::Mock E2E, production-image verification, or extension browser engine validation failed."
+          echo "mock=${{ needs.e2e-mock-run.result }} mock_full=${{ needs.e2e-mock-full.result }} evidence=${{ needs.e2e-evidence.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }}"
+          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.e2e-mock-full.result }}" != success ] || [ "${{ needs.e2e-evidence.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ]; then
+            echo "::error::A required browser lane, production-image verification, or extension browser engine validation failed."
             exit 1
           fi
 
@@ -419,26 +493,9 @@ jobs:
       fail-fast: false
       matrix:
         # Keep SHARD_TOTAL below in sync with this list length.
-        # 12 shards: ~5510s of CI-measured per-file work (sum of wall times
-        # under the PARALLEL=4 pool) spread over 12 runners ≈ 460s of pool
-        # work ≈ 115s wall + ~25s fixed overhead ≈ 2:20 for the leg (was
-        # ~3:50 at 8).
-        #
-        # Slices come from the LPT planner (scripts/shard-plan.ts over
-        # scripts/shard-timings.json). That manifest is now sourced from a
-        # REAL CI sweep (run 30387307634) rather than a dev box: the old
-        # 32-core numbers ran ~3.66x faster and unevenly (per-file CI/dev
-        # ratio p10 2.1x, median 3.3x, p90 4.6x), so the plan they produced
-        # looked balanced in dev units while leaving a measured ~93s spread
-        # across the real shards (131s fastest vs 224s slowest). Re-planned
-        # on CI weights the predicted spread is ~0s — worth ~50s of leg wall
-        # on its own, before the shard-count bump.
-        #
-        # Concurrency: VERIFIED, not assumed. Runs 30367934989 (23 jobs) and
-        # 30387307634 (24 jobs) both had every job start within 8s — no
-        # queueing. This repo is PUBLIC, so the 20-job free-plan cap does not
-        # apply. At 12 shards the workflow peaks at ~27 jobs; re-verify job
-        # start spread before pushing much past that.
+        # Twelve shards use the latest complete CI timing manifest. The bounded
+        # worker default and the measurement source are recorded in
+        # scripts/shard-timings.json; keep this matrix in sync with SHARD_TOTAL.
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -608,14 +665,15 @@ jobs:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [cov-shard, cov-extras, web-security-coverage]
+    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard]
     if: always()
     steps:
       - name: Require coverage producers to have succeeded
         run: |
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.cov-extras.result }}" != "success" ] || \
-             [ "${{ needs.web-security-coverage.result }}" != "success" ]; then
+             [ "${{ needs.web-security-coverage.result }}" != "success" ] || \
+             [ "${{ needs.test-web-shard.result }}" != "success" ]; then
             echo "::error::coverage producers failed — coverage data is incomplete"
             exit 1
           fi
@@ -633,6 +691,8 @@ jobs:
           pattern: lcov-cov-*
           path: coverage-artifacts
           merge-multiple: true
+      - name: Require V8 coverage for every executable shared web source
+        run: bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
       - name: Merge lcov + enforce thresholds
         run: |
           mkdir -p coverage

@@ -76,11 +76,12 @@ async function flap(page: import("@playwright/test").Page) {
  */
 
 test("SSE flap cycles do NOT cause per-cycle loadMessages spam", async ({ page, mockApi }) => {
-	await installSseFlapHarness(page);
-
 	const proj = makeProject({ id: "p1", name: "p" });
 	const conv = makeConversation({ id: "c1", projectId: "p1" });
 	await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+	// Register after mockApi so this targeted reconnect harness wins over its
+	// normal EventSource mock during the next navigation.
+	await installSseFlapHarness(page);
 
 	// Return a completed (non-running) run from /active-run so checkActiveRun
 	// hits the `loadMessages()` branch (the actual spam path). The api-mocks
@@ -147,8 +148,6 @@ test("SSE flap cycles do NOT cause per-cycle loadMessages spam", async ({ page, 
  * the fetch-response cascade eats every reactive tick.
  */
 test("user can scroll the chat while SSE is flapping", async ({ page, mockApi }) => {
-	await installSseFlapHarness(page);
-
 	const proj = makeProject({ id: "p1", name: "p" });
 	const conv = makeConversation({ id: "c1", projectId: "p1" });
 	// Seed enough messages for a scrollable chat.
@@ -163,6 +162,7 @@ test("user can scroll the chat while SSE is flapping", async ({ page, mockApi })
 		}));
 	}
 	await mockApi({ projects: [proj], conversations: [conv], messages });
+	await installSseFlapHarness(page);
 	await page.route("**/api/conversations/c1/active-run", (route) =>
 		route.fulfill({ json: { runId: "r-done", status: "completed" } }),
 	);

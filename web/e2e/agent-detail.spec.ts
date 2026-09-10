@@ -182,7 +182,7 @@ test.describe("Agent Edit Flow", () => {
 		});
 		await page.goto("/agents/my-config-agent");
 
-		await expect(page.getByRole("button", { name: "Chat" })).toBeVisible();
+		await expect(page.getByTestId("agent-chat-cta")).toBeVisible();
 		await expect(page.getByRole("button", { name: "Test" })).toBeVisible();
 	});
 });

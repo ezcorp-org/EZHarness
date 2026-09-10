@@ -5,7 +5,7 @@ import { test, expect } from "./fixtures/test-base.js";
 // OAuth session in localStorage (written by the opener tab via startOAuthFlow),
 // validates the state, then POSTs to /api/auth/oauth/callback to exchange the
 // code for tokens. Success closes the popup; failure surfaces an error and a
-// "Try Again" link back to /settings.
+// "Try Again" link back to provider settings.
 //
 // We exercise the page by seeding localStorage in an addInitScript before
 // navigation and stubbing the POST. The page belongs to the (auth) route group,
@@ -31,7 +31,7 @@ test.describe("OAuth Callback Page", () => {
 
 		await expect(page.getByRole("heading", { name: "Connection Failed" })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Missing code or state parameter")).toBeVisible();
-		await expect(page.getByRole("link", { name: "Try Again" })).toHaveAttribute("href", "/settings");
+		await expect(page.getByRole("link", { name: "Try Again" })).toHaveAttribute("href", "/settings/models");
 	});
 
 	test("shows error when state parameter is missing", async ({ page, mockApi }) => {
@@ -113,6 +113,6 @@ test.describe("OAuth Callback Page", () => {
 
 		await expect(page.getByRole("heading", { name: "Connection Failed" })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText(/Token exchange failed/)).toBeVisible();
-		await expect(page.getByRole("link", { name: "Try Again" })).toHaveAttribute("href", "/settings");
+		await expect(page.getByRole("link", { name: "Try Again" })).toHaveAttribute("href", "/settings/models");
 	});
 });

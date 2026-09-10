@@ -74,8 +74,6 @@ async function flap(page: import("@playwright/test").Page) {
 }
 
 test("background GETs to /api/conversations/:id* stay under budget across flaps + idle", async ({ page, mockApi }) => {
-	await installSseFlapHarness(page);
-
 	const proj = makeProject({ id: "p1", name: "p" });
 	const conv = makeConversation({ id: "c1", projectId: "p1" });
 	const messages = [
@@ -83,6 +81,9 @@ test("background GETs to /api/conversations/:id* stay under budget across flaps 
 		makeMessage({ id: "m2", conversationId: "c1", role: "assistant", content: "hello", parentMessageId: "m1" }),
 	];
 	await mockApi({ projects: [proj], conversations: [conv], messages });
+	// Register after mockApi: Playwright evaluates init scripts in insertion
+	// order, and this harness must replace its standard EventSource stub.
+	await installSseFlapHarness(page);
 
 	// Return a completed (non-running) active run so checkActiveRun hits its
 	// loadMessages branch — the actual spam path. Default {} short-circuits
@@ -147,8 +148,6 @@ test("background GETs to /api/conversations/:id* stay under budget across flaps 
 });
 
 test("scrolling up during flaps does NOT snap to bottom", async ({ page, mockApi }) => {
-	await installSseFlapHarness(page);
-
 	const proj = makeProject({ id: "p1", name: "p" });
 	const conv = makeConversation({ id: "c1", projectId: "p1" });
 	// Seed enough content to make the chat actually scrollable.
@@ -163,6 +162,7 @@ test("scrolling up during flaps does NOT snap to bottom", async ({ page, mockApi
 		}));
 	}
 	await mockApi({ projects: [proj], conversations: [conv], messages });
+	await installSseFlapHarness(page);
 	await page.route("**/api/conversations/c1/active-run", (route) =>
 		route.fulfill({ json: { runId: "r-done", status: "completed" } }),
 	);

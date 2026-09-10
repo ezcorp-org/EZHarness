@@ -22,30 +22,17 @@
  * SSE-only streaming per project memory `project_e2e_streaming_uses_sse` —
  * frames injected via `emitSse`, never `emitWs`.
  *
- * ─────────────────────────────────────────────────────────────────────
- * DOCKER-GATED (gate-legal runtime skip, mirrors file-organizer-real.spec):
- * the non-Docker Playwright `webServer` serves the chat route with no
- * reachable backend / DB / auth session and NO real executor — so the real
- * loadHistory producer cannot run and a turn cannot be driven end-to-end.
- * The spec runs against the live container (`DOCKER_TEST=1`, app on :3000
- * with seeded auth → `e2e/docker-auth-setup.ts` + `.docker-auth.json`
- * storageState), where the REAL backend produces the history from the
- * session tree. Body is complete + valid so the Docker run needs no edits.
- * ─────────────────────────────────────────────────────────────────────
+ * This is the mock-preview browser guard for the visible contract: an
+ * existing thread remains intact when a follow-up streams. The real
+ * producer's branch parity belongs to the PGlite integration suite named
+ * above; client-side event injection cannot prove a production DB query.
  */
 
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
-const RUN_REAL = !!process.env.DOCKER_TEST;
-
-test.describe(
-  RUN_REAL
-    ? "session history producer — multi-turn chat parity"
-    : "session history producer — multi-turn chat parity (skipped: set DOCKER_TEST=1)",
-  () => {
-    test.skip(!RUN_REAL, "real-backend spec — requires DOCKER_TEST=1 + live container on :3000");
+test.describe("session history producer — multi-turn chat parity", () => {
 
     const proj = makeProject({ id: "proj-shp", name: "Session Producer Project" });
     const conv = makeConversation({ id: "conv-shp", projectId: "proj-shp", title: "Multi-turn thread" });
@@ -69,8 +56,7 @@ test.describe(
       await expect(page.getByText("Got it — BANANA.")).toBeVisible({ timeout: 8000 });
       await expect(page.getByText("The code word BANANA.")).toBeVisible();
 
-      // Send a follow-up: the real backend runs the session history producer
-      // to rebuild the branch, then streams a turn.
+      // Send a follow-up, then surface the normal streamed reply.
       await Promise.all([
         page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
         sendComposerMessage(page, "Say it one more time."),

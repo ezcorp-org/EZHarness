@@ -224,6 +224,8 @@
 		onmodechange?: (mode: Mode | null) => void;
 		onmodecreate?: () => void;
 		onagentclick?: (agent: AgentCallState) => void;
+		/** Surface hydrated sub-conversations to route-owned deep-link panels. */
+		onsubconversationschange?: (subConversations: SubConvoRecord[]) => void;
 		onopenobservability?: () => void;
 		convListRefresh?: () => void;
 		/** Header slot — page passes its <ChatHeader>; panel passes its
@@ -329,6 +331,7 @@
 		onmodechange,
 		onmodecreate,
 		onagentclick,
+		onsubconversationschange,
 		onopenobservability,
 		convListRefresh,
 		header,
@@ -431,6 +434,11 @@
 	let extractingTopicId = $state<string | null>(null);
 	let contextTypes = $state<ContextType[]>([]);
 	let subConversations = $state<SubConvoRecord[]>([]);
+	// The route shell owns persisted `?agent=` panel state. Keep its resolver
+	// fed from the same hydrated list that renders the thread's agent cards.
+	$effect(() => {
+		onsubconversationschange?.(subConversations);
+	});
 	let localSystemMessages = $state<Message[]>([]);
 	let chatOAuthPending = $state<OAuthPending | null>(null);
 	let permissionModeOverride = $state<PermissionMode | undefined>(undefined);
@@ -2392,6 +2400,19 @@
 		"project.name":
 			store.projects.find((p) => p.id === projectId)?.name ?? "",
 	});
+
+	function stageThreadDrop(event: DragEvent) {
+		// The composer stops propagation for its own drop zone. This branch owns
+		// a drop anywhere else in the visible thread and forwards the same files
+		// to ChatInput's single validation/staging implementation.
+		if (!event.dataTransfer?.files.length) return;
+		event.preventDefault();
+		chatInput?.stageFiles(event.dataTransfer.files);
+	}
+
+	function allowThreadDrop(event: DragEvent) {
+		if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+	}
 	void page;
 </script>
 
@@ -2401,6 +2422,8 @@
 	class="flex flex-1 flex-col min-w-0"
 	data-testid="chat-thread"
 	data-variant={variant}
+	ondrop={stageThreadDrop}
+	ondragover={allowThreadDrop}
 >
 	{#if header}
 		{@render header(chromeState)}

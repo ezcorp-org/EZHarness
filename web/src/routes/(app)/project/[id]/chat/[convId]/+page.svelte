@@ -43,6 +43,7 @@
 	import ChatHeader from "$lib/components/chat/ChatHeader.svelte";
 	import ChatGraphPanel from "$lib/components/chat/ChatGraphPanel.svelte";
 	import type { PermissionMode } from "$lib/permission-mode.js";
+	import type { SubConvoRecord } from "$lib/sub-convo-agent-state.js";
 
 	let projectId = $derived(page.params.id!);
 	let convId = $derived(page.params.convId!);
@@ -65,6 +66,7 @@
 	let selectedAgent = $state<AgentCallState | null>(null);
 	let permissionModeOverride = $state<PermissionMode | undefined>(undefined);
 	let pendingSelectedAgentSubConvId = $state<string | null>(null);
+	let hydratedSubConversations = $state<SubConvoRecord[]>([]);
 	let convList: ConversationList | undefined = $state();
 
 	// Task panel (driven by the thread's chrome state).
@@ -91,7 +93,7 @@
 		},
 		selectedAgent: { get: () => selectedAgent, set: (v) => { selectedAgent = v; } },
 		taskSnapshot: () => taskSnapshot ?? null,
-		subConversations: () => [],
+		subConversations: () => hydratedSubConversations,
 		assignmentForSubConvo: () => undefined,
 		streamingAgentCalls: () => store.streamingAgentCalls,
 		onConvSwitch: () => {},
@@ -280,6 +282,9 @@
 		}}
 		onagentclick={(agent) => {
 			selectedAgent = agent;
+		}}
+		onsubconversationschange={(subConversations) => {
+			hydratedSubConversations = subConversations;
 		}}
 		onopenobservability={() => {
 			obsOpen = true;

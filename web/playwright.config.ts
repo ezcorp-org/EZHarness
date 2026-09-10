@@ -14,6 +14,7 @@ const previewPort = new URL(baseURL).port || "4173";
 // opt-in (`EZCORP_E2E_EVIDENCE_VIDEO=1`). Outside evidence mode every key
 // below is unchanged, so the no-flag `e2e-mock` job stays byte-identical.
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
+const browserCoverage = process.env.EZCORP_BROWSER_COVERAGE === "1";
 
 export default defineConfig({
 	testDir: "./e2e",
@@ -85,8 +86,9 @@ export default defineConfig({
 			// are unaffected — dispatch only fires for the preview subdomain
 			// shape. The DB-free access-denied + bad-code paths are asserted in
 			// plain preview; the full seeded handoff is Docker-gated.
-			command:
-				`PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
+			command: browserCoverage
+				? `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`
+				: `PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
 			url: baseURL,
 			// The command runs a full production `bun run build` before `preview`
 			// can bind the port. On the constrained CI runner that build alone

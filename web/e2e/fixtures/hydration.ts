@@ -1,4 +1,17 @@
-import { test as base, type Page } from "@playwright/test";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { test as base, type Page, type TestInfo } from "@playwright/test";
+
+const BROWSER_COVERAGE = process.env.EZCORP_BROWSER_COVERAGE === "1";
+const CANVAS_CHAT_ROUTE = "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte";
+
+function coverageOutput(testInfo: TestInfo): string {
+	const outputDir = process.env.EZCORP_BROWSER_COVERAGE_OUTPUT
+		?? resolve(process.cwd(), "..", "tasks", "testing-gaps", "browser", "v8-coverage");
+	const project = testInfo.project.name.replaceAll(/[^a-zA-Z0-9]+/g, "-");
+	const testId = testInfo.testId.replaceAll(/[^a-zA-Z0-9]+/g, "-");
+	return resolve(outputDir, `${project}-${testId}-${testInfo.repeatEachIndex}.json`);
+}
 
 /**
  * The one readiness gate for an e2e navigation: wait until the client app has
@@ -82,7 +95,7 @@ export async function waitForHydration(
  * written out at each call site — would be 489 of them across 150 specs, and
  * the 490th would reintroduce the bug.
  */
-export const test = base.extend({
+export const test = base.extend<{ browserCoverage: undefined }>({
 	page: async ({ page }, use) => {
 		const navigate = page.goto.bind(page);
 		page.goto = async (url: string, options?: Parameters<Page["goto"]>[1]) => {
@@ -92,6 +105,52 @@ export const test = base.extend({
 		};
 		await use(page);
 	},
+	// The mock and real-auth tiers share this opt-in CDP collector. It captures
+	// only same-origin application chunks and makes the source-map converter
+	// fail closed when a requested Svelte route has no DA record.
+	browserCoverage: [async ({ page }, use, testInfo) => {
+		if (!BROWSER_COVERAGE) {
+			await use();
+			return;
+		}
+		const session = await page.context().newCDPSession(page);
+		await session.send("Profiler.enable");
+		await session.send("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+		let coverageError: Error | undefined;
+		try {
+			await use();
+		} finally {
+			try {
+				const raw = await session.send("Profiler.takePreciseCoverage") as {
+					result: Array<{ url: string; functions: unknown[] }>;
+				};
+				const origin = new URL(page.url()).origin;
+				const result = raw.result.filter((script) => {
+					try {
+						const url = new URL(script.url);
+						return url.origin === origin && url.pathname.startsWith("/_app/");
+					} catch {
+						return false;
+					}
+				});
+				if (result.length === 0) coverageError = new Error("browser coverage: no same-origin /_app/ scripts were collected");
+				else {
+					const expectedRouteFiles = testInfo.file.endsWith("canvas-dock-open-close.spec.ts")
+						? [CANVAS_CHAT_ROUTE]
+						: undefined;
+					const output = coverageOutput(testInfo);
+					await mkdir(dirname(output), { recursive: true });
+					await writeFile(output, JSON.stringify({ result, expectedRouteFiles }, null, 2));
+				}
+			} catch (error) {
+				coverageError = error instanceof Error ? error : new Error(String(error));
+			} finally {
+				await session.send("Profiler.stopPreciseCoverage");
+				await session.detach();
+			}
+		}
+		if (coverageError) throw coverageError;
+	}, { auto: true }],
 });
 
 export { expect } from "@playwright/test";

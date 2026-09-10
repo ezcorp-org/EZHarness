@@ -75,7 +75,7 @@ test.describe("Conversation fork flow → sidebar live update", () => {
 		// ── Critical: the sidebar must reflect the new fork without a reload.
 		// If `host.convList()?.refresh?.()` regresses, the new fork row won't
 		// appear here and this whole block fails.
-		const sidebar = page.locator("div.md\\:w-\\[280px\\]").first();
+		const sidebar = page.getByRole("navigation", { name: "Conversations" });
 		await expect(sidebar).toBeVisible();
 
 		// New fork row visible — title is "Forked: Source Chat" per the

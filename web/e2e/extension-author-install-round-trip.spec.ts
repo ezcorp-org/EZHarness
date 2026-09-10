@@ -46,18 +46,15 @@
  * `NODE_ENV` hold. Playwright `page.route` cannot mock either — the draft
  * read happens inside the SSR load, not over the wire.
  *
- * So this is the DOCKER lane (`DOCKER_TEST=1`, an app on :3000 booted
- * with the test surface enabled, storageState from
- * `e2e/docker-auth-setup.ts`) — `scripts/docker-test-all.sh`. It is NOT
- * in the mock `E2E (mock, no Docker)` gate, because that harness boots
- * the preview server with `PI_SKIP_INIT=1` and no test surface, where
- * every step below 404s.
+ * So this is in the real-auth lane. `playwright.real.config.ts` starts an
+ * isolated real-PGlite preview with the explicitly gated test surface and
+ * storage state from `e2e/real-auth-setup.ts`. It is not a mock preview
+ * journey: that server uses `PI_SKIP_INIT=1`, so every seed request below
+ * correctly returns 404.
  *
- * The blocking-CI twin of this coverage is
- * `web/e2e/real-auth/extension-release-gate.spec.ts`, which runs the
- * install → load → invoke → upgrade gate under `playwright.real.config.ts`
- * in the `e2e-real-auth` job. This spec is the dependency-composition
- * slice of the same authoring surface.
+ * `web/e2e/real-auth/extension-release-gate.spec.ts` covers the related
+ * install → load → invoke → upgrade flow. This spec keeps the unique
+ * dependency-composition assertion in the same real-auth job.
  *
  * ── THE DEFECT THIS SPEC WAS WRITTEN AGAINST (now fixed) ─────────────
  *
@@ -117,10 +114,8 @@ function isPickable(row: InstalledRow): boolean {
 	);
 }
 
-// DOCKER_TEST is the harness selector for this suite (see the header):
-// the lane manifest (`web/e2e/lanes.json`) files it under `docker`, and
-// `src/__tests__/e2e-lanes.test.ts` requires every docker-lane member to
-// name it.
+// The manifest files this external spec in real-auth. The real configuration
+// opts into the otherwise-closed test surface before collection.
 test.describe("extension-author dependency-install round trip", () => {
 	let draftId: string | null = null;
 	let extensionName: string | null = null;

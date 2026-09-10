@@ -95,12 +95,12 @@ test("broken image URL falls back from image card to file card", async ({ page, 
 		attachments: [attachment],
 	});
 
-	// Serve a 404 for THIS attachment only so the <img> onerror fires. The
-	// rest of the attachment route falls through to the mock's 1×1 PNG.
+	await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg] });
+	// Playwright uses last-registered route first. Register this after mockApi
+	// so the broken image reaches the component's onerror path.
 	await page.route(`**/api/attachments/${attachment.id}`, (route) =>
 		route.fulfill({ status: 404, body: "not found" }),
 	);
-	await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg] });
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 	// The image card swaps to the file card when onerror fires.

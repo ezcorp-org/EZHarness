@@ -7,16 +7,13 @@
  *   - exhaustive: every on-disk spec appears in exactly ONE lane; no
  *     phantom entries for deleted specs.
  *   - marker consistency per lane (fresh-setup and real-auth each match their
- *     dedicated real-PGlite config testDir;
- *     evidence-soft members carry @evidence; docker members are
- *     DOCKER_TEST-gated; no @evidence spec hides in `unwired`).
+ *     dedicated real-PGlite config; evidence members carry @evidence).
  *   - the blocking mock-gate list has ONE home: ci.yml derives its
  *     playwright args via scripts/e2e-lane-args.ts (anchored regexes) —
  *     asserted both at the generator level and as an invocation anchor in
  *     ci.yml itself.
- *   - `unwired` is an honest, SHRINK-ONLY backlog, pinned to its EXACT
- *     current size: wiring a spec means moving it to a real lane and
- *     lowering the ceiling, never deleting the entry.
+ *   - there is no unwired/backlog lane: every spec is in a lane consumed by
+ *     automatic CI.
  *
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
@@ -27,67 +24,11 @@ import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
-const LANE_NAMES = ["mock-gate", "fresh-setup", "real-auth", "evidence-soft", "docker", "unwired"] as const;
+const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "evidence"] as const;
 
-// Landing-time size of the unwired backlog — shrink-only ratchet.
-// Unchanged (241) across the origin/main merge (fdca3a4f): main's Workflows
-// rename replaced pipelines{,-new,-actions}.spec.ts with the equivalent
-// workflows-* specs, still unwired there (no @evidence, no DOCKER_TEST, in
-// no CI job) — net backlog 241. Wiring a spec means MOVING it to a real
-// lane and lowering this number.
-// 241 → 240: knowledge-base.spec.ts was WIRED (moved to `evidence-soft`) when
-// the KB sharing UI landed and the spec gained an @evidence test, so the
-// backlog shrinks by exactly the one spec that left it.
-// 240 → 235: the core chat surface starts joining the blocking gate —
-// main-chat-parity (the only spec that renders the whole thread) and
-// agent-panel-parity (the only spec that renders `<ChatThread
-// variant="panel">`) moved to `mock-gate`, both also @evidence-tagged and
-// mapped in evidence-covers.json. The ceiling is re-pinned to the EXACT backlog
-// size (the previous 240 had drifted 3 above the real 237, which silently
-// bought room to re-ADD specs to the backlog), so it now ratchets on every
-// wiring.
-//
-// One sibling chat spec was MEASURED and deliberately left unwired — a
-// blocking lane runs at `retries: 0`, so a flaky member is worse than an
-// unwired one (rates from repeated local runs against the mock preview):
-//   - chat-message-pagination  ~4% isolated / 12-25% under lane load — the
-//     highest-flake spec in the repo, and it currently protects nothing. Its
-//     explicit "Load older messages" clicks race the top-sentinel
-//     IntersectionObserver, which independently grows the window: the second
-//     click's button detaches mid-retry (30s timeout) and the exact
-//     `count === 35` assertion sees 50. FIXABLE without weakening it — give
-//     the click a stable target, or suppress the top sentinel for the
-//     duration of an explicit click. Worth doing; it just isn't this PR.
-//
-// 235 → 232: chat-stick-to-bottom + chat-scroll-restore were WIRED into
-// `mock-gate` once issue #140 was FIXED (the ceiling also re-pins to the exact
-// backlog size — it had drifted 1 above the real 234, which silently bought
-// room to re-ADD a spec). Both used to fail on "streaming growth while at
-// bottom must stay pinned" (~4% and ~2%), and it was a real product bug, not a
-// settle flake: `expect.poll` burned its full 5s and never recovered. The
-// jump-to-bottom button was a `position: sticky` — i.e. still IN FLOW — child
-// of the scroll container, so its 2.5rem counted toward `scrollHeight`; since
-// it is mounted BY the "you are not at the bottom" state it reports, mounting
-// it after the stick pin kept the view exactly its own height off the bottom,
-// forever. It now lives in a zero-height overlay dock. Measured on the mock
-// preview: 5/40 red before the fix; after it, 300/300 (--repeat-each=30, 6
-// workers) and 400/400 (--repeat-each=40, 10 workers) across both files. The
-// flake is also retired as a flake — a new deterministic @evidence assertion
-// (mounting the affordance must not change `scrollHeight`) fails 5/5 against
-// the pre-fix component.
-// 232 -> 231: `extensions-mcp-edit.spec.ts` moved to `mock-gate`. It carries
-// the SSRF blocked-target assertion added with the MCP target guard, which
-// was landing in a lane that runs in NO CI job — the spec pre-dated the
-// change, so the ratchet never fired and the hole was inherited silently.
-// Shrink-only, as the lane contract requires.
-// 231 -> 230: `extensions-mcp-tab.spec.ts` moved to `evidence-soft`. It gained
-// an @evidence capture for the MCP list card, which is the surface the
-// max-length-name + contrast fixes changed — and an @evidence spec may not sit
-// in `unwired` (asserted below), so the move is forced by the tag.
-// 230 -> 229: the copied setup shell was replaced by a fresh-PGlite journey
-// and moved into its blocking lane.
-const UNWIRED_CEILING = 229;
-
+// Every browser spec is now wired to a strict CI lane. Keep lane membership
+// exhaustive and unique so a new spec cannot become an unexecuted backlog
+// entry by accident.
 function bashLines(cmd: string): string[] {
   const proc = Bun.spawnSync(["bash", "-c", cmd], { cwd: REPO_ROOT });
   if (proc.exitCode !== 0) throw new Error(`bash failed: ${cmd}\n${proc.stderr.toString()}`);
@@ -97,13 +38,17 @@ function bashLines(cmd: string): string[] {
     .filter((l) => l.length > 0);
 }
 
+function ciJobBlock(ci: string, job: string): string {
+  const start = ci.indexOf(`  ${job}:\n`);
+  if (start < 0) return "";
+	const next = ci.slice(start + 1).search(/^ {2}[A-Za-z][A-Za-z0-9-]*:\n/m);
+  return next < 0 ? ci.slice(start) : ci.slice(start, start + 1 + next);
+}
+
 const lanes = lanesManifest.lanes as Record<string, string[]>;
 const onDisk = bashLines("find web/e2e -name '*.spec.ts' | sort");
 const evidenceTagged = new Set(
   bashLines("grep -rl --include='*.spec.ts' '@evidence' web/e2e || true"),
-);
-const dockerGated = new Set(
-  bashLines("grep -rl --include='*.spec.ts' 'DOCKER_TEST' web/e2e || true"),
 );
 
 describe("e2e lane manifest", () => {
@@ -127,16 +72,26 @@ describe("e2e lane manifest", () => {
     const phantom = [...seen.keys()].filter((f) => !onDiskSet.has(f));
     expect(
       missing,
-      `spec(s) missing from web/e2e/lanes.json — assign a lane (new specs default to 'unwired' ` +
-        `only by an explicit entry; a wired spec belongs in its gate's lane):\n  ${missing.join("\n  ")}`,
+      `spec(s) missing from web/e2e/lanes.json — assign each new spec to an automatic CI lane:\n  ${missing.join("\n  ")}`,
     ).toEqual([]);
     expect(phantom, `manifest entries for deleted specs — remove:\n  ${phantom.join("\n  ")}`).toEqual([]);
   });
 
-  test("real-auth lane == the real config's testDir population", () => {
-    const dirSpecs = onDisk.filter((f) => f.startsWith("web/e2e/real-auth/"));
-    expect(lanes["real-auth"]!.slice().sort()).toEqual(dirSpecs.sort());
-  });
+  test("real-auth config collects exactly its manifest lane", () => {
+    const proc = Bun.spawnSync(
+      ["bunx", "playwright", "test", "--config", "playwright.real.config.ts", "--list", "--reporter=list"],
+      { cwd: join(REPO_ROOT, "web"), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    // Playwright prints paths relative to testDir, so root-level lane members
+    // appear as `goal-feature.spec.ts` while directory members retain their
+    // `real-auth/` prefix. Restore the manifest's web-relative form here.
+    const collected = [...proc.stdout.toString().matchAll(/›\s+([^\s:]+\.spec\.ts)(?=:\d+:)/g)].map(
+      (match) => `web/e2e/${match[1]}`,
+    );
+    expect(collected.length, proc.stdout.toString()).toBeGreaterThan(0);
+    expect([...new Set(collected)].sort()).toEqual(lanes["real-auth"]!.slice().sort());
+  }, 120_000);
 
   test("fresh-setup lane contains the dedicated config's original-path spec", () => {
     expect(lanes["fresh-setup"]).toEqual(["web/e2e/setup-first-run.spec.ts"]);
@@ -166,23 +121,14 @@ describe("e2e lane manifest", () => {
     expect(env.EZCORP_DB_PATH).toBe("/tmp/ezcorp-e2e-config-contract");
   });
 
-  test("evidence-soft members all carry @evidence; no @evidence spec is unwired", () => {
-    const untagged = lanes["evidence-soft"]!.filter((f) => !evidenceTagged.has(f));
-    expect(untagged, `evidence-soft entries without @evidence:\n  ${untagged.join("\n  ")}`).toEqual([]);
-    const hidden = lanes.unwired!.filter((f) => evidenceTagged.has(f));
-    expect(
-      hidden,
-      `@evidence spec(s) marked 'unwired' — they run in the capture lane; move to evidence-soft:\n  ${hidden.join("\n  ")}`,
-    ).toEqual([]);
+  test("evidence members all carry @evidence", () => {
+    const untagged = lanes.evidence!.filter((f) => !evidenceTagged.has(f));
+    expect(untagged, `evidence entries without @evidence:\n  ${untagged.join("\n  ")}`).toEqual([]);
   });
 
-  test("docker lane members are DOCKER_TEST-gated", () => {
-    const unmarked = lanes.docker!.filter((f) => !dockerGated.has(f));
-    expect(unmarked, `docker-lane entries without DOCKER_TEST gating:\n  ${unmarked.join("\n  ")}`).toEqual([]);
-  });
-
-  test("unwired backlog only shrinks (ceiling is the exact current size)", () => {
-    expect(lanes.unwired!.length).toBeLessThanOrEqual(UNWIRED_CEILING);
+  test("there is no unwired browser backlog", () => {
+    expect(Object.hasOwn(lanes, "unwired")).toBe(false);
+    expect(lanes["mock-full"]!.length).toBeGreaterThan(0);
   });
 
   test("mock-gate args generator emits one anchored web-relative regex per member", () => {
@@ -202,29 +148,19 @@ describe("e2e lane manifest", () => {
   });
 
   test("the MOCK config cannot reach the real-auth tier", () => {
-    // The two configs share a tree: playwright.real.config.ts scopes itself to
-    // `testDir: "./e2e/real-auth"`, which sits INSIDE the mock config's
-    // `testDir: "./e2e"`. Without `testIgnore` the mock lane sweeps the real
-    // tier up, and those specs then fail on their own guard — the mock preview
-    // boots without PI_E2E_REAL=1, so isTestSurfaceEnabled() fail-closes and
-    // every /api/__test/** route 404s. Measured on a bare `bun run test:e2e`
-    // before the fix: 76 real-auth tests collected, 64 failing, 16 of them
-    // "is the webServer launched with PI_E2E_REAL=1?" and 8
-    // `seedExtensionAuthorDraft: failed (404)`.
+    // The two configs share one e2e tree. The real config's manifest-derived
+    // match deliberately includes root-level real journeys; without the mock
+    // config's `testIgnore`, its normal collection sweeps those real specs in.
+    // The mock preview boots without PI_E2E_REAL=1, so isTestSurfaceEnabled()
+    // fail-closes and each real test-surface route returns 404.
     //
-    // This drives Playwright's REAL collector rather than asserting on the
-    // config text, for the same reason dependency-denylist.test.ts spawns the
-    // actual biome binary: a `testIgnore` can be present and still not resolve
-    // the way it reads. `--list` loads spec files but launches no browser
-    // (~1.4s locally), and both CI jobs that run this file use
-    // `.github/actions/setup` with `web: "true"`, so @playwright/test is
-    // installed.
+    // This drives Playwright's mock collector rather than asserting on config
+    // text: `--list` loads spec files but launches no browser, and both CI
+    // jobs that run this file install @playwright/test.
     //
-    // It has been LATENT, never active: ci.yml's blocking lane passes an
-    // explicit anchored file list from scripts/e2e-lane-args.ts rather than
-    // relying on testDir collection. That is precisely why it needs pinning —
-    // the only thing standing between this repo and the 64 failures is an arg
-    // list, and switching to plain `testDir` collection would silently undo it.
+    // CI gives each lane an explicit anchored file list from the manifest;
+    // this collection check prevents an unscoped local mock invocation from
+    // silently changing that partition.
     const proc = Bun.spawnSync(["bunx", "playwright", "test", "--list", "--reporter=list"], {
       cwd: join(REPO_ROOT, "web"),
       stdout: "pipe",
@@ -273,10 +209,34 @@ describe("e2e lane manifest", () => {
   test("ci.yml consumes the manifest via the generator (one home for the gate list)", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
     expect(ci).toContain("bun scripts/e2e-lane-args.ts mock-gate");
+    expect(ci).toContain("bun scripts/e2e-lane-args.ts mock-full");
+    expect(ci).toContain("bun scripts/e2e-lane-args.ts evidence");
     expect(ci).toContain("bun scripts/e2e-lane-args.ts fresh-setup");
     expect(ci).toContain('bun scripts/run-real-e2e.ts fresh-setup "$' + '{ARGS[@]}"');
     expect(ci).toContain("bun scripts/run-real-e2e.ts real-auth");
     // The old hand-listed spec regexes must not resurface beside it.
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
+  });
+
+  test("every browser lane is a hard CI dependency", async () => {
+    const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
+    const jobs = [
+      ["e2e-mock-run", "mock-gate"],
+      ["e2e-mock-full", "mock-full"],
+      ["e2e-evidence", "evidence"],
+    ] as const;
+
+    for (const [job, lane] of jobs) {
+      const block = ciJobBlock(ci, job);
+      expect(block, `missing CI job: ${job}`).not.toBe("");
+      expect(block).toContain(`bun scripts/e2e-lane-args.ts ${lane}`);
+      expect(block).not.toContain("continue-on-error: true");
+    }
+
+    const aggregate = ciJobBlock(ci, "e2e-mock");
+    for (const [job] of jobs) expect(aggregate).toContain(job);
+    expect(aggregate).toContain("production-image-file-organizer");
+    expect(aggregate).toContain("extension-browser-engines");
+    expect(aggregate).toContain('result }}" != success');
   });
 });

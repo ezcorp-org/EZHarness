@@ -7,9 +7,9 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
  *  1. The `/active-agents` home page groups rows by project with project-name
  *     headers. Unassigned rows fall into an "Unassigned" bucket that comes
  *     last, even when its rows would sort alphabetically earlier.
- *  2. The project-detail page at `/project/[id]` renders an "Active Agents"
- *     section that only shows rows for that project — i.e. the server-side
- *     `?projectId=` filter is exercised end-to-end.
+ *  2. Project roots route into their chat workspace. Active-agent monitoring
+ *     remains a dedicated global page so that one view can group every
+ *     project and show unassigned runs.
  */
 
 const projAlpha = makeProject({ id: "p-alpha", name: "Alpha" });
@@ -142,18 +142,14 @@ test.describe("/active-agents home page — grouped by project", () => {
 	});
 });
 
-test.describe("/project/[id] — Active Agents section is project-filtered", () => {
-	test("shows only this project's agents and hides others", async ({
+test.describe("/project/[id] — routes to the project chat workspace", () => {
+	test("redirects an existing project to its most recent chat", async ({
 		page,
 		mockApi,
 	}) => {
-		const startedAt = Date.now();
-		// The mock honors the `?projectId=` query string by inspecting URL in the
-		// route handler — we mirror the server's filter semantics here.
 		await mockApi({
 			projects: [projAlpha, projBravo],
 			conversations: [convAlpha, convBravo],
-			// Seed a user message so the project page layout has something to render.
 			messages: [
 				makeMessage({
 					id: "m-a-1",
@@ -162,61 +158,26 @@ test.describe("/project/[id] — Active Agents section is project-filtered", () 
 					content: "hi",
 				}),
 			],
-			routes: {
-				"/active-agents": (url) => {
-					const projectId = url.searchParams.get("projectId");
-					const all = [
-						{
-							runId: "run-a",
-							agentName: "Worker-Alpha",
-							conversationId: "conv-alpha",
-							parentConversationId: null,
-							projectId: "p-alpha",
-							conversationTitle: "Alpha chat",
-							startedAt,
-						},
-						{
-							runId: "run-b",
-							agentName: "Worker-Bravo",
-							conversationId: "conv-bravo",
-							parentConversationId: null,
-							projectId: "p-bravo",
-							conversationTitle: "Bravo chat",
-							startedAt,
-						},
-					];
-					return projectId ? all.filter((r) => r.projectId === projectId) : all;
-				},
-			},
 		});
 
 		await page.goto("/project/p-alpha");
-		await page.waitForLoadState("networkidle");
-
-		// The Alpha worker appears — the Bravo worker must not.
-		await expect(page.getByText("Worker-Alpha")).toBeVisible();
-		await expect(page.getByText("Worker-Bravo")).toHaveCount(0);
-
-		// No grouping UI on the project page (the section isn't opted-in).
+		await expect(page).toHaveURL(/\/project\/p-alpha\/chat\/conv-alpha$/);
+		await expect(page.getByText("hi")).toBeVisible();
 		await expect(page.getByTestId("active-agents-grouped")).toHaveCount(0);
 	});
 
-	test("project page shows the empty state when no agents are running for this project", async ({
+	test("keeps an empty project in its chat index instead of mounting a global monitor", async ({
 		page,
 		mockApi,
 	}) => {
 		await mockApi({
 			projects: [projAlpha],
-			conversations: [convAlpha],
-			routes: {
-				// Return empty regardless of query — simulates "no agents in this project".
-				"/active-agents": () => [],
-			},
+			conversations: [],
 		});
 
 		await page.goto("/project/p-alpha");
-		await page.waitForLoadState("networkidle");
-
-		await expect(page.getByText("No active agents right now.")).toBeVisible();
+		await expect(page).toHaveURL(/\/project\/p-alpha\/chat$/);
+		await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible();
+		await expect(page.getByText("No active agents right now.")).toHaveCount(0);
 	});
 });

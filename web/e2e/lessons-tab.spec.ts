@@ -24,7 +24,7 @@ test.describe("Lessons Tab", () => {
 			localStorage.setItem("activeProjectId", projId);
 		}, proj.id);
 		await page.reload();
-		await page.getByRole("button", { name: "Lessons" }).click();
+		await page.getByRole("button", { name: "Lessons", exact: true }).click();
 	}
 
 	test("renders empty state when no lessons exist", async ({ page, mockApi }) => {

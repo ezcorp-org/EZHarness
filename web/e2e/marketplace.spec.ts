@@ -93,11 +93,12 @@ test.describe("Marketplace Browse", () => {
 		});
 		await page.goto("/marketplace");
 
-		await expect(page.getByText("Code Reviewer")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Automatically reviews pull requests")).toBeVisible();
-		await expect(page.getByText("123 installs")).toBeVisible();
-		await expect(page.getByText("Jane Dev")).toBeVisible();
-		await expect(page.getByText("v2.1.0")).toBeVisible();
+		const card = page.getByRole("link", { name: /Code Reviewer/ });
+		await expect(card).toBeVisible({ timeout: 5000 });
+		await expect(card.getByText("Automatically reviews pull requests", { exact: true })).toBeVisible();
+		await expect(card.getByText("123 installs", { exact: true })).toBeVisible();
+		await expect(card.getByText("Jane Dev", { exact: true })).toBeVisible();
+		await expect(card.getByText("v2.1.0", { exact: true })).toBeVisible();
 	});
 
 	test("shows Featured section when featured listings present and no query/category", async ({ page, mockApi }) => {
@@ -110,7 +111,7 @@ test.describe("Marketplace Browse", () => {
 		});
 		await page.goto("/marketplace");
 
-		await expect(page.getByRole("heading", { name: "Featured" })).toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("heading", { name: "Featured", exact: true })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Featured Agent")).toBeVisible();
 	});
 
@@ -137,7 +138,7 @@ test.describe("Marketplace Browse", () => {
 		});
 		await page.goto("/marketplace");
 
-		await expect(page.getByText("Research")).toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("link", { name: /Test Agent/ }).getByText("Research", { exact: true })).toBeVisible({ timeout: 5000 });
 	});
 
 	test("shows tags on listing cards", async ({ page, mockApi }) => {
@@ -149,8 +150,9 @@ test.describe("Marketplace Browse", () => {
 		});
 		await page.goto("/marketplace");
 
-		await expect(page.getByText("ai")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("automation")).toBeVisible();
+		const card = page.getByRole("link", { name: /Test Agent/ });
+		await expect(card.getByText("ai", { exact: true })).toBeVisible({ timeout: 5000 });
+		await expect(card.getByText("automation", { exact: true })).toBeVisible();
 	});
 
 	test("shows rating percentage on listing card", async ({ page, mockApi }) => {
@@ -174,7 +176,7 @@ test.describe("Marketplace Browse", () => {
 		});
 		await page.goto("/marketplace");
 
-		await expect(page.getByText("New")).toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("link", { name: /Test Agent/ }).getByText("New", { exact: true })).toBeVisible({ timeout: 5000 });
 	});
 
 	test("'no agents found' message shown when search has no results", async ({ page, mockApi }) => {
