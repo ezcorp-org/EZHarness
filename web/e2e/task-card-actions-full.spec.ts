@@ -18,7 +18,7 @@ const userMsg = makeMessage({ id: "task-actions-user", conversationId: conv.id, 
 
 type EmitSse = (event: { type: string; data: unknown }) => Promise<void>;
 type Task = { id: string; title: string; status: "pending" | "active" | "completed"; description?: string };
-type CapturedInvoke = { extensionName: string; toolName: string; input: Record<string, unknown> };
+type CapturedInvoke = { conversationId: string; invocationId: string; extensionName: string; toolName: string; input: Record<string, unknown> };
 
 async function setup(page: Page, mockApi: (overrides?: MockOverrides) => Promise<void>) {
 	await mockApi({
@@ -85,6 +85,14 @@ async function interceptToolInvoke(page: Page): Promise<{ called: Promise<Captur
 	return { called };
 }
 
+async function expectInvocation(called: Promise<CapturedInvoke>, toolName: string, input: Record<string, unknown>) {
+	const body = await called;
+	expect(body).toMatchObject({ conversationId: conv.id, extensionName: "task-stack", toolName });
+	expect(body.invocationId).toEqual(expect.any(String));
+	expect(body.invocationId.length).toBeGreaterThan(0);
+	expect(body.input).toEqual(input);
+}
+
 test.describe("Task card actions through composer and runtime SSE", () => {
 	test("list Start invokes start-task for the clicked pending row", async ({ page, mockApi, emitSse }) => {
 		await setup(page, mockApi);
@@ -93,7 +101,7 @@ test.describe("Task card actions through composer and runtime SSE", () => {
 		const row = page.getByTestId("task-card-pending-1");
 		await expect(row.getByText("Setup DB", { exact: true })).toBeVisible();
 		await row.getByTitle("Start task").click();
-		expect(await called).toMatchObject({ extensionName: "task-stack", toolName: "start-task", input: { taskId: "pending-1" } });
+		await expectInvocation(called, "start-task", { taskId: "pending-1" });
 	});
 
 	test("list Finish collects a summary before invoking finish-task", async ({ page, mockApi, emitSse }) => {
@@ -106,7 +114,7 @@ test.describe("Task card actions through composer and runtime SSE", () => {
 		await expect(summary).toBeVisible();
 		await summary.fill("All endpoints work");
 		await page.getByRole("button", { name: "Done", exact: true }).click();
-		expect(await called).toMatchObject({ extensionName: "task-stack", toolName: "finish-task", input: { taskId: "active-1", summary: "All endpoints work" } });
+		await expectInvocation(called, "finish-task", { taskId: "active-1", summary: "All endpoints work" });
 	});
 
 	test("list Add Task sends the entered title", async ({ page, mockApi, emitSse }) => {
@@ -117,7 +125,7 @@ test.describe("Task card actions through composer and runtime SSE", () => {
 		await card.getByRole("button", { name: "+ Add Task", exact: true }).click();
 		await card.locator('input[placeholder="Task title..."]').fill("New Feature");
 		await card.getByRole("button", { name: "Add", exact: true }).click();
-		expect(await called).toMatchObject({ extensionName: "task-stack", toolName: "add-task", input: { title: "New Feature" } });
+		await expectInvocation(called, "add-task", { title: "New Feature" });
 	});
 
 	test("list Add Task keeps submit disabled for an empty title", async ({ page, mockApi, emitSse }) => {
@@ -135,7 +143,7 @@ test.describe("Task card actions through composer and runtime SSE", () => {
 		await streamTaskCard(page, emitSse, { kind: "task-detail", toolName: "task-stack.get-task", output: { id: "pending-4", title: "Initialize DB", status: "pending", description: "Create schema" } });
 		const card = page.getByTestId("tool-card-task-detail");
 		await card.getByRole("button", { name: "Start", exact: true }).click();
-		expect(await called).toMatchObject({ extensionName: "task-stack", toolName: "start-task", input: { taskId: "pending-4" } });
+		await expectInvocation(called, "start-task", { taskId: "pending-4" });
 	});
 
 	test("detail Finish invokes finish-task with the visible summary", async ({ page, mockApi, emitSse }) => {
@@ -146,7 +154,7 @@ test.describe("Task card actions through composer and runtime SSE", () => {
 		await card.getByRole("button", { name: "Finish", exact: true }).click();
 		await card.locator('input[placeholder="Completion summary..."]').fill("API delivered");
 		await card.getByRole("button", { name: "Done", exact: true }).click();
-		expect(await called).toMatchObject({ extensionName: "task-stack", toolName: "finish-task", input: { taskId: "active-2", summary: "API delivered" } });
+		await expectInvocation(called, "finish-task", { taskId: "active-2", summary: "API delivered" });
 	});
 
 	test("detail Edit sends only the changed title", async ({ page, mockApi, emitSse }) => {
@@ -159,7 +167,7 @@ test.describe("Task card actions through composer and runtime SSE", () => {
 		await expect(title).toHaveValue("Setup DB");
 		await title.fill("Setup PostgreSQL");
 		await card.getByRole("button", { name: "Save", exact: true }).click();
-		expect(await called).toMatchObject({ extensionName: "task-stack", toolName: "update-task", input: { taskId: "pending-5", title: "Setup PostgreSQL" } });
+		await expectInvocation(called, "update-task", { taskId: "pending-5", title: "Setup PostgreSQL" });
 	});
 
 	test("a running task card exposes no completed-task controls", async ({ page, mockApi, emitSse }) => {

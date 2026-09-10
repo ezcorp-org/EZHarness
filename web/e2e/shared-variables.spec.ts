@@ -1,41 +1,33 @@
+import type { Page } from "@playwright/test";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeAgent, makeExtension } from "./fixtures/data.js";
 import { selectExtensionMention } from "./fixtures/composer.js";
 
 const proj = makeProject({ id: "proj-sv", name: "Shared Vars Project" });
 const conv = makeConversation({ id: "conv-sv", projectId: "proj-sv" });
 const agents = [makeAgent({ name: "Assistant", description: "General assistant" })];
 const EXT_NAME = "file-refactor";
-const extensions = [{ name: EXT_NAME, description: "Preview file renames", enabled: true }];
+const extensions = [makeExtension({ name: EXT_NAME, description: "Preview file renames", enabled: true })];
+type MockApi = (overrides?: MockOverrides) => Promise<void>;
+type Tool = { name: string; description: string; inputSchema: Record<string, unknown> };
 
-async function setupPage(page: any, mockApi: any) {
+async function setupPage(page: Page, mockApi: MockApi) {
 	await mockApi({ projects: [proj], conversations: [conv], messages: [], agents, extensions });
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 	await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-	await page.waitForFunction(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		if (listeners?.open) {
-			for (const fn of listeners.open) {
-				try { fn(new Event("open")); } catch {}
-			}
-		}
-		const ta = document.querySelector("textarea");
-		return ta && !ta.disabled;
-	}, { timeout: 5000 });
-
 	const textarea = page.locator("textarea");
 	await expect(textarea).toBeEnabled({ timeout: 5000 });
-	await page.waitForTimeout(100);
 	await textarea.click();
 	return textarea;
 }
 
-async function openToolForm(page: any, mockApi: any, toolsData: any[]) {
+async function openToolForm(page: Page, mockApi: MockApi, toolsData: Tool[]) {
 	await setupPage(page, mockApi);
 
-	await page.route("**/api/extensions/*/tools", (route: any) => {
-		route.fulfill({ json: { tools: toolsData } });
+	await page.route("**/api/extensions/*/tools", (route) => {
+		return route.fulfill({ json: { tools: toolsData } });
 	});
 
 	// Click the native picker result. Enter leaves the typed sigil in the
@@ -80,7 +72,7 @@ test("x-shared file-path field shows in form and is submittable", async ({ page,
 	await convention.fill("kebab-case");
 
 	let invoked: Record<string, unknown> | null = null;
-	await page.route("**/api/tool-invoke", async (route: any) => {
+	await page.route("**/api/tool-invoke", async (route) => {
 		invoked = route.request().postDataJSON();
 		await route.fulfill({ json: { success: true } });
 	});
