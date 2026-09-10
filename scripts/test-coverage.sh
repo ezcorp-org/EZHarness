@@ -543,17 +543,9 @@ verify_browser_coverage_receipt() {
 		echo "::error::browser route coverage receipt is missing or empty" >&2
 		return 1
 	fi
-	local head revision build_id manifest_id regenerated
-	head="$(git rev-parse HEAD)"
-	revision="$(bun -e 'const raw=await Bun.file(process.argv.at(-1)).json(); if (!/^[0-9a-f]{40}$/.test(raw.sourceRevision ?? "")) process.exit(2); console.log(raw.sourceRevision)' "$BROWSER_COVERAGE_RAW")" || return 1
-	[ "$revision" = "$head" ] || { echo "::error::browser receipt revision $revision does not match HEAD $head" >&2; return 1; }
-	build_id="$(bun -e 'const raw=await Bun.file(process.argv.at(-1)).json(); if (!/^[0-9a-f]{64}$/.test(raw.buildId ?? "")) process.exit(2); console.log(raw.buildId)' "$BROWSER_COVERAGE_RAW")" || return 1
-	manifest_id="$(sha256sum web/build/client/manifest.json | awk '{print $1}')"
-	[ "$build_id" = "$manifest_id" ] || { echo "::error::browser receipt buildId does not match current mapped build" >&2; return 1; }
-	bun scripts/browser-route-coverage-manifest.ts --check "$BROWSER_COVERAGE_RAW" || return 1
-	regenerated="$TMPDIR/browser-recomputed.lcov"
+	local regenerated="$TMPDIR/browser-recomputed.lcov"
+	bun scripts/verify-browser-coverage-receipt.ts "$BROWSER_COVERAGE_RAW" "$BROWSER_COVERAGE_LCOV" || return 1
 	bun scripts/browser-coverage-to-lcov.ts "$BROWSER_COVERAGE_RAW" "$regenerated" || return 1
-	cmp -s "$regenerated" "$BROWSER_COVERAGE_LCOV" || { echo "::error::browser LCOV does not match raw CDP conversion" >&2; return 1; }
 	mkdir -p "${LEG_COV_DIR[browser]}"
 	cp "$regenerated" "${LEG_COV_DIR[browser]}/lcov.info"
 }

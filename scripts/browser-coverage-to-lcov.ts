@@ -222,6 +222,18 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
   return lcov;
 }
 
+/** Convert a receipt against the current adapter-bun build assets. */
+export async function coverageToLcovFromBuild(raw: RawCoverage): Promise<string> {
+  const assetRoot = resolve(REPO_ROOT, "web/build/client");
+  return coverageToLcov(raw, async (url) => {
+    const assetPath = new URL(url).pathname.replace(/^\//, "");
+    const code = await Bun.file(resolve(assetRoot, assetPath)).text();
+    const match = code.match(/sourceMappingURL=([^\s]+)/);
+    const map = match ? await Bun.file(resolve(assetRoot, assetPath.replace(/[^/]+$/, match[1]!))).text() : null;
+    return { code, map };
+  });
+}
+
 if (import.meta.main) {
   const [first, ...rest] = process.argv.slice(2);
   if (first === "--merge-raw") {
@@ -236,12 +248,5 @@ if (import.meta.main) {
   const output = rest[0];
   if (!input || !output) throw new Error("usage: browser-coverage-to-lcov.ts <raw.json> <output.lcov>");
   const raw = await Bun.file(input).json() as RawCoverage;
-  const assetRoot = resolve(REPO_ROOT, "web/build/client");
-  await Bun.write(output, await coverageToLcov(raw, async (url) => {
-    const assetPath = new URL(url).pathname.replace(/^\//, "");
-    const code = await Bun.file(resolve(assetRoot, assetPath)).text();
-    const match = code.match(/sourceMappingURL=([^\s]+)/);
-    const map = match ? await Bun.file(resolve(assetRoot, assetPath.replace(/[^/]+$/, match[1]!))).text() : null;
-    return { code, map };
-  }));
+  await Bun.write(output, await coverageToLcovFromBuild(raw));
 }
