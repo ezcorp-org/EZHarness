@@ -186,6 +186,15 @@ async function getPreferenceOrder(customModels: readonly CustomModelEntry[]): Pr
 
 // ── Model Resolution ─────────────────────────────────────────────────
 
+/**
+ * Real-browser tests opt in to this hard outbound boundary. It prevents a
+ * failed deterministic mock turn (or an accidental UI default) from using a
+ * developer credential and reaching a real provider.
+ */
+function isE2eProviderIsolationEnabled(): boolean {
+  return isTestSurfaceEnabled() && process.env.PI_E2E_ISOLATE_PROVIDERS === "1";
+}
+
 export async function resolveModel(
   rawProvider?: string,
   rawModelId?: string,
@@ -226,6 +235,10 @@ export async function resolveModel(
   // `__current__`.
   const provider = rawProvider === CURRENT_MODEL_SENTINEL ? undefined : rawProvider;
   const modelId = rawModelId === CURRENT_MODEL_SENTINEL ? undefined : rawModelId;
+
+  if (isE2eProviderIsolationEnabled() && provider !== MOCK_PROVIDER) {
+    throw new Error("Real provider access is disabled in the isolated E2E harness");
+  }
 
   // WS3 quality-tier routing. When the caller passes a tier (the heuristic
   // classifier picked it for a thread with NO established model — see
@@ -393,6 +406,7 @@ export async function suggestFallback(
   // resolveModel. Default keeps context-free callers behavior-identical.
   credentialScope = "shared",
 ): Promise<FallbackSuggestion | null> {
+  if (isE2eProviderIsolationEnabled()) return null;
   const ladder = await getConfiguredTierLadder();
   const customModels = await getRoutableOverlayModels();
   const order = await getPreferenceOrder(customModels);
@@ -424,4 +438,3 @@ export async function suggestFallback(
 
   return null;
 }
-

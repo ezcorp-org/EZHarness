@@ -83,8 +83,13 @@ test.describe("real browser context compaction", () => {
     expect(texts.some((text) => text.includes(seeded.history.firstContent.slice(0, 64)))).toBe(false);
     expect(texts.some((text) => text.includes(prompt))).toBe(true);
 
-    await page.getByRole("button", { name: /load older messages/i }).click();
-    await expect(threadMessages(page).getByText(seeded.history.firstContent.slice(0, 64))).toBeVisible();
+    const earliest = threadMessages(page).getByText(seeded.history.firstContent.slice(0, 64));
+    for (let pageNumber = 0; pageNumber < 4 && await earliest.count() === 0; pageNumber++) {
+      const loadOlder = page.getByRole("button", { name: /load older messages/i });
+      await loadOlder.focus();
+      await page.keyboard.press("Enter");
+    }
+    await expect(earliest).toBeVisible();
     await expect(page.getByRole("button", { name: "Send message" })).toHaveAttribute("title", "Send message");
     await expect(page.locator("textarea")).toBeEnabled();
   });

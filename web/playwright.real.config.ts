@@ -176,6 +176,11 @@ export default defineConfig({
       // preview server's own env, so the gate evaluates true inside the
       // process that serves `/api/__test/*` — not just the test runner.
       EZCORP_ALLOW_TEST_SURFACE: "1",
+      PI_E2E_ISOLATE_PROVIDERS: "1",
+      // Real-auth journeys may intentionally make the mock provider fail.
+      // Never let its failover path inherit a developer's Kilo credential and
+      // turn a deterministic test into an external model call.
+      KILO_API_KEY: "",
       // Pin the project root explicitly so the bundled-extension
       // resolver hits the new env-var branch in Commit A and never
       // depends on `process.cwd()` or a `.git` walk.
