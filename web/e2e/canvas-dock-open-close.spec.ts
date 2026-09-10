@@ -93,8 +93,14 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 		await mockCanvasPreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		const textarea = page.locator("textarea.chat-textarea");
-		await expect(textarea).toBeEnabled({ timeout: 15_000 });
 		await initialToolHydration;
+		// ChatThread keeps the native composer disabled until its first
+		// authoritative tool-history snapshot resolves. Let that known-empty
+		// snapshot complete before the user sends a message; later refreshes
+		// remain blocked below so they cannot hide a lost live tool call.
+		releaseInitialToolHydration?.();
+		await expect(page.getByRole("button", { name: /hydration-sentinel-initial/ })).toBeVisible();
+		await expect(textarea).toBeEnabled({ timeout: 15_000 });
 		await textarea.pressSequentially("Open the planning canvas");
 		const sent = page.waitForResponse((response) => response.url().includes("/messages") && response.request().method() === "POST");
 		await textarea.press("Enter");
@@ -110,10 +116,8 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			data: { conversationId: "conv-1", extensionId: "claude-design", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify(payload) }] }, duration: 50, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-live" },
 		});
 		await assertDock(page);
-		releaseInitialToolHydration?.();
-		// Later refreshes stay blocked until this empty pre-event snapshot reaches
-		// the store, so they cannot mask a lost live call in this assertion.
-		await expect(page.getByRole("button", { name: /hydration-sentinel-initial/ })).toBeVisible();
+		// Later refreshes stay blocked until the live call has rendered, so they
+		// cannot mask a lost event with the persisted row.
 		await expect(page.getByRole("complementary", { name: "Preview controls" })).toBeVisible();
 		await expect(page.getByRole("main")).toHaveCSS("padding-right", "640px");
 		// Evidence capture waits for network idle, so unblock subsequent refreshes

@@ -242,3 +242,7 @@
 - A captured write request proves only dispatch. For every browser write journey, wait for its response, prove the control returns to its completed state, then reload or refresh and assert the persisted user-visible value.
 
 - Before freezing coverage source, check every new source against its actual canonical producer. A web Bun test in the orphan pass/fail set does not emit LCOV. New server helpers with coverage floors must have their test in the shared host list (both coverage and pass/fail), with a file-set regression check. A standalone coverage proof does not establish full-run membership.
+
+## 2026-09-10 — Initial hydration and native composer tests
+
+- Do not hold a conversation’s first authoritative tool-history response while waiting for native composer entry. ChatThread keeps the composer disabled until that response completes. Release and assert the known initial snapshot first; hold only later refreshes when testing live-event reconciliation.
