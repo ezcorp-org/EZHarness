@@ -191,7 +191,7 @@ test.describe("Agents List Page", () => {
 			},
 			expectedBody: { projectId: "project-for-team", agentConfigId: "team-config-1" },
 		},
-	] as const) {
+	]) {
 		test(`Chat creates and reloads the selected ${journey.name} conversation`, async ({ page, mockApi }) => {
 			await page.addInitScript((projectId) => {
 				localStorage.setItem("activeProjectId", projectId);

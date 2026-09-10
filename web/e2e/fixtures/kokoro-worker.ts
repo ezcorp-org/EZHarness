@@ -106,4 +106,3 @@ export async function installKokoroWorkerStub(page: Page, options: KokoroStubOpt
     (window as unknown as { Worker: unknown }).Worker = StubWorker as unknown;
   }, options);
 }
-

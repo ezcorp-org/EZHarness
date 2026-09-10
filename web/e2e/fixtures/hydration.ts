@@ -306,25 +306,13 @@ export const test = base.extend<{ browserCoverage: undefined; inviteRateLimitIso
 			return navigation(...args);
 		};
 		const navigate = page.goto.bind(page);
-		const gotoWithCheckpoint = checkpointNavigation(
-			(url: string, options?: Parameters<Page["goto"]>[1]) => navigate(url, options),
-		);
-		page.goto = gotoWithCheckpoint;
+		page.goto = checkpointNavigation(navigate);
 		const reload = page.reload.bind(page);
-		const reloadWithCheckpoint = checkpointNavigation(
-			(options?: Parameters<Page["reload"]>[0]) => reload(options),
-		);
-		page.reload = reloadWithCheckpoint;
+		page.reload = checkpointNavigation(reload);
 		const goBack = page.goBack.bind(page);
-		const goBackWithCheckpoint = checkpointNavigation(
-			(options?: Parameters<Page["goBack"]>[0]) => goBack(options),
-		);
-		page.goBack = goBackWithCheckpoint;
+		page.goBack = checkpointNavigation(goBack);
 		const goForward = page.goForward.bind(page);
-		const goForwardWithCheckpoint = checkpointNavigation(
-			(options?: Parameters<Page["goForward"]>[0]) => goForward(options),
-		);
-		page.goForward = goForwardWithCheckpoint;
+		page.goForward = checkpointNavigation(goForward);
 		page.on("framenavigated", checkpointAfterTopLevelNavigation);
 		let coverageError: Error | undefined;
 		try {
