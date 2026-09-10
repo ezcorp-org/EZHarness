@@ -87,7 +87,7 @@
  *     web/src/lib/server/security/url-validation.ts
  */
 import { test, expect, describe } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, copyFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, copyFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -481,6 +481,48 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       expect(r.exitCode).toBe(1);
       expect(r.stderr).toContain(sibling);
       expect(r.stderr).toContain("20.00%");
+    } finally {
+      sb.cleanup();
+    }
+  });
+});
+
+describe("coverage-gate semantics: declaration-only LCOV headers", () => {
+  test("permits a declaration-only TypeScript record with no measurable lines", async () => {
+    const sb = makeSandbox();
+    try {
+      const typePath = "web/src/lib/components/ui/types.ts";
+      const canary = "web/src/lib/components/ui/canary.ts";
+      mkdirSync(join(sb.root, "web/src/lib/components/ui"), { recursive: true });
+      writeFileSync(join(sb.root, typePath), "export interface SharedProps { id: string }\n");
+      writeFileSync(join(sb.root, canary), "export const covered = true;\n");
+      const zeroHeader = ["TN:ezcorp-node-v8", `SF:${join(sb.root, typePath)}`, "FNF:0", "FNH:0", "LF:0", "LH:0", "end_of_record", ""].join("\n");
+      await writeFixtures(sb.root, zeroHeader + lcovRecord(sb.root, canary, 1, [1]), {
+        "web/src/lib/**": 90,
+      });
+      const r = await runCheck(sb.root);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("PASSED");
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  test("still rejects a runtime TypeScript record with no measurable lines", async () => {
+    const sb = makeSandbox();
+    try {
+      const runtimePath = "web/src/lib/components/ui/runtime.ts";
+      const canary = "web/src/lib/components/ui/canary.ts";
+      mkdirSync(join(sb.root, "web/src/lib/components/ui"), { recursive: true });
+      writeFileSync(join(sb.root, runtimePath), "export enum RuntimeState { Ready }\n");
+      writeFileSync(join(sb.root, canary), "export const covered = true;\n");
+      const zeroHeader = ["TN:ezcorp-node-v8", `SF:${join(sb.root, runtimePath)}`, "FNF:0", "FNH:0", "LF:0", "LH:0", "end_of_record", ""].join("\n");
+      await writeFixtures(sb.root, zeroHeader + lcovRecord(sb.root, canary, 1, [1]), {
+        "web/src/lib/**": 90,
+      });
+      const r = await runCheck(sb.root);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain(`${runtimePath}: 0 measured lines`);
     } finally {
       sb.cleanup();
     }

@@ -145,13 +145,18 @@ const NON_SOURCE_GLOBS: readonly string[] = [
  * (default-100) key. Keep this list in sync with the catch-all keys in
  * coverage-thresholds.json.
  */
+/** Producer tags carried in LCOV `TN:` fields through every merge generation. */
+export const NODE_V8_COVERAGE_PRODUCER = "ezcorp-node-v8";
+export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
+
 /**
  * These files have a canonical Node/V8 producer. Bun instruments their
  * TypeScript spans differently when it transitively imports them, so summing
  * the two line maps manufactures misses that neither producer observed.
- * merge-lcov accepts only blocks with V8 `FN:` records for these paths and
- * drops Bun-only blocks. If that V8 evidence disappears, their exact
- * thresholds fail for missing lcov data; they cannot silently fall back.
+ * The two settings sections are exercised to their exact floors by their
+ * direct component tests; browser journeys deliberately cover only their
+ * interactive slice. If Node/V8 evidence disappears, exact thresholds fail
+ * for missing LCOV data rather than borrowing an incompatible map.
  */
 export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/mention-logic.ts",
@@ -163,10 +168,34 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/server/auth/session-cookie.ts",
   "web/src/lib/server/preview/dispatch.ts",
   "web/src/lib/server/preview/ws-bridge.ts",
+  "web/src/lib/components/settings/ProvidersSection.svelte",
+  "web/src/lib/components/settings/TeamsSection.svelte",
 ];
 
-/** Browser routes are measured from Chromium AST/source-map coverage. */
-export const BROWSER_CANONICAL_SOURCES: readonly string[] = [];
+/**
+ * These shared UI sources are owned by Chromium AST/source-map coverage.
+ * Their native browser journeys exercise focus, keyboard, pointer, layout,
+ * and rendered-card behavior that an incidental Node component import cannot
+ * measure with the same map. Each has a trusted browser receipt at its floor.
+ */
+export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
+  "web/src/lib/components/AgentSearchPicker.svelte",
+  "web/src/lib/components/ChatInput.svelte",
+  "web/src/lib/components/KnowledgeBaseTab.svelte",
+  "web/src/lib/components/MentionPopover.svelte",
+  "web/src/lib/components/ModeSearchPicker.svelte",
+  "web/src/lib/components/PermissionModeIndicator.svelte",
+  "web/src/lib/components/ProjectRail.svelte",
+  "web/src/lib/components/ThemeToggle.svelte",
+  "web/src/lib/components/ToolSearchPicker.svelte",
+  "web/src/lib/components/WaterfallTimeline.svelte",
+  "web/src/lib/components/chat/ConnectionBanner.svelte",
+  "web/src/lib/components/ez/EzButton.svelte",
+  "web/src/lib/components/tool-cards/SearchResultsCard.svelte",
+  "web/src/lib/components/tool-cards/TerminalCard.svelte",
+  "web/src/lib/components/ui/SearchBox.svelte",
+  "web/src/lib/components/ui/SharedFilePicker.svelte",
+];
 
 /** Bun-only contracts with source layouts that must not be mixed with V8 maps. */
 export const BUN_CANONICAL_PRODUCERS = {
@@ -176,6 +205,17 @@ export const BUN_CANONICAL_PRODUCERS = {
 
 /** Paths with an explicit tagged Bun producer. Derived to prevent registry drift. */
 export const BUN_CANONICAL_SOURCES: readonly string[] = Object.keys(BUN_CANONICAL_PRODUCERS);
+
+/**
+ * Return the sole trusted LCOV producer for source, if source maps must not
+ * be merged across instrumenters. Keep the registries above as the reviewable
+ * source-of-truth lists; consumers use this helper so tag checks cannot drift.
+ */
+export function canonicalCoverageProducer(source: string): string | undefined {
+  if (V8_CANONICAL_SOURCES.includes(source)) return NODE_V8_COVERAGE_PRODUCER;
+  if (BROWSER_CANONICAL_SOURCES.includes(source)) return BROWSER_V8_COVERAGE_PRODUCER;
+  return BUN_CANONICAL_PRODUCERS[source as keyof typeof BUN_CANONICAL_PRODUCERS];
+}
 
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [
   "src/**",

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { REPO_ROOT } from "../../scripts/coverage-config";
+import { BROWSER_CANONICAL_SOURCES, REPO_ROOT } from "../../scripts/coverage-config";
 import { scriptedRouteFiles } from "../../scripts/browser-route-coverage-manifest";
 import { canonicalWebVitestSources, configuredWebVitestSources, lcovSourceFiles, missingWebLibCoverage, webVitestIncludePatterns } from "../../scripts/check-web-vitest-coverage";
 
@@ -59,4 +59,14 @@ test("assigns scripted routes to browser coverage while node omissions still fai
     async () => "<script>const preview = true;</script>",
   );
   expect(missingIfNodeOwned).toEqual([previewRoute]);
+});
+
+test("removes every browser-canonical shared UI source from the Node/V8 manifest", async () => {
+  const manifest = await Bun.file(resolve(REPO_ROOT, "scripts/web-vitest-coverage-includes.sh")).text();
+  const configured = configuredWebVitestSources(webVitestIncludePatterns(manifest));
+  const canonicalNode = await canonicalWebVitestSources();
+  for (const source of BROWSER_CANONICAL_SOURCES) {
+    expect(configured).toContain(source);
+    expect(canonicalNode).not.toContain(source);
+  }
 });

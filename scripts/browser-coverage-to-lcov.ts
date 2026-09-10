@@ -3,7 +3,7 @@
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Profiler } from "node:inspector";
-import { REPO_ROOT } from "./coverage-config.ts";
+import { BROWSER_V8_COVERAGE_PRODUCER, REPO_ROOT } from "./coverage-config.ts";
 
 export type Range = Profiler.CoverageRange;
 export type ScriptCoverage = Pick<Profiler.ScriptCoverage, "url" | "functions">;
@@ -141,7 +141,7 @@ function outputLcov(coverage: CoverageMap): string {
     if (!isBrowserSource(file)) continue;
     const lines = coverage.fileCoverageFor(path).getLineCoverage();
     if (Object.keys(lines).length === 0) continue;
-    output += `TN:ezcorp-browser-v8\nSF:${resolve(REPO_ROOT, file)}\n`;
+    output += `TN:${BROWSER_V8_COVERAGE_PRODUCER}\nSF:${resolve(REPO_ROOT, file)}\n`;
     for (const [line, hits] of Object.entries(lines).sort(([a], [b]) => Number(a) - Number(b))) {
       output += `DA:${line},${hits}\n`;
     }

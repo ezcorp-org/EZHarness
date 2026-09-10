@@ -588,3 +588,53 @@ describe("merge-lcov: Bun empty Node shim canonical source ownership", () => {
     expect(twoStage.da.get(1)).toBe(3);
   });
 });
+
+describe("merge-lcov: browser canonical source ownership", () => {
+  const canonical = "web/src/lib/components/AgentSearchPicker.svelte";
+
+  const unrelatedRecord = (base: string, name: string): string => {
+    const unrelated = writeSource(`${base}/${name}.ts`, "export const receipt = true;\n");
+    return ["TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+  };
+
+  test("retains only the tagged browser map through a two-stage merge", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case14-browser";
+    const browserDir = join(root, base, "browser", "cov_0");
+    const nodeDir = join(root, base, "node", "cov_0");
+    const bunDir = join(root, base, "bun", "cov_0");
+    for (const dir of [browserDir, nodeDir, bunDir]) mkdirSync(dir, { recursive: true });
+    const record = (tag: string, hit: number) => [tag, `SF:${source}`, `DA:12,${hit}`, "LF:1", `LH:${hit > 0 ? 1 : 0}`, "end_of_record", ""].join("\n");
+    writeFileSync(join(browserDir, "lcov.info"), record("TN:ezcorp-browser-v8", 7) + unrelatedRecord(base, "browser"));
+    writeFileSync(join(nodeDir, "lcov.info"), record("TN:ezcorp-node-v8", 99) + unrelatedRecord(base, "node"));
+    writeFileSync(join(bunDir, "lcov.info"), record("TN:", 99) + unrelatedRecord(base, "bun"));
+
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case14-browser-direct.info");
+    const stage = join(root, "case14-browser-stage");
+    mkdirSync(stage, { recursive: true });
+    for (const [name, dir] of [["browser", browserDir], ["node", nodeDir], ["bun", bunDir]] as const) {
+      await merge(join(dir, "*.info"), `case14-browser-stage/${name}.info`);
+    }
+    const twoStage = await merge(join(stage, "*.info"), "case14-browser-twostage.info");
+
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-browser-v8");
+    expect(twoStage.da.get(12)).toBe(7);
+  });
+
+  test("does not substitute Node or Bun evidence when the browser receipt is missing", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case15-browser-missing";
+    const nodeDir = join(root, base, "node");
+    const bunDir = join(root, base, "bun");
+    mkdirSync(nodeDir, { recursive: true });
+    mkdirSync(bunDir, { recursive: true });
+    const record = (tag: string) => [tag, `SF:${source}`, "DA:12,99", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+    writeFileSync(join(nodeDir, "lcov.info"), record("TN:ezcorp-node-v8") + unrelatedRecord(base, "node"));
+    writeFileSync(join(bunDir, "lcov.info"), record("TN:") + unrelatedRecord(base, "bun"));
+
+    const { text } = await merge(join(root, base, "*", "lcov.info"), "case15-browser-missing.info");
+    expect(text).not.toContain(`SF:${canonical}`);
+    expect(text).toContain("case15-browser-missing/node.ts");
+  });
+});

@@ -102,20 +102,29 @@ test("resolves nested Vite map sources against the emitted chunk", async () => {
   expect(lcov).toContain(`SF:${process.cwd()}/${route}`);
 });
 
-import { isExcluded } from "../../scripts/coverage-config";
+import { BROWSER_CANONICAL_SOURCES, BROWSER_V8_COVERAGE_PRODUCER, isExcluded } from "../../scripts/coverage-config";
 import { assertBrowserCanonicalSources, assertCompleteRouteInventory, currentBrowserCoverageExpectation, scriptedRouteFiles } from "../../scripts/browser-route-coverage-manifest";
 
 test("final browser manifests must enumerate every scripted Svelte route", () => {
 	const routes = scriptedRouteFiles();
 	expect(currentBrowserCoverageExpectation()).toEqual({
 		routes,
-		files: [],
+		files: [...BROWSER_CANONICAL_SOURCES],
 	});
 	expect(routes).toHaveLength(64);
   expect(routes).toContain("web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte");
   expect(() => assertCompleteRouteInventory(routes.slice(1))).toThrow("browser coverage route inventory is incomplete");
   expect(() => assertCompleteRouteInventory([...routes, "web/src/routes/removed/+page.svelte"])).toThrow("extra=");
-	expect(() => assertBrowserCanonicalSources([])).not.toThrow();
+	expect(() => assertBrowserCanonicalSources([])).toThrow("browser coverage source inventory is incomplete");
+	expect(() => assertBrowserCanonicalSources(BROWSER_CANONICAL_SOURCES)).not.toThrow();
+});
+
+test("browser converter marks AST receipts with the shared browser producer", async () => {
+  const lcov = await coverageToLcov({
+    result: [{ url: "http://app/_app/route.js", functions: covered }],
+    expectedRouteFiles: [route],
+  }, async () => ({ code, map: routeMap }));
+  expect(lcov).toStartWith(`TN:${BROWSER_V8_COVERAGE_PRODUCER}`);
 });
 
 test("every scripted route has an enforced per-file floor", async () => {

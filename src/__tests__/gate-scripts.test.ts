@@ -15,6 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   EXCLUDES,
+  BROWSER_V8_COVERAGE_PRODUCER,
+  canonicalCoverageProducer,
   escapeGlob,
   isExcluded,
   isDeclarationOnlyTypeScript,
@@ -1033,6 +1035,17 @@ describe("check-coverage: wildcardSourceFileDropouts", () => {
       async () => "export const existing = 1;",
     );
     expect(v).toEqual([]);
+  });
+});
+
+describe("coverage canonical producer registry", () => {
+  test("assigns browser, Node/V8, and tagged Bun contracts without a fallback", () => {
+    expect(canonicalCoverageProducer("web/src/lib/components/AgentSearchPicker.svelte"))
+      .toBe(BROWSER_V8_COVERAGE_PRODUCER);
+    expect(canonicalCoverageProducer("web/src/lib/components/settings/ProvidersSection.svelte"))
+      .toBe("ezcorp-node-v8");
+    expect(canonicalCoverageProducer("web/src/lib/api.ts")).toBe("ezcorp-bun-api");
+    expect(canonicalCoverageProducer("web/src/lib/unowned.ts")).toBeUndefined();
   });
 });
 

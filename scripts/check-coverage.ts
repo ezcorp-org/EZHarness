@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import {
   EXCLUDES,
   escapeGlob,
+  isDeclarationOnlyTypeScript,
   parseLcov,
   REPO_ROOT,
   wildcardSourceFileDropouts,
@@ -42,6 +43,14 @@ for (const [file, cov] of perFile) {
   matchedThresholds.add(match.pat);
   enforced++;
   if (cov.totalLines === 0) {
+    // Type-only source files compile to no JavaScript. LCOV may retain an SF
+    // header with LF:0 when another source imports their declarations, but
+    // there is no executable statement for a producer to measure. This is
+    // structural, not a path exemption: an enum or value export still fails.
+    const source = Bun.file(resolve(REPO_ROOT, file));
+    if (file.endsWith(".ts") && await source.exists() && isDeclarationOnlyTypeScript(await source.text())) {
+      continue;
+    }
     violations.push(
       `${file}: 0 measured lines (file in lcov but no DA records) — ` +
         `coverage script doesn't measure this path. Either add coverage ` +
