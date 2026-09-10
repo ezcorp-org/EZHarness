@@ -277,8 +277,8 @@ export const test = base.extend<{ browserCoverage: undefined; inviteRateLimitIso
 		let snapshotError: Error | undefined;
 		let snapshotQueue = Promise.resolve();
 		const snapshotCurrentDocument = () => {
-			// Start CDP capture in this request-event turn. Chaining the *start*
-			// through a Promise lets a reload destroy the old V8 isolate first.
+			// Start CDP capture immediately. Chaining the *start* through a
+			// Promise can let navigation destroy the old V8 isolate first.
 			// The queue still gives teardown one awaitable completion point.
 			const snapshot = (async () => {
 				try {

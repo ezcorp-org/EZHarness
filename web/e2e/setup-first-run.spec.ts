@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/hydration.js";
+import { test, expect, waitForHydration } from "./fixtures/hydration.js";
 
 // This config starts a production preview against a new PGlite directory and
 // deliberately has no global setup. It exercises the shipped Svelte route,
@@ -105,6 +105,7 @@ test.describe("Setup — first run", () => {
 
     // A new account is authenticated but has not yet completed onboarding.
     await expect(page).toHaveURL(/\/onboarding$/);
+    await waitForHydration(page);
     await expect(page.getByRole("heading", { name: "Welcome, First Admin" })).toBeVisible();
 
     // There is intentionally no provider in this fresh workspace. The admin
@@ -124,6 +125,21 @@ test.describe("Setup — first run", () => {
     await page.getByTestId("onboarding-step2-continue").click();
     expect((await savedTier).status()).toBe(200);
     expect((await tierRequest).postDataJSON()).toEqual({ value: "quality" });
+    await expect(page.getByRole("heading", { name: "Three keystrokes to know" })).toBeVisible();
+
+    // A real browser reload resets the wizard view but must retain both the
+    // authenticated session and the already-saved tier. Continue without
+    // selecting a replacement value: each skip intentionally leaves it alone.
+    await page.reload();
+    await expect(page).toHaveURL(/\/onboarding$/);
+    await waitForHydration(page);
+    await expect(page.getByRole("heading", { name: "Welcome, First Admin" })).toBeVisible();
+    const savedAfterReload = await page.request.get("/api/settings/provider:defaultTier");
+    expect(savedAfterReload.status()).toBe(200);
+    expect(await savedAfterReload.json()).toEqual({ value: "quality" });
+    await page.getByTestId("onboarding-step1-skip").click();
+    await expect(page.getByRole("heading", { name: "Pick a default tier" })).toBeVisible();
+    await page.getByTestId("onboarding-step2-skip").click();
     await expect(page.getByRole("heading", { name: "Three keystrokes to know" })).toBeVisible();
 
     const completed = page.waitForResponse((response) =>
