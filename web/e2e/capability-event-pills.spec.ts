@@ -173,11 +173,23 @@ test.describe("Capability event pills — installed-extension default-hidden + t
 				} as any,
 			],
 			messages: [
+				// Capability events annotate a conversational branch; they are not
+				// valid leaves on their own. Seed the real turn they belong beside
+				// the audit row so this exercises the user-visible transcript path.
+				{
+					id: "m-parent-1",
+					conversationId: "conv-1",
+					role: "user",
+					content: "Check the installed extension",
+					parentMessageId: null,
+					createdAt: "2026-05-01T09:59:00.000Z",
+				} as any,
 				{
 					id: "m-pill-1",
 					conversationId: "conv-1",
 					role: "capability-event",
 					content: capabilityEventContent,
+					parentMessageId: null,
 					createdAt: "2026-05-01T10:00:00.000Z",
 				} as any,
 			],
@@ -231,6 +243,7 @@ test.describe("Capability event pills — installed-extension default-hidden + t
 		//    must be HIDDEN.
 		await page.goto("/project/proj-1/chat/conv-1");
 		await expect(page.getByTestId("chat-messages-container")).toBeVisible();
+		await expect(page.getByText("Check the installed extension")).toBeVisible();
 		// The pill row is gated client-side via shouldShowPill(); the
 		// chat-capability-event marker only appears when the visibility
 		// predicate returns true. With installedToggle=false, no marker.
