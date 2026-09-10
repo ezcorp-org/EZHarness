@@ -267,10 +267,13 @@ export interface MockOverrides {
 	activeRun?: Record<string, { runId: string | null; agentId?: string; startedAt?: string }>;
 	/** Extension toolbar items keyed by conversationId, returned by /api/conversations/[id]/extension-toolbar. */
 	extensionToolbarItems?: Record<string, Array<{
+		extName: string;
 		id: string;
-		extensionId: string;
-		label: string;
-		action: string;
+		icon: string;
+		tooltip: string;
+		appliesTo: "user" | "assistant" | "both";
+		appliesToSelection: "single" | "bulk" | "both";
+		event: string;
 	}>>;
 	/** Extension settings keyed by extensionId, returned by /api/extensions/[id]/settings. */
 	extensionSettings?: Record<string, { schema: unknown; values: unknown }>;
