@@ -107,6 +107,8 @@ PARALLEL=${PARALLEL:-$(default_parallel)}
 COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
+FULL_VITEST_EXIT=0
+WEB_VITEST_SOURCE_GUARD_EXIT=0
 # Everything that failed, host files AND named legs — the visibility list.
 FAILED_FILES=()
 # Host POOL failures only (repo-relative test paths). Kept separate from
@@ -240,6 +242,14 @@ run_legs() {
   register_leg suggest cov_suggest
   register_leg ai-kit cov_aikit
   register_leg web-vitest cov_vitest
+  # Transitional local producer for the entire canonical Vitest pool. CI will
+  # publish the same three shard artifacts from its existing test-web jobs;
+  # keep the old selected leg until that full-source union is compared against
+  # every existing threshold. Never register this in legs-only mode: that CI
+  # job receives its full-pool LCOV from test-web, not from cov-extras.
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then
+    register_leg web-vitest-full cov_vitest_full
+  fi
 
   # Leg file lists come from lib/test-file-sets.sh (sdk_leg_files & co) —
   # ONE definition shared with the orphan-drift meta-test, so a leg's set
@@ -934,12 +944,23 @@ run_legs() {
   echo "$?" > "$legs/vitest.code"
   ) &
 
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then
+    (
+      set +e
+      bash "$SCRIPT_DIR/web-vitest-coverage.sh" --output "${LEG_COV_DIR[web-vitest-full]}" \
+        > "$legs/vitest-full.out" 2>&1
+      echo "$?" > "$legs/vitest-full.code"
+    ) &
+  fi
+
   wait
 
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  for leg in sdk hc suggest aikit vitest; do
+  local printed_legs=(sdk hc suggest aikit vitest)
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
+  for leg in "${printed_legs[@]}"; do
     echo ""
     echo "── leg output: $leg ──"
     cat "$legs/$leg.out" 2>/dev/null || echo "(no output captured)"
@@ -982,6 +1003,13 @@ run_legs() {
   if [ "$VITEST_EXIT" != "0" ]; then
     FAILED_FILES+=("web vitest-coverage leg")
     echo "--- FAIL: web vitest-coverage leg (exit $VITEST_EXIT) ---"
+  fi
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then
+    FULL_VITEST_EXIT=$(cat "$legs/vitest-full.code" 2>/dev/null || echo 1)
+    if [ "$FULL_VITEST_EXIT" != "0" ]; then
+      FAILED_FILES+=("web full-vitest coverage leg")
+      echo "--- FAIL: web full-vitest coverage leg (exit $FULL_VITEST_EXIT) ---"
+    fi
   fi
 }
 
@@ -1293,6 +1321,12 @@ gate_host_failures
 # correctness: the same run now fails naming the leg that died.
 check_leg_lcov || exit 1
 
+# Full local coverage must fail before the aggregate gate when V8 omitted one
+# executable shared library source. CI runs this same guard after merging its
+# three existing Web tests shard artifacts; it is deliberately absent from
+# legs-only mode because cov-extras does not own that producer.
+bun scripts/check-web-vitest-coverage.ts "${LEG_COV_DIR[web-vitest-full]}/lcov.info" || WEB_VITEST_SOURCE_GUARD_EXIT=1
+
 # Per-file counterpart of the same guard: recover_missing_coverage (called
 # above, shared with shard mode) could not regenerate lcov for one or more
 # crashed host files after COVERAGE_RECOVERY_ATTEMPTS isolated, instrumented
@@ -1343,7 +1377,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # 1 means no existing consumer's meaning changes. Both verdicts are always
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
-if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
+if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
    [ "$AIKIT_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
@@ -1357,7 +1391,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi
