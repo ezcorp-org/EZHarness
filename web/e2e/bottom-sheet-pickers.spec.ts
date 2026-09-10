@@ -66,7 +66,7 @@ async function openPicker(page: Page, picker: Picker, first = false) {
 }
 
 for (const picker of pickers) {
-  test(`${picker.name}: mobile dialog supports Close, Escape, and backdrop dismissal`, async ({ page }, testInfo) => {
+  test(`${picker.name}: mobile dialog supports Close, Escape, and backdrop dismissal${picker.name === "extension-attach" ? " @evidence" : ""}`, async ({ page }, testInfo) => {
     await page.setViewportSize(mobile);
     for (const [index, dismiss] of ["close", "escape", "backdrop"].entries()) {
       await openPicker(page, picker, index === 0);
@@ -80,6 +80,8 @@ for (const picker of pickers) {
       expect(box!.x).toBeGreaterThanOrEqual(0);
       expect(box!.x + box!.width).toBeLessThanOrEqual(mobile.width);
       if (picker.name === "extension-attach") {
+        await expect(sheet).toHaveAttribute("aria-label", "Attach extensions");
+        await expect(sheet.getByRole("heading", { name: "Attach extensions", exact: true })).toHaveCount(0);
         await expect(sheet.getByRole("button", { name: "Close picker", exact: true })).toHaveCount(1);
         await expect(page.getByTestId("extension-attach-picker-card")).toContainText("1 tool");
         await expect(page.getByTestId("extension-attach-picker-card")).not.toContainText("1 tools");

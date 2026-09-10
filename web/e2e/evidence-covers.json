@@ -494,6 +494,10 @@
     "web/src/routes/(app)/agents/[name]/+page.svelte"
   ],
   "web/e2e/reliability.spec.ts": [
-    "web/src/lib/components/ChatThread.svelte"
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/ChatMessage.svelte"
+  ],
+  "web/e2e/bottom-sheet-pickers.spec.ts": [
+    "web/src/lib/components/ExtensionAttachPicker.svelte"
   ]
 }

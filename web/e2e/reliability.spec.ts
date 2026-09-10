@@ -226,6 +226,7 @@ for (const colorScheme of ["light", "dark"] as const) {
 		await startMemoryRun(page);
 		await emitSse({ type: "run:status", data: { runId: "run-stream", status: "memory_unavailable" } });
 		await expect(page.getByTestId("memory-unavailable-warning")).toContainText("Memory is currently unavailable");
+		await expect(page.getByText(/^Thinking\.\.\. \(\d+s\)$/)).toBeVisible();
 		await expect(page.getByText(/memory_unavailable/)).toHaveCount(0);
 		const accessibility = await new AxeBuilder({ page }).include('[data-testid="memory-unavailable-warning"]').analyze();
 		expect(accessibility.violations).toEqual([]);

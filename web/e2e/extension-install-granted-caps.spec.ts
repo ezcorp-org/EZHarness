@@ -68,6 +68,10 @@ async function installExtMock(page: Page) {
 		if (route.request().method() !== "GET") return route.fallback();
 		return route.fulfill({ status: 409, json: {} });
 	});
+	await page.route(`**/api/extensions/${EXT_ID}/expired-grants`, (route) => {
+		if (route.request().method() !== "GET") return route.fallback();
+		return route.fulfill({ json: { grants: [] } });
+	});
 }
 
 test.describe("Extension install-granted capabilities", () => {
@@ -91,6 +95,7 @@ test.describe("Extension install-granted capabilities", () => {
 		await expect(permissions).toContainText("review");
 		await expect(permissions).toContainText('"maxRunsPerHour": 12');
 		await expect(permissions).toContainText("Current grants");
+		await expect(page.getByTestId("expired-grants-banner")).toHaveCount(0);
 		// Release permissions are JSON evidence, not editable controls.
 		await expect(permissions.locator('input[type="checkbox"]')).toHaveCount(0);
 		await permissions.scrollIntoViewIfNeeded();
