@@ -31,6 +31,24 @@ bash scripts/browser-coverage-build.sh
 	exit 1
 }
 
+archive_playwright_artifacts() {
+	local lane_output=$1
+	local lane=$2
+	local artifact_dir="$lane_output/playwright-artifacts"
+
+	# Playwright reuses web/test-results on its next invocation. Copy the
+	# completed lane before that happens so a later lane cannot erase its
+	# failure PNG or trace. Blob output belongs only to the evidence lane.
+	if [ -d "$repo_root/web/test-results" ]; then
+		mkdir -p "$artifact_dir/test-results"
+		cp -a "$repo_root/web/test-results/." "$artifact_dir/test-results/"
+	fi
+	if [ "$lane" = evidence ] && [ -d "$repo_root/web/blob-report" ]; then
+		mkdir -p "$artifact_dir/blob-report"
+		cp -a "$repo_root/web/blob-report/." "$artifact_dir/blob-report/"
+	fi
+}
+
 lane_status=0
 for lane in mock-gate mock-full evidence fresh-setup real-auth; do
 	case "$lane" in
@@ -45,6 +63,7 @@ for lane in mock-gate mock-full evidence fresh-setup real-auth; do
 	elif ! EZCORP_BROWSER_COVERAGE_OUTPUT="$lane_output" bash scripts/collect-browser-route-coverage-lane.sh "$lane"; then
 		this_lane_status=1
 	fi
+	archive_playwright_artifacts "$lane_output" "$lane"
 	if [ "$this_lane_status" -ne 0 ]; then
 		echo "::error::browser coverage lane failed: $lane" >&2
 		lane_status=1

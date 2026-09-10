@@ -278,9 +278,9 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
-  # Evidence is behavior coverage, not a best-effort gallery. Every tagged
-  # spec runs automatically with its owned capture helper and blocks the E2E
-  # aggregate on its first failure.
+  # The dedicated evidence manifest is blocking behavior coverage, not a
+  # best-effort gallery. Its specs run with their owned capture helpers; other
+  # @evidence assertions remain in their manifest-owned mock lanes.
   e2e-evidence:
     name: E2E visual evidence
     runs-on: ubuntu-latest

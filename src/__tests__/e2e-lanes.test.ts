@@ -335,6 +335,9 @@ describe("e2e lane manifest", () => {
     expect(ci).toContain("collect-browser-route-coverage-lane.sh fresh-setup");
     expect(ci).toContain("collect-browser-route-coverage-lane.sh real-auth");
     expect(collector).toContain('bun scripts/run-real-e2e.ts "$lane"');
+    const evidenceCollector = collector.split("  evidence)")[1]?.split("    ;;")[0] ?? "";
+    expect(evidenceCollector).toContain('bun scripts/check-playwright-evidence-blob.ts "$repo_root/web/blob-report"');
+    expect(evidenceCollector).not.toContain("--reporter=list");
     expect(collector).toContain("EZCORP_BROWSER_COVERAGE_SOURCE_REVISION");
     expect(collector).toContain('git -C "$repo_root" rev-parse HEAD');
     // Local route coverage must exercise the same mandatory lane set and
@@ -344,6 +347,11 @@ describe("e2e lane manifest", () => {
     expect(localCoverage).toContain("for lane in mock-gate mock-full evidence fresh-setup real-auth; do");
     expect(localCoverage).toContain('collect-browser-route-coverage-lane.sh "$lane"');
     expect(localCoverage).toContain("EZCORP_E2E_EVIDENCE=1");
+    // Each lane must save its own failure diagnostics before the next
+    // Playwright invocation replaces web/test-results.
+    expect(localCoverage).toContain('archive_playwright_artifacts "$lane_output" "$lane"');
+    expect(localCoverage).toContain('cp -a "$repo_root/web/test-results/." "$artifact_dir/test-results/"');
+    expect(localCoverage).toContain('if [ "$lane" = evidence ] && [ -d "$repo_root/web/blob-report" ]; then');
     expect(localCoverage).toContain('merge-browser-route-coverage.sh "$output_dir" "$output_dir/merged"');
     expect(ci).toContain("merge-browser-route-coverage.sh");
     expect(merger).toContain("required_lanes=(mock-gate mock-full evidence real-auth/fresh-setup real-auth/real-auth)");

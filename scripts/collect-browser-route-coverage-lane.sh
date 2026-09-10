@@ -22,10 +22,19 @@ export EZCORP_BROWSER_COVERAGE EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST EZCORP_
 mkdir -p "$output_dir"
 cd "$repo_root"
 case "$lane" in
-  mock-gate|mock-full|evidence)
+  mock-gate|mock-full)
     mapfile -t args < <(bun scripts/e2e-lane-args.ts "$lane")
     [ "${#args[@]}" -gt 0 ] || { echo "empty browser coverage lane: $lane" >&2; exit 1; }
     (cd web && bunx playwright test --project=chromium --workers=2 --reporter=list "${args[@]}")
+    ;;
+  evidence)
+    mapfile -t args < <(bun scripts/e2e-lane-args.ts "$lane")
+    [ "${#args[@]}" -gt 0 ] || { echo "empty browser coverage lane: $lane" >&2; exit 1; }
+    # Do not override playwright.config.ts here. In evidence mode it selects
+    # both blob and list reporters; captureEvidence's PNG attachments must be
+    # retained in web/blob-report for the CI artifact and visual gate.
+    (cd web && bunx playwright test --project=chromium --workers=2 "${args[@]}")
+    bun scripts/check-playwright-evidence-blob.ts "$repo_root/web/blob-report"
     ;;
   fresh-setup|real-auth) bun scripts/run-real-e2e.ts "$lane" ;;
 esac
