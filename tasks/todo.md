@@ -519,6 +519,15 @@ Coverage repair review: added one regression to the existing Bun installer/autho
 
 ## Test infrastructure review — 2026-09-09
 
+## Expanded mock browser repairs — 2026-09-09
+
+- [ ] Reproduce and repair the inline tool, custom-card, and file-mention browser specs on a fresh mock app.
+- [ ] Reproduce and repair streaming toolbar and team orchestration browser specs without weakening their UI or transport assertions.
+- [ ] Verify actual mocked HTTP/SSE request contracts and meaningful completed UI state for every repaired flow.
+- [ ] Run the five owned specs with one worker on private port 4291; commit each independent green repair chunk.
+
+Plan review: preserve the existing mock transport fixtures and only change application behavior when the current contract proves a defect. Use the focused browser lock and a fresh build; do not force clicks, skip cases, relax timeouts, or add conditional success assertions.
+
 ## Provider-error composer recovery and context compaction — 2026-09-09
 
 - [x] Reproduce the isolated real-auth mock-provider overflow in a browser and retain the captured provider request.
@@ -526,6 +535,7 @@ Coverage repair review: added one regression to the existing Bun installer/autho
 - [x] Add a regression that proves the original provider error remains visible, the composer recovers, and a second mock turn succeeds with no external transport.
 - [x] Verify the production isolation flag remains opt-in and normal provider routing is unchanged when it is off.
 - [x] Run the focused backend, web, and real-auth browser checks; record exact results below.
+- [ ] Add direct bridge coverage for the terminal provider-error event; keep the isolation transport probe fail-closed.
 
 Plan review: use the existing real-auth browser and in-process mock HTTP endpoint. Do not add browser route stubs, force clicks, or synthetic event streams. Keep `PI_E2E_ISOLATE_PROVIDERS=1` as a test-only outbound boundary.
 

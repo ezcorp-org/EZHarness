@@ -156,3 +156,8 @@
 
 - When editing from a shell call, set its working directory to the repository root. Use a separate call for web commands; do not mix root-relative edit paths with a web working directory.
 - Keep a required E2E spec at its manifest path when replacing a skipped body. The lane manifest is a tested contract; move the real body into the existing file instead of creating a second path.
+
+## 2026-09-09 — Provider-error coverage
+
+- A failover test that writes context state directly does not cover the event bridge that supplies it. For each newly persisted bridge field, emit the real terminal event in a direct bridge test and assert the field before relying on end-to-end coverage.
+- A transport isolation probe must fail closed. Its spy may count an unexpected call, but must never forward it to the original transport.
