@@ -6,7 +6,7 @@
  * covered. A wider full producer may add lines or hits, never erase evidence.
  */
 import { relative, resolve } from "node:path";
-import { BROWSER_CANONICAL_SOURCES, isDeclarationOnlyTypeScript, isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
+import { BROWSER_CANONICAL_SOURCES, BUN_CANONICAL_SOURCES, isDeclarationOnlyTypeScript, isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
 
 type LineHits = Map<number, number>;
 export type LcovLines = Map<string, LineHits>;
@@ -72,7 +72,11 @@ export async function receiptProblems(lcov: string, name: string): Promise<strin
   if (audit.validDaRecords === 0) problems.push(`${name}: no valid DA records`);
   for (const malformed of audit.malformedDaRecords) problems.push(`${name}: malformed DA record ${malformed}`);
   for (const source of audit.zeroDaSources) {
-    if (BROWSER_CANONICAL_SOURCES.includes(source)) continue;
+    // The full Node/V8 receipt deliberately omits sources that another tagged
+    // producer owns. Their canonical receipts are checked independently by
+    // the merge gate; treating their incidental zero V8 blocks as failures
+    // would make this replacement proof reject its intended producer split.
+    if (BROWSER_CANONICAL_SOURCES.includes(source) || BUN_CANONICAL_SOURCES.includes(source)) continue;
     const file = Bun.file(resolve(REPO_ROOT, source));
     if (await file.exists() && source.endsWith(".ts") && isDeclarationOnlyTypeScript(await file.text())) continue;
     problems.push(`${name}: executable source has no DA record: ${source}`);

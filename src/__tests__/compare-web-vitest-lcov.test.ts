@@ -46,3 +46,11 @@ test("rejects empty, malformed, and executable zero-DA receipts", async () => {
     "selected receipt: executable source has no DA record: web/src/lib/mention-logic.ts",
   ]);
 });
+
+test("permits an uninstrumented V8 block only for a separately tagged Bun producer", async () => {
+	const measured = "SF:web/src/lib/mention-logic.ts\nDA:1,1\nend_of_record\n";
+	expect(await receiptProblems(`${measured}SF:web/src/lib/empty-node-shim.ts\nend_of_record\n`, "full-pool receipt")).toEqual([]);
+	expect(await receiptProblems(`${measured}SF:web/src/lib/markdown.ts\nend_of_record\n`, "full-pool receipt")).toEqual([
+		"full-pool receipt: executable source has no DA record: web/src/lib/markdown.ts",
+	]);
+});
