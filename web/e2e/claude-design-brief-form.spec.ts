@@ -1,23 +1,4 @@
-/**
- * claude-design e2e — clarify-brief form-card flow.
- *
- * Mocks a `claude-design__clarify-brief` tool start that carries a
- * fields descriptor array. Asserts the DesignBriefCard renders the
- * select + textarea inputs, refuses to submit while a required field
- * is empty, and on submit POSTs the structured `{toolCallId,
- * conversationId, answer}` body to the generic events route.
- *
- * Mirrors the canvas-dock-knob-change.spec.ts intercept pattern: the
- * route handler is registered BEFORE the catch-all api mock so it
- * wins by Playwright's registration-order rule.
- *
- * NOTE (2026-04 / textarea-locator regression): the chat-composer
- * textarea selector currently breaks several specs across this branch
- * (this one included). The fix is suite-wide and tracked
- * separately. Tests here are structured to pass once the composer
- * locator is restored — do NOT add `test.skip` here; the spec's
- * structure is the contract. Filed scope: composer textarea-locator.
- */
+/** Browser contract for brief validation, answer submission, and streamed follow-up cards. */
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
@@ -45,10 +26,15 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 	test("renders form, blocks submit when required missing, POSTs answer body", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
-		// Intercept BEFORE mockApi registers `**/api/**` catch-all.
+		// Register this specific handler after the shared API mock.
 		const captured: Array<{ url: string; body: unknown }> = [];
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg, assistantMsg],
+		});
 		await page.route(
 			"**/api/extensions/claude-design/events/brief-answer",
 			async (route) => {
@@ -62,11 +48,7 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 			},
 		);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
+
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
@@ -80,7 +62,7 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 		// renderer reads `toolCall.input.fields` directly. Unlike dock
 		// cards we do NOT need to wait for `tool:complete`; the form
 		// renders immediately on start.
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -125,7 +107,11 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 		await expect(page.getByTestId("design-brief-error")).toBeVisible();
 		expect(captured.length).toBe(0);
 
-		// Now fill in the required select + the optional text and submit.
+		// Retry restores the editable form after its validation error.
+		await page.getByTestId("design-brief-retry").click();
+		await expect(page.getByTestId("design-brief-error")).toBeHidden();
+
+		// Fill the required select and optional text, then submit.
 		await toneSelect.selectOption("modern");
 		await audienceText.fill("developers");
 		await page.getByTestId("design-brief-submit").click();
@@ -149,14 +135,15 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 	test("after answer submit, a follow-on generate-design tool-call card renders", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
-		// End-to-end gate-flow scenario: the form posts an answer, the
-		// agent (mocked here as a follow-up tool:start emission) then
-		// calls generate-design. We pin that the generate-design
-		// tool-card surface appears in the chat — this is the ONLY
-		// surface that proves "the brief gate actually unblocked the
-		// next tool".
+		// The mock models the streamed follow-up after the answer POST.
+		// This checks browser state; real gate execution is a runtime test.
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg, assistantMsg],
+		});
 		await page.route(
 			"**/api/extensions/claude-design/events/brief-answer",
 			async (route) => {
@@ -167,11 +154,7 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 				});
 			},
 		);
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
+
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Send a vague prompt to nudge the agent into clarify-brief
@@ -184,7 +167,7 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 		]);
 
 		// Stream clarify-brief tool start.
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -205,12 +188,15 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 		await page
 			.getByTestId("design-brief-text-tone")
 			.fill("modern, refined-minimal");
-		await page.getByTestId("design-brief-submit").click();
+		await Promise.all([
+			page.waitForResponse(response => response.url().endsWith("/api/extensions/claude-design/events/brief-answer") && response.request().method() === "POST"),
+			page.getByTestId("design-brief-submit").click(),
+		]);
 
 		// Simulate the runtime path: brief-answer resolves the gate, the
 		// extension's clarify-brief tool returns, then the agent calls
 		// generate-design.
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -224,7 +210,7 @@ test.describe("claude-design — clarify-brief form-card flow", () => {
 				timestamp: Date.now(),
 			},
 		});
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",

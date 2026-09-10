@@ -8,9 +8,9 @@
  * POST whose body's `knobs` carries the adjusted values with units
  * appended on the range descriptor.
  *
- * Pattern mirrors canvas-dock-knob-change.spec.ts. The intercept is
- * registered BEFORE mockApi so the more-specific handler wins.
+ * The API boundary is mocked; assertions cover the user request payload.
  */
+import { mockCanvasPreview } from "./fixtures/canvas-preview.js";
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
@@ -38,27 +38,15 @@ test.describe("claude-design — adaptive knob sidebar", () => {
 	test("descriptor-driven sidebar renders three knobs and Apply POSTs adjusted values with units", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
-		const captured: Array<{ url: string; body: unknown }> = [];
-		await page.route(
-			"**/api/extensions/claude-design/events/knob-change",
-			async (route) => {
-				const reqBody = route.request().postDataJSON();
-				captured.push({ url: route.request().url(), body: reqBody });
-				await route.fulfill({
-					status: 200,
-					contentType: "application/json",
-					body: JSON.stringify({ ok: true }),
-				});
-			},
-		);
 
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg, assistantMsg],
 		});
+		await mockCanvasPreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
@@ -70,7 +58,7 @@ test.describe("claude-design — adaptive knob sidebar", () => {
 
 		// Tool result carries a 3-knob descriptor array — primary color,
 		// accent color, heading-size range with px unit.
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -153,24 +141,23 @@ test.describe("claude-design — adaptive knob sidebar", () => {
 		await range.fill("32");
 		await range.dispatchEvent("change");
 
+		const applied = page.waitForRequest(request => request.url().endsWith("/api/tool-invoke") && request.method() === "POST");
 		await page.getByTestId("design-canvas-apply").click();
 
-		await expect.poll(() => captured.length, { timeout: 3000 }).toBeGreaterThan(0);
-		const sent = captured[0]!;
-		expect(sent.url).toContain("/api/extensions/claude-design/events/knob-change");
-		const body = sent.body as {
-			toolCallId: string;
-			conversationId: string;
-			draftId: string;
-			knobs: Record<string, string>;
+		const body = (await applied).postDataJSON() as {
+			extensionName: string; toolName: string; invocationId: string;
+			conversationId: string; input: { draftId: string; knobs: Record<string, string> };
 		};
-		expect(body.toolCallId).toBe(TOOL_CALL_ID);
+		expect(body.extensionName).toBe("claude-design");
+		expect(body.toolName).toBe("tweak-design");
+		expect(body.invocationId).toMatch(/^[0-9a-f-]{36}$/);
+		expect(body.invocationId).not.toBe(TOOL_CALL_ID);
 		expect(body.conversationId).toBe("conv-1");
-		expect(body.draftId).toBe("draft-adaptive-1");
+		expect(body.input.draftId).toBe("draft-adaptive-1");
 		// Range knob's value carries its declared `px` unit.
-		expect(body.knobs.headingSize).toBe("32px");
+		expect(body.input.knobs.headingSize).toBe("32px");
 		// Color knobs flow through unmodified.
-		expect(body.knobs.primaryColor).toBe("#ff0066");
-		expect(body.knobs.accentColor).toBe("#0044cc");
+		expect(body.input.knobs.primaryColor).toBe("#ff0066");
+		expect(body.input.knobs.accentColor).toBe("#0044cc");
 	});
 });
