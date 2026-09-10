@@ -61,8 +61,8 @@ test.each([
     return { ...result, manifest, evidence: { ...result.evidence, discoveryDigest: digestObject(manifest) } };
   };
   const setup = await releaseFixture(fixture);
-  const requested = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants, expectedActiveReleaseId: null });
-  expect(requested.grants).toEqual(expected);
+  const requested = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: [...grants], expectedActiveReleaseId: null });
+  expect(requested.grants).toEqual([...expected]);
   expect(requested.status).toBe("pending");
   expect(requested.releaseId).toBe(setup.releaseId);
   expect((await setup.lifecycle.inspect(actor, setup.installation.id)).installation.grants).toEqual([]);
