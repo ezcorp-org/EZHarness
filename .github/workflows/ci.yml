@@ -578,19 +578,24 @@ jobs:
   # pass/fail-set test failure OR an infrastructure failure (runner couldn't
   # execute) — both must block. Aggregated so the pinned required-check name
   # keeps reporting.
+  external-postgres:
+    uses: ./.github/workflows/db-postgres.yml
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [cov-shard, residual-tests]
+    needs: [cov-shard, residual-tests, external-postgres]
     if: always()
     steps:
       - name: Aggregate shard results
         run: |
           echo "cov-shard:       ${{ needs.cov-shard.result }}"
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
+          echo "external-postgres: ${{ needs.external-postgres.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
-             [ "${{ needs.residual-tests.result }}" != "success" ]; then
+             [ "${{ needs.residual-tests.result }}" != "success" ] || \
+             [ "${{ needs.external-postgres.result }}" != "success" ]; then
             echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
             exit 1
           fi
