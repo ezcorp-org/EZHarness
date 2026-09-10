@@ -334,3 +334,5 @@
 - Assert related asynchronous layout values in the same wait. Control deferred preferences so both the initial and updated menu layouts are proved.
 - Read operation state and ID from the operation heading. Diagnostic content can use the same inline elements.
 - Before a Nix WebKit run, check whether its launcher replaces LD_LIBRARY_PATH. Use a task-owned launcher copy for local compatibility; do not alter the shared browser cache. Keep Chromium-only coverage disabled for other engines and assign an unused task port.
+
+- Run gate integrity before every commit that changes tests, even after a passing suite. Its AST check does not follow local assertion helpers; keep a meaningful visible-result assertion in the test body.

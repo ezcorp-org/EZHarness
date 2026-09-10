@@ -827,3 +827,12 @@ Final local fifth-repair diagnostic: remove every shifted source map before comb
 - [ ] Require all checks and coverage gates to pass on the submitted head, then merge after the required non-author approval.
 
 Review: fifth hosted run `34510858830` passed all 12 backend shards on the first attempt (25,000 tests, no retry/crash markers), real-auth, Firefox and visual evidence. It exposed two test defects: a component assertion read an intermediate render, and a lifecycle locator also matched a runner-busy diagnostic. No product behavior, timeout, retry count or coverage threshold changes in this repair. Local WebKit setup first failed because the Nix browser wrapper replaced the library path, then because Chromium-only coverage was enabled. A task-owned browser copy and the actual WebKit CI configuration resolved those invocation errors; they are not product failures.
+
+## PR256 direct assertion check
+
+- [x] Preserve the sixth hosted integrity rejection: the new local assertion helper was not followed by the AST check.
+- [x] Assert the loaded saved-search button is visible in the test body, while retaining both layout checks and the shared helper.
+- [x] Focused component suite passes 5/5 in 1.14s; gate integrity passes.
+- [ ] Push through normal hooks and require a complete green hosted run.
+
+Review: this adds a meaningful visibility assertion; it does not alter the integrity parser or use an override label.

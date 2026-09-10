@@ -76,7 +76,7 @@ describe("AgentSearchPicker desktop placement", () => {
 		// Preference arrival remeasures the open menu. Both layout values must
 		// settle together after the saved-search controls appear.
 		resolvePrefs(Response.json({ savedSearches: [{ query: "Agent", createdAt: 1 }], pinned: [] }));
-		await screen.findByText("Agent", { selector: "button", exact: true });
+		expect(await screen.findByText("Agent", { selector: "button", exact: true })).toBeVisible();
 		await expectCappedAbove();
 	});
 
