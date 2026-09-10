@@ -99,13 +99,13 @@ export default {
 
     // GET /api/runs
     if (pathname === "/api/runs" && request.method === "GET") {
-      return json(executor.listRuns());
+      return json(await executor.listRuns());
     }
 
     // GET /api/runs/:id
     const runMatch = pathname.match(/^\/api\/runs\/([^/]+)$/);
     if (runMatch && request.method === "GET") {
-      const run = executor.getRun(runMatch[1]!);
+      const run = await executor.getRun(runMatch[1]!);
       return run ? json(run) : json({ error: "Not found" }, 404);
     }
 
