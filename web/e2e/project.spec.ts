@@ -42,12 +42,33 @@ test.describe("Projects", () => {
 			name: "Settings Project",
 			icon: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
 		});
-		await mockApi({
-			projects: [proj],
-			settings: {
-				"global:systemPrompt": "Existing global instruction",
-				[`project:${proj.id}:systemPrompt`]: "Existing project instruction",
-			},
+		const settings: Record<string, string> = {
+			"global:systemPrompt": "Existing global instruction",
+			[`project:${proj.id}:systemPrompt`]: "Existing project instruction",
+		};
+		let releaseProjectSave!: () => void;
+		const projectSaveHeld = new Promise<void>((resolve) => { releaseProjectSave = resolve; });
+		let releaseGlobalSave!: () => void;
+		const globalSaveHeld = new Promise<void>((resolve) => { releaseGlobalSave = resolve; });
+		let releaseUpdate!: () => void;
+		const updateHeld = new Promise<void>((resolve) => { releaseUpdate = resolve; });
+		await mockApi({ projects: [proj], settings });
+		await page.route("**/api/settings", (route) => route.fulfill({ json: settings }));
+		await page.route(`**/api/settings/project:${proj.id}:systemPrompt`, async (route) => {
+			await projectSaveHeld;
+			settings[`project:${proj.id}:systemPrompt`] = (route.request().postDataJSON() as { value: string }).value;
+			await route.fulfill({ json: { ok: true } });
+		});
+		await page.route("**/api/settings/global:systemPrompt", async (route) => {
+			await globalSaveHeld;
+			settings["global:systemPrompt"] = (route.request().postDataJSON() as { value: string }).value;
+			await route.fulfill({ json: { ok: true } });
+		});
+		await page.route(`**/api/projects/${proj.id}`, async (route) => {
+			if (route.request().method() !== "PUT") return route.fallback();
+			await updateHeld;
+			Object.assign(proj, route.request().postDataJSON());
+			await route.fulfill({ json: proj });
 		});
 		await page.route("**/api/integrations/github-projects/link**", (route) =>
 			route.fulfill({ status: 404, json: { error: "No connected board" } }),
@@ -58,38 +79,47 @@ test.describe("Projects", () => {
 		await expect(page.getByTestId("project-settings-gh-status")).toHaveText("Not connected");
 
 		const projectInstructions = page.getByPlaceholder("e.g. You are a coding assistant for this project...");
+		const projectSaveButton = projectInstructions.locator("xpath=following-sibling::button");
 		await projectInstructions.fill("Project instructions updated by the user");
-		const [projectSave] = await Promise.all([
-			page.waitForResponse((response) =>
-				new URL(response.url()).pathname === `/api/settings/project:${proj.id}:systemPrompt`
-				&& response.request().method() === "PUT",
-			),
-			page.getByRole("button", { name: "Save Project Instructions" }).click(),
-		]);
+		const projectSaveResponse = page.waitForResponse((response) =>
+			new URL(response.url()).pathname === `/api/settings/project:${proj.id}:systemPrompt`
+			&& response.request().method() === "PUT",
+		);
+		await projectSaveButton.click();
+		await expect(projectSaveButton).toBeDisabled();
+		await expect(projectSaveButton).toHaveText("Saving...");
+		releaseProjectSave();
+		const projectSave = await projectSaveResponse;
 		expect(projectSave.status()).toBe(200);
 		expect(projectSave.request().postDataJSON()).toEqual({ value: "Project instructions updated by the user" });
-		await expect(page.getByRole("button", { name: "Save Project Instructions" })).toBeEnabled();
+		await expect(projectSaveButton).toBeEnabled();
 
 		const globalInstructions = page.getByPlaceholder("e.g. You are a helpful AI assistant...");
+		const globalSaveButton = globalInstructions.locator("xpath=following-sibling::button");
 		await globalInstructions.fill("Global instructions updated by the user");
-		const [globalSave] = await Promise.all([
-			page.waitForResponse((response) =>
-				new URL(response.url()).pathname === "/api/settings/global:systemPrompt"
-				&& response.request().method() === "PUT",
-			),
-			page.getByRole("button", { name: "Save Global Instructions" }).click(),
-		]);
+		const globalSaveResponse = page.waitForResponse((response) =>
+			new URL(response.url()).pathname === "/api/settings/global:systemPrompt"
+			&& response.request().method() === "PUT",
+		);
+		await globalSaveButton.click();
+		await expect(globalSaveButton).toBeDisabled();
+		await expect(globalSaveButton).toHaveText("Saving...");
+		releaseGlobalSave();
+		const globalSave = await globalSaveResponse;
 		expect(globalSave.status()).toBe(200);
 		expect(globalSave.request().postDataJSON()).toEqual({ value: "Global instructions updated by the user" });
-		await expect(page.getByRole("button", { name: "Save Global Instructions" })).toBeEnabled();
+		await expect(globalSaveButton).toBeEnabled();
 
+		const updateButton = page.locator("form button[type=submit]");
 		await page.getByRole("textbox", { name: "Name", exact: true }).fill("Renamed Settings Project");
-		const [update] = await Promise.all([
-			page.waitForResponse((response) =>
-				new URL(response.url()).pathname === `/api/projects/${proj.id}` && response.request().method() === "PUT",
-			),
-			page.getByRole("button", { name: "Update", exact: true }).click(),
-		]);
+		const updateResponse = page.waitForResponse((response) =>
+			new URL(response.url()).pathname === `/api/projects/${proj.id}` && response.request().method() === "PUT",
+		);
+		await updateButton.click();
+		await expect(updateButton).toBeDisabled();
+		await expect(updateButton).toHaveText("Saving...");
+		releaseUpdate();
+		const update = await updateResponse;
 		expect(update.status()).toBe(200);
 		expect(update.request().postDataJSON()).toMatchObject({ name: "Renamed Settings Project", path: proj.path });
 		await page.reload();
