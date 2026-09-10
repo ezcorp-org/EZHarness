@@ -1,219 +1,110 @@
-/**
- * Phase 57 — UX-01 Wave 0 RED scaffold (Playwright e2e).
- *
- * Pins the must_haves contract from PLAN frontmatter:
- *   "On a viewport <lg (<=1024px), opening any of the 9 picker components
- *    renders the picker body inside a BottomSheet.svelte with a visible
- *    close button, Escape-to-dismiss, and env(safe-area-inset-bottom)
- *    honored on iOS — WCAG 2.5.1 single-pointer equivalent satisfied."
- *
- * Sampling matrix (RESEARCH §Validation Architecture):
- *   9 pickers × 2 viewports × 3 dismiss paths + 1 iOS safe-area test
- *   + 1 axe-core scan.
- *
- * Every assertion that depends on impl that hasn't shipped uses
- * `test.fixme(true, '<wave name>')` — mirroring the L797 fixme pattern
- * in v1.3-permission-backbone.spec.ts. `test.skip` is reserved for env
- * reasons (per auto-memory `feedback_agent_briefs_no_git_stash` and the
- * CONVENTIONS.md skip-vs-fixme split).
- *
- * Run from web/:  `cd web && bunx playwright test e2e/bottom-sheet-pickers.spec.ts`
- *
- * NEVER `--watch` (auto-memory rule).
- */
-
-import { test, expect } from "./fixtures/hydration.js";
+import type { Locator, Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { makeAgent, makeAgentConfig, makeConversation, makeExtension, makeMode, makeProject } from "./fixtures/data.js";
+import { seedTaskSnapshot } from "./fixtures/task-seed.js";
 
-interface PickerSpec {
-	name: string;
-	url: string;
-	triggerTestId: string;
-}
+// Each real picker entry point is opened once per viewport. Mobile cases
+// cover all three native dismissal paths in the same page to avoid 27 extra
+// application startups. Every reopen must render its body before dismissal.
+const mobile = { width: 375, height: 812 };
+const desktop = { width: 1280, height: 800 };
+const project = makeProject({ id: "picker-project", name: "Picker project" });
+const conversation = makeConversation({ id: "picker-conversation", projectId: project.id });
+const agent = makeAgentConfig({ id: "picker-agent", name: "Picker agent" });
+const team = makeAgentConfig({ id: "picker-team", name: "Picker team", category: "team", references: { agents: [agent.id], extensions: [], members: [{ agentConfigId: agent.id }] } });
+const extension = makeExtension({ id: "picker-extension", name: "Picker extension" });
 
-// 9 picker entry points. Trigger URLs/selectors verified against
-// CONTEXT.md UX-01 picker enumeration + RESEARCH §Architecture
-// Patterns. `assignment` is the W1 smoke target (Plan 57-02 Task 3);
-// the other 8 land in W2 Track A (Plan 57-03). Picker entry-point
-// URLs marked TBD have a comment — Track A's task tightens them.
-const PICKERS: PickerSpec[] = [
-	// TBD: confirm during Wave 2 Track A — placeholder selectors will
-	// be tightened in Plan 57-03 Task 1 once each picker mount point
-	// is wired with a deterministic data-testid.
-	{
-		name: "assignment",
-		url: "/teams/builder",
-		triggerTestId: "open-assignment-picker",
-	},
-	{
-		name: "agent-search",
-		url: "/agents",
-		triggerTestId: "open-agent-picker",
-	},
-	{
-		name: "extension-attach",
-		url: "/agents/new",
-		triggerTestId: "open-extension-attach-picker",
-	},
-	{
-		name: "extension-search",
-		url: "/agents/new",
-		triggerTestId: "open-extension-search-picker",
-	},
-	{
-		name: "file",
-		url: "/projects",
-		triggerTestId: "open-file-picker",
-	},
-	{
-		name: "model-search",
-		url: "/agents/new",
-		triggerTestId: "open-model-search-picker",
-	},
-	{
-		name: "mode-search",
-		url: "/agents/new",
-		triggerTestId: "open-mode-search-picker",
-	},
-	{
-		name: "project",
-		url: "/",
-		triggerTestId: "open-project-picker",
-	},
-	{
-		name: "tool-search",
-		url: "/agents/new",
-		triggerTestId: "open-tool-search-picker",
-	},
+type Picker = {
+  name: string;
+  path: string;
+  trigger: string;
+  prepare?: (page: Page) => Promise<void>;
+  content: (page: Page) => Locator;
+};
+const configure = async (page: Page) => { await page.getByRole("button", { name: "Configure", exact: true }).click(); };
+const pickers: Picker[] = [
+  { name: "assignment", path: `/project/${project.id}/chat/${conversation.id}`, trigger: "open-assignment-picker", prepare: async page => {
+    await seedTaskSnapshot(page, { conversationId: conversation.id, tasks: [{ id: "picker-task", title: "Assign this task", description: "", status: "pending", priority: 0, subtasks: [], createdAt: "2026-01-01T00:00:00Z" }] });
+    await page.getByText("Assign this task", { exact: true }).hover();
+  }, content: page => page.getByPlaceholder("Search agents...", { exact: true }) },
+  { name: "agent-search", path: "/agents/new?type=team", trigger: "open-agent-picker", content: page => page.getByRole("listbox", { name: "Available agents", exact: true }) },
+  { name: "extension-attach", path: "/agents/new", trigger: "open-extension-attach-picker", prepare: configure, content: page => page.getByTestId("extension-attach-picker-card") },
+  { name: "extension-search", path: "/agents/new", trigger: "open-extension-search-picker", prepare: configure, content: page => page.getByRole("listbox", { name: "Available extensions", exact: true }) },
+  { name: "file", path: "/new-project", trigger: "open-file-picker", content: page => page.getByPlaceholder("/app/web/.ezcorp/projects/my-project", { exact: true }) },
+  { name: "model-search", path: "/agents/new", trigger: "open-model-search-picker", prepare: configure, content: page => page.getByRole("listbox", { name: "Available models", exact: true }) },
+  { name: "mode-search", path: `/agents/${encodeURIComponent(team.name)}`, trigger: "open-mode-search-picker", prepare: async page => { await page.getByText(agent.name, { exact: true }).click(); }, content: page => page.getByRole("listbox", { name: "Available modes", exact: true }) },
+  { name: "project", path: "/memories", trigger: "open-project-picker", prepare: async page => { await page.getByTestId("add-memory-toggle").click(); }, content: page => page.getByTestId(`project-picker-item-${project.id}`) },
+  { name: "tool-search", path: "/agents/new?type=team", trigger: "open-tool-search-picker", content: page => page.getByRole("listbox", { name: "Available tools", exact: true }) },
 ];
 
-const MOBILE_VIEWPORT = { width: 375, height: 812 };
-const DESKTOP_VIEWPORT = { width: 1280, height: 800 };
-
-test.describe.parallel("BottomSheet picker wrapping (UX-01)", () => {
-	for (const picker of PICKERS) {
-		// Component-level wrap landed across Plans 57-02 (assignment) +
-		// 57-03 (8 remaining pickers). All 9 pickers now `import BottomSheet`
-		// and use `useBreakpoint('lg').below` to wrap their body in
-		// BottomSheet on <lg viewports. Each picker exposes a deterministic
-		// `data-testid="open-<picker-name>"` on its trigger element.
-		//
-		// E2e cases REMAIN fixme because:
-		// - `/teams/builder` (assignment) doesn't exist as a route.
-		// - `/agents`, `/agents/new`, `/projects` live in the `(app)` protected
-		//   route group requiring an authenticated session + project fixture;
-		//   the non-Docker Playwright config has no auth setup.
-		// - Un-fixme'ing would convert the cases into RED failures on every CI
-		//   run, masking real wrap regressions.
-		//
-		// The wrap correctness is verified at the component layer:
-		//   - `BottomSheet.component.test.ts` 8/8 GREEN (W1)
-		//   - Source-grep: every picker has `import BottomSheet` + the
-		//     `bp.below`/`{#if open && bp.below}` conditional snippet wrap.
-		//
-		// Wave 2 Track A Phase 59 (TEST-03) or an opportunistic 57-04+ pass
-		// owns wiring real route fixtures + Docker auth harness so these e2e
-		// cases can flip GREEN. The deterministic `open-*-picker` testids
-		// landed in 57-03 mean the selectors are already correct — only the
-		// URL + auth scaffolding is missing.
-		const waveTag =
-			picker.name === "assignment"
-				? "Plan 57-02 wrap landed; route fixture + auth harness deferred to v1.5 (no /teams/builder route)"
-				: "Plan 57-03 wrap landed; route fixture + auth harness deferred to v1.5 ((app) protected routes need auth)";
-
-		test(`${picker.name}: <lg renders inside bottom-sheet`, async ({ page }) => {
-			test.fixme(true, `${waveTag} provides impl`);
-			await page.setViewportSize(MOBILE_VIEWPORT);
-			await page.goto(picker.url);
-			await page.getByTestId(picker.triggerTestId).click();
-			const sheet = page.getByTestId("bottom-sheet");
-			await expect(sheet).toBeVisible();
-			await expect(sheet).toHaveAttribute("aria-modal", "true");
-			await expect(sheet).toHaveAttribute("role", "dialog");
-		});
-
-		test(`${picker.name}: >=lg does NOT render bottom-sheet`, async ({ page }) => {
-			test.fixme(true, `${waveTag} provides impl`);
-			await page.setViewportSize(DESKTOP_VIEWPORT);
-			await page.goto(picker.url);
-			await page.getByTestId(picker.triggerTestId).click();
-			await expect(page.getByTestId("bottom-sheet")).toHaveCount(0);
-		});
-
-		test(`${picker.name}: x button closes`, async ({ page }) => {
-			test.fixme(true, `${waveTag} provides impl`);
-			await page.setViewportSize(MOBILE_VIEWPORT);
-			await page.goto(picker.url);
-			await page.getByTestId(picker.triggerTestId).click();
-			const sheet = page.getByTestId("bottom-sheet");
-			await expect(sheet).toBeVisible();
-			await page.getByLabel("Close").click();
-			await expect(sheet).toHaveCount(0);
-		});
-
-		test(`${picker.name}: Escape closes`, async ({ page }) => {
-			test.fixme(true, `${waveTag} provides impl`);
-			await page.setViewportSize(MOBILE_VIEWPORT);
-			await page.goto(picker.url);
-			await page.getByTestId(picker.triggerTestId).click();
-			const sheet = page.getByTestId("bottom-sheet");
-			await expect(sheet).toBeVisible();
-			await page.keyboard.press("Escape");
-			await expect(sheet).toHaveCount(0);
-		});
-
-		test(`${picker.name}: backdrop click closes`, async ({ page }) => {
-			test.fixme(true, `${waveTag} provides impl`);
-			await page.setViewportSize(MOBILE_VIEWPORT);
-			await page.goto(picker.url);
-			await page.getByTestId(picker.triggerTestId).click();
-			const sheet = page.getByTestId("bottom-sheet");
-			await expect(sheet).toBeVisible();
-			// Click the backdrop (positioned outside the panel body).
-			// Click at top-left where the backdrop overlays.
-			await page.mouse.click(10, 10);
-			await expect(sheet).toHaveCount(0);
-		});
-	}
+test.beforeEach(async ({ mockApi }) => {
+  await mockApi({ projects: [project], conversations: [conversation], agentConfigs: [agent, team],
+    agents: [agent, team].map(config => makeAgent({ id: config.id, name: config.name, prompt: config.prompt, category: config.category ?? undefined, source: "config" })),
+    extensions: [extension], modes: [makeMode({ id: "picker-mode", name: "Review", slug: "review" })],
+  });
 });
 
-// WebKit-only safe-area test — Playwright webkit project approximates
-// iOS Safari's `env(safe-area-inset-bottom)` computed style behavior.
-// CONTEXT.md UX-01 + VALIDATION.md Manual-Only confirm real-device
-// visual verification is human-only; this test catches the CSS
-// regression case where the env() call is missing entirely.
-test("iOS safe-area: bottom-sheet honors env(safe-area-inset-bottom)", async ({
-	page,
-	browserName,
-}) => {
-	test.skip(browserName !== "webkit", "webkit-only — iOS safe-area proxy");
-	test.fixme(true, "Wave 1 (Plan 57-02 Task 2) BottomSheet ships safe-area padding");
-	await page.setViewportSize(MOBILE_VIEWPORT);
-	await page.goto("/teams/builder");
-	await page.getByTestId("open-assignment-picker").click();
-	const panel = page.getByTestId("bottom-sheet-panel");
-	const paddingBottom = await panel.evaluate(
-		(el) => getComputedStyle(el).paddingBottom,
-	);
-	// The computed style will resolve env(safe-area-inset-bottom) to
-	// 0px in non-iOS browsers; the regression we guard against is the
-	// inline-style env() call being absent entirely.
-	const inlineStyle = await panel.getAttribute("style");
-	expect(inlineStyle ?? "").toContain("env(safe-area-inset-bottom");
-	expect(paddingBottom).toBeDefined();
-});
+async function openPicker(page: Page, picker: Picker, first = false) {
+  if (first) {
+    await page.goto(picker.path);
+    await picker.prepare?.(page);
+  }
+  const trigger = page.getByTestId(picker.trigger).first();
+  // FilePicker is inline on desktop. All other triggers are buttons/inputs.
+  const inlineFileInput = trigger.locator("input");
+  if (picker.name === "file" && await inlineFileInput.count()) await inlineFileInput.click();
+  else await trigger.click();
+  await expect(picker.content(page)).toBeVisible();
+}
 
-// WCAG via axe-core — the BottomSheet must pass a clean axe scan on
-// its dialog role. Catches missing aria-modal, missing focus trap,
-// orphaned interactive controls outside the dialog.
-test("bottom-sheet axe-core scan: 0 violations on dialog role", async ({ page }) => {
-	test.fixme(true, "Wave 1 (Plan 57-02 Task 2) BottomSheet ships WCAG-clean dialog");
-	await page.setViewportSize(MOBILE_VIEWPORT);
-	await page.goto("/teams/builder");
-	await page.getByTestId("open-assignment-picker").click();
-	await expect(page.getByTestId("bottom-sheet")).toBeVisible();
-	const results = await new AxeBuilder({ page })
-		.include('[data-testid="bottom-sheet"]')
-		.analyze();
-	expect(results.violations).toEqual([]);
+for (const picker of pickers) {
+  test(`${picker.name}: mobile dialog supports Close, Escape, and backdrop dismissal`, async ({ page }, testInfo) => {
+    await page.setViewportSize(mobile);
+    for (const [index, dismiss] of ["close", "escape", "backdrop"].entries()) {
+      await openPicker(page, picker, index === 0);
+      const sheet = page.getByTestId("bottom-sheet");
+      await expect(sheet).toBeVisible();
+      await expect(sheet).toHaveAttribute("role", "dialog");
+      await expect(sheet).toHaveAttribute("aria-modal", "true");
+      const panel = page.getByTestId("bottom-sheet-panel");
+      const box = await panel.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(mobile.width);
+      if (picker.name === "extension-attach") {
+        await expect(sheet.getByRole("button", { name: "Close picker", exact: true })).toHaveCount(1);
+        await expect(page.getByTestId("extension-attach-picker-card")).toContainText("1 tool");
+        await expect(page.getByTestId("extension-attach-picker-card")).not.toContainText("1 tools");
+      }
+      if (index === 0) await captureEvidence(page, testInfo, `picker-${picker.name}-mobile`);
+      if (dismiss === "close") await sheet.getByRole("button", { name: "Close", exact: true }).click();
+      else if (dismiss === "escape") await page.keyboard.press("Escape");
+      else await sheet.locator(':scope > button[aria-label="Close picker"]').click({ position: { x: 10, y: 10 } });
+      await expect(sheet).toHaveCount(0);
+    }
+  });
+
+  test(`${picker.name}: desktop opens its usable body without a bottom sheet`, async ({ page }) => {
+    await page.setViewportSize(desktop);
+    await openPicker(page, picker, true);
+    await expect(page.getByTestId("bottom-sheet")).toHaveCount(0);
+    await expect(picker.content(page)).toBeVisible();
+  });
+}
+
+test("mobile sheet retains safe-area padding and accessible dialog controls", async ({ page }, testInfo) => {
+  await page.setViewportSize(mobile);
+  await openPicker(page, pickers.find(picker => picker.name === "file")!, true);
+  const panel = page.getByTestId("bottom-sheet-panel");
+  await expect(panel).toHaveAttribute("style", /padding-bottom:\s*env\(safe-area-inset-bottom, 0px\)/);
+  const padding = await panel.evaluate(element => getComputedStyle(element).paddingBottom);
+  expect(Number.parseFloat(padding)).toBeGreaterThanOrEqual(0);
+  const close = page.getByTestId("bottom-sheet").getByRole("button", { name: "Close", exact: true });
+  const box = await close.boundingBox();
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+  const accessibility = await new AxeBuilder({ page }).include('[data-testid="bottom-sheet"]').analyze();
+  expect(accessibility.violations).toEqual([]);
+  await captureEvidence(page, testInfo, "picker-safe-area-accessibility");
 });
