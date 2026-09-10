@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect } from "@playwright/test";
+import { expect } from "./hydration.js";
 
 /** Select the visible scope and verify the request uses the active project. */
 export async function selectMemoryScope(page: Page, scope: "all" | "project" | "global", projectId: string) {
