@@ -405,6 +405,9 @@
 	// null → empty path). The page/panel never pass it and use the
 	// normal async load. `__seeded` also gates the async loader so the
 	// seed isn't clobbered by a `computeLatestLeaf` overwrite.
+	// `seedMessages` chooses construction-only test mode. Later prop changes
+	// must not replace a user-edited message tree.
+	// svelte-ignore state_referenced_locally
 	const __seeded = seedMessages !== undefined;
 	// svelte-ignore state_referenced_locally
 	let allMessages = $state<Message[]>(
@@ -2460,6 +2463,8 @@
 	class="flex flex-1 flex-col min-w-0"
 	data-testid="chat-thread"
 	data-variant={variant}
+	role="region"
+	aria-label="Conversation file drop zone"
 	ondrop={stageThreadDrop}
 	ondragover={allowThreadDrop}
 >

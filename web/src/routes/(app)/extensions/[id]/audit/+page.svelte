@@ -12,12 +12,17 @@
 	import { addToast } from "$lib/toast.svelte.js";
 	import type { PageData } from "./$types";
 
-	const { data }: { data: PageData } = $props();
+	let { data }: { data: PageData } = $props();
 
 	type CapabilityFilter = "all" | "llm" | "memory" | "lessons" | "schedule" | "events" | "denials";
 
+	// Filter actions own these values after construction; a prop update must
+	// not discard an in-progress filter or pagination result.
+	// svelte-ignore state_referenced_locally
 	let entries = $state(data.entries);
+	// svelte-ignore state_referenced_locally
 	let nextCursor = $state<string | null>(data.nextCursor);
+	// svelte-ignore state_referenced_locally
 	let stats = $state(data.stats);
 	let loading = $state(false);
 	let activeFilter = $state<CapabilityFilter>("all");

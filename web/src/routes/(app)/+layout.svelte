@@ -448,7 +448,6 @@
 	<main
 		class="relative flex-1 overflow-y-auto {isChatRoute ? 'flex flex-col' : ''}"
 		style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
-		tabindex={isChatRoute ? undefined : 0}
 	>
 		<!-- Mobile/tablet header (hidden on chat routes - chat has its own header).
 		     Visible at `<lg` so tablets get the hamburger too (Phase 49.1).

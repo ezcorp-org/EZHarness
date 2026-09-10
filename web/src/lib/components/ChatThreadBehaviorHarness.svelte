@@ -55,6 +55,8 @@
 			) => void;
 		}
 	).__chatThreadSeed;
+	// The test hook consumes its fixture and spies at construction only.
+	// svelte-ignore state_referenced_locally
 	if (seedFn)
 		seedFn(initialMessages, { onInvalidate, onLoadMessages, onHydrate });
 
