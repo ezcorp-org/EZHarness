@@ -56,6 +56,16 @@ export const piComplete: PiCompleteFn = async (piModel, body, opts) => {
   if (opts.timeoutMs !== undefined && typeof AbortSignal?.timeout === "function") {
     piOpts.signal = AbortSignal.timeout(opts.timeoutMs);
   }
-  const result = await piAi.complete(piModel, body, piOpts);
+  // pi-ai accepts string content for system/user input, but assistant
+  // history is an AgentMessage and therefore must contain content blocks.
+  // Database-backed callers store assistant text as a string, so normalize at
+  // the shared boundary before pi-ai builds its request. Without this, pi-ai
+  // returns a local stopReason:error before it reaches the configured provider.
+  const messages = body.messages.map((message) =>
+    message.role === "assistant" && typeof message.content === "string"
+      ? { ...message, content: [{ type: "text", text: message.content }] }
+      : message,
+  );
+  const result = await piAi.complete(piModel, { ...body, messages }, piOpts);
   return result as PiCompleteResult;
 };

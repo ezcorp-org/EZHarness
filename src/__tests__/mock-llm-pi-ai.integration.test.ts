@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { stream } from "@earendil-works/pi-ai/compat";
+import { piComplete } from "../lib/pi-complete";
 import { resolveModelObject } from "../providers/registry";
 // The mock-LLM module is pure (no web aliases) — safe to import from src.
 import {
@@ -79,6 +80,24 @@ describe("pi-ai ⇄ mock-LLM wire contract", () => {
     expect(msg.stopReason).toBe("stop");
     const text = msg.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
     expect(text).toBe("hi from the mock");
+  });
+
+  test("complete normalizes persisted assistant text before the provider call", async () => {
+    setMockScript("itest-assistant-history", [{ text: '{"achieved":true,"reason":"done"}' }]);
+    const model = resolveModelObject("ezcorp-mock", "mock:itest-assistant-history", baseUrl);
+    const msg = await piComplete(
+      model,
+      {
+        messages: [
+          { role: "user", content: "finish the task", timestamp: 1 },
+          { role: "assistant", content: "I completed the first step.", timestamp: 2 },
+        ],
+      },
+      { apiKey: "no-key-needed" },
+    );
+
+    expect(msg.stopReason).toBe("stop");
+    expect(msg.content).toEqual([{ type: "text", text: '{"achieved":true,"reason":"done"}' }]);
   });
 
   test("scripted tool call parses into a toolCall block with stopReason toolUse", async () => {
