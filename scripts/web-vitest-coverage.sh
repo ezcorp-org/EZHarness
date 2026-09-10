@@ -8,6 +8,9 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 out_dir=""
 shard=""
+# This launcher can run beside bounded Bun coverage legs in local full mode.
+# Keep Vitest's pool explicit so it cannot fan out to every host CPU.
+max_workers=${WEB_VITEST_COVERAGE_MAX_WORKERS:-2}
 
 usage() {
   echo "usage: web-vitest-coverage.sh --output <directory> [--shard N/T]" >&2
@@ -41,6 +44,10 @@ if [ -n "$shard" ] && ! [[ "$shard" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]]; then
   echo "invalid Vitest shard: $shard" >&2
   exit 2
 fi
+if ! [[ "$max_workers" =~ ^[1-9][0-9]*$ ]]; then
+  echo "WEB_VITEST_COVERAGE_MAX_WORKERS must be a positive integer (got $max_workers)" >&2
+  exit 2
+fi
 
 mkdir -p "$out_dir"
 source "$repo_root/scripts/web-vitest-coverage-includes.sh"
@@ -49,6 +56,7 @@ cd "$repo_root/web"
 args=(
   vitest run
   --testTimeout=30000
+  "--maxWorkers=$max_workers"
   --coverage
   --coverage.provider=v8
   --coverage.reporter=lcovonly

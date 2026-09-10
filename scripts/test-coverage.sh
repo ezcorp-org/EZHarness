@@ -107,6 +107,22 @@ check_bun_version_skew
 
 # Pool width: min(nproc, 6) — see default_parallel in lib/test-file-sets.sh.
 PARALLEL=${PARALLEL:-$(default_parallel)}
+# The independent coverage producers each instrument a complete test surface.
+# Keep their process count below the measured CI-safe ceiling; host-pool work
+# uses its separate PARALLEL scheduler and never shares this mode.
+COVERAGE_LEG_MAX_JOBS=${COVERAGE_LEG_MAX_JOBS:-3}
+if ! [[ "$COVERAGE_LEG_MAX_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "COVERAGE_LEG_MAX_JOBS must be a positive integer (got $COVERAGE_LEG_MAX_JOBS)" >&2
+  exit 2
+fi
+# One Bun worker per scheduled leg keeps the parent cap meaningful. The suite
+# files are already isolated by producer; this prevents each leg from fanning
+# out to every CPU while another leg is still collecting coverage.
+COVERAGE_LEG_BUN_PARALLEL=${COVERAGE_LEG_BUN_PARALLEL:-1}
+if ! [[ "$COVERAGE_LEG_BUN_PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
+  echo "COVERAGE_LEG_BUN_PARALLEL must be a positive integer (got $COVERAGE_LEG_BUN_PARALLEL)" >&2
+  exit 2
+fi
 COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
@@ -224,10 +240,7 @@ tally() {
 
 # ── Package, provider, API-client, and Worker legs ─────────────────────────
 run_legs() {
-  # The four package legs run concurrently. Provider, API-client, and Worker
-  # producers follow in the same process budget instead of adding three more
-  # simultaneous coverage workers.
-  # CONCURRENTLY — cov-extras wall clock = max(legs), not their sum. Each
+  # Producers use disjoint covdirs and run through a bounded scheduler. Each
   # leg's combined stdout/stderr is captured to its own file and printed
   # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
   # semantics: the suggest leg is pass/fail-tolerated here because its tests
@@ -235,8 +248,17 @@ run_legs() {
   # (HC_EXIT), ai-kit (AIKIT_EXIT), provider, API-client, and Worker legs gate. A
   # leg that dies without writing its
   # exit-code file counts as exit 1 for the gating legs (fail-closed).
-  local legs="$TMPDIR/legs"
+  local legs="$TMPDIR/legs" running=0
   mkdir -p "$legs"
+
+  await_leg_slot() {
+    while [ "$running" -ge "$COVERAGE_LEG_MAX_JOBS" ]; do
+      # Producers persist their result code. This wait only frees capacity;
+      # the explicit verdict below still fails closed on every failed leg.
+      wait -n || true
+      running=$((running - 1))
+    done
+  }
 
   # Register every leg this mode runs with the lcov registry in
   # lib/test-file-sets.sh. The producers below take their --coverage-dir from
@@ -272,13 +294,15 @@ run_legs() {
   # first and 12 entities tests fail (order-dependent state in the bundled
   # process — a latent coupling, documented not fixed). sdk_leg_files()
   # mirrors exactly these dirs for the drift meta-test's crediting.
+  await_leg_slot
   (
     set +e
-    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
+    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
       ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ ./packages/@ezcorp/sdk/src/v4/ ./packages/@ezcorp/sdk/src/browser/ \
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
   ) &
+  running=$((running + 1))
 
   # harness-client — its own mock.module-free shard. Unlike the SDK leg above,
   # its pass/fail GATES: the event-name parity test + the route-table
@@ -286,13 +310,15 @@ run_legs() {
   # a failure must red CI, not merely report. The real exit code lands in
   # HC_EXIT below (checked in the mode dispatch). Dir arg mirrored by
   # harness_client_leg_files() for the drift meta-test.
+  await_leg_slot
   (
     set +e
-    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
+    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
       ./packages/@ezcorp/harness-client/ \
       > "$legs/hc.out" 2>&1
     echo "$?" > "$legs/hc.code"
   ) &
+  running=$((running + 1))
 
   # Composer-suggest backend leg — dedicated bun-coverage shard feeding the
   # `src/suggest/**` + suggestion-feedback threshold keys. The host-shard set
@@ -300,6 +326,7 @@ run_legs() {
   # also dodge Bun's large-suite attribution drift. Pass/fail is tolerated
   # like the SDK leg (thresholds are the gate); the suites are also
   # pass/fail-gated in P via the CI residual job.
+  await_leg_slot
   (
     set +e
     mapfile -t LEG_FILES < <(suggest_leg_files)
@@ -310,11 +337,12 @@ run_legs() {
       echo 1 > "$legs/suggest.code"
       exit 1
     fi
-    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[suggest]}" \
+    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[suggest]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/suggest.out" 2>&1
     echo "$?" > "$legs/suggest.code"
   ) &
+  running=$((running + 1))
 
   # ai-kit leg (wave 3): these 22 files previously ran ONLY at release time —
   # a rotted SKILL.md drift-guard assertion proved the gap. unit/ +
@@ -322,6 +350,7 @@ run_legs() {
   # Docker); e2e/ self-skips without EZCORP_E2E_BASE_URL. Pass/fail GATES
   # like the harness-client leg (AIKIT_EXIT) — deterministic package suites
   # have no instrumentation-flake excuse.
+  await_leg_slot
   (
     set +e
     mapfile -t LEG_FILES < <(aikit_leg_files)
@@ -332,42 +361,51 @@ run_legs() {
       echo 1 > "$legs/aikit.code"
       exit 1
     fi
-    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[ai-kit]}" \
+    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[ai-kit]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/aikit.out" 2>&1
     echo "$?" > "$legs/aikit.code"
   ) &
+  running=$((running + 1))
 
   # Providers are a Bun-only canonical producer: each suite runs in its own
   # process and the resulting lcov is filtered to src/providers/**.
+  await_leg_slot
   (
     set +e
     COV_OUT="${LEG_COV_DIR[providers]}" bash "$SCRIPT_DIR/provider-coverage.sh"       > "$legs/providers.out" 2>&1
     echo "$?" > "$legs/providers.code"
-  )
+  ) &
+  running=$((running + 1))
 
+  await_leg_slot
   (
     set +e
     COV_OUT="${LEG_COV_DIR[api-client]}" bash "$SCRIPT_DIR/api-client-coverage.sh" > "$legs/api-client.out" 2>&1
     echo "$?" > "$legs/api-client.code"
-  )
+  ) &
+  running=$((running + 1))
 
   # Worker/index.ts has an HTTP-boundary suite that is its canonical source
   # of truth. Keep its filtered receipt separate from incidental host imports.
+  await_leg_slot
   (
     set +e
     COV_OUT="${LEG_COV_DIR[worker]}" bash "$SCRIPT_DIR/worker-coverage.sh" \
       > "$legs/worker.out" 2>&1
     echo "$?" > "$legs/worker.code"
-  )
+  ) &
+  running=$((running + 1))
 
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then
+    await_leg_slot
     (
       set +e
       bash "$SCRIPT_DIR/web-vitest-coverage.sh" --output "${LEG_COV_DIR[web-vitest-full]}" \
         > "$legs/vitest-full.out" 2>&1
       echo "$?" > "$legs/vitest-full.code"
     ) &
+    running=$((running + 1))
   fi
 
   wait

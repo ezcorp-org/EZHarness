@@ -873,11 +873,28 @@ describe("canonical Vitest V8 coverage launcher", () => {
     const runner = await runnerSrc;
     const ci = readFileSync(join(REPO_ROOT, ".github/workflows/ci.yml"), "utf8");
     expect(runner).toContain('source "$repo_root/scripts/web-vitest-coverage-includes.sh"');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash array expansion asserted as launcher syntax
     expect(runner).toContain('npx "${args[@]}"');
     expect(runner).toContain('args+=("--shard=$shard")');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions matrix placeholders asserted as workflow syntax
     expect(ci).toContain("bash scripts/web-vitest-coverage.sh --output coverage-shard/web-vitest-${{ matrix.i }} --shard ${{ matrix.i }}/3");
     expect((ci.match(/web-vitest-coverage\.sh/g) ?? [])).toHaveLength(1);
     expect(await Bun.file(RUNNER).text()).not.toContain("npx vitest run");
+  });
+
+  test("bounds top-level and internal coverage producer parallelism", async () => {
+    const coverageRunner = await Bun.file(RUNNER).text();
+    const vitestRunner = await runnerSrc;
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as scheduler syntax
+    expect(coverageRunner).toContain("COVERAGE_LEG_MAX_JOBS=${COVERAGE_LEG_MAX_JOBS:-3}");
+    expect(coverageRunner).toContain('while [ "$running" -ge "$COVERAGE_LEG_MAX_JOBS" ]');
+    expect(coverageRunner).toContain("wait -n || true");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as worker-cap syntax
+    expect(coverageRunner).toContain('COVERAGE_LEG_BUN_PARALLEL=${COVERAGE_LEG_BUN_PARALLEL:-1}');
+    expect(coverageRunner).toContain('--parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as Vitest-cap syntax
+    expect(vitestRunner).toContain('max_workers=${WEB_VITEST_COVERAGE_MAX_WORKERS:-2}');
+    expect(vitestRunner).toContain('"--maxWorkers=$max_workers"');
   });
 
   test("every configured source include pattern matches a web source", async () => {
