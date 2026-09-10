@@ -100,7 +100,11 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
   const coverage = createCoverageMap();
   const assets = new Map<string, Promise<{ code: string; sourceMap: SourceMap; ast: unknown }>>();
   for (const script of raw.result) {
-    const asset = resolve(REPO_ROOT, "web/build/client", new URL(script.url).pathname.replace(/^\//, ""));
+    const assetPath = new URL(script.url).pathname.replace(/^\//, "");
+    // adapter-bun copies `.svelte-kit/output/client` into `build/client`, but
+    // Vite's map paths remain relative to the pre-copy source directory.
+    const generatedAsset = resolve(REPO_ROOT, "web/build/client", assetPath);
+    const sourceMapAsset = resolve(REPO_ROOT, "web/.svelte-kit/output/client", assetPath);
     let cached = assets.get(script.url);
     if (!cached) {
       cached = (async () => {
@@ -115,7 +119,7 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
         if (sourceMap.version !== 3 || !Array.isArray(sourceMap.sources) || typeof sourceMap.mappings !== "string") {
           throw new Error(`browser coverage: ${script.url} has an invalid source-map shape`);
         }
-        return { code, sourceMap: resolveSourceMapSources(sourceMap, asset), ast: await parseAstAsync(code) };
+        return { code, sourceMap: resolveSourceMapSources(sourceMap, sourceMapAsset), ast: await parseAstAsync(code) };
       })();
       assets.set(script.url, cached);
     }
@@ -125,7 +129,7 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
       converted = await convert({
         ast,
         code,
-        coverage: { url: pathToFileURL(asset).href, functions: script.functions },
+        coverage: { url: pathToFileURL(generatedAsset).href, functions: script.functions },
         sourceMap,
       }) as Record<string, unknown>;
     } catch (error) {

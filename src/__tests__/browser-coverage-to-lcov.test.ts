@@ -6,7 +6,7 @@ const code = "const rendered = true;\nfunction unclicked() { return false; }\n";
 const routeMap = JSON.stringify({
   version: 3,
   file: "route.js",
-  sources: ["../../../src/routes/+page.svelte"],
+  sources: ["../../../../src/routes/+page.svelte"],
   sourcesContent: [code],
   names: [],
   mappings: "AAAA;AACA",
@@ -33,7 +33,7 @@ test("AST conversion distinguishes a loaded Svelte template from an unexecuted h
   const source = `<script>\nlet clicked = false;\nfunction unclicked() {\n  clicked = true;\n}\n</script>\n<button onclick={unclicked}>Click</button>`;
   const compiled = compile(source, { filename: "+page.svelte", generate: "client", dev: false });
   const map = JSON.parse(compiled.js.map.toString());
-  map.sources = ["../../../src/routes/+page.svelte"];
+  map.sources = ["../../../../src/routes/+page.svelte"];
   const start = compiled.js.code.indexOf("function unclicked");
   const end = compiled.js.code.indexOf("\n\t}\n\n\tvar button", start) + 3;
   const lcov = await coverageToLcov({
@@ -64,7 +64,7 @@ test("browser converter rejects a requested source absent from raw browser recor
 test("resolves nested Vite map sources against the emitted chunk", async () => {
   const nestedMap = JSON.stringify({
     ...JSON.parse(routeMap),
-    sources: ["../../../../../src/routes/+page.svelte"],
+    sources: ["../../../../../../src/routes/+page.svelte"],
   });
   const lcov = await coverageToLcov({
     result: [{ url: "http://app/_app/immutable/nodes/route.js", functions: covered }],
