@@ -25,6 +25,7 @@ import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model"] as const;
+const OPTIONAL_OPERATOR_LANES = ["external-model"] as const;
 
 // Every browser spec is now wired to a strict CI lane. Keep lane membership
 // exhaustive and unique so a new spec cannot become an unexecuted backlog
@@ -273,7 +274,7 @@ describe("e2e lane manifest", () => {
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });
 
-  test("every browser lane is a hard CI dependency", async () => {
+  test("every standard browser lane is a hard CI dependency", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
     const jobs = [
       ["e2e-mock-run", "mock-gate"],
@@ -336,7 +337,8 @@ describe("e2e lane manifest", () => {
     expect(aggregate).toContain('result }}" != success');
   });
 
-  test("external Kokoro model lane is explicit and executable", async () => {
+  test("external Kokoro model lane has an explicit manual CI consumer", async () => {
+    expect(OPTIONAL_OPERATOR_LANES).toEqual(["external-model"]);
     expect(lanes["external-model"]).toEqual(["web/e2e/kokoro-tts-realmodel.spec.ts"]);
     const runner = join(REPO_ROOT, "scripts/run-kokoro-realmodel-e2e.sh");
     expect(existsSync(runner)).toBe(true);
@@ -344,5 +346,23 @@ describe("e2e lane manifest", () => {
     const source = await Bun.file(runner).text();
     expect(source).toContain('EZCORP_E2E_KOKORO_REAL=1');
     expect(source).toContain("playwright.kokoro-real.config.ts");
+
+    const collected = Bun.spawnSync(
+      ["bunx", "playwright", "test", "--config", "playwright.kokoro-real.config.ts", "--project=chromium", "--list"],
+      { cwd: join(REPO_ROOT, "web"), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(collected.exitCode, collected.stderr.toString()).toBe(0);
+    expect(collected.stdout.toString()).toContain("kokoro-tts-realmodel.spec.ts");
+    expect(collected.stdout.toString()).toContain("Total: 1 test in 1 file");
+
+    const workflow = await Bun.file(join(REPO_ROOT, ".github/workflows/kokoro-real-model.yml")).text();
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("run_external_kokoro:");
+    const job = ciJobBlock(workflow, "external-kokoro-real-model");
+    expect(job, "missing external Kokoro workflow job").not.toBe("");
+    expect(job).toContain("if: inputs.run_external_kokoro");
+    expect(job).toContain('EZCORP_E2E_KOKORO_REAL: "1"');
+    expect(job).toContain("bash scripts/run-kokoro-realmodel-e2e.sh");
+    expect(job).not.toContain("continue-on-error: true");
   });
 });

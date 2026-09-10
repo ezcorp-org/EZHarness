@@ -6,28 +6,28 @@ import { test, expect } from "./fixtures/hydration.js";
  * collection contract verifies that order. Keep these checks independent of
  * account creation so the last setup test remains the only state transition.
  */
+async function expectFreshRedirect(
+  page: import("@playwright/test").Page,
+  entryPath: "/" | "/login",
+) {
+  const redirects: Array<{ location: string | null; status: number }> = [];
+  page.on("response", (response) => {
+    const url = new URL(response.url());
+    if (url.pathname === entryPath && response.request().method() === "GET") {
+      redirects.push({
+        location: response.headers()["location"] ?? null,
+        status: response.status(),
+      });
+    }
+  });
+
+  await page.goto(entryPath);
+  await expect(page).toHaveURL(/\/setup$/);
+  expect(redirects).toContainEqual({ location: "/setup", status: 302 });
+  await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible();
+}
+
 test.describe("First-run registration redirects", () => {
-  async function expectFreshRedirect(
-    page: import("@playwright/test").Page,
-    entryPath: "/" | "/login",
-  ) {
-    const redirects: Array<{ location: string | null; status: number }> = [];
-    page.on("response", (response) => {
-      const url = new URL(response.url());
-      if (url.pathname === entryPath && response.request().method() === "GET") {
-        redirects.push({
-          location: response.headers()["location"] ?? null,
-          status: response.status(),
-        });
-      }
-    });
-
-    await page.goto(entryPath);
-    await expect(page).toHaveURL(/\/setup$/);
-    expect(redirects).toContainEqual({ location: "/setup", status: 302 });
-    await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible();
-  }
-
   test("fresh /login returns the real 302 chain to setup", async ({ page }) => {
     await expectFreshRedirect(page, "/login");
   });
