@@ -180,6 +180,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/utils/fetch-policy.ts"
     "--coverage.include=src/lib/chat/page-handlers/stream-resume.svelte.ts"
     "--coverage.include=src/lib/chat/page-handlers/task-hydrate.svelte.ts"
+    "--coverage.include=src/lib/chat/page-handlers/panel-persistence.svelte.ts"
     "--coverage.include=src/routes/api/conversations/[id]/tasks/+server.ts"
     "--coverage.include=src/routes/api/conversations/[id]/tasks/[taskId]/assign/+server.ts"
     "--coverage.include=src/routes/api/conversations/[id]/tasks/[taskId]/retry/+server.ts"

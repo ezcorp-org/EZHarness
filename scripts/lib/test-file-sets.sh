@@ -205,7 +205,6 @@ web_utility_coverage_files() {
     web/src/lib/__tests__/shortcuts.test.ts \
     web/src/lib/__tests__/theme.test.ts \
     web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts \
-    web/src/lib/chat/page-handlers/__tests__/panel-persistence.test.ts \
     web/src/lib/components/tool-cards/price-chart-logic.test.ts \
     web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts \
     web/src/lib/workers/__tests__/agent-fuzzy-search-worker.test.ts \
@@ -451,6 +450,9 @@ web_bunleg_files() {
       # This broad loader suite runs under Node Vitest so its real module
       # execution contributes to the web/src/lib coverage producer.
       printf '%s\n' web/src/lib/chat/page-handlers/__tests__/load-messages.test.ts
+      # Panel persistence has a real Svelte rune-host component test, so Node
+      # Vitest owns its plain helper suite as well as attachPanelPersistence.
+      printf '%s\n' web/src/lib/chat/page-handlers/__tests__/panel-persistence.test.ts
       # Same arrangement, same reason: vitest is the only coverage producer for
       # web/src/lib/**, and this suite is what covers context-usage-logic.ts.
       printf '%s\n' web/src/__tests__/context-usage-logic.test.ts

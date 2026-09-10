@@ -918,11 +918,11 @@ describe("web utility coverage producer", () => {
 
   test("stamps trusted Bun ownership into raw LCOV before the producer merge", async () => {
     const source = await Bun.file(WEB_UTILITY_RUNNER).text();
-    const tag = "TN:ezcorp-bun-web-utility";
-    const tagIndex = source.indexOf(tag);
+    const registryIndex = source.indexOf("BUN_WEB_UTILITY_COVERAGE_PRODUCER");
     const mergeIndex = source.indexOf('merge-lcov.ts');
-    expect(tagIndex).toBeGreaterThan(-1);
-    expect(mergeIndex).toBeGreaterThan(tagIndex);
+    expect(registryIndex).toBeGreaterThan(-1);
+    expect(mergeIndex).toBeGreaterThan(registryIndex);
+    expect(source).toContain("BUN_WEB_UTILITY_SOURCES");
     expect(source).toContain("web_utility_coverage_files");
     expect(source).toContain("WEB_UTILITY_COVERAGE_MAX_WORKERS=$" + "{WEB_UTILITY_COVERAGE_MAX_WORKERS:-3}");
   });

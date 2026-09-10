@@ -88,6 +88,9 @@ export default defineConfig({
 			// mocks, so Bun can run its assertions but cannot produce the web/lib
 			// LCOV record that the canonical Node Vitest leg requires.
 			"src/lib/chat/page-handlers/__tests__/load-messages.test.ts",
+			// This suite and its sibling component harness cover the plain panel
+			// helpers plus attachPanelPersistence's actual rune effects.
+			"src/lib/chat/page-handlers/__tests__/panel-persistence.test.ts",
 			// Same reason as send-message above: the vitest leg is the ONLY
 			// coverage producer for `web/src/lib/**`, and this suite is what
 			// covers `context-usage-logic.ts` (the context-indicator maths —

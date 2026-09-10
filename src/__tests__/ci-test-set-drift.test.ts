@@ -238,7 +238,6 @@ describe("web/src pass/fail gating", () => {
     "web/src/lib/__tests__/shortcuts.test.ts",
     "web/src/lib/__tests__/theme.test.ts",
     "web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts",
-    "web/src/lib/chat/page-handlers/__tests__/panel-persistence.test.ts",
     "web/src/lib/components/tool-cards/price-chart-logic.test.ts",
     "web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts",
     "web/src/lib/workers/__tests__/agent-fuzzy-search-worker.test.ts",

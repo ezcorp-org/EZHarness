@@ -38,36 +38,14 @@ if [ "${#FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# Only these sources belong in this producer. Filtering prevents transitive Bun
-# instrumentation from changing unrelated V8 source denominators.
-UTILITY_SRC=(
-  web/src/lib/actions/hover-tooltip.ts
-  web/src/lib/auth-keepalive.ts
-  web/src/lib/chat-scroll-restore.ts
-  web/src/lib/chat/attachment-client.ts
-  web/src/lib/chat/chat-window-drop.ts
-  web/src/lib/chat/page-handlers/inline-tool-handlers.ts
-  web/src/lib/chat/page-handlers/panel-persistence.svelte.ts
-  web/src/lib/clipboard.ts
-  web/src/lib/combobox-nav.ts
-  web/src/lib/commands.ts
-  web/src/lib/components/tool-cards/price-chart-logic.ts
-  web/src/lib/ez/api.ts
-  web/src/lib/ez/pill-visibility.ts
-  web/src/lib/focus-trap.ts
-  web/src/lib/last-model.ts
-  web/src/lib/markdown-speech.ts
-  web/src/lib/panel-persistence.ts
-  web/src/lib/progressive-image.ts
-  web/src/lib/select-mode.ts
-  web/src/lib/shortcuts.ts
-  web/src/lib/sub-agent-routing.ts
-  web/src/lib/theme.ts
-  web/src/lib/tool-display.ts
-  web/src/lib/workers/agent-fuzzy-search-bridge.ts
-  web/src/lib/workers/agent-fuzzy-search-worker.ts
-  web/src/lib/workers/kokoro-tts-bridge.ts
-)
+# The canonical registry owns this source list and the producer tag. Keeping
+# this script as a consumer avoids a second hand-maintained source allowlist.
+UTILITY_PRODUCER=$(cd "$REPO_ROOT" && bun -e 'import { BUN_WEB_UTILITY_COVERAGE_PRODUCER } from "./scripts/coverage-config.ts"; console.log(BUN_WEB_UTILITY_COVERAGE_PRODUCER)')
+mapfile -t UTILITY_SRC < <(cd "$REPO_ROOT" && bun -e 'import { BUN_WEB_UTILITY_SOURCES } from "./scripts/coverage-config.ts"; console.log(BUN_WEB_UTILITY_SOURCES.join("\n"))')
+if [ -z "$UTILITY_PRODUCER" ] || [ "${#UTILITY_SRC[@]}" -eq 0 ]; then
+  echo "::error::web utility canonical producer registry is empty" >&2
+  exit 1
+fi
 
 echo "Running ${#FILES[@]} direct web utility suites under Bun coverage (${WEB_UTILITY_COVERAGE_MAX_WORKERS} parallel)..."
 running=0
@@ -101,10 +79,13 @@ done
 # untagged or foreign evidence rather than mixing Bun and V8 line maps.
 for d in "$TMPDIR"/cov_*; do
   [ -f "$d/lcov.info" ] || continue
-  sed -i     -e 's#^TN:$#TN:ezcorp-bun-web-utility#'     -e 's#^SF:src/#SF:web/src/#'     "$d/lcov.info"
+  sed -i \
+    -e "s#^TN:\$#TN:$UTILITY_PRODUCER#" \
+    -e 's#^SF:src/#SF:web/src/#' \
+    "$d/lcov.info"
 done
 for raw_lcov in "$TMPDIR"/cov_*/lcov.info; do
-  if ! rg -q '^TN:ezcorp-bun-web-utility$' "$raw_lcov"; then
+  if ! rg -q "^TN:$UTILITY_PRODUCER\$" "$raw_lcov"; then
     echo "::error::web utility raw LCOV lacked the trusted producer tag: $raw_lcov" >&2
     exit 1
   fi
