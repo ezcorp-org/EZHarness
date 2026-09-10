@@ -23,7 +23,7 @@
  * Pattern follows `src/__tests__/start-assignment-plumbing.test.ts`.
  */
 
-import { test, expect, describe, mock, afterAll, beforeEach } from "bun:test";
+import { test, expect, describe, mock, spyOn, afterAll, beforeEach } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
@@ -283,66 +283,45 @@ describe("defaultScanGoalConversations (live SQL via boot sweep)", () => {
 
 // ── Default subscription error catches ─────────────────────────────
 
+async function subscriptionFailure(event: "run:complete" | "run:error" | "run:cancel") {
+  const bus = new EventBus<AgentEvents>();
+  const failure = Promise.withResolvers<Record<string, unknown>>();
+  const logged = spyOn(process.stderr, "write").mockImplementation((chunk) => {
+    const text = String(chunk);
+    if (text.includes('"subsystem":"goal-host"') && text.includes('"error":"read explosion"')) {
+      failure.resolve(JSON.parse(text));
+    }
+    return true;
+  });
+  const host = new GoalHost({
+    bus,
+    executor: { streamChat: async () => ({}) } as unknown as AgentExecutor,
+    readGoal: async () => { throw new Error("read explosion"); },
+  });
+  try {
+    await host.start();
+    const run: AgentRun = { id: "r", agentName: "chat", status: "error", startedAt: 0, logs: [] };
+    if (event === "run:error") bus.emit(event, { run, runId: run.id, conversationId: "c1", error: "boom" });
+    else if (event === "run:complete") bus.emit(event, { run: { ...run, status: "success" }, conversationId: "c1" });
+    else bus.emit(event, { run: { ...run, status: "cancelled" }, conversationId: "c1" });
+    // Resolves only when the real subscription catches and reports the
+    // rejected read. A removed subscription or catch fails the test deadline.
+    return await failure.promise;
+  } finally {
+    host.stop();
+    logged.mockRestore();
+  }
+}
+
 describe("subscription error catches", () => {
-  test("onRunComplete throw is swallowed by .catch on the subscription", async () => {
-    const bus = new EventBus<AgentEvents>();
-    const executor = { streamChat: async () => ({}) } as unknown as AgentExecutor;
-    const host = new GoalHost({
-      bus,
-      executor,
-      readGoal: async () => {
-        throw new Error("read explosion");
-      },
-    });
-    await host.start();
-    // Emitting run:complete forces onRunComplete to fire → throws →
-    // .catch swallows. Test just asserts no unhandled rejection.
-    bus.emit("run:complete", {
-      run: { id: "r", agentName: "chat", status: "success", startedAt: 0, logs: [] } as unknown as AgentRun,
-      conversationId: "c1",
-    });
-    await new Promise((r) => setTimeout(r, 10));
-    host.stop();
+  test("onRunComplete rejection is reported by its subscription catch", async () => {
+    expect(await subscriptionFailure("run:complete")).toMatchObject({ level: "error", msg: "onRunComplete failed", error: "read explosion" });
   });
-
-  test("onRunTerminal (error) throw is swallowed", async () => {
-    const bus = new EventBus<AgentEvents>();
-    const executor = { streamChat: async () => ({}) } as unknown as AgentExecutor;
-    const host = new GoalHost({
-      bus,
-      executor,
-      readGoal: async () => {
-        throw new Error("read explosion");
-      },
-    });
-    await host.start();
-    bus.emit("run:error", {
-      run: { id: "r", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
-      runId: "r",
-      conversationId: "c1",
-      error: "boom",
-    });
-    await new Promise((r) => setTimeout(r, 10));
-    host.stop();
+  test("onRunTerminal error rejection is reported by its subscription catch", async () => {
+    expect(await subscriptionFailure("run:error")).toMatchObject({ level: "error", msg: "onRunTerminal(error) failed", error: "read explosion" });
   });
-
-  test("onRunTerminal (cancel) throw is swallowed", async () => {
-    const bus = new EventBus<AgentEvents>();
-    const executor = { streamChat: async () => ({}) } as unknown as AgentExecutor;
-    const host = new GoalHost({
-      bus,
-      executor,
-      readGoal: async () => {
-        throw new Error("read explosion");
-      },
-    });
-    await host.start();
-    bus.emit("run:cancel", {
-      run: { id: "r", agentName: "chat", status: "cancelled", startedAt: 0, logs: [] } as unknown as AgentRun,
-      conversationId: "c1",
-    });
-    await new Promise((r) => setTimeout(r, 10));
-    host.stop();
+  test("onRunTerminal cancel rejection is reported by its subscription catch", async () => {
+    expect(await subscriptionFailure("run:cancel")).toMatchObject({ level: "error", msg: "onRunTerminal(cancel) failed", error: "read explosion" });
   });
 });
 

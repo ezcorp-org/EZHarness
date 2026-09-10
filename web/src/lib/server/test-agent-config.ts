@@ -9,8 +9,8 @@ export async function seedAgentExtensions(userId: string): Promise<Array<{ id: s
     const name = `chip-${label}-${id}`;
     await createExtension({
       id, name, version: "1.0.0", enabled: false, source: "local", creatorUserId: userId,
-      manifest: { name, version: "1.0.0", tools: [], permissions: {} },
-      grantedPermissions: {},
+      manifest: { schemaVersion: 2, name, version: "1.0.0", description: "Inactive picker fixture", author: { name: "E2E" }, tools: [], permissions: {} },
+      grantedPermissions: { grantedAt: {} },
     });
     seeded.push({ id, name });
   }

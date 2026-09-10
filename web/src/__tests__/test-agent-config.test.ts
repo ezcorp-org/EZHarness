@@ -24,7 +24,7 @@ test("picker seeds have separate identities and remain inactive and owned by the
   for (const [owner, rows] of [["picker-owner", first], ["picker-other", second]] as const) {
     for (const row of rows) {
       const stored = await getExtension(row.id);
-      expect(stored).toMatchObject({ id: row.id, name: row.name, creatorUserId: owner, enabled: false, grantedPermissions: {} });
+      expect(stored).toMatchObject({ id: row.id, name: row.name, creatorUserId: owner, enabled: false, grantedPermissions: { grantedAt: {} } });
       expect(stored?.manifest).toMatchObject({ tools: [], permissions: {} });
     }
   }
