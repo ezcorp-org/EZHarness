@@ -68,7 +68,7 @@ describe("propose_create_project", () => {
     const { draftId } = expectJson<{ draftId: string }>(result);
     const row = await getDraft(draftId, userId);
     expect(row!.payload).toEqual({ name: "No Desc", path: "/tmp/nd" });
-    expect(Object.prototype.hasOwnProperty.call(row!.payload, "description")).toBe(false);
+    expect(Object.hasOwn(row!.payload, "description")).toBe(false);
   });
 
   test("rejects when name is missing", async () => {

@@ -91,6 +91,9 @@ vi.mock("$lib/stores.svelte.js", () => ({
 	store: mocks.fakeStore,
 	startStreaming: (...args: unknown[]) => mocks.startStreamingMock(...args),
 	stopStreaming: (...args: unknown[]) => mocks.stopStreamingMock(...args),
+	getStreamingToolCalls: () => [],
+	getStreamingAgentCalls: () => [],
+	getStreamingContentBlocks: () => [],
 }));
 
 // `ChatMessage` pulls in `$lib/stores.svelte.js` *types* but doesn't
@@ -476,6 +479,61 @@ describe("EzPanel — close button", () => {
 		await fireEvent.click(close);
 		expect(ezPanelState.open).toBe(false);
 		await waitFor(() => expect(queryByTestId("ez-panel")).toBeNull());
+	});
+});
+
+describe("EzPanel — user actions and streamed turns", () => {
+	test("a suggested task pre-fills the real composer and Full thread uses the resolved conversation", async () => {
+		const goto = vi.fn();
+		openEzPanel();
+		const { findAllByTestId, findByPlaceholderText, findByTestId } = render(EzPanel, { goto });
+		const suggestions = await findAllByTestId("ez-panel-suggestion");
+		await fireEvent.click(suggestions[0]!);
+		await waitFor(() => expect(findByPlaceholderText(/Ask Ez to do something/i)).resolves.toHaveValue("Help me create a new project."));
+		await fireEvent.click(await findByTestId("ez-view-full-thread"));
+		expect(goto).toHaveBeenCalledWith("/conversations/ez-conv-1");
+	});
+
+	test("replaces a streaming placeholder when the matching persisted turn arrives", async () => {
+		localStorage.setItem("ez-panel:selected-model", JSON.stringify({ provider: "anthropic", model: "claude-sonnet-4-6" }));
+		mocks.startStreamingMock.mockImplementation((runId: unknown) => {
+			(mocks.fakeStore.streamingMessages as Record<string, string>)[String(runId)] = "";
+			return true;
+		});
+		openEzPanel();
+		const { findByLabelText, findByPlaceholderText, findByTestId } = render(EzPanel);
+		await findByTestId("ez-panel");
+		const input = await findByPlaceholderText(/Ask Ez to do something/i);
+		await fireEvent.input(input, { target: { value: "write a plan" } });
+		await fireEvent.click(await findByLabelText("Send message"));
+		await waitFor(() => expect(mocks.startStreamingMock).toHaveBeenCalledWith("r1", "ez-conv-1"));
+
+		window.dispatchEvent(new CustomEvent("ez:turn_saved", {
+			detail: {
+				runId: "r1", conversationId: "ez-conv-1", messageId: "assistant-1",
+				parentMessageId: "u1", content: "Here is the plan.",
+			},
+		}));
+		await waitFor(() => expect(document.querySelector('[data-message-id="assistant-1"]')).toHaveTextContent("Here is the plan."));
+	});
+
+	test("the tools backdrop closes an already-open list", async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("/api/tools")) return new Response(JSON.stringify({ tools: [] }), { status: 200 });
+			return new Response(JSON.stringify({ messages: [], orphanedToolCalls: [] }), { status: 200 });
+		}) as unknown as typeof fetch;
+		try {
+			openEzPanel();
+			const { findByTestId, queryByTestId } = render(EzPanel);
+			await fireEvent.click(await findByTestId("ez-panel-tools"));
+			await findByTestId("ez-panel-tools-popover");
+			await fireEvent.click(await findByTestId("ez-panel-tools-backdrop"));
+			await waitFor(() => expect(queryByTestId("ez-panel-tools-popover")).toBeNull());
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 });
 

@@ -118,7 +118,7 @@ test.describe("Audit & Visibility settings", () => {
 // page's onMount race between pillSettings fetch and message render.
 // Deferred to a future test-infra phase.
 test.describe("Capability event pills — installed-extension default-hidden + toggle reveal", () => {
-	test.fixme("Phase 52.5.6: row hidden by default; toggle reveals; no /messages re-fetch on toggle", async ({
+	test("installed rows stay hidden by default, then appear after the user enables them without refetching messages", async ({
 		page,
 		mockApi,
 	}) => {
@@ -173,35 +173,43 @@ test.describe("Capability event pills — installed-extension default-hidden + t
 				} as any,
 			],
 			messages: [
+				// Capability events annotate a conversational branch; they are not
+				// valid leaves on their own. Seed the real turn they belong beside
+				// the audit row so this exercises the user-visible transcript path.
+				{
+					id: "m-parent-1",
+					conversationId: "conv-1",
+					role: "user",
+					content: "Check the installed extension",
+					parentMessageId: null,
+					createdAt: "2026-05-01T09:59:00.000Z",
+				} as any,
 				{
 					id: "m-pill-1",
 					conversationId: "conv-1",
 					role: "capability-event",
 					content: capabilityEventContent,
+					parentMessageId: null,
 					createdAt: "2026-05-01T10:00:00.000Z",
 				} as any,
 			],
 			extensions: [installedExt as any],
 		});
 
-		// Mutable mock state for the per-key settings GETs the chat
-		// page reads on mount via loadPillSettings().
+		// Mutable mock state returned by the complete settings document.
 		let installedToggle = false;
-		await page.route("**/api/settings/global:showInstalledCapabilityEvents", async (route) => {
-			if (route.request().method() === "GET") {
-				await route.fulfill({ json: { value: installedToggle } });
-			} else {
-				await route.continue();
-			}
+		// Both screens use fetchSettings(), which reads the complete settings
+		// document. Keep one mutable source of truth for the settings page and
+		// the return to chat; individual-key routes are not part of this flow.
+		await page.route("**/api/settings", async (route) => {
+			if (route.request().method() !== "GET") return route.fallback();
+			return route.fulfill({
+				json: {
+					"global:showBuiltinCapabilityEvents": true,
+					"global:showInstalledCapabilityEvents": installedToggle,
+				},
+			});
 		});
-		await page.route("**/api/settings/global:showBuiltinCapabilityEvents", async (route) => {
-			if (route.request().method() === "GET") {
-				await route.fulfill({ json: { value: true } });
-			} else {
-				await route.continue();
-			}
-		});
-
 		// Count /api/conversations/[id]/messages fetches across the
 		// whole flow — the spec contract is: toggle reveal does NOT
 		// require a re-fetch of the messages list.
@@ -235,6 +243,7 @@ test.describe("Capability event pills — installed-extension default-hidden + t
 		//    must be HIDDEN.
 		await page.goto("/project/proj-1/chat/conv-1");
 		await expect(page.getByTestId("chat-messages-container")).toBeVisible();
+		await expect(page.getByText("Check the installed extension")).toBeVisible();
 		// The pill row is gated client-side via shouldShowPill(); the
 		// chat-capability-event marker only appears when the visibility
 		// predicate returns true. With installedToggle=false, no marker.

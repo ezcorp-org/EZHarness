@@ -142,7 +142,7 @@ export function buildTurnDag(input: TurnDagInput): ChatGraph | null {
   const prompt = messageById.get(input.turnMessageId);
   // A turn id that is unknown, or that names a non-user row, is not a turn
   // — the route maps `null` to 404 so a foreign id cannot be probed.
-  if (!prompt || prompt.role !== "user") return null;
+  if (prompt?.role !== "user") return null;
 
   // ── Slice the turn ───────────────────────────────────────────────
   const childrenByParent = new Map<string, TurnDagMessage[]>();

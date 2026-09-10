@@ -44,6 +44,9 @@ test.describe("@evidence routing experiments", () => {
 		// The quality cost is stated above the control, not behind it.
 		await expect(section).toContainText("This trades answer quality for data.");
 		await expect(section).toContainText("% of routed turns");
+		const adminRouting = section.getByRole("link", { name: "admin Routing panel", exact: true });
+		await expect(adminRouting).toHaveAttribute("href", "/admin/dashboard");
+		await expect(adminRouting).toHaveClass(/underline/);
 
 		await section.scrollIntoViewIfNeeded();
 		await captureEvidence(page, testInfo, "routing-experiments-off");

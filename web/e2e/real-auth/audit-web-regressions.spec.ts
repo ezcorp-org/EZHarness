@@ -1,4 +1,5 @@
 import { test, expect, waitForHydration } from "../fixtures/hydration.js";
+import { EMPTY_STORAGE_STATE, assertNoAuthenticationCookies } from "../fixtures/member-session.js";
 import type { APIRequestContext, Browser, BrowserContext } from "@playwright/test";
 import { captureEvidence } from "../fixtures/evidence.js";
 
@@ -20,8 +21,9 @@ async function inviteVerifiedMember({
 	});
 	expect(inviteResponse.status(), await inviteResponse.text()).toBe(201);
 	const { invite } = (await inviteResponse.json()) as { invite: { token: string } };
-	const memberContext = await browser.newContext({ baseURL });
+	const memberContext = await browser.newContext({ baseURL, storageState: EMPTY_STORAGE_STATE });
 	try {
+		await assertNoAuthenticationCookies(memberContext);
 		const accepted = await memberContext.request.post(`/api/auth/invite/${invite.token}`, {
 			data: { name, email, password: "Audit-Local-Pw-9x!" },
 		});

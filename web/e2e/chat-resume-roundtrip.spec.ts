@@ -224,11 +224,10 @@ test.describe("Chat resume — full round-trip (leave section, return via nav)",
 	test("returns to the chat you had open, not the most-recent fallback", async ({
 		page,
 		mockApi,
-	}, testInfo) => {
-		test.skip(
-			testInfo.project.name === "mobile-chromium",
-			"the /chat index intentionally does not auto-redirect on mobile",
-		);
+	}) => {
+		// The contract is the desktop index redirect. Set it explicitly so the
+		// configured mobile browser project also exercises this positive path.
+		await page.setViewportSize({ width: 1024, height: 768 });
 
 		await openScrollLeaveAndReturn(page, mockApi, { scroll: false });
 
@@ -245,11 +244,8 @@ test.describe("Chat resume — full round-trip (leave section, return via nav)",
 	test("restores that chat's scroll position across the round-trip", async ({
 		page,
 		mockApi,
-	}, testInfo) => {
-		test.skip(
-			testInfo.project.name === "mobile-chromium",
-			"the /chat index intentionally does not auto-redirect on mobile",
-		);
+	}) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
 
 		const anchorBefore = await openScrollLeaveAndReturn(page, mockApi, {
 			scroll: true,

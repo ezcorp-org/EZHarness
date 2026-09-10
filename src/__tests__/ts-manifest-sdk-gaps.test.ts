@@ -1,4 +1,4 @@
-import { controlActor, controlFixture, controlInstallation as installation, controlWorkspace as workspace } from "./helpers/extension-control-fixture";
+import { controlActor, controlFixture, } from "./helpers/extension-control-fixture";
 import { createExtensionFiles, extensionControlTools } from "../extensions/extension-control";
 import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
 import { assertJson, compileValueSchema, parseJson, validateInvocationContext, validateManifest, validateResourceLimits, validateWire } from "@ezcorp/extension-contract";

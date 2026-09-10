@@ -7,9 +7,12 @@ import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "b
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // Router/credentials read settings; stub them to empty so resolution is
-// deterministic and never touches a DB.
+// deterministic and never touches a DB. Keeping the spy lets the isolation
+// tests prove their guard runs before custom-provider configuration can steer
+// an outbound base URL.
+const getSetting = mock<(key: string) => Promise<unknown>>(async () => undefined);
 mock.module("../db/queries/settings", () => ({
-  getSetting: async () => undefined,
+  getSetting,
   getAllSettings: async () => ({}),
   upsertSetting: async () => {},
   deleteSetting: async () => false,
@@ -21,12 +24,14 @@ mock.module("../providers/encryption", () => ({
   _resetKeyCache: () => {},
 }));
 
-const { resolveModel } = await import("../providers/router");
+const { resolveModel, suggestFallback } = await import("../providers/router");
 const { getCredential } = await import("../providers/credentials");
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
 const savedAllow = process.env.EZCORP_ALLOW_TEST_SURFACE;
+const savedIsolation = process.env.PI_E2E_ISOLATE_PROVIDERS;
+const savedMockBaseUrl = process.env.EZCORP_MOCK_LLM_BASE_URL;
 
 function enableSurface(on: boolean): void {
   if (on) {
@@ -38,15 +43,79 @@ function enableSurface(on: boolean): void {
   }
 }
 
-beforeEach(() => enableSurface(true));
+beforeEach(() => {
+  enableSurface(true);
+  getSetting.mockReset();
+  getSetting.mockResolvedValue(undefined);
+});
 afterEach(() => {
   if (savedE2E === undefined) delete process.env.PI_E2E_REAL; else process.env.PI_E2E_REAL = savedE2E;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
   if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE; else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
+  if (savedIsolation === undefined) delete process.env.PI_E2E_ISOLATE_PROVIDERS; else process.env.PI_E2E_ISOLATE_PROVIDERS = savedIsolation;
+  if (savedMockBaseUrl === undefined) delete process.env.EZCORP_MOCK_LLM_BASE_URL; else process.env.EZCORP_MOCK_LLM_BASE_URL = savedMockBaseUrl;
 });
 afterAll(() => restoreModuleMocks());
 
 describe("resolveModel: ezcorp-mock", () => {
+  test("isolated harness rejects a real provider before any transport starts", async () => {
+    process.env.PI_E2E_ISOLATE_PROVIDERS = "1";
+    const originalFetch = globalThis.fetch;
+    let transportCalls = 0;
+    globalThis.fetch = Object.assign(
+      async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+        transportCalls++;
+        throw new Error("isolated provider attempted transport");
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+    try {
+      await expect(resolveModel("openai", "gpt-5")).rejects.toThrow(/Real provider access is disabled/);
+      expect(await suggestFallback("ezcorp-mock", "balanced")).toBeNull();
+      expect(transportCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("isolated harness rejects a provider-only mock before custom routing can reach an arbitrary URL", async () => {
+    process.env.PI_E2E_ISOLATE_PROVIDERS = "1";
+    process.env.EZCORP_MOCK_LLM_BASE_URL = "http://127.0.0.1:4291/api/__test/mock-llm/v1";
+    getSetting.mockResolvedValue([
+      { provider: "ezcorp-mock", modelId: "mock:configured", baseUrl: "https://provider.example.invalid/v1" },
+    ]);
+    const originalFetch = globalThis.fetch;
+    let transportCalls = 0;
+    globalThis.fetch = Object.assign(
+      async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+        transportCalls++;
+        throw new Error("isolated provider attempted transport");
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+    try {
+      await expect(resolveModel("ezcorp-mock")).rejects.toThrow(/explicit ezcorp-mock model is required/);
+      expect(getSetting).not.toHaveBeenCalled();
+      expect(transportCalls).toBe(0);
+
+      const resolved = await resolveModel("ezcorp-mock", "mock:configured");
+      expect(resolved.piModel.baseUrl).toBe(process.env.EZCORP_MOCK_LLM_BASE_URL);
+      expect(getSetting).not.toHaveBeenCalled();
+      expect(transportCalls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("without the test surface, the E2E isolation flag leaves provider routing intact", async () => {
+    enableSurface(false);
+    process.env.PI_E2E_ISOLATE_PROVIDERS = "1";
+
+    const resolved = await resolveModel("openai", "gpt-5");
+
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5");
+  });
   test("under the surface → custom openai-completions model at loopback mock baseUrl", async () => {
     // mockLlmBaseUrl() requires one of EZCORP_MOCK_LLM_BASE_URL / PORT /
     // EZCORP_PORT to be set — it no longer guesses a default port.

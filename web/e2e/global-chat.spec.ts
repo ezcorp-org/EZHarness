@@ -1,5 +1,4 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
@@ -27,7 +26,7 @@ test.describe("Global chat + handoff", () => {
 		expect(active).toBe("global");
 	});
 
-	test("Landing top-left wordmark links to /project/global/chat", async ({
+	test("root opens the global chat when no project state is saved", async ({
 		page,
 		mockApi,
 	}) => {
@@ -35,13 +34,7 @@ test.describe("Global chat + handoff", () => {
 		await mockApi({ projects: [globalProj] });
 
 		await page.goto("/");
-
-		const wordmark = page.getByLabel("Go to Global chat");
-		await expect(wordmark).toBeVisible();
-		await expect(wordmark).toHaveAttribute("href", "/project/global/chat");
-
-		await wordmark.click();
-		await page.waitForURL(/\/project\/global\/chat/);
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
 	});
 
 	test("Sidebar shows Chat link on Global and navigates to /project/global/chat", async ({
@@ -97,7 +90,7 @@ test.describe("Global chat + handoff", () => {
 		expect(page.url()).toMatch(/\/project\/proj-1\/chat\/conv-1(\?.*)?$/);
 	});
 
-	test("Global conversation creation from landing hits POST /api/conversations with projectId 'global'", async ({
+	test("Global New Chat hits POST /api/conversations with projectId 'global'", async ({
 		page,
 		mockApi,
 	}) => {
@@ -106,20 +99,13 @@ test.describe("Global chat + handoff", () => {
 		const globalProj = makeProject({ id: "global", name: "Global" });
 		await mockApi({ projects: [globalProj] });
 
-		await page.addInitScript(
-			({ key, value }) => {
-				try { localStorage.setItem(key, value); } catch { /* ignore */ }
-			},
-			{ key: ACTIVE_PROJECT_KEY, value: "global" },
-		);
-
 		const createReq = page.waitForRequest(
 			(req) =>
 				req.url().endsWith("/api/conversations") && req.method() === "POST",
 		);
 
-		await page.goto("/");
-		await sendComposerMessage(page, "hello global");
+		await page.goto("/project/global/chat");
+		await page.getByRole("button", { name: "New Chat", exact: true }).click();
 
 		const body = (await createReq).postDataJSON();
 		expect(body).toMatchObject({ projectId: "global" });

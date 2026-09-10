@@ -293,10 +293,12 @@ describe("FEATURE_TOKEN_RE", () => {
     expect(re.exec("/[cmd:foo]")).toBeNull();
   });
 
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: The test name documents the literal false-positive token.
   test("does not match unrelated $-sequences (e.g. $5.00, ${var})", () => {
     const re = new RegExp(FEATURE_TOKEN_RE.source, "g");
     expect(re.exec("price is $5.00")).toBeNull();
     re.lastIndex = 0;
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: The matcher must receive this literal non-token.
     expect(re.exec("var is ${someVar}")).toBeNull();
     re.lastIndex = 0;
     expect(re.exec("$ARGUMENTS")).toBeNull();

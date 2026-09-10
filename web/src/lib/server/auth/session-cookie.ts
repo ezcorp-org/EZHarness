@@ -79,11 +79,15 @@ export function setSessionCookie(
   });
 }
 
-export function clearSessionCookie(cookies: Cookies): void {
-  cookies.set(SESSION_COOKIE_NAME, "", {
+export function clearSessionCookie(cookies: Cookies, response?: Response): void {
+  const options = {
     path: "/",
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     maxAge: 0,
-  });
+  };
+  cookies.set(SESSION_COOKIE_NAME, "", options);
+  // A response returned directly from handle() never enters SvelteKit's
+  // resolve() cookie writer. Carry the expiry on that response explicitly.
+  if (response) response.headers.append("set-cookie", cookies.serialize(SESSION_COOKIE_NAME, "", options));
 }

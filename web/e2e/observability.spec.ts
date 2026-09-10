@@ -22,7 +22,7 @@ const makeObsStats = (overrides: Record<string, unknown> = {}) => ({
 test.describe("Observability Page", () => {
 	const proj = makeProject({ id: "proj-1", name: "Obs Project" });
 
-	test("page loads and shows Observability heading", async ({ page, mockApi }) => {
+	test("page loads and shows Analytics heading", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			routes: {
@@ -31,7 +31,7 @@ test.describe("Observability Page", () => {
 		});
 		await page.goto("/observability");
 
-		await expect(page.getByRole("heading", { name: "Observability" })).toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible({ timeout: 5000 });
 	});
 
 	test("page shows all four summary stat cards", async ({ page, mockApi }) => {

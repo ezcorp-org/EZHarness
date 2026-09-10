@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ContractError, validateManifest, validateWire, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { assertJson, ContractError, validateManifest, validateWire, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { RunnerError } from "@ezcorp/extension-runner";
 import { digestObject, getFiles, putFiles, validatePath } from "./blobs";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleActor, type LifecycleApproval, type LifecycleDependencies, type LifecycleOperation, type LifecycleRelease, type WorkspaceRecord } from "./types";
@@ -261,7 +261,14 @@ export class ExtensionLifecycle {
   async requestApproval(actor: LifecycleActor, input: { installationId: string; releaseId: string; grants: string[]; expectedActiveReleaseId: string | null }): Promise<LifecycleApproval> {
     const snapshot = await this.inspect(actor, input.installationId);
     const release = this.release(snapshot, input.releaseId);
-    if (!Array.isArray(input.grants) || input.grants.length > 1000 || input.grants.some((grant) => typeof grant !== "string" || !grant || grant.length > 1000)) throw new LifecycleError("invalid_grants", "Grants must be a bounded capability list.");
+    // Canonical permissions can contain many routes in one grant. Bound the
+    // complete JSON payload with the same byte limit as the manifest contract.
+    try {
+      assertJson(input.grants);
+      if (!Array.isArray(input.grants) || input.grants.length > 1000 || input.grants.some((grant) => typeof grant !== "string" || !grant)) throw new Error("Invalid capability list");
+    } catch {
+      throw new LifecycleError("invalid_grants", "Grants must be a bounded capability list.");
+    }
     const grants = [...new Set(input.grants)].sort();
     await this.dependencies.authorize(actor, "activate", release, grants);
     return this.transaction(actor, input.installationId, (state) => {

@@ -19,12 +19,8 @@ const WORKFLOW = makeWorkflow({
 });
 
 async function openEditor(page: import("@playwright/test").Page) {
-	const response = await page.goto(`/workflows/${WORKFLOW.name}/edit`);
-	const finalUrl = response ? new URL(response.url()).pathname : "";
-	test.skip(
-		!finalUrl.endsWith("/edit"),
-		"auth gate redirected away from the workflow editor in this environment",
-	);
+	await page.goto(`/workflows/${WORKFLOW.name}/edit`);
+	await expect(page).toHaveURL(new RegExp(`/workflows/${WORKFLOW.name}/edit$`));
 	await expect(page.getByTestId("workflow-editor")).toBeVisible({ timeout: 5000 });
 }
 

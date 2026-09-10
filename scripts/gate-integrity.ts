@@ -53,7 +53,23 @@
  */
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import ts from "typescript";
 import { REPO_ROOT } from "./coverage-config.ts";
+import { parseUnifiedDiff } from "./unified-diff.ts";
+export { parseUnifiedDiff, type DiffFile } from "./unified-diff.ts";
+
+/**
+ * The vacuous-test check needs TypeScript's AST, not a lossy text heuristic.
+ * CI installs this isolated, locked dependency before running the gate.
+ */
+function typeScriptParser(): typeof ts {
+  if (!ts || typeof ts.createSourceFile !== "function" || !ts.ScriptTarget || !ts.ScriptKind) {
+    throw new Error(
+      "TypeScript AST parser is unavailable; install the locked .github/gate-integrity-deps dependency before running this gate",
+    );
+  }
+  return ts;
+}
 
 // ── Pure detection helpers (unit-tested) ───────────────────────────────────
 
@@ -129,81 +145,6 @@ export function thresholdRatchetViolations(baseJson: string, headJson: string): 
     }
   }
   return out;
-}
-
-export type DiffFile = {
-  file: string;
-  addedLines: Set<number>;
-  addedTexts: string[];
-  removedTexts: string[];
-};
-
-/**
- * Parse `git diff --unified=0` output into per-file added line numbers
- * (new-side), the added text lines, and the removed text lines (old-side,
- * consumed by the in-place-gutting check).
- *
- * A DELETED file's new-side header is `+++ /dev/null`, NOT `+++ b/<path>`.
- * Keying only off `+++ b/` therefore left `cur` pointing at the PREVIOUS
- * file in the diff and shovelled every deleted line into ITS `removedTexts`
- * — so any PR that deleted a test file accused whichever modified test file
- * happened to sort just before it of being "GUTTED in place". Observed
- * 2026-08-03 retiring `ez-code-factory`: five deleted
- * `web/e2e/ez-code-factory-*.spec.ts` specs landed 172 removed assertion
- * lines on `src/__tests__/extension-rbac-resolver.test.ts`, a file the same
- * diff only ADDS 130 lines to (+130 / -0).
- *
- * That false positive is a gate WEAKENING, not a nuisance: the only way past
- * it is `gate-change-approved`, which bypasses ALL SEVEN other checks. A
- * routine deletion should not be the thing that buys a PR a blanket bypass.
- *
- * The old side is tracked so a deleted file gets its OWN entry, keyed by its
- * old path. `deletedOrRenamedTests` (check 7) already flags the deletion
- * itself; keeping the lines attributed correctly just stops them being
- * counted against a bystander.
- */
-export function parseUnifiedDiff(diff: string): Map<string, DiffFile> {
-  const files = new Map<string, DiffFile>();
-  let cur: DiffFile | null = null;
-  let oldPath: string | null = null;
-  let newLine = 0;
-  // Returns the entry so the caller ASSIGNS `cur` — assigning inside the
-  // helper would leave TS narrowing `cur` to `never` at the branches below.
-  const startFile = (file: string): DiffFile => {
-    const entry: DiffFile = { file, addedLines: new Set(), addedTexts: [], removedTexts: [] };
-    files.set(file, entry);
-    return entry;
-  };
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("+++ b/")) {
-      cur = startFile(line.slice(6));
-    } else if (line === "+++ /dev/null") {
-      // Deleted file: the new side is /dev/null, so the OLD path names it.
-      // Without its own entry, everything below lands on the previous file.
-      cur = startFile(oldPath ?? "/dev/null");
-    } else if (line.startsWith("@@")) {
-      // @@ -a,b +c,d @@  → new-side starts at c
-      const m = line.match(/\+(\d+)/);
-      newLine = m?.[1] ? Number(m[1]) : 0;
-    } else if (line.startsWith("--- a/")) {
-      // old-side file header — not a removed line (a REAL removed line whose
-      // content begins with "-- " would be "--- " but never "--- a/")
-      oldPath = line.slice(6);
-    } else if (line === "--- /dev/null") {
-      // Added file — the `+++ b/<path>` on the next line names it.
-      oldPath = null;
-    } else if (cur && line.startsWith("+") && !line.startsWith("+++")) {
-      cur.addedLines.add(newLine);
-      cur.addedTexts.push(line.slice(1));
-      newLine++;
-    } else if (cur && line.startsWith("-")) {
-      cur.removedTexts.push(line.slice(1));
-    } else if (cur && !line.startsWith("\\")) {
-      // context line (unified=0 emits none, but be safe)
-      newLine++;
-    }
-  }
-  return files;
 }
 
 // Always a cheat: `.only` / `.todo` / `.failing`, the x*/f* focus/skip globals,
@@ -442,10 +383,8 @@ function stripNoise(line: string): string {
  * `[`, `!`, `&`, `|`, `?`, `{`, `}`, `;`, or `return`/`typeof`/`case`, it
  * opens a regex.
  *
- * `scripts/gate-integrity.ts` runs in a CI job with NO dependencies installed
- * (ci.yml: "no deps needed"), so a real parser is not available here — this is
- * a lexer-grade approximation, and the tree-wide sweep in the PR body is the
- * evidence it holds on this codebase.
+ * The surrounding lexer remains intentionally small; TypeScript's AST handles
+ * lexical assertion paths after this masking step.
  */
 export function codeMask(src: string): Uint8Array {
   const mask = new Uint8Array(src.length).fill(1);
@@ -580,14 +519,144 @@ export function codeMask(src: string): Uint8Array {
  * Matching parentheses instead of braces covers both shapes with one rule.
  *
  * What counts as an assertion is UNCHANGED — same {@link ASSERTION} pattern,
- * applied to the same code-only text. This commit fixes WHERE the gate looks,
- * never WHAT it accepts; helper-wrapped assertions (`expectFail(…)`) remain
- * flagged and are a separate, deliberate decision.
+ * applied to code nodes. A test may call a locally declared helper that
+ * contains such an assertion. TypeScript's parser gives that helper its real
+ * lexical body; source-map-like delimiters are never used to infer scope.
  *
  * Hooks were never in scope and still are not: {@link TEST_OPENER} requires
  * `test`/`it` immediately followed by `(`, so `test.beforeEach(`,
  * `test.describe(` and `describe(` do not match.
  */
+/** Whether each parsed test call has a lexical path to an assertion. */
+function testAssertionPaths(source: string): Map<number, boolean> {
+  const parser = typeScriptParser();
+  const file = parser.createSourceFile("gate-integrity-input.ts", source, parser.ScriptTarget.Latest, true, parser.ScriptKind.TS);
+  const helpers = new Map<string, ts.FunctionDeclaration>();
+  const importedWaitFor = new Set<string>();
+  for (const statement of file.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) helpers.set(statement.name.text, statement);
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || !statement.moduleSpecifier.text.startsWith("@testing-library/")) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const specifier of bindings.elements) {
+      if ((specifier.propertyName?.text ?? specifier.name.text) === "waitFor") {
+        importedWaitFor.add(specifier.name.text);
+      }
+    }
+  }
+
+  const bindingNames = (name: ts.BindingName | undefined): string[] => {
+    // A syntactically incomplete diff can produce a recovery declaration with
+    // no name. It cannot bind a helper, so retain fail-closed assertion logic
+    // without crashing the whole gate.
+    if (!name) return [];
+    if (ts.isIdentifier(name)) return [name.text];
+    return name.elements.flatMap((element) => ts.isBindingElement(element) ? bindingNames(element.name) : []);
+  };
+  const scopeBindsHelper = (scope: ts.Node, name: string): boolean => {
+    if (ts.isFunctionLike(scope)
+      && scope.parameters.some((parameter) => bindingNames(parameter.name).includes(name))) return true;
+    let bound = false;
+    const scan = (node: ts.Node): void => {
+      // The declaration itself binds in the surrounding scope, so inspect it
+      // before declining to descend into its separate lexical body.
+      if (node !== scope && ts.isFunctionDeclaration(node) && node.name?.text === name) bound = true;
+      if (node !== scope && ts.isVariableDeclaration(node) && bindingNames(node.name).includes(name)) bound = true;
+      if (node !== scope && ts.isFunctionLike(node)) return;
+      ts.forEachChild(node, scan);
+    };
+    scan(scope);
+    return bound;
+  };
+  const shadowsFileHelper = (root: ts.FunctionLikeDeclaration, name: string): boolean => {
+    // Resolve every lexical function/block scope between the test callback and
+    // the source file. A matching enclosing `describe` binding is ambiguous to
+    // this static proof, so fail closed instead of borrowing the file helper.
+    for (let scope: ts.Node | undefined = root; scope && scope !== file; scope = scope.parent) {
+      if ((ts.isFunctionLike(scope) || ts.isBlock(scope)) && scopeBindsHelper(scope, name)) return true;
+    }
+    return false;
+  };
+
+  const state = new Map<string, "visiting" | "true" | "false">();
+  const callIsAssertion = (call: ts.CallExpression): boolean => ASSERTION.test(call.expression.getText(file));
+  const invokedCallbackParameters = (helper: ts.FunctionDeclaration): Set<number> => {
+    const parameterIndexes = new Map<string, number>();
+    helper.parameters.forEach((parameter, index) => {
+      if (ts.isIdentifier(parameter.name)) parameterIndexes.set(parameter.name.text, index);
+    });
+    const invoked = new Set<number>();
+    const scan = (node: ts.Node): void => {
+      if (node !== helper && ts.isFunctionLike(node)) return;
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        const index = parameterIndexes.get(node.expression.text);
+        if (index !== undefined) invoked.add(index);
+      }
+      ts.forEachChild(node, scan);
+    };
+    scan(helper);
+    return invoked;
+  };
+  const functionHasAssertion = (name: string): boolean => {
+    const known = state.get(name);
+    if (known) return known === "true";
+    const helper = helpers.get(name);
+    if (!helper?.body) return false;
+    state.set(name, "visiting");
+    const result = nodeHasAssertion(helper, helper);
+    state.set(name, result ? "true" : "false");
+    return result;
+  };
+  const nodeHasAssertion = (node: ts.Node, root: ts.FunctionLikeDeclaration): boolean => {
+    if (node !== root && ts.isFunctionLike(node)) return false;
+    if (ts.isCallExpression(node)) {
+      if (callIsAssertion(node)) return true;
+      if (ts.isIdentifier(node.expression)) {
+        const name = node.expression.text;
+        // Testing Library's imported waitFor is a known callback invoker, but
+        // only an awaited call proves the test waits for its assertion. Do not
+        // credit a same-named local binding or arbitrary callback helper.
+        const callback = node.arguments[0];
+        if (importedWaitFor.has(name)
+          && ts.isAwaitExpression(node.parent)
+          && !shadowsFileHelper(root, name)
+          && callback
+          && ts.isFunctionLike(callback)
+          && nodeHasAssertion(callback, callback)) return true;
+
+        const helper = helpers.get(name);
+        if (helper && !shadowsFileHelper(root, name)) {
+          if (functionHasAssertion(name)) return true;
+          for (const index of invokedCallbackParameters(helper)) {
+            const callback = node.arguments[index];
+            if (callback && ts.isFunctionLike(callback) && nodeHasAssertion(callback, callback)) return true;
+          }
+        }
+      }
+    }
+    let found = false;
+    ts.forEachChild(node, (child) => { if (!found && nodeHasAssertion(child, root)) found = true; });
+    return found;
+  };
+
+  const tests = new Map<number, boolean>();
+  const findTests = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)
+      && (node.expression.text === "test" || node.expression.text === "it")) {
+      const callback = node.arguments.find(
+        (argument): argument is ts.ArrowFunction | ts.FunctionExpression =>
+          ts.isArrowFunction(argument) || ts.isFunctionExpression(argument),
+      );
+      if (callback) tests.set(node.expression.getStart(file), nodeHasAssertion(callback, callback));
+    }
+    ts.forEachChild(node, findTests);
+  };
+  findTests(file);
+  return tests;
+}
+
 export function unassertedAddedBlocks(fileContent: string, addedLines: Set<number>): string[] {
   const mask = codeMask(fileContent);
   // Code-only projection: non-code bytes become spaces, so offsets and line
@@ -602,6 +671,7 @@ export function unassertedAddedBlocks(fileContent: string, addedLines: Set<numbe
     return n;
   };
   const rawLines = fileContent.split("\n");
+  const assertionsByTest = testAssertionPaths(fileContent);
 
   const out: string[] = [];
   const opener = new RegExp(TEST_OPENER.source, "g");
@@ -638,7 +708,7 @@ export function unassertedAddedBlocks(fileContent: string, addedLines: Set<numbe
       }
     }
     if (!touched) continue;
-    if (ASSERTION.test(code.slice(kw, close + 1))) continue;
+    if (assertionsByTest.get(kw)) continue;
     out.push(
       `vacuous test (no assertion) near line ${from}: ${(rawLines[from - 1] ?? "").trim().slice(0, 80)}`,
     );
@@ -937,7 +1007,7 @@ function collectBiomeRecords(cfg: JsonObject): BiomeRuleRecord[] {
 }
 
 const biomeRecordKey = (r: BiomeRuleRecord): string =>
-  `${r.negated ? "!" : ""}${r.scope} ${r.rule}`;
+  `${r.negated ? "!" : ""}${r.scope}\u0000${r.rule}`;
 
 const biomeRecordAt = (r: BiomeRuleRecord): string =>
   r.scope === BIOME_ROOT_SCOPE ? "linter.rules" : `${r.where} (${r.negated ? "!" : ""}${r.scope})`;
@@ -1154,6 +1224,9 @@ async function showAtBase(rev: string, path: string): Promise<string | null> {
 }
 
 async function main(): Promise<void> {
+  // Check this before any diff shortcut. A missing AST parser must never let a
+  // no-test-change PR appear green while later test-changing PRs crash.
+  typeScriptParser();
   const base = process.env.BASE_REF || "origin/main";
   const approved = !!process.env.GATE_CHANGE_APPROVED;
 

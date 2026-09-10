@@ -69,7 +69,7 @@ function tokenText(token: Token): string {
       return decodeEntities(stripTags((token as Tokens.HTML).text));
     case "text": {
       const tx = token as Tokens.Text;
-      return tx.tokens && tx.tokens.length
+      return tx.tokens?.length
         ? inlineText(tx.tokens)
         : decodeEntities(tx.text);
     }

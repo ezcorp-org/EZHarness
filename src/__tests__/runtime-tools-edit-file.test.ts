@@ -39,7 +39,7 @@ describe("createEditFileTool", () => {
     const tool = createEditFileTool(projectPath);
     const result = await tool.execute("1", { path: "f.txt", old_string: "foo", new_string: "qux" });
     expect(getText(result)).toContain("found 3 times");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
     // File must be unchanged on error.
     expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("foo bar foo baz foo");
   });
@@ -57,14 +57,14 @@ describe("createEditFileTool", () => {
     const tool = createEditFileTool(projectPath);
     const result = await tool.execute("1", { path: "f.txt", old_string: "", new_string: "y" });
     expect(getText(result)).toContain("old_string is empty");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 
   test("errors when the file does not exist in replace mode", async () => {
     const tool = createEditFileTool(projectPath);
     const result = await tool.execute("1", { path: "missing.txt", old_string: "a", new_string: "b" });
     expect(getText(result)).toContain("file not found");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 
   test("errors when old_string does not match anything in the file", async () => {
@@ -72,7 +72,7 @@ describe("createEditFileTool", () => {
     const tool = createEditFileTool(projectPath);
     const result = await tool.execute("1", { path: "f.txt", old_string: "goodbye", new_string: "hi" });
     expect(getText(result)).toContain("old_string not found in file");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
     expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("hello world");
   });
 
@@ -80,7 +80,7 @@ describe("createEditFileTool", () => {
     const tool = createEditFileTool(projectPath);
     const result = await tool.execute("1", { path: "../../etc/passwd", new_string: "pwn" });
     expect(getText(result)).toContain("Path traversal");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 
   test("replaces a line range in-place", async () => {
@@ -103,7 +103,7 @@ describe("createEditFileTool", () => {
       lineRange: { startLine: 1, endLine: 1 },
     });
     expect(getText(result)).toContain("file not found");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 
   test("errors on an out-of-range lineRange", async () => {
@@ -115,7 +115,7 @@ describe("createEditFileTool", () => {
       lineRange: { startLine: 5, endLine: 6 },
     });
     expect(getText(result)).toContain("invalid line range 5-6");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
     // File must be unchanged on error.
     expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("a\nb\nc");
   });

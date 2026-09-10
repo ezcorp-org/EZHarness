@@ -78,6 +78,7 @@ function makeAllowEngine(): PermissionEngine {
       _scope: AlwaysAllowScope,
       _scopeId: string,
     ): Promise<void> {},
+    async flushAudit(): Promise<void> {},
     _resetCacheForTests(): void {},
   };
 }
@@ -315,7 +316,7 @@ describe("Phase 54 SEC-03 — per-conversation call-depth cap", () => {
     resolveAll!();
     const results = await Promise.all(parked);
     for (const r of results) {
-      expect(r.error).toBeUndefined();
+      expect(r).toMatchObject({ result: { isError: false, content: [{ type: "text", text: "ok" }] } });
     }
 
     // Final liveness check: with all 50 settled, the counter must be

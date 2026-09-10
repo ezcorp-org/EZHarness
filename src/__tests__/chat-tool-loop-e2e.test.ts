@@ -137,9 +137,11 @@ beforeAll(async () => {
     name: "e2e-echo",
     version: "1.0.0",
     manifest: {
+      schemaVersion: 2,
       name: "e2e-echo",
       version: "1.0.0",
       description: "E2E test extension",
+      author: { name: "test" },
       entrypoint: "./entrypoint.ts",
       tools: [{ name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } } } }],
       permissions: {},

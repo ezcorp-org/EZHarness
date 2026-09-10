@@ -5,6 +5,7 @@
  * key (or cookie session). The harness seeds an ordered list of turns under
  * a key, then drives a conversation with `model:"mock:<key>"`.
  *
+ * GET    ?scriptKey=…                       → recorded provider request bodies
  * POST   { scriptKey, turns: MockTurn[] }  → replace the script for a key
  * DELETE                                   → clear all scripts
  */
@@ -13,7 +14,7 @@ import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { isTestSurfaceEnabled } from "$lib/server/test-surface";
-import { setMockScript, clearMockScripts, type MockTurn } from "$lib/server/mock-llm";
+import { setMockScript, clearMockScripts, getMockRequests, type MockTurn } from "$lib/server/mock-llm";
 import type { RequestHandler } from "./$types";
 
 const USAGE_FIELDS = ["input", "cacheRead", "cacheWrite", "output"] as const;
@@ -55,6 +56,9 @@ function parseTurns(raw: unknown): MockTurn[] | { error: string } {
   for (const [i, t] of raw.entries()) {
     if (!t || typeof t !== "object") return { error: `turns[${i}] must be an object` };
     const turn = t as Record<string, unknown>;
+    if (turn.holdKey !== undefined && (typeof turn.holdKey !== "string" || turn.holdKey.length === 0)) {
+      return { error: `turns[${i}].holdKey must be a non-empty string` };
+    }
     if (turn.text !== undefined && typeof turn.text !== "string") {
       return { error: `turns[${i}].text must be a string` };
     }
@@ -83,11 +87,25 @@ function parseTurns(raw: unknown): MockTurn[] | { error: string } {
   return turns;
 }
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+function authorize(locals: App.Locals): Response | null {
   if (!isTestSurfaceEnabled()) return errorJson(404, "Not found");
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   requireAuth(locals);
+  return null;
+}
+
+export const GET: RequestHandler = async ({ url, locals }) => {
+  const authError = authorize(locals);
+  if (authError) return authError;
+  const scriptKey = url.searchParams.get("scriptKey");
+  if (!scriptKey) return errorJson(400, "`scriptKey` must be a non-empty string");
+  return json({ scriptKey, requests: getMockRequests(scriptKey) });
+};
+
+export const POST: RequestHandler = async ({ request, locals }) => {
+  const authError = authorize(locals);
+  if (authError) return authError;
 
   let body: { scriptKey?: unknown; turns?: unknown };
   try {
@@ -106,10 +124,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ locals }) => {
-  if (!isTestSurfaceEnabled()) return errorJson(404, "Not found");
-  const scopeErr = requireScope(locals, "chat");
-  if (scopeErr) return scopeErr;
-  requireAuth(locals);
+  const authError = authorize(locals);
+  if (authError) return authError;
   clearMockScripts();
   return json({ ok: true });
 };

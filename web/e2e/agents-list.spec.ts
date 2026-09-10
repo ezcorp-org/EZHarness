@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeAgent } from "./fixtures/data.js";
+import { makeAgent, makeAgentConfig, makeProject } from "./fixtures/data.js";
 
 test.describe("Agents List Page", () => {
 	test("shows heading and New Agent button", async ({ page, mockApi }) => {
@@ -108,6 +108,143 @@ test.describe("Agents List Page", () => {
 		await expect(page.getByText("finance-bot")).toBeVisible();
 		await expect(page.getByText("eng-bot")).toBeVisible();
 	});
+
+	test("ownership filters compose with search and can be cleared", async ({ page, mockApi }) => {
+		await mockApi({
+			agents: [
+				makeAgent({
+					name: "owned-planner",
+					source: "config",
+					id: "owned-1",
+					prompt: "Plan work.",
+					category: "Planning",
+				}),
+				makeAgent({
+					name: "shared-reviewer",
+					source: "config",
+					id: "shared-1",
+					prompt: "Review work.",
+					category: "Review",
+					shared: true,
+					sharedByName: "Morgan",
+				}),
+			],
+		});
+		await page.goto("/agents");
+
+		await page.getByRole("button", { name: /Shared with me/ }).click();
+		await expect(page.getByText("shared-reviewer", { exact: true })).toBeVisible();
+		await expect(page.getByText("owned-planner", { exact: true })).not.toBeVisible();
+
+		const search = page.getByTestId("agent-search-input");
+		await search.fill("no matching agent");
+		await expect(page.getByTestId("agent-search-empty")).toContainText("no matching agent");
+		await page.getByTestId("agent-search-clear").click();
+		await expect(search).toHaveValue("");
+		await expect(page.getByText("shared-reviewer", { exact: true })).toBeVisible();
+
+		await page.getByRole("button", { name: "My agents", exact: true }).click();
+		await expect(page.getByText("owned-planner", { exact: true })).toBeVisible();
+		await expect(page.getByText("shared-reviewer", { exact: true })).not.toBeVisible();
+	});
+
+	test("Chat refuses the global workspace before it creates a conversation", async ({ page, mockApi }) => {
+		const conversationWrites: string[] = [];
+		page.on("request", (request) => {
+			if (new URL(request.url()).pathname === "/api/conversations" && request.method() === "POST") {
+				conversationWrites.push(request.url());
+			}
+		});
+		await mockApi({
+			agents: [
+				makeAgent({
+					name: "project-only-agent",
+					source: "config",
+					id: "agent-project-only",
+					prompt: "Use a project.",
+				}),
+			],
+		});
+		await page.goto("/agents");
+
+		await page.getByRole("button", { name: "Chat", exact: true }).click();
+		await expect(page.getByText("Select a project first", { exact: true })).toBeVisible();
+		expect(conversationWrites).toEqual([]);
+	});
+
+	for (const journey of [
+		{
+			name: "agent",
+			project: makeProject({ id: "project-for-agent", name: "Agent project" }),
+			path: "/agents",
+			overrides: {
+				agents: [makeAgent({ name: "project-chat-agent", source: "config", id: "agent-project-chat", prompt: "Use the selected project." })],
+			},
+			expectedBody: { projectId: "project-for-agent", agentConfigId: "agent-project-chat" },
+		},
+		{
+			name: "team",
+			project: makeProject({ id: "project-for-team", name: "Team project" }),
+			path: "/agents?tab=teams",
+			overrides: {
+				agentConfigs: [makeAgentConfig({ id: "team-config-1", name: "Delivery Team", category: "team" })],
+			},
+			expectedBody: { projectId: "project-for-team", agentConfigId: "team-config-1" },
+		},
+	]) {
+		test(`Chat creates and reloads the selected ${journey.name} conversation`, async ({ page, mockApi }) => {
+			await page.addInitScript((projectId) => {
+				localStorage.setItem("activeProjectId", projectId);
+			}, journey.project.id);
+			await mockApi({ projects: [journey.project], ...journey.overrides });
+			await page.goto(journey.path);
+
+			const created = page.waitForResponse((response) =>
+				new URL(response.url()).pathname === "/api/conversations" && response.request().method() === "POST",
+			);
+			const request = page.waitForRequest((request) =>
+				new URL(request.url()).pathname === "/api/conversations" && request.method() === "POST",
+			);
+			await page.getByRole("button", { name: "Chat", exact: true }).click();
+			expect((await created).status()).toBe(200);
+			expect((await request).postDataJSON()).toEqual(journey.expectedBody);
+
+			const chatUrl = `/project/${journey.project.id}/chat/new-conv`;
+			await expect(page).toHaveURL(chatUrl);
+			await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toBeVisible();
+			await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
+
+			await page.reload();
+			await expect(page).toHaveURL(chatUrl);
+			await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toBeVisible();
+			await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
+
+			if (journey.name === "agent") {
+				const secondCreated = page.waitForResponse((response) =>
+					new URL(response.url()).pathname === "/api/conversations" && response.request().method() === "POST",
+				);
+				await page.getByRole("navigation", { name: "Conversations" }).getByRole("button", { name: "New Chat" }).click();
+				expect(await (await secondCreated).json()).toMatchObject({
+					id: "new-conv-2",
+					projectId: journey.project.id,
+				});
+				const secondChatUrl = `/project/${journey.project.id}/chat/new-conv-2`;
+				await expect(page).toHaveURL(secondChatUrl);
+
+				const reloadedConversations = page.waitForResponse((response) => {
+					const url = new URL(response.url());
+					return url.pathname === "/api/conversations" && response.request().method() === "GET" && url.searchParams.get("projectId") === journey.project.id;
+				});
+				await page.reload();
+				expect((await (await reloadedConversations).json()).map((conversation: { id: string }) => conversation.id)).toEqual(
+					expect.arrayContaining(["new-conv", "new-conv-2"]),
+				);
+				await expect(page).toHaveURL(secondChatUrl);
+				await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("New Conversation", { exact: true })).toHaveCount(2);
+				await expect(page.getByRole("group", { name: "Chat input with file drop zone" })).toBeVisible();
+			}
+		});
+	}
 
 	test("+ New Agent link navigates to /agents/new", async ({ page, mockApi }) => {
 		await mockApi({ agents: [] });

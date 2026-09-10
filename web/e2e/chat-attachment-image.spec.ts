@@ -59,7 +59,9 @@ test("paperclip stages an image, chip renders, send posts multipart", async ({ p
 
   const chip = page.getByTestId("attachment-chip");
   await expect(chip).toBeVisible();
-  await expect(chip).toContainText("cat.png");
+	// Image chips expose their filename as a tooltip rather than duplicate it
+	// beside the thumbnail (the visible text is only the remove control).
+	await expect(chip).toHaveAttribute("title", "cat.png");
 
   // Capture the outgoing POST — then send and verify it's multipart + carries the file.
   const sendRequest = page.waitForRequest(

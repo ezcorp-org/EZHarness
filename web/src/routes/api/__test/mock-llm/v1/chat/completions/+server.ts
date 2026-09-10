@@ -18,13 +18,14 @@ import {
   buildMockTurnResponse,
   dequeueMockTurn,
   mockScriptKeyFromModel,
+  recordMockRequest,
 } from "$lib/server/mock-llm";
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request }) => {
   if (!isTestSurfaceEnabled()) return errorJson(404, "Not found");
 
-  let body: { model?: unknown };
+  let body: { model?: unknown; messages?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -32,6 +33,7 @@ export const POST: RequestHandler = async ({ request }) => {
   }
 
   const key = mockScriptKeyFromModel(body.model);
+  recordMockRequest(key, { model: body.model, messages: body.messages });
   const turn = dequeueMockTurn(key);
   // A normal turn streams (pi-agent-core only uses the streaming path); a
   // fault turn replies with the simulated provider failure instead.

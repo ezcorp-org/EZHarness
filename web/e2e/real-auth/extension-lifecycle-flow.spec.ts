@@ -319,10 +319,16 @@ async function refreshStatusAndWaitForInspection(page: Page): Promise<void> {
   await expect(refreshStatus).toBeEnabled();
 }
 
+function latestOperationHeader(page: Page) {
+  // Diagnostics also contain strong/code elements. Read only the operation's
+  // heading so a runner-busy diagnostic cannot be mistaken for its state/ID.
+  return page.locator(".operation > .section-heading").first();
+}
+
 async function waitForVisibleOperationState(page: Page, expected: "verified" | "failed"): Promise<void> {
   await expect.poll(async () => {
     await refreshStatusAndWaitForInspection(page);
-    return (await page.locator(".operation strong").allTextContents())[0] ?? "";
+    return (await latestOperationHeader(page).locator("strong").textContent())?.trim() ?? "";
   }, {
     timeout: 240_000,
     intervals: [1_000],
@@ -336,14 +342,14 @@ async function observePendingBuild(page: Page): Promise<string> {
   // by the same Refresh status control a person uses to recover a closed tab.
   await expect.poll(async () => {
     await refreshStatusAndWaitForInspection(page);
-    const row = page.locator(".operation").first();
+    const row = latestOperationHeader(page);
     return { id: (await row.locator("code").textContent())?.trim() ?? "", state: (await row.locator("strong").textContent())?.trim() ?? "" };
   }, {
     timeout: 30_000,
     intervals: [100],
     message: "A new browser-started build must visibly enter a pending state before reload.",
   }).toMatchObject({ id: expect.any(String), state: expect.stringMatching(/^(queued|building|verifying)$/) });
-  const operationId = (await page.locator(".operation").first().locator("code").textContent())?.trim() ?? "";
+  const operationId = (await latestOperationHeader(page).locator("code").textContent())?.trim() ?? "";
   expect(operationId).not.toBe("");
   return operationId;
 }

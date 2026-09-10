@@ -149,8 +149,9 @@ describe("resolveModelTierAndCredential — effective tier", () => {
     // passthrough), and the registry was never consulted.
     expect(resolveModelArgs).toEqual([{ provider: "anthropic", model: "my-opus-4", tier: undefined }]);
     expect(manifestLookups).toEqual([]);
-    // run.provider mirrors the resolved provider (existing contract).
+    // Terminal events reuse the resolved provider/model pair.
     expect(run.provider).toBe("anthropic");
+    expect(run.model).toBe("my-opus-4");
   });
 
   test("pinned fast-class model → effectiveTier 'fast' (tier tracks the pin, not a constant)", async () => {

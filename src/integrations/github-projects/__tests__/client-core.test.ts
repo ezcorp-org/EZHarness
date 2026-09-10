@@ -24,13 +24,14 @@ let queue: Array<{ status?: number; body?: unknown; headers?: Record<string, str
 
 beforeEach(() => {
   queue = [];
-  globalThis.fetch = (async () => {
+  const mockedFetch = Object.assign(async () => {
     const c = queue.shift() ?? { body: {} };
     return new Response(JSON.stringify(c.body ?? {}), {
       status: c.status ?? 200,
       headers: new Headers(c.headers ?? {}),
     });
-  }) as typeof fetch;
+  }, { preconnect: () => {} }) satisfies typeof fetch;
+  globalThis.fetch = mockedFetch;
 });
 afterEach(() => {
   globalThis.fetch = realFetch;

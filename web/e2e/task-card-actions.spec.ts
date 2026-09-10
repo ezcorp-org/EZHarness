@@ -39,7 +39,7 @@ test.describe("Task Card Actions", () => {
 	 */
 	async function sendMessage(page: any, text: string) {
 		await sendComposerMessage(page, text);
-		await expect(threadMessages(page).getByText(text)).toBeVisible();
+		await expect(threadMessages(page).getByText(text, { exact: true })).toBeVisible();
 	}
 
 	async function sendMessageAndStreamTaskList(page: any, emitSse: any, tasks: any[]) {
@@ -203,57 +203,15 @@ test.describe("Task Card Actions", () => {
 		expect(toolInvokeBody.input).toEqual({ taskId: "t-1" });
 	});
 
-	test("no action buttons when conversationId is missing", async ({ page, mockApi, emitSse }) => {
-		// Navigate without a conversationId context — use project page that doesn't have conv in route
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-
-		await sendMessage(page, "List tasks");
-
-		await emitSse({
-			type: "run:token",
-			data: { runId: "run-stream", token: "Working..." },
-		});
-
-		// Emit tool:start and tool:complete but tool cards only get conversationId
-		// from the page route. The card will have actions because it's on the chat page.
-		// To test no actions, we verify completed tasks don't show Start/Finish.
-		await emitSse({
-			type: "tool:start",
-			data: {
-				conversationId: "conv-1",
-				extensionId: "ext-task-stack",
-				toolName: "task-stack.list-tasks",
-				input: {},
-				timestamp: Date.now(),
-				cardType: "task-list",
-			},
-		});
-
-		await emitSse({
-			type: "tool:complete",
-			data: {
-				conversationId: "conv-1",
-				extensionId: "ext-task-stack",
-				toolName: "task-stack.list-tasks",
-				output: { content: [{ type: "text", text: JSON.stringify([
-					{ id: "t-1", title: "Done Task", status: "completed" },
-				]) }] },
-				duration: 30,
-				success: true,
-				cardType: "task-list",
-			},
-		});
+	test("completed task rows have no Start or Finish action", async ({ page, mockApi, emitSse }) => {
+		await setupAndNavigate(page, mockApi);
+		await sendMessageAndStreamTaskList(page, emitSse, [
+			{ id: "t-1", title: "Done Task", status: "completed" },
+		]);
 
 		// Completed task should render but have no Start/Finish buttons
 		await expect(page.getByText("Done Task")).toBeVisible();
 		await expect(page.getByTitle("Start task")).not.toBeVisible();
 		await expect(page.getByTitle("Finish task")).not.toBeVisible();
-		// No "Add Task" for completed-only list should still appear (canAct is true on chat page)
-		// But completed tasks individually have no action buttons - this is the key check
 	});
 });

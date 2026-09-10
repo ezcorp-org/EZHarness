@@ -24,7 +24,7 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
-	test("desktop: opening dock shrinks <main> width; closing restores it", async ({ page, mockApi, emitWs }) => {
+	test("desktop: opening dock shrinks <main> width; closing restores it", async ({ page, mockApi, emitSse }) => {
 		await page.setViewportSize({ width: 1440, height: 900 });
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
@@ -38,7 +38,7 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 			sendComposerMessage(page, "Open canvas"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -72,7 +72,7 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 		expect(paddingRightClosed).toBe(0);
 	});
 
-	test("mobile (360x800): opening dock does NOT shrink <main> (overlay)", async ({ page, mockApi, emitWs }) => {
+	test("mobile (360x800): opening dock does NOT shrink <main> (overlay)", async ({ page, mockApi, emitSse }) => {
 		await page.setViewportSize({ width: 360, height: 800 });
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
@@ -84,7 +84,7 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 			sendComposerMessage(page, "Open canvas"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",

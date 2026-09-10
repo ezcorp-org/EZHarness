@@ -5,8 +5,9 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { POST as completions } from "../routes/api/__test/mock-llm/v1/chat/completions/+server";
-import { POST as seedScript, DELETE as clearScript } from "../routes/api/__test/mock-llm/script/+server";
-import { dequeueMockTurn, clearMockScripts } from "$lib/server/mock-llm";
+import { GET as capturedRequests, POST as seedScript, DELETE as clearScript } from "../routes/api/__test/mock-llm/script/+server";
+import { POST as releaseHold } from "../routes/api/__test/mock-llm/release/+server";
+import { dequeueMockTurn, clearMockScripts, buildMockStreamResponse } from "$lib/server/mock-llm";
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
@@ -55,6 +56,21 @@ describe("completions endpoint", () => {
     expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
   });
 
+  test("records the exact parsed provider request for its script", async () => {
+    await seedScript({ request: jsonReq({ scriptKey: "capture", turns: [{ text: "ok" }] }), locals: cookieLocals } as any);
+    await completions({
+      request: jsonReq({ model: "mock:capture", messages: [{ role: "user", content: "ACTIVE_PROMPT" }] }),
+    } as any);
+    const res = await capturedRequests({
+      url: new URL("http://127.0.0.1/x?scriptKey=capture"), locals: cookieLocals,
+    } as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      scriptKey: "capture",
+      requests: [{ model: "mock:capture", messages: [{ role: "user", content: "ACTIVE_PROMPT" }] }],
+    });
+  });
+
   test("unseeded key → sentinel stop turn (debuggable, not a hang)", async () => {
     const res = await completions({ request: jsonReq({ model: "mock:unseeded" }) } as any);
     const text = await res.text();
@@ -93,11 +109,52 @@ describe("completions endpoint", () => {
   });
 });
 
+describe("/release endpoint", () => {
+	test("fails closed for disabled, unscoped, malformed, and unauthenticated requests", async () => {
+		delete process.env.PI_E2E_REAL;
+		expect((await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: cookieLocals } as any)).status).toBe(404);
+		process.env.PI_E2E_REAL = "1";
+
+		const unscoped = await releaseHold({
+			request: jsonReq({ holdKey: "route-hold" }),
+			locals: { ...cookieLocals, apiKeyScopes: ["read"] },
+		} as any);
+		expect(unscoped.status).toBe(403);
+		expect((await releaseHold({ request: new Request("http://127.0.0.1/x", { method: "POST", body: "{not json" }), locals: cookieLocals } as any)).status).toBe(400);
+
+		let denial: unknown;
+		try {
+			await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: {} } as any);
+		} catch (error) {
+			denial = error;
+		}
+		expect(denial).toBeInstanceOf(Response);
+		expect((denial as Response).status).toBe(401);
+	});
+
+	test("releases a held stream once and rejects unknown holds", async () => {
+    const held = buildMockStreamResponse({ holdKey: "route-hold", text: "released" });
+    const reader = held.body!.getReader();
+    const first = reader.read();
+    const released = await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: cookieLocals } as any);
+    expect(released.status).toBe(200);
+    expect(await released.json()).toEqual({ released: true, holdKey: "route-hold" });
+    expect(new TextDecoder().decode((await first).value)).toContain("released");
+    expect((await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: cookieLocals } as any)).status).toBe(404);
+    expect((await releaseHold({ request: jsonReq({ holdKey: "" }), locals: cookieLocals } as any)).status).toBe(400);
+  });
+});
+
 describe("/script seed endpoint", () => {
   test("404 when the test surface is off", async () => {
     delete process.env.PI_E2E_REAL;
     const res = await seedScript({ request: jsonReq({ scriptKey: "k", turns: [] }), locals: cookieLocals } as any);
     expect(res.status).toBe(404);
+  });
+
+  test("GET rejects a missing script key", async () => {
+    const res = await capturedRequests({ url: new URL("http://127.0.0.1/x"), locals: cookieLocals } as any);
+    expect(res.status).toBe(400);
   });
 
   test("seeds turns that the completions endpoint then dequeues in order", async () => {
@@ -127,6 +184,7 @@ describe("/script seed endpoint", () => {
         { text: "cached", usage: { input: 10, cacheRead: 5, cacheWrite: 2, output: 3 } },
         { fault: { status: 503 } },
         { fault: { kind: "connection" } },
+        { text: "held", holdKey: "accepted-hold" },
       ] }),
       locals: cookieLocals,
     } as any);
@@ -134,6 +192,7 @@ describe("/script seed endpoint", () => {
     expect(dequeueMockTurn("ok").usage?.cacheRead).toBe(5);
     expect(dequeueMockTurn("ok").fault?.status).toBe(503);
     expect(dequeueMockTurn("ok").fault?.kind).toBe("connection");
+    expect(dequeueMockTurn("ok").holdKey).toBe("accepted-hold");
   });
 
   test("rejects bad usage shapes", async () => {
@@ -142,6 +201,13 @@ describe("/script seed endpoint", () => {
     expect((await bad([{ usage: { input: -1 } }])).status).toBe(400);
     expect((await bad([{ usage: { cacheRead: "x" } }])).status).toBe(400);
     expect((await bad([{ usage: { output: Number.POSITIVE_INFINITY } }])).status).toBe(400);
+  });
+
+  test.each(["", 42, null])("rejects invalid hold keys without seeding a turn (%j)", async (holdKey) => {
+    const response = await seedScript({ request: jsonReq({ scriptKey: "invalid-hold", turns: [{ text: "must not run", holdKey }] }), locals: cookieLocals } as any);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "turns[0].holdKey must be a non-empty string" });
+    expect(dequeueMockTurn("invalid-hold").text).toContain("no scripted turn");
   });
 
   test("rejects bad fault shapes", async () => {

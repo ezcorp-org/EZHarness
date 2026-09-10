@@ -1,4 +1,4 @@
-import { controlActor, controlFixture, controlInstallation as installation, controlWorkspace as workspace } from "./helpers/extension-control-fixture";
+import { controlActor, controlFixture, controlWorkspace as workspace } from "./helpers/extension-control-fixture";
 import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 import { makeLocalPackage } from "./helpers/installer-fixtures";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";

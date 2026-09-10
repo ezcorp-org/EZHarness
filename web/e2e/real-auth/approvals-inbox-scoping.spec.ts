@@ -37,6 +37,7 @@
  * assert the fixture.
  */
 import { test, expect } from "../fixtures/hydration.js";
+import { EMPTY_STORAGE_STATE, assertNoAuthenticationCookies } from "../fixtures/member-session";
 
 const APPROVAL_STEP = {
   name: "gate",
@@ -85,7 +86,8 @@ test.describe("the approvals inbox and the answer route are scoped to the same p
 
     // Its own context, so the admin's storage-state cookie is provably
     // absent: the ONLY authority here is the member's own session.
-    const member = await playwright.request.newContext({ baseURL });
+    const member = await playwright.request.newContext({ baseURL, storageState: EMPTY_STORAGE_STATE });
+    await assertNoAuthenticationCookies(member);
     const accepted = await member.post(`/api/auth/invite/${invite.token}`, {
       data: { name: "E2E Member", email, password: "E2e-Consent-Pw-9x!" },
     });

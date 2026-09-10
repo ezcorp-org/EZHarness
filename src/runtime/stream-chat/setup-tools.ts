@@ -884,6 +884,10 @@ export async function resolveModelTierAndCredential(
     // Same value, so the classifier-failed fallback is unchanged.
     : (routedTier ?? routingConfig?.defaultTier ?? (await getDefaultTier()));
   run.provider = r.provider;
+  // Terminal events carry this run object. Keep its model paired with the
+  // provider so consumers that resume the turn (such as GoalHost) preserve
+  // the exact binding instead of falling back to a provider default.
+  run.model = r.model;
   const cred = await getCredential(r.provider, credentialConversationId);
   // Conditional spread, not `undefined` keys: absent provenance must not
   // write `routingSignals: undefined` into the usage jsonb downstream.

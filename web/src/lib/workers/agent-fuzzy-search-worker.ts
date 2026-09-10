@@ -78,7 +78,7 @@ const isWorker =
 if (isWorker) {
   self.addEventListener("message", (ev: MessageEvent<RankRequest>) => {
     const data = ev.data;
-    if (!data || data.type !== "rank") return;
+    if (data?.type !== "rank") return;
     const reply = rank(data);
     (self as unknown as { postMessage: (m: unknown) => void }).postMessage(
       reply,

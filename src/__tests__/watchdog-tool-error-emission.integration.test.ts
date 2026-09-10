@@ -192,6 +192,7 @@ function buildHarness(): IntegrationHarness {
     pendingPermissions: pendingPermissions as unknown as Map<string, { conversationId: string }>,
     bus,
     persist: true,
+    errorMessagePersisted: new Set(),
   };
   const watchdog = new WatchdogManager(watchdogHost);
   watchdog.startWatchdog(RUN_ID, CONV_ID, () => "");
@@ -228,6 +229,8 @@ function buildHarness(): IntegrationHarness {
     stateMediator: undefined,
     spawnQuota: {} as StreamChatHost["spawnQuota"],
     executor: {} as StreamChatHost["executor"],
+    permissionEngine: {} as StreamChatHost["permissionEngine"],
+    errorMessagePersisted: watchdogHost.errorMessagePersisted,
   };
 
   const piAgent = makePiAgent();

@@ -374,7 +374,7 @@ export class AgentExecutor {
    */
   registerChildRun(parentRunId: string, childRunId: string): boolean {
     const parent = this.runs.get(parentRunId);
-    if (!parent || parent.status !== "running") return false;
+    if (parent?.status !== "running") return false;
     let set = this.childRuns.get(parentRunId);
     if (!set) {
       set = new Set<string>();
@@ -740,7 +740,7 @@ export class AgentExecutor {
     const out: { run: AgentRun; conversationId: string }[] = [];
     for (const [runId, convId] of this.runConversations) {
       const run = this.runs.get(runId);
-      if (!run || run.status !== "running") continue;
+      if (run?.status !== "running") continue;
       if (projectId && run.projectId !== projectId) continue;
       out.push({ run, conversationId: convId });
     }
@@ -1394,7 +1394,10 @@ export class AgentExecutor {
         suggestFallback,
         resolveAttempt: async (suggestion) => {
           const attempt = await resolveFailoverAttempt(suggestion, credentialConversationId);
+          // GoalHost continues from run.provider/run.model, so both must
+          // identify the fallback attempt that actually served this turn.
           run.provider = attempt.provider;
+          run.model = attempt.model;
           return attempt;
         },
       });

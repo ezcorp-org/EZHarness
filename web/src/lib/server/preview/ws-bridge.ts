@@ -163,7 +163,7 @@ export function createPreviewWebSocketHandler(
   return {
     open(ws: { data?: unknown; close(code?: number, reason?: string): void; send(msg: string | ArrayBufferLike): void }) {
       const data = ws.data as PreviewWsData | undefined;
-      if (!data || data.__preview !== true) {
+      if (data?.__preview !== true) {
         ws.close(1008, "not a preview socket");
         return;
       }

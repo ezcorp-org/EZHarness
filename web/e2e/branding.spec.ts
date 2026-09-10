@@ -1,4 +1,7 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { makeProject } from "./fixtures/data.js";
+
+const appProject = makeProject({ id: "branding-project", name: "Branding Project" });
 
 /** Remove the splash overlay so underlying page content is testable. */
 async function dismissSplash(page: import("@playwright/test").Page) {
@@ -70,25 +73,23 @@ test.describe("Branding - Setup page", () => {
 });
 
 test.describe("Branding - App layout", () => {
-	// Landing page is chromeless by design — no sidebar/header on /
-	test.skip("sidebar displays small logo", async ({ page, mockApi }) => {
-		await mockApi();
-		await page.goto("/");
+	test("desktop app rail exposes the branded Ez entry", async ({ page, mockApi }) => {
+		await mockApi({ projects: [appProject] });
+		await page.goto(`/project/${appProject.id}`);
 
-		const sidebarLogo = page.locator('aside img[src="/logo-small.png"]');
-		await expect(sidebarLogo.first()).toBeVisible();
+		const ezButton = page.locator('[data-testid="ez-button"]:visible');
+		await expect(ezButton).toBeVisible();
+		await expect(ezButton.locator('img[src="/favicon-192.png"]')).toBeVisible();
 	});
 
-	// Landing page is chromeless by design — no sidebar/header on /
-	test.skip("mobile header displays small logo", async ({ page, mockApi }) => {
-		await mockApi();
+	test("mobile app rail retains the branded Ez entry", async ({ page, mockApi }) => {
+		await mockApi({ projects: [appProject] });
 		await page.setViewportSize({ width: 375, height: 667 });
-		await page.goto("/");
+		await page.goto(`/project/${appProject.id}`);
 
-		const mobileLogo = page.locator(
-			'div.flex.md\\:hidden img[src="/logo-small.png"]',
-		);
-		await expect(mobileLogo).toBeVisible();
+		const ezButton = page.locator('[data-testid="ez-button"]:visible');
+		await expect(ezButton).toBeVisible();
+		await expect(ezButton.locator('img[src="/favicon-192.png"]')).toBeVisible();
 	});
 
 	test("has default page title containing EZCorp", async ({
@@ -104,17 +105,11 @@ test.describe("Branding - App layout", () => {
 });
 
 test.describe("Branding - Favicon", () => {
-	test("has favicon.ico link in head", async ({ page, mockApi }) => {
+	test("uses the managed PNG favicon after hydration", async ({ page, mockApi }) => {
 		await mockApi();
 		await page.goto("/");
 
-		const hasFavicon = await page.evaluate(
-			() =>
-				document.querySelector(
-					'link[rel="icon"][href*="favicon.ico"]',
-				) !== null,
-		);
-		expect(hasFavicon).toBe(true);
+		await expect(page.locator('link#ez-favicon[rel="icon"][type="image/png"]')).toHaveAttribute("href", "/favicon-192.png");
 	});
 
 	test("has PNG favicon link in head", async ({ page, mockApi }) => {

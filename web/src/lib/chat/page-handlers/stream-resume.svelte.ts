@@ -213,7 +213,7 @@ export async function runActiveRunCheck(
 			{},
 			{ minIntervalMs: 4000 },
 		);
-		if (!res || !res.ok || gen !== host.loadGeneration()) return;
+		if (!res?.ok || gen !== host.loadGeneration()) return;
 		const data = (await res.json()) as ActiveRunResponse;
 		if (!data.runId || gen !== host.loadGeneration()) return;
 
@@ -392,7 +392,7 @@ export async function pollStaleness(host: StreamResumeHost): Promise<void> {
 			{},
 			{ minIntervalMs: 4000 },
 		);
-		if (!res || !res.ok) return;
+		if (!res?.ok) return;
 		const data = (await res.json()) as ActiveRunResponse;
 		if (runIsFinished(data, host.activeRunId.get() ?? "")) {
 			stopStreaming(runId);
@@ -428,7 +428,7 @@ export async function runZombieCheck(
 			{},
 			{ minIntervalMs: 4000 },
 		);
-		if (!res || !res.ok) return;
+		if (!res?.ok) return;
 		const data = (await res.json()) as ActiveRunResponse;
 		if (runIsFinished(data, host.activeRunId.get() ?? "")) {
 			stopStreaming(runId);

@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { chmod, lstat, mkdir, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { BuildRequest, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
@@ -16,8 +16,11 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
   await mkdir(directory, { recursive: true, mode: 0o750 });
   const status = await lstat(directory);
   if (status.isSymbolicLink() || !status.isDirectory() || (status.mode & 0o022) !== 0 || status.uid !== process.getuid?.()) throw new RunnerError("unsafe_socket", "Runner socket directory must be owned by runner and not writable by others");
-  const privateDirectory = join(directory, `.private-${randomUUID()}`);
-  await mkdir(privateDirectory, { mode: 0o700 });
+  // The public socket can live in a service-specific nested directory. Keep
+  // the upstream socket short: Unix-domain socket paths have a small fixed
+  // byte limit, and the UUID directory below the public path can exceed it.
+  const privateDirectory = await mkdtemp("/tmp/ez-runner-");
+  // mkdtemp is atomic and creates a new owner-only directory.
   const privatePath = join(privateDirectory, "runner.sock");
   const sessions = new Map<string, Session>();
   let starting = 0;
@@ -122,23 +125,35 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     for (const pending of session.pending.values()) { clearTimeout(pending.timer); pending.reject(new RunnerError("cancelled", "Worker session closed")); }
     await session.execution.close();
   }
-  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(privatePath, resolve); });
-  await chmod(privatePath, 0o600);
-  const gateway = processSpawn(options.python ?? "python3", [new URL("./peer-gateway.py", import.meta.url).pathname, options.socketPath, privatePath, String(options.allowedUid)]);
+  let cleanupGateway: ReturnType<typeof processSpawn> | undefined;
   try {
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(privatePath, resolve); });
+    await chmod(privatePath, 0o600);
+    const gateway = processSpawn(options.python ?? "python3", [new URL("./peer-gateway.py", import.meta.url).pathname, options.socketPath, privatePath, String(options.allowedUid)]);
+    cleanupGateway = gateway;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new RunnerError("peer_gateway_failed", "Unix peer identity gateway did not start")), 5000);
       gateway.stdout.once("data", chunk => { clearTimeout(timer); if (chunk.toString().trim() === "READY") resolve(); else reject(new RunnerError("peer_gateway_failed", "Invalid peer gateway startup")); });
       gateway.once("error", error => { clearTimeout(timer); reject(error); });
       gateway.once("exit", () => { clearTimeout(timer); reject(new RunnerError("peer_gateway_failed", "Unix peer gateway exited")); });
     });
-  } catch (error) { gateway.kill(); server.close(); await rm(privateDirectory, { recursive: true, force: true }); throw error; }
-  return { async close() {
-    gateway.kill("SIGTERM");
-    await Promise.all([...sessions.keys()].map(closeSession));
-    server.closeAllConnections();
-    await new Promise<void>(resolve => server.close(() => resolve()));
-    await rm(options.socketPath, { force: true });
+    return { async close() {
+      gateway.kill("SIGTERM");
+      await Promise.all([...sessions.keys()].map(closeSession));
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+      await rm(options.socketPath, { force: true });
+      await rm(privateDirectory, { recursive: true, force: true });
+    } };
+  } catch (error) {
+    cleanupGateway?.kill("SIGTERM");
+    if (server.listening) {
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+    // Before READY, the public path may belong to an active service that the
+    // gateway refused to replace. Only the private upstream is ours to remove.
     await rm(privateDirectory, { recursive: true, force: true });
-  } };
+    throw error;
+  }
 }

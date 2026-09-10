@@ -1,81 +1,63 @@
-/**
- * Phase 52.4 — global admin audit page e2e.
- *
- * Server-side `requireRole` gating is covered by the unit suite
- * `web/src/__tests__/api-audit.server.test.ts` (non-admin → 403). The
- * preview server here runs with PI_SKIP_INIT=1 which short-circuits
- * the auth middleware (hooks.server.ts:367-372), so the e2e harness
- * doesn't simulate a real user role — it verifies route accessibility
- * and the visual surface only.
- *
- * Coverage:
- *   - unauthenticated request to `/audit` is rejected (4xx).
- *   - structural happy-path: stats strip + filter strip + timeline
- *     render when the SSR data path is fulfilled, with no fixture-
- *     shaped credentials leaking into the rendered DOM.
- */
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { mockPageData, resumePage } from "./fixtures/page-data.js";
+import AxeBuilder from "@axe-core/playwright";
 
-test.describe("Global /audit", () => {
-	test("unauthenticated request → 4xx", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [],
-			extensions: [],
-		});
+// The UI consumes controlled loader/API data here. Real admin/member/anonymous
+// authorization and audit persistence run in real-auth/permission-backbone.
+const entries = [{ kind: "governance", id: "audit-1", action: "ext:permission-granted", target: "ext-a", userId: "admin-1", metadata: { reason: "Reviewed release" }, createdAt: "2026-05-01T10:00:00Z" }];
+const stats = { windowMs: 86_400_000, denialCount: 2, totalCalls: 100, totalCostUsd: 1.234,
+  topChattiest: [{ extensionId: "ext-a", name: "lessons-keeper", calls: 60 }],
+  topLlmSpenders: [{ extensionId: "ext-a", name: "lessons-keeper", costUsd: 1 }],
+};
 
-		const res = await page.goto("/audit");
-		expect(res?.status()).toBeGreaterThanOrEqual(400);
-	});
+test.describe("Global audit UI", () => {
+  test.beforeEach(async ({ page, mockApi }) => {
+    await mockApi({});
+    await mockPageData(page, "/audit", { entries, nextCursor: null, stats, extensionFacets: [{ id: "ext-a", name: "lessons-keeper", isBundled: true }] });
+    await page.route("**/api/audit**", route => {
+      const url = new URL(route.request().url());
+      return route.fulfill({ json: url.pathname.endsWith("/stats") ? stats : { entries: url.searchParams.get("denialOnly") === "true" ? [] : entries, nextCursor: null } });
+    });
+    await resumePage(page, "/audit");
+  });
 
-	// SSR-loaded admin page: page.server.ts calls
-	// `requireRole(locals, "admin")`. Under PI_SKIP_INIT=1 the
-	// hooks.server.ts:367-372 short-circuit leaves `locals.user`
-	// undefined, so the loader throws 401 before mocks fire. The
-	// `requireRole` 403 path is covered by the vitest server suite at
-	// web/src/__tests__/api-audit.server.test.ts (9 tests). Wiring a
-	// real admin session in e2e is deferred to a future infra phase.
-	test.fixme("happy path: stats strip + filter strip + timeline render without leaked credentials", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [],
-			extensions: [],
-		});
-		// Fulfill the stats endpoint so the client-side refresh has
-		// numbers to render.
-		await page.route("**/api/audit/stats**", async (route) => {
-			await route.fulfill({
-				json: {
-					windowMs: 86400000,
-					denialCount: 2,
-					totalCalls: 100,
-					totalCostUsd: 1.234,
-					topChattiest: [
-						{ extensionId: "ext-a", name: "lessons-keeper", calls: 60 },
-						{ extensionId: "ext-b", name: "memory-extractor", calls: 30 },
-					],
-					topLlmSpenders: [
-						{ extensionId: "ext-a", name: "lessons-keeper", costUsd: 1.0 },
-					],
-				},
-			});
-		});
-		await page.route("**/api/audit?**", async (route) => {
-			await route.fulfill({ json: { entries: [], nextCursor: null } });
-		});
+  test("renders stats, filters, and the named extension audit entry", async ({ page }, testInfo) => {
+    await expect(page.getByTestId("stats-total-calls")).toHaveText("100");
+    await expect(page.getByTestId("stats-denials")).toHaveText("2");
+    await expect(page.getByTestId("global-audit-filters")).toBeVisible();
+    await expect(page.getByTestId("global-audit-row")).toHaveCount(1);
+    await expect(page.getByTestId("global-audit-row")).toContainText("lessons-keeper");
+    await expect(page.getByTestId("global-audit-row")).toContainText("Reviewed release");
+    const accessibility = await new AxeBuilder({ page }).include('[data-testid="global-audit-stats"]').analyze();
+    expect(accessibility.violations).toEqual([]);
+    await captureEvidence(page, testInfo, "global-audit-loaded");
+  });
 
-		await page.goto("/audit");
-		await expect(page.getByTestId("global-audit-stats")).toBeVisible();
-		await expect(page.getByTestId("stats-total-calls")).toContainText("100");
-		await expect(page.getByTestId("stats-denials")).toContainText("2");
-		await expect(page.getByTestId("global-audit-filters")).toBeVisible();
-		await expect(page.getByTestId("global-audit-timeline")).toBeVisible();
+  test("the Denials filter changes the request and the visible rows", async ({ page }) => {
+    await expect(page.getByTestId("global-audit-row")).toHaveCount(1);
+    const [filtered] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === "/api/audit" && new URL(response.url()).searchParams.get("denialOnly") === "true"),
+      page.getByTestId("filter-denial-only").check(),
+    ]);
+    expect(filtered.status()).toBe(200);
+    await expect(page.getByTestId("global-audit-row")).toHaveCount(0);
+    await expect(page.getByText("No audit entries match the current filters.")).toBeVisible();
+    await page.getByTestId("filter-denial-only").uncheck();
+    await expect(page.getByTestId("global-audit-row")).toHaveCount(1);
+  });
 
-		// Sweep the visible page text for fixture-shaped credentials —
-		// any "sk-…" prefix or "{ANTHROPIC|OPENAI}_API_KEY=…" tokens
-		// should be absent. Mirrors the per-extension audit drill-down
-		// sweep at `extensions-audit-drilldown.spec.ts:171-174`.
-		const bodyText = await page.evaluate(() => document.body.innerText);
-		expect(bodyText).not.toMatch(/sk-[a-zA-Z0-9]{20,}/);
-		expect(bodyText).not.toMatch(/ANTHROPIC_API_KEY=[A-Za-z0-9_-]+/);
-		expect(bodyText).not.toMatch(/OPENAI_API_KEY=[A-Za-z0-9_-]+/);
-	});
+  test("failed filtering keeps the current rows and allows retry", async ({ page }) => {
+    await page.route("**/api/audit?**", route => route.fulfill({ status: 500, json: { error: "Audit unavailable" } }), { times: 1 });
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(page.getByText("Audit fetch failed: 500", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("global-audit-row")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Apply", exact: true })).toBeEnabled();
+    await page.route("**/api/audit?**", route => route.fulfill({ json: { entries: [{ ...entries[0], metadata: { reason: "Review received after retry" } }], nextCursor: null } }), { times: 1 });
+    const [retried] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === "/api/audit"),
+      page.getByRole("button", { name: "Apply", exact: true }).click(),
+    ]);
+    expect(retried.status()).toBe(200);
+    await expect(page.getByTestId("global-audit-row")).toContainText("Review received after retry");
+  });
 });

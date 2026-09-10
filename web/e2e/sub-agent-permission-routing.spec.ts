@@ -66,7 +66,7 @@ test.describe("Sub-Agent Permission Routing", () => {
 	 */
 	async function setupParentChatWithSubAgent(
 		page: Page,
-		emitWs: (event: { type: string; data: unknown }) => Promise<void>,
+		emitSse: (event: { type: string; data: unknown }) => Promise<void>,
 		opts: { toolName?: string } = {},
 	) {
 		const toolName = opts.toolName ?? "Bash";
@@ -85,14 +85,14 @@ test.describe("Sub-Agent Permission Routing", () => {
 
 		// A token so the content-block builder has some text and the assistant
 		// bubble exists in the DOM.
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Delegating..." },
 		});
 
 		// Spawn a sub-agent. This registers sub-1 → run-stream in the
 		// sub-agent routing map via registerSpawn().
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -118,7 +118,7 @@ test.describe("Sub-Agent Permission Routing", () => {
 		// notion of `permissionPending` — only ToolCardRouter flips to
 		// PermissionGate when that flag is set). "terminal" is a valid
 		// cardType and lets the `$` prompt render as a recognisable anchor.
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -138,7 +138,7 @@ test.describe("Sub-Agent Permission Routing", () => {
 	test("permission request addressed to sub-conversation flips tool card to PermissionGate", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
 		await mockApi({
 			projects: [proj],
@@ -153,7 +153,7 @@ test.describe("Sub-Agent Permission Routing", () => {
 			if (msg.type() === "warning") warnings.push(msg.text());
 		});
 
-		await setupParentChatWithSubAgent(page, emitWs);
+		await setupParentChatWithSubAgent(page, emitSse);
 
 		// Before the permission event, there should be no Allow/Deny buttons.
 		await expect(page.getByRole("button", { name: "Allow" })).toHaveCount(0);
@@ -162,7 +162,7 @@ test.describe("Sub-Agent Permission Routing", () => {
 		// SUB-conversation, not "conv-1"). Before the fix this was silently
 		// dropped. After the fix, sub-agent-routing.ts walks sub-1 → run-stream
 		// and the handler flips the existing running Bash call in place.
-		await emitWs({
+		await emitSse({
 			type: "tool:permission_request",
 			data: {
 				conversationId: "sub-1",
@@ -188,7 +188,7 @@ test.describe("Sub-Agent Permission Routing", () => {
 	test("Allow on sub-agent permission gate sends approval with correct toolCallId", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
 		let capturedUrl: string | null = null;
 		let capturedApproval: Record<string, unknown> | null = null;
@@ -209,9 +209,9 @@ test.describe("Sub-Agent Permission Routing", () => {
 			}
 		});
 
-		await setupParentChatWithSubAgent(page, emitWs);
+		await setupParentChatWithSubAgent(page, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:permission_request",
 			data: {
 				conversationId: "sub-1",
@@ -235,7 +235,7 @@ test.describe("Sub-Agent Permission Routing", () => {
 	test("Deny on sub-agent permission gate sends denial", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
 		let capturedDenial: Record<string, unknown> | null = null;
 
@@ -254,9 +254,9 @@ test.describe("Sub-Agent Permission Routing", () => {
 			}
 		});
 
-		await setupParentChatWithSubAgent(page, emitWs);
+		await setupParentChatWithSubAgent(page, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:permission_request",
 			data: {
 				conversationId: "sub-1",

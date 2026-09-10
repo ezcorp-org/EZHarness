@@ -31,6 +31,7 @@ vi.mock("$app/environment", () => ({
 	version: "test",
 }));
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	fetchModes: vi.fn(async () => []),
 	createConversation: vi.fn(async () => ({ id: "new" })),
 	updateConversation: vi.fn(async () => ({ id: "conv-1" })),

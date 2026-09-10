@@ -17,7 +17,10 @@ import {
   getModelRegistry,
   getModelsForTier,
   findModelForProviderInTier,
+  getOAuthModelIds,
   modelPrices,
+  tierForModel,
+  resolveModelObject,
 } from "../providers/registry";
 import { priceSegment } from "../runtime/usage/cache-stats";
 
@@ -54,6 +57,11 @@ test("all three tiers are populated", async () => {
   expect(tiers.has("powerful")).toBe(true);
 });
 
+test("tierForModel exposes the registry's inferred tier", () => {
+  expect(tierForModel(resolveModelObject("anthropic", "claude-haiku-4-5-20251001"))).toBe("fast");
+  expect(tierForModel(resolveModelObject("anthropic", "claude-opus-4-5-20251101"))).toBe("powerful");
+});
+
 test("getModelsForTier filters correctly", () => {
   const fast = getModelsForTier("fast");
   expect(fast.length).toBeGreaterThanOrEqual(1);
@@ -72,6 +80,14 @@ test("findModelForProviderInTier returns match", () => {
 test("findModelForProviderInTier returns null for missing combo", () => {
   const result = findModelForProviderInTier("anthropic" as any, "nonexistent" as any);
   expect(result).toBeNull();
+});
+
+test("OAuth model ids use the OAuth catalog and add local OAuth-only overrides", () => {
+  const openai = getOAuthModelIds("openai");
+  expect(openai).not.toBeNull();
+  expect(openai!.has("gpt-5.5")).toBe(true);
+  expect(getOAuthModelIds("anthropic")).toBeNull();
+  expect(getOAuthModelIds("not-a-provider")).toBeNull();
 });
 
 test("modelPrices reads the catalog rates in USD per 1M tokens", () => {

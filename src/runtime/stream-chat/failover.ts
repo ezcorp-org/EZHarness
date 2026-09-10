@@ -192,13 +192,17 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
       ctx.allTurnsText = "";
       ctx.turnText = "";
       ctx.emittedToClient = false;
+      ctx.providerErrorMessage = undefined;
 
       const agent = params.buildAgent(current.resolved);
       host.activeAgents.set(runId, agent);
       params.subscribe(agent, current);
       await params.runPrompt(agent);
 
-      const errorMessage = agent.state.errorMessage;
+      // The Agent state is a convenient mirror, but provider errors are
+      // authoritatively carried by the terminal assistant event. Preserve the
+      // original provider message when an adapter does not populate state.
+      const errorMessage = agent.state.errorMessage ?? ctx.providerErrorMessage;
       if (!errorMessage) {
         // Clean turn → close the breaker for the serving provider.
         getCircuitBreaker(current.provider, credentialScope).recordSuccess();

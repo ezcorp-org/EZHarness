@@ -522,7 +522,7 @@
 						     ↳ connector glyph reads as a child of the title above. -->
 						<button
 							onclick={() => onselect(conv.id)}
-							class="flex w-full flex-col pl-7 pr-3 py-2 text-left transition-colors {rowOpts.indent ? 'pl-10' : ''}
+							class="flex w-full flex-col pl-7 pr-3 py-2 text-left transition-colors max-md:pr-24 {rowOpts.indent ? 'pl-10' : ''}
 								{isActive ? 'bg-[var(--color-surface-tertiary)]' : 'hover:bg-[var(--color-surface-tertiary)]/70'}"
 						>
 							<span class="flex items-center gap-1.5 truncate text-sm {isActive ? 'text-[var(--color-text-primary)]' : 'text-[var(--color-text-secondary)]'}">
@@ -576,24 +576,25 @@
 						{#if !isActive && unreadRev >= 0 && unreadStore.isUnread(conv.id)}
 							<span class="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-green-500" title="New activity"></span>
 						{/if}
-						<!-- Quick actions on hover -->
-						<div class="absolute right-2 top-1/2 -translate-y-1/2 hidden gap-1 group-hover:flex">
+						<!-- Quick actions appear on hover for a fine pointer and stay
+						     reachable as 44px controls for a touch pointer. -->
+						<div class="absolute right-2 top-1/2 hidden -translate-y-1/2 gap-1 group-hover:flex group-focus-within:flex max-md:flex">
 							<button
 								onclick={() => startRename(conv)}
-								class="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-secondary)]"
+								class="flex min-h-11 min-w-11 items-center justify-center rounded text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-secondary)]"
 								title="Rename"
 							>
-								<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 										d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
 								</svg>
 							</button>
 							<button
 								onclick={() => handleDelete(conv)}
-								class="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-red-400"
+								class="flex min-h-11 min-w-11 items-center justify-center rounded text-[var(--color-text-muted)] hover:bg-[var(--color-surface-tertiary)] hover:text-red-400"
 								title="Delete"
 							>
-								<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
 										d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
 								</svg>

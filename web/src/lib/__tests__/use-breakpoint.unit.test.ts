@@ -12,7 +12,7 @@
  * bun:test for files under web/.
  */
 
-import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { useBreakpoint } from "$lib/use-breakpoint.svelte";
 
 // Capture the original matchMedia and window so each test can restore

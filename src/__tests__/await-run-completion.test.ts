@@ -66,7 +66,7 @@ describe("awaitRunCompletion — waits for events", () => {
   test("run:error event resolves with error text", async () => {
     const bus = new EventBus<AgentEvents>();
     const p = awaitRunCompletion({ bus, getRun: () => run("a", "running"), runId: "a", timeoutMs: 5000 });
-    queueMicrotask(() => bus.emit("run:error", { run: run("a", "error"), error: "kaboom" }));
+    queueMicrotask(() => bus.emit("run:error", { run: run("a", "error"), runId: "a", error: "kaboom" }));
     expect(await p).toMatchObject({ kind: "done", outcome: "error", error: "kaboom" });
   });
 

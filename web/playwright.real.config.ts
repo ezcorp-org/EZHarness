@@ -16,11 +16,12 @@
  *     workers writing to the same DB deadlock immediately.
  *   - `globalSetup` bootstraps the admin via `/api/auth/setup` and
  *     saves the storage state to `.real-auth.json`.
- *   - `testDir: ./e2e/real-auth` keeps the new specs isolated from the
- *     default suite, so a stray import of `test-base.ts` (which mocks
- *     `fetch` and breaks real-auth specs) doesn't sneak in.
+ *   - `testDir: ./e2e` plus a manifest-derived `testMatch` collects only
+ *     real-auth specs, including owned root-level journeys. This keeps mock
+ *     specs out without requiring every real journey to move directories.
  */
 import { defineConfig } from "@playwright/test";
+import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,6 +33,12 @@ import { fileURLToPath } from "node:url";
 // throws during preview startup, crashing the webServer.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
+// Playwright loads config through Node's ESM loader, which requires a JSON
+// import attribute. Read the one manifest directly instead so the config is
+// equally loadable by Node and Bun.
+const lanesManifest = JSON.parse(readFileSync(join(__dirname, "e2e", "lanes.json"), "utf8")) as {
+  lanes: Record<string, string[]>;
+};
 
 const baseURL = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 const previewPort = new URL(baseURL).port || "4173";
@@ -55,6 +62,14 @@ const DB_DIR = process.env.PI_E2E_REAL_DB_PATH;
 // is untouched.
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
 
+// The real-auth tier has one manifest-owned external spec in addition to its
+// directory members. Keep collection derived from the same inventory CI runs:
+// a real server must never sweep a mock, Docker, or fresh-setup journey in by
+// proximity alone.
+const realAuthTestMatch = lanesManifest.lanes["real-auth"].map(
+  (path) => new RegExp(`${path.slice("web/".length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+);
+
 const browserProjects = {
   chromium: { browserName: "chromium" as const, channel: "chromium" },
   firefox: { browserName: "firefox" as const },
@@ -76,7 +91,8 @@ if (requestedBrowserProjects.length === 0 || requestedBrowserProjects.some(proje
 }
 
 export default defineConfig({
-  testDir: "./e2e/real-auth",
+  testDir: "./e2e",
+  testMatch: realAuthTestMatch,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: 0,
@@ -142,6 +158,9 @@ export default defineConfig({
       // owned default fixture root when none is supplied.
       EZCORP_PORT: previewPort,
       ORIGIN: new URL(baseURL).origin,
+      // Make the same local wildcard preview origin available to real-auth
+      // browser tests as the mock-preview configuration uses.
+      EZCORP_PREVIEW_APP_HOST: "localhost",
       // The real harness is PGlite-only. A caller can run this wrapper from a
       // Postgres test shell, so clear its alternate driver selection here.
       DATABASE_URL: "",
@@ -157,6 +176,11 @@ export default defineConfig({
       // preview server's own env, so the gate evaluates true inside the
       // process that serves `/api/__test/*` — not just the test runner.
       EZCORP_ALLOW_TEST_SURFACE: "1",
+      PI_E2E_ISOLATE_PROVIDERS: "1",
+      // Real-auth journeys may intentionally make the mock provider fail.
+      // Never let its failover path inherit a developer's Kilo credential and
+      // turn a deterministic test into an external model call.
+      KILO_API_KEY: "",
       // Pin the project root explicitly so the bundled-extension
       // resolver hits the new env-var branch in Commit A and never
       // depends on `process.cwd()` or a `.git` walk.

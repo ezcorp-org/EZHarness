@@ -1,36 +1,41 @@
-# ai-kit E2E tests
+# AI-kit E2E tests
 
-These tests run against a **live** SvelteKit dev server (under `web/` in the repo
-root) and a real DB. They're opt-in — by default they skip cleanly when the
-target server isn't reachable.
+These tests exercise the public client against a running EZHarness server and a real database. Use a disposable test instance: some cases create conversations and assignments.
 
-## To run
+## Standard CI
+
+The real-auth browser lane runs `web/e2e/real-auth/ai-kit-public-api.spec.ts`. It creates a local user API key and reuses the package's doctor, internal-auth, and user-key OBO suites. A second case runs the real stdio MCP subprocess suite with its own database. Both cases reject skipped tests and check Bun against the repository pin. The key and temporary data are removed after the tests.
+
+From the repository root:
 
 ```sh
-# 1. Start the EZCorp dev server (separate terminal, from repo root)
-cd web && bun run dev     # serves on http://localhost:5173
-
-# 2. Generate an API key via the UI: Settings → Developer → New Key
-#    (must have `chat` scope for fan-out tests; `read` is enough for doctor)
-
-# 3. Export creds and run E2E
-export EZCORP_E2E_BASE_URL=http://localhost:5173
-export EZCORP_E2E_API_KEY=ez_...
-bun test test/e2e
+bun scripts/run-real-e2e.ts real-auth e2e/real-auth/ai-kit-public-api.spec.ts
 ```
 
-## Files
+This uses the normal real-auth build, server, and database fixtures. The package coverage leg can still report opt-in skips; the public authentication and subprocess contracts above run in the separate real-auth job.
 
-| File | Validates |
-|---|---|
-| `quickstart.test.ts` | Mirrors `docs/quickstart-curl.md` end-to-end (auth → create → send → stream). |
-| `fanout.test.ts` | All four fan-out mechanisms (`spawn_chats`, parallel `![agent:…]`, team autoSpinUp, task assignments). |
-| `doctor.test.ts` | `ai-kit doctor` happy + error branches. |
-| `install-claude-code.test.ts` | `ai-kit install claude-code` into a sandbox HOME + verify the MCP config works. Skipped when the `claude` CLI is not in PATH. |
-| `ezcorp-self.test.ts` | Loads the package as an EZCorp extension, spawns a sibling chat from inside. |
+## Optional deployed-service checks
 
-## When to skip
+Start a test server, complete initial setup, and create a test API key through Settings → Developer. Grant the scopes required by the selected cases. Then run from the repository root:
 
-- `EZCORP_E2E_BASE_URL` unset → entire suite skipped.
-- Server at the URL not responding to `/api/health` within 2s → suite skipped.
-- `EZCORP_E2E_API_KEY` unset → auth-requiring tests skipped; doctor's unauth branch still runs.
+```sh
+export EZCORP_E2E_BASE_URL=http://localhost:5173
+export EZCORP_E2E_API_KEY=ezk_...
+bun test ./packages/@ezcorp/ai-kit/test/e2e
+```
+
+| File | Contract and additional setup |
+| --- | --- |
+| `doctor.test.ts` | Server health and client configuration. |
+| `internal-auth.test.ts` | Forged internal tokens fail over HTTP; a valid user key authenticates. |
+| `on-behalf-of.test.ts` | A user key cannot change persisted ownership through an OBO header. |
+| `real-subprocess-obo.test.ts` | Real stdio MCP delegation and database ownership; requires `EZCORP_E2E_SUBPROCESS=1`. |
+| `bundled.test.ts` | The AI-kit extension is installed and exposes its tools; prepare a verified release and approve its activation first. |
+| `fanout.test.ts` | Agent mentions, team fan-out, and assignments; prepare the agent and team data described in the tests. |
+| `quickstart.test.ts` | Create a conversation, send a message, and receive a completed run; requires a configured model/provider. |
+
+Bundled source staging does not approve or activate a release. A pending installation does not satisfy the bundled test's prerequisites. The optional deployed-service cases are separate from the standard CI contracts above.
+
+## Guards
+
+Without the opt-in URL or required key, the corresponding package suites skip. When a URL is supplied, an unhealthy or unavailable server fails the suite. The subprocess suite has its own explicit opt-in and does not require an external model or a deployed server.

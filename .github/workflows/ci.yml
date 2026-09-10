@@ -10,7 +10,7 @@ env:
 #
 # The bun pin is SINGLE-SOURCED in the top-level `.bun-version` file: the
 # composite action .github/actions/setup and every direct setup-bun call
-# (gate-integrity + coverage below — dep-free jobs that skip the composite —
+# (coverage below is dep-free; gate-integrity installs its locked parser —
 # plus visual-evidence-publish.yml, release-sdk.yml and release-image.yml)
 # read it via `bun-version-file`. Bump the pin by editing `.bun-version` only
 # (with the local re-verification above). NO workflow may use `bun-version:
@@ -104,7 +104,22 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      - run: cd web && bunx --bun vitest run --shard=${{ matrix.i }}/3
+      # @vitest/coverage-v8 uses Node's inspector Coverage domain. This runs
+      # the exact same three shards as the pass/fail job while producing the
+      # full shared-library LCOV used by the existing coverage gate.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Run Vitest shard with V8 coverage
+        run: |
+          bash scripts/web-vitest-coverage.sh --output coverage-shard/web-vitest-${{ matrix.i }} --shard ${{ matrix.i }}/3
+          cp coverage-shard/web-vitest-${{ matrix.i }}/lcov.info coverage-shard/lcov_web_vitest_${{ matrix.i }}.info
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-web-vitest-${{ matrix.i }}
+          path: coverage-shard
+          retention-days: 3
+          if-no-files-found: error
 
   # Required check (branch protection): thin aggregator that KEEPS the pinned
   # required-check name over the sharded vitest matrix — green iff every
@@ -145,10 +160,38 @@ jobs:
           playwright: "true"
       - run: bash scripts/test-web.sh
 
+  # Build source-mapped browser assets once. Each existing mandatory browser
+  # lane downloads this exact artifact, records only its own worker receipts,
+  # and the final browser route gate merges them. This avoids a second full
+  # browser sweep solely for coverage while preserving immutable build-id
+  # validation across mock and real-auth previews.
+  browser-coverage-build:
+    name: Browser coverage build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - run: bash scripts/browser-coverage-build.sh
+      - run: bash scripts/verify-browser-build-transfer.sh --round-trip-preview
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-coverage-build
+          path: |
+            web/build/
+            web/.svelte-kit/output/
+          retention-days: 3
+          if-no-files-found: error
+          include-hidden-files: true
+
   e2e-mock-run:
     name: E2E mock lane
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -156,15 +199,18 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
       # Mock/preview e2e gate. With no DOCKER_TEST the playwright config builds
       # its own preview server (PI_SKIP_INIT=1 build + preview on :4173) and the
       # specs hit MOCKED backends — no Docker, no live container, no seed.
       #
-      # SCOPED to a stable, preview-runnable spec set (NOT a blanket
-      # `playwright test`): the file-organizer + Hub + extension-library/detail
-      # surface. A blanket run pulls in ~240 specs, many DOCKER_TEST-gated or
-      # seed-dependent that would fail/flake here with no live backend.
-      # file-organizer-real.spec.ts self-skips its real-backend cases.
+      # SCOPED to the stable smoke set. The broader mock-preview product suite
+      # runs in e2e-mock-full below, while Docker and real-PGlite journeys use
+      # their dedicated environments.
       #
       # The blocking list has ONE home: the `mock-gate` lane of
       # web/e2e/lanes.json. scripts/e2e-lane-args.ts turns it into ANCHORED
@@ -174,15 +220,109 @@ jobs:
       # invocation.
       - shell: bash
         run: |
-          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
-          [ "${#ARGS[@]}" -gt 0 ] || { echo "::error::empty mock-gate lane args"; exit 1; }
-          cd web && bunx playwright test --project=chromium "${ARGS[@]}"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-gate" \
+            bash scripts/collect-browser-route-coverage-lane.sh mock-gate
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-mock-gate
+          path: tasks/testing-gaps/browser/v8-coverage/mock-gate/
+          retention-days: 3
+          if-no-files-found: error
       # Post-mortem debuggability: keep traces/screenshots when the gate fails.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: e2e-mock-test-results
           path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # The broader mock-preview product suite is deliberately separate from the
+  # fast protected smoke set above. It retains the same strict first-failure
+  # policy, runs every former backlog spec, and uses two browser workers so its
+  # host resource use stays bounded.
+  e2e-mock-full:
+    name: E2E mock product coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    needs: [browser-coverage-build]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
+      - name: Run every non-smoke mock browser journey
+        shell: bash
+        run: |
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-full" \
+            bash scripts/collect-browser-route-coverage-lane.sh mock-full
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-mock-full
+          path: tasks/testing-gaps/browser/v8-coverage/mock-full/
+          retention-days: 3
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-mock-full-test-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # The dedicated evidence manifest is blocking behavior coverage, not a
+  # best-effort gallery. Its specs run with their owned capture helpers; other
+  # @evidence assertions remain in their manifest-owned mock lanes.
+  e2e-evidence:
+    name: E2E visual evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [browser-coverage-build]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
+      - name: Run every evidence journey
+        shell: bash
+        env:
+          EZCORP_E2E_EVIDENCE: "1"
+        run: |
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/evidence" \
+            bash scripts/collect-browser-route-coverage-lane.sh evidence
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-evidence
+          path: tasks/testing-gaps/browser/v8-coverage/evidence/
+          retention-days: 3
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: e2e-evidence-results
+          path: |
+            web/test-results/
+            web/blob-report/
           retention-days: 3
           if-no-files-found: ignore
 
@@ -235,20 +375,20 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
-  # Existing protected context. It stays green only if the parallel mock lane
-  # and the candidate-image File Organizer replay both succeed.
+  # Existing protected context. It stays green only if every automatic browser
+  # lane and the candidate-image lifecycle proof succeed.
   e2e-mock:
     name: E2E (mock, no Docker)
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [e2e-mock-run, production-image-file-organizer, extension-browser-engines]
+    needs: [e2e-mock-run, e2e-mock-full, e2e-evidence, production-image-file-organizer, extension-browser-engines, browser-route-coverage]
     if: always()
     steps:
-      - name: Aggregate mock and candidate-image E2E results
+      - name: Aggregate required browser results
         run: |
-          echo "mock=${{ needs.e2e-mock-run.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }}"
-          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ]; then
-            echo "::error::Mock E2E, production-image verification, or extension browser engine validation failed."
+          echo "mock=${{ needs.e2e-mock-run.result }} mock_full=${{ needs.e2e-mock-full.result }} evidence=${{ needs.e2e-evidence.result }} production=${{ needs.production-image-file-organizer.result }} engines=${{ needs.extension-browser-engines.result }} route_coverage=${{ needs.browser-route-coverage.result }}"
+          if [ "${{ needs.e2e-mock-run.result }}" != success ] || [ "${{ needs.e2e-mock-full.result }}" != success ] || [ "${{ needs.e2e-evidence.result }}" != success ] || [ "${{ needs.production-image-file-organizer.result }}" != success ] || [ "${{ needs.extension-browser-engines.result }}" != success ] || [ "${{ needs.browser-route-coverage.result }}" != success ]; then
+            echo "::error::A required browser lane, route coverage, production-image verification, or extension browser engine validation failed."
             exit 1
           fi
 
@@ -275,6 +415,12 @@ jobs:
           PI_E2E_REAL_BROWSER_PROJECTS: ${{ matrix.browser }}
           EZCORP_E2E_EVIDENCE: "1"
         run: cd web && bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts
+      # The restored bottom-sheet suite exercises native Escape/backdrop/Close
+      # dismissal and safe-area layout under both non-Chromium engines. The
+      # tracked focused config starts preview from the lifecycle build above,
+      # so this proof adds no second production build or default test project.
+      - name: Verify bottom-sheet dismissal and safe-area behavior
+        run: cd web && bunx playwright test --config playwright.reuse-mock.config.ts --project=${{ matrix.browser }} --workers=1 --reporter=list e2e/bottom-sheet-pickers.spec.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -296,6 +442,7 @@ jobs:
     name: E2E (real auth + real DB)
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
@@ -303,16 +450,35 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
       # This installs the runner and executes PodmanRunner.initialize(), which
       # verifies that the real extension sandbox can start on the CI host.
       - run: bash scripts/setup-extension-runner-ci.sh --install
       - name: Verify fresh real-auth setup without committed storage state
         shell: bash
         run: |
-          mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
-          [ "${#ARGS[@]}" -gt 0 ] || { echo "fresh-setup lane has no specs" >&2; exit 1; }
-          bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"
-      - run: bun scripts/run-real-e2e.ts real-auth
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/fresh-setup" \
+            bash scripts/collect-browser-route-coverage-lane.sh fresh-setup
+      - name: Run real-auth journeys with browser coverage
+        shell: bash
+        run: |
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/real-auth" \
+            bash scripts/collect-browser-route-coverage-lane.sh real-auth
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-real-auth
+          path: |
+            tasks/testing-gaps/browser/v8-coverage/fresh-setup/
+            tasks/testing-gaps/browser/v8-coverage/real-auth/
+          retention-days: 3
+          if-no-files-found: error
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
       # (the real config uses trace: retain-on-failure).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -320,6 +486,55 @@ jobs:
         with:
           name: e2e-real-auth-test-results
           path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # Merge only receipts produced by the mandatory browser lanes above. This
+  # job does not start Playwright or build; a missing lane artifact, a changed
+  # build id, absent route, or unmapped source fails the required E2E context.
+  browser-route-coverage:
+    name: Browser route coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [browser-coverage-build, e2e-mock-run, e2e-mock-full, e2e-evidence, e2e-real-auth]
+    if: always()
+    steps:
+      - name: Require every coverage producer
+        run: |
+          for result in "${{ needs.browser-coverage-build.result }}" "${{ needs.e2e-mock-run.result }}" "${{ needs.e2e-mock-full.result }}" "${{ needs.e2e-evidence.result }}" "${{ needs.e2e-real-auth.result }}"; do
+            [ "$result" = success ] || { echo "::error::browser coverage producer failed: $result"; exit 1; }
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: { name: browser-v8-mock-gate, path: tasks/testing-gaps/browser/v8-coverage/receipts/mock-gate }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: { name: browser-v8-mock-full, path: tasks/testing-gaps/browser/v8-coverage/receipts/mock-full }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: { name: browser-v8-evidence, path: tasks/testing-gaps/browser/v8-coverage/receipts/evidence }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: { name: browser-v8-real-auth, path: tasks/testing-gaps/browser/v8-coverage/receipts/real-auth }
+      - name: Merge and verify browser source coverage
+        shell: bash
+        run: |
+          bash scripts/merge-browser-route-coverage.sh \
+            tasks/testing-gaps/browser/v8-coverage/receipts \
+            tasks/testing-gaps/browser/v8-coverage/merged
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-route-coverage
+          path: |
+            tasks/testing-gaps/browser/v8-coverage/merged/merged.json
+            tasks/testing-gaps/browser/v8-coverage/merged/lcov.info
           retention-days: 3
           if-no-files-found: ignore
 
@@ -398,12 +613,17 @@ jobs:
         with:
           bun-version-file: .bun-version # single pin source; see note at top
       - run: git fetch --no-tags origin main
-      # Anti-tamper / anti-cheat meta-check (no deps needed). A maintainer-only
+      # The assertion-path detector uses TypeScript's AST. Keep that parser
+      # isolated from the full workspace install and locked to its own manifest.
+      - name: Install gate-integrity parser
+        run: bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts
+      # Anti-tamper / anti-cheat meta-check. A maintainer-only
       # `gate-change-approved` label sets GATE_CHANGE_APPROVED=1 to bypass.
       - name: Gate-integrity meta-check
         env:
           BASE_REF: origin/main
           GATE_CHANGE_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'gate-change-approved') && '1' || '' }}
+          NODE_PATH: ${{ github.workspace }}/.github/gate-integrity-deps/node_modules
         run: bun scripts/gate-integrity.ts
 
   # ── Backend tests + coverage, sharded into a single per-file pass ──────────
@@ -419,26 +639,9 @@ jobs:
       fail-fast: false
       matrix:
         # Keep SHARD_TOTAL below in sync with this list length.
-        # 12 shards: ~5510s of CI-measured per-file work (sum of wall times
-        # under the PARALLEL=4 pool) spread over 12 runners ≈ 460s of pool
-        # work ≈ 115s wall + ~25s fixed overhead ≈ 2:20 for the leg (was
-        # ~3:50 at 8).
-        #
-        # Slices come from the LPT planner (scripts/shard-plan.ts over
-        # scripts/shard-timings.json). That manifest is now sourced from a
-        # REAL CI sweep (run 30387307634) rather than a dev box: the old
-        # 32-core numbers ran ~3.66x faster and unevenly (per-file CI/dev
-        # ratio p10 2.1x, median 3.3x, p90 4.6x), so the plan they produced
-        # looked balanced in dev units while leaving a measured ~93s spread
-        # across the real shards (131s fastest vs 224s slowest). Re-planned
-        # on CI weights the predicted spread is ~0s — worth ~50s of leg wall
-        # on its own, before the shard-count bump.
-        #
-        # Concurrency: VERIFIED, not assumed. Runs 30367934989 (23 jobs) and
-        # 30387307634 (24 jobs) both had every job start within 8s — no
-        # queueing. This repo is PUBLIC, so the 20-job free-plan cap does not
-        # apply. At 12 shards the workflow peaks at ~27 jobs; re-verify job
-        # start spread before pushing much past that.
+        # Twelve shards use the latest complete CI timing manifest. The bounded
+        # worker default and the measurement source are recorded in
+        # scripts/shard-timings.json; keep this matrix in sync with SHARD_TOTAL.
         shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -463,10 +666,10 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # SDK + harness-client + suggest + ai-kit + node-vitest coverage legs
-  # (node 22 for coverage-v8). SDK + harness-client + ai-kit + vitest gate
-  # pass/fail; suggest also gates through residual-tests. Leg file sets live
-  # in scripts/lib/test-file-sets.sh.
+  # SDK + harness-client + suggest + ai-kit + provider coverage legs. Canonical
+  # Vitest V8 artifacts come from test-web-shard, so this job does not rerun them.
+  # SDK, harness-client, ai-kit, and provider legs gate pass/fail; suggest also
+  # gates through residual-tests. Leg file sets live in scripts/lib/test-file-sets.sh.
   cov-extras:
     name: Coverage extras (legs)
     runs-on: ubuntu-latest
@@ -477,10 +680,6 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      # @vitest/coverage-v8 needs node:inspector's Coverage domain (Bun lacks it).
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "22"
       - run: bash scripts/setup-extension-runner-ci.sh --install
       - name: Run coverage legs
         env:
@@ -578,19 +777,24 @@ jobs:
   # pass/fail-set test failure OR an infrastructure failure (runner couldn't
   # execute) — both must block. Aggregated so the pinned required-check name
   # keeps reporting.
+  external-postgres:
+    uses: ./.github/workflows/db-postgres.yml
+
   backend-tests:
     name: Backend tests
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [cov-shard, residual-tests]
+    needs: [cov-shard, residual-tests, external-postgres]
     if: always()
     steps:
       - name: Aggregate shard results
         run: |
           echo "cov-shard:       ${{ needs.cov-shard.result }}"
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
+          echo "external-postgres: ${{ needs.external-postgres.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
-             [ "${{ needs.residual-tests.result }}" != "success" ]; then
+             [ "${{ needs.residual-tests.result }}" != "success" ] || \
+             [ "${{ needs.external-postgres.result }}" != "success" ]; then
             echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
             exit 1
           fi
@@ -603,14 +807,16 @@ jobs:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [cov-shard, cov-extras, web-security-coverage]
+    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage]
     if: always()
     steps:
       - name: Require coverage producers to have succeeded
         run: |
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.cov-extras.result }}" != "success" ] || \
-             [ "${{ needs.web-security-coverage.result }}" != "success" ]; then
+             [ "${{ needs.web-security-coverage.result }}" != "success" ] || \
+             [ "${{ needs.test-web-shard.result }}" != "success" ] || \
+             [ "${{ needs.browser-route-coverage.result }}" != "success" ]; then
             echo "::error::coverage producers failed — coverage data is incomplete"
             exit 1
           fi
@@ -628,6 +834,16 @@ jobs:
           pattern: lcov-cov-*
           path: coverage-artifacts
           merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-route-coverage
+          path: browser-route-coverage-artifact
+      - name: Require converted browser route coverage
+        run: |
+          test -s browser-route-coverage-artifact/lcov.info
+          cp browser-route-coverage-artifact/lcov.info coverage-artifacts/lcov_browser_routes.info
+      - name: Require V8 coverage for every executable shared web source
+        run: bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
       - name: Merge lcov + enforce thresholds
         run: |
           mkdir -p coverage

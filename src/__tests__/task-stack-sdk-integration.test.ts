@@ -47,18 +47,10 @@ import type { ExtensionProcess } from "../extensions/subprocess";
 
 const EXT_DIR = join(import.meta.dir, "..", "..", "docs", "extensions", "examples", "task-stack");
 
-// SKIPPED: Phase 3 sandbox-preload poisons `node:fs` and `Bun.file`
-// inside the extension subprocess. The task-stack bundled extension
-// was not migrated off these legacy primitives — its module-level
-// `existsSync` static import + the SDK's legacy `atomicRead`/`saveJSON`
-// (which use Bun.file under the hood) both throw under the sandbox.
-//
-// Fixing properly requires migrating task-stack onto the Phase 3
-// host-mediated SDK helpers (`fsRead` / `fsWrite` / `fsList` / etc.)
-// — out of scope for this regression-cleanup commit. Tracked for the
-// Phase 3 follow-up. The SDK round-trip semantics under test here are
-// covered by `extension-runtime-comprehensive.test.ts` (which uses
-// the test-only mock-extension).
+// RETIRED: createTestExtension now always rejects direct host evaluation with
+// EXTENSION_V4_REQUIRED. The executable replacement builds and runs the v4
+// entrypoint through ExtensionProcess in
+// docs/extensions/examples/task-stack/e2e-server-pipeline.test.ts.
 describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () => {
   let proc: ExtensionProcess | undefined;
   let cwd: string;
@@ -98,7 +90,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     assertToolResult(listed, { isError: false, text: "integration-test task" });
 
     const firstItem = listed.content[0];
-    if (!firstItem || firstItem.type !== "text") throw new Error("expected text content");
+    if (firstItem?.type !== "text") throw new Error("expected text content");
     const parsed = JSON.parse(firstItem.text) as Array<{ title: string; status: string }>;
     expect(parsed).toHaveLength(1);
     expect(parsed[0]?.title).toBe("integration-test task");
@@ -141,7 +133,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     const listed = await proc.callTool("list-tasks", {});
     expect(listed.isError).toBe(false);
     const firstItem = listed.content[0];
-    if (!firstItem || firstItem.type !== "text") throw new Error("expected text content");
+    if (firstItem?.type !== "text") throw new Error("expected text content");
     const parsed = JSON.parse(firstItem.text) as Array<{ title: string }>;
     expect(parsed).toHaveLength(5);
     const persistedTitles = new Set(parsed.map((t) => t.title));
@@ -156,7 +148,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     const added = await proc.callTool("add-task", { title: "lifecycle task" });
     expect(added.isError).toBe(false);
     const addedFirst = added.content[0];
-    if (!addedFirst || addedFirst.type !== "text") throw new Error("expected text content");
+    if (addedFirst?.type !== "text") throw new Error("expected text content");
     const taskId = (JSON.parse(addedFirst.text) as { id: string }).id;
 
     const started = await proc.callTool("start-task", { taskId });
@@ -165,14 +157,14 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     const active = await proc.callTool("get-active-task", {});
     expect(active.isError).toBe(false);
     const activeFirst = active.content[0];
-    if (!activeFirst || activeFirst.type !== "text") throw new Error("expected text content");
+    if (activeFirst?.type !== "text") throw new Error("expected text content");
     expect((JSON.parse(activeFirst.text) as { id: string; status: string }).id).toBe(taskId);
     expect((JSON.parse(activeFirst.text) as { id: string; status: string }).status).toBe("active");
 
     const finished = await proc.callTool("finish-task", { taskId, summary: "done" });
     expect(finished.isError).toBe(false);
     const finishedFirst = finished.content[0];
-    if (!finishedFirst || finishedFirst.type !== "text") throw new Error("expected text content");
+    if (finishedFirst?.type !== "text") throw new Error("expected text content");
     const finishedTask = JSON.parse(finishedFirst.text) as {
       status: string;
       completionSummary: string;

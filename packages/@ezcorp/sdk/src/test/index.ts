@@ -1,10 +1,32 @@
 import { expect, mock } from "bun:test";
 import * as runtime from "../runtime";
+import { _setLogPageForTests } from "../runtime/loop-log";
 export * from "./filesystem";
 export { __resetChannelForTests } from "../runtime/channel";
 export { __resetLoopsForTests, _getRegisteredLoop, _setStoreFactoryForTests, _setSpawnForTests, _setLoopEventsForTests, _setSettingsResolverForTests, _setProposalClosuresForTests, _setMessagesResolverForTests, _setLlmFactoryForTests, _setCheckFetchForTests } from "../runtime/loop";
 export { isUntrustedInputLoop } from "../runtime/loop-core";
 export { dispatchAssignmentUpdate } from "../runtime/loop";
+
+/** Capture loop dashboard registration and publication without a live host channel. */
+export function captureLoopPagesForTests(): {
+  registered: string[];
+  published: string[];
+  restore(): void;
+} {
+  const registered: string[] = [];
+  const published: string[] = [];
+  _setLogPageForTests(
+    (definition) => { registered.push(definition.id); },
+    (pageId) => { published.push(pageId); },
+  );
+  return {
+    registered,
+    published,
+    restore: () => {
+      _setLogPageForTests(null, null);
+    },
+  };
+}
 
 const runtimeExports = { ...runtime };
 

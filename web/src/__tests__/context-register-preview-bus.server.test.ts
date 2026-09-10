@@ -24,10 +24,39 @@ import { test, expect, describe, vi } from "vitest";
 
 // The one collaborator under observation.
 const registerPreviewBus = vi.fn();
-const reloadFixture = vi.hoisted(() => ({ listeners: [] as Array<() => void | Promise<void>>, events: vi.fn(), lifecycle: vi.fn(), workflows: vi.fn(async () => []) }));
+const reloadFixture = vi.hoisted(() => ({
+  listeners: [] as Array<() => void | Promise<void>>,
+  teardowns: new Map<string, () => void | Promise<void>>(),
+  events: vi.fn(),
+  lifecycle: vi.fn(),
+  workflows: vi.fn(async () => []),
+}));
+const bootWiring = vi.hoisted(() => ({
+  githubEmitter: null as unknown,
+  workflowRuntime: null as unknown,
+  commandOptions: null as unknown,
+}));
+const permissionAudit = vi.hoisted(() => ({
+	flushAudit: vi.fn(async () => undefined),
+}));
+const degradedBoot = vi.hoisted(() => ({
+  lifecycle: new Error("lifecycle unavailable"),
+  bundled: new Error("bundled staging unavailable"),
+  briefing: new Error("briefing configuration unavailable"),
+  terminalize: new Error("workflow sweep unavailable"),
+  recovery: new Error("runner recovery unavailable"),
+  bootSpawn: new Error("boot spawn unavailable"),
+  goal: new Error("goal start unavailable"),
+}));
 vi.mock("$server/runtime/preview/preview-bus-registry", () => ({
   registerPreviewBus: (...a: unknown[]) => registerPreviewBus(...a),
   getRegisteredPreviewBus: () => null,
+}));
+vi.mock("$server/integrations/github-projects/bus-registry", () => ({
+  registerGithubProjectsEmit: vi.fn((emit: unknown) => { bootWiring.githubEmitter = emit; }),
+}));
+vi.mock("$server/runtime/workflow/runtime-registry", () => ({
+  registerWorkflowRuntime: vi.fn((runtime: unknown) => { bootWiring.workflowRuntime = runtime; }),
 }));
 
 // ── Inert stubs for the rest of the boot graph ──────────────────────
@@ -39,15 +68,21 @@ vi.mock("$server/db/connection", () => ({
 }));
 vi.mock("$lib/server/shutdown", () => ({
   installShutdownHandlers: vi.fn(),
-  registerTeardown: vi.fn(),
+  registerTeardown: vi.fn((name: string, callback: () => void | Promise<void>) => {
+    reloadFixture.teardowns.set(name, callback);
+  }),
 }));
 vi.mock("$server/db/backup", () => ({
   startBackups: vi.fn(),
   stopBackups: vi.fn(),
 }));
 vi.mock("$server/extensions/bundled", () => ({
-  ensureBundledExtensions: vi.fn(async () => undefined),
+  ensureBundledExtensions: vi.fn(async () => { throw degradedBoot.bundled; }),
   bootSpawnFlaggedBundledExtensions: vi.fn(async () => undefined),
+}));
+vi.mock("$server/extensions/extension-lifecycle-service", () => ({
+  reconcileExtensionLifecycle: vi.fn(async () => { throw degradedBoot.lifecycle; }),
+  recoverExtensionLifecycle: vi.fn(async () => { throw degradedBoot.recovery; }),
 }));
 vi.mock("$server/extensions/registry", () => ({
   ExtensionRegistry: {
@@ -64,11 +99,12 @@ vi.mock("$server/extensions/registry", () => ({
 }));
 vi.mock("$server/extensions/tool-executor", () => ({
   ToolExecutor: class {
-    ensureSubprocessRpcWired = vi.fn();
+    constructor() { throw degradedBoot.bootSpawn; }
   },
 }));
 vi.mock("$server/extensions/permission-engine", () => ({
-  getPermissionEngine: vi.fn(() => ({})),
+	getPermissionEngine: vi.fn(() => permissionAudit),
+	flushPermissionAuditForShutdown: vi.fn(async () => permissionAudit.flushAudit()),
 }));
 vi.mock("$lib/server/security/bundled-creds", () => ({
   bootstrapBundledCredentials: vi.fn(async () => undefined),
@@ -103,20 +139,35 @@ vi.mock("$server/db/queries/conversation-extensions", () => ({
   getConversationExtensionIds: vi.fn(async () => []),
 }));
 vi.mock("$server/runtime/commands/registry", () => ({
-  createCommandRegistry: vi.fn(() => ({})),
+  createCommandRegistry: vi.fn((options: unknown) => {
+    bootWiring.commandOptions = options;
+    return {};
+  }),
 }));
 vi.mock("$server/db/queries/user-commands", () => ({
-  listUserCommands: vi.fn(async () => []),
+  listUserCommands: vi.fn(async () => [{
+    name: "review",
+    description: "Review a change",
+    body: "git diff",
+    frontmatter: null,
+  }]),
 }));
 vi.mock("$server/runtime/goal-host", () => ({
-  initGoalHost: vi.fn(() => ({ start: vi.fn(async () => undefined), stop: vi.fn() })),
+  initGoalHost: vi.fn(() => ({ start: vi.fn(async () => { throw degradedBoot.goal; }), stop: vi.fn() })),
   parseGoalEnabled: vi.fn(() => false),
+}));
+vi.mock("$server/runtime/briefing/agent-config", () => ({
+  ensureBriefingAgentConfig: vi.fn(async () => { throw degradedBoot.briefing; }),
+}));
+vi.mock("$server/providers/kilo", () => ({ warmKiloCatalog: vi.fn(async () => "failed") }));
+vi.mock("$server/db/queries/workflow-runs", () => ({
+  terminalizeOrphanedWorkflowRuns: vi.fn(async () => { throw degradedBoot.terminalize; }),
 }));
 vi.mock("$server/runtime/loader", () => ({
   loadAgents: vi.fn(async () => []),
 }));
 vi.mock("$server/runtime/workflow-loader", () => ({
-  loadYamlWorkflows: vi.fn(async () => []),
+  loadYamlWorkflows: vi.fn(async () => [{ name: "yaml-check", description: "fixture", steps: [] }]),
 }));
 vi.mock("$server/runtime/workflow-release-assets", () => ({ loadReleaseWorkflowEntries: reloadFixture.workflows }));
 vi.mock("$server/db/queries/workflows", () => ({
@@ -157,11 +208,36 @@ import * as ctx from "$lib/server/context";
 // `initialized === true` and see no fresh wiring. Add further cases as their
 // own file (see context-state-mediator-wiring.server.test.ts), not here.
 describe("ensureInitialized — registers the live preview bus (gap #3)", () => {
-  test("calls registerPreviewBus exactly once with a non-null bus === getBus()", async () => {
+  test("keeps core boot live while optional extension, workflow, briefing, goal, and boot-spawn work degrades", async () => {
+    // The public server boundary fails closed before boot; only goal state is
+    // intentionally nullable so messages can render its disabled card.
+    expect(() => ctx.getExecutor()).toThrow("Server not initialized");
+    expect(() => ctx.getWorkflowExecutor()).toThrow("Server not initialized");
+    expect(() => ctx.getBus()).toThrow("Server not initialized");
+    expect(() => ctx.getCommandRegistry()).toThrow("Server not initialized");
+    expect(ctx.getGoalHost()).toBeNull();
+    expect(ctx.getWorkflows()).toEqual([]);
+    expect(ctx.getCachedWorkflows()).toEqual([]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     await ctx.ensureInitialized();
+    // Flush the two explicitly fire-and-forget recovery paths.
+    await Promise.resolve();
+    await Promise.resolve();
 
     // Wiring fired exactly once.
     expect(registerPreviewBus).toHaveBeenCalledTimes(1);
+	const drainPermissionAudit = reloadFixture.teardowns.get("permission-audit-coalescer");
+	expect(drainPermissionAudit).toBeTypeOf("function");
+	expect([...reloadFixture.teardowns.keys()].indexOf("pglite-close")).toBeLessThan(
+		[...reloadFixture.teardowns.keys()].indexOf("permission-audit-coalescer"),
+	);
+	expect([...reloadFixture.teardowns.keys()].indexOf("permission-audit-coalescer")).toBeLessThan(
+		[...reloadFixture.teardowns.keys()].indexOf("backups"),
+	);
+	await drainPermissionAudit?.();
+	expect(permissionAudit.flushAudit).toHaveBeenCalledTimes(1);
     const registeredBus = registerPreviewBus.mock.calls[0]![0];
     // The registered bus is a real, non-null object.
     expect(registeredBus).toBeTruthy();
@@ -169,6 +245,8 @@ describe("ensureInitialized — registers the live preview bus (gap #3)", () => 
     // And it is the SAME instance the rest of the app reaches via getBus()
     // — i.e. the live conversation SSE bus, not a throwaway.
     expect(registeredBus).toBe(ctx.getBus());
+    expect(ctx.getWorkflowExecutor()).toBeTruthy();
+    expect(ctx.getCommandRegistry()).toEqual({});
     expect(reloadFixture.events).toHaveBeenCalledTimes(1);
     expect(reloadFixture.lifecycle).toHaveBeenCalledTimes(1);
     expect(reloadFixture.workflows).toHaveBeenCalledTimes(1);
@@ -177,5 +255,60 @@ describe("ensureInitialized — registers the live preview bus (gap #3)", () => 
     expect(reloadFixture.events).toHaveBeenCalledTimes(2);
     expect(reloadFixture.lifecycle).toHaveBeenCalledTimes(2);
     expect(reloadFixture.workflows).toHaveBeenCalledTimes(2);
+    await ctx.reloadWorkflows();
+
+    const workflowRuntime = bootWiring.workflowRuntime as { listAgents: () => unknown[] };
+    expect(workflowRuntime.listAgents()).toEqual([]);
+    const githubEmitter = bootWiring.githubEmitter as (event: never, payload: never) => void;
+    expect(() => githubEmitter("briefing:updated" as never, {} as never)).not.toThrow();
+    const commandOptions = bootWiring.commandOptions as {
+      dbLister: (userId: string) => Promise<Array<{ name: string; frontmatter: Record<string, string> }>>;
+    };
+    await expect(commandOptions.dbLister("user-1")).resolves.toEqual([
+      { name: "review", description: "Review a change", body: "git diff", frontmatter: {} },
+    ]);
+
+    // Execute representative shutdown callbacks. This verifies the closures
+    // operate on the booted singletons, rather than only being registered.
+    for (const name of ["pglite-close", "backups", "executor-destroy", "extension-registry-kill-all", "lifecycle-dispatcher", "event-subscription-dispatcher", "goal-host"] as const) {
+      const teardown = reloadFixture.teardowns.get(name);
+      expect(teardown).toBeDefined();
+      await teardown!();
+    }
+
+    // Optional capability failure must be visible, but never turn into a
+    // server boot failure. Each controlled collaborator has its own signal;
+    // deleting one catch/failure boundary makes this assertion fail.
+    expect(warn).toHaveBeenCalledWith(
+      "briefing agent bootstrap failed; daily briefing degraded",
+      degradedBoot.briefing,
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "boot-spawn bootstrap failed; event-only bundled extensions degraded",
+      degradedBoot.bootSpawn,
+    );
+    expect(warn).toHaveBeenCalledWith(
+      "goal-host start failed; goal feature degraded",
+      degradedBoot.goal,
+    );
+    expect(warn).toHaveBeenCalledWith("[kilo] catalog warm failed — free models limited to the built-in seed");
+    expect(error).toHaveBeenCalledWith(
+      "Extension runner recovery unavailable; extension execution remains disabled",
+      { error: String(degradedBoot.lifecycle) },
+    );
+    expect(error).toHaveBeenCalledWith(
+      "Extension runner recovery unavailable; extension execution remains disabled",
+      { error: String(degradedBoot.recovery) },
+    );
+    expect(error).toHaveBeenCalledWith(
+      "Bundled source staging unavailable; configure the runner and retry",
+      { error: String(degradedBoot.bundled) },
+    );
+    expect(error).toHaveBeenCalledWith(
+      "[workflow] terminalizeOrphanedWorkflowRuns on startup failed",
+      degradedBoot.terminalize,
+    );
+    warn.mockRestore();
+    error.mockRestore();
   });
 });

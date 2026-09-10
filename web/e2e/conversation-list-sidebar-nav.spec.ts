@@ -82,17 +82,7 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 		page,
 		mockApi,
 	}, testInfo) => {
-		// The row's rename/delete controls live in a `hidden group-hover:flex`
-		// container (ConversationList.svelte), so they are reachable only with a
-		// fine pointer. `mobile-chromium` (Pixel 5) has a coarse pointer and no
-		// swipe/long-press affordance exists, so the dialog cannot be opened from
-		// the sidebar there at all — there is nothing to assert on that side
-		// rather than a weaker version of this assertion. Same conditional-guard
-		// idiom as chat-resume-roundtrip.spec.ts.
-		test.skip(
-			testInfo.project.name === "mobile-chromium",
-			"sidebar row actions are hover-only; the delete control has no coarse-pointer affordance",
-		);
+		const mobile = testInfo.project.name === "mobile-chromium";
 
 		await mockApi({
 			projects: [proj],
@@ -101,9 +91,35 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const sidebar = page.getByRole("navigation", { name: "Conversations" });
-		await sidebar.getByText("Active chat").hover();
-		await sidebar.getByTitle("Delete").first().click();
+		if (mobile) {
+			await page.getByRole("button", { name: "Open conversations" }).click();
+		}
+		const sidebar = mobile
+			? page.getByTestId("swipe-drawer").getByRole("navigation", { name: "Conversations" })
+			: page.getByRole("navigation", { name: "Conversations" });
+		await expect(sidebar).toBeVisible();
+		if (!mobile) await sidebar.getByText("Active chat").hover();
+		const deleteButton = sidebar.getByTitle("Delete").first();
+		if (mobile) {
+			// Touch users have no hover state. The row actions must remain on
+			// screen and meet the 44 px target after the drawer finishes opening.
+			// Polling waits for the drawer's CSS transform, without a fixed delay;
+			// a genuine overflow remains red once the transition settles.
+			await expect.poll(async () => deleteButton.evaluate((element) => {
+				const rect = element.getBoundingClientRect();
+				return rect.left >= 0 && rect.right <= window.innerWidth;
+			})).toBe(true);
+			const box = await deleteButton.boundingBox();
+			const viewport = page.viewportSize();
+			expect(box).not.toBeNull();
+			expect(viewport).not.toBeNull();
+			// Chromium's device scale can report 44 CSS px as 43.99998.
+			expect(box!.width).toBeGreaterThanOrEqual(43.99);
+			expect(box!.height).toBeGreaterThanOrEqual(43.99);
+			expect(box!.x).toBeGreaterThanOrEqual(0);
+			expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+		}
+		await deleteButton.click();
 
 		// Modal semantics: role + aria-modal, accessible name from the
 		// dialog's own heading (via aria-labelledby). A generous timeout here:

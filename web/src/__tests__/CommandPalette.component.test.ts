@@ -242,7 +242,7 @@ describe("CommandPalette — keyboard navigation", () => {
 		const flushRaf = () => new Promise((r) => requestAnimationFrame(() => r(null)));
 		const scrollSpy = vi.fn();
 		const proto = HTMLElement.prototype as unknown as { scrollIntoView?: unknown };
-		const had = Object.prototype.hasOwnProperty.call(proto, "scrollIntoView");
+		const had = Object.hasOwn(proto, "scrollIntoView");
 		const prev = proto.scrollIntoView;
 		proto.scrollIntoView = scrollSpy;
 		try {

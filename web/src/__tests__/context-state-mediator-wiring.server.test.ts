@@ -45,7 +45,10 @@ vi.mock("$server/extensions/state-mediator", () => ({
 const MANIFEST_WITH_PAGES = {
 	name: "cron-dashboard",
 	panel: { title: "Cron" },
-	pages: [{ id: "dashboard", title: "Dash" }, { id: "stats", title: "Stats" }],
+  pages: [
+    { id: "dashboard", title: "Dash", perProject: true },
+    { id: "stats", title: "Stats" },
+  ],
 	permissions: { eventSubscriptions: ["cron-dashboard:clear-log", "cron-dashboard:revoked"] },
 };
 const MANIFEST_PLAIN = { name: "plain-ext", panel: undefined };
@@ -100,6 +103,7 @@ vi.mock("$server/extensions/tool-executor", () => ({
 }));
 vi.mock("$server/extensions/permission-engine", () => ({
 	getPermissionEngine: vi.fn(() => ({})),
+	flushPermissionAuditForShutdown: vi.fn(async () => undefined),
 }));
 vi.mock("$lib/server/security/bundled-creds", () => ({
 	bootstrapBundledCredentials: vi.fn(async () => undefined),
@@ -162,6 +166,7 @@ type MediatorLookup = (extId: string) =>
 			name: string;
 			panel?: unknown;
 			pageIds?: string[];
+			perProjectPageIds?: string[];
 			eventSubscriptions?: string[];
 	  }
 	| undefined;
@@ -196,6 +201,7 @@ describe("ensureInitialized — state-mediator lookup feeds pageIds from MANIFES
 		expect(info).toBeDefined();
 		expect(info!.name).toBe("cron-dashboard");
 		expect(info!.pageIds).toEqual(["dashboard", "stats"]);
+		expect(info!.perProjectPageIds).toEqual(["dashboard"]);
 		expect(info!.eventSubscriptions).toEqual(["cron-dashboard:clear-log"]);
 
 		// No pages declared + no grant → neither key present (the

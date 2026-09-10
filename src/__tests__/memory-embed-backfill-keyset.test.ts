@@ -9,7 +9,7 @@
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { eq, sql } from "drizzle-orm";
+import { eq, } from "drizzle-orm";
 
 mockDbConnection();
 

@@ -73,14 +73,10 @@
 # can never drift apart.
 
 # P — the pass/fail set.
-# The same shipping fixture checks run in both P and C.
-shipping_fixture_files() {
-  printf '%s\n' \
-    scripts/lib/shipping-bootstrap-state.test.ts \
-    scripts/verify-shipping-embedding-log.test.ts \
-    scripts/verify-shipping-runtime-resources-config.test.ts \
-    scripts/verify-shipping-runtime-resource-accounting.test.ts \
-    scripts/lib/shipping-runtime-cycle-conversation.test.ts
+# Script behavior tests belong to both P and C. Discover them together so a
+# new migration or test-fixture regression cannot fall outside every CI job.
+script_test_files() {
+  find scripts -name "*.test.ts" ! -path "*/node_modules/*"
 }
 
 passfail_files() {
@@ -102,6 +98,7 @@ passfail_files() {
     # reason — never by silently shrinking back to a dir allowlist.
     find src -name "*.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
     # in NO pool: its three test files (memory-extractor index + manifest-load,
     # lessons-distiller index) ran in no CI job at all. Deterministic under
@@ -132,9 +129,7 @@ passfail_files() {
     # The scoped web bun:test files — ONE definition shared with C (see
     # web_host_files). P consumes it so C\P stays empty by construction.
     web_host_files
-    # Shipping bootstrap state is production-suite control logic. Keep its
-    # mock-client receipt checks in both canonical pools.
-    shipping_fixture_files
+    script_test_files
     # Remote-control route-contract governance meta-test — a HARD pass/fail gate
     # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
     # deliberately kept OUT of the coverage set C below: the set difference P\C
@@ -175,9 +170,48 @@ passfail_files() {
 # files still cannot orphan.
 #
 # A genuinely env-dependent web suite must be excluded from P HERE by name,
-# with its reason — never by listing it in coverage_host_files only. There are
-# no such exclusions today: all 34 were verified deterministic under isolated
-# `bun test ./<f> --timeout 30000`, 3 runs each.
+# with its reason — never by listing it in coverage_host_files only.
+#
+# Direct utility suites historically belonged only to `web_bunleg_files`: they
+# proved behavior in plain Bun, but emitted no LCOV. Several product modules
+# therefore appeared only through incidental Vitest imports; a fully-tested
+# chat-window drop helper even had 0 DA. Keep these deterministic, isolated
+# Bun suites in the pass/fail set P. Their producer runs from web/ (the aliases
+# cannot resolve from the root host pool), so coverage_host_files subtracts this
+# set and the dedicated coverage leg owns its one instrumented execution.
+# `web_bunleg_files` subtracts P ∪ C, so no plain duplicate remains.
+web_utility_coverage_files() {
+  printf '%s\n' \
+    web/src/__tests__/chat-scroll-restore.integration.test.ts \
+    web/src/__tests__/chat-scroll-restore.test.ts \
+    web/src/__tests__/auth-keepalive.test.ts \
+    web/src/__tests__/clipboard.test.ts \
+    web/src/__tests__/combobox-nav.test.ts \
+    web/src/__tests__/focus-trap.test.ts \
+    web/src/__tests__/last-model.test.ts \
+    web/src/__tests__/panel-persistence.test.ts \
+    web/src/__tests__/pill-visibility.test.ts \
+    web/src/__tests__/stores-team-panel-persistence.test.ts \
+    web/src/__tests__/sub-agent-routing.test.ts \
+    web/src/__tests__/sub-convo-agent-state.test.ts \
+    web/src/lib/__tests__/attachment-client.test.ts \
+    web/src/lib/__tests__/chat-window-drop.test.ts \
+    web/src/lib/actions/hover-tooltip.test.ts \
+    web/src/lib/ez/api.test.ts \
+    web/src/lib/tool-display.test.ts \
+    web/src/lib/__tests__/commands.test.ts \
+    web/src/lib/__tests__/markdown-speech.test.ts \
+    web/src/lib/__tests__/progressive-image.test.ts \
+    web/src/lib/__tests__/select-mode.test.ts \
+    web/src/lib/__tests__/shortcuts.test.ts \
+    web/src/lib/__tests__/theme.test.ts \
+    web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts \
+    web/src/lib/components/tool-cards/price-chart-logic.test.ts \
+    web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts \
+    web/src/lib/workers/__tests__/agent-fuzzy-search-worker.test.ts \
+    web/src/lib/workers/__tests__/kokoro-tts-bridge.test.ts
+}
+
 web_host_files() {
   {
     # See passfail_files: scoped `set +e` so a missing dir doesn't silently
@@ -187,8 +221,8 @@ web_host_files() {
     find web/src/routes/api/import -name "*.test.ts"
     # github-projects web route tests.
     find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
-    # extension web entry-route tests.
-    find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
+    # Extension entry routes and nested handler tests share the measured host pool.
+    find web/src/routes/api/extensions -name "*.test.ts"
     # extension-RBAC grants API route tests (coverage for the two rbac
     # +server.ts files pinned at 100 in coverage-thresholds.json).
     find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
@@ -221,6 +255,7 @@ web_host_files() {
     # hard gate (see passfail_files); it covers only the already-pinned
     # harness-client route table + the unpinned api-registry, so measuring it
     # would add no threshold-gated coverage.
+    web_utility_coverage_files
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
       web/src/__tests__/message-toolbar-extension-actions.test.ts \
@@ -265,6 +300,9 @@ web_host_files() {
       web/src/__tests__/mock-llm-route.test.ts \
       web/src/__tests__/runs-wait-route.test.ts \
       web/src/__tests__/seed-reset-route.test.ts \
+      web/src/__tests__/seed-static-preview-route.test.ts \
+      web/src/__tests__/invite-rate-limit-isolation.test.ts \
+      web/src/__tests__/test-agent-config.test.ts \
       web/src/__tests__/extensions-events-route.test.ts \
       web/src/__tests__/chat-scroll.test.ts \
       web/src/__tests__/chat-stick-to-bottom.integration.test.ts
@@ -298,6 +336,7 @@ coverage_host_files() {
       ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \) \
       ! -path "src/__tests__/production-image-lifecycle-launch.integration.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
     # hard-gates these inside the coverage shards.
@@ -313,10 +352,12 @@ coverage_host_files() {
     # so C\P is empty BY CONSTRUCTION (see web_host_files for why that matters:
     # a C-only web entry is a DE-GATED file, not a coverage-only one).
     web_host_files
-    shipping_fixture_files
+    script_test_files
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
-  } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)
+  } 2>/dev/null | sort -u | comm -23 - <(
+    { suggest_leg_files; web_utility_coverage_files; } | sort -u
+  )
 }
 
 # ── cov-extras leg sets ─────────────────────────────────────────────────────
@@ -371,7 +412,11 @@ aikit_leg_files() {
 # coverage excludes). These must still run for pass/fail somewhere — the CI
 # `residual-tests` job runs exactly this set (empty is fine: prints nothing).
 residual_passfail_files() {
-  comm -23 <(passfail_files) <(coverage_host_files)
+  # web_utility_coverage_files is a coverage leg, not a root host file. Keep
+  # it out of the residual plain runner: the leg is its sole P execution.
+  comm -23 <(passfail_files) <(
+    { coverage_host_files; web_utility_coverage_files; } | sort -u
+  )
 }
 
 # W — the orphaned web bun-leg set. Plain `web/src/**/*.test.ts` files that are
@@ -406,6 +451,9 @@ web_bunleg_files() {
       # This broad loader suite runs under Node Vitest so its real module
       # execution contributes to the web/src/lib coverage producer.
       printf '%s\n' web/src/lib/chat/page-handlers/__tests__/load-messages.test.ts
+      # Panel persistence has a real Svelte rune-host component test, so Node
+      # Vitest owns its plain helper suite as well as attachPanelPersistence.
+      printf '%s\n' web/src/lib/chat/page-handlers/__tests__/panel-persistence.test.ts
       # Same arrangement, same reason: vitest is the only coverage producer for
       # web/src/lib/**, and this suite is what covers context-usage-logic.ts.
       printf '%s\n' web/src/__tests__/context-usage-logic.test.ts

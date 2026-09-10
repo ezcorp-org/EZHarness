@@ -8,8 +8,10 @@ import { resolve } from "node:path";
 import {
   EXCLUDES,
   escapeGlob,
+  isDeclarationOnlyTypeScript,
   parseLcov,
   REPO_ROOT,
+  wildcardSourceFileDropouts,
   wildcardTreeDropouts,
 } from "./coverage-config.ts";
 
@@ -41,6 +43,14 @@ for (const [file, cov] of perFile) {
   matchedThresholds.add(match.pat);
   enforced++;
   if (cov.totalLines === 0) {
+    // Type-only source files compile to no JavaScript. LCOV may retain an SF
+    // header with LF:0 when another source imports their declarations, but
+    // there is no executable statement for a producer to measure. This is
+    // structural, not a path exemption: an enum or value export still fails.
+    const source = Bun.file(resolve(REPO_ROOT, file));
+    if (file.endsWith(".ts") && await source.exists() && isDeclarationOnlyTypeScript(await source.text())) {
+      continue;
+    }
     violations.push(
       `${file}: 0 measured lines (file in lcov but no DA records) — ` +
         `coverage script doesn't measure this path. Either add coverage ` +
@@ -96,6 +106,18 @@ const wildcardDropouts = wildcardTreeDropouts(
   (pat) => [...new Glob(escapeGlob(pat)).scanSync({ cwd: REPO_ROOT })],
 );
 violations.push(...wildcardDropouts);
+
+// A live wildcard tree alone is insufficient evidence: one measured sibling
+// used to let another executable file disappear from its producer silently.
+// Exact threshold keys already fail loud above; this closes the wildcard-only
+// form while preserving structural declaration-only TypeScript exemptions.
+const wildcardFileDropouts = await wildcardSourceFileDropouts(
+  thresholdGlobs.filter((t) => t.pat.includes("*")).map((t) => t.pat),
+  [...perFile.keys()],
+  (pat) => [...new Glob(escapeGlob(pat)).scanSync({ cwd: REPO_ROOT })],
+  (file) => Bun.file(resolve(REPO_ROOT, file)).text(),
+);
+violations.push(...wildcardFileDropouts);
 
 if (violations.length > 0) {
   console.error(`Coverage gate FAILED (${violations.length} file(s) below threshold):`);

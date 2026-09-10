@@ -267,10 +267,13 @@ export interface MockOverrides {
 	activeRun?: Record<string, { runId: string | null; agentId?: string; startedAt?: string }>;
 	/** Extension toolbar items keyed by conversationId, returned by /api/conversations/[id]/extension-toolbar. */
 	extensionToolbarItems?: Record<string, Array<{
+		extName: string;
 		id: string;
-		extensionId: string;
-		label: string;
-		action: string;
+		icon: string;
+		tooltip: string;
+		appliesTo: "user" | "assistant" | "both";
+		appliesToSelection: "single" | "bulk" | "both";
+		event: string;
 	}>>;
 	/** Extension settings keyed by extensionId, returned by /api/extensions/[id]/settings. */
 	extensionSettings?: Record<string, { schema: unknown; values: unknown }>;
@@ -305,11 +308,21 @@ const DEFAULT_PROJECT = makeProject({ id: "proj-1", name: "My Project" });
 const DEFAULT_AGENT = makeAgent({ name: "summarizer", description: "Summarizes text" });
 const DEFAULT_CONV = makeConversation({ id: "conv-1", projectId: "proj-1", title: "Hello Chat" });
 
+function nextFixtureId(rows: ReadonlyArray<{ id: string }>, firstId: string): string {
+	if (!rows.some((row) => row.id === firstId)) return firstId;
+	for (let suffix = 2; ; suffix += 1) {
+		const candidate = `${firstId}-${suffix}`;
+		if (!rows.some((row) => row.id === candidate)) return candidate;
+	}
+}
+
 export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
-	const projects = overrides.projects ?? [DEFAULT_PROJECT];
+	// Project and conversation writes are visible to subsequent loads in the
+	// browser. Copy seed arrays so appending rows cannot change another test's seed.
+	const projects = [...(overrides.projects ?? [DEFAULT_PROJECT])];
 	const agents = overrides.agents ?? [DEFAULT_AGENT];
 	const runs = overrides.runs ?? [];
-	const conversations = overrides.conversations ?? [DEFAULT_CONV];
+	const conversations = [...(overrides.conversations ?? [DEFAULT_CONV])];
 	// Mutable copy: the POST handler appends its saved user row so later
 	// history refreshes mirror the server instead of returning the seed only.
 	const messages = [...(overrides.messages ?? [])];
@@ -380,7 +393,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	];
 	const subConversations = overrides.subConversations ?? [];
 	const subConversationToolCalls = overrides.subConversationToolCalls ?? {};
-	const settings = overrides.settings ?? {};
+	const settings: Record<string, unknown> = { ...(overrides.settings ?? {}) };
 	const routes = overrides.routes ?? {};
 
 	// Feature Index — mutable in-memory state so PATCH / DELETE / POST
@@ -591,7 +604,29 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill(proj ? { json: proj } : { status: 404, json: { error: "Not found" } });
 		}
 		if (path === "/api/projects" && method === "POST") {
-			return route.fulfill({ json: makeProject({ id: "new-proj" }) });
+			const body = route.request().postDataJSON() ?? {};
+			const project = makeProject({
+				id: nextFixtureId(projects, "new-proj"),
+				name: typeof body.name === "string" ? body.name : "New Project",
+				path: typeof body.path === "string" ? body.path : "/tmp/new-project",
+			});
+			projects.push(project);
+			return route.fulfill({ json: project });
+		}
+		if (path.match(/^\/api\/projects\/[^/]+$/) && method === "PUT") {
+			const id = path.split("/").pop()!;
+			const index = projects.findIndex((project) => project.id === id);
+			if (index < 0) return route.fulfill({ status: 404, json: { error: "Not found" } });
+			const update = route.request().postDataJSON() as Partial<(typeof projects)[number]>;
+			projects[index] = { ...projects[index]!, ...update };
+			return route.fulfill({ json: projects[index] });
+		}
+		if (path.match(/^\/api\/projects\/[^/]+$/) && method === "DELETE") {
+			const id = path.split("/").pop()!;
+			const index = projects.findIndex((project) => project.id === id);
+			if (index < 0) return route.fulfill({ status: 404, json: { error: "Not found" } });
+			projects.splice(index, 1);
+			return route.fulfill({ json: { ok: true } });
 		}
 
 		// Agents
@@ -665,13 +700,15 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		}
 		if (path === "/api/conversations" && method === "POST") {
 			const body = route.request().postDataJSON();
-			return route.fulfill({ json: makeConversation({
-				id: "new-conv",
+			const conversation = makeConversation({
+				id: nextFixtureId(conversations, "new-conv"),
 				projectId: body?.projectId ?? "proj-1",
 				title: body?.title ?? "New Conversation",
 				agentConfigId: body?.agentConfigId ?? null,
 				systemPrompt: body?.systemPrompt ?? null,
-			}) });
+			});
+			conversations.push(conversation);
+			return route.fulfill({ json: conversation });
 		}
 		if (path.match(/^\/api\/conversations\/[^/]+$/) && method === "PUT") {
 			const id = path.split("/").pop()!;
@@ -792,6 +829,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			const req = route.request();
 			const ct = req.headers()["content-type"] ?? "";
 			let content = "sent";
+			let parentMessageId: string | null = null;
 			// Match AttachmentSummary shape returned by the real server:
 			// { id, filename, mimeType, sizeBytes, kind }. Tests that inspect
 			// the optimistic card render rely on all five fields.
@@ -803,6 +841,8 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 				const raw = req.postDataBuffer()?.toString("binary") ?? "";
 				const contentMatch = /name="content"\r\n\r\n([\s\S]*?)\r\n--/.exec(raw);
 				if (contentMatch) content = contentMatch[1]!;
+				const parentMatch = /name="parentMessageId"\r\n\r\n([^\r\n]+)\r\n--/.exec(raw);
+				if (parentMatch) parentMessageId = parentMatch[1]!;
 				const fileRe = /name="files";\s*filename="([^"]+)"\r\nContent-Type: ([^\r\n]+)/g;
 				let m: RegExpExecArray | null;
 				let i = 0;
@@ -821,14 +861,16 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 					});
 				}
 			} else {
-				const body = req.postDataJSON();
-				content = body?.content ?? "sent";
+				const body = req.postDataJSON() as { content?: unknown; parentMessageId?: unknown };
+				if (typeof body?.content === "string") content = body.content;
+				if (typeof body?.parentMessageId === "string") parentMessageId = body.parentMessageId;
 			}
 			const userMsg = makeMessage({
 				id: "sent-msg",
 				conversationId: convId,
 				role: "user",
 				content,
+				parentMessageId,
 				// Merge attachments onto userMessage so the optimistic replacement
 				// path exercises its attachments render.
 				...(attachments.length > 0 ? { attachments } as any : {}),
@@ -944,6 +986,8 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill({ json: settings });
 		}
 		if (path.match(/^\/api\/settings\//) && method === "PUT") {
+			const key = decodeURIComponent(path.slice("/api/settings/".length));
+			settings[key] = (route.request().postDataJSON() as { value?: unknown }).value;
 			return route.fulfill({ json: { ok: true } });
 		}
 		// A key whose ABSENCE is its off state (`provider:routingShadow`) is
@@ -1258,6 +1302,11 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		// Memories
 		if (path === "/api/memories" && method === "GET") {
 			let filtered = [...mems];
+			const scope = url.searchParams.get("scope");
+			const projectId = url.searchParams.get("projectId");
+			if (scope === "global") filtered = filtered.filter((m) => m.projectIds.length === 0);
+			else if (scope === "project") filtered = filtered.filter((m) => projectId && m.projectIds.includes(projectId));
+			else if (projectId) filtered = filtered.filter((m) => m.projectIds.length === 0 || m.projectIds.includes(projectId));
 			const status = url.searchParams.get("status");
 			const category = url.searchParams.get("category");
 			const search = url.searchParams.get("search");

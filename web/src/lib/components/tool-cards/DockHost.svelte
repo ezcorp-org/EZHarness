@@ -323,6 +323,10 @@
 		border-left: 0;
 		box-shadow: none;
 	}
+	/* The header owns dismissal gestures; the preview keeps native scrolling. */
+	.dock-host-mobile .dock-header {
+		touch-action: none;
+	}
 	.dock-host-desktop {
 		min-width: 320px;
 		max-width: 80vw;

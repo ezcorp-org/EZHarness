@@ -53,9 +53,7 @@ test.describe("settings nav — sticky + self-scrolling", () => {
 	test("nav column stays pinned while the settings content scrolls past it", async ({
 		page,
 		mockApi,
-		isMobile,
 	}) => {
-		test.skip(isMobile, "the sticky column is the md+ two-column layout");
 		await mockApi({ projects: [proj], routes: adminRoutes });
 		await page.goto("/settings/admin");
 
@@ -90,9 +88,7 @@ test.describe("settings nav — sticky + self-scrolling", () => {
 	test("nav list scrolls in its own container; the search box above it stays put", async ({
 		page,
 		mockApi,
-		isMobile,
 	}) => {
-		test.skip(isMobile, "the sticky column is the md+ two-column layout");
 		await mockApi({ projects: [proj], routes: adminRoutes });
 		await page.goto("/settings/admin");
 
@@ -143,9 +139,7 @@ test.describe("settings nav — sticky + self-scrolling", () => {
 	test("pinned nav and its inner scroll render for visual evidence @evidence", async ({
 		page,
 		mockApi,
-		isMobile,
 	}, testInfo) => {
-		test.skip(isMobile, "the sticky column is the md+ two-column layout");
 		await mockApi({ projects: [proj], routes: adminRoutes });
 		await page.goto("/settings/admin");
 
@@ -202,9 +196,7 @@ test.describe("settings nav — everyday viewport", () => {
 	test("nav holds its place on a full-height window @evidence", async ({
 		page,
 		mockApi,
-		isMobile,
 	}, testInfo) => {
-		test.skip(isMobile, "the sticky column is the md+ two-column layout");
 		await mockApi({ projects: [proj], routes: adminRoutes });
 		await page.goto("/settings/admin");
 

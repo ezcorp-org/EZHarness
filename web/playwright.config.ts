@@ -1,4 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const lanesManifest = JSON.parse(readFileSync(join(__dirname, "e2e", "lanes.json"), "utf8")) as {
+	lanes: Record<string, string[]>;
+};
 
 const isDocker = !!process.env.DOCKER_TEST;
 const baseURL = isDocker
@@ -14,11 +22,26 @@ const previewPort = new URL(baseURL).port || "4173";
 // opt-in (`EZCORP_E2E_EVIDENCE_VIDEO=1`). Outside evidence mode every key
 // below is unchanged, so the no-flag `e2e-mock` job stays byte-identical.
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
+const browserCoverage = process.env.EZCORP_BROWSER_COVERAGE === "1";
+
+// The mock preview cannot serve the real-PGlite test surface. Keep the
+// partition in lanes.json: root real journeys and the production-image journey must be ignored just as
+// strictly as files under e2e/real-auth/. The Docker-run production lane opts
+// back in through DOCKER_TEST, while the real config derives its own list
+// as its exact testMatch below.
+const mockExcludedLanes = isDocker
+	? ["external-model"]
+	: ["fresh-setup", "real-auth", "production-image", "external-model"];
+const realTestIgnore = mockExcludedLanes.flatMap((lane) =>
+	lanesManifest.lanes[lane].map(
+		(path) => new RegExp(`${path.slice("web/".length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+	),
+);
 
 export default defineConfig({
 	testDir: "./e2e",
 	// The fresh-setup spec and real-auth tier live inside this testDir, so without
-	// an explicit ignore a bare `playwright test` sweeps them into the mock lane.
+	// a manifest-derived ignore a bare `playwright test` sweeps them into the mock lane.
 	// Those specs
 	// need a webServer booted with `PI_E2E_REAL=1`; under the mock preview
 	// `isTestSurfaceEnabled()` fail-closes and every `/api/__test/**` route
@@ -33,10 +56,9 @@ export default defineConfig({
 	// worth pinning — the protection today is the arg list, and a future switch
 	// to plain `testDir` collection would re-open it silently.
 	//
-	// The dedicated configs scope themselves to `setup-first-run.spec.ts` and
-	// `./e2e/real-auth`, so the configs partition e2e/ instead of overlapping.
-	// Pinned in src/__tests__/e2e-lanes.test.ts.
-	testIgnore: ["**/setup-first-run.spec.ts", "**/real-auth/**"],
+	// The dedicated configs scope themselves from this same manifest, so the
+	// configs partition e2e/ instead of overlapping. Pinned in e2e-lanes.test.
+	testIgnore: realTestIgnore,
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	// retries: 0 even in CI — a retry that turns a red test green hides a real
@@ -68,12 +90,10 @@ export default defineConfig({
 	},
 	projects: [
 		{ name: "chromium", use: { browserName: "chromium" } },
-		// Phase 57 UX-04 (Plan 57-05) — touch-drag fixture target for
-		// `chip-reorder.spec.ts`. Pixel 5 devices preset gives Playwright
-		// the touchscreen + viewport metrics svelte-dnd-action's touch
-		// handler exercises. Currently unused (all chip-reorder cases are
-		// fixme pending auth + test-agent seed); kept here so future
-		// un-fixme is one-line on the test side. Run via
+		// Touch interaction target for mock-preview journeys. Pixel 5 provides
+		// the touchscreen and viewport metrics needed by mobile controls. The
+		// real-auth chip-reorder journey has its own native engine selection;
+		// run mock touch coverage via
 		// `bunx playwright test --project=mobile-chromium`.
 		{ name: "mobile-chromium", use: { ...devices["Pixel 5"] } },
 	],
@@ -85,8 +105,9 @@ export default defineConfig({
 			// are unaffected — dispatch only fires for the preview subdomain
 			// shape. The DB-free access-denied + bad-code paths are asserted in
 			// plain preview; the full seeded handoff is Docker-gated.
-			command:
-				`PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
+			command: browserCoverage
+				? `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`
+				: `PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
 			url: baseURL,
 			// The command runs a full production `bun run build` before `preview`
 			// can bind the port. On the constrained CI runner that build alone

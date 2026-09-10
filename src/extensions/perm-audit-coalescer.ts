@@ -122,10 +122,11 @@ export interface PermAuditKey {
   conversationId: string | null;
   toolName: string | null;
   callerExtensionId: string | null;
-  /** The missing capability's kind on a deny; `null` on an allow (the
-   *  step-4 row carries no capability). */
+  /** The capability kind. An allowed row has the kind but intentionally no
+   * value, so high-cardinality reads retain one bounded audit window. */
   capabilityKind: string | null;
-  /** The missing capability's value on a deny, when it has one. */
+  /** The missing capability's value on a deny, when it has one. Allow rows
+   * omit it so distinct read paths do not defeat coalescing. */
   capabilityValue: string | null;
   /** The deny reason as written to the row; `null` on an allow. */
   reason: string | null;
@@ -198,7 +199,7 @@ export interface PermAuditCoalescer {
   shouldWrite(key: PermAuditKey, auditId: string): boolean;
   /** Close every open window now, emitting any pending summaries. Used at
    *  shutdown and by tests; safe to call when nothing is open. */
-  flushAll(): void;
+  flushAll(): Promise<void>;
   /** Drop every open window WITHOUT emitting a summary, and cancel its
    *  timer. For test isolation only: a leaked window makes the next
    *  test's first allow read as a folded tail, and a leaked timer writes
@@ -217,13 +218,28 @@ export interface PermAuditCoalescer {
  *   `writeAuditRow` already does.
  */
 export function createPermAuditCoalescer(
-  emitSummary: (summary: CoalescedPermSummary) => void,
+  emitSummary: (summary: CoalescedPermSummary) => void | Promise<void>,
   opts?: { windowMs?: number; flushAt?: number; maxKeys?: number },
 ): PermAuditCoalescer {
   const windowMs = opts?.windowMs ?? COALESCE_WINDOW_MS;
   const flushAt = opts?.flushAt ?? COALESCE_FLUSH_AT;
   const maxKeys = opts?.maxKeys ?? COALESCE_MAX_KEYS;
   const windows = new Map<string, Window>();
+  const pendingEmits = new Set<Promise<void>>();
+
+  /** Keep asynchronous writes observable to shutdown without letting one
+   * failed audit write affect permission decisions or later windows. */
+  function emit(summary: CoalescedPermSummary): void {
+    try {
+      const result = emitSummary(summary);
+      if (!result) return;
+      const pending = Promise.resolve(result).catch(() => undefined);
+      pendingEmits.add(pending);
+      void pending.then(() => pendingEmits.delete(pending));
+    } catch {
+      // Audit writes are secondary to the permission verdict.
+    }
+  }
 
   /** Close one window, emitting its summary when anything was folded. */
   function close(id: string): void {
@@ -232,19 +248,14 @@ export function createPermAuditCoalescer(
     windows.delete(id);
     if (w.timer !== null) clearTimeout(w.timer);
     if (w.suppressed === 0) return;
-    try {
-      emitSummary({
-        key: w.key,
-        suppressed: w.suppressed,
-        firstAuditId: w.firstAuditId,
-        firstAt: w.openedAt,
-        lastAt: w.lastAt,
-        windowMs,
-      });
-    } catch {
-      // A summary that cannot be written must not take the process — or
-      // the permission decision that scheduled it — down with it.
-    }
+    emit({
+      key: w.key,
+      suppressed: w.suppressed,
+      firstAuditId: w.firstAuditId,
+      firstAt: w.openedAt,
+      lastAt: w.lastAt,
+      windowMs,
+    });
   }
 
   function open(id: string, key: PermAuditKey, auditId: string): void {
@@ -309,8 +320,9 @@ export function createPermAuditCoalescer(
       return false;
     },
 
-    flushAll() {
+    async flushAll() {
       for (const id of [...windows.keys()]) close(id);
+      await Promise.all([...pendingEmits]);
     },
 
     dropAll() {

@@ -27,11 +27,13 @@ mock.module("$lib/server/http-errors", () => httpErrorsActual);
 interface MockConv { id: string; userId: string; projectId: string }
 interface MockExt { id: string; name: string; enabled: boolean; grantedPermissions: Record<string, unknown> }
 interface MockMsg { id: string; conversationId: string; role: string }
+interface MockProject { id: string; name: string; path?: string }
 
 let mockConv: MockConv | null = null;
 let mockExt: MockExt | null = null;
 let mockMsgs: MockMsg[] = [];
 let mockWiredExtIds: string[] = [];
+let mockProject: MockProject | null = null;
 const insertCalls: Array<Record<string, unknown>> = [];
 const writeCalls: Array<Record<string, unknown>> = [];
 
@@ -50,7 +52,7 @@ mock.module("$server/db/queries/conversation-extensions", () => ({
 }));
 
 mock.module("$server/db/queries/projects", () => ({
-  getProject: async (id: string) => ({ id, name: "p", path: "/tmp/p" }),
+  getProject: async (id: string) => (mockProject && mockProject.id === id ? mockProject : null),
 }));
 
 mock.module("$server/chat/attachments/storage", () => ({
@@ -95,6 +97,7 @@ beforeEach(() => {
   mockWiredExtIds = ["ext-1"];
   mockMsgs = [{ id: "msg-1", conversationId: "conv-1", role: "extension" }];
   mockMsgToolCallExtIds = ["ext-1"];
+  mockProject = { id: "proj-1", name: "p", path: "/tmp/p" };
   insertCalls.length = 0;
   writeCalls.length = 0;
 });
@@ -277,12 +280,37 @@ describe("uploads — happy path", () => {
     expect(insertCalls[0]!.conversationId).toBe("conv-1");
     expect(writeCalls[0]!.messageId).toBe("msg-1");
   });
+
+  test("refuses storage when the conversation project has no path", async () => {
+    mockProject = { id: "proj-1", name: "p" };
+    const res = await POST(evt(makeForm({})) as any);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toContain("Project path not resolvable");
+    expect(writeCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(0);
+  });
 });
 
 describe("uploads — body shape", () => {
   test("missing file → 400", async () => {
     const res = await POST(evt(makeForm({ omitFile: true })) as any);
     expect(res.status).toBe(400);
+  });
+
+  test("missing conversationId → 400 before resource lookup", async () => {
+    const res = await POST(evt(makeForm({ conversationId: "" })) as any);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("conversationId is required");
+    expect(writeCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  test("missing messageId → 400 before resource lookup", async () => {
+    const res = await POST(evt(makeForm({ messageId: "" })) as any);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain("messageId is required");
+    expect(writeCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(0);
   });
 
   test("non-multipart body → 400", async () => {

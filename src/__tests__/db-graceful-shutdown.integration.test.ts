@@ -17,8 +17,8 @@
  *
  *   • **Path A (SIGTERM, clean):** subprocess opens PGlite, writes a row,
  *     registers our shutdown handler, signals readiness, waits. The
- *     parent SIGTERMs it. Expected: exit 0, no `postmaster.pid` left,
- *     no `.corrupted` sibling, row reads back on re-open.
+ *     parent SIGTERMs it. Expected: exit 0, no `.corrupted` sibling,
+ *     row reads back on re-open.
  *
  *   • **Path B (SIGKILL, dirty):** same setup but SIGKILL — no handler
  *     runs. Expected: a `postmaster.pid` is left behind, but on re-open
@@ -34,7 +34,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, readdirSync, cpSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -45,16 +45,20 @@ const ROOT = join(import.meta.dir, "..", "..");
 // other's PGlite directories. Cleaned up in afterAll.
 const TEST_ROOT = join(tmpdir(), `ezcorp-shutdown-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-beforeAll(() => {
+const SEED_PATH = join(TEST_ROOT, "seed");
+
+beforeAll(async () => {
   mkdirSync(TEST_ROOT, { recursive: true });
-});
+  // Both signal paths start from a real, closed database, as an existing
+  // installation does. Build its empty catalog once, outside either signal
+  // handshake; each child still creates its table and writes its own row.
+  const { PGlite } = await import("@electric-sql/pglite");
+  const seed = new PGlite(SEED_PATH);
+  try { await seed.waitReady; } finally { await seed.close(); }
+}, 30_000);
 
 afterAll(() => {
-  try {
-    rmSync(TEST_ROOT, { recursive: true, force: true });
-  } catch {
-    /* best-effort cleanup; tempdir leftovers are harmless */
-  }
+  rmSync(TEST_ROOT, { recursive: true, force: true });
 });
 
 /**
@@ -106,84 +110,77 @@ const CHILD_SCRIPT = `
   await new Promise(() => {});
 `;
 
-/**
- * Spawn the child with EZCORP_DB_PATH pointing at `dbPath`, wait for
- * the "READY" handshake on stdout, then send `signal` and await exit.
- * Returns `{ exitCode, signalCode, stderr, stdout }`.
- *
- * 10s timeout protects CI from a hung child if the handler chain
- * deadlocks — kill -9 the child to unblock the test runner.
- */
-async function spawnChild(
+async function waitChildPhase<T>(work: Promise<T>, phase: string, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`child ${phase} timed out after ${timeoutMs}ms`)), timeoutMs);
+      }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
+/** Drain both pipes from spawn and reap the owned child on every path.
+ * Readiness and post-signal exit have separate, bounded waits. */
+async function runChild(
+  script: string,
   dbPath: string,
-  signal: "SIGTERM" | "SIGKILL",
+  signal?: "SIGTERM" | "SIGKILL",
+  timeoutMs = 10_000,
 ): Promise<{ exitCode: number | null; signalCode: string | null; stderr: string; stdout: string }> {
-  const proc = Bun.spawn(["bun", "--eval", CHILD_SCRIPT], {
+  const proc = Bun.spawn([process.execPath, "--eval", script], {
     cwd: ROOT,
     env: { ...process.env, EZCORP_DB_PATH: dbPath },
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: "ignore",
+    stdout: "pipe", stderr: "pipe", stdin: "ignore",
   });
-
-  // Stream stdout into a buffer + a "READY" promise. We can't await
-  // proc.stdout.text() upfront because that consumes the whole stream
-  // and blocks until exit — we need to react MID-run to the READY line.
-  let stdoutBuf = "";
-  const ready = new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("child never signaled READY within 10s")), 10_000);
-    (async () => {
-      const reader = proc.stdout.getReader();
-      const decoder = new TextDecoder();
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          stdoutBuf += decoder.decode(value, { stream: true });
-          if (stdoutBuf.includes("READY")) {
-            clearTimeout(timeout);
-            resolve();
-            // Drain the rest in the background so the pipe doesn't
-            // block the child. Errors are silent — the child is about
-            // to receive a signal.
-            (async () => {
-              try {
-                while (true) {
-                  const { value, done } = await reader.read();
-                  if (done) break;
-                  stdoutBuf += decoder.decode(value, { stream: true });
-                }
-              } catch { /* pipe closed */ }
-            })();
-            return;
-          }
-        }
-        clearTimeout(timeout);
-        reject(new Error(`child exited before READY; stdout=${stdoutBuf}`));
-      } catch (err) {
-        clearTimeout(timeout);
-        reject(err);
+  const ready = Promise.withResolvers<void>();
+  let stdout = "";
+  let stderr = "";
+  const stdoutDone = (async () => {
+    const reader = proc.stdout.getReader();
+    const decoder = new TextDecoder();
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        stdout += decoder.decode(value, { stream: true });
+        if (/(?:^|\n)READY\r?\n/.test(stdout)) ready.resolve();
       }
-    })();
-  });
+      stdout += decoder.decode();
+    } finally { reader.releaseLock(); }
+  })();
+  const stderrDone = new Response(proc.stderr).text().then(text => { stderr = text; });
+  const completed = Promise.all([proc.exited, stdoutDone, stderrDone]);
+  let exitCode: number | null = null;
+  let failure: unknown;
+  try {
+    if (signal) {
+      await waitChildPhase(Promise.race([
+        ready.promise,
+        completed.then(([code]) => { throw new Error(`child exited before READY with code ${code}`); }),
+      ]), "READY", timeoutMs);
+      proc.kill(signal);
+    }
+    [exitCode] = await waitChildPhase(completed, "exit", timeoutMs);
+  } catch (error) { failure = error; }
+  finally {
+    proc.kill("SIGKILL");
+    await proc.exited;
+    await Promise.allSettled([stdoutDone, stderrDone]);
+  }
+  if (failure !== undefined) throw new Error(`${failure instanceof Error ? failure.message : String(failure)}; stdout=${stdout}; stderr=${stderr}`, { cause: failure });
+  return { exitCode, signalCode: proc.signalCode, stderr, stdout };
+}
 
-  await ready;
-  proc.kill(signal);
-  const exitCode = await proc.exited;
-  // Bun's `proc.exitCode` and `proc.signalCode` are populated post-exit.
-  // We surface both so the test can assert SIGTERM = code 0 + null
-  // signal (graceful), SIGKILL = code null + "SIGKILL" (uncatchable).
-  const stderr = await new Response(proc.stderr).text();
-  return {
-    exitCode: typeof exitCode === "number" ? exitCode : proc.exitCode,
-    signalCode: proc.signalCode,
-    stderr,
-    stdout: stdoutBuf,
-  };
+async function spawnChild(dbPath: string, signal: "SIGTERM" | "SIGKILL") {
+  cpSync(SEED_PATH, dbPath, { recursive: true });
+  return runChild(CHILD_SCRIPT, dbPath, signal);
 }
 
 describe("PGlite graceful shutdown (incident 2026-05-10 regression)", () => {
-  test("Path A: SIGTERM closes PGlite cleanly — no stale lock, row survives, exit 0", async () => {
+  test("Path A: SIGTERM closes PGlite cleanly — row survives, exit 0", async () => {
     const dbPath = join(TEST_ROOT, "path-a");
     const result = await spawnChild(dbPath, "SIGTERM");
 
@@ -257,28 +254,7 @@ describe("PGlite graceful shutdown (incident 2026-05-10 regression)", () => {
       'await closeDb();',
       'console.log("PROBE_DONE");',
     ].join("\n");
-    const probe = Bun.spawn(["bun", "--eval", probeScript], {
-      cwd: ROOT,
-      env: {
-        ...process.env,
-        EZCORP_DB_PATH: dbPath,
-        // Suppress migration since we're not in a SvelteKit context —
-        // the test only cares about openPglite + the stale-lock path.
-        // initDb will still run migrate() against the empty schema and
-        // that's fine; migrations are idempotent.
-        EZCORP_NO_EXIT: "1",
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-      stdin: "ignore",
-    });
-    const probeExit = await probe.exited;
-    const probeStdout = await new Response(probe.stdout).text();
-    // Drain stderr too so the kernel pipe buffer doesn't backpressure
-    // the child before exit. The output isn't asserted on (the
-    // safety-net log line is logger.info → stdout), but consuming
-    // the stream is required for clean teardown.
-    await new Response(probe.stderr).text();
+    const { exitCode: probeExit, stdout: probeStdout } = await runChild(probeScript, dbPath, undefined, 30_000);
 
     expect(probeExit).toBe(0);
 
@@ -302,4 +278,39 @@ describe("PGlite graceful shutdown (incident 2026-05-10 regression)", () => {
     );
     expect(siblings).toEqual([]);
   }, 60_000);
+});
+
+
+describe("shutdown subprocess ownership", () => {
+  test.each(["READY", "exit"] as const)("reaps a child that exceeds its %s deadline", async phase => {
+    const pidFile = join(TEST_ROOT, `${phase}.pid`);
+    const script = `
+      await Bun.write(process.env.EZCORP_DB_PATH, String(process.pid));
+      process.on("SIGTERM", () => {});
+      ${phase === "exit" ? 'console.log("READY");' : ""}
+      setInterval(() => {}, 1_000);
+    `;
+    await expect(runChild(script, pidFile, "SIGTERM", 1_000)).rejects.toThrow(`child ${phase} timed out`);
+    const pid = Number(await Bun.file(pidFile).text());
+    expect(Number.isInteger(pid) && pid > 1).toBe(true);
+    expect(() => process.kill(pid, 0)).toThrow();
+  }, 10_000);
+
+  test("reports an early child exit with its stderr", async () => {
+    await expect(runChild('console.error("boot failed"); process.exit(23);', join(TEST_ROOT, "early-exit"), "SIGTERM"))
+      .rejects.toThrow(/child exited before READY with code 23.*stderr=boot failed/s);
+  });
+
+  test("drains stderr before readiness so a full pipe cannot block shutdown", async () => {
+    const size = 1024 * 1024;
+    const result = await runChild(`
+      await Bun.write(Bun.stderr, "x".repeat(${size}));
+      process.on("SIGTERM", () => process.exit(0));
+      console.log("READY");
+      setInterval(() => {}, 1_000);
+    `, join(TEST_ROOT, "pipe-control"), "SIGTERM");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr.length).toBe(size);
+    expect(result.stdout).toContain("READY");
+  });
 });

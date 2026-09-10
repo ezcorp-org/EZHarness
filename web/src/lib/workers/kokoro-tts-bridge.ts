@@ -65,7 +65,7 @@ type WorkerFactory = () => WorkerLike;
 // every subsequent one is fast.
 let workerInstance: WorkerLike | null = null;
 let messageListener: ((ev: MessageEvent | ErrorEvent) => void) | null = null;
-let pending = new Map<
+const pending = new Map<
   string,
   {
     resolve: (blob: Blob) => void;

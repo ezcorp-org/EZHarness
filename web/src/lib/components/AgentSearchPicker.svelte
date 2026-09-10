@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onDestroy, onMount, tick } from "svelte";
 	import { inputClass } from "$lib/styles.js";
 	import type { AgentConfig } from "$lib/api";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
+	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
+	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
+	import { fixedSearchPickerLayout } from "$lib/search-picker-position.js";
 
 	let {
 		agents,
@@ -19,10 +22,21 @@
 	const bp = useBreakpoint("lg");
 
 	let inputEl: HTMLInputElement | undefined = $state();
+	let dropdownEl: HTMLDivElement | undefined = $state();
+	let listEl: HTMLUListElement | undefined = $state();
 	let query = $state("");
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	let listStyle = $state("");
+	const dismissal = createSearchPickerDismissal({
+		getInput: () => inputEl,
+		isOpen: () => open,
+		dismiss: closeDropdown,
+		isInsidePicker: (target) => !!target.closest("[data-agent-picker-body]"),
+	});
+
+	onDestroy(dismissal.destroy);
 
 	// Phase 57 UX-03 Wave 3: saved-search + pinned-agent prefs.
 	// Source-of-truth is /api/user/agent-picker (settings KV); silent
@@ -58,7 +72,10 @@
 		}
 	}
 
-	onMount(loadPrefs);
+	onMount(async () => {
+		await loadPrefs();
+		if (open && !bp.below) await positionAfterRender();
+	});
 
 	function saveCurrentSearch(): void {
 		const q = query.trim();
@@ -75,7 +92,6 @@
 
 	function applySavedSearch(q: string): void {
 		query = q;
-		if (inputEl) inputEl.value = q;
 		highlightIdx = -1;
 	}
 
@@ -110,14 +126,29 @@
 
 	function computePosition() {
 		if (!inputEl) return;
-		const rect = inputEl.getBoundingClientRect();
-		dropdownStyle = `position:fixed;left:${rect.left}px;top:${rect.bottom + 2}px;width:${Math.max(rect.width, 320)}px;z-index:9999;`;
+		const layout = fixedSearchPickerLayout(
+			inputEl.getBoundingClientRect(),
+			dropdownEl?.getBoundingClientRect().height ?? 0,
+			window.innerHeight,
+			320,
+			listEl?.getBoundingClientRect().height,
+		);
+		dropdownStyle = layout.dropdownStyle;
+		listStyle = layout.listStyle;
 	}
 
-	function openDropdown() {
+	async function positionAfterRender() {
+		// Measure the natural list again after filtering or reopening.
+		listStyle = "";
+		await tick();
+		if (open && !bp.below) computePosition();
+	}
+
+	async function openDropdown() {
+		dismissal.cancelBlurDismissal();
 		open = true;
 		highlightIdx = -1;
-		computePosition();
+		await positionAfterRender();
 	}
 
 	function closeDropdown() {
@@ -132,11 +163,17 @@
 		inputEl?.blur();
 	}
 
-	function onInput() {
-		query = inputEl?.value ?? "";
+	async function onInput(event: Event) {
+		query = (event.currentTarget as HTMLInputElement).value;
 		highlightIdx = -1;
 		if (!open) openDropdown();
-		else computePosition();
+		else {
+			await positionAfterRender();
+		}
+	}
+
+	function onInputClick() {
+		if (!open) openDropdown();
 	}
 
 	function onFocus() {
@@ -144,7 +181,7 @@
 	}
 
 	function onBlur() {
-		setTimeout(closeDropdown, 150);
+		if (!bp.below) dismissal.scheduleBlurDismissal();
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -164,21 +201,9 @@
 		}
 	}
 
-	function onClickOutside(e: MouseEvent) {
-		if (!open) return;
-		if (inputEl?.contains(e.target as Node)) return;
-		// Don't close if click landed inside the picker body (saved/pinned
-		// affordances live there). Tag the body wrapper with a known data
-		// attribute and walk up from the event target.
-		const target = e.target as Node | null;
-		if (target instanceof Element) {
-			if (target.closest("[data-agent-picker-body]")) return;
-		}
-		closeDropdown();
-	}
 </script>
 
-<svelte:document onclick={onClickOutside} />
+<svelte:document onpointerdown={dismissal.onDocumentPointerDown} onclick={dismissal.onDocumentClick} />
 
 <div class="relative">
 	<div class="relative">
@@ -190,6 +215,7 @@
 			bind:this={inputEl}
 			value={query}
 			oninput={onInput}
+			onclick={onInputClick}
 			onfocus={onFocus}
 			onblur={onBlur}
 			onkeydown={onKeydown}
@@ -208,6 +234,17 @@
 </div>
 
 {#snippet pickerBody()}
+	{#if bp.below}
+		<MobilePickerSearch
+			value={query}
+			{placeholder}
+			ariaLabel="Search agents"
+			controls="agent-picker-listbox"
+			activeDescendant={highlightIdx >= 0 ? `agent-picker-item-${highlightIdx}` : undefined}
+			oninput={onInput}
+			onkeydown={onKeydown}
+		/>
+	{/if}
 	{@const items = filtered()}
 	{@const pinnedList = pinnedAgents()}
 	<div data-agent-picker-body class="flex flex-col gap-1">
@@ -269,7 +306,9 @@
 		{/if}
 
 		<ul
+			bind:this={listEl}
 			id="agent-picker-listbox"
+			style={listStyle}
 			class="max-h-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg"
 			role="listbox"
 			aria-label="Available agents"
@@ -338,7 +377,7 @@
 		{@render pickerBody()}
 	</BottomSheet>
 {:else if open}
-	<div style={dropdownStyle}>
+<div bind:this={dropdownEl} data-agent-picker-popover style={dropdownStyle}>
 		{@render pickerBody()}
 	</div>
 {/if}

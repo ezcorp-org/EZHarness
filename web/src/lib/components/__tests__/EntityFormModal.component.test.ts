@@ -278,3 +278,38 @@ describe("EntityFormModal — validation", () => {
 		);
 	});
 });
+
+describe("EntityFormModal — rich schema and server failures", () => {
+	test("edits long, nested enum/number/boolean values and renders schema guidance", async () => {
+		const onsubmit = vi.fn();
+		const schema = {
+			type: "object" as const,
+			properties: {
+				body: { type: "string" as const, description: "Long body", maxLength: 400 },
+				defaults: { type: "object" as const, properties: {
+					mode: { type: "string" as const, enum: ["safe", "fast"] },
+					retries: { type: "number" as const, integer: true },
+					enabled: { type: "boolean" as const },
+					unsupported: { type: "array" as const },
+				} },
+				unsupported: { type: "array" as const },
+			},
+		};
+		render(EntityFormModal, { props: { open: true, mode: "create", label: "Record", typeSlug: "record", schema, extensionId: "ext", onsubmit, oncancel: vi.fn() } });
+		await fireEvent.input(screen.getByTestId("entity-form-slug"), { target: { value: "record" } });
+		await fireEvent.input(screen.getByTestId("entity-input-body"), { target: { value: "Long content" } });
+		await fireEvent.change(screen.getByTestId("entity-input-defaults.mode"), { target: { value: "fast" } });
+		await fireEvent.input(screen.getByTestId("entity-input-defaults.retries"), { target: { value: "3" } });
+		await fireEvent.click(screen.getByTestId("entity-input-defaults.enabled"));
+		await fireEvent.click(screen.getByTestId("entity-form-submit"));
+		await waitFor(() => expect(onsubmit).toHaveBeenCalledWith({ slug: "record", data: { body: "Long content", defaults: { mode: "fast", retries: 3, enabled: true } } }));
+		expect(screen.getAllByText('Schema type "array" not editable in v1 (use the SDK tool directly).')).toHaveLength(2);
+	});
+
+	test("keeps server errors from rejected submit callbacks", async () => {
+		render(EntityFormModal, { props: { open: true, mode: "create", label: "Record", typeSlug: "record", schema: RICH_SCHEMA, extensionId: "ext", onsubmit: () => Promise.reject("Rejected by policy"), oncancel: vi.fn() } });
+		await fireEvent.input(screen.getByTestId("entity-form-slug"), { target: { value: "record" } });
+		await fireEvent.click(screen.getByTestId("entity-form-submit"));
+		await waitFor(() => expect(screen.getByTestId("entity-form-error").textContent).toContain("Rejected by policy"));
+	});
+});

@@ -23,7 +23,8 @@ describe("SaveIndicator states", () => {
 		const { getByTestId } = render(SaveIndicator, { props: { saved: true } });
 		const el = getByTestId("save-indicator-saved");
 		expect(el).toHaveTextContent("Saved ✓");
-		expect(el.className).toContain("text-green-400");
+		expect(el.className).toContain("text-green-700");
+		expect(el.className).toContain("dark:text-green-400");
 	});
 
 	test("error renders the alert and wins over saved", () => {
@@ -33,6 +34,8 @@ describe("SaveIndicator states", () => {
 		const el = getByTestId("save-indicator-error");
 		expect(el).toHaveTextContent("Save failed — try again");
 		expect(el).toHaveAttribute("role", "alert");
+		expect(el.className).toContain("text-red-800");
+		expect(el.className).toContain("dark:text-red-400");
 		expect(queryByTestId("save-indicator-saved")).toBeNull();
 	});
 

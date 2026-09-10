@@ -192,6 +192,8 @@ export interface PermissionEngine {
     scopeId: string,
     options?: { ttlOverrideMs?: number | null },
   ): Promise<void>;
+  /** Flush counted permission-audit tails before shutdown closes the DB. */
+  flushAudit(): Promise<void>;
   /** Test-only: drop the in-memory always-allow cache + pending prompts. */
   _resetCacheForTests(): void;
 }
@@ -231,7 +233,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
   // deny. Per-engine, not module-global, so an engine built for a test
   // cannot inherit another one's open windows.
   const permCoalescer: PermAuditCoalescer = createPermAuditCoalescer(
-    (summary) => {
+    async (summary) => {
       const { key } = summary;
       const isDeny = key.decision === "deny";
       // Self-describing, in the same spirit as the dispatcher's
@@ -242,9 +244,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
       // FIRST so it survives `sanitize`'s 1024-char truncation of a
       // pathologically long reason.
       const tail = `coalesced-${key.decision}-tail (${summary.suppressed} suppressed in ${summary.windowMs}ms)`;
-      // Fire-and-forget: the timer that triggers this has no caller to
-      // await it, and `writeAuditRow` already swallows its own failures.
-      void writeAuditRow(
+      await writeAuditRow(
         isDeny ? AUDIT_PERM_DENIED : AUDIT_PERM_ALLOWED,
         crypto.randomUUID(),
         {
@@ -528,17 +528,23 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
 
     // 4. Allow.
     //
-    // Coalesced: this call site passes `cap: undefined`, so the row
-    // carries no capability kind and no value — a burst of them is one
-    // fact with a count, not N facts. `read_files` walking a project
-    // emitted up to 700 of them per tool call and evicted every other
-    // governance event from `/api/audit`'s first page. First-in-window is
-    // written verbatim; the tail becomes a single counted summary.
+    // Coalesced: a single requested capability belongs in the row and in
+    // its burst identity. That lets an audit reader distinguish an allowed
+    // append from an allowed filesystem or network operation. A multi-cap
+    // decision has no truthful single kind, so it remains an aggregate.
     // Prompts, the fail-closed `override-lookup-failed` deny and the
     // sensitive `bundled-ceiling-auto-allow` above are NEVER folded —
     // see `perm-audit-coalescer.ts`.
-    if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "allow"), auditId)) {
-      await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined);
+    // Values are intentionally excluded from an allowed capability record.
+    // A read walk supplies a distinct path per file; including that value in
+    // the key would turn one bounded allow window into hundreds of audit rows.
+    // Denials still retain the requested value below because it identifies
+    // the exact refused operation.
+    const auditCapability = needed.length === 1
+      ? { kind: needed[0]!.kind }
+      : undefined;
+    if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "allow", auditCapability), auditId)) {
+      await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, auditCapability);
     }
     return { decision: "allow", auditId };
   }
@@ -631,7 +637,11 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     permCoalescer.dropAll();
   }
 
-  return { authorize, resolvePrompt, _resetCacheForTests };
+  async function flushAudit(): Promise<void> {
+    await permCoalescer.flushAll();
+  }
+
+  return { authorize, resolvePrompt, flushAudit, _resetCacheForTests };
 }
 
 // ── Singleton factory ──────────────────────────────────────────────
@@ -657,6 +667,12 @@ export function getPermissionEngine(deps?: PermissionEngineDeps): PermissionEngi
   singleton = createPermissionEngine(deps);
   singletonDeps = deps;
   return singleton;
+}
+
+/** Shutdown hook: the PDP may not have booted, but if it has, every folded
+ * permission decision must be persisted before the database teardown. */
+export async function flushPermissionAuditForShutdown(): Promise<void> {
+  await singleton?.flushAudit();
 }
 
 /** Test-only: drop the singleton so each test file gets a fresh instance. */

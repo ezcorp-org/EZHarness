@@ -97,9 +97,8 @@ test.describe("Memories Page", () => {
 		// Click "Active" status tab
 		await page.getByRole("button", { name: "Active", exact: true }).click();
 
-		// Wait for the filtered API call
-		await page.waitForTimeout(500);
 		await expect(page.getByText("Active memory here")).toBeVisible();
+		await expect(page.getByText("Stale memory here")).not.toBeVisible();
 	});
 
 	test("category chips filter the list", async ({ page, mockApi }) => {
@@ -111,8 +110,8 @@ test.describe("Memories Page", () => {
 		// Click first "Technical" button (the filter chip, not the badge)
 		await page.getByRole("button", { name: "Technical", exact: true }).first().click();
 
-		await page.waitForTimeout(500);
 		await expect(page.getByText("Technical memory content")).toBeVisible();
+		await expect(page.getByText("Preference memory content")).not.toBeVisible();
 	});
 
 	test("search filters results via debounced API call", async ({ page, mockApi }) => {
@@ -142,12 +141,8 @@ test.describe("Memories Page", () => {
 		const searchInput = page.getByPlaceholder("Search memories...");
 		await searchInput.fill("TypeScript");
 
-		// Wait for debounce + API response
-		await page.waitForTimeout(800);
-
-		// Verify the API was called with search param
-		expect(searchCalls.length).toBeGreaterThanOrEqual(1);
-		expect(searchCalls.some((s) => s.includes("TypeScript"))).toBe(true);
+		// Wait for the actual debounced request.
+		await expect.poll(() => searchCalls).toContain("TypeScript");
 
 		// After filtered response, only matching memory should show
 		await expect(page.getByText("Loves TypeScript generics")).toBeVisible();

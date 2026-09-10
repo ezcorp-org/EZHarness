@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Per-file --coverage runner for the host/example pool + the SDK, harness-client
-# and node-vitest coverage legs. Each host file runs in its own bun process
+# Per-file --coverage runner for the host/example pool plus package, provider,
+# API-client, and Worker legs. The canonical Web Vitest V8 producer runs here
+# only in full local mode; CI receives its three receipts from test-web-shard.
+# Each host file runs in its own bun process
 # (mock.module() isolation; mirrors scripts/test.sh). The file sets live in
 # scripts/lib/test-file-sets.sh so the coverage set and the pass/fail set can
 # never drift apart.
@@ -50,8 +52,8 @@
 #       (the runner couldn't execute). No legs/merge/check here.
 #
 #   legs-only (CI; COVERAGE_LEGS_ONLY=1):
-#       Run ONLY the SDK + harness-client + suggest + ai-kit + node-vitest
-#       coverage legs and emit their lcov into $COV_OUT. No host files, no
+#       Run ONLY the package, provider, API-client, and Worker coverage legs
+#       and emit their lcov into $COV_OUT. No host files, no
 #       merge, no threshold check.
 #
 # PRODUCER INTEGRITY (all three modes): a producer that runs must emit an
@@ -66,7 +68,8 @@
 #
 #   0  coverage gate passed AND no pass/fail-gated test failed.
 #   1  the COVERAGE verdict failed — check-coverage.ts, a gating leg's exit
-#      code (harness-client / ai-kit / node-vitest / web-security), or a
+#      code (harness-client / ai-kit / provider / API-client / Worker /
+#      web-security), or a
 #      producer-integrity guard (dead leg, empty host pool). Unchanged, so
 #      every existing `if ! bash scripts/test-coverage.sh` consumer keeps its
 #      meaning.
@@ -82,7 +85,7 @@
 # code; callers that just want "did it work" get the right answer either way.
 #
 # $COV_OUT — directory the CI modes copy per-shard lcov into (uploaded as an
-# artifact). Unused in full mode.
+# artifact). In full mode it optionally receives a timing receipt only; local LCOV stays in coverage/lcov.info.
 set -e
 
 # Full-mode exit code for "coverage passed, tests failed". Named so the
@@ -104,9 +107,28 @@ check_bun_version_skew
 
 # Pool width: min(nproc, 6) — see default_parallel in lib/test-file-sets.sh.
 PARALLEL=${PARALLEL:-$(default_parallel)}
+# The independent coverage producers each instrument a complete test surface.
+# Keep their process count below the measured CI-safe ceiling; host-pool work
+# uses its separate PARALLEL scheduler and never shares this mode.
+COVERAGE_LEG_MAX_JOBS=${COVERAGE_LEG_MAX_JOBS:-3}
+if ! [[ "$COVERAGE_LEG_MAX_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "COVERAGE_LEG_MAX_JOBS must be a positive integer (got $COVERAGE_LEG_MAX_JOBS)" >&2
+  exit 2
+fi
 COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
+FULL_VITEST_EXIT=0
+PROVIDER_EXIT=0
+WORKER_EXIT=0
+WEB_UTILITY_EXIT=0
+WEB_VITEST_SOURCE_GUARD_EXIT=0
+BROWSER_RECEIPT_EXIT=0
+HOST_POOL_MS=0
+PRODUCER_POOL_MS=0
+SECURITY_MS=0
+BROWSER_RECEIPT_MS=0
+MERGE_GATE_MS=0
 # Everything that failed, host files AND named legs — the visibility list.
 FAILED_FILES=()
 # Host POOL failures only (repo-relative test paths). Kept separate from
@@ -178,6 +200,7 @@ TEST_TIMEOUT_FLAG="--timeout $TEST_TIMEOUT_MS"
 # ── host pool ───────────────────────────────────────────────────────────────
 run_host_pool() {
   local -n _files=$1
+  local started_ms=$(date +%s%3N)
   local running=0 idx=0
   for f in "${_files[@]}"; do
     local outfile="$TMPDIR/result_$idx" codefile="$TMPDIR/code_$idx" covdir="$TMPDIR/cov_$idx"
@@ -202,6 +225,7 @@ run_host_pool() {
   done
   wait
   HOST_COUNT=$idx
+  HOST_POOL_MS=$(( $(date +%s%3N) - started_ms ))
 }
 
 # Tally pass/fail from a shard's captured output (summary counts only — the
@@ -215,19 +239,28 @@ tally() {
   TOTAL_FAIL=$((TOTAL_FAIL + ${f:-0}))
 }
 
-# ── SDK + harness-client + suggest + ai-kit + node-vitest legs ──────────────
+# ── Package, provider, API-client, and Worker legs ─────────────────────────
 run_legs() {
-  # The 5 legs are independent (disjoint covdirs, own exit codes) and run
-  # CONCURRENTLY — cov-extras wall clock = max(legs), not their sum. Each
+  local started_ms=$(date +%s%3N)
+  # Producers use disjoint covdirs and run through a bounded scheduler. Each
   # leg's combined stdout/stderr is captured to its own file and printed
   # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
   # semantics: the suggest leg is pass/fail-tolerated here because its tests
   # also gate in the residual job. The SDK (SDK_LEG_EXIT), harness-client
-  # (HC_EXIT), ai-kit (AIKIT_EXIT) and node-vitest (VITEST_EXIT) legs gate. A
+  # (HC_EXIT), ai-kit (AIKIT_EXIT), provider, API-client, and Worker legs gate. A
   # leg that dies without writing its
   # exit-code file counts as exit 1 for the gating legs (fail-closed).
-  local legs="$TMPDIR/legs"
+  local legs="$TMPDIR/legs" running=0
   mkdir -p "$legs"
+
+  await_leg_slot() {
+    while [ "$running" -ge "$COVERAGE_LEG_MAX_JOBS" ]; do
+      # Producers persist their result code. This wait only frees capacity;
+      # the explicit verdict below still fails closed on every failed leg.
+      wait -n || true
+      running=$((running - 1))
+    done
+  }
 
   # Register every leg this mode runs with the lcov registry in
   # lib/test-file-sets.sh. The producers below take their --coverage-dir from
@@ -239,7 +272,17 @@ run_legs() {
   register_leg harness-client cov_hc
   register_leg suggest cov_suggest
   register_leg ai-kit cov_aikit
-  register_leg web-vitest cov_vitest
+  register_leg providers cov_providers
+  register_leg api-client cov_api_client
+  register_leg empty-node-shim cov_empty_node_shim
+  register_leg worker cov_worker
+  register_leg web-utility cov_web_utility
+  # Full local coverage needs the canonical Web Vitest receipt. CI publishes
+  # the same producer from its existing three test-web shards, so it is never
+  # registered in legs-only mode.
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then
+    register_leg web-vitest-full cov_vitest_full
+  fi
 
   # Leg file lists come from lib/test-file-sets.sh (sdk_leg_files & co) —
   # ONE definition shared with the orphan-drift meta-test, so a leg's set
@@ -255,6 +298,7 @@ run_legs() {
   # first and 12 entities tests fail (order-dependent state in the bundled
   # process — a latent coupling, documented not fixed). sdk_leg_files()
   # mirrors exactly these dirs for the drift meta-test's crediting.
+  await_leg_slot
   (
     set +e
     bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
@@ -262,6 +306,7 @@ run_legs() {
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
   ) &
+  running=$((running + 1))
 
   # harness-client — its own mock.module-free shard. Unlike the SDK leg above,
   # its pass/fail GATES: the event-name parity test + the route-table
@@ -269,6 +314,7 @@ run_legs() {
   # a failure must red CI, not merely report. The real exit code lands in
   # HC_EXIT below (checked in the mode dispatch). Dir arg mirrored by
   # harness_client_leg_files() for the drift meta-test.
+  await_leg_slot
   (
     set +e
     bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
@@ -276,6 +322,7 @@ run_legs() {
       > "$legs/hc.out" 2>&1
     echo "$?" > "$legs/hc.code"
   ) &
+  running=$((running + 1))
 
   # Composer-suggest backend leg — dedicated bun-coverage shard feeding the
   # `src/suggest/**` + suggestion-feedback threshold keys. The host-shard set
@@ -283,6 +330,7 @@ run_legs() {
   # also dodge Bun's large-suite attribution drift. Pass/fail is tolerated
   # like the SDK leg (thresholds are the gate); the suites are also
   # pass/fail-gated in P via the CI residual job.
+  await_leg_slot
   (
     set +e
     mapfile -t LEG_FILES < <(suggest_leg_files)
@@ -298,6 +346,7 @@ run_legs() {
       > "$legs/suggest.out" 2>&1
     echo "$?" > "$legs/suggest.code"
   ) &
+  running=$((running + 1))
 
   # ai-kit leg (wave 3): these 22 files previously ran ONLY at release time —
   # a rotted SKILL.md drift-guard assertion proved the gap. unit/ +
@@ -305,6 +354,7 @@ run_legs() {
   # Docker); e2e/ self-skips without EZCORP_E2E_BASE_URL. Pass/fail GATES
   # like the harness-client leg (AIKIT_EXIT) — deterministic package suites
   # have no instrumentation-flake excuse.
+  await_leg_slot
   (
     set +e
     mapfile -t LEG_FILES < <(aikit_leg_files)
@@ -320,624 +370,80 @@ run_legs() {
       > "$legs/aikit.out" 2>&1
     echo "$?" > "$legs/aikit.code"
   ) &
+  running=$((running + 1))
 
-  # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
-  # needs node:inspector's Coverage domain, which Bun does not implement, so this
-  # leg MUST run under node (CI provisions node 22). --coverage.include is scoped
-  # to JUST the target lib paths so the leg doesn't pull all of web/src/lib/**
-  # into the gate. Subshell so `cd web` never leaks.
-  #
-  # THIS LEG IS TWO HAND-MAINTAINED ALLOWLISTS AND THEY MUST AGREE. The test
-  # files below say WHAT RUNS; the --coverage.include patterns further down say
-  # WHAT IS MEASURED. A module is only covered in this leg when it is on BOTH,
-  # and neither list is derived from the other, so a suite can be thoroughly
-  # green and still report as untested — the "tested but unmeasured" trap this
-  # file already documents from PR #97, reached the other way round.
-  #
-  # Measured instance (2026-08-05): `src/hooks.server.ts` was on NEITHER list,
-  # so EVERY `src/__tests__/hooks-server-*.server.test.ts` suite was
-  # unmeasured. A change to hooks.server.ts read as uncovered against the
-  # `web/src/**` catch-all no matter how many tests covered it, and the last
-  # author to hit this worked around the gate by porting a green vitest suite
-  # into the bun pool. Both lists now carry it.
-  #
-  # ANTI-ROT: src/__tests__/coverage-leg-lcov-guard.test.ts parses this
-  # command and fails if any listed test file is missing from disk, or if any
-  # --coverage.include pattern matches NOTHING under web/ — the silent
-  # no-match that looks identical to success at this leg's exit code. Adding
-  # to either list is cheap; adding to only one is the bug.
-  #
-  # DYNAMIC ROUTE SEGMENTS IN --coverage.include: a SvelteKit `[param]` segment
-  # is matched VERBATIM by vitest 4.1.6 — it is not a Bun-`Glob`-style character
-  # class, so the bare form (`.../[provider]/...`) is correct and the escaped
-  # `[[]id]` form below is belt-and-braces, not a requirement. MEASURED both
-  # ways rather than assumed: the bare form emits a real record
-  # (`SF:src/routes/api/providers/[provider]/refresh-models/+server.ts`,
-  # LF:21 LH:21), while deliberately-wrong `[xyz]` / `refresh-modelsX` variants
-  # emit ZERO records. Verify any NEW dynamic-segment include the same way —
-  # an include that silently matches nothing looks identical to success at this
-  # leg's exit code, and only reappears downstream as the patch-coverage gate's
-  # "changed source file has NO lcov data". That is exactly how
-  # api/health/+server.ts and the refresh-models handler reached CI tested but
-  # unmeasured (PR #97).
-  VITEST_COV="${LEG_COV_DIR[web-vitest]}"
+  # Providers are a Bun-only canonical producer: each suite runs in its own
+  # process and the resulting lcov is filtered to src/providers/**.
+  await_leg_slot
   (
-  set +e
-  ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
-      src/__tests__/bounded-json.server.test.ts \
-      src/__tests__/api-tool-invoke.server.test.ts \
-      src/__tests__/api-conversations-id-active-run.server.test.ts \
-      src/__tests__/api-marketplace-id-install.server.test.ts \
-      src/__tests__/api-marketplace-export-v4.server.test.ts \
-      src/__tests__/task-helpers-load-snapshot.server.test.ts \
-      src/__tests__/task-helpers-write-and-broadcast.server.test.ts \
-      src/__tests__/task-helpers-find-assignment.server.test.ts \
-      src/__tests__/task-helpers-pick-spawn-agent-config.server.test.ts \
-      src/__tests__/task-helpers-broadcast-assignment-update.server.test.ts \
-      src/__tests__/extension-author-page-server-load.server.test.ts \
-      src/__tests__/extension-author-page.component.test.ts \
-      src/lib/components/extensions/ExtensionBrowser.component.test.ts \
-      'src/routes/(app)/extensions/[id]/preview/page.component.test.ts' \
-      src/__tests__/extension-control-routes.server.test.ts \
-      src/__tests__/api-extensions-id-permissions.server.test.ts \
-      src/__tests__/extension-project-binding.server.test.ts \
-      src/__tests__/project-proposal-fixture.server.test.ts \
-      src/__tests__/marketplace-release-fixture.server.test.ts \
-      src/__tests__/project-proposal-review.server.test.ts \
-      src/__tests__/project-proposal-review.component.test.ts \
-      src/__tests__/extension-review-location.server.test.ts \
-      src/__tests__/mcp-control-request.server.test.ts \
-      src/__tests__/mcp-staging-client.unit.test.ts \
-      src/__tests__/extension-credential-resolver.server.test.ts \
-      src/__tests__/extension-host-api-transport.server.test.ts \
-      src/__tests__/extension-legacy-cutover.server.test.ts \
-      src/__tests__/extension-source-import-page.server.test.ts \
-      src/__tests__/extension-source-import-page.component.test.ts \
-      src/__tests__/api-workflows.server.test.ts \
-      src/__tests__/api-workflows-name.server.test.ts \
-      src/__tests__/api-workflows-name-run.server.test.ts \
-      src/__tests__/api-workflows-run-control.server.test.ts \
-      src/__tests__/api-workflows-run-trace.server.test.ts \
-      src/__tests__/api-workflows-runs-client-contract.server.test.ts \
-      src/__tests__/api-workflows-approvals-list.server.test.ts \
-      src/__tests__/api-workflows-approvals-answer.server.test.ts \
-      src/__tests__/workflow-approvals-logic.unit.test.ts \
-      src/__tests__/api-workflows-fork.server.test.ts \
-      src/__tests__/api-workflows-dry-run.server.test.ts \
-      src/__tests__/api-workflows-claim-versions.server.test.ts \
-      src/__tests__/api-workflows-delegations.server.test.ts \
-      src/__tests__/api-workflows-delegations-preview.server.test.ts \
-      src/__tests__/workflow-delegations-logic.unit.test.ts \
-      src/__tests__/delegation-consent.server.test.ts \
-      src/__tests__/agent-config-extension-gate.server.test.ts \
-      src/__tests__/workflow-access-delegation.server.test.ts \
-      src/__tests__/workflow-route-ladder.server.test.ts \
-      src/__tests__/pipelines-redirect.server.test.ts \
-      src/lib/components/WorkflowStepForm.component.test.ts \
-      src/lib/components/WorkflowBuilder.component.test.ts \
-      src/__tests__/onboarding-page.server.test.ts \
-      src/__tests__/onboarding-wizard.integration.component.test.ts \
-      src/lib/__tests__/provider-access.unit.test.ts \
-      src/lib/components/ProviderSettings.component.test.ts \
-      src/__tests__/stores-quickstart-refresh.component.test.ts \
-      src/__tests__/stores-quickstart-events.component.test.ts \
-      src/__tests__/dock-store.integration.component.test.ts \
-      src/__tests__/ConversationSettings.component.test.ts \
-      src/lib/components/__tests__/Tooltip.component.test.ts \
-      src/lib/components/chat/__tests__/ChatHeader.component.test.ts \
-      src/__tests__/chat-no-provider-banner.integration.component.test.ts \
-      src/__tests__/quickstart-checklist-dismiss-gate.component.test.ts \
-      src/__tests__/api-hooks.server.test.ts \
-      src/__tests__/webhook-pipeline.server.test.ts \
-      src/__tests__/api-webhook-rotate.server.test.ts \
-      src/__tests__/deep-link-resolve.unit.test.ts \
-      src/lib/components/goal-row-logic.unit.test.ts \
-      src/lib/components/UpdateBanner.component.test.ts \
-      src/__tests__/version-endpoint.server.test.ts \
-      src/__tests__/relative-time.unit.test.ts \
-      src/__tests__/relative-time.test.ts \
-      src/__tests__/http-errors.unit.test.ts \
-      src/__tests__/session-cookie.server.test.ts \
-      src/__tests__/hooks-server-dev-indicator.server.test.ts \
-      src/__tests__/hooks-server-failed-bearer-ratelimit.server.test.ts \
-      src/__tests__/hooks-server-gate-initiator.server.test.ts \
-      src/__tests__/hooks-server-get-client-ip.server.test.ts \
-      src/__tests__/hooks-server-invite-public-path.server.test.ts \
-      src/__tests__/hooks-server-onboarding-redirect.server.test.ts \
-      src/__tests__/hooks-server-return-to.server.test.ts \
-      src/__tests__/hooks-server-route-allowlist.server.test.ts \
-      src/__tests__/hooks-server-session-refresh.server.test.ts \
-      src/__tests__/hooks-server-session-refresh-e2e.server.test.ts \
-      src/__tests__/hooks-server-setup-redirect.server.test.ts \
-      src/__tests__/shutdown.server.test.ts \
-      src/__tests__/extension-helpers-clamp.server.test.ts \
-      src/__tests__/conversation-ownership.server.test.ts \
-      src/__tests__/mention-logic.unit.test.ts \
-      src/__tests__/mention-logic-EZ-sigil.unit.test.ts \
-      src/__tests__/mention-logic-feature.unit.test.ts \
-      src/__tests__/mention-logic-lesson-sigil.unit.test.ts \
-      src/lib/__tests__/markdown.unit.test.ts \
-      src/lib/__tests__/safe-redirect.unit.test.ts \
-      src/__tests__/fuzzy-match.unit.test.ts \
-      src/__tests__/chat-input-logic.unit.test.ts \
-      src/__tests__/api-preview-consent.server.test.ts \
-      src/__tests__/preview-dispatch.server.test.ts \
-      src/__tests__/preview-ws-bridge.server.test.ts \
-      src/__tests__/context-register-preview-bus.server.test.ts \
-      src/lib/components/tool-cards/preview-consent-card-logic.unit.test.ts \
-      src/__tests__/ExtensionToolSelector.component.test.ts \
-      src/lib/components/hub/HubPageView.component.test.ts \
-      src/lib/components/hub/HubNavSection.component.test.ts \
-      src/lib/components/extensions/UninstallDialog.component.test.ts \
-      src/__tests__/extensions-page-loader.server.test.ts \
-      src/lib/components/hub/HubComponentRenderer.component.test.ts \
-      src/lib/server/hub-render-pull.page-state.unit.test.ts \
-      src/lib/__tests__/project-icon.unit.test.ts \
-      src/lib/hub-last-page.unit.test.ts \
-      src/lib/components/__tests__/ModeFormModal.component.test.ts \
-      src/lib/chat/page-handlers/__tests__/inherit-mode.unit.test.ts \
-      src/__tests__/tools-api-mode-scope.server.test.ts \
-      src/__tests__/api-extensions-id-reapprove-drift.server.test.ts \
-      src/__tests__/api-conversations-id-tree.server.test.ts \
-      src/__tests__/api-conversations-id-graph.server.test.ts \
-      src/lib/components/chat/__tests__/GraphCanvas.component.test.ts \
-      src/lib/components/chat/__tests__/ChatGraphPanel.component.test.ts \
-      src/__tests__/api-conversations-id-rewind.server.test.ts \
-      src/__tests__/api-conversations-id-messages-mid-retry.server.test.ts \
-      src/lib/hub.unit.test.ts \
-      src/lib/settings-nav.unit.test.ts \
-      src/lib/settings-search.unit.test.ts \
-      src/lib/settings-search-config.unit.test.ts \
-      src/__tests__/api-search-backend.server.test.ts \
-      src/lib/components/__tests__/SearchDefaultsSection.component.test.ts \
-      src/lib/components/__tests__/SearchBackendSection.component.test.ts \
-      "src/routes/(app)/settings/search/__tests__/page.component.test.ts" \
-      src/lib/capability-policy-ui.unit.test.ts \
-      src/lib/components/__tests__/CapabilitiesPanel.component.test.ts \
-      src/lib/ezcorp-config-edit.unit.test.ts \
-      src/lib/workflow-run-display.unit.test.ts \
-      src/lib/workflow-trace-logic.unit.test.ts \
-      src/lib/workflow-run-history.unit.test.ts \
-      src/__tests__/RunPayload.component.test.ts \
-      src/lib/components/__tests__/AuthorCompositionPanel.component.test.ts \
-      src/lib/components/__tests__/UsesList.component.test.ts \
-      src/__tests__/api-users.server.test.ts \
-      src/lib/audit-log-view.unit.test.ts \
-      src/lib/settings-models.unit.test.ts \
-      src/lib/provider-meta.unit.test.ts \
-      src/lib/tier-ladder-view.unit.test.ts \
-      src/lib/components/__tests__/TierLadderSection.component.test.ts \
-      src/lib/components/__tests__/DefaultSelectionSection.component.test.ts \
-      src/lib/components/__tests__/ToolResultCapSection.component.test.ts \
-      src/lib/components/__tests__/RoutingExperimentsSection.component.test.ts \
-      src/lib/routing-experiments-view.unit.test.ts \
-      src/__tests__/api-settings-key.server.test.ts \
-      src/__tests__/model-selector-logic.unit.test.ts \
-      src/lib/save-flash.unit.test.ts \
-      src/lib/admin-guard.unit.test.ts \
-      src/lib/scroll-to-hash.unit.test.ts \
-      src/lib/chat-prompt-nav.unit.test.ts \
-      src/lib/chat-turn-collapse.unit.test.ts \
-      src/lib/components/TurnCollapsedSummary.component.test.ts \
-      src/lib/extensions/extension-sort.unit.test.ts \
-      src/lib/__tests__/rbac-grants-logic.unit.test.ts \
-      src/__tests__/resume-path.unit.test.ts \
-      src/__tests__/pull-to-refresh-logic.unit.test.ts \
-      src/__tests__/sw-runtime.unit.test.ts \
-      src/__tests__/service-worker.shell.unit.test.ts \
-      src/lib/components/__tests__/AuditLogSection.component.test.ts \
-      src/lib/components/__tests__/CustomModelsSection.component.test.ts \
-      src/lib/components/__tests__/SystemHealth.component.test.ts \
-      src/lib/components/__tests__/UsersSection.component.test.ts \
-      src/lib/components/__tests__/settings-save-model.component.test.ts \
-      src/lib/components/__tests__/InvitesSection.component.test.ts \
-      src/lib/components/__tests__/TeamsSection.component.test.ts \
-      src/lib/components/__tests__/ProvidersSection.component.test.ts \
-      src/lib/components/__tests__/ApiKeyManager.component.test.ts \
-      src/lib/components/__tests__/ModesSection.component.test.ts \
-      src/lib/components/__tests__/SaveIndicator.component.test.ts \
-      src/lib/components/__tests__/SettingsSection.component.test.ts \
-      src/__tests__/settings-layout.component.test.ts \
-      src/lib/components/preprocess-result-logic.unit.test.ts \
-      src/lib/components/tool-cards/grade-delta-logic.unit.test.ts \
-      src/lib/components/tool-cards/ez-draft-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/tool-cards-logic.unit.test.ts \
-      src/__tests__/extension-author-install.server.test.ts \
-      src/__tests__/extension-author-page-logic.server.test.ts \
-      src/__tests__/extension-author-page-server-load.server.test.ts \
-      src/__tests__/extension-audit-page-loader.server.test.ts \
-      src/lib/components/tool-cards/failure-class.unit.test.ts \
-      src/__tests__/author-draft-files.unit.test.ts \
-      src/lib/components/tool-cards/GradeDeltaCard.component.test.ts \
-      src/lib/components/tool-cards/city-conditions-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/CityConditionsCard.component.test.ts \
-      src/lib/components/tool-cards/workflow-run-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/WorkflowRunCard.component.test.ts \
-      src/lib/components/tool-cards/web-context-card-logic.unit.test.ts \
-      src/lib/components/tool-cards/WebContextCard.component.test.ts \
-      src/__tests__/pending-permission-tray.component.test.ts \
-      src/__tests__/stores-pending-permission-tray.integration.component.test.ts \
-      src/__tests__/pending-decisions-tray.component.test.ts \
-      src/__tests__/stores-pending-approval-tray.integration.component.test.ts \
-      src/__tests__/inline-tool-store.test.ts \
-      src/lib/components/tool-cards/DockHost.component.test.ts \
-      src/lib/components/tool-cards/PendingApprovalCard.component.test.ts \
-      src/__tests__/stores-ask-user-dedup.integration.component.test.ts \
-      src/__tests__/composer-suggest-logic.unit.test.ts \
-      src/__tests__/api-composer-suggest.server.test.ts \
-      src/__tests__/api-composer-suggest-feedback.server.test.ts \
-      src/lib/components/__tests__/SuggestionPopover.component.test.ts \
-      src/lib/components/__tests__/ComposerSuggestSection.component.test.ts \
-      src/__tests__/sse-resume-buffer.unit.test.ts \
-      src/__tests__/fetch-policy-dedup-clone.unit.test.ts \
-      src/lib/chat/page-handlers/__tests__/stream-resume.unit.test.ts \
-      src/lib/chat/page-handlers/__tests__/stream-resume-attach.component.test.ts \
-      src/lib/chat/page-handlers/__tests__/task-hydrate-attach.component.test.ts \
-      src/__tests__/api-conversations-id-tasks-assign.server.test.ts \
-      src/__tests__/api-conversations-id-tasks-retry.server.test.ts \
-      src/__tests__/api-conversations-id-tasks-assignments-start.server.test.ts \
-      src/__tests__/api-conversations-id-tasks-assignments-stop.server.test.ts \
-      src/__tests__/stores-task-snapshot.integration.component.test.ts \
-      src/__tests__/api-conversations-id-tasks.server.test.ts \
-      src/lib/dev-badge.unit.test.ts \
-      src/lib/components/DevBadge.component.test.ts \
-      src/lib/ez/__tests__/page-context.unit.test.ts \
-      src/lib/ez/__tests__/client-tool-dispatcher.unit.test.ts \
-      src/__tests__/api-projects-id-features-scan.server.test.ts \
-      src/lib/topic-contexts-logic.unit.test.ts \
-      src/lib/components/__tests__/TopicPills.component.test.ts \
-      src/lib/components/__tests__/TopicsPopover.component.test.ts \
-      src/lib/components/__tests__/TopicContextsSection.component.test.ts \
-      src/__tests__/api-context-types.server.test.ts \
-      src/__tests__/api-contexts.server.test.ts \
-      src/__tests__/api-conversations-topics.server.test.ts \
-      src/__tests__/api-topics-extract.server.test.ts \
-      src/__tests__/security-web-active-run-idor.server.test.ts \
-      src/__tests__/security-web-tool-call-output-idor.server.test.ts \
-      src/__tests__/api-mcp-servers-id-put.server.test.ts \
-      src/__tests__/api-extensions-id-modifiable.server.test.ts \
-      src/__tests__/api-extensions-id-settings-user.server.test.ts \
-      src/__tests__/security-web-invite-claim-order.server.test.ts \
-      src/__tests__/security-web-conversations-parent-idor.server.test.ts \
-      src/__tests__/api-extensions.server.test.ts \
-      src/__tests__/api-users-id.server.test.ts \
-      src/__tests__/api-models-default-selection.server.test.ts \
-      src/__tests__/api-models-capabilities.server.test.ts \
-      src/__tests__/provider-availability.server.test.ts \
-      src/lib/chat/page-handlers/__tests__/send-message.test.ts \
-      src/lib/chat/page-handlers/__tests__/load-messages.test.ts \
-      src/lib/command-registry.unit.test.ts \
-      src/lib/components/DiffSummaryPanel.component.test.ts \
-      src/__tests__/api-write-scope-gates.server.test.ts \
-      src/__tests__/api-memories.server.test.ts \
-      src/__tests__/api-memories-id.server.test.ts \
-      src/__tests__/api-memories-patch.server.test.ts \
-      src/__tests__/api-memories-list-scope.server.test.ts \
-      src/__tests__/api-projects.server.test.ts \
-      src/__tests__/api-projects-id.server.test.ts \
-      src/__tests__/api-projects-path-validation.server.test.ts \
-      src/__tests__/api-knowledge-base.server.test.ts \
-      src/__tests__/api-knowledge-base-id.server.test.ts \
-      src/__tests__/api-lessons.server.test.ts \
-      src/__tests__/api-lessons-id.server.test.ts \
-      src/__tests__/api-fs-mkdir.server.test.ts \
-      src/__tests__/api-ez-actions.server.test.ts \
-      src/__tests__/api-ez-actions-distill.server.test.ts \
-      src/__tests__/api-ez-actions-generic.server.test.ts \
-      src/__tests__/api-audit.server.test.ts \
-      src/__tests__/api-extensions-id-audit.server.test.ts \
-      src/__tests__/api-extensions-id-audit-stats.server.test.ts \
-      src/__tests__/api-extensions-id-confirm.server.test.ts \
-      src/__tests__/extensions-reapprove-route.server.test.ts \
-      src/__tests__/api-settings.server.test.ts \
-      src/__tests__/api-service-accounts.server.test.ts \
-      src/__tests__/api-service-accounts-id.server.test.ts \
-      src/__tests__/api-service-accounts-daily-cap.server.test.ts \
-      src/lib/components/DelegationConsentDialog.component.test.ts \
-      src/__tests__/api-health.server.test.ts \
-      src/__tests__/api-providers-refresh-models.server.test.ts \
-      src/__tests__/api-conversations-id-export.server.test.ts \
-      src/__tests__/api-extensions-id-reopen.server.test.ts \
-      src/__tests__/test-only-endpoints.server.test.ts \
-      src/lib/__tests__/extract-tool-output.unit.test.ts \
-      src/__tests__/context-usage-logic.test.ts \
-      src/__tests__/format-map.test.ts \
-      src/__tests__/inline-tool-store.test.ts \
-      src/__tests__/inline-tool-store-upsert.test.ts \
-      src/__tests__/api-agent-configs.server.test.ts \
-      src/__tests__/api-agent-configs-id.server.test.ts \
-      src/__tests__/api-agent-configs-generate.server.test.ts \
-      src/__tests__/api-projects-id-tool-permission-mode.server.test.ts \
-      src/__tests__/api-caller-tools.server.test.ts \
-      src/__tests__/tools-api-caller-parity.server.test.ts \
-      src/__tests__/api-conversations-tool-results.server.test.ts \
-      src/__tests__/api-conversations-id-messages.server.test.ts \
-      src/__tests__/api-conversations-id-messages-coverage.server.test.ts \
-      src/__tests__/api-conversations-id-messages-goal.server.test.ts \
-      src/__tests__/api-conversations-id-agent-chat.server.test.ts \
-      src/__tests__/api-settings-developer-api-keys.server.test.ts \
-      --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
-      --coverage.include='src/lib/server/security/bounded-json.ts' \
-      --coverage.include='src/lib/server/security/payload.ts' \
-      --coverage.include='src/lib/server/task-helpers.ts' \
-      --coverage.include='src/routes/api/tool-invoke/+server.ts' \
-      --coverage.include='**/api/marketplace/*/install/+server.ts' \
-      --coverage.include='**/api/marketplace/export/*/+server.ts' \
-      --coverage.include='src/lib/server/extensions/*.ts' \
-      --coverage.include='**/extensions/author/+page.svelte' \
-      --coverage.include='**/extensions/author/+page.server.ts' \
-      --coverage.include='**/extensions/project-proposals/**/+page.server.ts' \
-      --coverage.include='**/extensions/project-proposals/**/+page.svelte' \
-      --coverage.include='**/extensions/import-source/+page.server.ts' \
-      --coverage.include='**/extensions/import-source/+page.svelte' \
-      --coverage.include='**/api/extensions/*/audit/+server.ts' \
-      --coverage.include='src/routes/api/__test/project-proposal/+server.ts' \
-      --coverage.include='src/routes/api/__test/marketplace-release/+server.ts' \
-      --coverage.include='src/routes/api/extensions/control/+server.ts' \
-      --coverage.include='src/routes/api/extensions/releases/**/+server.ts' \
-      --coverage.include='src/routes/api/extensions/import-source/+server.ts' \
-      --coverage.reportsDirectory="$VITEST_COV" \
-      --coverage.include='src/lib/search/*.ts' \
-      --coverage.include='src/lib/hub.ts' \
-      --coverage.include='src/lib/components/goal-row-logic.ts' \
-      --coverage.include='src/lib/components/UpdateBanner.svelte' \
-      --coverage.include='src/lib/components/UpdateBanner.helpers.ts' \
-      --coverage.include='src/routes/api/version/+server.ts' \
-      --coverage.include='src/lib/utils/relative-time.ts' \
-      --coverage.include='src/lib/context-usage-logic.ts' \
-      --coverage.include='src/lib/server/http-errors.ts' \
-      --coverage.include='src/lib/server/auth/session-cookie.ts' \
-      --coverage.include='src/hooks.server.ts' \
-      --coverage.include='src/lib/server/shutdown.ts' \
-      --coverage.include='src/lib/server/extension-helpers.ts' \
-      --coverage.include='src/lib/server/conversation-ownership.ts' \
-      --coverage.include='src/lib/mention-logic.ts' \
-      --coverage.include='src/lib/markdown.ts' \
-      --coverage.include='src/lib/safe-redirect.ts' \
-      --coverage.include='src/lib/fuzzy-match.ts' \
-      --coverage.include='src/lib/components/tool-cards/preview-consent-card-logic.ts' \
-      --coverage.include='src/routes/api/preview/[id]/token/+server.ts' \
-      --coverage.include='src/routes/api/preview/consent/+server.ts' \
-      --coverage.include='src/lib/components/ExtensionToolSelector.svelte' \
-      --coverage.include='src/lib/components/hub/HubPageView.svelte' \
-      --coverage.include='src/lib/components/hub/HubNavSection.svelte' \
-      --coverage.include='src/lib/components/extensions/UninstallDialog.svelte' \
-      --coverage.include='src/routes/**/extensions/+page.server.ts' \
-      --coverage.include='src/lib/components/hub/HubInlineForm.svelte' \
-      --coverage.include='src/lib/server/hub-render-pull.ts' \
-      --coverage.include='src/lib/project-icon.ts' \
-      --coverage.include='src/lib/command-registry.ts' \
-      --coverage.include='src/lib/hub-last-page.ts' \
-      --coverage.include='src/lib/components/ModeFormModal.svelte' \
-      --coverage.include='src/lib/chat/page-handlers/inherit-mode.ts' \
-      --coverage.include='src/routes/api/tools/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[id]/reapprove-drift/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[id]/modifiable/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[id]/settings/user/+server.ts' \
-      --coverage.include='src/routes/api/audit/+server.ts' \
-      --coverage.include='src/routes/api/audit/stats/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[id]/audit/stats/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[id]/confirm/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[id]/reapprove/+server.ts' \
-      --coverage.include='src/routes/api/settings/+server.ts' \
-      --coverage.include='src/routes/api/projects/[id]/features/scan/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/tree/+server.ts' \
-      --coverage.include='src/routes/api/workflows/runs/+server.ts' \
-      --coverage.include='src/routes/api/workflows/runs/[id]/+server.ts' \
-      --coverage.include='src/routes/api/workflows/runs/[id]/resume/+server.ts' \
-      --coverage.include='src/routes/api/workflows/runs/[id]/cancel/+server.ts' \
-      --coverage.include='src/routes/api/workflows/approvals/+server.ts' \
-      --coverage.include='src/routes/api/workflows/approvals/[id]/+server.ts' \
-      --coverage.include='src/lib/workflow-approvals-logic.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/graph/+server.ts' \
-      --coverage.include='src/lib/components/chat/GraphCanvas.svelte' \
-      --coverage.include='src/lib/components/chat/ChatGraphPanel.svelte' \
-      --coverage.include='src/routes/api/conversations/[id]/rewind/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/rewind/schema.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/messages/[mid]/retry/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/messages/[mid]/retry/schema.ts' \
-      --coverage.include='src/lib/settings-nav.ts' \
-      --coverage.include='src/lib/settings-search.ts' \
-      --coverage.include='src/lib/settings-search-config.ts' \
-      --coverage.include='src/routes/api/search/backend/+server.ts' \
-      --coverage.include='src/lib/components/settings/SearchDefaultsSection.svelte' \
-      --coverage.include='src/lib/components/settings/SearchBackendSection.svelte' \
-      --coverage.include='src/lib/capability-policy-ui.ts' \
-      --coverage.include='src/lib/components/extensions/CapabilitiesPanel.svelte' \
-      --coverage.include='src/lib/ezcorp-config-edit.ts' \
-      --coverage.include='src/lib/dependency-picker.ts' \
-      --coverage.include='src/lib/workflow-run-display.ts' \
-      --coverage.include='src/lib/workflow-trace-logic.ts' \
-      --coverage.include='src/lib/workflow-run-history.ts' \
-      --coverage.include='src/lib/components/workflows/RunPayload.svelte' \
-      --coverage.include='src/lib/components/extensions/AuthorCompositionPanel.svelte' \
-      --coverage.include='src/lib/components/extensions/UsesList.svelte' \
-      --coverage.include='src/routes/api/users/+server.ts' \
-      --coverage.include='src/lib/audit-log-view.ts' \
-      --coverage.include='src/lib/settings-models.ts' \
-      --coverage.include='src/lib/provider-meta.ts' \
-      --coverage.include='src/lib/tier-ladder-view.ts' \
-      --coverage.include='src/lib/components/settings/TierLadderSection.svelte' \
-      --coverage.include='src/lib/components/settings/DefaultSelectionSection.svelte' \
-      --coverage.include='src/lib/components/settings/ToolResultCapSection.svelte' \
-      --coverage.include='src/lib/components/settings/RoutingExperimentsSection.svelte' \
-      --coverage.include='src/lib/routing-experiments-view.ts' \
-      --coverage.include='src/routes/api/settings/[key]/+server.ts' \
-      --coverage.include='src/routes/api/models/default-selection/+server.ts' \
-      --coverage.include='src/routes/api/models/capabilities/+server.ts' \
-      --coverage.include='src/lib/server/provider-availability.ts' \
-      --coverage.include='src/lib/chat/page-handlers/send-message.ts' \
-      --coverage.include='src/lib/chat/page-handlers/load-messages.ts' \
-      --coverage.include='src/lib/model-selector-logic.ts' \
-      --coverage.include='src/lib/save-flash.svelte.ts' \
-      --coverage.include='src/lib/admin-guard.ts' \
-      --coverage.include='src/lib/scroll-to-hash.ts' \
-      --coverage.include='src/lib/chat-prompt-nav.ts' \
-      --coverage.include='src/lib/chat-turn-collapse.ts' \
-      --coverage.include='src/lib/components/TurnCollapsedSummary.svelte' \
-      --coverage.include='src/lib/extensions/extension-sort.ts' \
-      --coverage.include='src/lib/rbac-grants-logic.ts' \
-      --coverage.include='src/lib/resume-path.ts' \
-      --coverage.include='src/lib/components/pull-to-refresh-logic.ts' \
-      --coverage.include='src/lib/sw-runtime.ts' \
-      --coverage.include='src/service-worker.ts' \
-      --coverage.include='src/lib/components/settings/ProvidersSection.svelte' \
-      --coverage.include='src/lib/components/settings/TeamsSection.svelte' \
-      --coverage.include='src/lib/components/settings/InvitesSection.svelte' \
-      --coverage.include='src/lib/components/settings/ModesSection.svelte' \
-      --coverage.include='src/lib/components/settings/ApiKeyManager.svelte' \
-      --coverage.include='src/lib/components/settings/UsersSection.svelte' \
-      --coverage.include='src/lib/components/settings/SystemHealth.svelte' \
-      --coverage.include='src/lib/components/settings/AuditLogSection.svelte' \
-      --coverage.include='src/lib/components/settings/CustomModelsSection.svelte' \
-      --coverage.include='src/lib/components/settings/SettingsSection.svelte' \
-      --coverage.include='src/lib/components/settings/SaveIndicator.svelte' \
-      --coverage.include='src/lib/components/preprocess-result-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/grade-delta-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/ez-draft-card-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/ez-install-card-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/utils.ts' \
-      --coverage.include='src/routes/api/extensions/author/install/+server.ts' \
-      --coverage.include='src/routes/api/extensions/author/draft/[id]/+server.ts' \
-      --coverage.include='src/routes/api/extensions/author/draft/[id]/validate/+server.ts' \
-      --coverage.include='src/routes/**/extensions/author/+page.server.ts' \
-      --coverage.include='src/routes/**/extensions/[id]/audit/+page.server.ts' \
-      --coverage.include='src/lib/components/tool-cards/failure-class.ts' \
-      --coverage.include='src/lib/server/author-draft-files.ts' \
-      --coverage.include='src/lib/components/tool-cards/GradeDeltaCard.svelte' \
-      --coverage.include='src/lib/components/tool-cards/city-conditions-card-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/CityConditionsCard.svelte' \
-      --coverage.include='src/lib/components/tool-cards/workflow-run-card-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/WorkflowRunCard.svelte' \
-      --coverage.include='src/lib/components/tool-cards/web-context-card-logic.ts' \
-      --coverage.include='src/lib/components/tool-cards/WebContextCard.svelte' \
-      --coverage.include='src/lib/components/tool-cards/PendingPermissionTray.svelte' \
-      --coverage.include='src/lib/components/tool-cards/PendingDecisionsTray.svelte' \
-      --coverage.include='src/lib/components/tool-cards/PendingApprovalCard.svelte' \
-      --coverage.include='src/lib/stores.svelte.ts' \
-      --coverage.include='src/lib/composer-suggest-logic.ts' \
-      --coverage.include='src/lib/components/SuggestionPopover.svelte' \
-      --coverage.include='src/lib/components/settings/ComposerSuggestSection.svelte' \
-      --coverage.include='src/lib/server/scoped-tools.ts' \
-      --coverage.include='src/routes/api/composer/suggest/+server.ts' \
-      --coverage.include='src/routes/api/composer/suggest/schema.ts' \
-      --coverage.include='src/routes/api/composer/suggest/feedback/+server.ts' \
-      --coverage.include='src/lib/server/sse-resume-buffer.ts' \
-      --coverage.include='src/lib/runtime-event-names.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/tool-results/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/caller-tools/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/caller-tools/schema.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/messages/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/agent-chat/+server.ts' \
-      --coverage.include='src/routes/api/settings/developer/api-keys/+server.ts' \
-      --coverage.include='src/routes/api/settings/developer/schema.ts' \
-      --coverage.include='src/lib/utils/fetch-policy.ts' \
-      --coverage.include='src/lib/chat/page-handlers/stream-resume.svelte.ts' \
-      --coverage.include='src/lib/chat/page-handlers/task-hydrate.svelte.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/tasks/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/assign/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/retry/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/stop/+server.ts' \
-      --coverage.include='src/lib/dev-badge.ts' \
-      --coverage.include='src/lib/components/DevBadge.svelte' \
-      --coverage.include='src/lib/ez/page-context.ts' \
-      --coverage.include='src/lib/ez/client-tool-dispatcher.ts' \
-      --coverage.include='src/lib/topic-contexts-logic.ts' \
-      --coverage.include='src/lib/components/chat/TopicPills.svelte' \
-      --coverage.include='src/lib/components/chat/TopicsPopover.svelte' \
-      --coverage.include='src/lib/components/settings/TopicContextsSection.svelte' \
-      --coverage.include='src/routes/api/conversations/[id]/topics/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/topics/schema.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/topics/[topicId]/extract/schema.ts' \
-      --coverage.include='src/routes/api/contexts/+server.ts' \
-      --coverage.include='src/routes/api/contexts/[id]/+server.ts' \
-      --coverage.include='src/routes/api/memories/+server.ts' \
-      --coverage.include='src/routes/api/memories/[id]/+server.ts' \
-      --coverage.include='src/routes/api/projects/+server.ts' \
-      --coverage.include='src/routes/api/projects/[id]/+server.ts' \
-      --coverage.include='src/routes/api/knowledge-base/+server.ts' \
-      --coverage.include='src/routes/api/lessons/[id]/+server.ts' \
-      --coverage.include='src/routes/api/fs/mkdir/+server.ts' \
-      --coverage.include='src/routes/api/ez-actions/[name]/+server.ts' \
-      --coverage.include='src/routes/api/context-types/+server.ts' \
-      --coverage.include='src/routes/api/workflows/+server.ts' \
-      --coverage.include='src/routes/api/workflows/schema.ts' \
-      --coverage.include='src/routes/api/workflows/[name]/+server.ts' \
-      --coverage.include='src/routes/api/workflows/[name]/run/+server.ts' \
-      --coverage.include='src/routes/api/workflows/[name]/fork/+server.ts' \
-      --coverage.include='src/routes/api/workflows/[name]/dry-run/+server.ts' \
-      --coverage.include='src/routes/api/workflows/[name]/claim/+server.ts' \
-      --coverage.include='src/routes/api/workflows/[name]/versions/+server.ts' \
-      --coverage.include='src/routes/api/workflows/delegations/+server.ts' \
-      --coverage.include='src/routes/api/workflows/delegations/[[]id]/+server.ts' \
-      --coverage.include='src/lib/server/delegation-consent.ts' \
-      --coverage.include='src/lib/server/agent-config-extension-gate.ts' \
-      --coverage.include='src/routes/api/workflows/delegations/preview/+server.ts' \
-      --coverage.include='src/routes/api/workflows/delegated-runs/+server.ts' \
-      --coverage.include='src/lib/workflow-delegations-logic.ts' \
-      --coverage.include='src/lib/extensions/canvas-bridge.ts' \
-      --coverage.include='src/lib/extensions/browser-invocation.ts' \
-      --coverage.include='src/lib/server/extension-browser.ts' \
-      --coverage.include='src/lib/server/extension-document.ts' \
-      --coverage.include='src/lib/components/extensions/ExtensionBrowser.svelte' \
-      --coverage.include='src/routes/api/extensions/[[]name]/preview/+server.ts' \
-      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.server.ts' \
-      --coverage.include='src/routes/(app)/extensions/[[]id]/preview/+page.svelte' \
-      --coverage.include='src/lib/server/workflow-access.ts' \
-      --coverage.include='src/routes/**/pipelines/+page.server.ts' \
-      --coverage.include='src/lib/components/WorkflowStepForm.svelte' \
-      --coverage.include='src/lib/components/WorkflowBuilder.svelte' \
-      --coverage.include='src/routes/**/onboarding/+page.server.ts' \
-      --coverage.include='src/routes/**/onboarding/+page.svelte' \
-      --coverage.include='src/lib/provider-access.ts' \
-      --coverage.include='src/lib/components/ProviderSettings.svelte' \
-      --coverage.include='src/lib/components/Tooltip.svelte' \
-      --coverage.include='src/lib/components/ConversationSettings.svelte' \
-      --coverage.include='src/lib/components/chat/ChatHeader.svelte' \
-      --coverage.include='src/lib/components/chat/NoProviderBanner.svelte' \
-      --coverage.include='src/lib/components/QuickStartChecklist.svelte' \
-      --coverage.include='src/routes/api/hooks/[extensionId]/[slug]/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[name]/webhooks/[slug]/rotate/+server.ts' \
-      --coverage.include='src/**/active-run/+server.ts' \
-      --coverage.include='src/routes/api/service-accounts/+server.ts' \
-      --coverage.include='src/routes/api/service-accounts/[id]/+server.ts' \
-      --coverage.include='src/routes/api/service-accounts/[id]/daily-cap/+server.ts' \
-      --coverage.include='src/lib/components/DelegationConsentDialog.svelte' \
-      --coverage.include='src/**/tool-calls/**/output/+server.ts' \
-      --coverage.include='src/**/mcp-servers/*/+server.ts' \
-      --coverage.include='src/**/auth/invite/*/+server.ts' \
-      --coverage.include='src/**/api/conversations/+server.ts' \
-      --coverage.include='src/**/api/extensions/+server.ts' \
-      --coverage.include='src/lib/components/review/DiffStatBar.svelte' \
-      --coverage.include='src/lib/components/review/ReviewFileCard.svelte' \
-      --coverage.include='src/lib/components/review/ReviewFileTree.svelte' \
-      --coverage.include='src/**/users/[[]id]/+server.ts' \
-      --coverage.include='src/routes/api/health/+server.ts' \
-      --coverage.include='src/routes/api/providers/[provider]/refresh-models/+server.ts' \
-      --coverage.include='src/routes/api/conversations/[id]/export/+server.ts' \
-      --coverage.include='src/routes/api/extensions/[id]/reopen/+server.ts' \
-      --coverage.include='src/routes/api/__test/seed-extension-author-draft/+server.ts' \
-      --coverage.include='src/routes/api/__test/cleanup-extension/+server.ts' \
-      --coverage.include='src/lib/tool-output.ts' \
-      --coverage.include='src/lib/components/ui/format-map.ts' \
-      --coverage.include='src/lib/inline-tool-store.svelte.ts' \
-      --coverage.include='src/lib/chat/historical-tool-calls.ts' \
-      --coverage.include='src/routes/api/agent-configs/+server.ts' \
-      --coverage.include='src/routes/api/agent-configs/[id]/+server.ts' \
-      --coverage.include='src/routes/api/agent-configs/generate/+server.ts' \
-      --coverage.include='src/routes/api/projects/[id]/tool-permission-mode/+server.ts' ) \
-    > "$legs/vitest.out" 2>&1
-  echo "$?" > "$legs/vitest.code"
+    set +e
+    COV_OUT="${LEG_COV_DIR[providers]}" bash "$SCRIPT_DIR/provider-coverage.sh"       > "$legs/providers.out" 2>&1
+    echo "$?" > "$legs/providers.code"
   ) &
+  running=$((running + 1))
+
+  await_leg_slot
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[api-client]}" bash "$SCRIPT_DIR/api-client-coverage.sh" > "$legs/api-client.out" 2>&1
+    echo "$?" > "$legs/api-client.code"
+  ) &
+  running=$((running + 1))
+
+  # This tiny browser alias is intentionally measured by its direct Bun
+  # contract: page CDP coverage cannot observe the audio Worker that imports
+  # it. Its tagged receipt is canonical, so incidental browser or host imports
+  # cannot borrow incompatible source-map counters.
+  await_leg_slot
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[empty-node-shim]}" bash "$SCRIPT_DIR/empty-node-shim-coverage.sh" \
+      > "$legs/empty-node-shim.out" 2>&1
+    echo "$?" > "$legs/empty-node-shim.code"
+  ) &
+  running=$((running + 1))
+
+  # Worker/index.ts has an HTTP-boundary suite that is its canonical source
+  # of truth. Keep its filtered receipt separate from incidental host imports.
+  await_leg_slot
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[worker]}" bash "$SCRIPT_DIR/worker-coverage.sh" \
+      > "$legs/worker.out" 2>&1
+    echo "$?" > "$legs/worker.code"
+  ) &
+  running=$((running + 1))
+
+  # These web Bun suites need web/ as cwd for SvelteKit aliases. The producer
+  # filters to its direct utility sources, so it cannot perturb V8-only maps.
+  await_leg_slot
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[web-utility]}" bash "$SCRIPT_DIR/web-utility-coverage.sh" \
+      > "$legs/web-utility.out" 2>&1
+    echo "$?" > "$legs/web-utility.code"
+  ) &
+  running=$((running + 1))
+
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then
+    await_leg_slot
+    (
+      set +e
+      bash "$SCRIPT_DIR/web-vitest-coverage.sh" --output "${LEG_COV_DIR[web-vitest-full]}" \
+        > "$legs/vitest-full.out" 2>&1
+      echo "$?" > "$legs/vitest-full.code"
+    ) &
+    running=$((running + 1))
+  fi
 
   wait
 
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  for leg in sdk hc suggest aikit vitest; do
+  local printed_legs=(sdk hc suggest aikit providers api-client empty-node-shim worker web-utility)
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
+  for leg in "${printed_legs[@]}"; do
     echo ""
     echo "── leg output: $leg ──"
     cat "$legs/$leg.out" 2>/dev/null || echo "(no output captured)"
@@ -966,21 +472,49 @@ run_legs() {
     echo "--- FAIL: ai-kit coverage leg (exit $AIKIT_EXIT) ---"
   fi
 
+  PROVIDER_EXIT=$(cat "$legs/providers.code" 2>/dev/null || echo 1)
+  if [ "$PROVIDER_EXIT" != "0" ]; then
+    FAILED_FILES+=("provider coverage leg")
+    echo "--- FAIL: provider coverage leg (exit $PROVIDER_EXIT) ---"
+  fi
+
+  API_CLIENT_EXIT=$(cat "$legs/api-client.code" 2>/dev/null || echo 1)
+  if [ "$API_CLIENT_EXIT" != "0" ]; then
+    FAILED_FILES+=("api client coverage leg")
+    echo "--- FAIL: api client coverage leg (exit $API_CLIENT_EXIT) ---"
+  fi
+
+  EMPTY_NODE_SHIM_EXIT=$(cat "$legs/empty-node-shim.code" 2>/dev/null || echo 1)
+  if [ "$EMPTY_NODE_SHIM_EXIT" != "0" ]; then
+    FAILED_FILES+=("empty Node shim coverage leg")
+    echo "--- FAIL: empty Node shim coverage leg (exit $EMPTY_NODE_SHIM_EXIT) ---"
+  fi
+
+  WORKER_EXIT=$(cat "$legs/worker.code" 2>/dev/null || echo 1)
+  if [ "$WORKER_EXIT" != "0" ]; then
+    FAILED_FILES+=("worker coverage leg")
+    echo "--- FAIL: worker coverage leg (exit $WORKER_EXIT) ---"
+  fi
+
+  WEB_UTILITY_EXIT=$(cat "$legs/web-utility.code" 2>/dev/null || echo 1)
+  if [ "$WEB_UTILITY_EXIT" != "0" ]; then
+    FAILED_FILES+=("web utility coverage leg")
+    echo "--- FAIL: web utility coverage leg (exit $WEB_UTILITY_EXIT) ---"
+  fi
+
   # The suggest leg is pass/fail-gated by the residual job. Keep its local
   # tolerance visible instead of silently discarding the written exit code.
   SUGGEST_LEG_EXIT=$(cat "$legs/suggest.code" 2>/dev/null || echo "?")
   echo "tolerated leg exit code (not gated here): suggest=$SUGGEST_LEG_EXIT"
 
-  VITEST_EXIT=$(cat "$legs/vitest.code" 2>/dev/null || echo 1)
-  # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
-  # resolves them against the repo root and the web/src/... threshold keys match.
-  if [ -f "$VITEST_COV/lcov.info" ]; then
-    sed -i 's#^SF:src/#SF:web/src/#' "$VITEST_COV/lcov.info"
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then
+    FULL_VITEST_EXIT=$(cat "$legs/vitest-full.code" 2>/dev/null || echo 1)
+    if [ "$FULL_VITEST_EXIT" != "0" ]; then
+      FAILED_FILES+=("web full-vitest coverage leg")
+      echo "--- FAIL: web full-vitest coverage leg (exit $FULL_VITEST_EXIT) ---"
+    fi
   fi
-  if [ "$VITEST_EXIT" != "0" ]; then
-    FAILED_FILES+=("web vitest-coverage leg")
-    echo "--- FAIL: web vitest-coverage leg (exit $VITEST_EXIT) ---"
-  fi
+  PRODUCER_POOL_MS=$(( $(date +%s%3N) - started_ms ))
 }
 
 # ── web-security coverage leg (FULL LOCAL MODE ONLY) ────────────────────────
@@ -1006,6 +540,7 @@ run_legs() {
 # job already produces this lcov there, and merging it twice would double every
 # hit count for no gain.
 run_security_leg() {
+  SECURITY_STARTED_MS=$(date +%s%3N)
   # Registered HERE, not alongside the run_legs legs, so the lcov guard expects
   # this leg in exactly the mode that runs it — legs-only mode calls run_legs
   # but never this, and must not be told the security lcov is "missing".
@@ -1037,11 +572,57 @@ collect_security_leg() {
     FAILED_FILES+=("web security coverage leg")
     echo "--- FAIL: web security coverage leg (exit $SECURITY_EXIT) ---"
   fi
+  SECURITY_MS=$(( $(date +%s%3N) - SECURITY_STARTED_MS ))
+}
+
+# Browser routes are canonical only after their broad exclusion is removed.
+# A full backend run must then consume a receipt produced from this exact HEAD;
+# it never launches another browser suite. Re-converting the raw CDP ranges and
+# comparing LCOV makes a hand-written or stale report fail before the merge.
+browser_route_coverage_required() {
+	bun -e 'import { isExcluded } from "./scripts/coverage-config.ts"; process.exit(isExcluded("web/src/routes/+page.svelte") ? 1 : 0)'
+}
+
+verify_browser_coverage_receipt() {
+	register_leg browser cov_browser
+	if [ -z "${BROWSER_COVERAGE_RAW:-}" ] || [ -z "${BROWSER_COVERAGE_LCOV:-}" ]; then
+		echo "::error::browser route coverage is required: set BROWSER_COVERAGE_RAW and BROWSER_COVERAGE_LCOV" >&2
+		return 1
+	fi
+	if [ ! -s "$BROWSER_COVERAGE_RAW" ] || [ ! -s "$BROWSER_COVERAGE_LCOV" ]; then
+		echo "::error::browser route coverage receipt is missing or empty" >&2
+		return 1
+	fi
+	local regenerated="$TMPDIR/browser-recomputed.lcov"
+	bun scripts/verify-browser-coverage-receipt.ts "$BROWSER_COVERAGE_RAW" "$BROWSER_COVERAGE_LCOV" || return 1
+	bun scripts/browser-coverage-to-lcov.ts "$BROWSER_COVERAGE_RAW" "$regenerated" || return 1
+	mkdir -p "${LEG_COV_DIR[browser]}"
+	cp "$regenerated" "${LEG_COV_DIR[browser]}/lcov.info"
 }
 
 # Copy every per-leg lcov produced this run into $COV_OUT (CI artifact).
 # Used by legs-only mode (4 small files); host-shard mode PRE-MERGES its
 # ~200 per-file lcovs into one artifact file instead — see the shard branch.
+emit_full_timing_receipt() {
+  [ -n "$COV_OUT" ] || return 0
+  local timings_tsv="$TMPDIR/full-timings.tsv" phases_tsv="$TMPDIR/full-phases.tsv"
+  : > "$timings_tsv"
+  for ((i = 0; i < HOST_COUNT; i++)); do
+    [ -f "$TMPDIR/time_$i" ] || continue
+    printf '%s\t%s\n' "${FILES[$i]}" "$(cat "$TMPDIR/time_$i")" >> "$timings_tsv"
+  done
+  {
+    printf 'hostPool\t%s\n' "$HOST_POOL_MS"
+    printf 'producers\t%s\n' "$PRODUCER_POOL_MS"
+    printf 'security\t%s\n' "$SECURITY_MS"
+    printf 'browserReceipt\t%s\n' "$BROWSER_RECEIPT_MS"
+    printf 'mergeAndGate\t%s\n' "$MERGE_GATE_MS"
+  } > "$phases_tsv"
+  bun "$SCRIPT_DIR/coverage-timing-receipt.ts" "$COV_OUT/timings-full.json" \
+    "full local coverage run" "$phases_tsv" "$timings_tsv"
+  echo "emitted full-mode timing receipt → $COV_OUT/timings-full.json"
+}
+
 emit_lcov() {
   [ -n "$COV_OUT" ] || return 0
   local n=0
@@ -1072,8 +653,8 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
   check_leg_lcov || LEG_LCOV_EXIT=1
   emit_lcov
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | legs"
-  # The SDK (SDK_LEG_EXIT), harness-client (HC_EXIT), ai-kit (AIKIT_EXIT) and
-  # node-vitest (VITEST_EXIT) legs GATE here. Suggest stays pass/fail-tolerant
+  # The SDK (SDK_LEG_EXIT), harness-client (HC_EXIT), ai-kit (AIKIT_EXIT),
+  # empty Node shim, provider, API-client, and Worker legs GATE here. Suggest stays pass/fail-tolerant
   # because it also gates via the residual job. A MISSING LCOV gates for every
   # leg regardless: pass/fail tolerance
   # is about assertions, never about a producer that didn't produce. This is
@@ -1082,8 +663,8 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     echo "::error::sdk coverage leg failed (exit $SDK_LEG_EXIT)"
     exit 1
   fi
-  if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
-     [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
+  if [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || \
+     [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -1251,10 +832,19 @@ if [ -n "$SHARD_TOTAL" ]; then
 fi
 
 # ── full local mode: legs + merge + threshold check ─────────────────────────
-# Started BEFORE run_legs so it overlaps them; run_legs' own `wait` reaps it.
-run_security_leg
 run_legs
+# Security is deliberately outside run_legs' PID accounting. Start it only
+# after that bounded pool has drained so `wait -n` cannot reap an uncounted
+# child and admit a fourth coverage producer.
+run_security_leg
+wait
 collect_security_leg
+BROWSER_RECEIPT_STARTED_MS=$(date +%s%3N)
+if browser_route_coverage_required; then
+	verify_browser_coverage_receipt || BROWSER_RECEIPT_EXIT=1
+fi
+BROWSER_RECEIPT_MS=$(( $(date +%s%3N) - BROWSER_RECEIPT_STARTED_MS ))
+GATE_MERGE_STARTED_MS=$(date +%s%3N)
 
 echo ""
 echo "================================"
@@ -1291,6 +881,12 @@ gate_host_failures
 # correctness: the same run now fails naming the leg that died.
 check_leg_lcov || exit 1
 
+# Full local coverage must fail before the aggregate gate when V8 omitted one
+# executable shared library source. CI runs this same guard after merging its
+# three existing Web tests shard artifacts; it is deliberately absent from
+# legs-only mode because cov-extras does not own that producer.
+bun scripts/check-web-vitest-coverage.ts "${LEG_COV_DIR[web-vitest-full]}/lcov.info" || WEB_VITEST_SOURCE_GUARD_EXIT=1
+
 # Per-file counterpart of the same guard: recover_missing_coverage (called
 # above, shared with shard mode) could not regenerate lcov for one or more
 # crashed host files after COVERAGE_RECOVERY_ATTEMPTS isolated, instrumented
@@ -1324,6 +920,8 @@ bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" coverage/lcov.info
 
 CHECK_EXIT=0
 bun scripts/check-coverage.ts || CHECK_EXIT=$?
+MERGE_GATE_MS=$(( $(date +%s%3N) - GATE_MERGE_STARTED_MS ))
+emit_full_timing_receipt
 
 # ── the two verdicts ────────────────────────────────────────────────────────
 # COVERAGE verdict (exit 1): check-coverage.ts + the vitest leg's integrity +
@@ -1341,8 +939,8 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # 1 means no existing consumer's meaning changes. Both verdicts are always
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
-if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$BROWSER_RECEIPT_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
+   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 
@@ -1355,7 +953,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT web_utility=$WEB_UTILITY_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi

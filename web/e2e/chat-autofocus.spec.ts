@@ -4,12 +4,12 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 test.describe("Chat composer autofocus on new chat", () => {
 	const proj = makeProject({ id: "proj-1", name: "Autofocus Project" });
 
-	test("landing page autofocuses the global composer", async ({ page, mockApi }) => {
+	test("landing page does not render a retired global composer", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto("/");
 
 		const textarea = page.locator("textarea.chat-textarea");
-		await expect(textarea).toBeFocused({ timeout: 3000 });
+		await expect(textarea).toHaveCount(0);
 	});
 
 	test("empty conversation autofocuses the composer", async ({ page, mockApi }) => {

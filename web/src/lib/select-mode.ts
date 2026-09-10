@@ -84,7 +84,7 @@ export function selectRange(
 	const skip = opts?.skipPredicate;
 	for (let i = start; i <= end; i++) {
 		const id = orderedIds[i]!;
-		if (skip && skip(id)) continue;
+		if (skip?.(id)) continue;
 		next.add(id);
 	}
 	return next;

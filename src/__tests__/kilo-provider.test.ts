@@ -474,3 +474,13 @@ describe("T8 the boot warm", () => {
     expect((await kiloPickerEntries()).map((e) => e.id)).toEqual([KILO_FREE_AUTO_MODEL]);
   });
 });
+
+test("a settings outage preserves the free seed catalog", async () => {
+  mockGetSetting.mockImplementation((() => Promise.reject(new Error("settings unavailable"))) as never);
+
+  const picker = await kiloPickerEntries();
+  const routing = await kiloRoutingEntries();
+
+  expect(picker.map((entry) => entry.id)).toEqual([KILO_FREE_AUTO_MODEL]);
+  expect(new Set(routing.map((entry) => entry.tier))).toEqual(new Set(["fast", "balanced", "powerful"]));
+});

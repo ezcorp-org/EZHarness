@@ -284,6 +284,31 @@ describe("runWithFailover", () => {
     },
   );
 
+  test("terminal provider event preserves a 400 when the Agent state mirror is absent", async () => {
+    const ctx = makeCtx();
+    const host = makeHost();
+    let suggestCalls = 0;
+
+    const promise = runWithFailover(
+      baseParams(ctx, host, {
+        buildAgent: () => makeAgent(),
+        runPrompt: async () => {
+          ctx.providerErrorMessage = "400: context_length_exceeded";
+        },
+        suggestFallback: async () => {
+          suggestCalls++;
+          return { provider: "p2", model: "p2-model", tier: "balanced" };
+        },
+      }),
+    );
+
+    const err = await promise.catch((error) => error);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(ProviderUnavailableError);
+    expect(err.message).toBe("400: context_length_exceeded");
+    expect(suggestCalls).toBe(0);
+  });
+
   test("exhausts the attempt budget → ProviderUnavailableError on the last candidate", async () => {
     const ctx = makeCtx();
     const host = makeHost();

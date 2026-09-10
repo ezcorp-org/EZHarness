@@ -59,13 +59,13 @@ describe("createListFilesTool", () => {
     const tool = createListFilesTool(projectPath);
     const result = await tool.execute("1", { path: "../.." });
     expect(getText(result)).toContain("Path traversal");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 
   test("returns an error for a nonexistent directory", async () => {
     const tool = createListFilesTool(projectPath);
     const result = await tool.execute("1", { path: "nonexistent" });
     expect(getText(result)).toContain("Error:");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 });

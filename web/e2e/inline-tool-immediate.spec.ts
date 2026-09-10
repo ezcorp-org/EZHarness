@@ -1,5 +1,6 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { makeExtension, makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Inline Tool Immediate Execution", () => {
 	const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -10,6 +11,13 @@ test.describe("Inline Tool Immediate Execution", () => {
 		role: "user",
 		content: "Hello",
 	});
+	const taskStack = makeExtension({ name: "task-stack", description: "Task management", enabled: true });
+
+	async function readyComposer(page: Page) {
+		const textarea = page.locator("textarea");
+		await expect(textarea).toBeEnabled({ timeout: 10_000 });
+		return textarea;
+	}
 
 	test("submitting tool form immediately invokes the tool", async ({ page, mockApi }) => {
 		let toolInvokeBody: Record<string, unknown> | null = null;
@@ -18,6 +26,7 @@ test.describe("Inline Tool Immediate Execution", () => {
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg],
+			extensions: [taskStack],
 			routes: {
 				"tool-permission-mode": () => ({ mode: "yolo" }),
 				// Mock extension tools endpoint
@@ -42,30 +51,20 @@ test.describe("Inline Tool Immediate Execution", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await page.waitForSelector("textarea");
 
-		// Type @ext:task-stack to trigger the mention
-		const textarea = page.locator("textarea");
-		await textarea.fill("@ext:task-stack");
-
-		// Wait for mention popover and click the extension
-		// The chip should appear — click it to open tools
-		const chip = page.locator("[data-mention-chip]").first();
-		if (await chip.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await chip.click();
-		}
-
-		// If the tool form appears, submit it
-		const submitBtn = page.locator('button[type="submit"]');
-		if (await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await submitBtn.click();
-
-			// Wait for the tool-invoke request
-			await page.waitForTimeout(500);
-
-			// Verify tool-invoke was called immediately (not staged)
-			expect(toolInvokeBody).not.toBeNull();
-			expect((toolInvokeBody as any)?.toolName).toBe("list-tasks");
-			expect((toolInvokeBody as any)?.extensionName).toBe("task-stack");
-		}
+		// Type the extension-only sigil and select it through the native picker.
+		const textarea = await readyComposer(page);
+		await textarea.fill("!ext:task-stack");
+		const listbox = page.locator("#mention-listbox");
+		await expect(listbox.getByText("task-stack", { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		const chip = page.locator('span[role="button"]').filter({ hasText: "!task-stack" });
+		await expect(chip).toBeVisible();
+		await chip.click();
+		const submitBtn = page.locator('form button[type="submit"]');
+		await expect(submitBtn).toBeVisible();
+		await submitBtn.click();
+		await expect.poll(() => toolInvokeBody).not.toBeNull();
+		expect(toolInvokeBody).toMatchObject({ toolName: "list-tasks", extensionName: "task-stack" });
 	});
 
 	test("tool form closes after submission", async ({ page, mockApi }) => {
@@ -73,6 +72,7 @@ test.describe("Inline Tool Immediate Execution", () => {
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg],
+			extensions: [taskStack],
 			routes: {
 				"tool-permission-mode": () => ({ mode: "yolo" }),
 				"extensions/task-stack/tools": () => ({
@@ -90,44 +90,49 @@ test.describe("Inline Tool Immediate Execution", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await page.waitForSelector("textarea");
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("@ext:task-stack");
-
-		const chip = page.locator("[data-mention-chip]").first();
-		if (await chip.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await chip.click();
-		}
-
-		const submitBtn = page.locator('button[type="submit"]');
-		if (await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await submitBtn.click();
-			await page.waitForTimeout(300);
-
-			// Form should be closed after submission
-			await expect(submitBtn).not.toBeVisible();
-		}
+		const textarea = await readyComposer(page);
+		await textarea.fill("!ext:task-stack");
+		await expect(page.locator("#mention-listbox").getByText("task-stack", { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		const chip = page.locator('span[role="button"]').filter({ hasText: "!task-stack" });
+		await expect(chip).toBeVisible();
+		await chip.click();
+		const submitBtn = page.locator('form button[type="submit"]');
+		await expect(submitBtn).toBeVisible();
+		await submitBtn.click();
+		await expect(submitBtn).not.toBeVisible();
 	});
 
-	test("tool result renders in chat after immediate execution", async ({ page, mockApi, emitWs }) => {
+	test("tool result renders in chat after immediate execution", async ({ page, mockApi, emitSse }) => {
+		let invocationId = "";
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg],
+			extensions: [taskStack],
 			routes: {
 				"tool-permission-mode": () => ({ mode: "yolo" }),
+				"extensions/task-stack/tools": () => ({ tools: [{ name: "list-tasks", inputSchema: { type: "object", properties: {} } }] }),
 			},
 		});
 
 		await page.route("**/api/tool-invoke", async (route) => {
+			invocationId = route.request().postDataJSON().invocationId;
 			await route.fulfill({ json: { success: true, output: "[]", durationMs: 50 } });
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await page.waitForSelector("textarea");
 
-		// Simulate the complete flow via WS events
-		// First emit tool:complete for an inline tool with cardType
-		await emitWs({
+		const textarea = await readyComposer(page);
+		await textarea.fill("!ext:task-stack");
+		await expect(page.locator("#mention-listbox").getByText("task-stack", { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		await page.locator('span[role="button"]').filter({ hasText: "!task-stack" }).click();
+		await page.locator('form button[type="submit"]').click();
+		await expect.poll(() => invocationId).not.toBe("");
+
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -136,12 +141,12 @@ test.describe("Inline Tool Immediate Execution", () => {
 				input: {},
 				timestamp: Date.now(),
 				source: "inline",
-				invocationId: "direct-inv-1",
+				invocationId,
 				cardType: "task-list",
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -157,7 +162,7 @@ test.describe("Inline Tool Immediate Execution", () => {
 				duration: 50,
 				success: true,
 				source: "inline",
-				invocationId: "direct-inv-1",
+				invocationId,
 				cardType: "task-list",
 			},
 		});

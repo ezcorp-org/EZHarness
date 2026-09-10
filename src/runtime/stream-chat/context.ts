@@ -90,6 +90,12 @@ export interface StreamChatContext {
    * surfaced instead. Reset to false at the start of each failover attempt.
    */
   emittedToClient: boolean;
+  /**
+   * The original error carried by a terminal provider turn. pi-agent-core
+   * normally mirrors this on `agent.state.errorMessage`, but the event is the
+   * durable boundary shared by every supported Agent implementation.
+   */
+  providerErrorMessage: string | undefined;
   /** Latest persisted assistant-message id; used as parentMessageId for the next turn save. */
   lastSavedMessageId: string | null;
   /**
@@ -152,6 +158,7 @@ export function createStreamChatContext(
     turnThinking: "",
     turnHasToolCalls: false,
     emittedToClient: false,
+    providerErrorMessage: undefined,
     lastSavedMessageId: parentMessageId ?? null,
     turnParentMessageId: parentMessageId ?? null,
     totalUsage: {

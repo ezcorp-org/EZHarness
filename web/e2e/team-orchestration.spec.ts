@@ -1,6 +1,8 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeAgent, makeAgentConfig, makeMessage } from "./fixtures/data.js";
-import type { Page } from "@playwright/test";
+import { modelCatalogRoutes } from "./fixtures/model-routes.js";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
+import type { Locator, Page } from "@playwright/test";
 
 const proj = makeProject({ id: "proj-1", name: "Team Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
@@ -18,15 +20,17 @@ const teamConfig = makeAgentConfig({
 	references: { agents: ["Code Assistant", "Summarizer"], extensions: [] },
 });
 
-const modelsRoute = {
-	"/api/models": () => [
-		{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true },
-	],
-};
+const modelsRoute = modelCatalogRoutes([
+	{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true, tier: "balanced", costTier: "medium" },
+]);
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-async function setupAndFocus(page: Page, mockApi: any, overrides: Record<string, any> = {}) {
+async function setupAndFocus(
+	page: Page,
+	mockApi: (overrides?: MockOverrides) => Promise<void>,
+	overrides: MockOverrides = {},
+) {
 	await mockApi({
 		projects: [proj],
 		conversations: [conv],
@@ -39,29 +43,14 @@ async function setupAndFocus(page: Page, mockApi: any, overrides: Record<string,
 	await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
 	const textarea = page.locator("textarea");
-
-	// Retry firing open events until WS connection is established
-	await page.waitForFunction(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		if (listeners?.open) {
-			for (const fn of listeners.open) {
-				try { fn(new Event("open")); } catch {}
-			}
-		}
-		const ta = document.querySelector("textarea");
-		return ta && !ta.disabled;
-	}, { timeout: 5000 });
-
 	await expect(textarea).toBeEnabled({ timeout: 5000 });
-	await page.waitForTimeout(100);
 	await textarea.click();
 	return textarea;
 }
 
-async function typeIntoTextarea(page: Page, textarea: any, text: string) {
+async function typeIntoTextarea(textarea: Locator, text: string) {
 	await textarea.focus();
 	await textarea.pressSequentially(text, { delay: 50 });
-	await page.waitForTimeout(350);
 }
 
 async function waitForPopover(page: Page) {
@@ -76,7 +65,7 @@ async function sendAndWaitForStream(page: Page, text: string) {
 		page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
 		page.getByRole("button", { name: "Send message" }).click(),
 	]);
-	await expect(page.getByText(text)).toBeVisible({ timeout: 5000 });
+	await expect(page.getByTestId("chat-messages-container").getByText(text)).toBeVisible({ timeout: 5000 });
 }
 
 // ── Team mention autocomplete ──────────────────────────────────────────
@@ -84,7 +73,7 @@ async function sendAndWaitForStream(page: Page, text: string) {
 test.describe("Team Orchestration", () => {
 	test("!team: prefix shows Teams heading and team name in popover", async ({ page, mockApi }) => {
 		const textarea = await setupAndFocus(page, mockApi);
-		await typeIntoTextarea(page, textarea, "!team:");
+		await typeIntoTextarea(textarea, "!team:");
 
 		await waitForPopover(page);
 
@@ -97,7 +86,7 @@ test.describe("Team Orchestration", () => {
 
 	test("selecting team from popover inserts ![team:TeamName] token", async ({ page, mockApi }) => {
 		const textarea = await setupAndFocus(page, mockApi);
-		await typeIntoTextarea(page, textarea, "!team:");
+		await typeIntoTextarea(textarea, "!team:");
 
 		await waitForPopover(page);
 		await expect(page.locator("#mention-listbox").getByText("Engineering Team")).toBeVisible({ timeout: 3000 });
@@ -107,13 +96,13 @@ test.describe("Team Orchestration", () => {
 		// Popover should close
 		await expect(page.locator("#mention-listbox")).not.toBeVisible();
 
-		// Textarea should contain the team mention token
-		await expect(textarea).toHaveValue(/!\[team:Engineering Team\] /);
+		// The native picker projects a readable team mention into the composer.
+		await expect(textarea).toHaveValue(/!Engineering Team\s+/);
 	});
 
 	// ── Inline agent chips in chat messages ──────────────────────────────
 
-	test("inline agent chips show in streaming message with completion counter", async ({ page, mockApi, emitWs }) => {
+	test("inline agent chips show in streaming message with completion counter", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -128,7 +117,7 @@ test.describe("Team Orchestration", () => {
 		await sendAndWaitForStream(page, "Use the team");
 
 		// Spawn two agents
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -139,7 +128,7 @@ test.describe("Team Orchestration", () => {
 				agentRunId: "agent-run-1",
 			},
 		});
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -163,7 +152,7 @@ test.describe("Team Orchestration", () => {
 		await expect(page.getByText("0/2 complete")).toBeVisible({ timeout: 3000 });
 
 		// Complete one agent
-		await emitWs({
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-stream",
@@ -180,7 +169,7 @@ test.describe("Team Orchestration", () => {
 		await expect(page.getByTestId("sticky-agent-bar")).not.toBeVisible();
 	});
 
-	test("completion counter only visible with 2+ agents", async ({ page, mockApi, emitWs }) => {
+	test("completion counter only visible with 2+ agents", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -195,7 +184,7 @@ test.describe("Team Orchestration", () => {
 		await sendAndWaitForStream(page, "Use the team");
 
 		// Spawn single agent — counter should NOT appear
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -212,7 +201,7 @@ test.describe("Team Orchestration", () => {
 		await expect(page.getByText(/\d+\/\d+ complete/)).not.toBeVisible();
 
 		// Spawn second agent — counter should appear
-		await emitWs({
+		await emitSse({
 			type: "agent:spawn",
 			data: {
 				runId: "run-stream",
@@ -263,9 +252,9 @@ test.describe("Team Orchestration", () => {
 		await expect(allChips).toHaveCount(3, { timeout: 5000 });
 
 		// Agent names visible in the conversation, inline with their messages
-		await expect(page.getByText("researcher")).toBeVisible();
-		await expect(page.getByText("coder")).toBeVisible();
-		await expect(page.getByText("reviewer")).toBeVisible();
+		await expect(allChips.filter({ hasText: "@researcher" })).toHaveCount(1);
+		await expect(allChips.filter({ hasText: "@coder" })).toHaveCount(1);
+		await expect(allChips.filter({ hasText: "@reviewer" })).toHaveCount(1);
 	});
 
 	// Note: the legacy "human input card" e2e test was removed when the
@@ -609,24 +598,38 @@ test.describe("agent search picker", () => {
 		await expect(lb).not.toBeVisible({ timeout: 3000 });
 	});
 
-	test("mouse click selects agent", async ({ page, mockApi }) => {
-		await openTeamBuilder(page, mockApi);
+	for (const { viewportHeight, placement } of [
+		{ viewportHeight: 720, placement: "above" },
+		{ viewportHeight: 1600, placement: "below" },
+	] as const) {
+		test(`mouse click selects agent when the picker opens ${placement}`, async ({ page, mockApi }) => {
+			await page.setViewportSize({ width: 1280, height: viewportHeight });
+			await openTeamBuilder(page, mockApi);
 
-		const input = searchInput(page);
-		await input.click();
+			const input = searchInput(page);
+			await input.click();
 
-		const lb = listbox(page);
-		await expect(lb).toBeVisible({ timeout: 3000 });
+			const lb = listbox(page);
+			const picker = page.locator("[data-agent-picker-popover]");
+			await expect(lb).toBeVisible({ timeout: 3000 });
+			await expect(picker).toBeInViewport();
+			const [inputBox, pickerBox] = await Promise.all([input.boundingBox(), picker.boundingBox()]);
+			if (!inputBox || !pickerBox) throw new Error("agent picker has no visible bounds");
+			if (placement === "above") {
+				expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(inputBox.y - 2);
+			} else {
+				expect(pickerBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height + 2);
+			}
 
-		// Click directly on the "Fixer" agent item (uses onmousedown)
-		await lb.locator('button', { hasText: "Fixer" }).click({ force: true });
+			// Click directly on the "Fixer" agent item (uses onmousedown).
+			const fixer = lb.locator('button', { hasText: "Fixer" });
+			await expect(fixer).toBeInViewport();
+			await fixer.click();
 
-		// Dropdown should close
-		await expect(lb).not.toBeVisible({ timeout: 3000 });
-
-		// Agent should appear in the team member list
-		await expect(page.locator(".font-medium", { hasText: "Fixer" })).toBeVisible({ timeout: 3000 });
-	});
+			await expect(lb).not.toBeVisible({ timeout: 3000 });
+			await expect(page.locator(".font-medium", { hasText: "Fixer" })).toBeVisible({ timeout: 3000 });
+		});
+	}
 });
 
 // ── Model search picker ──────────────────────────────────────────────
@@ -713,15 +716,14 @@ test.describe("model search picker", () => {
 		await expect(lb).toBeVisible({ timeout: 3000 });
 		await expect(lb.getByText("Claude Sonnet 4")).toBeVisible();
 
-		// ArrowDown to highlight, Enter to select
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("Enter");
+		await lb.getByRole("button", { name: /Claude Sonnet 4/ }).click();
 
 		// Dropdown should close
 		await expect(lb).not.toBeVisible({ timeout: 3000 });
 
-		// Input should show the selected model's display name
-		await expect(input).toHaveValue("Claude Sonnet 4");
+		// The selected value is a removable pill; the input remains ready to search.
+		const combobox = page.getByTestId("model-picker-combobox");
+		await expect(combobox.getByTestId("selected-pill")).toContainText("Claude Sonnet 4");
 	});
 
 	test("shows provider badge and cost tier", async ({ page, mockApi }) => {
@@ -733,10 +735,10 @@ test.describe("model search picker", () => {
 		const lb = modelListbox(page);
 		await expect(lb).toBeVisible({ timeout: 3000 });
 
-		// Provider badges: colored initial letters (A for Anthropic, O for OpenAI, G for Google)
-		const badges = lb.locator("span.rounded.text-white");
-		const badgeCount = await badges.count();
-		expect(badgeCount).toBe(4);
+		// Four provider icons expose their provider names as native title attributes.
+		await expect(lb.locator('[title="Anthropic"]')).toHaveCount(2);
+		await expect(lb.locator('[title="OpenAI"]')).toHaveCount(1);
+		await expect(lb.locator('[title="Google"]')).toHaveCount(1);
 
 		// Cost tier indicators should be visible
 		await expect(lb.getByText("$$", { exact: true }).first()).toBeVisible(); // medium costTier
@@ -767,7 +769,7 @@ test.describe("model search picker", () => {
 		// Each item should have role="option"
 		const options = lb.locator('[role="option"]');
 		const count = await options.count();
-		expect(count).toBe(4);
+		expect(count).toBe(5); // Current Chat Model plus the four selectable models.
 		for (let i = 0; i < count; i++) {
 			await expect(options.nth(i)).toHaveAttribute("role", "option");
 		}
@@ -857,16 +859,14 @@ test.describe("mode search picker", () => {
 		await expect(lb).toBeVisible({ timeout: 3000 });
 		await expect(lb.getByText("Full Auto")).toBeVisible();
 
-		// ArrowDown past "Inherited" to highlight "Full Auto", then Enter to select
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("Enter");
+		await lb.getByRole("button", { name: /Full Auto/ }).click();
 
 		// Dropdown should close
 		await expect(lb).not.toBeVisible({ timeout: 3000 });
 
-		// Input should show the selected mode name
-		await expect(input).toHaveValue(/Full Auto/);
+		// The selected value is a removable pill; the input remains ready to search.
+		const combobox = page.getByTestId("mode-picker-combobox");
+		await expect(combobox.getByTestId("selected-pill")).toContainText("Full Auto");
 	});
 
 	test("shows mode details on highlight", async ({ page, mockApi }) => {
@@ -886,7 +886,7 @@ test.describe("mode search picker", () => {
 		await expect(lb.getByText("Read-only")).toBeVisible({ timeout: 3000 });
 	});
 
-	test("inherited option clears selection", async ({ page, mockApi }) => {
+	test("clearing the selected mode restores the inherited setting", async ({ page, mockApi }) => {
 		await openTeamBuilderWithMember(page, mockApi);
 
 		const input = modeSearchInput(page);
@@ -897,24 +897,22 @@ test.describe("mode search picker", () => {
 
 		const lb = modeListbox(page);
 		await expect(lb).toBeVisible({ timeout: 3000 });
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("Enter");
+		await lb.getByRole("button", { name: /Full Auto/ }).click();
 		await expect(lb).not.toBeVisible({ timeout: 3000 });
 
-		// Input should show the selected mode
-		await expect(input).toHaveValue(/Full Auto/);
+		const combobox = page.getByTestId("mode-picker-combobox");
+		await expect(combobox.getByTestId("selected-pill")).toContainText("Full Auto");
 
-		// Reopen and select "Inherited (no override)"
-		await input.click();
-		const lb2 = modeListbox(page);
-		await expect(lb2).toBeVisible({ timeout: 3000 });
-		await page.keyboard.press("ArrowDown"); // highlight "Inherited (no override)"
-		await page.keyboard.press("Enter");
+		const selectedCombobox = page.getByTestId("mode-picker-combobox").filter({ hasText: "Full Auto" });
+		await expect(selectedCombobox).toHaveCount(1);
 
-		// Dropdown should close and input should be cleared
-		await expect(lb2).not.toBeVisible({ timeout: 3000 });
-		await expect(input).toHaveValue("");
+		// The selected pill is the current product's native control for
+		// returning to the inherited setting.
+		const selectedPill = selectedCombobox.getByTestId("selected-pill");
+		const removeMode = selectedPill.getByRole("button");
+		await expect(removeMode).toHaveAccessibleName(/Remove .*Full Auto/);
+		await removeMode.click();
+		await expect(combobox.getByTestId("selected-pill")).toHaveCount(0);
 	});
 });
 
@@ -992,7 +990,7 @@ test.describe("team edit page", () => {
 		await page.goto("/agents/Editor Agent");
 
 		// Regular agent buttons should be visible
-		await expect(page.getByRole("button", { name: "Chat with this agent" })).toBeVisible({ timeout: 5000 });
+		await expect(page.getByTestId("agent-chat-cta")).toHaveText("Chat", { timeout: 5000 });
 		await expect(page.getByRole("heading", { name: "Run Agent" })).toBeVisible();
 
 		// Team edit heading should NOT be present
@@ -1159,7 +1157,7 @@ test.describe("tool search picker", () => {
 	}
 
 	function toolSearchInput(page: Page) {
-		return page.locator('input[role="combobox"][aria-controls="tool-picker-listbox"]');
+		return page.getByRole("combobox", { name: /Allowed Tools \(leave empty to allow all\)/ });
 	}
 
 	function toolListbox(page: Page) {
@@ -1170,8 +1168,6 @@ test.describe("tool search picker", () => {
 		await openTeamBuilderWithMember(page, mockApi);
 
 		const input = toolSearchInput(page);
-		// Scroll far enough that the dropdown fits in the viewport
-		await input.evaluate((el) => el.scrollIntoView({ block: "center" }));
 		await input.click();
 
 		const lb = toolListbox(page);
@@ -1190,7 +1186,6 @@ test.describe("tool search picker", () => {
 		await openTeamBuilderWithMember(page, mockApi);
 
 		const input = toolSearchInput(page);
-		await input.evaluate((el) => el.scrollIntoView({ block: "center" }));
 		await input.click();
 		await input.pressSequentially("scan", { delay: 30 });
 
@@ -1205,7 +1200,6 @@ test.describe("tool search picker", () => {
 		await openTeamBuilderWithMember(page, mockApi);
 
 		const input = toolSearchInput(page);
-		await input.evaluate((el) => el.scrollIntoView({ block: "center" }));
 		await input.click();
 
 		const lb = toolListbox(page);
@@ -1241,7 +1235,6 @@ test.describe("tool search picker", () => {
 		await openTeamBuilderWithMember(page, mockApi);
 
 		const input = toolSearchInput(page);
-		await input.evaluate((el) => el.scrollIntoView({ block: "center" }));
 		await input.click();
 
 		const lb = toolListbox(page);
@@ -1251,14 +1244,15 @@ test.describe("tool search picker", () => {
 		await page.keyboard.press("ArrowDown");
 		await page.keyboard.press("Enter");
 
-		// Close dropdown by pressing Escape
-		await input.evaluate((el) => el.scrollIntoView({ block: "center" }));
-		await input.click();
+		// The multi-select remains open after choosing an option.
 		await page.keyboard.press("Escape");
 		await expect(lb).not.toBeVisible({ timeout: 3000 });
 
 		// Assert chip with tool name appears below the input
-		const chip = page.locator("span.rounded-full", { hasText: "analyzer.scan" });
+		const chip = page.getByTestId("tool-picker-combobox")
+			.filter({ hasText: "analyzer__scan" })
+			.getByTestId("selected-pill")
+			.filter({ hasText: "analyzer__scan" });
 		await expect(chip).toBeVisible({ timeout: 3000 });
 	});
 
@@ -1266,7 +1260,6 @@ test.describe("tool search picker", () => {
 		await openTeamBuilderWithMember(page, mockApi);
 
 		const input = toolSearchInput(page);
-		await input.evaluate((el) => el.scrollIntoView({ block: "center" }));
 		await input.click();
 
 		const lb = toolListbox(page);

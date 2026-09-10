@@ -291,7 +291,7 @@ export async function drainDelivery(
     if (await loopsKillSwitchEngaged()) return;
     const rows = await getDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, deliveryId));
     const row = rows[0];
-    if (!row || row.status !== "pending") return;
+    if (row?.status !== "pending") return;
     const reg = registry ?? (await import("./registry")).ExtensionRegistry.getInstance();
     const at = now();
     if (await claimDelivery(deliveryId, at)) {

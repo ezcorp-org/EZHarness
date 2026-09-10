@@ -94,13 +94,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   // cross-conversation `mid` simply isn't found (fail-closed target check).
   const allMessages = await convQueries.getMessages(conversationId);
   const target = allMessages.find((m) => m.id === messageId);
-  if (!target || target.role !== "assistant") {
+  if (target?.role !== "assistant") {
     return errorJson(400, "Target is not an assistant message of this conversation", { code: "target_not_found" });
   }
   const parentUser = target.parentMessageId
     ? allMessages.find((m) => m.id === target.parentMessageId)
     : undefined;
-  if (!parentUser || parentUser.role !== "user") {
+  if (parentUser?.role !== "user") {
     return errorJson(400, "Target assistant message has no user parent to retry from", { code: "no_user_parent" });
   }
 

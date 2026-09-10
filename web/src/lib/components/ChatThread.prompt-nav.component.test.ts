@@ -55,6 +55,7 @@ const { sendMessageMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	sendMessage: sendMessageMock,
 	updateConversation: vi.fn(async () => ({ id: "conv-1" })),
 	createSubConversation: vi.fn(async () => ({ id: "sub-1", agentConfigId: "" })),

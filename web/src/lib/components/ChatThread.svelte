@@ -38,6 +38,7 @@
 	import {
 		fetchAllMessages,
 		fetchConversationTree,
+		fetchSettings,
 		updateConversation,
 		patchMessageContent,
 		setMessageExcluded,
@@ -81,6 +82,8 @@
 	} from "$lib/model-selector-logic.js";
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
 	import { shouldShowPill } from "$lib/ez/pill-visibility";
+	import { appendCapabilityAnnotations } from "$lib/chat/capability-annotations.js";
+	import { extensionListFromResponse } from "$lib/extensions/list-response.js";
 	import { parseCapabilityEventContent } from "$lib/components/CapabilityEventPill.svelte";
 	import { getHistoricalToolCalls as mapHistoricalToolCalls } from "$lib/chat/historical-tool-calls.js";
 	import {
@@ -224,6 +227,8 @@
 		onmodechange?: (mode: Mode | null) => void;
 		onmodecreate?: () => void;
 		onagentclick?: (agent: AgentCallState) => void;
+		/** Surface hydrated sub-conversations to route-owned deep-link panels. */
+		onsubconversationschange?: (subConversations: SubConvoRecord[]) => void;
 		onopenobservability?: () => void;
 		convListRefresh?: () => void;
 		/** Header slot — page passes its <ChatHeader>; panel passes its
@@ -329,6 +334,7 @@
 		onmodechange,
 		onmodecreate,
 		onagentclick,
+		onsubconversationschange,
 		onopenobservability,
 		convListRefresh,
 		header,
@@ -399,14 +405,14 @@
 	// null → empty path). The page/panel never pass it and use the
 	// normal async load. `__seeded` also gates the async loader so the
 	// seed isn't clobbered by a `computeLatestLeaf` overwrite.
-	const __seeded = seedMessages !== undefined;
-	// svelte-ignore state_referenced_locally
+	// `seedMessages` chooses construction-only test mode. Later prop changes
+	// must not replace a user-edited message tree.
+	const __seeded = untrack(() => seedMessages !== undefined);
 	let allMessages = $state<Message[]>(
-		seedMessages ? [...seedMessages] : [],
+		untrack(() => (seedMessages ? [...seedMessages] : [])),
 	);
-	// svelte-ignore state_referenced_locally
 	let activeLeafId = $state<string | null>(
-		__seeded ? (seedLeafId ?? null) : null,
+		untrack(() => (__seeded ? (seedLeafId ?? null) : null)),
 	);
 	let editingMessageId = $state<string | null>(null);
 	let editContent = $state("");
@@ -431,6 +437,11 @@
 	let extractingTopicId = $state<string | null>(null);
 	let contextTypes = $state<ContextType[]>([]);
 	let subConversations = $state<SubConvoRecord[]>([]);
+	// The route shell owns persisted `?agent=` panel state. Keep its resolver
+	// fed from the same hydrated list that renders the thread's agent cards.
+	$effect(() => {
+		onsubconversationschange?.(subConversations);
+	});
 	let localSystemMessages = $state<Message[]>([]);
 	let chatOAuthPending = $state<OAuthPending | null>(null);
 	let permissionModeOverride = $state<PermissionMode | undefined>(undefined);
@@ -561,9 +572,13 @@
 	let siblingMap = $derived(buildSiblingMap(allMessages));
 
 	// ── messages path walk — copied verbatim from +page.svelte ≈ L553 ─
-	let messages = $derived.by(() =>
-		activeLeafId ? pathToRoot(allMessages, activeLeafId) : [],
-	);
+	let messages = $derived.by(() => {
+		const branch = activeLeafId ? pathToRoot(allMessages, activeLeafId) : [];
+		// Capability events are root-level audit annotations, so they must not
+		// participate in leaf selection. Keep the selected branch's native order
+		// and append each unseen annotation once for transcript rendering.
+		return appendCapabilityAnnotations(branch, allMessages);
+	});
 
 	// Memory-card dedup + empty-turn filter (verbatim from page).
 	let memoryCardVisibleMessageIds = $derived.by(() => {
@@ -592,6 +607,37 @@
 	let extensionsByName = $state<Map<string, { isBundled: boolean }>>(
 		new Map(),
 	);
+
+	// Capability rows are an audit stream, but installed extensions stay
+	// hidden until the user opts in. Load both inputs once per thread mount;
+	// failed reads retain the conservative empty/default state.
+	onMount(() => {
+		let mounted = true;
+		void fetchSettings()
+			.then((settings) => {
+				if (mounted) pillSettings = settings;
+			})
+			.catch(() => {});
+		void userFetch("/api/extensions")
+			.then(async (res) => {
+				if (!res.ok) return [];
+				return extensionListFromResponse(await res.json());
+			})
+			.then((extensions) => {
+				if (!mounted) return;
+				const next = new Map<string, { isBundled: boolean }>();
+				for (const extension of extensions) {
+					if (!extension || typeof extension !== "object") continue;
+					const { name, isBundled } = extension as { name?: unknown; isBundled?: unknown };
+					if (typeof name === "string") next.set(name, { isBundled: isBundled === true });
+				}
+				extensionsByName = next;
+			})
+			.catch(() => {});
+		return () => {
+			mounted = false;
+		};
+	});
 
 	let renderableMessages = $derived.by(() => {
 		const filtered = filterEmptyAssistantTurns(messages, {
@@ -2392,15 +2438,32 @@
 		"project.name":
 			store.projects.find((p) => p.id === projectId)?.name ?? "",
 	});
+
+	function stageThreadDrop(event: DragEvent) {
+		// The composer stops propagation for its own drop zone. This branch owns
+		// a drop anywhere else in the visible thread and forwards the same files
+		// to ChatInput's single validation/staging implementation.
+		if (!event.dataTransfer?.files.length) return;
+		event.preventDefault();
+		chatInput?.stageFiles(event.dataTransfer.files);
+	}
+
+	function allowThreadDrop(event: DragEvent) {
+		if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+	}
 	void page;
 </script>
 
 <svelte:window onkeydown={handlePromptNavKey} />
 
 <div
-	class="flex flex-1 flex-col min-w-0"
+	class="flex flex-1 min-h-0 flex-col min-w-0"
 	data-testid="chat-thread"
 	data-variant={variant}
+	role="region"
+	aria-label="Conversation file drop zone"
+	ondrop={stageThreadDrop}
+	ondragover={allowThreadDrop}
 >
 	{#if header}
 		{@render header(chromeState)}
@@ -2447,6 +2510,12 @@
 						Send a message to start the conversation
 					</p>
 				</div>
+			{/if}
+
+			{#if activeRunId && store.memoryUnavailableRunId === activeRunId}
+				<p role="status" data-testid="memory-unavailable-warning" class="mx-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-[var(--color-text-primary)]">
+					Memory is currently unavailable. This response may omit saved context.
+				</p>
 			{/if}
 
 			{#if error}
@@ -2858,6 +2927,7 @@
 	{:else}
 		<ChatInput
 			bind:this={chatInput}
+			disabled={!initialLoadDone}
 			onsubmit={handleSend}
 			onstop={handleStop}
 			streaming={isStreaming}

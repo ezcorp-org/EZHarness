@@ -224,6 +224,7 @@ const MODULE_PATHS = [
   "../../providers/file",
   "../../providers/local-model-check",
   "../../providers/model-capabilities",
+  "../../ui/prompt",
   "../../memory/injection",
   "../../memory/retrieval",
   "../../memory/embeddings",

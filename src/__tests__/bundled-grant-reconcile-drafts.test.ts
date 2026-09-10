@@ -1,5 +1,8 @@
 // Current immutable lifecycle regression coverage retained at the original suite path.
 import { expect, test } from "bun:test";
+import { MAX_FRAME_BYTES } from "@ezcorp/extension-contract/json";
+import aiKitManifest from "../../packages/@ezcorp/ai-kit/ezcorp.config";
+import { requestedReleaseGrants } from "../extensions/bundled-drift-reapprove";
 import { digestObject, actor, human, repository, harness, releaseFixture, approved } from "./helpers/durable-lifecycle-fixture";
 
 test("cross-user and cross-scope state is inaccessible including approval and fork", async () => {
@@ -45,10 +48,21 @@ test("concurrent activation admits only one live lease", async () => {
     expect(state.installation.generation).toBe(1);
   });
 
-test("capability review normalizes exact grants without granting them before activation", async () => {
-  const setup = await releaseFixture();
-  const requested = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: ["storage:write", "events:read", "storage:write"], expectedActiveReleaseId: null });
-  expect(requested.grants).toEqual(["events:read", "storage:write"]);
+test.each([
+  { name: "duplicate grants", grants: ["storage:write", "events:read", "storage:write"], expected: ["events:read", "storage:write"] },
+  { name: "bundled AI-kit host API permissions", grants: requestedReleaseGrants(aiKitManifest), expected: requestedReleaseGrants(aiKitManifest) },
+])("capability review preserves $name until human approval and activation", async ({ grants, expected }) => {
+  const fixture = harness();
+  const build = fixture.dependencies.runner.build;
+  fixture.dependencies.runner.build = async (request) => {
+    const result = await build(request);
+    if (result.state !== "succeeded" || !result.manifest || !result.evidence) throw new Error("fixture build must include a verified manifest");
+    const manifest = { ...result.manifest, permissions: aiKitManifest.permissions };
+    return { ...result, manifest, evidence: { ...result.evidence, discoveryDigest: digestObject(manifest) } };
+  };
+  const setup = await releaseFixture(fixture);
+  const requested = await setup.lifecycle.requestApproval(actor, { installationId: setup.installation.id, releaseId: setup.releaseId, grants: [...grants], expectedActiveReleaseId: null });
+  expect(requested.grants).toEqual([...expected]);
   expect(requested.status).toBe("pending");
   expect(requested.releaseId).toBe(setup.releaseId);
   expect((await setup.lifecycle.inspect(actor, setup.installation.id)).installation.grants).toEqual([]);
@@ -65,7 +79,8 @@ test("invalid capability lists cannot create pending review records", async () =
   await expect(request("storage:read")).rejects.toMatchObject({ code: "invalid_grants" });
   await expect(request([false])).rejects.toMatchObject({ code: "invalid_grants" });
   await expect(request([""])).rejects.toMatchObject({ code: "invalid_grants" });
-  await expect(request(["x".repeat(1001)])).rejects.toMatchObject({ code: "invalid_grants" });
+  await expect(request(["x".repeat(MAX_FRAME_BYTES)])).rejects.toMatchObject({ code: "invalid_grants" });
   await expect(request(Array(1001).fill("storage:read"))).rejects.toMatchObject({ code: "invalid_grants" });
+  await expect(request(["é".repeat(MAX_FRAME_BYTES / 4), "ø".repeat(MAX_FRAME_BYTES / 4)])).rejects.toMatchObject({ code: "invalid_grants" });
   expect((await setup.lifecycle.inspect(actor, setup.installation.id)).approvals).toEqual({});
 });

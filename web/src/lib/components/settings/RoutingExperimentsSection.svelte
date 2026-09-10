@@ -274,7 +274,7 @@
 				<li>Paste the recommended pair below and save.</li>
 				<li>
 					Watch <strong>Shadow Agreement</strong> in the
-					<a href="/admin/dashboard" class="text-[var(--color-accent)] hover:underline">
+					<a href="/admin/dashboard" class="text-[var(--color-accent)] underline underline-offset-2 hover:underline">
 						admin Routing panel
 					</a> as real traffic arrives.
 				</li>

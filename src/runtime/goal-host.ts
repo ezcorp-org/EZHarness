@@ -1393,6 +1393,12 @@ export class GoalHost {
         projectId: conv?.projectId,
         agentConfigId: conv?.agentConfigId ?? undefined,
         modeId: conv?.modeId ?? undefined,
+        // Reuse the actual model resolution of the completed turn. In
+        // particular, an agent config can select a provider/model which is
+        // not the conversation default; omitting these made goal continuations
+        // resolve a different provider (or fail when no default existed).
+        provider: data.run.provider,
+        model: data.run.model,
       });
       streamPromise.catch((err) => {
         log.error("goal-host: streamChat error", {

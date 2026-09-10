@@ -1,5 +1,8 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
+import type { Page } from "@playwright/test";
+
+const conversationList = (page: Page) => page.getByRole("navigation", { name: "Conversations" });
 
 test.describe("Conversation List", () => {
 	const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -24,7 +27,7 @@ test.describe("Conversation List", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat`);
 
-		await expect(page.getByText("Recent Chat")).toBeVisible();
+		await expect(conversationList(page).getByText("Recent Chat")).toBeVisible();
 		await expect(page.getByText("Older Chat")).toBeVisible();
 	});
 
@@ -36,7 +39,7 @@ test.describe("Conversation List", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat`);
 
-		await page.getByText("Recent Chat").click();
+		await conversationList(page).getByText("Recent Chat").click();
 		await expect(page).toHaveURL(/\/chat\/c-recent/);
 	});
 
@@ -68,7 +71,7 @@ test.describe("Conversation List", () => {
 		await page.getByPlaceholder("Search...").fill("Recent");
 
 		// Wait for debounced search
-		await expect(page.getByText("Recent Chat")).toBeVisible();
+		await expect(conversationList(page).getByText("Recent Chat")).toBeVisible();
 	});
 
 	test("rename: hover, click rename, type new title, Enter commits", async ({ page, mockApi }) => {
@@ -79,8 +82,8 @@ test.describe("Conversation List", () => {
 		await page.goto(`/project/${proj.id}/chat`);
 
 		// Hover over conversation to reveal actions
-		await page.getByText("Recent Chat").hover();
-		const renameBtn = page.getByTitle("Rename");
+		await conversationList(page).getByText("Recent Chat").hover();
+		const renameBtn = conversationList(page).getByTitle("Rename");
 		await renameBtn.click();
 
 		// Should show input with current title
@@ -91,7 +94,7 @@ test.describe("Conversation List", () => {
 		await renameInput.press("Enter");
 
 		// After rename, the new title should appear
-		await expect(page.getByText("Renamed Chat")).toBeVisible();
+		await expect(conversationList(page).getByText("Renamed Chat")).toBeVisible();
 	});
 
 	test("delete: hover, click delete, confirm dialog removes conversation", async ({ page, mockApi }) => {
@@ -102,8 +105,8 @@ test.describe("Conversation List", () => {
 		await page.goto(`/project/${proj.id}/chat`);
 
 		// Hover over conversation to reveal delete button
-		await page.getByText("Recent Chat").hover();
-		await page.getByTitle("Delete").first().click();
+		await conversationList(page).getByText("Recent Chat").hover();
+		await conversationList(page).getByTitle("Delete").first().click();
 
 		// Confirm dialog should appear
 		await expect(page.getByText("Delete conversation")).toBeVisible();
@@ -113,7 +116,7 @@ test.describe("Conversation List", () => {
 		await page.getByRole("button", { name: "Delete", exact: true }).last().click();
 
 		// After deletion, conversation should be gone from the list
-		await expect(page.getByText("Older Chat")).toBeVisible();
+		await expect(conversationList(page).getByText("Older Chat")).toBeVisible();
 	});
 
 	test("empty state shows 'No conversations yet'", async ({ page, mockApi }) => {
@@ -127,7 +130,7 @@ test.describe("Conversation List", () => {
 		// its own "No conversations yet" heading, and once the page is fully
 		// hydrated an unscoped match hits both (strict-mode violation).
 		await expect(
-			page.getByRole("navigation", { name: "Conversations" }).getByText("No conversations yet"),
+			conversationList(page).getByText("No conversations yet"),
 		).toBeVisible();
 	});
 
@@ -161,7 +164,7 @@ test.describe("Conversation List", () => {
 			await mockApi({ projects: [proj], conversations: [parent, forkA, forkB] });
 			await page.goto(`/project/${proj.id}/chat`);
 
-			const sidebar = page.locator("div.md\\:w-\\[280px\\]").first();
+			const sidebar = conversationList(page);
 			await expect(sidebar).toBeVisible();
 
 			// Chevron is rendered in its open state (default expanded).
@@ -190,7 +193,7 @@ test.describe("Conversation List", () => {
 			await mockApi({ projects: [proj], conversations: [parent, forkA, forkB] });
 			await page.goto(`/project/${proj.id}/chat`);
 
-			const sidebar = page.locator("div.md\\:w-\\[280px\\]").first();
+			const sidebar = conversationList(page);
 
 			// Click the chevron to collapse.
 			await sidebar.getByRole("button", { name: "Collapse forks" }).click();
@@ -216,7 +219,7 @@ test.describe("Conversation List", () => {
 			await mockApi({ projects: [proj], conversations: [forkA] });
 			await page.goto(`/project/${proj.id}/chat`);
 
-			const sidebar = page.locator("div.md\\:w-\\[280px\\]").first();
+			const sidebar = conversationList(page);
 			await expect(sidebar.getByText("try OAuth path")).toBeVisible();
 			// No chevron — orphan has no children to expand/collapse.
 			await expect(sidebar.getByRole("button", { name: /(Collapse|Expand) forks/ })).toHaveCount(0);
@@ -226,7 +229,7 @@ test.describe("Conversation List", () => {
 			await mockApi({ projects: [proj], conversations: [parent] });
 			await page.goto(`/project/${proj.id}/chat`);
 
-			const sidebar = page.locator("div.md\\:w-\\[280px\\]").first();
+			const sidebar = conversationList(page);
 			await expect(sidebar.getByText("Parent Chat")).toBeVisible();
 			await expect(sidebar.getByRole("button", { name: /(Collapse|Expand) forks/ })).toHaveCount(0);
 		});
@@ -263,7 +266,7 @@ test.describe("Conversation List", () => {
 		await page.goto(`/project/${proj.id}/chat`);
 
 		// Scope everything to the sidebar (the 280px-wide conversation list container)
-		const sidebar = page.locator("div.md\\:w-\\[280px\\]").first();
+		const sidebar = conversationList(page);
 		await expect(sidebar).toBeVisible();
 
 		// Initial page: newest (ITEM-0) is in the list; ITEM-50 is not yet loaded

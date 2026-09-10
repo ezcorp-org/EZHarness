@@ -1,4 +1,17 @@
 {
+  "web/e2e/streaming-toolbar.spec.ts": [
+    "web/src/lib/components/ShortcutHelp.svelte",
+    "web/src/lib/components/ChatInput.svelte"
+  ],
+  "web/e2e/tool-card-rendering.spec.ts": [
+    "web/src/lib/components/tool-cards/SearchResultsCard.svelte"
+  ],
+  "web/e2e/run-detail.spec.ts": [
+    "web/src/routes/(app)/runs/[id]/+page.svelte"
+  ],
+  "web/e2e/canvas-dock-mobile-swipe.spec.ts": [
+    "web/src/lib/components/tool-cards/DockHost.svelte"
+  ],
   "web/e2e/canvas-dock-open-close.spec.ts": [
     "web/src/lib/components/tool-cards/DesignCanvasCard.svelte",
     "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte"
@@ -479,5 +492,26 @@
     "web/src/lib/components/Tooltip.svelte",
     "web/src/lib/components/ConversationSettings.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
+  "web/e2e/chip-reorder.spec.ts": [
+    "web/src/lib/components/ExtensionSearchPicker.svelte",
+    "web/src/routes/(app)/agents/[name]/+page.svelte"
+  ],
+  "web/e2e/reliability.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/ChatMessage.svelte"
+  ],
+  "web/e2e/bottom-sheet-pickers.spec.ts": [
+    "web/src/lib/components/ExtensionAttachPicker.svelte"
+  ],
+  "web/e2e/accessibility.spec.ts": [
+    "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/mention-pill-history.spec.ts": [
+    "web/src/lib/components/MentionChip.svelte"
+  ],
+  "web/e2e/project.spec.ts": [
+    "web/src/routes/(app)/project/[id]/settings/+page.svelte",
+    "web/src/lib/components/settings/SaveIndicator.svelte"
   ]
 }

@@ -516,3 +516,359 @@ Final local review: the Terra review identified an enabled new-approval request 
 Hosted follow-up: visual evidence initially failed because the new screenshot spec lacked its author-page mapping; the mapping now passes the unchanged local gate and all 10 Playwright cases. Firefox initially failed on a Docker Hub Postgres-download HTTP 502, then passed on the next source run. The actual hosted coverage merge reproduces one uncovered catch line (author loader line 26), despite all 1265 file thresholds and the focused V8 checks passing. A producer-specific regression is in progress; no coverage threshold or rule changes are allowed.
 
 Coverage repair review: added one regression to the existing Bun installer/author-loader suite. It creates and reads a real workspace, removes its digest-named blob, then verifies retained history, empty source, and disabled approval. All 15 cases pass; the previously missed loader line now has 23 hits. Parent merges this source-matched result with all 18 downloaded CI LCOV files. The unchanged gates pass: 1265 file thresholds, no new source files, and all four changed source files.
+
+## Test infrastructure review — 2026-09-09
+
+## Expanded mock browser repairs — 2026-09-09
+
+- [ ] Reproduce and repair the inline tool, custom-card, and file-mention browser specs on a fresh mock app.
+- [ ] Reproduce and repair streaming toolbar and team orchestration browser specs without weakening their UI or transport assertions.
+- [ ] Verify actual mocked HTTP/SSE request contracts and meaningful completed UI state for every repaired flow.
+- [ ] Run the five owned specs with one worker on private port 4291; commit each independent green repair chunk.
+
+Plan review: preserve the existing mock transport fixtures and only change application behavior when the current contract proves a defect. Use the focused browser lock and a fresh build; do not force clicks, skip cases, relax timeouts, or add conditional success assertions.
+
+## Provider-error composer recovery and context compaction — 2026-09-09
+
+- [x] Reproduce the isolated real-auth mock-provider overflow in a browser and retain the captured provider request.
+- [x] Trace the terminal run state to find why the next send loses the seeded `ezcorp-mock` pin or remains disabled.
+- [x] Add a regression that proves the original provider error remains visible, the composer recovers, and a second mock turn succeeds with no external transport.
+- [x] Verify the production isolation flag remains opt-in and normal provider routing is unchanged when it is off.
+- [x] Run the focused backend, web, and real-auth browser checks; record exact results below.
+- [ ] Add direct bridge coverage for the terminal provider-error event; keep the isolation transport probe fail-closed.
+
+Plan review: use the existing real-auth browser and in-process mock HTTP endpoint. Do not add browser route stubs, force clicks, or synthetic event streams. Keep `PI_E2E_ISOLATE_PROVIDERS=1` as a test-only outbound boundary.
+
+Review: a terminal provider error could end an empty turn without populating `agent.state.errorMessage`; the bridge now retains its original error for failover classification. The real-auth run passes both context-compaction cases through the local HTTP provider, including a visible 400 and a successful second submitted message. Focused backend tests pass with isolation transport and test-surface-off routing assertions.
+
+Scope: EZHarness current origin/main, a1837d51181ae0b2d1093483166f7d50d1fbc134, in an isolated checkout. Keep existing checkout edits intact.
+
+- [x] Read project rules and lessons; inspect the test entry points and CI jobs.
+- [x] Check in with the review plan before implementation.
+- [x] Install locked root and web dependencies with the pinned Bun runtime.
+- [x] Verify test discovery, runner isolation, failure propagation, and CI coverage.
+- [x] Run backend, web Bun, Node Vitest, coverage, types, lint, and build checks.
+- [x] Run the mock browser gate, fresh setup, and real-auth browser tests; inspect UI evidence.
+- [x] Repair the two confirmed infrastructure gaps; verify each repair and record the unreproduced Postgres CI timeout.
+- [x] Record results, limits, and the final review.
+
+Plan review: compare local commands with CI, test failure handling as well as successful runs, and keep complete logs. Use private test databases and unused browser ports. Do not weaken checks.
+
+## Review
+
+Completed review. Fixed two omitted script test suites and the missing local dependency-boundary check in commit `a1b5a6835`. Backend: 24,875 passes, plus 10 restored script tests. Web Bun: 4,094 passes. Node Vitest: 7,146 passes. Browser lanes: 256 mock + 3 setup + 62 real-auth passes, with 13 configured mock skips. Full coverage passes all 1,265 thresholds (26,141 Bun tests and 4,717 Node tests). Types, lint, Svelte check, build, manifest, boundary, gate-integrity, and diff-coverage checks pass.
+
+Current main CI has 35 successful jobs, including production-image and Firefox/WebKit proofs. Its separate external-Postgres job still has an unexplained 5-second pool-one test timeout; 11 complete local Postgres runs and 20 focused runs passed without a retry or timeout change. The report records 226 unwired browser specs and existing warning/type-check backlogs. Local test databases and the review Postgres container were cleaned up. The primary checkout is unchanged; no push or settings change occurred. Full local report and logs: `tasks/testing-infrastructure-review-2026-09-09.md`.
+
+## Close coverage gaps with Terra team — 2026-09-09
+
+- [x] Write ownership contracts and acceptance gates before delegation.
+- [ ] Close browser coverage and CI discovery gaps.
+- [ ] Enforce excluded executable source coverage.
+- [ ] Remove all test type-check exclusions.
+- [x] Resolve and verify the real Postgres timeout.
+- [ ] Independently verify integration and measure performance.
+- [ ] Record final review and evidence.
+
+Plan review: four isolated Terra agents own disjoint work; the parent verifies and integrates. Heavy work uses one shared lock. No weakened gates or unverified completion.
+
+Integration review: all13 migration producers now have direct real-database tests and100% measured lines. Parent Postgres validation passes24default-pool cases andtwo one-connection runs; wrongpool config and required-CI dependency controls fail as intended. Parent Canvas repair passes15browser cases on a freshbuild, plus3 focused cases after sharedfixture cleanup. Typeleaf removes49exclusions and passes808changed backendtests; parent integration exposed two fixture/migration signature errors and one assertion-free legacy test, with repairs under verification. New fullbrowser and original-source coverage work remains active.
+
+- Parent visual review: opened final Canvas mobile before/after swipe and desktop dark captures from `tasks/testing-gaps/canvas-evidence-final-blob/`; controls fit, text is readable, and native swipe closes the dock. The final affected three-case browser run passed.
+
+- Parent integration review: 23 design/shared-form browser cases passed with fresh build (45.5s, two workers); committed 53e66faf0. Shared-form setup uses the supported !ext mention and removes fixed waits.
+- Parent coverage review rejected the initial mapping-point converter. The integrated replacement uses the Vitest AST converter; eight independent controls pass (550ms). Corrected an agent-worktree absolute path in the guard test (0a142a15d).
+- Parent actual CI aggregator/discovery checks: 41 pass, 163 assertions (4.96s). Required E2E check name preserved; Postgres remains required by Backend tests.
+- Expanded browser baseline correction: the first complete log showed 201 failures but did not support the inferred 1,253 pass count. The later complete snapshot reports 1,194 pass, 147 fail, 113 skip of 1,454 in 18.2 minutes. Team repairs remain in progress; this is not complete coverage.
+- Parent native chip diagnostics: startup splash intercepted early raw gestures. After native hit-target readiness, original component still corrupts the selected list with the drag placeholder. Full item-state fix and regression test pending final five-case real-auth receipt.
+- Full integrated typecheck exposed new errors in coverage imports/types, CDP fixture, and shared UI fixture. Owners are fixing those without adding type exclusions.
+- Real-auth negative provider test escaped to a real Kilo fallback. Types owner is adding central test-mode provider isolation and adversarial guards; do not run external provider failure paths until isolated.
+- Parent chip closure: five real-auth cases passed in51.6s, including native mouse/touch, keyboard, Escape, and zero axe violations. Save response, database read, and reload preserve exact order. Four PNGs are in `tasks/testing-gaps/chip-evidence-blob/`; parent viewed both mobile captures and confirmed the long-name header and controls no longer overlap.
+- Parent Worker check:11cases/60assertions pass with real portable pi-ai adapters and stubbed HTTP transport; backend typecheck passes after the catalog generic repair. Browser capture/coverage guards:58pass244assertions2.62s.
+- Scheduling refinement: full suites keep the heavy lock. One short private-port repair run may run beside a full two-worker browser suite under a separate focused lock; measuredhost32CPUs/about12GBavailable. Never build and sync the same worktree concurrently.
+
+- Parent final provider recovery: 31 backend checks/112 assertions pass in693ms. Two real-auth compaction cases pass in42.7s, including unchanged mock model on the second send after a visible provider400; no external transport. Direct bridge coverage and fail-closed fetch guard are integrated.
+- Parent coverage merge review:70checks/279assertions pass in3.81s. Explicit Node/V8 producer tags survive a two-stage merge; loss of tags fails the strict old/full source-hit comparator.
+- Parent Worker proof: actual workerd run passed against a private fake-key OpenAI HTTP server, including create/list/read/missing404. All11Worker tests/60assertions and backend types pass.
+- Parent browser repair52235966d:21run/project/keyboard checks plus3independent inline-tool checks pass in17.6s on the source-matched production build. Nine selector fixmes are restored. Missing-run404 and Back→projectchat faults were reproduced then fixed. Viewed missing-run PNG at tasks/testing-gaps/run-selector-verified-blob/missing-run-error.png.
+- Parent collector/discovery review:21checks/150assertions pass in3.14s. Browser agent measured two-test V8 aggregation reducing3,337,601bytes to735,224bytes with one AST conversion inabout1second. Full-suite overhead remains to be measured.
+- Memory repair plan: match current projectIds/injectionEligible API fields, use shared memory mocks, restore native project-scope controls, replace fixed sleeps with exact request and visible-state checks, and verify all affected memory specs.
+
+- Parent memory closurea44018a26:44/44browser checks pass in29.1s across six specs. Scope GETs assert exactprojectId andselectedscope; status/category/search assert excludedrows. Existing injection togglechecks prove PATCH body and500rollback. No fixedwaits remain in thethree repairedspecs.
+- Parent goal-binding review:174unitchecks/399assertions pass in1.218s; actual goal evaluatorjourney remains underdiagnosis.
+
+- Parent browser verification: tool history 6/6 passed (6.1 s); streamed cards 13/13 passed (48.8 s), restoring 12 skipped cases. Fixed the real `3 filees` label and viewed its screenshot. Native tool anchoring 3/3 passed (7.0 s), including persisted order and fallback position.
+- Parent API coverage verification: 119 checks and 477 assertions passed (3.86 s). The API transport has 96.7% line coverage; wrong or blank producer tags cannot supply its coverage record.
+- Parent integration: file mentions, sub-conversations, and immediate tools passed 46/46 (54.9 s). Custom cards and rendering edge cases passed 10/10 (10.0 s). A mistyped custom-card filename in the first command was detected and tested in the second group.
+- Parent executor fallback check: 5 tests and 49 assertions passed (3.05 s). The served fallback model now remains bound to the run for goal continuation.
+- Parent CI review: duplicate selected Vitest work is removed. Coverage producer capacity is enforced, security runs after that pool, and Vitest has an explicit worker limit. Parent guard: 41/41 passed. Full coverage is running with three host workers; no full-suite result claimed yet.
+- Recovery UI baseline: 47 passed and 5 failed (1.0 min). Memory and orphaned-run fixtures used stale transport. The memory warning has no visible consumer in current UI; a native-send reproduction also fails. Restoring the warning and verifying recovery, duplicate suppression, and run scope.
+- Real-data plan: replace signup's conditional passes/skips with real invites, anonymous form submission, and session persistence; replace the hard-coded production-history IDs with a gated, owned PGlite seed. All 14 seed/reset database checks pass (41 assertions, 1.073 s); browser verification pending the shared build lock.
+
+- Parent real-data results: goals5, signup4 and saved-history5 pass against real auth/PGlite. A later18-case run passed16 and exposed2 new cookie checks: login redirects also retain returnTo; early API401 responses omit the expiry Set-Cookie. The latter is a product defect under repair. Seed/helper coverage:15tests56assertions, with30/30 new history-helper lines,17/17 picker-helper lines and107/107 seed-route lines.
+- Parent browser results:92/93passed in59.4s; the search parameter is consumed by the chat. After changing the test to check the actual highlighted message, that case passes4.2s. The changed PWA/error/reliability group also passes; warning screenshots exposed light-theme contrast, now under correction with light/dark axe checks.
+- Parent task-card verification:23cases pass, including9restored full actions. Request assertions now check exact input, conversation ownership and nonempty invocation id. Removed the last obsolete store-import type bridge and replaced shared-form fake WebSocket dispatch with the enabled native composer.
+- Parent context and mock-provider checks:context2tests pass2.46s with131/144lines(90.97%); separate Bun mock-LLM route/store43tests111assertions pass508ms. The initial Vitest filter did not collect these Bun files; their dedicated run confirms collection.
+
+- Parent final cookie repair: the native/API reproduction found no expiry Set-Cookie on early-hook401. The shared cookie helper now carries it onto direct responses. Real-auth5/5passes39.1s, including invalid-cookie page warning/returnTo, API rejection and logged-out token replay with both cookie names cleared. Cookie/picker13unitchecks pass918ms; the broader hooks/cookie/Kokoro group passed123/123 in5.76s before the added direct-response unit.
+- Parent memory/Kokoro closure:19/19browser checks pass14.7s. Memory warning uses theme text and light amber surface, hides the raw internal status, shows only for the active run, clears on recovery and does not duplicate. Both light/dark axe scans have zero violations. Parent viewed both final PNGs in tasks/testing-gaps/memory-kokoro-images/.
+- Parent extension closure:e4393f40a passes15/15browser checks16.1s, including actual authenticated rootless CLI build success, mutated feature-test rejection, unattended-approval refusal, effective-policy display/empty-state, modification gates, saved settings and exact reset default. Runner teardown has bounded waits and cancels its timers.
+- Parent integrated typecheck passes allfourlegs with zeroexclusions at e4393f40a. Lint exitstatus is0 but99warnings/9infos remain; assigned for cleanup. Full browser/coverage/gates are still pending.
+
+- Parent restoration review: 143/143 browser cases passed in 1.8 minutes; the two actual editor/palette files then passed 22/22 in 19.1 seconds. The first filter used nonexistent names for those two files; their later receipt verifies collection. Parent viewed all ten screenshots from the 143-case run.
+- Parent audit closure: 24/24 audit, moderation, and shared extension-review cases pass in 18.8 seconds. Native failed-request retry passes with the exact 200 response and new visible row (three audit cases, 3.8 seconds). Audit stats have zero scoped axe violations (one case, 3.1 seconds). Parent viewed global audit and expanded extension audit screenshots. These controlled loader tests prove client behavior; real role and audit persistence tests remain with the real-auth owner.
+- Parent integration 470deed46: restored session-history parent links, current workflow routes, safe lint cleanup, and browser receipt validation are integrated. Browser collection/merge/discovery guards pass 83 tests and 459 assertions in 7.28 seconds. The browser-only Node shim now has a separate direct contract with a required 100% floor and unique producer tag.
+- Latest complete browser diagnostic remains 1,586 passed, 34 failed, and 96 skipped of 1,716 in 13.6 minutes. It predates the current integrated repairs. It is not a final pass. All five browser coverage lanes must supply receipts from the same final mapped build before route floors and the final merge can pass.
+
+- Parent common checkpoint e79a7c97f passes all four typecheck legs with zero exclusions. Gate parser and receipt-verifier controls pass 202 tests/436 assertions in 829ms. Production File Organizer proof independently inspected: 13/13, 3.5 minutes, all command/cleanup exits zero; owned rootless image and 45-second SSE heartbeat proof retained. All three migration leaf gates now have reviewed evidence.
+- Picker baseline restores all nine real entry points and retains three mobile dismissal paths plus desktop use and safe-area/accessibility checks in 19 cases (47 old skipped starts reduced to 19 active starts). Baseline: 12 pass/7 fail in 1.3 minutes; one fixture selector is corrected and passes2/2 in5.0s. Native mobile focus/reopen and desktop model click defects are with the types owner. Root is fixing duplicate mobile extension-attach headings/close controls and the 1-tools label; 14 component cases pass1.04s after updating the old typo assertion. Final browser proof remains pending.
+- Lint checks 4,493 files with zero errors/warnings and eight informational hints in1.129s. Both large validation JSON receipts remain checked through exact-file32MiB limits; excluding them took0.694s but weakened lint and was rejected during review.
+
+- Parent native picker closure: all 19 Chromium cases pass, including real search and selection in all five search sheets. Shared-body regression found the input hidden behind the modal; the new shared input fixes it. The full affected group passes 46/46 in 38.8s. Parent viewed all five search screenshots and sidebar/dialog evidence. Firefox passes the same 19 cases; WebKit installation is pending (the required binary is absent).
+- Login coverage now uses the actual Svelte component instead of copied HTML. All 16 native login cases plus three shared-loader moderation cases pass in 9.0s, including exact normalized POST data, response-gated loading, and network retry. Light-theme visual review then found alert contrast failures; actual axe reports ratios 1.44 and 1.06. Dark mode passes. Theme repair is under final native verification.
+
+- Final integration c6673270c: all four type checks pass with zero exclusions. Lint checks 4,503 files with zero errors/warnings and eight informational hints in 1.06s. Gate integrity passes against the fixed base. CI lane controls pass 211 cases/608 assertions; required-job failure aggregation independently passes 32 cases/38 assertions. All 64 scripted routes now have exact floors (61 at 80%, three retained at 100%).
+- Parent picker/login visual closure: all 19 picker cases pass in Chromium, Firefox, and WebKit (WebKit 25.1s after installing its Nix runtime libraries). Native login and pending-gate group passes 19/19 in 11.2s; light/dark warning and error axe scans report zero violations. Parent viewed the final captures.
+- Parent local-command review found `ci-local.sh` did not collect the newly required browser receipt before full coverage, and repeated browser/V8 work. The first full collection was stopped after 25 passing cases to fix this before freezing final evidence. The initial shared-port attempt is retained separately; the owned private port is 4357. No complete suite pass is claimed yet.
+
+- Final shutdown review: permission-audit tail writes now drain before database close. Parent real PGlite/coalescer group passes 37 tests/515 assertions in 3.36s. The stronger awaited-write test covers both an open window and an already-started threshold flush; removing the await fails both controls, and the restored source passes both.
+- Parent local CI review verifies browser collection precedes full coverage, avoids the duplicate plain V8/build/browser runs, and retains browser raw data on any failed full run. Exact command-level success/failure paths are covered by the CLI harness. Provider-only isolation rejects before configuration reads; nine provider tests pass in454ms. The visual-evidence gate passes for24 changed visual surfaces and138 changed specs.
+
+### Final browser diagnostic follow-up (2fcc1fa4e)
+
+- [x] Preserve the all-five diagnostic: 2,124 passes, 17 failures; strict raw conversion rejected two unmapped routes.
+- [x] Review and integrate the verified reconnect, mobile, MCP, capability and provider-order repairs.
+- [x] Fix the stored-model load race with a controlled slow real HTTP response; require a failing baseline and passing fixed browser run.
+- [x] Isolate invite counters between serial real-auth cases while retaining the actual ten-attempt limit within each case.
+- [x] Restore the retired authoring journey through the current workspace, build, approval and activation flow.
+Final execution remains pending in [the task gates](testing-gaps/GATES.md). Those result files are outside source control so their completion records do not change the frozen revision being tested.
+
+- Parent follow-up evidence: real model-load failing baseline and repaired goals/compaction pass; adjacent invite cases prove independent ten-attempt budgets; current v4 dependency build/approval/activation passes. Mention color regression reproduced nine light-theme failures; fixed six history cases and all six light/dark checks across three engines pass.
+
+- Parent integrated route review: 63/63 browser cases pass in 1.1 minutes. Source identity now rejects dirty tracked/staged/untracked files while allowing ignored build artifacts; parent guard tests pass 8/8. All final suite and timing claims remain pending in the task gates.
+
+- Parent final preparation: coverage retains old-document counts before awaited browser navigation. Independent raw and source-map checks confirm the saved handlers execute; real native preview and proposal/reload journeys pass their unchanged 100% route floors. A shared typed wrapper avoids duplicate navigation logic. Final source checks also remove an unnecessary readonly assertion from the agent journey table. Task-only leaf gate files remain on disk with local ignore rules, so final receipts can be recorded without changing the tested revision.
+
+- Parent preflight caught the invite limiter test in the plain web pool but absent from the coverage producer. The actual file-set regression first failed, then passed after adding it to the shared host list. All15 selection checks and the three direct invite checks pass. The new route retains its exact100% floor. The6e0c browser diagnostic was stopped after256 mock-gate passes; its interrupted cases are cancellation artifacts. Final execution restarts from the corrected source and stays pending in the local gates.
+
+- Parent complete browser diagnostic at f8dd6b217: all64 route floors pass, but the actual runner exits1 with2,148 passes and15 failures. Fourteen failures came from a model-list mock that also intercepted capabilities and default-selection requests; the shared complete route fixture passes66 related cases in Chromium and Firefox. The remaining Canvas fixture blocked first-load readiness. Its repaired test permits native send, holds a stale history read across live completion, and asserts the dock survives before any authoritative third read; both Canvas cases pass. All five lanes, full backend producers, selected-V8 preservation, and static checks will now run from the next fixed revision. Final receipts remain in the ignored task gates.
+
+### Full-producer coverage closure
+
+- [x] Preserve the complete a746 diagnostic and classify all 91 failed source floors.
+- [x] Prove full V8 preserves the old selected producer: 559 source records retained.
+- [x] Repair native help Escape and deferred composer focus; verify all three engines.
+- [x] Reproduce nested Unix socket failure and preserve an active socket when duplicate startup fails.
+- [x] Assign one trusted producer per incompatible source map; retain strict missing-producer controls.
+- [x] Collect existing direct utility tests in the coverage producer without duplicate execution.
+- [x] Add direct behavior tests for uncovered components, stores, and error paths.
+- [ ] Run all five browser lanes, all backend producers, all source floors, and final static gates on one clean revision.
+- [ ] Recompute the live shard plan and complete all 23 task gates with actual receipts.
+
+Review: a746 had 2,162 browser passes and one failure; all 64 route floors passed. Full backend had 7,164 Vitest passes, two Unix runner failures, a browser-route ownership error, and 91 aggregate coverage misses. These are diagnostic receipts, not a completed green run. Terra agents own disjoint coverage and component clusters.
+
+Combined review: all 25 utility sources have direct Bun producers; panel persistence runs inside a real Svelte host. Direct component coverage closes the remaining source gaps, including FeatureIndex94.84%, TaskPanel90.86%, TeamChatPanel93.62%, and PanelChatInput100%. Independent review strengthened saved-result assertions and mock cleanup. The first combined preflight passed300/301 tests and exposed an entity-table readiness race; its corrected12-test suite passes. Invalid component and fetch fixtures are repaired. Final complete browser/backend coverage and all23 task gates remain pending until receipts from one clean revision pass.
+
+### Full f4 verification follow-up
+
+- [x] Preserve all-five browser success: 2,163 passes, zero failures or skips; all 64 route and 16 browser component floors pass.
+- [x] Preserve full backend diagnostic: 7,358 Node/V8 tests pass; all producers emit valid receipts; one source floor and one verifier fixture fail.
+- [x] Repair the verifier fixture and missing agent-state producer ownership; existing direct tests measure all 29 lines and execute once.
+- [x] Add measured coverage for the moderation loader and extension upload handler exposed by the actual patch gate.
+- [x] Repeat full coverage, selected-V8 preservation, coverage gates and static checks at clean dee94c744: all 21 stages passed.
+- [x] Inspect initial failures and final exit codes: all 1,586 host files passed initially at dee94c744; retain the earlier Bun cleanup diagnostic without claiming a cause.
+
+Review: f4 browser is green, but its backend run is not. A native Bun cleanup error passed the runner retry and 12 separate diagnostic repeats; no project cause is established. The final patch-gate preflight also rejects two changed server routes with no measured records. These remain open until their real producers and final gates pass.
+
+Final repair preflight: all 1,624 enforced source floors, 92 changed source files, and 10 new source files pass using retained diagnostic receipts plus the new direct producers. Moderation is 3/3 measured lines; uploads is 99/99. All four type sections pass with zero exclusions, Svelte has zero errors/warnings, lint has zero errors/warnings and eight infos, and integrity, visual, boundaries, manifest, and discovery pass. These diagnostics do not replace the next clean full run.
+
+- Final243 browser diagnostic: mock gate256passes and mock-full1420passes/1failure. The chat-list assertion used page-wide text that became ambiguous after auto-open rendered the same title. A deterministic real-browser control first fails; the scoped navigation/button selector passes all5chat cases twice and retains the visible opened-title check. The known-red full driver was stopped with actualexit143 after evidence was saved; no cancellation is counted as a test success. Final verification restarts from the next clean revision.
+
+### Submit and merge testing infrastructure PR
+
+- [x] Confirm the review branch is clean and still based on current origin/main.
+- [x] Check the final 21-stage receipts and 23 task gates against the exact source revision.
+- [x] Make the gate script readable by text-search tools without changing runtime behavior; byte-identical compiled output and all241 gate controls pass.
+- [x] Run required local validation and check the final diff, PR template, and repository merge rules.
+- [x] Push the branch and open PR #256 with scope, evidence, and remaining limits.
+- [ ] Fix any CI or review failures, verify required checks and approval, then squash-merge the verified PR head.
+- [ ] Verify the merge and record its result.
+
+Review: prior full validation passed at dee94c744. The merge base is unchanged at a1837d511. Main requires strict green checks, a non-author approval, and CODEOWNERS review. No approval or check will be bypassed.
+
+## PR256 browser build-transfer repair
+
+- [x] Reproduce hosted consumer failure from run 34486963513 and inspect its downloaded build artifact.
+- [x] Transfer the complete SvelteKit preview output in the shared browser artifact.
+- [x] Add a clean-checkout artifact restore and preview regression.
+- [x] Verify every five-lane consumer and the route merger validate the restored artifact.
+- [x] Run focused CI-contract and restored-preview checks; document results.
+
+### Review
+
+- Hosted artifact `10156093032` from run `34486963513` lacks `.svelte-kit/output/server` and fails the helper with exit 1. The current payload round-trip starts preview from the restored artifact and serves an immutable client entry plus rendered `/login` with pinned Bun 1.3.14.
+
+## PR256 hosted mouse chip reorder
+
+- [x] Inspect the saved CI trace and identify the failed drag state before Save.
+- [x] Split native drag activation from destination movement and wait for the actual drag ghost.
+- [x] Retain and rerun live-order, PUT, database, reload, touch, keyboard, and axe contracts.
+
+### Review
+
+- Hosted real-auth run `34486963513` failed only the mouse journey: the drag ghost appeared, but the rapid single movement crossed the destination before the visible `consider` order was established. The repaired native gesture passes the complete chip suite (5/5, 13.0s) and six consecutive mouse repetitions (6/6, 20.0s) on the existing mapped build.
+
+## PR256 hosted chat pagination
+
+- [x] Preserve the hosted mock-full failure artifact and identify the observer/click race.
+- [x] Cover manual Load-older when automatic observer callbacks do not fire.
+- [x] Cover normal automatic loading with a native wheel scroll.
+- [x] Verify the focused suite through the coverage-enabled mock configuration.
+
+### Review
+
+- Hosted mock-full run `34490303620` has two red Load-older cases: Playwright scrolling the off-screen button into the 200px observer margin expands the window before pointer delivery, so message `m-34` intercepts and the button detaches. The red control is retained in `tasks/pr-submit/second-mock-full-ci.log` and the downloaded trace/PNG artifact under `/tmp/ezh-pr256-mockfull-pagination/`. The repaired five-case suite passes via the existing adapter server in 4.2s and via the coverage-enabled CI configuration in 6.8s, with no retry or timeout change.
+
+## PR256 CI repair verification
+
+- [x] Gate parser: locked one-package install; isolated Git fixture verifies missing-parser rejection, asserted-test success, and vacuous-test rejection.
+- [x] Portable coverage: shared LCOV predicates run without rg; valid and invalid receipt controls exercise the production helper.
+- [x] Async picker tests: deferred HTTP responses reproduce both early assertions; all 5 component tests pass with V8 coverage.
+- [x] Cross-engine reuse: existing production adapter serves the already-built app; WebKit 19/19 and isolated Firefox 19/19 pass. Compression is not established as the cause of the earlier aborted responses.
+- [x] Independent Terra review found no remaining repair blocker; combined gate/coverage/lane controls passed 267 tests, 891 assertions. Later lane contract passed 19 tests, 241 assertions.
+- [ ] Run normal commit/push hooks and validate all hosted checks on the updated head before merge.
+
+Review: the strict plain suite at ea63de53b passed 25,630 tests in 1,629 files. PR #256 is open. First hosted run exposed missing parser setup, partial browser transfer, undeclared rg dependencies, two component timing faults, native drag timing, and WebKit asset transport failures. Repairs retain coverage limits, strict failures, and browser persistence assertions. Full hosted validation and the required non-author review remain pending.
+
+## PR256 second CI repair verification
+
+- [x] Add `.github` to canonical lint scope; both lint commands cover 4540 files and the existing runtime guard passes all four tests.
+- [x] Move all three deterministic CLI cases to the runner-ready real-auth lane; actual isolated build, own-test rejection, and unattended-approval rejection pass (46.3s).
+- [x] Keep manual and automatic pagination coverage separate; all five cases pass with browser coverage (6.8s).
+- [x] Isolate the diff parser and prove both coverage commands reject missing measurements and invalid base refs without installed dependencies.
+- [ ] Independently review, run normal hooks, push, and verify all hosted checks on the final revision.
+
+Review: second hosted run `34490303620` passed 101 real-auth cases, 7 fresh setup cases, both focused browser engines, and all web shards. It exposed lint scope drift and a broad mock run with 1416 passed, 4 failed, and 1 not run. The CI dependency guard correctly rejected incomplete coverage; no failed producer was treated as passing.
+
+Final second-repair preflight: independent Terra review is clear; combined gate, lane, LCOV, and lint controls pass 273 tests and 933 assertions (9.16s). Pinned Bun reached the old patch gate without installed TypeScript, so that import was not a reproduced CI blocker. The confirmed gate defect was invalid base refs passing as empty diffs. All coverage thresholds remain unchanged.
+
+## PR256 hosted mobile drawer backdrop
+
+- [x] Preserve and inspect the hosted failure screenshot and trace from run `34494839199`.
+- [x] Replace the forced centre click with a verified native click on exposed backdrop space.
+- [x] Repair the same centre-click path in the mobile theme sidebar test through one shared helper.
+- [x] Run both complete mobile suites and repeat both formerly affected cases under browser coverage.
+
+### Review
+
+- The hosted failure clicked the full-screen backdrop's centre with `force: true`. At 375px wide, that point is behind the left drawer panel, whose click handler correctly stops propagation. `clickExposedSwipeDrawerBackdrop` verifies the target through `elementFromPoint` and then uses a normal native Playwright click. The coverage-enabled mobile and theme suites pass 20/20 in 17.6s; both repaired cases pass six consecutive runs each (12/12 in 22.7s).
+
+## PR256 reliability and native UI repairs
+
+- [x] Audit raw hosted backend logs: identify docs-updater production-stdout use hidden by an isolated retry.
+- [x] Share a test-only dashboard recorder between docs-updater and SEO-watcher; retain registration/publish assertions. Both suites pass under coverage; twelve four-worker-wave docs runs are clean.
+- [x] Fix both drawer tests through one exposed, hit-tested backdrop helper; 20 focused cases and 12 repeated repaired cases pass.
+- [x] Keep the desktop agent picker in the viewport by measuring the menu and opening above when required. Real browser checks cover above at 720px and below at 1600px, both with native selection.
+- [x] Use normal tools/user-menu actions; put the active tools trigger above its backdrop and below modal dialogs. Hit-target and modal-priority assertions pass.
+- [x] Final mapped browser run: 59/59 pass, 29.6s; changed executable picker lines have Chromium LCOV hits. Node component tests remain a separate behavior check, since this source uses canonical browser coverage.
+- [x] Independent reliability and UI reviews found no remaining blocker.
+- [ ] Commit, run normal push hooks, and validate all hosted jobs and first-attempt logs on the next revision.
+- [ ] Obtain the required non-author approval and merge the verified head without bypassing protection.
+
+Review: run 34494839199 passed the full production image lifecycle, including historical upgrade and legacy adoption. Its broad mock lane failed two native-action cases and its backend retry hid two first-attempt fixture failures; that run is not a clean final validation. The new repairs preserve coverage floors, real integration actions, and native browser interactions.
+
+## PR256 shared picker viewport repair
+
+- [x] Preserve the fourth hosted failure and reproduce the native extension-option click at the viewport edge.
+- [x] Share viewport placement across all five desktop search pickers; native tick-only control passes 55/55 without the extra frame wait.
+- [x] Retain native selection and pill assertions; all 55 picker/team browser cases pass, including constrained filtering and reopening.
+- [x] Focused mapped browser checks pass (55 picker/team plus 23 mobile/preferences cases); parent reviewed the final repair after Terra reached its usage limit. Full type/lint/Svelte checks run in the normal push hook.
+- [x] Diagnostic merged coverage passes all 1,625 source floors, 11 new-source gates, and all changed executable lines. Final hosted validation remains tracked below.
+
+Review: fourth run `34500430524` passed all 12 backend shards on the first attempt (24,999 pass, zero retries), all web unit shards, both focused browser engines, real-auth, and visual evidence. The broad mock suite passed 1,419 cases and failed the native extension option click in `picker-pills.spec.ts:326`, because the option remained outside the viewport. The failed lane cannot certify the final coverage gate.
+
+## PR256 local AI-kit deployment validation
+
+- [x] Run the real self-contained MCP subprocess/OBO path: four cases pass with pinned Bun and owned temporary data.
+- [x] Run public doctor, internal-auth, and user OBO checks against an isolated real local server: seven cases pass.
+- [x] Add those public checks and the four real subprocess cases to the standard real-auth lane; both browser wrappers pass locally in 8.2s, including unconditional persisted-owner assertions and key revocation.
+- [x] Preserve first-boot and second-boot controls for missing bundled AI-kit installation; distinguish pending human approval from active releases.
+- [x] Retry bundled staging after first-admin creation; isolated setup returns 201 in 753ms, creates a pending workspace/build, and leaves activation disabled.
+- [x] Validate the local bundled endpoint after a real test-admin approval lifecycle: verified build, exact approved activation, and 3/3 endpoint cases pass at c1c02f8a6; model-stream completion remains outside this deployed-service contract.
+- [x] Parent-reviewed setup change: direct V8 covers all 31 lines, fresh setup passes 7/7, and the complete real-auth lane passes 106/106.
+
+Review: on an empty database, initial boot defers bundled source staging until an administrator exists. The local first-admin setup currently does not reschedule that work. A second boot stages the source but correctly holds activation for release approval. The optional bundled E2E test requires a prepared and approved local installation; its missing-extension failure does not justify automatic activation or weaker approval rules.
+
+## PR256 fifth repair verification
+
+- [x] Retain the fourth hosted raw coverage diagnostic: toast resume and message-route refusal now have direct tests; Node owns the message route's executable map.
+- [x] Reproduce AI-kit approval through the real local runner: its canonical host API grant exceeds the old 1,000-character limit.
+- [x] Test the actual bundled manifest through approval/activation; retain human review and exact grants, and reject oversized whole UTF-8 JSON payloads with the shared contract limit (7/7 lifecycle cases).
+- [x] Approved AI-kit endpoint flow passes 3/3; the permanent wrapper passes 7 public and 4 real subprocess package cases inside the 106-test real-auth run.
+- [x] Constrained list reproduction extends 43 pixels off-screen; reset natural sizing before each measurement. Native browser and component regressions pass.
+- [x] Review final changes and inspect fresh mapped hits; 163 focused Node tests pass in 7.91s. New model-picker keyboard contracts close the final measured gap; the diagnostic source/new-file/patch gates all pass.
+- [ ] Commit and push through normal hooks; require the complete hosted run and all coverage gates to pass.
+- [ ] Merge only after required non-author approval; do not bypass repository protection.
+
+Review: Terra agents reached their usage limit after saving their work. The parent continues the remaining review and verification locally. Fourth hosted production lifecycle passed all eight proofs; the fourth CI run still failed its broad mock producer and dependent gates. No failed or cancelled run counts as final validation.
+
+Fifth-repair review at c1c02f8a6: build passes; direct Node/V8 passes 161 tests in 14 files (7.30s), with helper 11/11, setup 31/31 and messages 170/170 measured lines. All 55 native picker/team cases pass (48.4s); 7 fresh setup and 106 real-auth cases pass (8.8m for real-auth), with no retries. The real approved AI-kit endpoint flow passes all 3 cases using pinned Bun and an isolated database. Twelve separate lifecycle coverage files pass 37 tests. Gate/lane/producer controls pass 135 tests and 799 assertions. Normal commit hooks pass. Only AI-kit changes in the regenerated first-party source lock. Final coverage diagnostic, normal push hooks, complete hosted CI and non-author approval remain required.
+
+Final local fifth-repair diagnostic: remove every shifted source map before combining fresh measurements with unchanged fourth-run source records. All 1,625 source floors pass; 11 new source files are gated; the patch gate covers 97 changed sources. Desktop and mobile picker verification passes 78 cases in two runs (55 + 23); all changed picker executable lines have real Chromium hits. The new model keyboard suite covers bounded ArrowUp/ArrowDown, Enter selection and Escape without selection. These local combined measurements are a diagnostic; final CI must regenerate every producer on the submitted revision.
+
+## PR256 sixth hosted repair
+
+- [x] Reproduce and fix the saved-search layout assertion race: control preference arrival and wait for both placement and list size after each render.
+- [x] Replay the exact failing Node shard: 194 files and 2,393 tests pass in 106.39s; the focused 163-test suite also passes.
+- [x] Scope lifecycle state and operation ID reads to their shared heading, since runner diagnostics also contain bold text and code.
+- [x] Run all three real WebKit lifecycle cases with the corrected selector: 3/3 pass in 4.3m.
+- [x] WebKit bottom-sheet suite passes 19/19 in 25.4s against the lifecycle build.
+- [ ] Commit and push through normal hooks.
+- [ ] Require all checks and coverage gates to pass on the submitted head, then merge after the required non-author approval.
+
+Review: fifth hosted run `34510858830` passed all 12 backend shards on the first attempt (25,000 tests, no retry/crash markers), real-auth, Firefox and visual evidence. It exposed two test defects: a component assertion read an intermediate render, and a lifecycle locator also matched a runner-busy diagnostic. No product behavior, timeout, retry count or coverage threshold changes in this repair. Local WebKit setup first failed because the Nix browser wrapper replaced the library path, then because Chromium-only coverage was enabled. A task-owned browser copy and the actual WebKit CI configuration resolved those invocation errors; they are not product failures.
+
+## PR256 direct assertion check
+
+- [x] Preserve the sixth hosted integrity rejection: the new local assertion helper was not followed by the AST check.
+- [x] Assert the loaded saved-search button is visible in the test body, while retaining both layout checks and the shared helper.
+- [x] Focused component suite passes 5/5 in 1.14s; gate integrity passes.
+- [ ] Push through normal hooks and require a complete green hosted run.
+
+Review: this adds a meaningful visibility assertion; it does not alter the integrity parser or use an override label.
+
+## PR256 standard setup coverage producer
+
+- [x] Preserve the seventh hosted patch-gate failure: setup staging line 79 has no positive hit in the actual submitted coverage.
+- [x] Identify the mismatch: focused diagnostics included the setup route, but the standard Node include manifest did not. Existing direct success and staging-failure tests already exercise it.
+- [x] Register setup in the canonical Node producer, require 100% of its measured lines, and add a registry-to-manifest completeness regression.
+- [x] Actual full Node launcher passes 582 files / 7,379 tests in 279.29s and retains 516 configured source records. The fresh setup source measures 31/31 lines.
+- [x] Merge standard Node output with unchanged seventh hosted producers and freshly measured configuration: all 1,625 source floors, 11 new sources and 97 changed sources pass. Gate controls pass 296 tests / 865 assertions; integrity passes.
+- [ ] Run normal integrity and push hooks, then validate a complete fresh hosted run before merge.
+
+Review: the seventh run passed 25,000 backend tests, 7,379 Node tests, 2,170 canonical browser tests, both browser engines, all 1,625 source floors and all 11 new-source checks. Its changed-line gate correctly rejected one unmeasured added line. The run is not green.
+
+## PR256 production startup boundary
+
+- [x] Preserve the eighth hosted failure: all coverage and browser gates pass; R1 exhausts 120 container probes before the owned build container exists, and R4 samples one active bootstrap container.
+- [x] Reuse verified bundled-bootstrap observation before R1 and R4. Run that observation in a child process so its HTTP pool cannot contaminate the R4 socket baseline. Preserve all zero-resource and recovery assertions.
+- [x] Pace R1's existing bounded polling loop at 250ms after the first observation.
+- [x] Build the exact submitted application image from the archived commit; Docker and Podman IDs both match `6679c82c36b1e0fc687de2d8c0d89c57136f6404604a5fb2d18eb5a96a07f5d3`.
+- [x] Add real subprocess controls for verified and failed startup. All 16 focused bootstrap/resource controls pass (57 assertions); lint and gate integrity pass.
+- [x] Replay R1 locally: all 28 bootstrap builds verify; the target container pauses on probe 2; real SIGKILL recovers one candidate after the six-minute lease; old release remains active until explicit approval. App logs and owned cleanup all exit 0.
+- [x] Replay all 10 R4 resource cycles and 100 SSE reconnects in 61.03s after verified startup. All 11 samples have zero runner containers; initial app TCP connections are zero. Memory, descriptor, SSE cleanup and owned cleanup checks pass. Both proof receipts pass `tasks/pr-submit/audit-ninth-production.py`.
+- [ ] Run relevant controls, integrity, normal hooks and complete fresh hosted CI before merge.
+
+Review: the production suite retained all eight proof results. File Organizer (13 cases), embeddings, delivery, revocation, historical upgrade and legacy adoption passed. Startup now correctly stages bundled sources after first-admin setup; the two failed verifiers began before that background work settled. The required proof job failed correctly.
+
+## PR256 database shutdown test ownership
+
+- [x] Preserve ninth hosted first-attempt failure: database shutdown Path A never signals READY within the test's 10s startup timer; an isolated plain rerun hides the failure in a passing shard.
+- [x] Reproduce the real child/database flow: four coverage workers on one CPU fail all eight signal cases at the unchanged 10s readiness limit. Two-CPU controls pass; raw logs and exact CPU sets are retained.
+- [x] Build one closed empty catalog and privately copy it for each signal path. Seed-only control passes all eight previously failing cases. Shared child handling drains both streams, uses the current Bun executable, bounds readiness and exit separately, and always kills/reaps the owned child. Production shutdown behavior and data-survival assertions are unchanged.
+- [x] Final suite passes 24/24 cases and 84 assertions on one CPU, then 24/24 and 84 assertions on two CPUs. New controls verify readiness timeout, post-signal timeout, early-exit diagnostics and 1 MiB stderr backpressure. Lint and integrity pass.
+- [ ] Run normal commit/push hooks and require fresh hosted checks without hidden first failures.
+
+Review: the current helper applies its only 10s guard before the signal, leaves post-signal exit unbounded, drains stderr only after exit, and does not kill/reap the child if readiness fails. The repair must address those lifecycle defects, not accept the existing retry as success.
+
+Performance review: the final four-worker, two-CPU run completes all six cases per worker in at most 15.98s, versus 18.59s for the original two-case suite in the same local setup. These are local single-run controls, not an overall CI speedup claim. The one-CPU red/green controls are retained under `tasks/pr-submit/tenth-shutdown-*`.

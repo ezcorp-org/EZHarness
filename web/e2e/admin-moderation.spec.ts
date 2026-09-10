@@ -1,23 +1,9 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { mockPageData, resumePage } from "./fixtures/page-data.js";
+import { LAST_PATH_KEY } from "../src/lib/resume-path.js";
 
-// /admin/moderation is the admin moderation dashboard. It is gated twice:
-//   1. +page.server.ts throws redirect(302, "/") when locals.user is missing
-//      or has a non-admin role.
-//   2. The client-side onMount also calls /api/auth/me and goto("/") if the
-//      user is not an admin.
-//
-// In the default e2e webServer (PI_SKIP_INIT=1, no DB) hooks.server.ts skips
-// auth, so locals.user is undefined and the server load redirects us to "/".
-// We can still verify two things from outside Docker mode:
-//   - the route either redirects (default) or renders (if a future test
-//     fixture grants admin), and
-//   - when the client-side checkAdmin() sees an admin user it loads the queue
-//     and renders the dashboard sections.
-//
-// To exercise the rendered dashboard we mock /api/auth/me with an admin user
-// and /api/marketplace/flags with sample data, then assert on the headings.
-// If the server-side gate redirects first, the test skips with a clear note.
-
+// Controlled page-loader responses exercise client role checks and queue UI.
+// Server role enforcement is tested in the real-auth lane.
 test.describe("Admin Moderation Dashboard", () => {
 	const adminMe = {
 		user: { id: "user-admin", email: "admin@test.local", name: "Admin", role: "admin" },
@@ -50,23 +36,14 @@ test.describe("Admin Moderation Dashboard", () => {
 
 	const emptyFlags = { flags: [] };
 
-	test("redirects non-admin (or unauthenticated) users away", async ({ page, mockApi }) => {
-		// Default mockApi with no /api/auth/me override returns {} -> data.user
-		// is undefined -> client-side checkAdmin() goto("/"). The server-side
-		// load may also redirect first.
-		await mockApi({});
-
-		const response = await page.goto("/admin/moderation");
-		const finalPath = response ? new URL(response.url()).pathname : "";
-
-		// Either the server-side load redirected (no longer on /admin/moderation)
-		// or the client-side onMount has not yet run; give it a moment to redirect.
-		if (finalPath === "/admin/moderation") {
-			await page.waitForURL((url) => !url.pathname.startsWith("/admin/moderation"), { timeout: 5000 });
-		}
-
-		await expect(page).not.toHaveURL(/\/admin\/moderation/);
-	});
+  test("a non-admin client leaves the dashboard without a resume loop", async ({ page, mockApi }) => {
+    await mockApi({ routes: { "/api/auth/me": () => ({ user: { ...adminMe.user, role: "member" } }) } });
+    await mockPageData(page, "/admin/moderation", {});
+    await page.addInitScript(key => localStorage.setItem(key, "/admin/moderation"), LAST_PATH_KEY);
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/project\/global\/chat$/);
+    await expect(page.getByRole("heading", { name: "Moderation Dashboard" })).toHaveCount(0);
+  });
 
 	test("renders the moderation dashboard for an admin user with flags", async ({ page, mockApi }) => {
 		await mockApi({
@@ -76,9 +53,8 @@ test.describe("Admin Moderation Dashboard", () => {
 			},
 		});
 
-		const response = await page.goto("/admin/moderation");
-		const finalPath = response ? new URL(response.url()).pathname : "";
-		test.skip(finalPath !== "/admin/moderation", "server-side admin gate redirected; cannot mock locals.user from client");
+		await mockPageData(page, "/admin/moderation", {});
+		await resumePage(page, "/admin/moderation");
 
 		await expect(page.getByRole("heading", { name: "Moderation Dashboard" })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Suspicious Listing")).toBeVisible();
@@ -87,6 +63,14 @@ test.describe("Admin Moderation Dashboard", () => {
 		// Action buttons should appear once per flag.
 		await expect(page.getByRole("button", { name: "Dismiss" })).toHaveCount(2);
 		await expect(page.getByRole("button", { name: "Remove Listing" })).toHaveCount(2);
+    await page.route("**/api/marketplace/listing-1/flags", route => route.fulfill({ json: { ok: true } }));
+    const [dismissed] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === "/api/marketplace/listing-1/flags" && response.request().method() === "PATCH"),
+      page.getByRole("button", { name: "Dismiss", exact: true }).first().click(),
+    ]);
+    expect(dismissed.request().postDataJSON()).toEqual({ flagId: "flag-1", action: "dismissed" });
+    await expect(page.getByText("Suspicious Listing", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Bad Actor Tool", { exact: true })).toBeVisible();
 	});
 
 	test("renders the empty state when there are no flags", async ({ page, mockApi }) => {
@@ -97,11 +81,38 @@ test.describe("Admin Moderation Dashboard", () => {
 			},
 		});
 
-		const response = await page.goto("/admin/moderation");
-		const finalPath = response ? new URL(response.url()).pathname : "";
-		test.skip(finalPath !== "/admin/moderation", "server-side admin gate redirected; cannot mock locals.user from client");
+		await mockPageData(page, "/admin/moderation", {});
+		await resumePage(page, "/admin/moderation");
 
 		await expect(page.getByRole("heading", { name: "Moderation Dashboard" })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("No pending flags. All clear!")).toBeVisible();
+	});
+
+	test("keeps failed moderation actions visible and reports their errors", async ({ page, mockApi }) => {
+		await mockApi({
+			routes: {
+				"/api/auth/me": () => adminMe,
+				"/api/marketplace/flags": () => sampleFlags,
+			},
+		});
+		await page.route("**/api/marketplace/listing-1/flags", (route) =>
+			route.fulfill({ status: 500, json: { error: "Unable to resolve flag" } }),
+		);
+		await page.route("**/api/marketplace/listing-1/delete", (route) =>
+			route.fulfill({ status: 500, json: { error: "Unable to delete listing" } }),
+		);
+
+		await mockPageData(page, "/admin/moderation", {});
+		await resumePage(page, "/admin/moderation");
+		await expect(page.getByText("Suspicious Listing")).toBeVisible();
+
+		await page.getByRole("button", { name: "Remove Listing", exact: true }).first().click();
+		await expect(page.getByText("Action failed")).toBeVisible();
+		await expect(page.getByText("Suspicious Listing")).toBeVisible();
+
+		page.once("dialog", (dialog) => dialog.accept());
+		await page.getByRole("button", { name: "Delete", exact: true }).first().click();
+		await expect(page.getByText("Delete failed")).toBeVisible();
+		await expect(page.getByText("Suspicious Listing")).toBeVisible();
 	});
 });

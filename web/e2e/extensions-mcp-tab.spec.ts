@@ -3,36 +3,28 @@
  *
  * - The /extensions page renders a third "MCP {count}" tab.
  * - Switching to it shows only kind:"mcp" cards.
- * - A successful MCP install surfaces a "Connected · N tools found"
- *   confirmation banner (read from the returned extension's tool count).
+ * - A successful MCP install stages a release review and routes to its owned
+ *   approval workspace. It does not claim the server is active before review.
  *
  * Mirrors the extensions-library-tabs harness: the page does an SSR load +
  * a client `loadExtensions()` on mount, both hitting the same /api/extensions
  * mock. The custom `routes` map intercepts /api/mcp-servers (POST) and
- * returns the freshly-installed extension.
+ * returns the server-owned review location.
  */
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject } from "./fixtures/data.js";
+import { makeExtension, makeProject, type ExtensionData } from "./fixtures/data.js";
 import { captureEvidence } from "./fixtures/evidence.js";
+import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 
-function makeExt(overrides: Record<string, unknown> = {}) {
-	return {
-		id: overrides.id ?? "ext-1",
-		name: overrides.name ?? "my-extension",
-		version: overrides.version ?? "1.0.0",
-		description: overrides.description ?? "A handy extension",
-		enabled: overrides.enabled !== undefined ? overrides.enabled : true,
-		source: overrides.source ?? "local",
-		consecutiveFailures: overrides.consecutiveFailures ?? 0,
-		isBundled: overrides.isBundled ?? false,
+function makeExt(overrides: Partial<ExtensionData> = {}): ExtensionData {
+	return makeExtension({
+		...overrides,
 		manifest: {
 			tools: [{ name: "analyze", description: "Analyze code" }],
 			permissions: {},
-			...(overrides.manifest as object ?? {}),
+			...overrides.manifest,
 		},
-		grantedPermissions: overrides.grantedPermissions ?? {},
-		...overrides,
-	};
+	});
 }
 
 const proj = makeProject({ id: "proj-1" });
@@ -78,46 +70,38 @@ test.describe("Extensions — MCP tab", () => {
 		await expect(page.getByText("No MCP servers connected")).toBeVisible();
 	});
 
-	test("successful MCP install shows the connected tool-count confirmation", async ({ page, mockApi }) => {
-		const installed = {
-			id: "mcp-new",
-			name: "db-mcp",
-			version: "1.0.0",
-			description: "DB tools",
-			enabled: true,
-			source: "mcp",
-			consecutiveFailures: 0,
-			isBundled: false,
-			manifest: {
-				kind: "mcp",
-				tools: [
-					{ name: "query", description: "Run a query" },
-					{ name: "schema", description: "Inspect schema" },
-					{ name: "migrate", description: "Run migration" },
-				],
-				permissions: {},
-				mcpServers: [{ transport: "stdio", name: "db", command: "npx", args: ["db-mcp"] }],
-			},
-			grantedPermissions: {},
-		};
+	test("successful MCP install stages the review workspace without claiming activation", async ({ page, mockApi }) => {
+		const reviewLocation = "/extensions/author?installation=db-mcp&workspace=draft";
 		await mockApi({
 			projects: [proj],
 			extensions: [],
-			routes: { "/api/mcp-servers": () => installed },
+			routes: { "/api/mcp-servers": () => ({ openUrl: reviewLocation }) },
 		});
+		const review = await setupAuthorReviewMock(page, { installationId: "db-mcp", workspaceId: "draft" });
 
-		await page.goto("/extensions");
-		// Switch the install form to MCP.
-		await page.getByRole("button", { name: "MCP Server" }).click();
-		await page.getByPlaceholder("Extension name (unique)").fill("db-mcp");
-		await page.getByPlaceholder("command (e.g. npx)").fill("npx");
-		await page.getByPlaceholder("args (space-separated)").fill("db-mcp");
-		await page.getByRole("button", { name: "Connect" }).click();
+		try {
+			await page.goto("/extensions");
+			await page.getByRole("button", { name: "MCP Server" }).click();
+			await page.getByPlaceholder("Extension name (unique)").fill("db-mcp");
+			await page.getByPlaceholder("command (e.g. npx)").fill("npx");
+			await page.getByPlaceholder("args (space-separated)").fill("db-mcp");
 
-		const banner = page.getByTestId("mcp-install-confirmation");
-		await expect(banner).toBeVisible();
-		await expect(page.getByTestId("mcp-install-tool-count")).toHaveText("3");
-		await expect(banner).toContainText("db-mcp");
+			const staged = page.waitForRequest((request) =>
+				request.url().endsWith("/api/mcp-servers") && request.method() === "POST",
+			);
+			await page.getByRole("button", { name: "Connect" }).click();
+			const payload = (await staged).postDataJSON();
+			expect(payload).toEqual({
+				name: "db-mcp",
+				description: "",
+				server: { transport: "stdio", name: "db-mcp", command: "npx", args: ["db-mcp"] },
+			});
+
+			await expect(page).toHaveURL(reviewLocation);
+			await review.expectReview();
+		} finally {
+			await review.close();
+		}
 	});
 
 	test("@evidence a maximum-length name truncates instead of wrecking the card layout", async ({

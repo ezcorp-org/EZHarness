@@ -14,7 +14,7 @@
 	 * state is the DRY proof: same 8 behaviours, served by the extracted
 	 * component instead of an inlined copy.
 	 */
-	import { tick } from "svelte";
+	import { tick, untrack } from "svelte";
 	import ChatThread, {
 		type ChatThreadChrome,
 	} from "./ChatThread.svelte";
@@ -55,8 +55,8 @@
 			) => void;
 		}
 	).__chatThreadSeed;
-	if (seedFn)
-		seedFn(initialMessages, { onInvalidate, onLoadMessages, onHydrate });
+	// The test hook consumes its fixture and spies at construction only.
+	untrack(() => seedFn?.(initialMessages, { onInvalidate, onLoadMessages, onHydrate }));
 
 	let thread: ChatThread | undefined = $state();
 	// Two-way live mirror bound from the real <ChatThread>. Synchronous:

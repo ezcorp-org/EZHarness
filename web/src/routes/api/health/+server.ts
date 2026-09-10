@@ -27,7 +27,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     // identification is separated from enforcement — so an admin lands here
     // with a principal while the cookieless probe stays anonymous and free.
     const user = locals.user as { role?: string } | undefined;
-    if (!user || user.role !== "admin") {
+    if (user?.role !== "admin") {
       return errorJson(401, "Admin access required");
     }
   }

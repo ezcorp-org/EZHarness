@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { inputClass } from "$lib/styles.js";
-	import { onMount } from "svelte";
+	import { onDestroy, onMount, tick } from "svelte";
 	import SelectedPill from "$lib/components/SelectedPill.svelte";
 	// Phase 57 UX-04 — drag-reorderable extension chip row.
 	// `use:dndzone` MUST attach to a native <div> (Pitfall 1 — Svelte
@@ -9,7 +9,10 @@
 	// from the parent.
 	import { dndzone } from "svelte-dnd-action";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
+	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
+	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
+	import { fixedSearchPickerLayout } from "$lib/search-picker-position.js";
 
 	interface ExtensionItem {
 		id: string;
@@ -27,28 +30,17 @@
 		onchange: (ids: string[]) => void;
 	} = $props();
 
-	// svelte-dnd-action requires `{ id: string, ...rest }` shape on each
-	// item (the `id` is the stable key it tracks DOM nodes by). `selected`
-	// is already a string[] of extension IDs — wrap each entry into the
-	// expected shape.
-	function chipItems(): Array<{ id: string }> {
-		return selected.map((id) => ({ id }));
-	}
+	// Keep the drag library's full item objects, including its temporary
+	// shadow marker. Only final orders belong in the saved extension IDs.
+	let chipItems = $derived(selected.map((id) => ({ id })));
 
-	// Drop event — persist the new order. svelte-dnd-action wires this as
-	// a `finalize` CustomEvent on the dndzone container; the existing
-	// `onchange` callback (already wired in AgentConfigForm.svelte:177)
-	// writes the array to `extensions` which the existing PATCH
-	// /api/agents/:name route serializes to agentConfigs.extensions JSONB.
-	function handleFinalize(e: CustomEvent<{ items: Array<{ id: string }> }>) {
-		onchange(e.detail.items.map((it) => it.id));
-	}
-
-	// In-flight drag event — emit the live reorder so parent's $state
-	// mirrors the drag visually (svelte-dnd-action requires the items
-	// reference to mutate during drag, otherwise the reorder snaps back).
 	function handleConsider(e: CustomEvent<{ items: Array<{ id: string }> }>) {
-		onchange(e.detail.items.map((it) => it.id));
+		chipItems = e.detail.items;
+	}
+
+	function handleFinalize(e: CustomEvent<{ items: Array<{ id: string }> }>) {
+		chipItems = e.detail.items;
+		onchange(chipItems.map((item) => item.id));
 	}
 
 	// Phase 57 UX-01 Wave 2: wrap picker body in BottomSheet on <lg.
@@ -56,10 +48,19 @@
 
 	let extensions = $state<ExtensionItem[]>([]);
 	let inputEl: HTMLInputElement | undefined = $state();
+	let dropdownEl: HTMLDivElement | undefined = $state();
 	let query = $state("");
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	let listStyle = $state("");
+	const dismissal = createSearchPickerDismissal({
+		getInput: () => inputEl,
+		isOpen: () => open,
+		dismiss: closeDropdown,
+	});
+
+	onDestroy(dismissal.destroy);
 
 	onMount(async () => {
 		try {
@@ -71,6 +72,7 @@
 				extensions = list.map((e: any) => ({ id: e.id, name: e.name ?? e.id, description: e.description }));
 			}
 		} catch { /* non-fatal */ }
+		if (open && !bp.below) await positionAfterRender();
 	});
 
 	let filtered = $derived(() => {
@@ -97,23 +99,47 @@
 
 	function computePosition() {
 		if (!inputEl) return;
-		const rect = inputEl.getBoundingClientRect();
-		dropdownStyle = `position:fixed;left:${rect.left}px;top:${rect.bottom + 2}px;width:${Math.max(rect.width, 320)}px;z-index:9999;`;
+		const layout = fixedSearchPickerLayout(
+			inputEl.getBoundingClientRect(),
+			dropdownEl?.getBoundingClientRect().height ?? 0,
+			window.innerHeight,
+			320,
+		);
+		dropdownStyle = layout.dropdownStyle;
+		listStyle = layout.listStyle;
 	}
 
-	function openDropdown() { open = true; highlightIdx = -1; computePosition(); }
-	function closeDropdown() { open = false; highlightIdx = -1; }
-	function onInput() {
-		query = inputEl?.value ?? "";
+	async function positionAfterRender() {
+		// Measure the natural list again after filtering or reopening.
+		listStyle = "";
+		await tick();
+		if (open && !bp.below) computePosition();
+	}
+
+	async function openDropdown() {
+		dismissal.cancelBlurDismissal();
+		open = true;
 		highlightIdx = -1;
-		if (!open) openDropdown(); else computePosition();
+		await positionAfterRender();
+	}
+	function closeDropdown() { open = false; highlightIdx = -1; }
+	async function onInput(event: Event) {
+		query = (event.currentTarget as HTMLInputElement).value;
+		highlightIdx = -1;
+		if (!open) await openDropdown();
+		else {
+			await positionAfterRender();
+		}
+	}
+	function onInputClick() {
+		if (!open) openDropdown();
 	}
 	function onFocus() { if (!open) openDropdown(); }
 	// Blur-close is a desktop-dropdown idiom only. Below lg the body is
 	// wrapped in a BottomSheet whose focus trap steals focus on mount —
 	// closing on that blur would dismiss the sheet ~150ms after it opens.
 	// The sheet owns its dismissal there (backdrop / close button / ESC).
-	function onBlur() { if (!bp.below) setTimeout(closeDropdown, 150); }
+	function onBlur() { if (!bp.below) dismissal.scheduleBlurDismissal(); }
 	function onKeydown(e: KeyboardEvent) {
 		const items = filtered();
 		if (!open || items.length === 0) return;
@@ -122,28 +148,9 @@
 		else if (e.key === "Enter" && highlightIdx >= 0) { e.preventDefault(); toggle(items[highlightIdx]!); }
 		else if (e.key === "Escape") { closeDropdown(); }
 	}
-	// Whether the current pointer gesture STARTED on the input. Opening the
-	// picker on focus mounts the BottomSheet mid-click (below lg), so the
-	// click's release lands on the sheet and the event retargets to a common
-	// ancestor — without this, the very tap that opens the sheet "clicks
-	// outside" and dismisses it instantly.
-	let pressBeganOnInput = false;
-	function onDocPointerDown(e: PointerEvent) {
-		pressBeganOnInput = !!inputEl?.contains(e.target as Node);
-	}
-	function onClickOutside(e: MouseEvent) {
-		if (!open) return;
-		if (pressBeganOnInput) return;
-		const t = e.target as Node | null;
-		if (!t || inputEl?.contains(t)) return;
-		// Inside the BottomSheet the sheet owns dismissal (backdrop / close
-		// button / ESC) — selection taps must not tear it down.
-		if (t instanceof Element && t.closest("[data-testid='bottom-sheet']")) return;
-		closeDropdown();
-	}
 </script>
 
-<svelte:document onpointerdown={onDocPointerDown} onclick={onClickOutside} />
+<svelte:document onpointerdown={dismissal.onDocumentPointerDown} onclick={dismissal.onDocumentClick} />
 
 <!-- Combobox chrome — pills wrap on their own row(s) above the input; the
      input keeps full chrome width on its own row below. -->
@@ -162,14 +169,14 @@
 		<div
 			data-testid="selected-extension-chips"
 			class="flex flex-wrap gap-1"
-			use:dndzone={{ items: chipItems(), flipDurationMs: 200, type: "ext-chips" }}
+			use:dndzone={{ items: chipItems, flipDurationMs: 200, type: "ext-chips" }}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}
 			role="list"
 			aria-roledescription="sortable"
 			aria-label="Reorderable extension list — Space to grab, arrows to move, Enter to drop, Escape to cancel"
 		>
-			{#each chipItems() as item (item.id)}
+			{#each chipItems as item (item.id)}
 				<SelectedPill
 					chipId={item.id}
 					label={nameFor(item.id)}
@@ -187,6 +194,7 @@
 			bind:this={inputEl}
 			value={query}
 			oninput={onInput}
+			onclick={onInputClick}
 			onfocus={onFocus}
 			onblur={onBlur}
 			onkeydown={onKeydown}
@@ -204,9 +212,21 @@
 </div>
 
 {#snippet pickerBody()}
+	{#if bp.below}
+		<MobilePickerSearch
+			value={query}
+			{placeholder}
+			ariaLabel="Search extensions"
+			controls="extension-picker-listbox"
+			activeDescendant={highlightIdx >= 0 ? `extension-picker-item-${highlightIdx}` : undefined}
+			oninput={onInput}
+			onkeydown={onKeydown}
+		/>
+	{/if}
 	{@const items = filtered()}
 	<ul
 		id="extension-picker-listbox"
+		style={listStyle}
 		class="max-h-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg"
 		role="listbox"
 		aria-label="Available extensions"
@@ -256,7 +276,7 @@
 		{@render pickerBody()}
 	</BottomSheet>
 {:else if open}
-	<div style={dropdownStyle}>
+	<div bind:this={dropdownEl} data-extension-picker-popover style={dropdownStyle}>
 		{@render pickerBody()}
 	</div>
 {/if}

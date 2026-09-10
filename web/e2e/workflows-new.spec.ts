@@ -11,6 +11,11 @@ import { makeAgent } from "./fixtures/data.js";
 // /api/workflows for the success and error cases, and exercise client-side
 // validation by submitting an empty name.
 
+async function openNewWorkflow(page: import("@playwright/test").Page) {
+	await page.goto("/workflows/new");
+	await expect(page).toHaveURL(/\/workflows\/new$/);
+}
+
 test.describe("New Workflow Page", () => {
 	test("renders the form with name, description, and a step row", async ({ page, mockApi }) => {
 		await mockApi({
@@ -18,9 +23,7 @@ test.describe("New Workflow Page", () => {
 			workflows: [],
 		});
 
-		const response = await page.goto("/workflows/new");
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+		await openNewWorkflow(page);
 
 		await expect(page.getByRole("heading", { name: "New Workflow" })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByLabel("Workflow Name")).toBeVisible();
@@ -38,9 +41,7 @@ test.describe("New Workflow Page", () => {
 			workflows: [],
 		});
 
-		const response = await page.goto("/workflows/new");
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+		await openNewWorkflow(page);
 
 		// Pick an agent so the step is otherwise valid; leave the workflow name blank.
 		await page.getByLabel("Agent").selectOption("summarizer");
@@ -68,9 +69,7 @@ test.describe("New Workflow Page", () => {
 			return route.fulfill({ json: [] });
 		});
 
-		const response = await page.goto("/workflows/new");
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+		await openNewWorkflow(page);
 
 		await page.getByLabel("Workflow Name").fill("demo");
 		await page.getByLabel("Description").fill("demo desc");
@@ -97,9 +96,7 @@ test.describe("New Workflow Page", () => {
 			return route.fulfill({ json: [] });
 		});
 
-		const response = await page.goto("/workflows/new");
-		const finalUrl = response ? new URL(response.url()).pathname : "";
-		test.skip(finalUrl !== "/workflows/new", "auth gate redirected away from /workflows/new in this environment");
+		await openNewWorkflow(page);
 
 		await page.getByLabel("Workflow Name").fill("demo");
 		await page.getByLabel("Agent").selectOption("summarizer");

@@ -1,6 +1,16 @@
 import { request as playwrightRequest, type APIRequestContext } from "@playwright/test";
 import { expect } from "./hydration.js";
 
+/** Explicitly override the real-auth project's configured admin state. */
+export const EMPTY_STORAGE_STATE = { cookies: [], origins: [] };
+
+/** Proves a member or anonymous boundary did not begin as the configured admin. */
+export async function assertNoAuthenticationCookies(context: {
+  storageState(): Promise<{ cookies: unknown[] }>;
+}): Promise<void> {
+  expect((await context.storageState()).cookies).toEqual([]);
+}
+
 export async function acceptMemberInvitation(administrator: APIRequestContext, member: APIRequestContext, name: string): Promise<void> {
   const email = `member-${crypto.randomUUID()}@example.test`;
   const invitation = await administrator.post("/api/auth/invite", { data: { email, role: "member" } });
@@ -14,8 +24,9 @@ export async function acceptMemberInvitation(administrator: APIRequestContext, m
 }
 
 export async function createMemberSession(administrator: APIRequestContext, baseURL: string, name: string): Promise<APIRequestContext> {
-  const member = await playwrightRequest.newContext({ baseURL });
+  const member = await playwrightRequest.newContext({ baseURL, storageState: EMPTY_STORAGE_STATE });
   try {
+    await assertNoAuthenticationCookies(member);
     await acceptMemberInvitation(administrator, member, name);
     return member;
   } catch (error) {

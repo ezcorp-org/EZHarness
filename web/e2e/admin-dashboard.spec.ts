@@ -62,7 +62,7 @@ test.describe("Admin Dashboard", () => {
 		await expect(page.getByText("Total Users")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Total Conversations")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("Total Messages")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Active Agents")).toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("main").getByText("Active Agents", { exact: true })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("10").first()).toBeVisible({ timeout: 5000 });
 	});
 
@@ -221,6 +221,6 @@ test.describe("Admin Dashboard", () => {
 
 		await page.goto("/admin/dashboard");
 
-		await expect(page).toHaveURL("/", { timeout: 5000 });
+		await expect(page).toHaveURL("/project/global/chat", { timeout: 5000 });
 	});
 });

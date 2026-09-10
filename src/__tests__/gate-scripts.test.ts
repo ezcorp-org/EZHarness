@@ -10,16 +10,20 @@
  * end-to-end verification in the plan, not here.
  */
 import { test, expect, describe } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   EXCLUDES,
+  BROWSER_V8_COVERAGE_PRODUCER,
+  canonicalCoverageProducer,
   escapeGlob,
   isExcluded,
+  isDeclarationOnlyTypeScript,
   isSourceFile,
   parseHitLines,
   parseLcov,
+  wildcardSourceFileDropouts,
   wildcardTreeDropouts,
   type FileCov,
 } from "../../scripts/coverage-config.ts";
@@ -44,10 +48,6 @@ import {
   uncoveredAddedLines,
 } from "../../scripts/check-patch-coverage.ts";
 import {
-  BACKEND_RATCHET_BASELINE,
-  BACKEND_RATCHET_CEILING,
-  E2E_RATCHET_BASELINE,
-  E2E_RATCHET_CEILING,
   ratchetViolation,
 } from "../../scripts/typecheck-tests.ts";
 import {
@@ -77,6 +77,189 @@ import {
   WORKER_FORBIDDEN_SUBSYSTEMS,
 } from "../../scripts/check-boundaries.ts";
 
+// ── gate-integrity: isolated parser dependency ─────────────────────────────
+describe("gate-integrity: isolated parser dependency", () => {
+  const repoRoot = join(import.meta.dir, "..", "..");
+
+  test("fails closed without TypeScript, then parses asserted and vacuous changed tests", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "gate-integrity-parser-"));
+    const fixture = join(fixtureRoot, "repo");
+    try {
+      mkdirSync(join(fixture, ".github/gate-integrity-deps"), { recursive: true });
+      mkdirSync(join(fixture, "scripts"), { recursive: true });
+      mkdirSync(join(fixture, "src/__tests__"), { recursive: true });
+      // Keep this independent of the caller's branches, remotes, depth and
+      // worktree state. Only the real gate, its real shared config and the
+      // locked parser setup are copied into the disposable repository.
+      for (const relative of [
+        "scripts/gate-integrity.ts",
+        "scripts/coverage-config.ts",
+        "scripts/unified-diff.ts",
+        ".github/gate-integrity-deps/package.json",
+        ".github/gate-integrity-deps/bun.lock",
+      ]) {
+        cpSync(join(repoRoot, relative), join(fixture, relative), { recursive: true });
+      }
+      writeFileSync(join(fixture, "biome.json"), '{ "linter": { "enabled": true } }\n');
+      const testPath = join(fixture, "src/__tests__/fixture.test.ts");
+      writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
+
+      const git = (...args: string[]) => {
+        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+        expect(proc.exitCode).toBe(0);
+      };
+      git("init", "--quiet");
+      git("config", "user.email", "gate-fixture@example.test");
+      git("config", "user.name", "Gate fixture");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("branch", "gate-base");
+
+      writeFileSync(testPath, [
+        'import { expect, test } from "bun:test";',
+        'test("base", () => expect(true).toBe(true));',
+        'test("new asserted test", () => expect(true).toBe(true));',
+        "",
+      ].join("\n"));
+      git("add", "src/__tests__/fixture.test.ts");
+      git("commit", "--quiet", "-m", "asserted test");
+
+      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+      const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
+        cwd: fixture,
+        env: { ...process.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const missingParser = runGate();
+      expect(missingParser.exitCode).toBe(1);
+      expect(missingParser.stderr.toString()).toContain("TypeScript AST parser is unavailable");
+
+      const install = Bun.spawnSync([
+        process.execPath,
+        "install",
+        "--cwd",
+        ".github/gate-integrity-deps",
+        "--frozen-lockfile",
+        "--ignore-scripts",
+      ], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+      expect(install.exitCode).toBe(0);
+      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+
+      const parserPath = join(fixture, ".github/gate-integrity-deps/node_modules");
+      const assertedTest = runGate(parserPath);
+      expect(assertedTest.exitCode).toBe(0);
+      expect(assertedTest.stdout.toString()).toContain("Gate integrity PASSED");
+
+      writeFileSync(testPath, [
+        'import { expect, test } from "bun:test";',
+        'test("base", () => expect(true).toBe(true));',
+        'test("new asserted test", () => expect(true).toBe(true));',
+        'test("vacuous test", () => { prepareOnly(); });',
+        "",
+      ].join("\n"));
+      git("add", "src/__tests__/fixture.test.ts");
+      git("commit", "--quiet", "-m", "vacuous test");
+
+      const vacuousTest = runGate(parserPath);
+      expect(vacuousTest.exitCode).toBe(1);
+      expect(vacuousTest.stderr.toString()).toContain("vacuous test (no assertion)");
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
+describe("coverage diff gates: dependency-free Git controls", () => {
+  const repoRoot = join(import.meta.dir, "..", "..");
+
+  test("cover changes, reject missing measurements, and fail closed on an absent base", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "patch-coverage-parser-"));
+    const fixture = join(fixtureRoot, "repo");
+    try {
+      mkdirSync(join(fixture, "scripts"), { recursive: true });
+      mkdirSync(join(fixture, "src"), { recursive: true });
+      mkdirSync(join(fixture, "coverage"), { recursive: true });
+      for (const relative of [
+        "scripts/check-patch-coverage.ts",
+        "scripts/check-new-file-coverage.ts",
+        "scripts/coverage-config.ts",
+        "scripts/git-output.ts",
+        "scripts/unified-diff.ts",
+      ]) {
+        cpSync(join(repoRoot, relative), join(fixture, relative));
+      }
+      const sourcePath = join(fixture, "src/change.ts");
+      const newSourcePath = join(fixture, "src/new.ts");
+      writeFileSync(sourcePath, "export const value = 1;\n");
+      writeFileSync(join(fixture, "scripts/coverage-thresholds.json"), '{ "src/new.ts": 100 }\n');
+
+      const git = (...args: string[]) => {
+        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+        expect(proc.exitCode).toBe(0);
+      };
+      git("init", "--quiet");
+      git("config", "user.email", "patch-fixture@example.test");
+      git("config", "user.name", "Patch fixture");
+      git("add", ".");
+      git("commit", "--quiet", "-m", "base");
+      git("branch", "patch-base");
+      writeFileSync(sourcePath, "export const value = 2;\n");
+      writeFileSync(newSourcePath, "export const newValue = 3;\n");
+      git("add", "src/change.ts", "src/new.ts");
+      git("commit", "--quiet", "-m", "covered change");
+      const measuredLcov = [
+        `SF:${sourcePath}`,
+        "DA:1,1",
+        "end_of_record",
+        `SF:${newSourcePath}`,
+        "DA:1,1",
+        "end_of_record",
+        "",
+      ].join("\n");
+      writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
+
+      expect(existsSync(join(fixture, "node_modules"))).toBe(false);
+      const runGate = (script: string, base: string) => Bun.spawnSync([process.execPath, script], {
+        cwd: fixture,
+        env: { ...process.env, BASE_REF: base, NODE_PATH: "" },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+
+      const covered = runGate("scripts/check-patch-coverage.ts", "patch-base");
+      expect(covered.exitCode).toBe(0);
+      expect(covered.stdout.toString()).toContain("Patch coverage gate PASSED");
+
+      const coveredNewFile = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+      expect(coveredNewFile.exitCode).toBe(0);
+      expect(coveredNewFile.stdout.toString()).toContain("New-file coverage gate PASSED");
+
+      writeFileSync(join(fixture, "coverage/lcov.info"), `SF:${sourcePath}\nDA:1,1\nend_of_record\n`);
+      const patchMissingMeasurement = runGate("scripts/check-patch-coverage.ts", "patch-base");
+      expect(patchMissingMeasurement.exitCode).toBe(1);
+      expect(patchMissingMeasurement.stderr.toString()).toContain("changed source file has NO lcov data");
+      const newFileMissingMeasurement = runGate("scripts/check-new-file-coverage.ts", "patch-base");
+      expect(newFileMissingMeasurement.exitCode).toBe(1);
+      expect(newFileMissingMeasurement.stderr.toString()).toContain("new source file with no measured coverage");
+      writeFileSync(join(fixture, "coverage/lcov.info"), measuredLcov);
+
+      const missingBase = runGate("scripts/check-patch-coverage.ts", "missing-base");
+      expect(missingBase.exitCode).toBe(1);
+      expect(missingBase.stderr.toString()).toContain("Patch coverage gate ERROR (fail-closed)");
+      expect(missingBase.stderr.toString()).toContain("git diff");
+
+      const missingNewFileBase = runGate("scripts/check-new-file-coverage.ts", "missing-base");
+      expect(missingNewFileBase.exitCode).toBe(1);
+      expect(missingNewFileBase.stderr.toString()).toContain("New-file coverage gate ERROR (fail-closed)");
+      expect(missingNewFileBase.stderr.toString()).toContain("git diff");
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  }, 30_000);
+});
+
 // ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {
   test("escapeGlob escapes SvelteKit bracket segments", () => {
@@ -87,8 +270,8 @@ describe("coverage-config helpers", () => {
   });
 
   test("isExcluded matches EXCLUDES patterns (and only those)", () => {
-    expect(isExcluded("src/db/migrations/001.ts")).toBe(true);
-    expect(isExcluded("web/src/lib/api.ts")).toBe(true);
+    expect(isExcluded("src/providers/example.ts")).toBe(false);
+    expect(isExcluded("web/src/lib/api.ts")).toBe(false);
     expect(isExcluded("src/runtime/brand-new.ts")).toBe(false);
   });
 
@@ -96,6 +279,8 @@ describe("coverage-config helpers", () => {
     expect(isSourceFile("src/runtime/foo.ts")).toBe(true);
     expect(isSourceFile("web/src/lib/bar.svelte")).toBe(true);
     expect(isSourceFile("packages/@ezcorp/sdk/src/x.ts")).toBe(true);
+    expect(isSourceFile("packages/@ezcorp/harness-client/src/x.ts")).toBe(true);
+    expect(isSourceFile("worker/src/index.ts")).toBe(true);
     expect(isSourceFile("src/__tests__/foo.test.ts")).toBe(false);
     expect(isSourceFile("web/e2e/x.spec.ts")).toBe(false);
     expect(isSourceFile("src/types.d.ts")).toBe(false);
@@ -453,6 +638,144 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     const added = new Set([2, 3, 4]);
     expect(unassertedAddedBlocks(withAssert, added)).toEqual([]);
   });
+  test("follows a locally declared assertion helper", () => {
+    const helper = [
+      "async function saveAndReload() {",
+      "  expect(await readStored()).toEqual(['first', 'second']);",
+      "}",
+      "test('persists keyboard order', async () => {",
+      "  await saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(helper, new Set([4, 5, 6]))).toEqual([]);
+  });
+  test("does not trust an opaque imported helper", () => {
+    const opaque = [
+      "import { saveAndReload } from './fixture';",
+      "test('persists keyboard order', async () => {",
+      "  await saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(opaque, new Set([2, 3, 4]))).toHaveLength(1);
+  });
+  test("does not mistake a nested helper declaration for an invocation", () => {
+    const nested = [
+      "test('does not run the helper', () => {",
+      "  function saveAndReload() { expect(true).toBe(true); }",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(nested, new Set([1, 2, 3]))).toHaveLength(1);
+  });
+  test("does not borrow an assertion after an empty helper body", () => {
+    const empty = [
+      "function saveAndReload() {}",
+      "expect(true).toBe(true);",
+      "test('does not assert', () => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(empty, new Set([3, 4, 5]))).toHaveLength(1);
+  });
+  test("does not borrow a never-called nested helper assertion", () => {
+    const nested = [
+      "function saveAndReload() {",
+      "  function assertionOnly() { expect(true).toBe(true); }",
+      "}",
+      "test('does not assert', () => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(nested, new Set([4, 5, 6]))).toHaveLength(1);
+  });
+  test("does not trust a callback passed to a helper that never invokes it", () => {
+    const ignored = [
+      "function ignore(callback: () => void) {}",
+      "test('does not assert', () => {",
+      "  ignore(() => expect(true).toBe(true));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(ignored, new Set([2, 3, 4]))).toHaveLength(1);
+  });
+  test("credits an awaited Testing Library waitFor callback assertion", () => {
+    const waited = [
+      'import { waitFor } from "@testing-library/svelte";',
+      "test('waits for the visible state', async () => {",
+      "  await waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(waited, new Set([2, 3, 4]))).toEqual([]);
+  });
+  test("does not trust an unawaited or locally shadowed waitFor callback", () => {
+    const unawaited = [
+      'import { waitFor } from "@testing-library/svelte";',
+      "test('does not wait', () => {",
+      "  waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    const shadowed = [
+      'import { waitFor } from "@testing-library/svelte";',
+      "test('calls a local lookalike', async () => {",
+      "  const waitFor = (_callback: () => void) => {};",
+      "  await waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(unawaited, new Set([2, 3, 4]))).toHaveLength(1);
+    expect(unassertedAddedBlocks(shadowed, new Set([2, 3, 4, 5]))).toHaveLength(1);
+  });
+  test("does not borrow a nested helper with the same name from another test", () => {
+    const duplicate = [
+      "function saveAndReload() {}",
+      "test('unrelated helper', () => {",
+      "  function saveAndReload() { expect(true).toBe(true); }",
+      "  saveAndReload();",
+      "});",
+      "test('does not assert', () => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(duplicate, new Set([6, 7, 8]))).toHaveLength(1);
+  });
+  test("does not treat a parameter that shadows a file helper as its assertion", () => {
+    const shadowedParameter = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "test('does not assert', ({ saveAndReload }) => {",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(shadowedParameter, new Set([2, 3, 4]))).toHaveLength(1);
+  });
+  test("does not treat a local binding that shadows a file helper as its assertion", () => {
+    const shadowedLocal = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "test('does not assert', () => {",
+      "  const saveAndReload = () => {};",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(shadowedLocal, new Set([2, 3, 4, 5]))).toHaveLength(1);
+  });
+  test("does not treat a nested function shadow as a file helper call", () => {
+    const shadowedFunction = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "test('does not assert', () => {",
+      "  function saveAndReload() {}",
+      "  saveAndReload();",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(shadowedFunction, new Set([2, 3, 4, 5]))).toHaveLength(1);
+  });
+  test("does not borrow a file helper through an enclosing describe binding", () => {
+    const enclosingShadow = [
+      "function saveAndReload() { expect(true).toBe(true); }",
+      "describe('shadowed suite', () => {",
+      "  function saveAndReload() {}",
+      "  test('does not assert', () => {",
+      "    saveAndReload();",
+      "  });",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(enclosingShadow, new Set([4, 5, 6]))).toHaveLength(1);
+  });
   test("ignores blocks not touched by the diff", () => {
     expect(unassertedAddedBlocks(noAssert, new Set([999]))).toEqual([]);
   });
@@ -793,45 +1116,34 @@ describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
   });
 });
 
-// ── typecheck-tests: ratchet validation (subset-of-baseline) ────────────────
+// ── typecheck-tests: exclusion validation ───────────────────────────────────
 describe("typecheck-tests: ratchetViolation", () => {
-  const baseline = ["src/__tests__/a.test.ts", "src/__tests__/b.test.ts", "src/__tests__/c.test.ts"];
-
-  test("subset of the baseline within the ceiling passes", () => {
-    expect(ratchetViolation("k", ["src/__tests__/a.test.ts"], 3, baseline)).toBeNull();
-    expect(ratchetViolation("k", [], 3, baseline)).toBeNull();
+  test("only an empty list passes", () => {
+    expect(ratchetViolation("k", [])).toBeNull();
   });
 
-  test("SWAP is rejected even at constant length (remove b, add d)", () => {
-    const v = ratchetViolation(
-      "k",
-      ["src/__tests__/a.test.ts", "src/__tests__/d.test.ts"],
-      3,
-      baseline,
+  test("a former valid exclusion is rejected", () => {
+    expect(ratchetViolation("backendTests", ["src/__tests__/briefing-api.test.ts"])).toContain(
+      "must be empty",
     );
-    expect(v).toContain("not in the landing-time baseline");
-  });
-
-  test("growth past the ceiling is rejected", () => {
-    expect(ratchetViolation("k", baseline, 2, baseline)).toContain("> ceiling");
   });
 
   test("duplicates and non-string shapes are rejected", () => {
     const dup = ["src/__tests__/a.test.ts", "src/__tests__/a.test.ts"];
-    expect(ratchetViolation("k", dup, 3, baseline)).toContain("duplicates");
-    expect(ratchetViolation("k", "nope", 3, baseline)).toContain("string array");
-    expect(ratchetViolation("k", [42], 3, baseline)).toContain("string array");
+    expect(ratchetViolation("k", dup)).toContain("duplicates");
+    expect(ratchetViolation("k", "nope")).toContain("string array");
+    expect(ratchetViolation("k", [42])).toContain("string array");
   });
 
-  test("the COMMITTED ratchet passes against the committed baselines + ceilings", async () => {
+  test("the COMMITTED ratchet has no exclusions", async () => {
     const raw = (await Bun.file(
       join(import.meta.dir, "..", "..", "scripts/typecheck-tests-ratchet.json"),
     ).json()) as { backendTests: string[]; e2eSpecs: string[] };
     expect(
-      ratchetViolation("backendTests", raw.backendTests, BACKEND_RATCHET_CEILING, BACKEND_RATCHET_BASELINE),
+      ratchetViolation("backendTests", raw.backendTests),
     ).toBeNull();
     expect(
-      ratchetViolation("e2eSpecs", raw.e2eSpecs, E2E_RATCHET_CEILING, E2E_RATCHET_BASELINE),
+      ratchetViolation("e2eSpecs", raw.e2eSpecs),
     ).toBeNull();
   });
 });
@@ -893,6 +1205,56 @@ describe("check-coverage: wildcardTreeDropouts", () => {
   });
   test("pattern matching nothing on disk (dead key) → no violation", () => {
     expect(wildcardTreeDropouts(["src/gone/**"], [], () => [])).toEqual([]);
+  });
+});
+
+describe("check-coverage: wildcardSourceFileDropouts", () => {
+  test("fails an unmeasured executable sibling even when its tree has lcov", async () => {
+    const v = await wildcardSourceFileDropouts(
+      ["packages/@ezcorp/extension-contract/src/**"],
+      ["packages/@ezcorp/extension-contract/src/covered.ts"],
+      () => [
+        "packages/@ezcorp/extension-contract/src/covered.ts",
+        "packages/@ezcorp/extension-contract/src/missing.ts",
+      ],
+      async () => "export const missing = () => true;",
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("missing.ts");
+    expect(v[0]).toContain("individual file");
+  });
+
+  test("structurally exempts declaration-only TypeScript but not runtime code", async () => {
+    expect(isDeclarationOnlyTypeScript("export interface A { id: string }\nexport type B = A")).toBe(true);
+    expect(isDeclarationOnlyTypeScript("export enum A { One }")).toBe(false);
+    const v = await wildcardSourceFileDropouts(
+      ["packages/@ezcorp/sdk/src/**"],
+      [],
+      () => ["packages/@ezcorp/sdk/src/only-types.ts"],
+      async () => "export type Only = { id: string };",
+    );
+    expect(v).toEqual([]);
+  });
+
+  test("does not turn a ratchet catch-all into an individual evidence rule", async () => {
+    const v = await wildcardSourceFileDropouts(
+      ["src/**"],
+      [],
+      () => ["src/existing.ts"],
+      async () => "export const existing = 1;",
+    );
+    expect(v).toEqual([]);
+  });
+});
+
+describe("coverage canonical producer registry", () => {
+  test("assigns browser, Node/V8, and tagged Bun contracts without a fallback", () => {
+    expect(canonicalCoverageProducer("web/src/lib/components/AgentSearchPicker.svelte"))
+      .toBe(BROWSER_V8_COVERAGE_PRODUCER);
+    expect(canonicalCoverageProducer("web/src/lib/components/settings/ProvidersSection.svelte"))
+      .toBe("ezcorp-node-v8");
+    expect(canonicalCoverageProducer("web/src/lib/api.ts")).toBe("ezcorp-bun-api");
+    expect(canonicalCoverageProducer("web/src/lib/unowned.ts")).toBeUndefined();
   });
 });
 

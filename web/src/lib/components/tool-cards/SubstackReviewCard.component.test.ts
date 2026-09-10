@@ -93,6 +93,12 @@ function stubFetch(
 }
 
 describe("SubstackReviewCard — render states", () => {
+	test("reads MCP text content blocks into the visible review queue", () => {
+		const call = makeCall();
+		const ui = render(SubstackReviewCard, { toolCall: { ...call, output: { content: [{ text: call.output }, { type: "image" }] } } });
+		expect(ui.getByTestId("review-row")).toHaveAttribute("data-status", "pending");
+		expect(ui.getByTestId("review-body")).toHaveValue("thanks — what hooked you?");
+	});
 	test("renders one row per queued item with kind + context + body", () => {
 		stubFetch();
 		const { getByTestId, getAllByTestId } = render(SubstackReviewCard, {
@@ -181,6 +187,33 @@ describe("SubstackReviewCard — render states", () => {
 			conversationId: "conv-1",
 		});
 		expect(getByTestId("review-empty")).toBeInTheDocument();
+	});
+});
+
+describe("SubstackReviewCard — action failures", () => {
+	test.each(["save", "edited-send", "approve", "reject"])("a failed %s keeps the draft pending and stops dependent actions", async (action) => {
+		const { calls } = stubFetch(() => ({ ok: false, error: "Permission expired" }));
+		const ui = render(SubstackReviewCard, { toolCall: makeCall(), conversationId: "conv-1" });
+		if (action === "save" || action === "edited-send") {
+			await fireEvent.input(ui.getByTestId("review-body"), { target: { value: "Edited draft" } });
+		}
+		if (action === "reject") {
+			await fireEvent.click(ui.getByTestId("review-reject"));
+			await fireEvent.click(ui.getByTestId("review-reject"));
+		} else {
+			await fireEvent.click(ui.getByTestId(action === "save" ? "review-save" : "review-approve-send"));
+		}
+		await waitFor(() => expect(ui.getByTestId("review-action-error")).toHaveTextContent("Permission expired"));
+		expect(ui.getByTestId("review-row")).toHaveAttribute("data-status", "pending");
+		expect(calls.map(call => call.toolName)).toEqual([action === "save" || action === "edited-send" ? "edit_item" : action === "reject" ? "reject_item" : "approve_item"]);
+	});
+
+	test("a network rejection restores the action control and shows its error", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Connection lost")));
+		const ui = render(SubstackReviewCard, { toolCall: makeCall() });
+		await fireEvent.click(ui.getByTestId("review-approve-send"));
+		await waitFor(() => expect(ui.getByTestId("review-action-error")).toHaveTextContent("Connection lost"));
+		expect(ui.getByTestId("review-approve-send")).toBeEnabled();
 	});
 });
 

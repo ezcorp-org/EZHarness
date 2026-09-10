@@ -40,6 +40,7 @@ vi.mock("$app/environment", () => ({
 	version: "test",
 }));
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	updateConversation: updateConversationMock,
 	fetchAllMessages: vi.fn(async () => []),
 	sendMessage: vi.fn(),
@@ -96,21 +97,21 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 }));
 
 import AgentDetailPanel from "../lib/components/AgentDetailPanel.svelte";
-import type { AgentCallState } from "$lib/stores.svelte.js";
+import { store, type AgentCallState } from "$lib/stores.svelte.js";
 import { __resetCapabilityCacheForTests } from "$lib/chat/attachment-client";
 import { makeCapabilitiesFetch } from "./stubs/model-capabilities";
 
 function makeAgent(o: Partial<AgentCallState> = {}): AgentCallState {
 	return {
-		runId: "run-1",
 		agentRunId: "run-1",
 		agentName: "researcher",
 		agentConfigId: "cfg-1",
 		subConversationId: "sub-1",
 		status: "complete",
 		task: "Investigate the bug",
+		startedAt: Date.parse("2026-01-01T00:00:00.000Z"),
 		...o,
-	} as AgentCallState;
+	};
 }
 
 beforeEach(() => {
@@ -199,19 +200,62 @@ describe("AgentDetailPanel embeds <ChatThread variant=panel>", () => {
 		expect(getByText("Find it")).toBeInTheDocument();
 	});
 
-	test("status badge reflects the agent run state", () => {
+	test("status badge reflects the agent run state", async () => {
 		const { getByText, rerender } = render(AgentDetailPanel, {
 			agent: makeAgent({ status: "complete" }),
 			open: true,
 			onclose: vi.fn(),
 		});
 		expect(getByText("Complete")).toBeInTheDocument();
-		rerender({
+		await rerender({
 			agent: makeAgent({ status: "error" }),
 			open: true,
 			onclose: vi.fn(),
 		});
 		expect(getByText("Failed")).toBeInTheDocument();
+		await rerender({
+			agent: makeAgent({ status: "running" }),
+			open: true,
+			onclose: vi.fn(),
+		});
+		expect(getByText("Running")).toBeInTheDocument();
+	});
+
+	test("shows Running while a task assignment owns the sub-conversation", () => {
+		const previousSnapshots = store.taskSnapshots;
+		store.taskSnapshots = {
+			"conv-1": {
+				conversationId: "conv-1",
+				tasks: [{
+					id: "task-1",
+					title: "Investigate",
+					description: "Find the problem",
+					status: "active",
+					subtasks: [],
+					assignments: [{
+						id: "assignment-1",
+						agentConfigId: "cfg-1",
+						agentName: "researcher",
+						isTeam: false,
+						subConversationId: "sub-1",
+						status: "running",
+						assignedAt: "2026-01-01T00:00:00.000Z",
+					}],
+					createdAt: "2026-01-01T00:00:00.000Z",
+					priority: 0,
+				}],
+			},
+		};
+		try {
+			const { getByText } = render(AgentDetailPanel, {
+				agent: makeAgent({ status: "complete", subConversationId: "sub-1" }),
+				open: true,
+				onclose: vi.fn(),
+			});
+			expect(getByText("Running")).toBeInTheDocument();
+		} finally {
+			store.taskSnapshots = previousSnapshots;
+		}
 	});
 
 	test("header Close button invokes onclose", async () => {

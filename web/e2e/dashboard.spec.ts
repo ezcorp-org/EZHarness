@@ -1,57 +1,59 @@
+/** Legacy dashboard URLs must reach and operate the replacement chat workspace. */
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeAgent, makeRun, makeProject } from "./fixtures/data.js";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
+import { makeProject } from "./fixtures/data.js";
 
-test.describe("Dashboard", () => {
-	test("shows agent cards when agents exist", async ({ page, mockApi }) => {
-		await mockApi({
-			agents: [
-				makeAgent({ name: "summarizer", description: "Summarizes text" }),
-				makeAgent({ name: "coder", description: "Writes code" }),
-			],
-		});
-		await page.goto("/");
+type DashboardEntry = { path: string; projectId: string; name: string };
+type MockApi = (overrides?: MockOverrides) => Promise<void>;
 
-		await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
-		await expect(page.getByText("summarizer")).toBeVisible();
-		await expect(page.getByText("coder")).toBeVisible();
-	});
+const global: DashboardEntry = { path: "/", projectId: "global", name: "Global" };
+const project: DashboardEntry = { path: "/project/proj-1", projectId: "proj-1", name: "My Project" };
 
-	test("shows empty state when no agents", async ({ page, mockApi }) => {
-		await mockApi({ agents: [] });
-		await page.goto("/");
+async function visitEmptyChat(page: Page, mockApi: MockApi, entry: DashboardEntry): Promise<void> {
+	await mockApi({ projects: [makeProject({ id: entry.projectId, name: entry.name })], conversations: [] });
+	await page.goto(entry.path);
+	await expect(page).toHaveURL(`/project/${entry.projectId}/chat`);
+	await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible();
+	await expect(page.locator("aside").getByRole("link", { name: "Chat", exact: true })).toHaveAttribute("aria-current", "page");
+	await expect(page.getByRole("button", { name: "New Conversation", exact: true })).toBeVisible();
+}
 
-		await expect(page.getByText("No agents available.")).toBeVisible();
-	});
+async function createConversation(page: Page, entry: DashboardEntry): Promise<void> {
+	const request = page.waitForRequest((candidate) =>
+		candidate.method() === "POST" && new URL(candidate.url()).pathname === "/api/conversations",
+	);
+	const response = page.waitForResponse((candidate) =>
+		candidate.request().method() === "POST" && new URL(candidate.url()).pathname === "/api/conversations",
+	);
+	await page.getByRole("button", { name: "New Conversation", exact: true }).click();
+	expect((await request).postDataJSON()).toMatchObject({ projectId: entry.projectId });
+	const created = await response;
+	expect(created.ok(), await created.text()).toBe(true);
+	await page.waitForURL(`/project/${entry.projectId}/chat/new-conv`);
+	await expect(page.locator("textarea.chat-textarea")).toBeFocused();
+}
 
-	test("shows recent runs", async ({ page, mockApi }) => {
-		await mockApi({
-			runs: [
-				makeRun({ id: "run-1", agentName: "summarizer", status: "success" }),
-				makeRun({ id: "run-2", agentName: "coder", status: "error" }),
-			],
-		});
-		await page.goto("/");
+test("legacy root redirects to the Global empty-chat workspace", async ({ page, mockApi }) => {
+	await visitEmptyChat(page, mockApi, global);
+});
 
-		await expect(page.getByText("Recent Runs")).toBeVisible();
-	});
+test("legacy root creates a Global conversation and opens its composer", async ({ page, mockApi }) => {
+	await visitEmptyChat(page, mockApi, global);
+	await createConversation(page, global);
+});
 
-	test("shows empty state when no runs", async ({ page, mockApi }) => {
-		await mockApi({ runs: [] });
-		await page.goto("/");
+test("legacy project URL redirects to that project's empty-chat workspace", async ({ page, mockApi }) => {
+	await visitEmptyChat(page, mockApi, project);
+});
 
-		await expect(page.getByText("No runs yet.")).toBeVisible();
-	});
+test("legacy project URL creates a project-scoped conversation and opens its composer", async ({ page, mockApi }) => {
+	await visitEmptyChat(page, mockApi, project);
+	await createConversation(page, project);
+});
 
-	test("project dashboard shows project-filtered content", async ({ page, mockApi }) => {
-		const proj = makeProject({ id: "proj-1", name: "My Project" });
-		await mockApi({
-			projects: [proj],
-			agents: [makeAgent({ name: "agent-1" })],
-			runs: [makeRun({ id: "run-1", projectId: "proj-1" })],
-		});
-		await page.goto(`/project/${proj.id}`);
-
-		await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
-		await expect(page.getByRole("heading", { name: "Recent Runs" })).toBeVisible();
-	});
+test("a project redirect replaces Global before its new-conversation request", async ({ page, mockApi }) => {
+	await visitEmptyChat(page, mockApi, global);
+	await visitEmptyChat(page, mockApi, project);
+	await createConversation(page, project);
 });

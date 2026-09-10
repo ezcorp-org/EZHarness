@@ -31,7 +31,7 @@ test.describe("Tool Call History Display", () => {
 		output: "Sunny, 72F -- clear skies all day",
 		success: true,
 		durationMs: 450,
-		status: "complete" as const,
+		status: "success" as const,
 		createdAt: "2026-01-01T00:00:30.000Z",
 	};
 
@@ -60,8 +60,7 @@ test.describe("Tool Call History Display", () => {
 		output: null,
 		success: false,
 		durationMs: 0,
-		status: "error" as const,
-		error: "interrupted",
+		status: "interrupted" as const,
 		createdAt: "2026-01-01T00:00:40.000Z",
 	};
 
@@ -75,19 +74,21 @@ test.describe("Tool Call History Display", () => {
 		output: "Humidity: 65%",
 		success: true,
 		durationMs: 200,
-		status: "complete" as const,
-		source: "agent",
+		status: "success" as const,
 		createdAt: "2026-01-01T00:00:45.000Z",
 	};
 
-	function withToolCallsResponse(toolCalls: any[], subConversations: any[] = []) {
-		return {
-			messages: [
-				{ ...userMsg },
-				{ ...assistantMsg, toolCalls },
-			],
-			subConversations,
-		};
+	function withToolCallsResponse(toolCalls: unknown[], subConversations: Array<Record<string, unknown>> = [], orphaned = false) {
+		return (url: URL) => url.searchParams.get("withToolCalls") === "true" ? {
+			messages: [userMsg, { ...assistantMsg, toolCalls: orphaned ? [] : toolCalls }],
+			subConversations: subConversations.map((conversation) => ({
+				parentMessageId: userMsg.id,
+				parentConversationId: conv.id,
+				...conversation,
+			})),
+			orphanedToolCalls: orphaned ? toolCalls : [],
+			subConversationToolCalls: {},
+		} : [userMsg, assistantMsg];
 	}
 
 	test("page loads with historical tool calls showing correct status icons", async ({ page, mockApi }) => {
@@ -97,7 +98,7 @@ test.describe("Tool Call History Display", () => {
 			messages: [userMsg, assistantMsg],
 			routes: {
 				"active-run": () => ({ runId: null }),
-				"withToolCalls": () => withToolCallsResponse([
+				"/api/conversations/conv-1/messages": withToolCallsResponse([
 					toolCallSuccess,
 					toolCallError,
 					toolCallInterrupted,
@@ -110,24 +111,24 @@ test.describe("Tool Call History Display", () => {
 		await expect(page.getByText("Here is the forecast.")).toBeVisible();
 
 		// Success tool card: green checkmark and tool name visible
-		const successCard = page.locator(".ml-4.rounded-md").filter({ hasText: "get_forecast" });
+		const successCard = page.locator("div.rounded-md.border").filter({ hasText: "get_forecast" });
 		await expect(successCard).toBeVisible({ timeout: 5000 });
 		// Green check SVG present
 		await expect(successCard.locator("svg.text-green-500")).toBeVisible();
 
 		// Error tool card: red X
-		const errorCard = page.locator(".ml-4.rounded-md").filter({ hasText: "get_alerts" });
+		const errorCard = page.locator("div.rounded-md.border").filter({ hasText: "get_alerts" });
 		await expect(errorCard).toBeVisible();
 		await expect(errorCard.locator("svg.text-red-500")).toBeVisible();
 
-		// Interrupted tool card: gray pause icon
-		const interruptedCard = page.locator(".ml-4.rounded-md").filter({ hasText: "get_radar" });
+		// Interrupted assistant tool remains a failed execution.
+		const interruptedCard = page.locator("div.rounded-md.border").filter({ hasText: "get_radar" });
 		await expect(interruptedCard).toBeVisible();
-		await expect(interruptedCard.locator("svg.text-gray-500")).toBeVisible();
+		await expect(interruptedCard.locator("svg.text-red-500")).toBeVisible();
 	});
 
 	test("expanding historical tool card fetches full output", async ({ page, mockApi }) => {
-		let _outputFetched = false;
+		let outputFetched = false;
 
 		await mockApi({
 			projects: [proj],
@@ -135,23 +136,24 @@ test.describe("Tool Call History Display", () => {
 			messages: [userMsg, assistantMsg],
 			routes: {
 				"active-run": () => ({ runId: null }),
-				"withToolCalls": () => withToolCallsResponse([toolCallSuccess]),
+				"/api/conversations/conv-1/messages": withToolCallsResponse([toolCallSuccess]),
 				"/api/tool-calls/tc-1/output": () => {
-					_outputFetched = true;
+					outputFetched = true;
 					return { output: "Full detailed forecast: Sunny, 72F, wind NW 5mph, humidity 45%" };
 				},
 			},
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const toolCard = page.locator(".ml-4.rounded-md").filter({ hasText: "get_forecast" });
+		const toolCard = page.locator("div.rounded-md.border").filter({ hasText: "get_forecast" });
 		await expect(toolCard).toBeVisible({ timeout: 5000 });
 
 		// Click to expand
 		await toolCard.locator("button").first().click();
 
 		// Verify output content appears
-		await expect(page.getByText("Full detailed forecast")).toBeVisible({ timeout: 5000 });
+		await expect(toolCard.locator("pre").filter({ hasText: "Full detailed forecast" })).toBeVisible();
+		expect(outputFetched).toBe(true);
 	});
 
 	test("interrupted tool cards show gray with no action buttons", async ({ page, mockApi }) => {
@@ -161,12 +163,12 @@ test.describe("Tool Call History Display", () => {
 			messages: [userMsg, assistantMsg],
 			routes: {
 				"active-run": () => ({ runId: null }),
-				"withToolCalls": () => withToolCallsResponse([toolCallInterrupted]),
+				"/api/conversations/conv-1/messages": withToolCallsResponse([toolCallInterrupted], [], true),
 			},
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const interruptedCard = page.locator(".ml-4.rounded-md").filter({ hasText: "get_radar" });
+		const interruptedCard = page.locator("div.rounded-md.border").filter({ hasText: "get_radar" });
 		await expect(interruptedCard).toBeVisible({ timeout: 5000 });
 		await expect(interruptedCard.getByText("Interrupted")).toBeVisible();
 
@@ -175,31 +177,32 @@ test.describe("Tool Call History Display", () => {
 		await expect(interruptedCard.getByRole("button", { name: /edit/i })).not.toBeVisible();
 	});
 
-	test("source label shows 'via agent' for agent-driven calls", async ({ page, mockApi }) => {
+	test("historical agent tool stays attached to its assistant turn", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg, assistantMsg],
 			routes: {
 				"active-run": () => ({ runId: null }),
-				"withToolCalls": () => withToolCallsResponse([toolCallViaAgent]),
+				"/api/conversations/conv-1/messages": withToolCallsResponse([toolCallViaAgent]),
 			},
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const toolCard = page.locator(".ml-4.rounded-md").filter({ hasText: "get_humidity" });
+		const toolCard = page.locator("div.rounded-md.border").filter({ hasText: "get_humidity" });
 		await expect(toolCard).toBeVisible({ timeout: 5000 });
-		await expect(toolCard.getByText("via agent")).toBeVisible();
+		await expect(page.locator('[data-message-id="m2"]').getByText("get_humidity", { exact: true })).toBeVisible();
+		await expect(page.locator('[data-message-id="m1"]').getByText("get_humidity", { exact: true })).toHaveCount(0);
 	});
 
-	test("sub-conversation block shows collapsed summary", async ({ page, mockApi }) => {
+	test("historical agent chip shows completed status and result preview", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg, assistantMsg],
 			routes: {
 				"active-run": () => ({ runId: null }),
-				"withToolCalls": () => withToolCallsResponse([], [
+				"/api/conversations/conv-1/messages": withToolCallsResponse([], [
 					{
 						id: "sub-1",
 						agentName: "researcher",
@@ -212,11 +215,10 @@ test.describe("Tool Call History Display", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		// Agent name visible
-		await expect(page.getByText("@researcher")).toBeVisible({ timeout: 5000 });
-		// Summary with message count
-		await expect(page.getByText(/5 messages/)).toBeVisible();
-		await expect(page.getByText(/Found 3 results/)).toBeVisible();
+		const chip = page.getByTestId("agent-chip");
+		await expect(chip).toContainText("@researcher");
+		await expect(chip).toContainText("Found 3 results...");
+		await expect(chip.locator(".agent-chip-complete")).toBeVisible();
 	});
 
 	test("expanding sub-conversation fetches messages", async ({ page, mockApi }) => {
@@ -231,7 +233,7 @@ test.describe("Tool Call History Display", () => {
 			messages: [userMsg, assistantMsg],
 			routes: {
 				"active-run": () => ({ runId: null }),
-				"withToolCalls": () => withToolCallsResponse([], [
+				"/api/conversations/conv-1/messages": withToolCallsResponse([], [
 					{
 						id: "sub-1",
 						agentName: "researcher",
@@ -245,8 +247,9 @@ test.describe("Tool Call History Display", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		// Click the sub-conversation header to expand
-		await page.getByText("@researcher").click();
+		const response = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/conversations/sub-1/messages");
+		await page.getByTestId("agent-chip").click();
+		expect((await response).status()).toBe(200);
 
 		// Verify messages render after expansion
 		await expect(page.getByText("Found 3 relevant articles about AI.")).toBeVisible({ timeout: 5000 });

@@ -47,7 +47,7 @@
 		</svg>
 		<span class="text-xs font-medium text-[var(--color-text-secondary)]">{toolCall.toolName}</span>
 		<span class="text-[10px] text-[var(--color-text-muted)]">
-			{totalMatches} {isGlob ? 'file' : 'match'}{totalMatches !== 1 ? 'es' : ''}
+			{totalMatches} {isGlob ? (totalMatches === 1 ? 'file' : 'files') : (totalMatches === 1 ? 'match' : 'matches')}
 			{#if !isGlob && grepGroups.length > 0}
 				in {grepGroups.length} file{grepGroups.length !== 1 ? 's' : ''}
 			{/if}

@@ -297,6 +297,10 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
     "api/extensions/[id]/violations/+server.ts",
     "api/fs/list/+server.ts",
     "api/fs/mkdir/+server.ts",
+    // The equivalent base handler was `!user || user.role !== "admin"`.
+    // Optional chaining only made this existing public-detail gate visible to
+    // the scanner; it did not make health access less strict.
+    "api/health/+server.ts",
     "api/import/commit/+server.ts",
     "api/marketplace/[id]/install/+server.ts",
   ];

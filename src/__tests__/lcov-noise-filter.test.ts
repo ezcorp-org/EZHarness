@@ -379,6 +379,7 @@ describe("templateInteriorProseLines — pure-prose inside multi-line templates"
       "const prompt =",                          // 1 code
       "  `Review the code changes and return.",  // 2 opener (code→template) — NOT flagged
       "Context:",                                // 3 pure prose — FLAGGED
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Fixture source must contain a literal template interpolation.
       "- branch: ${branch}",                     // 4 interpolation — NOT flagged
       "Rules:",                                  // 5 pure prose — FLAGGED
       "- Be concise.",                           // 6 pure prose — FLAGGED
@@ -420,10 +421,12 @@ describe("templateInteriorProseLines — pure-prose inside multi-line templates"
     expect(templateInteriorProseLines(src).size).toBe(0);
   });
 
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: The test name identifies the literal template syntax under test.
   test("nested ${} interpolation returns to template string content correctly", () => {
     const src = [
       "const p = `head",             // 1 opener
       "prose one",                   // 2 prose — FLAGGED
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Fixture source must contain nested literal interpolation syntax.
       "${obj.method({ a: 1 })} mid", // 3 interpolation with nested braces — NOT flagged
       "prose two",                   // 4 prose — FLAGGED (back in template after interp closed)
       "`;",                          // 5 closer

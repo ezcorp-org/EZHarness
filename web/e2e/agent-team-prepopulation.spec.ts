@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeAgent, makeAgentConfig } from "./fixtures/data.js";
+import { makeAgent, makeAgentConfig, makeExtension } from "./fixtures/data.js";
 
 // These tests guard the pre-population of the "selected items" in agent and
 // team edit/view pages. They were added after a regression where a team's
@@ -54,9 +54,9 @@ test.describe("Agent edit page — pre-populated model/provider/etc", () => {
       })],
       agentConfigs: [config],
       extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "Lint/scan tools" },
-        { id: "ext-formatter", name: "formatter", description: "Format code" },
-        { id: "ext-unused", name: "unused", description: "Not attached" },
+        makeExtension({ id: "ext-analyzer", name: "analyzer", description: "Lint/scan tools" }),
+        makeExtension({ id: "ext-formatter", name: "formatter", description: "Format code" }),
+        makeExtension({ id: "ext-unused", name: "unused", description: "Not attached" }),
       ],
     });
 
@@ -247,8 +247,8 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
       ],
       agentConfigs: [teamConfig, memberConfig],
       extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "Scans code" },
-        { id: "ext-formatter", name: "formatter", description: "Formats code" },
+        makeExtension({ id: "ext-analyzer", name: "analyzer", description: "Scans code" }),
+        makeExtension({ id: "ext-formatter", name: "formatter", description: "Formats code" }),
       ],
     });
 
@@ -291,7 +291,7 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
       ],
       agentConfigs: [teamConfig, memberConfig],
       extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "Lint/scan" },
+        makeExtension({ id: "ext-analyzer", name: "analyzer", description: "Lint/scan" }),
       ],
     });
 

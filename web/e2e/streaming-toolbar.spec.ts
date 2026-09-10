@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -66,7 +66,7 @@ test.describe("Streaming Indicators", () => {
 		});
 
 		// Tool card should appear with the tool name and a spinner (animate-spin)
-		await expect(page.getByText("search")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByRole("button", { name: "search test" })).toBeVisible();
 		await expect(page.locator(".animate-spin")).toBeVisible({ timeout: 5000 });
 	});
 
@@ -107,7 +107,7 @@ test.describe("Streaming Indicators", () => {
 
 		// Spinner should be gone, green checkmark (text-green-500) should appear
 		await expect(page.locator(".animate-spin")).not.toBeVisible({ timeout: 5000 });
-		await expect(page.locator(".text-green-500")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByRole("button", { name: "search test 0.1s" }).locator(".text-green-500")).toBeVisible();
 	});
 
 	test("tool call card shows error state", async ({ page, mockApi, emitSse }) => {
@@ -190,7 +190,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.getByText("Output")).toBeVisible({ timeout: 5000 });
 		// Check that actual content is shown
 		await expect(page.getByText("SELECT * FROM users")).toBeVisible();
-		await expect(page.getByText("Alice")).toBeVisible();
+		await expect(page.locator("pre").filter({ hasText: '"name": "Alice"' })).toBeVisible();
 	});
 
 	test("multiple tool calls stack as separate cards", async ({ page, mockApi, emitSse }) => {
@@ -214,8 +214,8 @@ test.describe("Streaming Indicators", () => {
 		});
 
 		// Both tool names should appear as separate cards
-		await expect(page.getByText("search")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("file_read")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByRole("button", { name: "search" })).toBeVisible();
+		await expect(threadMessages(page).getByRole("button", { name: "file_read" })).toBeVisible();
 
 		// There should be at least 2 spinner icons (one per running card)
 		await expect(page.locator(".animate-spin")).toHaveCount(2, { timeout: 5000 });
@@ -236,6 +236,7 @@ test.describe("Message Toolbar", () => {
 		conversationId: "conv-1",
 		role: "assistant",
 		content: "Hello from the assistant",
+		parentMessageId: "msg-u1",
 	});
 
 	test("toolbar appears on user message hover with Copy, Edit, Branch buttons", async ({ page, mockApi }) => {
@@ -269,9 +270,9 @@ test.describe("Message Toolbar", () => {
 		const messageRow = page.locator(".group").filter({ hasText: "Hello from the assistant" });
 		await messageRow.hover();
 
-		await expect(page.getByRole("button", { name: "Copy message" })).toBeVisible({ timeout: 3000 });
-		await expect(page.getByRole("button", { name: "Regenerate response" })).toBeVisible({ timeout: 3000 });
-		await expect(page.getByRole("button", { name: "Branch from here" })).toBeVisible({ timeout: 3000 });
+		await expect(messageRow.getByRole("button", { name: "Copy message" })).toBeVisible();
+		await expect(messageRow.getByRole("button", { name: "Regenerate response" })).toBeVisible();
+		await expect(messageRow.getByRole("button", { name: "Branch from here" })).toBeVisible();
 	});
 
 	test("copy button shows visual feedback when clicked", async ({ page, mockApi }) => {
@@ -314,8 +315,8 @@ test.describe("Message Toolbar", () => {
 		await streamingMsg.hover();
 
 		// Toolbar buttons should NOT be visible
-		await expect(page.getByRole("button", { name: "Copy message" })).not.toBeVisible({ timeout: 2000 });
-		await expect(page.getByRole("button", { name: "Regenerate response" })).not.toBeVisible({ timeout: 2000 });
+		await expect(streamingMsg.getByRole("button", { name: "Copy message" })).toHaveCount(0);
+		await expect(streamingMsg.getByRole("button", { name: "Regenerate response" })).toHaveCount(0);
 	});
 
 	test("edit action on user message opens inline edit UI", async ({ page, mockApi }) => {
@@ -338,8 +339,8 @@ test.describe("Message Toolbar", () => {
 		await expect(page.getByRole("button", { name: "Cancel" })).toBeVisible({ timeout: 3000 });
 
 		// The textarea in the edit form should contain the original message content
-		const editTextarea = page.locator("textarea").filter({ hasText: "Hello from the user" });
-		await expect(editTextarea).toBeVisible({ timeout: 3000 });
+		const editTextarea = threadMessages(page).locator("textarea");
+		await expect(editTextarea).toHaveValue("Hello from the user");
 	});
 });
 
@@ -354,7 +355,7 @@ test.describe("Keyboard Shortcuts", () => {
 		await page.keyboard.press("Control+/");
 
 		// The ShortcutHelp modal should appear with the heading
-		await expect(page.getByText("Keyboard Shortcuts")).toBeVisible({ timeout: 3000 });
+		await expect(page.getByRole("heading", { name: "Keyboard Shortcuts" })).toBeVisible();
 	});
 
 	test("help panel displays all default shortcuts", async ({ page, mockApi }) => {
@@ -362,26 +363,29 @@ test.describe("Keyboard Shortcuts", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.keyboard.press("Control+/");
-		await expect(page.getByText("Keyboard Shortcuts")).toBeVisible({ timeout: 3000 });
+		await expect(page.getByRole("heading", { name: "Keyboard Shortcuts" })).toBeVisible();
 
 		// Verify all four default shortcut labels are listed
-		await expect(page.getByText("Open command palette")).toBeVisible();
-		await expect(page.getByText("New conversation")).toBeVisible();
-		await expect(page.getByText("Show keyboard shortcuts")).toBeVisible();
-		await expect(page.getByText("Toggle sidebar")).toBeVisible();
+		await expect(page.getByText("Open command palette", { exact: true })).toBeVisible();
+		await expect(page.getByText("New conversation", { exact: true })).toBeVisible();
+		await expect(page.getByText("Show keyboard shortcuts", { exact: true })).toBeVisible();
+		await expect(page.getByText("Toggle sidebar", { exact: true })).toBeVisible();
 	});
 
-	test("help panel closes on Escape", async ({ page, mockApi }) => {
+	test("@evidence help panel closes on Escape", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await page.keyboard.press("Control+/");
-		await expect(page.getByText("Keyboard Shortcuts")).toBeVisible({ timeout: 3000 });
+		await expect(page.getByRole("heading", { name: "Keyboard Shortcuts" })).toBeVisible();
+		const close = page.getByRole("button", { name: "Close" });
+		await expect(close).toBeFocused();
+		await captureEvidence(page, testInfo, "keyboard-shortcuts-open");
+		await expect(close).toBeFocused();
 
-		// Press Escape to close
 		await page.keyboard.press("Escape");
 
-		await expect(page.getByText("Keyboard Shortcuts")).not.toBeVisible({ timeout: 3000 });
+		await expect(page.getByRole("heading", { name: "Keyboard Shortcuts" })).toHaveCount(0);
 	});
 
 	test("Ctrl+N creates a new conversation", async ({ page, mockApi }) => {

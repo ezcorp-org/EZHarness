@@ -41,11 +41,13 @@ import {
   _setLoopEventsForTests,
   _setSettingsResolverForTests,
   _setProposalClosuresForTests,
+  captureLoopPagesForTests,
   dispatchAssignmentUpdate,
 } from "@ezcorp/sdk/test";
 import { __resetChannelForTests } from "@ezcorp/sdk/test";
 import {
   defineDocsUpdaterLoop,
+  PAGE_ID,
   handleApproveAction,
   handleDeclineAction,
   _setShellForTests,
@@ -100,6 +102,7 @@ function fakeGh() {
 let repo: string;
 let kv: Map<string, unknown>;
 let events: { pending: unknown[]; resolved: unknown[] };
+let dashboardPages: ReturnType<typeof captureLoopPagesForTests>;
 let spawnCount = 0;
 
 async function git(...args: string[]): Promise<void> {
@@ -134,6 +137,7 @@ beforeEach(async () => {
   const mem = makeMemStorage();
   kv = mem.kv;
   events = { pending: [], resolved: [] };
+  dashboardPages = captureLoopPagesForTests();
 
   _setStoreFactoryForTests(<O,>(loopId: string, contract: unknown) =>
     createLoopRunStore<O>(loopId, contract as never, (_scope: StorageScope) => mem.storage),
@@ -166,6 +170,7 @@ afterEach(() => {
   _setSpawnForTests(null);
   _setLoopEventsForTests(null);
   _setSettingsResolverForTests(null);
+  dashboardPages.restore();
   _setProposalClosuresForTests("docs-updater", "*", null);
   _setShellForTests(null);
   _setProjectRootForTests(null);
@@ -207,6 +212,8 @@ describe("docs-updater full flow (real primitive + real git + fake gh)", () => {
     // The cursor advanced to HEAD (at-most-once).
     const cursor = kv.get("loop:docs-updater:cursor") as string | undefined;
     expect(cursor).toMatch(/^[0-9a-f]{40}$/);
+    expect(dashboardPages.registered).toEqual([PAGE_ID]);
+    expect(dashboardPages.published).toContain(PAGE_ID);
   });
 
   test("no new commits → the check declines (no draft)", async () => {

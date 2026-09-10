@@ -12,7 +12,7 @@ mockRealSettings();
 
 const { POST: seed } = await import("../routes/api/__test/seed/+server");
 const { POST: reset } = await import("../routes/api/__test/reset/+server");
-const { getConversation, createConversation } = await import("../../../src/db/queries/conversations");
+const { getConversation, createConversation, getMessagesWithToolCalls } = await import("../../../src/db/queries/conversations");
 const { createProject } = await import("../../../src/db/queries/projects");
 const { getSetting } = await import("../../../src/db/queries/settings");
 const { createUser } = await import("../../../src/db/queries/users");
@@ -65,6 +65,63 @@ describe("POST /api/__test/seed", () => {
     const limits = (await getSetting("limits:rateLimit")) as Record<string, number>;
     expect(limits.chat).toBe(9999);
     expect(limits.conversationCreate).toBe(9999);
+  });
+
+  test("seedAgentConfig returns three inactive picker extension records", async () => {
+    const res = await seed(ev({ seedAgentConfig: true }));
+    expect(res.status).toBe(201);
+    const out = await res.json() as { agentExtensions?: Array<{ id: string; name: string }> };
+    expect(out.agentExtensions).toHaveLength(3);
+    expect(out.agentExtensions?.map(({ name }) => name.replace(/^chip-(alpha|beta|gamma)-.+$/, "$1"))).toEqual([
+      "alpha", "beta", "gamma",
+    ]);
+    expect(out.agentExtensions?.every(({ id }) => typeof id === "string" && id.length > 0)).toBe(true);
+  });
+
+  test("pins a model and creates a bounded chained history", async () => {
+    const res = await seed(ev({
+      provider: "ezcorp-mock",
+      model: "mock:history",
+      history: { turns: 3, charsPerTurn: 32 },
+    }));
+    expect(res.status).toBe(201);
+    const out = await res.json() as {
+      conversationId: string;
+      history?: { firstContent: string; lastContent: string; count: number };
+    };
+    expect(out.history?.count).toBe(3);
+    expect(out.history?.firstContent).toContain("E2E_HISTORY_");
+    expect(out.history?.lastContent).toContain("_2:");
+    const conv = await getConversation(out.conversationId);
+    expect(conv).toMatchObject({ provider: "ezcorp-mock", model: "mock:history" });
+  });
+
+  test("seeds linked blank tool turns in the real database", async () => {
+    const res = await seed(ev({ historyFixture: "blank-tool-turns" }));
+    expect(res.status).toBe(201);
+    const { conversationId, historyFixture: ids } = await res.json();
+    const { messages } = await getMessagesWithToolCalls(conversationId);
+    expect(messages).toHaveLength(6);
+    for (const key of ["generic", "dock"]) {
+      const message = messages.find((item) => item.id === ids[key]);
+      expect(message?.content).toBe("");
+      expect(message?.toolCalls).toHaveLength(1);
+    }
+    expect(messages.find((item) => item.id === ids.dock)?.toolCalls[0]).toMatchObject({ cardType: "design-canvas", cardLayout: "dock", success: true });
+    expect(messages.find((item) => item.id === ids.thinking)?.thinkingContent).toContain("design requirements");
+    expect(messages.find((item) => item.id === ids.empty)?.toolCalls).toEqual([]);
+    expect(messages.slice(1).map((item) => item.parentMessageId)).toEqual(messages.slice(0, -1).map((item) => item.id));
+  });
+
+  test("rejects unknown or conflicting history fixtures", async () => {
+    expect((await seed(ev({ historyFixture: "anything-else" }))).status).toBe(400);
+    expect((await seed(ev({ historyFixture: "blank-tool-turns", history: { turns: 1, charsPerTurn: 32 } }))).status).toBe(400);
+  });
+
+  test("rejects partial model pins and invalid history bounds", async () => {
+    expect((await seed(ev({ provider: "ezcorp-mock" }))).status).toBe(400);
+    expect((await seed(ev({ history: { turns: 81, charsPerTurn: 32 } }))).status).toBe(400);
+    expect((await seed(ev({ history: { turns: 1, charsPerTurn: 31 } }))).status).toBe(400);
   });
 });
 

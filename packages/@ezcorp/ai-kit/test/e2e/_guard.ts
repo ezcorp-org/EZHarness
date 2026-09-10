@@ -1,6 +1,5 @@
-/** Opt-in guard for the e2e suite. All e2e tests call `await ensureLiveServer()`
- *  inside a `beforeAll` — if the live server isn't reachable or the env vars
- *  aren't set, `describe.skipIf` will skip the whole block. */
+/** Optional deployed-service suites select themselves from the URL/key flags.
+ * Once configured, requireE2eReady fails if the target is unavailable. */
 
 export const E2E_BASE_URL = process.env.EZCORP_E2E_BASE_URL;
 export const E2E_API_KEY = process.env.EZCORP_E2E_API_KEY;

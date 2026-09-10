@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import WeatherCard from './WeatherCard.svelte';
 import type { ToolCallState } from '$lib/stores.svelte';
+import type { WeatherCardPayload } from './weather-card-logic';
 
 function makeToolCall(overrides: Partial<ToolCallState> = {}): ToolCallState {
 	return {
@@ -42,6 +43,21 @@ function makeToolCall(overrides: Partial<ToolCallState> = {}): ToolCallState {
 afterEach(() => cleanup());
 
 describe('WeatherCard', () => {
+	test.each([
+		['Clear', false, '#07111f'],
+		['Rain', true, '#334155'],
+		['Snow', true, '#dbeafe'],
+		['Clear', true, '#0ea5e9'],
+	] as const)('shows the %s day=%s palette and retains its public payload', (condition, isDay, color) => {
+		const call = makeToolCall();
+		const payload = JSON.parse(String(call.output)) as WeatherCardPayload;
+		payload.current = { ...payload.current, condition, isDay };
+		const { getByTestId } = render(WeatherCard, { toolCall: { ...call, output: JSON.stringify(payload) } });
+		const host = getByTestId('weather-card-host') as HTMLElement & { payload: WeatherCardPayload | null };
+		expect(host.payload?.current).toMatchObject({ condition, isDay });
+		expect(getByTestId('weather-display-card').style.getPropertyValue('--wx-bg')).toContain(color);
+		expect(getByTestId('weather-display-card').textContent).toContain(condition);
+	});
 	test('renders the custom weather-display-card host and weather details', () => {
 		const { getByTestId, getByText, getAllByText } = render(WeatherCard, { toolCall: makeToolCall() });
 		expect(getByTestId('weather-card-host').tagName.toLowerCase()).toBe('weather-display-card');

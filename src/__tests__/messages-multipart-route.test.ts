@@ -18,6 +18,15 @@ mock.module("$server/chat/attachments/validator", () => require("../chat/attachm
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
 mock.module("$server/chat/attachments/content-builder", () => require("../chat/attachments/content-builder"));
 
+let extensionMimeLookupThrows = false;
+mock.module("$server/db/queries/conversation-extensions", () => ({
+  getConversationExtensionMimes: async () => [],
+  getExtensionMimesByNames: () => {
+    if (extensionMimeLookupThrows) throw new Error("extension registry unavailable");
+    return [];
+  },
+}));
+
 // Stubs for security + auth middleware that don't exist in src/ (they live in web/).
 mock.module("$server/auth/middleware", () => ({
   requireAuth: (_locals: any) => ADMIN_USER,
@@ -109,6 +118,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   resetExecutorCalls();
+  extensionMimeLookupThrows = false;
   const conv = await convQueries.createConversation(projectId, {
     title: "c", provider: "anthropic", model: "claude-sonnet-4-5",
   });
@@ -199,6 +209,19 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
     expect(body.attachments[0].mimeType).toBe("text/plain");
     const rows = await listAttachmentsForMessage(body.userMessage.id);
     expect(rows[0]!.kind).toBe("text");
+  });
+
+  test("extension MIME lookup failure keeps an attachment send available", async () => {
+    extensionMimeLookupThrows = true;
+    const req = buildMultipartRequest(
+      { content: "inspect ![ext:weather]", provider: "anthropic", model: "claude-sonnet-4-5" },
+      [{ name: "notes.txt", type: "text/plain", bytes: new TextEncoder().encode("fallback") }],
+    );
+
+    const res = await invokePost(req);
+
+    expect(res.status).toBe(200);
+    expect(streamChatCalls).toHaveLength(1);
   });
 
   test("incompatible model (text-only) with an image → 400, no DB/disk side effects", async () => {

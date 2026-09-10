@@ -9,8 +9,8 @@
  *   2. The host's selection capture + payload assembly — clicking the
  *      icon POSTs to the existing extension event route with the right
  *      shape: `{ messageId, conversationId, content, selection }`.
- *   3. `KokoroTtsPlayerCard` persisted-state rendering — when an
- *      excluded turn arrives over WS carrying a tool call with
+ *   3. `KokoroTtsPlayerCard` persisted-state rendering — when a
+ *      persisted excluded turn hydrates with a tool call carrying
  *      `output.attachmentId`, the card short-circuits synthesis and
  *      mounts an `<audio>` element bound to `/api/attachments/:id`.
  *   4. The "Excluded from chat context" pill — only renders for
@@ -32,137 +32,51 @@ import type { Page } from "@playwright/test";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
-// ── Fake-worker init script ─────────────────────────────────────────
+import { installKokoroWorkerStub } from "./fixtures/kokoro-worker.js";
+
+// ── Toolbar contribution fixture ─────────────────────────────────────
 //
-// Replaces `window.Worker` BEFORE the page boots so the kokoro-tts-bridge
-// (which spawns its worker lazily on first synthesize() call via
-// `new Worker(new URL(..., import.meta.url), { type: "module" })`) gets
-// our stub instead of trying to load the real kokoro-js bundle.
-//
-// The stub speaks the same wire protocol as `kokoro-tts-worker.ts`:
-//   request:  { type: "synthesize", id, text, voice }
-//   response: { type: "loading", id, phase } | { type: "ready", id }
-//             | { type: "audio", id, wav: ArrayBuffer }
-//             | { type: "error", id, message }
-//
-// Behavior is configurable via `window.__kokoroStub`:
-//   - calls            : array of { text, voice, id } captured per
-//                        postMessage. Specs assert on this to prove the
-//                        bridge actually invoked the worker (or didn't —
-//                        e.g. on reload, where the persisted attachment
-//                        should bypass synthesis entirely).
-//   - failNextN        : count of synthesize() calls to fail before
-//                        succeeding. Drives the retry-path spec.
-//   - failureMessage   : error message string. Defaults to
-//                        "synthesis failed: stub".
-async function installWorkerStub(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const w = window as unknown as Record<string, unknown>;
-    w.__kokoroStub = {
-      calls: [] as Array<{ text: string; voice: string | undefined; id: string }>,
-      failNextN: 0,
-      failureMessage: "synthesis failed: stub",
-    };
-    // 4-byte ArrayBuffer is enough — the card wraps it as a Blob and the
-    // <audio> element doesn't try to actually decode it in this spec.
-    function makeFakeWav(): ArrayBuffer {
-      return new Uint8Array([0, 0, 0, 0]).buffer;
-    }
+// The shared mock API owns the current endpoint. A page route registered
+// before mockApi would be shadowed by its newer `**/api/**` handler.
+function kokoroToolbarItems(conversationId: string) {
+  return {
+    [conversationId]: [{
+      extName: "kokoro-tts",
+      id: "speak",
+      icon: "Volume2",
+      tooltip: "Read aloud (selection or full message)",
+      appliesTo: "both" as const,
+      appliesToSelection: "single" as const,
+      event: "kokoro-tts:speak",
+    }],
+  };
+}
 
-    class StubWorker {
-      private listeners: Record<string, Array<(e: Event) => void>> = {
-        message: [],
-        error: [],
-        messageerror: [],
-      };
-      onmessage: ((e: MessageEvent) => void) | null = null;
-      onerror: ((e: Event) => void) | null = null;
-      onmessageerror: ((e: Event) => void) | null = null;
-
-      constructor(_url: string | URL, _opts?: WorkerOptions) {
-        // No-op: nothing to load.
-      }
-
-      postMessage(msg: unknown): void {
-        const stub = (window as unknown as { __kokoroStub: {
-          calls: Array<{ text: string; voice: string | undefined; id: string }>;
-          failNextN: number;
-          failureMessage: string;
-        } }).__kokoroStub;
-        if (
-          msg == null ||
-          typeof msg !== "object" ||
-          (msg as Record<string, unknown>).type !== "synthesize"
-        ) return;
-        const req = msg as { type: "synthesize"; id: string; text: string; voice?: string };
-        stub.calls.push({ text: req.text, voice: req.voice, id: req.id });
-
-        const dispatch = (data: unknown) => {
-          const ev = new MessageEvent("message", { data });
-          this.onmessage?.(ev);
-          for (const fn of this.listeners.message ?? []) fn(ev);
-        };
-
-        // Microtask cadence: loading → ready → audio (or error). Mirrors
-        // the real worker enough that the card walks through its
-        // "Loading model…" → "Synthesizing…" → "audio plays" states.
-        queueMicrotask(() => {
-          if (stub.failNextN > 0) {
-            stub.failNextN--;
-            dispatch({ type: "error", id: req.id, message: stub.failureMessage });
-            return;
-          }
-          dispatch({ type: "loading", id: req.id, phase: "model" });
-          queueMicrotask(() => {
-            dispatch({ type: "ready", id: req.id });
-            queueMicrotask(() => {
-              dispatch({ type: "audio", id: req.id, wav: makeFakeWav() });
-            });
-          });
-        });
-      }
-
-      addEventListener(type: string, fn: (e: Event) => void): void {
-        (this.listeners[type] ??= []).push(fn);
-      }
-      removeEventListener(type: string, fn: (e: Event) => void): void {
-        const arr = this.listeners[type];
-        if (arr) this.listeners[type] = arr.filter((f) => f !== fn);
-      }
-      terminate(): void {}
-    }
-    (window as unknown as { Worker: unknown }).Worker = StubWorker as unknown;
+async function captureKokoroPost(
+  page: Page,
+  event: string,
+  calls: Array<{ body: unknown }>,
+): Promise<void> {
+  await page.route(`**/api/extensions/kokoro-tts/events/${event}`, async (route) => {
+    calls.push({ body: route.request().postDataJSON() });
+    await route.fulfill({ json: { ok: true } });
   });
 }
 
-// ── Toolbar contributions helper ────────────────────────────────────
-//
-// The contributions endpoint returns `appliesTo: "both"` so the speaker
-// icon shows up on user AND assistant rows. Lifted out so each spec
-// can register it cleanly.
-async function stubToolbarContributions(
-  page: Page,
-  conversationId: string,
-): Promise<void> {
-  await page.route(
-    `**/api/conversations/${conversationId}/extension-toolbar`,
-    async (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          items: [
-            {
-              extName: "kokoro-tts",
-              id: "speak",
-              icon: "Volume2",
-              tooltip: "Read aloud (selection or full message)",
-              appliesTo: "both",
-              event: "kokoro-tts:speak",
-            },
-          ],
-        }),
-      }),
+async function fulfillKokoroPost(page: Page, event: "speak" | "upload" | "save", json: unknown): Promise<void> {
+  const path = event === "upload"
+    ? "**/api/extensions/kokoro-tts/uploads"
+    : `**/api/extensions/kokoro-tts/events/${event}`;
+  await page.route(path, (route) => route.fulfill({ json }));
+}
+
+async function fulfillWavAttachment(page: Page, attachmentId: string): Promise<void> {
+  const silentWav = Buffer.from(
+    "UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=",
+    "base64",
+  );
+  await page.route(`**/api/attachments/${attachmentId}`, (route) =>
+    route.fulfill({ status: 200, contentType: "audio/wav", body: silentWav }),
   );
 }
 
@@ -209,51 +123,34 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
   test("speaker icon click POSTs the expected event payload, and a seeded excluded turn renders the audio + pill", async ({
     page,
     mockApi,
-    emitWs,
   }) => {
     // ── Capture the event POST. The route's URL path is the BARE event
     //    suffix (`speak`) — `buildExtensionEventUrl` strips the
     //    `kokoro-tts:` prefix before issuing the request, mirroring the
     //    server's `[event]` regex which rejects colons.
-    const speakCalls: Array<{ url: string; body: unknown }> = [];
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) => {
-        speakCalls.push({
-          url: route.request().url(),
-          body: route.request().postDataJSON(),
-        });
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      },
-    );
+    const speakCalls: Array<{ body: unknown }> = [];
 
-    await stubToolbarContributions(page, conv.id);
-
-    // ── Attachment fetch — return a 1-second silent WAV ─────────────
-    // Smallest-possible deterministic payload (44-byte WAV header +
-    // a few zero samples). The browser's <audio> element decodes it
-    // happily; we only assert presence of the element + its src.
-    const silentWav = Buffer.from(
-      "UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=",
-      "base64",
-    );
-    await page.route("**/api/attachments/att-real-1", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "audio/wav",
-        body: silentWav,
-      });
+    const ttsTurn = makeMessage({
+      id: "m3", conversationId: conv.id, role: "extension",
+      content: "🔊 TTS of message (62 chars)", excluded: true,
+      parentMessageId: assistantMsg.id, createdAt: "2026-01-01T00:01:30.000Z",
     });
-
     await mockApi({
       projects: [proj],
       conversations: [conv],
-      messages: [userMsg, assistantMsg],
+      messages: [userMsg, assistantMsg, ttsTurn],
+      extensionToolbarItems: kokoroToolbarItems(conv.id),
+      messageToolCalls: {
+        [ttsTurn.id]: [{
+          id: "tc-1", extensionId: "kokoro-tts", toolName: "kokoro-tts.synthesize",
+          cardType: "kokoro-tts-player", input: { text: assistantMsg.content },
+          outputSummary: null, fullOutput: JSON.stringify({ attachmentId: "att-real-1" }),
+          status: "success", success: true, durationMs: 1200, messageId: ttsTurn.id,
+        }],
+      },
     });
+    await captureKokoroPost(page, "speak", speakCalls);
+    await fulfillWavAttachment(page, "att-real-1");
     await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
     // ── Assert: speaker icon renders on the assistant turn ──────────
@@ -277,36 +174,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     // No selection captured (we didn't drag-select before clicking).
     expect(speakBody.selection).toBeNull();
 
-    // ── Server emits the new excluded turn (a real subprocess would
-    //    do this via ezcorp/append-message). Pre-populated with a
-    //    persisted attachmentId so the card skips live synthesis.
-    await emitWs({
-      type: "message:created",
-      data: {
-        id: "m3",
-        conversationId: "conv-1",
-        role: "extension",
-        content: "🔊 TTS of message (62 chars)",
-        excluded: true,
-        parentMessageId: "m2",
-        createdAt: "2026-01-01T00:01:30.000Z",
-        toolCalls: [
-          {
-            id: "tc-1",
-            toolName: "kokoro-tts.synthesize",
-            cardType: "kokoro-tts-player",
-            input: { text: assistantMsg.content },
-            output: { attachmentId: "att-real-1" },
-            status: "complete",
-            success: true,
-            durationMs: 1200,
-            messageId: "m3",
-          },
-        ],
-      },
-    });
-
-    // ── The new turn renders the persisted-audio card ───────────────
+    // The hydrated extension turn renders the persisted-audio card.
     const persistedAudio = page.getByTestId("kokoro-tts-audio-persisted");
     await expect(persistedAudio).toBeVisible({ timeout: 3000 });
     await expect(persistedAudio).toHaveAttribute(
@@ -324,24 +192,13 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     mockApi,
   }) => {
     const speakCalls: Array<{ body: unknown }> = [];
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) => {
-        speakCalls.push({ body: route.request().postDataJSON() });
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      },
-    );
-    await stubToolbarContributions(page, conv.id);
-
     await mockApi({
       projects: [proj],
       conversations: [conv],
       messages: [userMsg, assistantMsg],
+      extensionToolbarItems: kokoroToolbarItems(conv.id),
     });
+    await captureKokoroPost(page, "speak", speakCalls);
     await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
     const assistantRow = page.locator('[data-message-id="m2"]').first();
@@ -390,11 +247,11 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     page,
     mockApi,
   }) => {
-    await stubToolbarContributions(page, conv.id);
     await mockApi({
       projects: [proj],
       conversations: [conv],
       messages: [userMsg, assistantMsg],
+      extensionToolbarItems: kokoroToolbarItems(conv.id),
     });
     await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
@@ -415,86 +272,39 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
   test("live synthesis renders <audio> bound to a blob URL and POSTs save with conversationId", async ({
     page,
     mockApi,
-    emitWs,
   }) => {
-    await installWorkerStub(page);
-
-    // Speak: just acknowledge.
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        }),
-    );
-
-    // Upload: return a deterministic attachment id.
-    await page.route(
-      "**/api/extensions/kokoro-tts/uploads",
-      async (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ attachmentId: "att-live-1" }),
-        }),
-    );
+    await installKokoroWorkerStub(page);
 
     // (10) Save: capture so we can assert the body shape carries
     // conversationId (the recent "Invalid body" 400 regression).
     const saveCalls: Array<{ body: unknown }> = [];
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/save",
-      async (route) => {
-        saveCalls.push({ body: route.request().postDataJSON() });
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      },
-    );
-
-    await stubToolbarContributions(page, conv.id);
+    const ttsTurn = makeMessage({
+      id: "m3", conversationId: conv.id, role: "extension",
+      content: "🔊 TTS of message (n chars)", excluded: true,
+      parentMessageId: assistantMsg.id, createdAt: "2026-01-01T00:01:30.000Z",
+    });
     await mockApi({
       projects: [proj],
       conversations: [conv],
-      messages: [userMsg, assistantMsg],
+      messages: [userMsg, assistantMsg, ttsTurn],
+      extensionToolbarItems: kokoroToolbarItems(conv.id),
+      messageToolCalls: {
+        [ttsTurn.id]: [{
+          id: "tc-live-1", extensionId: "kokoro-tts", toolName: "kokoro-tts.synthesize",
+          cardType: "kokoro-tts-player", input: { text: assistantMsg.content },
+          outputSummary: null, fullOutput: null, status: "success",
+          success: true, durationMs: 0, messageId: ttsTurn.id,
+        }],
+      },
     });
+    await fulfillKokoroPost(page, "speak", { ok: true });
+    await fulfillKokoroPost(page, "upload", { attachmentId: "att-live-1" });
+    await captureKokoroPost(page, "save", saveCalls);
     await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
     const assistantRow = page.locator('[data-message-id="m2"]').first();
     await assistantRow.hover();
     await assistantRow.getByTestId("ext-action-kokoro-tts-speak").click();
-
-    // Server seeds the running tool-call (no attachmentId yet) so the
-    // card mounts in synthesizing mode and triggers the worker stub.
-    await emitWs({
-      type: "message:created",
-      data: {
-        id: "m3",
-        conversationId: "conv-1",
-        role: "extension",
-        content: "🔊 TTS of message (n chars)",
-        excluded: true,
-        parentMessageId: "m2",
-        createdAt: "2026-01-01T00:01:30.000Z",
-        toolCalls: [
-          {
-            id: "tc-live-1",
-            toolName: "kokoro-tts.synthesize",
-            cardType: "kokoro-tts-player",
-            input: { text: assistantMsg.content },
-            output: null,
-            status: "running",
-            success: false,
-            durationMs: 0,
-            messageId: "m3",
-          },
-        ],
-      },
-    });
 
     const blobAudio = page.getByTestId("kokoro-tts-audio-blob");
     await expect(blobAudio).toBeVisible({ timeout: 5000 });
@@ -503,7 +313,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
     // (10) The save event POST body carries conversationId, messageId,
     // toolCallId and attachmentId — schema regression canary.
-    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBe(1);
     const saveBody = saveCalls[0]!.body as SaveBody;
     expect(saveBody.conversationId).toBe("conv-1");
     expect(saveBody.messageId).toBe("m3");
@@ -523,7 +333,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     page,
     mockApi,
   }) => {
-    await installWorkerStub(page);
+    await installKokoroWorkerStub(page);
 
     // Persisted extension turn — already in the conversation history.
     const ttsTurn = makeMessage({
@@ -547,9 +357,8 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
           toolName: "kokoro-tts.synthesize",
           cardType: "kokoro-tts-player",
           input: { text: assistantMsg.content },
-          output: JSON.stringify({ attachmentId: "att-real-1" }),
           outputSummary: null,
-          fullOutput: null,
+          fullOutput: JSON.stringify({ attachmentId: "att-real-1" }),
           status: "success" as const,
           success: true,
           durationMs: 1200,
@@ -625,9 +434,8 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
           toolName: "kokoro-tts.synthesize",
           cardType: "kokoro-tts-player",
           input: { text: assistantMsg.content },
-          output: JSON.stringify({ attachmentId: "att-real-1" }),
           outputSummary: null,
-          fullOutput: null,
+          fullOutput: JSON.stringify({ attachmentId: "att-real-1" }),
           status: "success" as const,
           success: true,
           durationMs: 1200,
@@ -696,17 +504,31 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
   test("synthesis failure surfaces error + Retry; retry replays against the same toolCallId", async ({
     page,
     mockApi,
-    emitWs,
   }) => {
-    await installWorkerStub(page);
+    await installKokoroWorkerStub(page, { failNextN: 1, failureMessage: "model load timed out" });
 
-    // Speak / upload / save: acknowledge. Upload only fires after a
-    // successful synthesize, so it stays unhit on the first attempt.
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) =>
-        route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
-    );
+    // A real extension event persists the turn before this page reloads.
+    // Hydrate that current API contract so the card starts its first attempt.
+    const ttsTurn = makeMessage({
+      id: "m3", conversationId: conv.id, role: "extension",
+      content: "🔊 TTS of message (n chars)", excluded: true,
+      parentMessageId: assistantMsg.id, createdAt: "2026-01-01T00:01:30.000Z",
+    });
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [userMsg, assistantMsg, ttsTurn],
+      messageToolCalls: {
+        [ttsTurn.id]: [{
+          id: "tc-retry-1", extensionId: "kokoro-tts", toolName: "kokoro-tts.synthesize",
+          cardType: "kokoro-tts-player", input: { text: assistantMsg.content },
+          outputSummary: null, fullOutput: null, status: "success",
+          success: true, durationMs: 0, messageId: ttsTurn.id,
+        }],
+      },
+    });
+
+    // Register specific endpoint controls after mockApi so they take precedence.
     let uploadHits = 0;
     await page.route(
       "**/api/extensions/kokoro-tts/uploads",
@@ -727,54 +549,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
         await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
       },
     );
-
-    await stubToolbarContributions(page, conv.id);
-    await mockApi({
-      projects: [proj],
-      conversations: [conv],
-      messages: [userMsg, assistantMsg],
-    });
     await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-
-    // Arm the stub to fail the FIRST synthesize call only.
-    await page.evaluate(() => {
-      const stub = (window as unknown as {
-        __kokoroStub: { failNextN: number; failureMessage: string };
-      }).__kokoroStub;
-      stub.failNextN = 1;
-      stub.failureMessage = "model load timed out";
-    });
-
-    const assistantRow = page.locator('[data-message-id="m2"]').first();
-    await assistantRow.hover();
-    await assistantRow.getByTestId("ext-action-kokoro-tts-speak").click();
-
-    // Seed the running turn — same toolCallId used for both attempts.
-    await emitWs({
-      type: "message:created",
-      data: {
-        id: "m3",
-        conversationId: "conv-1",
-        role: "extension",
-        content: "🔊 TTS of message (n chars)",
-        excluded: true,
-        parentMessageId: "m2",
-        createdAt: "2026-01-01T00:01:30.000Z",
-        toolCalls: [
-          {
-            id: "tc-retry-1",
-            toolName: "kokoro-tts.synthesize",
-            cardType: "kokoro-tts-player",
-            input: { text: assistantMsg.content },
-            output: null,
-            status: "running",
-            success: false,
-            durationMs: 0,
-            messageId: "m3",
-          },
-        ],
-      },
-    });
 
     // Error block + Retry button render after the first failed synth.
     await expect(page.getByTestId("kokoro-tts-error")).toBeVisible({ timeout: 5000 });
@@ -792,15 +567,15 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     await expect(page.getByTestId("kokoro-tts-audio-blob")).toBeVisible({
       timeout: 5000,
     });
-    expect(uploadHits).toBeGreaterThanOrEqual(1);
+    expect(uploadHits).toBe(1);
 
     // No second card spawned.
     const cardsAfter = await page.getByTestId("kokoro-tts-player-card").count();
     expect(cardsAfter).toBe(1);
 
     // Save event references the SAME toolCallId across the retry.
-    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBeGreaterThanOrEqual(1);
-    const saveBody = saveCalls[saveCalls.length - 1]!.body as SaveBody;
+    await expect.poll(() => saveCalls.length, { timeout: 3000 }).toBe(1);
+    const saveBody = saveCalls[0]!.body as SaveBody;
     expect(saveBody.toolCallId).toBe("tc-retry-1");
 
     // Two synthesize attempts in total — the failed one + the retry.
@@ -808,188 +583,59 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
       const stub = (window as unknown as { __kokoroStub: { calls: unknown[] } }).__kokoroStub;
       return stub.calls.length;
     });
-    expect(synthCallCount).toBeGreaterThanOrEqual(2);
+    expect(synthCallCount).toBe(2);
   });
 
   // ── Settings end-to-end (Slice 5) ────────────────────────────────
   //
-  // The user picked `bf_emma` + speed `1.5` on the extension settings
-  // page; the resolved blob lives behind `/api/extensions/<id>/settings`
-  // and is loaded into a module-scoped Svelte store on chat-page mount.
+  // A resolved `bf_emma` + speed `1.5` blob lives behind
+  // `/api/extensions/<id>/settings` and is loaded into the browser cache.
   // `KokoroTtsPlayerCard.svelte` reads voice + speed from that store and
   // forwards them to `bridge.synthesize(text, { voice, speed })`, which
   // postMessages the worker. We assert the captured worker frame carries
-  // the user's chosen values — not the hard-coded `af_bella` / `1.0`.
+  // the resolved values — not the hard-coded `af_bella` / `1.0`.
   test("chosen voice + speed reach the synth bridge", async ({
     page,
     mockApi,
-    emitWs,
   }) => {
-    // Worker stub that ALSO captures `speed`. Identical wire protocol
-    // to the existing stub but with an extended `calls` shape.
-    await page.addInitScript(() => {
-      const w = window as unknown as Record<string, unknown>;
-      w.__kokoroStub = {
-        calls: [] as Array<{ text: string; voice?: string; speed?: number; id: string }>,
-      };
-      function makeFakeWav(): ArrayBuffer {
-        return new Uint8Array([0, 0, 0, 0]).buffer;
-      }
-      class StubWorker {
-        private listeners: Record<string, Array<(e: Event) => void>> = {
-          message: [],
-          error: [],
-          messageerror: [],
-        };
-        onmessage: ((e: MessageEvent) => void) | null = null;
-        constructor(_url: string | URL, _opts?: WorkerOptions) {}
-        postMessage(msg: unknown): void {
-          const stub = (window as unknown as {
-            __kokoroStub: { calls: Array<{ text: string; voice?: string; speed?: number; id: string }> };
-          }).__kokoroStub;
-          if (msg == null || typeof msg !== "object") return;
-          const m = msg as Record<string, unknown>;
-          if (m.type !== "synthesize") return;
-          stub.calls.push({
-            text: m.text as string,
-            voice: m.voice as string | undefined,
-            speed: m.speed as number | undefined,
-            id: m.id as string,
-          });
-          const dispatch = (data: unknown) => {
-            const ev = new MessageEvent("message", { data });
-            this.onmessage?.(ev);
-            for (const fn of this.listeners.message ?? []) fn(ev);
-          };
-          queueMicrotask(() => {
-            dispatch({ type: "loading", id: m.id, phase: "model" });
-            queueMicrotask(() => {
-              dispatch({ type: "ready", id: m.id });
-              queueMicrotask(() => {
-                dispatch({ type: "audio", id: m.id, wav: makeFakeWav() });
-              });
-            });
-          });
-        }
-        addEventListener(type: string, fn: (e: Event) => void): void {
-          (this.listeners[type] ??= []).push(fn);
-        }
-        removeEventListener(type: string, fn: (e: Event) => void): void {
-          const arr = this.listeners[type];
-          if (arr) this.listeners[type] = arr.filter((f) => f !== fn);
-        }
-        terminate(): void {}
-      }
-      (window as unknown as { Worker: unknown }).Worker = StubWorker as unknown;
+    await installKokoroWorkerStub(page);
+    const ttsTurn = makeMessage({
+      id: "m3", conversationId: conv.id, role: "extension",
+      content: "🔊 TTS of message (n chars)", excluded: true,
+      parentMessageId: assistantMsg.id, createdAt: "2026-01-01T00:01:30.000Z",
     });
-
-    // Mock the lookup-by-name endpoint that the store uses to resolve
-    // an extension name → id. The id is what /settings is keyed on.
-    await page.route("**/api/extensions?name=kokoro-tts", async (route) =>
-      route.fulfill({
-        json: [{ id: "ext-kokoro", name: "kokoro-tts" }],
-      }),
-    );
-    // The settings GET — return a `resolved` blob with the user's
-    // overrides. The store reads `body.resolved` and caches by name.
-    await page.route("**/api/extensions/ext-kokoro/settings", async (route) => {
-      if (route.request().method() !== "GET") return route.fallback();
-      await route.fulfill({
-        json: {
-          schema: {
-            voice: { type: "select", label: "Voice", options: [], default: "af_bella" },
-            speed: { type: "number", label: "Speed", default: 1.0 },
-          },
-          declaredDefaults: { voice: "af_bella", speed: 1.0 },
-          globalValues: {},
-          userValues: { voice: "bf_emma", speed: 1.5 },
-          resolved: { voice: "bf_emma", speed: 1.5 },
-        },
-      });
-    });
-    // The PUT user-settings call the brief asks for — it's not what
-    // hydrates the in-page store (the page-level GET above does), but
-    // we simulate the brief's pre-seed step for symmetry. The PUT just
-    // ack's; the GET result above is what the card actually reads.
-    let userPutBody: unknown = null;
-    await page.route("**/api/extensions/ext-kokoro/settings/user", async (route) => {
-      if (route.request().method() !== "PUT") return route.fallback();
-      userPutBody = route.request().postDataJSON();
-      await route.fulfill({ json: { ok: true, userValues: { voice: "bf_emma", speed: 1.5 } } });
-    });
-
-    // Speak / upload / save — same plumbing as the live-synth test.
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) =>
-        route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
-    );
-    await page.route(
-      "**/api/extensions/kokoro-tts/uploads",
-      async (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ attachmentId: "att-settings-1" }),
-        }),
-    );
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/save",
-      async (route) =>
-        route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
-    );
-
-    await stubToolbarContributions(page, conv.id);
     await mockApi({
       projects: [proj],
       conversations: [conv],
-      messages: [userMsg, assistantMsg],
-    });
-
-    // Pre-seed via the public PUT — proves the wire shape the brief
-    // documents. The actual store hydration happens via the GET above.
-    await page.request.put("/api/extensions/ext-kokoro/settings/user", {
-      data: { values: { voice: "bf_emma", speed: 1.5 } },
-    });
-    expect(userPutBody).toEqual({ values: { voice: "bf_emma", speed: 1.5 } });
-
-    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-
-    const assistantRow = page.locator('[data-message-id="m2"]').first();
-    await assistantRow.hover();
-    await assistantRow.getByTestId("ext-action-kokoro-tts-speak").click();
-
-    await emitWs({
-      type: "message:created",
-      data: {
-        id: "m3",
-        conversationId: "conv-1",
-        role: "extension",
-        content: "🔊 TTS of message (n chars)",
-        excluded: true,
-        parentMessageId: "m2",
-        createdAt: "2026-01-01T00:01:30.000Z",
-        toolCalls: [
-          {
-            id: "tc-settings-1",
-            toolName: "kokoro-tts.synthesize",
-            cardType: "kokoro-tts-player",
-            input: { text: assistantMsg.content },
-            output: null,
-            status: "running",
-            success: false,
-            durationMs: 0,
-            messageId: "m3",
-          },
-        ],
+      messages: [userMsg, assistantMsg, ttsTurn],
+      messageToolCalls: {
+        [ttsTurn.id]: [{
+          id: "tc-settings-1", extensionId: "kokoro-tts", toolName: "kokoro-tts.synthesize",
+          cardType: "kokoro-tts-player", input: { text: assistantMsg.content },
+          outputSummary: null, fullOutput: null, status: "success",
+          success: true, durationMs: 0, messageId: ttsTurn.id,
+        }],
       },
     });
 
-    // Wait for synthesis to complete (audio mounts) so the postMessage
-    // captured by the stub is observable.
-    await expect(page.getByTestId("kokoro-tts-audio-blob")).toBeVisible({
-      timeout: 5000,
+    // The layout preloads settings for enabled extensions that declare a
+    // settings schema. Register these specific routes after mockApi.
+    await page.route(/\/api\/extensions(?:\?.*)?$/, async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({ json: [{
+        id: "ext-kokoro", name: "kokoro-tts", enabled: true,
+        manifest: { settings: { voice: {}, speed: {} } },
+      }] });
     });
+    await page.route("**/api/extensions/ext-kokoro/settings", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({ json: { resolved: { voice: "bf_emma", speed: 1.5 } } });
+    });
+    await fulfillKokoroPost(page, "upload", { attachmentId: "att-settings-1" });
+    await fulfillKokoroPost(page, "save", { ok: true });
+
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    await expect(page.getByTestId("kokoro-tts-audio-blob")).toBeVisible({ timeout: 5000 });
 
     const calls = await page.evaluate(() => {
       const stub = (window as unknown as {
@@ -997,20 +643,9 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
       }).__kokoroStub;
       return stub.calls;
     });
-    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(calls).toHaveLength(1);
     expect(calls[0]!.voice).toBe("bf_emma");
     expect(calls[0]!.speed).toBe(1.5);
 
-    // Cleanup — the brief asks for an explicit DELETE.
-    let userDeleted = false;
-    await page.route("**/api/extensions/ext-kokoro/settings/user", async (route) => {
-      if (route.request().method() === "DELETE") {
-        userDeleted = true;
-        return route.fulfill({ json: { ok: true } });
-      }
-      return route.fallback();
-    });
-    await page.request.delete("/api/extensions/ext-kokoro/settings/user");
-    expect(userDeleted).toBe(true);
   });
 });

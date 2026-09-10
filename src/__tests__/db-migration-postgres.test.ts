@@ -252,12 +252,26 @@ describe("migration on Postgres-compatible backend", () => {
 // test process must have it set (the CI job does); locally it's skipped.
 const PG_URL = process.env.DATABASE_URL;
 
+test("db-postgres CI invokes the one-connection migration lifecycle", async () => {
+  // The normal external-Postgres suite deliberately uses its default pool.
+  // The pool-one lifecycle has its own process so DB_POOL_MAX is captured at
+  // connection.ts module load, and this contract prevents that focused CI
+  // entry from being deleted or renamed into an unexecuted test.
+  const workflow = Bun.YAML.parse(
+    await Bun.file(new URL("../../.github/workflows/db-postgres.yml", import.meta.url)).text(),
+  ) as {
+    jobs?: Record<string, { steps?: Array<{ name?: string; run?: string; env?: Record<string, string> }> }>;
+  };
+  const poolOneStep = workflow.jobs?.["external-postgres"]?.steps?.find(
+    (step) => step.name === "Run one-connection Postgres migration lifecycle",
+  );
+  expect(poolOneStep).toBeDefined();
+  expect(poolOneStep?.run).toBe("bun test ./tests/postgres/pool-one.test.ts");
+  expect(poolOneStep?.env?.DB_POOL_MAX).toBe("1");
+});
+
 describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
   let conn: typeof import("../db/connection");
-  // The pool-one regression owns this exact child. A test timeout interrupts
-  // its body before it can await child.exited, so afterAll must terminate it
-  // rather than leave a session-level advisory lock on the shared test server.
-  let poolOneMigrationChild: ReturnType<typeof Bun.spawn> | null = null;
 
   beforeAll(async () => {
     restoreModuleMocks();
@@ -276,20 +290,6 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
   }, 60_000);
 
   afterAll(async () => {
-    const child = poolOneMigrationChild;
-    poolOneMigrationChild = null;
-    if (child) {
-      try {
-        child.kill();
-      } catch {
-        /* child already exited */
-      }
-      try {
-        await child.exited;
-      } catch {
-        /* best-effort cleanup after a test failure */
-      }
-    }
     if (conn) await conn.closeDb();
     restoreModuleMocks();
   });
@@ -315,37 +315,6 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
     await conn.__test.withPostgresMigrateLock((migrationDb) => migrate(migrationDb));
     const { rows } = await conn.rawQuery("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'");
     expect((rows[0] as { n: number }).n).toBeGreaterThan(20);
-  });
-
-  test("a one-connection Bun.sql pool can initialize and migrate twice", async () => {
-    // reserve() removes the lock connection from Bun.sql's general pool. This
-    // must still work at the documented DB_POOL_MAX=1 floor: initDb's first
-    // migration and this second migration both need to use that same reserved
-    // connection rather than wait forever for a spare one.
-    const connectionUrl = new URL("../db/connection.ts", import.meta.url).href;
-    const migrateUrl = new URL("../db/migrate.ts", import.meta.url).href;
-    const script = [
-      `const conn = await import(${JSON.stringify(connectionUrl)});`,
-      `const { migrate } = await import(${JSON.stringify(migrateUrl)});`,
-      "await conn.initDb();",
-      "await conn.__test.withPostgresMigrateLock((migrationDb) => migrate(migrationDb));",
-      "await conn.closeDb();",
-    ].join("\n");
-    const child = Bun.spawn({
-      cmd: [process.execPath, "-e", script],
-      cwd: process.cwd(),
-      env: { ...process.env, DATABASE_URL: PG_URL!, DB_POOL_MAX: "1" },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    poolOneMigrationChild = child;
-    const [exitCode, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
-    expect(exitCode, `pool-one migration failed:\n${stdout}\n${stderr}`).toBe(0);
-    poolOneMigrationChild = null;
   });
 
   test("execute() wrapper normalizes bun-sql arrays to { rows }", async () => {

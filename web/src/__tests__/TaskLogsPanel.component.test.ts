@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render } from "@testing-library/svelte";
+import { cleanup, fireEvent, render } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const { openTeamPanel } = vi.hoisted(() => ({
@@ -96,4 +96,18 @@ describe("TaskLogsPanel sub-agent turns", () => {
 			"/api/conversations/conversation-1/tasks/task-1/messages",
 		);
 	});
+});
+
+test("shows a failed agent's tool details and lets the user collapse its stream", async () => {
+	vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ streams: [{
+		assignmentId: "assignment-1", agentName: "Builder", subConversationId: "sub-1", status: "failed",
+		messages: [{ id: "user-1", role: "user", content: "Repair it", createdAt: "2026-01-01T00:00:00.000Z", toolCalls: [] }, { id: "turn-2", role: "assistant", content: "", createdAt: "2026-01-01T00:00:02.000Z", toolCalls: [{ id: "tool-2", toolName: "run_test", input: { target: "unit" }, outputSummary: "failed assertion", success: false, durationMs: 21, status: "failed" }] }],
+	}] }), { status: 200 })));
+	const { findByText, getByText, queryByText } = render(TaskLogsPanel, { task: { ...task, status: "failed", assignments: [{ ...task.assignments[0], status: "failed" }] }, conversationId: "conversation-1", open: true, onclose: vi.fn() });
+	expect(await findByText("Failed")).toBeInTheDocument();
+	await findByText("run_test");
+	await fireEvent.click(getByText("run_test"));
+	expect(getByText("failed assertion")).toBeInTheDocument();
+	await fireEvent.click(getByText("@Builder"));
+	expect(queryByText("failed assertion")).toBeNull();
 });

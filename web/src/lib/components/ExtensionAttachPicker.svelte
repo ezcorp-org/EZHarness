@@ -194,13 +194,14 @@
 	<!-- Header -->
 	<div class="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3">
 		<div>
-			<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">
-				Attach extensions
-			</h2>
+			{#if !bp.below}
+				<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">Attach extensions</h2>
+			{/if}
 			<p class="text-xs text-[var(--color-text-muted)]">
 				Select the extensions whose tools this agent should use.
 			</p>
 		</div>
+		{#if !bp.below}
 		<button
 			type="button"
 			onclick={onclose}
@@ -212,6 +213,7 @@
 				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
 			</svg>
 		</button>
+		{/if}
 	</div>
 
 	<!-- Search -->
@@ -307,7 +309,7 @@
 									class="ml-auto shrink-0 rounded-full bg-[var(--color-surface-tertiary)] px-2 py-0.5 text-xs text-[var(--color-text-muted)]"
 									title="Tool count"
 								>
-									{toolCount(ext)} tools
+									{toolCount(ext)} {toolCount(ext) === 1 ? "tool" : "tools"}
 								</span>
 							</div>
 							{#if ext.description}
@@ -394,13 +396,10 @@
 {/snippet}
 
 {#if open && bp.below}
-	<BottomSheet open={true} onclose={onclose} ariaLabel="Attach extension picker">
+	<BottomSheet open={true} onclose={onclose} ariaLabel="Attach extensions">
 		<!-- Preserve the picker's external dialog identity so existing
 		     tests can still find `extension-attach-picker` / `-panel`. -->
 		<div
-			role="dialog"
-			aria-modal="true"
-			aria-label="Attach extensions"
 			data-testid="extension-attach-picker"
 			class="flex flex-col"
 		>

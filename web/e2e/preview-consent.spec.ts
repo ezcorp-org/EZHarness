@@ -19,12 +19,10 @@
  * Transport note (project gotcha): runtime events flow over SSE on
  * `/api/runtime-events`; we drive the tool card via `emitSse`, NOT
  * `emitWs` (mirrors substack-review-card.spec.ts). The real watcher
- * daemon + the seeded DB roundtrip (a live preview_sessions row +
- * one-time-code handoff) require the Docker harness and are gated below,
- * mirroring preview-static.spec.ts's plain/Docker split. The consent
- * endpoint is mocked at the browser fetch boundary — exactly the surface
- * the card calls; its server logic is covered by the vitest handler suite
- * (api-preview-consent.server.test.ts) + the consent-service PGlite suite.
+ * daemon + the seeded DB roundtrip run in a real-auth sibling spec. The
+ * endpoint is mocked at the browser fetch boundary — exactly the surface the
+ * card calls; its server logic is covered by the vitest handler suite and the
+ * consent-service PGlite suite.
  */
 
 import { test, expect } from "./fixtures/test-base.js";
@@ -218,34 +216,5 @@ test.describe("secure preview — expose-consent card", () => {
 		await expect(page.getByTestId("preview-consent-error")).toContainText("expose failed", {
 			timeout: 8000,
 		});
-	});
-});
-
-test.describe("secure preview — seeded auto-expose roundtrip (Docker-gated)", () => {
-	// The full path — the REAL port watcher emitting preview:detected, the
-	// consent endpoint creating a live preview_sessions row, the
-	// always-expose preference auto-exposing without a click, and the
-	// one-time-code handoff redeemed at /__open — needs the Docker harness
-	// (DOCKER_TEST=1 + a seeded conversation/user). In plain preview there
-	// is no DB so the endpoint can't create a row. Skipped, not deleted, so
-	// the Docker job picks it up. Mirrors preview-static.spec.ts.
-	test.skip(!process.env.DOCKER_TEST, "requires Docker harness + seeded conversation/user");
-
-	test("always-expose preference auto-exposes a subsequently detected port", async ({ request }) => {
-		// In the Docker harness: POST /api/preview/consent {action:
-		// "always-expose"} once (authed app origin) → preference set + first
-		// port exposed; then a later preview:detected for the same
-		// conversation auto-exposes WITHOUT a card. Assert a second active
-		// preview_sessions row appears for the requester and the handoff code
-		// redeems at /__open. The seed fixture provisions the conversation +
-		// user session cookie.
-		const convId = process.env.PREVIEW_SEED_CONV_ID ?? conv.id;
-		const res = await request.post("/api/preview/consent", {
-			data: { conversationId: convId, port: 5173, action: "always-expose" },
-		});
-		expect(res.ok()).toBeTruthy();
-		const body = await res.json();
-		expect(body.previewId).toBeTruthy();
-		expect(body.code).toBeTruthy();
 	});
 });

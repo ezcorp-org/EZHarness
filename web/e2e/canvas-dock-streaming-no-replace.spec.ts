@@ -15,7 +15,7 @@ test.describe("Canvas Dock — streaming precedence", () => {
 	const userMsg = makeMessage({ id: "m1", conversationId: "conv-1", role: "user", content: "Hi" });
 	const assistantMsg = makeMessage({ id: "m2", conversationId: "conv-1", role: "assistant", content: "Sure", parentMessageId: "m1", createdAt: "2026-01-01T00:01:00.000Z" });
 
-	test("tool:start (running) for cardLayout:dock does NOT auto-open; tool:complete does", async ({ page, mockApi, emitWs }) => {
+	test("tool:start (running) for cardLayout:dock does NOT auto-open; tool:complete does", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await Promise.all([
@@ -23,7 +23,7 @@ test.describe("Canvas Dock — streaming precedence", () => {
 			sendComposerMessage(page, "Open"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: { conversationId: "conv-1", toolName: "claude-design__open-canvas", input: { draftId: "d-1" }, timestamp: Date.now(), cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-stream-1" },
 		});
@@ -33,7 +33,7 @@ test.describe("Canvas Dock — streaming precedence", () => {
 		await expect(page.getByTestId("dock-host")).toHaveCount(0);
 
 		// Now complete — dock opens.
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: { conversationId: "conv-1", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify({ draftId: "d-1", iframeSrc: "/api/extensions/claude-design/data/x.html" }) }] }, duration: 30, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-stream-1" },
 		});

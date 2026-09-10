@@ -88,9 +88,9 @@ test("dropping a PNG anywhere in the chat window stages it and sends multipart",
 	// Capabilities must have loaded (stageFiles is a no-op without them).
 	await expect(page.getByTestId("attachment-button")).toBeVisible({ timeout: 5_000 });
 
-	// Drop the PNG onto the chat column — outside the composer's input box —
+	// Drop the PNG onto the visible thread — outside the composer's input box —
 	// to prove the outer drop zone, not just the inner one, stages files.
-	await dropFileOn(page, "[data-testid='chat-column']", {
+	await dropFileOn(page, "[data-testid='chat-thread']", {
 		name: "dropped.png",
 		type: "image/png",
 		bytes: Array.from(PNG_1x1),

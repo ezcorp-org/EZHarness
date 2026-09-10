@@ -1,17 +1,17 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { modelCatalogRoutes } from "./fixtures/model-routes.js";
+import type { SubConversationMock } from "./fixtures/api-mocks.js";
 import type { Page } from "@playwright/test";
 
 test.describe("Multi-Agent Orchestration", () => {
 	const proj = makeProject({ id: "proj-1", name: "Agent Project" });
 	const conv = makeConversation({ id: "conv-1", projectId: "proj-1", model: "gpt-4", provider: "openai" });
 
-	const modelsRoute = {
-		"/api/models": () => [
-			{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true },
-		],
-	};
+	const modelsRoute = modelCatalogRoutes([
+			{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true, tier: "balanced", costTier: "medium" },
+		]);
 
 	/** Send a chat message and wait for the API response (ensures startStreaming is called) */
 	async function sendAndWaitForStream(page: Page, text: string) {
@@ -368,7 +368,7 @@ test.describe("Multi-Agent Orchestration", () => {
 		await expect(page.locator(".agent-detail-panel")).toBeVisible({ timeout: 5000 });
 
 		// Click backdrop to close
-		await page.locator(".agent-detail-backdrop").click();
+		await page.getByTestId("swipe-drawer-backdrop").click();
 		await expect(page.locator(".agent-detail-panel")).not.toBeVisible();
 	});
 
@@ -384,28 +384,31 @@ test.describe("Multi-Agent Orchestration", () => {
 		});
 
 		// Sub-conversation WITH agentConfigId = agent-spawned
-		const agentSubConvo = makeConversation({
-			id: "sub-conv-1",
-			title: "researcher",
-			projectId: "proj-1",
+		const historicalAgentSubConvo: SubConversationMock = {
+			...makeConversation({
+				id: "sub-conv-1",
+				title: "researcher",
+				projectId: "proj-1",
+			}),
 			agentConfigId: "cfg-1",
-		});
+			parentMessageId: "msg-1",
+			parentConversationId: conv.id,
+			agentName: "researcher",
+			messageCount: 1,
+			lastMessagePreview: "Research complete.",
+		};
 
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [assistantMsg],
 			routes: {
-				"/api/conversations/conv-1/sub-conversations": () => [
-					{ ...agentSubConvo, parentMessageId: "msg-1" },
-				],
+				"/api/conversations/conv-1/sub-conversations": () => [historicalAgentSubConvo],
 				"/api/conversations/conv-1/messages": (url: URL) => {
 					if (url.searchParams.get("withToolCalls") === "true") {
 						return {
 							messages: [{ ...assistantMsg, toolCalls: [] }],
-							subConversations: [
-								{ ...agentSubConvo, parentMessageId: "msg-1" },
-							],
+							subConversations: [historicalAgentSubConvo],
 						};
 					}
 					return [assistantMsg];

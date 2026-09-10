@@ -222,7 +222,10 @@ export function parseReportJsonl(jsonl: string): DecodedShot[] {
  * Uses the host `unzip` (present on GitHub runners) to read zip entries without
  * adding a zip dependency. A missing/empty dir yields `[]` (fail-soft).
  */
-async function readBlobReports(blobDir: string): Promise<string[]> {
+export async function readBlobReports(
+  blobDir: string,
+  { zipOnly = false }: { zipOnly?: boolean } = {},
+): Promise<string[]> {
   let entries: string[];
   try {
     entries = await readdir(blobDir);
@@ -232,7 +235,7 @@ async function readBlobReports(blobDir: string): Promise<string[]> {
   const out: string[] = [];
   for (const name of entries) {
     const full = join(blobDir, name);
-    if (name === "report.jsonl") {
+    if (!zipOnly && name === "report.jsonl") {
       out.push(await Bun.file(full).text().catch(() => ""));
     } else if (name.endsWith(".zip")) {
       // `unzip -p` streams the inner report.jsonl to stdout.

@@ -26,7 +26,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { MESSAGE_TOOLBAR_PROPS } from "./message-toolbar-registry.js";
+import { getToolbarProp, MESSAGE_TOOLBAR_PROPS } from "./message-toolbar-registry.js";
 
 const COMPONENTS_DIR = resolve(__dirname);
 
@@ -51,6 +51,11 @@ function extractToolbarProps(source: string): string[] {
 }
 
 describe("MessageToolbar parity", () => {
+	it("looks up registered actions and rejects unknown actions", () => {
+		expect(getToolbarProp("oncopy")).toEqual(MESSAGE_TOOLBAR_PROPS.find(entry => entry.prop === "oncopy"));
+		expect(getToolbarProp("oncopy")?.prop).toBe("oncopy");
+		expect(getToolbarProp("onunknown")).toBeUndefined();
+	});
 	const toolbarSrc = read(
 		resolve(COMPONENTS_DIR, "MessageToolbar.svelte"),
 	);

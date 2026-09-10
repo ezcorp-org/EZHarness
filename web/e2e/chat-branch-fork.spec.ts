@@ -126,7 +126,7 @@ test.describe("Chat branch button → fork to new chat", () => {
 		// secondary check only applies on the desktop viewport (the bulk
 		// path's mobile behaviour is owned by conversation-fork-flow.spec.ts).
 		if (testInfo.project.name !== "mobile-chromium") {
-			const sidebar = page.locator("div.md\\:w-\\[280px\\]").first();
+			const sidebar = page.getByRole("navigation", { name: "Conversations" });
 			await expect(sidebar.getByText(/^Forked:/).first()).toBeVisible();
 		}
 	});

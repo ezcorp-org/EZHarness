@@ -195,6 +195,10 @@ describe("AgentExecutor.streamChat — pre-stream provider failover", () => {
     // The turn completed — served by the FALLBACK provider, not the failed one.
     expect(run.status).toBe("success");
     expect((run.result?.output as { fullText?: string })?.fullText).toBe("served by fallback");
+    // GoalHost continues from these fields, so a fallback must replace the
+    // initial model binding as well as the provider binding.
+    expect(run.provider).toBe("prov-ok");
+    expect(run.model).toBe("prov-ok-model");
     // Failover actually fired: one fallback lookup + a rebuild on prov-ok.
     expect(suggestFallbackCalls).toBe(1);
     expect(resolveModelCalls).toEqual(["prov-fail", "prov-ok"]);

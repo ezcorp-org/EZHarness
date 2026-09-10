@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/hydration.js";
+import { createMemberSession } from "./fixtures/member-session.js";
 
 /**
  * E2E for the secure-preview origin (Secure User-Site Preview / Port
@@ -10,17 +11,33 @@ import { test, expect } from "./fixtures/hydration.js";
  * APIRequestContext with a spoofed `Host` header rather than a browser
  * navigation, because the preview origin is server-side routing.
  *
- * The access-denied + bad-code + non-preview-host paths return BEFORE any
- * DB access, so they run in plain preview (no DB). The full static
- * happy-path (handoff with a seeded preview_sessions row) needs the
- * Docker harness + a seeded row and is Docker-gated below.
+ * The real-auth harness supplies the authenticated user, a real PGlite DB,
+ * and the intentionally gated static-preview fixture. It runs this whole
+ * file so denial and successful handoff exercise one configured origin.
  */
 
 const VALID_ID = "abcdefghjkmnpqrstvwxyz0123";
-const APP = "http://localhost:4173";
+const APP = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 const PREVIEW_HOST = `${VALID_ID}.preview.localhost`;
 
 test.describe("secure preview origin — access layer", () => {
+  test("test-only seed fixture requires an authenticated session", async ({ playwright, baseURL }) => {
+    const anonymous = await playwright.request.newContext({
+      baseURL: baseURL ?? APP,
+      // Test `use.storageState` is inherited unless this is explicit.
+      storageState: { cookies: [], origins: [] },
+    });
+    try {
+      // Pin the isolation precondition so this denial is a real anonymous
+      // request instead of a second authenticated seed.
+      expect((await anonymous.storageState()).cookies).toEqual([]);
+      const seeded = await anonymous.post("/api/__test/seed-static-preview");
+      expect(seeded.status()).toBe(401);
+    } finally {
+      await anonymous.dispose();
+    }
+  });
+
   test("access denied: a preview request with no __ezpreview cookie is 404", async ({ request }) => {
     const res = await request.get(`${APP}/index.html`, {
       headers: { host: PREVIEW_HOST },
@@ -52,13 +69,27 @@ test.describe("secure preview origin — access layer", () => {
   });
 });
 
-test.describe("secure preview origin — static happy path (Docker-gated)", () => {
-  // Full handoff requires a seeded preview_sessions row + DB + the
-  // /api/preview/:id/token mint behind a real session. That lives in the
-  // Docker harness (DOCKER_TEST=1 + seed). In plain preview there is no
-  // DB so getServablePreview cannot return a row. Skipped, not deleted,
-  // so the Docker job picks it up.
-  test.skip(!process.env.DOCKER_TEST, "requires Docker harness + seeded preview row");
+test.describe("secure preview origin — static happy path", () => {
+  test("seed cleanup validates its payload and hides another owner's preview", async ({ request, baseURL }) => {
+    const seeded = await request.post("/api/__test/seed-static-preview");
+    expect(seeded.ok(), await seeded.text()).toBeTruthy();
+    const { previewId } = await seeded.json();
+    try {
+      const missingId = await request.delete("/api/__test/seed-static-preview", { data: {} });
+      expect(missingId.status()).toBe(400);
+
+      const member = await createMemberSession(request, baseURL ?? APP, "static-preview-owner-boundary");
+      try {
+        const foreignCleanup = await member.delete("/api/__test/seed-static-preview", { data: { previewId } });
+        expect(foreignCleanup.status()).toBe(404);
+      } finally {
+        await member.dispose();
+      }
+    } finally {
+      const cleanup = await request.delete("/api/__test/seed-static-preview", { data: { previewId } });
+      expect(cleanup.ok(), await cleanup.text()).toBeTruthy();
+    }
+  });
 
   test("access denied: an invalid __ezpreview cookie is 404 (verify needs the JWT secret -> DB)", async ({ request }) => {
     const res = await request.get(`${APP}/`, {
@@ -69,27 +100,28 @@ test.describe("secure preview origin — static happy path (Docker-gated)", () =
   });
 
   test("authorized owner is served the static index.html", async ({ request }) => {
-    // In the Docker harness: mint a code via POST /api/preview/:id/token
-    // (authed app origin), redeem at /__open to get the __ezpreview cookie,
-    // then GET / on the preview host and assert the served site body.
-    // The seed fixture provisions the row + on-disk .ezcorp/sites/<id>/.
-    const seededId = process.env.PREVIEW_SEED_ID ?? VALID_ID;
-    const host = `${seededId}.preview.localhost`;
-    const mint = await request.post(`${APP}/api/preview/${seededId}/token`);
-    expect(mint.ok()).toBeTruthy();
-    const { code } = await mint.json();
-    const open = await request.get(`${APP}/__open?c=${code}`, {
-      headers: { host },
-      maxRedirects: 0,
-    });
-    expect(open.status()).toBe(302);
-    const setCookie = open.headers()["set-cookie"] ?? "";
-    expect(setCookie).toContain("__ezpreview=");
-    const cookieVal = /__ezpreview=([^;]+)/.exec(setCookie)?.[1] ?? "";
-    const served = await request.get(`${APP}/`, {
-      headers: { host, cookie: `__ezpreview=${cookieVal}` },
-    });
-    expect(served.status()).toBe(200);
-    expect(served.headers()["content-type"]).toContain("text/html");
+    const seeded = await request.post("/api/__test/seed-static-preview");
+    expect(seeded.ok(), await seeded.text()).toBeTruthy();
+    const { previewId, code } = await seeded.json();
+    try {
+      const host = `${previewId}.preview.localhost`;
+      const open = await request.get(`${APP}/__open?c=${code}`, {
+        headers: { host },
+        maxRedirects: 0,
+      });
+      expect(open.status()).toBe(302);
+      const setCookie = open.headers()["set-cookie"] ?? "";
+      expect(setCookie).toContain("__ezpreview=");
+      const cookieVal = /__ezpreview=([^;]+)/.exec(setCookie)?.[1] ?? "";
+      const served = await request.get(`${APP}/`, {
+        headers: { host, cookie: `__ezpreview=${cookieVal}` },
+      });
+      expect(served.status()).toBe(200);
+      expect(served.headers()["content-type"]).toContain("text/html");
+      expect(await served.text()).toContain("E2E static preview");
+    } finally {
+      const cleanup = await request.delete("/api/__test/seed-static-preview", { data: { previewId } });
+      expect(cleanup.ok(), await cleanup.text()).toBeTruthy();
+    }
   });
 });

@@ -33,8 +33,13 @@
 import { Glob } from "bun";
 import { resolve, relative, isAbsolute } from "node:path";
 import { filterNoiseDA, isNoiseLine, readSourceLines } from "./lcov-noise-filter.ts";
+import {
+  canonicalCoverageProducer,
+  NODE_V8_COVERAGE_PRODUCER,
+} from "./coverage-config.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
+const NODE_V8_PRODUCER = NODE_V8_COVERAGE_PRODUCER;
 
 /** Normalise an incoming SF path to a repo-root-relative key. Robust to:
  *  - Plain absolute paths (`/home/dev/.../src/foo.ts`).
@@ -78,6 +83,8 @@ function absSourcePath(sf: string): string {
 }
 
 type FileRec = {
+  /** Trusted producer tag retained through shard pre-merges. */
+  producer: string;
   fn: Map<string, number>; // fn name -> declared line
   fnda: Map<string, number>; // fn name -> summed hits
   da: Map<number, number>; // line -> summed hits
@@ -233,10 +240,12 @@ if (!globPat || !outPath) {
 }
 
 const files = new Map<string, FileRec>();
-const rec = async (sf: string): Promise<FileRec> => {
-  const existing = files.get(sf);
+const v8Files = new Map<string, FileRec>();
+const rec = async (target: Map<string, FileRec>, sf: string): Promise<FileRec> => {
+  const existing = target.get(sf);
   if (existing) return existing;
   const r: FileRec = {
+    producer: "",
     fn: new Map(),
     fnda: new Map(),
     da: new Map(),
@@ -248,46 +257,83 @@ const rec = async (sf: string): Promise<FileRec> => {
   // for the noise strip, so this costs no extra file read.
   const src = await readSourceLines(absSourcePath(sf));
   if (src) r.noiseLines = noiseLineNumbers(src);
-  files.set(sf, r);
+  target.set(sf, r);
   return r;
+};
+
+type InputBlock = {
+  sf: string;
+  producer: string;
+  fn: Array<[string, number]>;
+  fnda: Array<[string, number]>;
+  da: Array<[number, number]>;
+};
+
+/**
+ * A canonical source accepts only its registered producer tag. Browser AST,
+ * Node/V8, and Bun maps use different statement boundaries; a record from the
+ * wrong instrumenter is refused before it can change the denominator. A
+ * missing trusted record then fails the source's existing floor instead of
+ * borrowing incompatible evidence. Node/V8 records use a separate map so
+ * their trusted map continues to override incidental non-canonical inputs.
+ */
+const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
+  if (!block) return;
+  const trustedNodeV8 = block.producer === NODE_V8_PRODUCER;
+  const canonicalProducer = canonicalCoverageProducer(block.sf);
+  if (canonicalProducer && block.producer !== canonicalProducer) return;
+  const r = await rec(canonicalProducer === NODE_V8_PRODUCER ? v8Files : files, block.sf);
+  if (trustedNodeV8) r.producer = NODE_V8_PRODUCER;
+  if (canonicalProducer) r.producer = canonicalProducer;
+  for (const [name, lineNo] of block.fn) r.fn.set(name, lineNo);
+  for (const [name, hits] of block.fnda) {
+    r.fnda.set(name, (r.fnda.get(name) ?? 0) + hits);
+  }
+  for (const [lineNo, hits] of block.da) {
+    r.da.set(lineNo, (r.da.get(lineNo) ?? 0) + hits);
+  }
+  absorbBlock(r, block.da);
 };
 
 const glob = new Glob(globPat);
 for await (const path of glob.scan({ absolute: true })) {
   const text = await Bun.file(path).text();
-  let cur: FileRec | null = null;
-  // DA records of the block being parsed, folded into `cur` on block end.
-  let block: Array<[number, number]> = [];
-  const endBlock = (): void => {
-    if (cur) absorbBlock(cur, block);
-    cur = null;
-    block = [];
+  let producer = "";
+  let block: InputBlock | null = null;
+  const endBlock = async (): Promise<void> => {
+    await absorbInputBlock(block);
+    block = null;
   };
   for (const line of text.split("\n")) {
-    if (line.startsWith("SF:")) {
-      endBlock();
-      cur = await rec(canonicaliseSF(line.slice(3)));
-    } else if (!cur || line === "end_of_record") {
-      endBlock();
+    if (line.startsWith("TN:")) {
+      producer = line.slice(3);
+    } else if (line.startsWith("SF:")) {
+      await endBlock();
+      block = {
+        sf: canonicaliseSF(line.slice(3)),
+        producer,
+        fn: [],
+        fnda: [],
+        da: [],
+      };
+    } else if (!block || line === "end_of_record") {
+      await endBlock();
     } else if (line.startsWith("FN:")) {
       const [lineNo, name] = line.slice(3).split(",");
-      if (lineNo && name) cur.fn.set(name, Number(lineNo));
+      if (lineNo && name) block.fn.push([name, Number(lineNo)]);
     } else if (line.startsWith("FNDA:")) {
       const [hits, name] = line.slice(5).split(",");
-      if (hits === undefined || name === undefined) continue;
-      cur.fnda.set(name, (cur.fnda.get(name) ?? 0) + Number(hits));
+      if (hits !== undefined && name !== undefined) block.fnda.push([name, Number(hits)]);
     } else if (line.startsWith("DA:")) {
       const [lineNo, hits] = line.slice(3).split(",");
-      if (lineNo === undefined || hits === undefined) continue;
-      const n = Number(lineNo);
-      const h = Number(hits);
-      cur.da.set(n, (cur.da.get(n) ?? 0) + h);
-      block.push([n, h]);
+      if (lineNo !== undefined && hits !== undefined) block.da.push([Number(lineNo), Number(hits)]);
     }
   }
   // Trailing block with no `end_of_record` (truncated input).
-  endBlock();
+  await endBlock();
 }
+
+for (const [sf, r] of v8Files) files.set(sf, r);
 
 // Defense-in-depth: an input glob that matched nothing (e.g. a wildcard-free
 // pattern handed to Bun.Glob) or matched only SF-less files must not write an
@@ -323,7 +369,7 @@ if (files.size === 0) {
 const out: string[] = [];
 const sortedFiles = [...files.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 for (const [sf, r] of sortedFiles) {
-  out.push("TN:");
+  out.push(`TN:${r.producer}`);
   out.push(`SF:${sf}`);
   const fnSorted = [...r.fn.entries()].sort(
     (a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0),

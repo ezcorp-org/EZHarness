@@ -1,197 +1,124 @@
-/**
- * Phase 57 — UX-04 e2e contract for drag-reorderable extension chips.
- *
- * Pins the user-facing must_haves contract:
- *   "On the agent edit page, a user can drag an extension chip via mouse,
- *    touch, or keyboard; the new order persists to agentConfigs.extensions
- *    JSONB array and survives a page reload."
- *
- * STATUS (post Plan 57-05 Task 2): the component-layer contract for the
- * dndzone wiring is GREEN — see
- * `web/src/lib/components/__tests__/ExtensionSearchPicker-reorder.component.test.ts`
- * (4/4 cases: aria-label hint string, aria-roledescription="sortable",
- *  finalize→onchange routing, keyboard hint in label). svelte-dnd-action
- * itself ships an e2e-tested keyboard handler upstream.
- *
- * The 6 cases below remain `test.fixme` because the e2e harness lacks the
- * infrastructure to drive the user-flow contract end-to-end:
- *   - The `/agents/[name]` page lives under SvelteKit's `(app)` protected
- *     route group requiring authenticated session + agent-config DB seed;
- *     the non-docker playwright config (this file's default) has no auth
- *     setup. The docker config (`DOCKER_TEST=1`) provisions auth via
- *     `docker-auth-setup.ts` but does NOT seed a `test-agent` with
- *     extensions attached.
- *   - `[data-chip-id]` chip queries assume the agent has >=3 extensions
- *     pre-attached and the form is in edit mode — neither is set up by
- *     any current Playwright fixture.
- *   - Plan 57-03 (UX-01 dropdown wrap on the same component) will add
- *     `data-testid="open-extension-search-picker"` to the picker's
- *     trigger button; that selector tightening is what
- *     `bottom-sheet-pickers.spec.ts` waits on too. Once both land, this
- *     spec can un-fixme by reusing the same auth + seed harness.
- *
- * Component-layer coverage (4/4 cases GREEN in Wave 2 Track C / Plan
- * 57-05) is the binding regression contract for the dndzone wiring
- * today; this e2e spec carries the user-flow contract for future
- * un-fixme by the e2e infrastructure plan (Wave 2 Track A continuation
- * or Phase 59 TEST debt).
- *
- * Run from web/:  `cd web && bunx playwright test e2e/chip-reorder.spec.ts`
- */
-
-import { test, expect } from "./fixtures/hydration.js";
+/** Real browser gestures must save the complete extension order in the database. */
 import AxeBuilder from "@axe-core/playwright";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import { test as base, expect } from "./fixtures/hydration.js";
+import { dragMouse, dragTouch } from "./fixtures/gestures.js";
+import { captureEvidence } from "./fixtures/evidence.js";
 
-test.describe("Extension chip drag-reorder (UX-04)", () => {
-	test("mouse drag reorders extension chips and PATCH /api/agents/:name persists order", async ({ page }) => {
-		// Component-layer GREEN (dndzone wiring) shipped in Plan 57-05.
-		// Blocked on e2e infra: auth fixture + test-agent DB seed
-		// (extensions pre-attached) under `(app)` route group.
-		test.fixme(true, "e2e infra: auth + test-agent seed pending");
-		await page.goto("/agents/test-agent");
-		// Capture the original chip order — selected-extension-chips
-		// is the dndzone container (per ExtensionSearchPicker.svelte
-		// line 102 + Wave 2 wiring).
-		const chips = page.getByTestId("selected-extension-chips").locator("[data-chip-id]");
-		const before = await chips.evaluateAll((els) =>
-			els.map((el) => (el as HTMLElement).dataset.chipId),
-		);
-		expect(before.length).toBeGreaterThanOrEqual(3);
-		// Drag the 3rd chip to position 1 via Playwright dragTo().
-		const target = chips.nth(0);
-		const source = chips.nth(2);
-		await source.dragTo(target);
-		// Persist via Save button (PATCH /api/agent-configs/:id).
-		await page.getByRole("button", { name: /save/i }).click();
-		await page.reload();
-		const after = await page
-			.getByTestId("selected-extension-chips")
-			.locator("[data-chip-id]")
-			.evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.chipId));
-		// Order must have changed AND survived the reload.
-		expect(after).not.toEqual(before);
-		// First chip post-reorder should be the previously-third chip.
-		expect(after[0]).toBe(before[2]);
-	});
+interface AgentFixture { id: string; name: string; extensions: string[] }
+const test = base.extend<{ agent: AgentFixture }>({
+	agent: async ({ request }, use) => {
+		const seeded = await request.post("/api/__test/seed", { data: { seedAgentConfig: true } });
+		expect(seeded.status(), await seeded.text()).toBe(201);
+		const seed = (await seeded.json()) as { agentExtensions: Array<{ id: string; name: string }> };
+		const extensions = seed.agentExtensions.map(({ id }) => id);
+		expect(extensions).toHaveLength(3);
+		const created = await request.post("/api/agent-configs", {
+			data: { name: `chip-order-${crypto.randomUUID()}`, prompt: "Keep the selected extension order.", extensions },
+		});
+		expect(created.status(), await created.text()).toBe(201);
+		const agent = (await created.json()) as AgentFixture;
+		try {
+			await use(agent);
+		} finally {
+			const removed = await request.delete(`/api/agent-configs/${agent.id}`);
+			expect(removed.ok(), await removed.text()).toBe(true);
+		}
+	},
+});
 
-	test("touch drag reorders chips on mobile-chromium project", async ({ page, browserName }) => {
-		// Component-layer keyboard mode (WCAG 2.1.1 / 2.5.1 equivalent)
-		// GREEN in Plan 57-05; svelte-dnd-action's touch handler is
-		// upstream-tested. `mobile-chromium` project is wired in
-		// playwright.config.ts (Plan 57-05 Task 3) for the future
-		// un-fixme. Blocked on e2e infra (same as case 1).
-		test.fixme(true, "e2e infra: auth + test-agent seed + touch fixture pending");
-		// Mobile chromium project is added in W2 Track C; this test
-		// asserts a finger-drag works via Playwright's touchscreen API.
-		await page.goto("/agents/test-agent");
-		const chips = page.getByTestId("selected-extension-chips").locator("[data-chip-id]");
-		const sourceBox = await chips.nth(2).boundingBox();
-		const targetBox = await chips.nth(0).boundingBox();
-		if (!sourceBox || !targetBox) throw new Error("boxes unavailable");
-		await page.touchscreen.tap(sourceBox.x + 5, sourceBox.y + 5);
-		// Drag gesture (Playwright touchscreen does not have direct
-		// drag; we synthesize touchstart -> touchmove -> touchend via
-		// CDP. Track C will pick the exact pattern for its e2e setup).
-		await page.mouse.move(sourceBox.x + 5, sourceBox.y + 5);
-		await page.mouse.down();
-		await page.mouse.move(targetBox.x + 5, targetBox.y + 5, { steps: 10 });
-		await page.mouse.up();
-		// Assert reorder via DOM state.
-		const after = await chips.evaluateAll((els) =>
-			els.map((el) => (el as HTMLElement).dataset.chipId),
-		);
-		expect(after.length).toBeGreaterThanOrEqual(3);
-	});
+function chips(page: Page): Locator {
+	return page.getByTestId("selected-extension-chips").locator("[data-chip-id]");
+}
+async function order(page: Page): Promise<(string | null)[]> {
+	return chips(page).evaluateAll(elements => elements.map(element => element.getAttribute("data-chip-id")));
+}
+async function openAgent(page: Page, agent: AgentFixture): Promise<void> {
+	await page.goto(`/agents/${agent.name}`);
+	await expect(page.getByRole("heading", { name: `Edit Agent: ${agent.name}` })).toBeVisible();
+	await expect.poll(() => order(page)).toEqual(agent.extensions);
+	// Native mouse/CDP gestures need the same hit-target readiness as clicks.
+	// Hydration can finish while the transparent splash is still fading out.
+	await chips(page).nth(0).click({ trial: true });
+	// Trial actionability can scroll the row to an edge on mobile. Center it
+	// afterwards so a drag over the first chip does not request auto-scroll.
+	await page.getByTestId("selected-extension-chips").evaluate(element => element.scrollIntoView({ block: "center", behavior: "instant" }));
+	await expect.poll(async () => (await chips(page).nth(0).boundingBox())?.y ?? 0).toBeGreaterThan(100);
+}
+async function saveAndReload(page: Page, request: APIRequestContext, agent: AgentFixture, expected: string[]): Promise<void> {
+	// Finalize runs after the drop animation; the preview order alone is not saved state.
+	await expect(page.locator("#dnd-action-dragged-el")).toHaveCount(0);
+	await expect.poll(() => order(page)).toEqual(expected);
+	const [saved] = await Promise.all([
+		page.waitForResponse(response => response.url().endsWith(`/api/agent-configs/${agent.id}`) && response.request().method() === "PUT"),
+		page.getByRole("button", { name: "Save Agent", exact: true }).click(),
+	]);
+	expect(saved.ok(), await saved.text()).toBe(true);
+	expect((await saved.json()).extensions).toEqual(expected);
+	const stored = await request.get(`/api/agent-configs/${agent.id}`);
+	expect(stored.ok(), await stored.text()).toBe(true);
+	expect((await stored.json()).extensions).toEqual(expected);
+	await page.goto(`/agents/${agent.name}`);
+	await page.reload();
+	await expect.poll(() => order(page)).toEqual(expected);
+}
+async function chipPoint(chip: Locator): Promise<{ x: number; y: number }> {
+	const box = await chip.boundingBox();
+	if (!box) throw new Error("Selected extension chip is not measurable");
+	// Stay over the label: the remove button has its own pointer behavior.
+	return { x: box.x + 8, y: box.y + box.height / 2 };
+}
 
-	test("keyboard reorder: Tab -> Space -> ArrowDown -> Space", async ({ page }) => {
-		// Keyboard activation hint asserted at component level (Plan
-		// 57-05 cases 1 + 4 — aria-label contains "Space" and "arrows").
-		// svelte-dnd-action's keyboard handler is upstream-tested.
-		// Blocked on e2e infra (same as case 1).
-		test.fixme(true, "e2e infra: auth + test-agent seed pending");
-		await page.goto("/agents/test-agent");
-		// Focus the chip row, activate the first chip with Space,
-		// arrow-down to swap it with the next chip, deactivate with
-		// Space. Pattern matches svelte-dnd-action's keyboard handler.
-		await page.getByTestId("selected-extension-chips").focus();
-		await page.keyboard.press("Tab");
-		await page.keyboard.press("Space");
-		await page.keyboard.press("ArrowDown");
-		await page.keyboard.press("Space");
-		const after = await page
-			.getByTestId("selected-extension-chips")
-			.locator("[data-chip-id]")
-			.evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.chipId));
-		// At least two chips should be present; we assert the first
-		// chip-id changed positions (no specific direction asserted
-		// here — Track C picks the exact key binding contract).
-		expect(after.length).toBeGreaterThanOrEqual(2);
+test("mouse reorder survives Save, database read, and page reload @evidence", async ({ page, request, agent }, testInfo) => {
+	await openAgent(page, agent);
+	const from = await chipPoint(chips(page).nth(2));
+	const to = await chipPoint(chips(page).nth(0));
+	await dragMouse(page, from, to, async () => {
+		await expect.poll(async () => (await order(page)).slice(1)).toEqual(agent.extensions.slice(0, 2));
 	});
+	await saveAndReload(page, request, agent, [agent.extensions[2]!, agent.extensions[0]!, agent.extensions[1]!]);
+	await captureEvidence(page, testInfo, "agent-header-after-reorder");
+	await page.getByTestId("selected-extension-chips").scrollIntoViewIfNeeded();
+	await captureEvidence(page, testInfo, "saved-extension-order");
+});
 
-	test("page reload preserves drag-reorder order via agentConfigs.extensions JSONB", async ({ page }) => {
-		// Persistence wiring (onfinalize → onchange → AgentConfigForm
-		// → existing PATCH /api/agents/:name → JSONB column) is
-		// unit-verified at component layer (Plan 57-05 case 3 asserts
-		// onchange receives reordered ids). Blocked on e2e infra
-		// (same as case 1).
-		test.fixme(true, "e2e infra: auth + test-agent seed + Save-button selector pending");
-		await page.goto("/agents/test-agent");
-		const beforeReorder = await page
-			.getByTestId("selected-extension-chips")
-			.locator("[data-chip-id]")
-			.evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.chipId));
-		// Perform a reorder (mouse drag short-form).
-		const chips = page.getByTestId("selected-extension-chips").locator("[data-chip-id]");
-		await chips.nth(1).dragTo(chips.nth(0));
-		await page.getByRole("button", { name: /save/i }).click();
-		await page.reload();
-		const afterReload = await page
-			.getByTestId("selected-extension-chips")
-			.locator("[data-chip-id]")
-			.evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.chipId));
-		expect(afterReload).not.toEqual(beforeReorder);
-	});
+test.describe("touch", () => {
+	test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+	test("finger drag saves the exact new order @evidence", async ({ page, request, agent }, testInfo) => {
+		await openAgent(page, agent);
 
-	test("Escape mid-drag cancels and restores original order", async ({ page }) => {
-		// Escape-to-cancel is svelte-dnd-action's documented keyboard
-		// mode behavior (upstream-tested); the aria-label hint string
-		// "Escape to cancel" is asserted at component layer (Plan
-		// 57-05 case 1 — aria-label match). Blocked on e2e infra
-		// (same as case 1).
-		test.fixme(true, "e2e infra: auth + test-agent seed pending");
-		await page.goto("/agents/test-agent");
-		const chips = page.getByTestId("selected-extension-chips").locator("[data-chip-id]");
-		const before = await chips.evaluateAll((els) =>
-			els.map((el) => (el as HTMLElement).dataset.chipId),
-		);
-		// Start a drag, press Escape mid-flight.
-		const sourceBox = await chips.nth(0).boundingBox();
-		const targetBox = await chips.nth(2).boundingBox();
-		if (!sourceBox || !targetBox) throw new Error("boxes unavailable");
-		await page.mouse.move(sourceBox.x + 5, sourceBox.y + 5);
-		await page.mouse.down();
-		await page.mouse.move(targetBox.x + 5, targetBox.y + 5, { steps: 5 });
-		await page.keyboard.press("Escape");
-		await page.mouse.up();
-		const after = await chips.evaluateAll((els) =>
-			els.map((el) => (el as HTMLElement).dataset.chipId),
-		);
-		expect(after).toEqual(before);
+		const from = await chipPoint(chips(page).nth(2));
+		const to = await chipPoint(chips(page).nth(0));
+		await dragTouch(page, from, to, async () => {
+			await expect.poll(async () => (await order(page)).slice(1)).toEqual(agent.extensions.slice(0, 2));
+		});
+		await saveAndReload(page, request, agent, [agent.extensions[2]!, agent.extensions[0]!, agent.extensions[1]!]);
+		await captureEvidence(page, testInfo, "agent-header-after-reorder");
+		await page.getByTestId("selected-extension-chips").scrollIntoViewIfNeeded();
+		await captureEvidence(page, testInfo, "saved-extension-order");
 	});
+});
 
-	test("axe-core scan on agent edit form: 0 violations", async ({ page }) => {
-		// aria scan-clean is achievable at component level — the
-		// dndzone container has `role="list"`,
-		// `aria-roledescription="sortable"`, and a descriptive
-		// `aria-label` (Plan 57-05). Pill children inherit role="listitem"
-		// from svelte-dnd-action's keyboard mode initialization. Blocked
-		// on e2e infra (same as case 1).
-		test.fixme(true, "e2e infra: auth + test-agent seed pending");
-		await page.goto("/agents/test-agent");
-		await expect(page.getByTestId("selected-extension-chips")).toBeVisible();
-		const results = await new AxeBuilder({ page })
-			.include('[data-testid="selected-extension-chips"]')
-			.analyze();
-		expect(results.violations).toEqual([]);
-	});
+test("keyboard reorder saves the exact new order", async ({ page, request, agent }) => {
+	await openAgent(page, agent);
+	await chips(page).nth(0).focus();
+	await page.keyboard.press("Space");
+	await page.keyboard.press("ArrowRight");
+	await page.keyboard.press("Enter");
+	await saveAndReload(page, request, agent, [agent.extensions[1]!, agent.extensions[0]!, agent.extensions[2]!]);
+});
+
+test("Escape releases keyboard drag without changing the saved order", async ({ page, request, agent }) => {
+	await openAgent(page, agent);
+	await chips(page).nth(0).focus();
+	await page.keyboard.press("Space");
+	await page.keyboard.press("Escape");
+	await page.keyboard.press("ArrowRight");
+	await saveAndReload(page, request, agent, agent.extensions);
+});
+
+test("selected extension controls have no accessibility violations", async ({ page, agent }) => {
+	await openAgent(page, agent);
+	const results = await new AxeBuilder({ page }).include('[data-testid="selected-extension-chips"]').analyze();
+	expect(results.violations).toEqual([]);
 });

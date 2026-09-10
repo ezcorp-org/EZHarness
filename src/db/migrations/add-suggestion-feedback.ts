@@ -27,10 +27,9 @@
  * rationale, mirroring the add-lessons.ts convention.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function addSuggestionFeedback(db: {
-  execute: (query: unknown) => Promise<unknown>;
-}): Promise<void> {
+export async function addSuggestionFeedback(db: MigrationDb): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS suggestion_feedback (
       id TEXT PRIMARY KEY,

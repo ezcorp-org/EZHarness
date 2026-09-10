@@ -44,7 +44,18 @@ console.log("Authenticated rootless runner ready");
 '
 if [[ "${1:-}" == "--probe-only" ]]; then exit 0; fi
 cd web
-bun run build
+# Browser route coverage builds source-mapped assets once before it starts its
+# mock, fresh-setup, and real-auth tiers. Rebuilding here would produce a new
+# asset graph between those receipts and defeat their immutable-build merge.
+# Normal real-auth runs retain their self-contained production build.
+if [[ "${EZCORP_BROWSER_COVERAGE:-}" == "1" ]]; then
+  [[ -f build/client/manifest.json ]] || {
+    echo "browser coverage requires a prepared web/build/client/manifest.json" >&2
+    exit 1
+  }
+else
+  bun run build
+fi
 export PORT="${EZCORP_PORT:-4173}"
 export HOST=127.0.0.1
 export ORIGIN="${ORIGIN:-http://localhost:$PORT}"

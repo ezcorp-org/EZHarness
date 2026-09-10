@@ -1,18 +1,18 @@
 import type { Page, Route } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject } from "./fixtures/data.js";
+import { makeExtension, makeProject, type ExtensionData } from "./fixtures/data.js";
 
 const EXT_ID = "mcp-edit-1";
 const REVIEW_URL = `/extensions/author?installation=${EXT_ID}&workspace=candidate-1`;
 const PROBE_FAILURE = "MCP catalog probe failed. Check the public endpoint and credentials; no release was activated.";
 const proj = makeProject({ id: "proj-1" });
-function baseExt() {
-	return {
+function baseExt(): ExtensionData {
+	return makeExtension({
 		id: EXT_ID, name: "weather-mcp", version: "1.0.0", description: "Weather tools", enabled: true,
 		source: "release-v4", installPath: null, checksumVerified: true, consecutiveFailures: 0, isBundled: false,
 		manifest: { schemaVersion: 4, author: { name: "local" }, kind: "mcp", mcpServers: [{ transport: "stdio", name: "weather", command: "/usr/local/bin/bun", args: ["server.js", "--v1"] }], tools: [{ name: "forecast", description: "Forecast", inputSchema: {} }, { name: "alerts", description: "Alerts", inputSchema: {} }], permissions: {} },
-		grantedPermissions: { grantedAt: {} }, createdAt: new Date().toISOString(),
-	};
+		grantedPermissions: { grantedAt: {} }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+	});
 }
 function detailRoutes(extension: ReturnType<typeof baseExt>) {
 	return { [`/api/extensions/${EXT_ID}`]: (url: URL) => {
@@ -93,7 +93,7 @@ test.describe("Extensions — MCP candidate staging", () => {
 	});
 	test("credential blanks stay redacted and round-trip only into the staged candidate", async ({ page, mockApi }) => {
 		const current = baseExt();
-		current.manifest.mcpServers[0]!.args = ["server.js", "--token=", "https://mcp.vendor.com/mcp?api_key="];
+		current.manifest.mcpServers![0]!.args = ["server.js", "--token=", "https://mcp.vendor.com/mcp?api_key="];
 		await mockApi({ projects: [proj], extensions: [current], routes: detailRoutes(current) });
 		const staging = await stageAtApiBoundary(page);
 		try {

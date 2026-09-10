@@ -5,15 +5,15 @@
  *
  * The orchestration is exposed as three plain functions
  * (`restorePanelsForConv`, `resolvePendingAgent`, `persistPanelSnapshot`)
- * plus a `attachPanelPersistence` rune-host wrapper. We test the inner
- * functions directly so the suite doesn't have to stand up a Svelte
- * effect scope — that's the simplification the spec explicitly allows.
+ * plus a `attachPanelPersistence` rune-host wrapper. This Vitest suite covers
+ * the plain functions; the sibling component harness covers the real rune
+ * effect scope that the shipped chat page uses.
  *
  * `panel-persistence.ts` (the underlying read/write helpers) is mocked
  * so we can assert exact calls without touching `localStorage`.
  */
 
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, vi } from "vitest";
 import type {
 	AgentCallState,
 	AssignmentStatus,
@@ -24,19 +24,17 @@ import type { SubConvoRecord } from "$lib/sub-convo-agent-state.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────
 
-const readChatPanelsMock = mock(
-	(_convId: string) => null as ReturnType<typeof import("$lib/panel-persistence.js")["readChatPanels"]>,
-);
-const writeChatPanelsMock = mock(
-	(_convId: string, _state: Record<string, unknown>) => {},
-);
+const { readChatPanelsMock, writeChatPanelsMock } = vi.hoisted(() => ({
+	readChatPanelsMock: vi.fn(
+		(_convId: string) => null as ReturnType<typeof import("$lib/panel-persistence.js")["readChatPanels"]>,
+	),
+	writeChatPanelsMock: vi.fn((_convId: string, _state: Record<string, unknown>) => {}),
+}));
 
-mock.module("$lib/panel-persistence.js", () => ({
+vi.mock("$lib/panel-persistence.js", () => ({
 	readChatPanels: readChatPanelsMock,
 	writeChatPanels: writeChatPanelsMock,
 }));
-
-afterAll(() => mock.restore());
 
 // Now safe to import the SUT.
 const {

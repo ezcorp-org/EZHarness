@@ -242,8 +242,8 @@
 		{#if isTeam}
 			<!-- Team edit view -->
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
-				<div class="mb-4 flex items-center justify-between">
-					<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">Edit Team: {agent.name}</h2>
+				<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+					<h2 class="min-w-0 break-words text-2xl font-bold text-[var(--color-text-primary)]">Edit Team: {agent.name}</h2>
 					<div class="flex gap-2">
 						<button
 							onclick={handleChat}
@@ -278,12 +278,12 @@
 		{:else}
 			<!-- Regular agent view -->
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
-				<div class="mb-4 flex items-center justify-between">
-					<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">
+				<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+					<h2 class="min-w-0 break-words text-2xl font-bold text-[var(--color-text-primary)]">
 						{isEditable ? `Edit Agent: ${agent.name}` : agent.name}
 					</h2>
 					{#if agent.source === "config" && agent.prompt && agent.id}
-						<div class="flex gap-2">
+						<div class="flex shrink-0 gap-2">
 							<button
 								data-testid="agent-chat-cta"
 								onclick={handleChat}

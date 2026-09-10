@@ -40,7 +40,7 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true,
+			"preset": "recommended",
 			"suspicious": {
 				"noExplicitAny": "error",
 				"noAssignInExpressions": "off",
@@ -83,6 +83,13 @@
 		}
 	},
 	"overrides": [
+		{
+			"includes": [
+				"docs/validation/extension-v4-shipping/parent/expanded-staged-scan-2c542bac/expanded-inputs.json",
+				"docs/validation/extension-v4-shipping/parent/resource-soak-2c542bac/samples/r4-resource-samples.json"
+			],
+			"files": { "maxSize": 33554432 }
+		},
 		{
 			"includes": [
 				"**/__tests__/**",

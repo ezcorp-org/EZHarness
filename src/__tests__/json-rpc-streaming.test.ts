@@ -138,9 +138,9 @@ describe("json-rpc transport — back-compat (Day-1 sanity)", () => {
   test("inbound request (with id+method) reaches onRequest", async () => {
     const io = makeMockStdio();
     const transport = new JsonRpcTransport(io.stdin, io.stdout);
-    let received: JsonRpcRequest | null = null;
+    const received: JsonRpcRequest[] = [];
     transport.onRequest = (r) => {
-      received = r;
+      received.push(r);
     };
     transport.startReading();
 
@@ -156,7 +156,7 @@ describe("json-rpc transport — back-compat (Day-1 sanity)", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(received).toEqual(req);
+    expect(received).toEqual([req]);
 
     io.closeInbound();
   });
@@ -164,9 +164,9 @@ describe("json-rpc transport — back-compat (Day-1 sanity)", () => {
   test("inbound notification (no id) reaches onNotification", async () => {
     const io = makeMockStdio();
     const transport = new JsonRpcTransport(io.stdin, io.stdout);
-    let received: JsonRpcNotification | null = null;
+    const received: JsonRpcNotification[] = [];
     transport.onNotification = (n) => {
-      received = n;
+      received.push(n);
     };
     transport.startReading();
 
@@ -179,7 +179,7 @@ describe("json-rpc transport — back-compat (Day-1 sanity)", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(received).toEqual(note);
+    expect(received).toEqual([note]);
 
     io.closeInbound();
   });

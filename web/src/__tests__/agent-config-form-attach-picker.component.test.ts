@@ -15,7 +15,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("$lib/api", () => ({
 	CURRENT_MODEL_SENTINEL: "current",
@@ -45,9 +45,9 @@ beforeEach(() => {
 			headers: { "Content-Type": "application/json" },
 		});
 	});
-	(globalThis as { fetch: typeof fetch }).fetch =
-		fetchMock as unknown as typeof fetch;
+	vi.stubGlobal("fetch", fetchMock);
 });
+afterEach(() => { vi.unstubAllGlobals(); });
 
 import AgentConfigForm from "$lib/components/AgentConfigForm.svelte";
 
@@ -183,5 +183,58 @@ describe("AgentConfigForm — per-tool subset (extensionTools)", () => {
 		const payload = onsubmit.mock.calls[0]![0] as { extensions: string[]; extensionTools: Record<string, string[]> };
 		expect(payload.extensions).toEqual(["ext-1"]);
 		expect(payload.extensionTools).toEqual({ "ext-1": ["summarize"] });
+	});
+});
+
+describe("AgentConfigForm — user-entered config", () => {
+	test("blocks incomplete submissions with the field the user must fix", async () => {
+		const { getByText, getByLabelText } = render(AgentConfigForm, {
+			initial: {},
+			onsubmit: vi.fn(),
+		});
+		await fireEvent.submit(document.querySelector("form")!);
+		expect(getByText("Name is required")).toBeInTheDocument();
+		await fireEvent.input(getByLabelText("Name"), { target: { value: "reviewer" } });
+		await fireEvent.submit(document.querySelector("form")!);
+		expect(getByText("System prompt is required")).toBeInTheDocument();
+	});
+
+	test("keeps only named input fields and submits their schema", async () => {
+		const onsubmit = vi.fn();
+		const { container, getByText, getAllByLabelText } = render(AgentConfigForm, {
+			initial: {
+				name: "reviewer",
+				prompt: "Review this change",
+				inputSchema: { existing: { type: "string", label: "Existing", required: false } },
+			},
+			onsubmit,
+		});
+		await fireEvent.click(getByText("+ Add Field"));
+		const keys = getAllByLabelText("Field key") as HTMLInputElement[];
+		const types = getAllByLabelText("Field type") as HTMLSelectElement[];
+		const labels = getAllByLabelText("Field label") as HTMLInputElement[];
+		await fireEvent.input(keys[1]!, { target: { value: "priority" } });
+		await fireEvent.change(types[1]!, { target: { value: "number" } });
+		await fireEvent.input(labels[1]!, { target: { value: "Priority" } });
+		await fireEvent.click(keys[1]!.parentElement!.querySelector('input[type="checkbox"]')!);
+		await fireEvent.submit(container.querySelector("form")!);
+		expect(onsubmit).toHaveBeenCalledWith(expect.objectContaining({
+			inputSchema: {
+				existing: { type: "string", label: "Existing", required: false },
+				priority: { type: "number", label: "Priority", required: true },
+			},
+		}));
+	});
+
+	test("removes an obsolete input field before saving", async () => {
+		const onsubmit = vi.fn();
+		const { container } = render(AgentConfigForm, {
+			initial: { name: "reviewer", prompt: "Review", inputSchema: { obsolete: { type: "string", label: "Obsolete" } } },
+			onsubmit,
+		});
+		const field = container.querySelector("#field-key-0")!;
+		await fireEvent.click(field.parentElement!.querySelector("button")!);
+		await fireEvent.submit(container.querySelector("form")!);
+		expect(onsubmit).toHaveBeenCalledWith(expect.not.objectContaining({ inputSchema: expect.anything() }));
 	});
 });

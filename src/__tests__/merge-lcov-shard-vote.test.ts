@@ -435,3 +435,206 @@ describe("merge-lcov: the drop survives a pre-merge", () => {
     expect(twoStage.da.get(17)).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 5. Canonical V8 ownership for TypeScript-map conflicts.
+// ---------------------------------------------------------------------------
+describe("merge-lcov: V8 canonical source ownership", () => {
+  const canonical = "web/src/lib/mention-logic.ts";
+
+  test("uses V8 DA/FN evidence and discards incompatible Bun spans", async () => {
+    const canonicalSource = join(REPO_ROOT, canonical);
+    const unrelated = writeSource("case10/unrelated.ts", "export const marker = true;\n");
+    const base = "case10";
+    const bunDir = join(root, base, "cov_bun");
+    const v8Dir = join(root, base, "cov_v8");
+    const otherDir = join(root, base, "cov_other");
+    mkdirSync(bunDir, { recursive: true });
+    mkdirSync(v8Dir, { recursive: true });
+    mkdirSync(otherDir, { recursive: true });
+    writeFileSync(join(bunDir, "lcov.info"), [
+      "TN:", `SF:${canonicalSource}`, "DA:80,0", "DA:82,0", "LF:2", "LH:0", "end_of_record", "",
+    ].join("\n"));
+    writeFileSync(join(v8Dir, "lcov.info"), [
+      "TN:ezcorp-node-v8", `SF:${canonicalSource}`, "FN:80,v8Function", "FNDA:3,v8Function", "DA:80,3", "LF:2", "LH:1", "end_of_record", "",
+    ].join("\n"));
+    writeFileSync(join(otherDir, "lcov.info"), [
+      "TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", "",
+    ].join("\n"));
+
+    const { text, da } = await merge(join(root, base, "*", "lcov.info"), "case10.info");
+    expect(text).toContain(`SF:${canonical}`);
+    expect(text).toContain("FN:80,v8Function");
+    expect(text).toContain("FNDA:3,v8Function");
+    expect(da.get(80)).toBe(3);
+    expect(da.has(82)).toBe(false);
+  });
+
+  test("retains the trusted producer marker through a two-stage CI merge", async () => {
+    const canonicalSource = join(REPO_ROOT, canonical);
+    const unrelated = writeSource("case10-marker/unrelated.ts", "export const marker = true;\n");
+    const base = "case10-marker";
+    const bunDir = join(root, base, "bun", "cov_0");
+    const otherDir = join(root, base, "bun", "cov_1");
+    const v8Dir = join(root, base, "v8", "cov_0");
+    mkdirSync(bunDir, { recursive: true });
+    mkdirSync(otherDir, { recursive: true });
+    mkdirSync(v8Dir, { recursive: true });
+    writeFileSync(join(bunDir, "lcov.info"), [
+      "TN:", `SF:${canonicalSource}`, "DA:80,0", "LF:1", "LH:0", "end_of_record", "",
+    ].join("\n"));
+    writeFileSync(join(otherDir, "lcov.info"), [
+      "TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", "",
+    ].join("\n"));
+    writeFileSync(join(v8Dir, "lcov.info"), [
+      "TN:ezcorp-node-v8", `SF:${canonicalSource}`, "FN:80,v8Function", "FNDA:1,v8Function", "DA:80,1", "LF:1", "LH:1", "end_of_record", "",
+    ].join("\n"));
+
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case10-marker-direct.info");
+    const stage = join(root, "case10-marker-stage");
+    mkdirSync(stage, { recursive: true });
+    await merge(join(root, base, "bun", "*", "lcov.info"), "case10-marker-stage/bun.info");
+    await merge(join(root, base, "v8", "*", "lcov.info"), "case10-marker-stage/v8.info");
+    const twoStage = await merge(join(stage, "*.info"), "case10-marker-twostage.info");
+
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-node-v8");
+    expect(twoStage.da.get(80)).toBe(1);
+  });
+
+  test("drops Bun-only canonical evidence so the final exact threshold fails loud", async () => {
+    const canonicalSource = join(REPO_ROOT, canonical);
+    const unrelated = writeSource("case11/unrelated.ts", "export const marker = true;\n");
+    const base = "case11";
+    const bunDir = join(root, base, "cov_bun");
+    const otherDir = join(root, base, "cov_other");
+    mkdirSync(bunDir, { recursive: true });
+    mkdirSync(otherDir, { recursive: true });
+    writeFileSync(join(bunDir, "lcov.info"), [
+      "TN:", `SF:${canonicalSource}`, "DA:80,9", "LF:1", "LH:1", "end_of_record", "",
+    ].join("\n"));
+    writeFileSync(join(otherDir, "lcov.info"), [
+      "TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", "",
+    ].join("\n"));
+
+    const { text } = await merge(join(root, base, "*", "lcov.info"), "case11.info");
+    expect(text).not.toContain(`SF:${canonical}`);
+    expect(text).toContain(`SF:${unrelated}`);
+  });
+});
+
+describe("merge-lcov: Bun API canonical source ownership", () => {
+  const canonical = "web/src/lib/api.ts";
+
+  test("accepts only the marked Bun receipt through a two-stage merge", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case12-api";
+    const apiDir = join(root, base, "api", "cov_0");
+    const blankDir = join(root, base, "blank", "cov_0");
+    const nodeDir = join(root, base, "node", "cov_0");
+    const browserDir = join(root, base, "browser", "cov_0");
+    for (const dir of [apiDir, blankDir, nodeDir, browserDir]) mkdirSync(dir, { recursive: true });
+    const record = (tag: string, hit: number) => [tag, `SF:${source}`, `DA:98,${hit}`, "LF:1", `LH:${hit > 0 ? 1 : 0}`, "end_of_record", ""].join("\n");
+    const unrelatedRecord = (name: string) => {
+      const unrelated = writeSource(`${base}/${name}.ts`, "export const receipt = true;\n");
+      return ["TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+    };
+    writeFileSync(join(apiDir, "lcov.info"), record("TN:ezcorp-bun-api", 7) + unrelatedRecord("api"));
+    writeFileSync(join(blankDir, "lcov.info"), record("TN:", 0) + unrelatedRecord("blank"));
+    writeFileSync(join(nodeDir, "lcov.info"), record("TN:ezcorp-node-v8", 99) + unrelatedRecord("node"));
+    writeFileSync(join(browserDir, "lcov.info"), record("TN:ezcorp-browser-v8", 99) + unrelatedRecord("browser"));
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case12-api-direct.info");
+    const stage = join(root, "case12-api-stage");
+    mkdirSync(stage, { recursive: true });
+    for (const [name, dir] of [["api", apiDir], ["blank", blankDir], ["node", nodeDir], ["browser", browserDir]] as const) {
+      // Bun.Glob intentionally requires a pattern. Keep this one-record
+      // pre-merge shaped exactly like CI's shard pre-merge.
+      await merge(join(dir, "*.info"), `case12-api-stage/${name}.info`);
+    }
+    const twoStage = await merge(join(stage, "*.info"), "case12-api-twostage.info");
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-bun-api");
+    expect(twoStage.da.get(98)).toBe(7);
+  });
+});
+
+describe("merge-lcov: Bun empty Node shim canonical source ownership", () => {
+  const canonical = "web/src/lib/empty-node-shim.ts";
+
+  test("accepts only the shim contract receipt through a two-stage merge", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case13-shim";
+    const shimDir = join(root, base, "shim", "cov_0");
+    const wrongDir = join(root, base, "wrong", "cov_0");
+    const browserDir = join(root, base, "browser", "cov_0");
+    for (const dir of [shimDir, wrongDir, browserDir]) mkdirSync(dir, { recursive: true });
+    const record = (tag: string, hit: number) => [tag, `SF:${source}`, `DA:1,${hit}`, "LF:1", `LH:${hit > 0 ? 1 : 0}`, "end_of_record", ""].join("\n");
+    const unrelatedRecord = (name: string) => {
+      const unrelated = writeSource(`${base}/${name}.ts`, "export const receipt = true;\n");
+      return ["TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+    };
+    writeFileSync(join(shimDir, "lcov.info"), record("TN:ezcorp-bun-shim", 3));
+    writeFileSync(join(wrongDir, "lcov.info"), record("TN:ezcorp-bun-api", 9) + unrelatedRecord("wrong"));
+    writeFileSync(join(browserDir, "lcov.info"), record("TN:ezcorp-browser-v8", 9) + unrelatedRecord("browser"));
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case13-shim-direct.info");
+    const stage = join(root, "case13-shim-stage");
+    mkdirSync(stage, { recursive: true });
+    for (const [name, dir] of [["shim", shimDir], ["wrong", wrongDir], ["browser", browserDir]] as const) {
+      await merge(join(dir, "*.info"), `case13-shim-stage/${name}.info`);
+    }
+    const twoStage = await merge(join(stage, "*.info"), "case13-shim-twostage.info");
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-bun-shim");
+    expect(twoStage.da.get(1)).toBe(3);
+  });
+});
+
+describe("merge-lcov: browser canonical source ownership", () => {
+  const canonical = "web/src/lib/components/AgentSearchPicker.svelte";
+
+  const unrelatedRecord = (base: string, name: string): string => {
+    const unrelated = writeSource(`${base}/${name}.ts`, "export const receipt = true;\n");
+    return ["TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+  };
+
+  test("retains only the tagged browser map through a two-stage merge", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case14-browser";
+    const browserDir = join(root, base, "browser", "cov_0");
+    const nodeDir = join(root, base, "node", "cov_0");
+    const bunDir = join(root, base, "bun", "cov_0");
+    for (const dir of [browserDir, nodeDir, bunDir]) mkdirSync(dir, { recursive: true });
+    const record = (tag: string, hit: number) => [tag, `SF:${source}`, `DA:12,${hit}`, "LF:1", `LH:${hit > 0 ? 1 : 0}`, "end_of_record", ""].join("\n");
+    writeFileSync(join(browserDir, "lcov.info"), record("TN:ezcorp-browser-v8", 7) + unrelatedRecord(base, "browser"));
+    writeFileSync(join(nodeDir, "lcov.info"), record("TN:ezcorp-node-v8", 99) + unrelatedRecord(base, "node"));
+    writeFileSync(join(bunDir, "lcov.info"), record("TN:", 99) + unrelatedRecord(base, "bun"));
+
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case14-browser-direct.info");
+    const stage = join(root, "case14-browser-stage");
+    mkdirSync(stage, { recursive: true });
+    for (const [name, dir] of [["browser", browserDir], ["node", nodeDir], ["bun", bunDir]] as const) {
+      await merge(join(dir, "*.info"), `case14-browser-stage/${name}.info`);
+    }
+    const twoStage = await merge(join(stage, "*.info"), "case14-browser-twostage.info");
+
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-browser-v8");
+    expect(twoStage.da.get(12)).toBe(7);
+  });
+
+  test("does not substitute Node or Bun evidence when the browser receipt is missing", async () => {
+    const source = join(REPO_ROOT, canonical);
+    const base = "case15-browser-missing";
+    const nodeDir = join(root, base, "node");
+    const bunDir = join(root, base, "bun");
+    mkdirSync(nodeDir, { recursive: true });
+    mkdirSync(bunDir, { recursive: true });
+    const record = (tag: string) => [tag, `SF:${source}`, "DA:12,99", "LF:1", "LH:1", "end_of_record", ""].join("\n");
+    writeFileSync(join(nodeDir, "lcov.info"), record("TN:ezcorp-node-v8") + unrelatedRecord(base, "node"));
+    writeFileSync(join(bunDir, "lcov.info"), record("TN:") + unrelatedRecord(base, "bun"));
+
+    const { text } = await merge(join(root, base, "*", "lcov.info"), "case15-browser-missing.info");
+    expect(text).not.toContain(`SF:${canonical}`);
+    expect(text).toContain("case15-browser-missing/node.ts");
+  });
+});

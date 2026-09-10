@@ -245,7 +245,14 @@ main();
   } {
     const writes: string[] = [];
     const e = new ExtensionProcess("test-ext", echoPath, allowedEnv) as any;
-    e.proc = { stdin: { write: (d: string) => (writes.push(d), d.length) } };
+    e.proc = {
+      stdin: {
+        write: (d: string) => {
+          writes.push(d);
+          return d.length;
+        },
+      },
+    };
     e.transport = { onRequest: undefined as undefined | ((req: any) => unknown) };
     e.pendingRequestHandler = handler;
     e.wireRequestHandler();

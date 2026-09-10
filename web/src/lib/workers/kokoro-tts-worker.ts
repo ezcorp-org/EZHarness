@@ -232,7 +232,7 @@ async function synthesizeToWav(
 
 self.addEventListener("message", async (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data;
-  if (!msg || msg.type !== "synthesize") return;
+  if (msg?.type !== "synthesize") return;
   const { id, text, voice = "af_bella", speed } = msg;
   console.info("[kokoro-tts-flow][worker] synthesize request", {
     id,

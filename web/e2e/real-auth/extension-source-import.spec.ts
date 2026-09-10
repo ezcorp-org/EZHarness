@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { captureEvidence } from "../fixtures/evidence";
 import { extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import { invokeExtensionToolFromComposer } from "../fixtures/composer";
+import { EMPTY_STORAGE_STATE, assertNoAuthenticationCookies } from "../fixtures/member-session";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "../../../src/extensions/v4/types";
 
 async function approveAndActivate(page: import("@playwright/test").Page, installationId: string, workspaceId: string, approval: { id: string; releaseId: string; releaseDigest: string }, expectedState: "active" | "failed" = "active"): Promise<Record<string, unknown>> {
@@ -42,10 +43,15 @@ test("member imports verified marketplace source, an administrator approves it, 
   const invitation = await request.post("/api/auth/invite", { data: { email, role: "member" } });
   expect(invitation.status(), await invitation.text()).toBe(201);
   const { invite } = await invitation.json();
-  const context = await browser.newContext({ baseURL, viewport: { width: 1280, height: 900 } });
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { width: 1280, height: 900 },
+    storageState: EMPTY_STORAGE_STATE,
+  });
   let cleanup: (() => Promise<unknown>) | undefined;
   let reinstalledCleanup: (() => Promise<unknown>) | undefined;
   try {
+    await assertNoAuthenticationCookies(context);
     const accepted = await context.request.post(`/api/auth/invite/${invite.token}`, { data: { name: "Source Import Member", email, password: "Source-Import-E2e-9x!" } });
     expect(accepted.status(), await accepted.text()).toBe(201);
     const profile = await context.request.get("/api/auth/me");

@@ -22,77 +22,95 @@
  * SSE-only streaming per project memory `project_e2e_streaming_uses_sse` —
  * frames injected via `emitSse`, never `emitWs`.
  *
- * ─────────────────────────────────────────────────────────────────────
- * DOCKER-GATED (gate-legal runtime skip, mirrors file-organizer-real.spec):
- * the non-Docker Playwright `webServer` serves the chat route with no
- * reachable backend / DB / auth session and NO real executor — so the real
- * loadHistory producer cannot run and a turn cannot be driven end-to-end.
- * The spec runs against the live container (`DOCKER_TEST=1`, app on :3000
- * with seeded auth → `e2e/docker-auth-setup.ts` + `.docker-auth.json`
- * storageState), where the REAL backend produces the history from the
- * session tree. Body is complete + valid so the Docker run needs no edits.
- * ─────────────────────────────────────────────────────────────────────
+ * This is the mock-preview browser guard for the visible contract: an
+ * existing thread remains intact when a follow-up streams. The real
+ * producer's branch parity belongs to the PGlite integration suite named
+ * above; client-side event injection cannot prove a production DB query.
  */
 
 import { test, expect } from "./fixtures/test-base.js";
-import { sendComposerMessage } from "./fixtures/composer.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import type { Message } from "../src/lib/api.js";
 
-const RUN_REAL = !!process.env.DOCKER_TEST;
+test.describe("session history producer — multi-turn chat parity", () => {
+	const proj = makeProject({ id: "proj-shp", name: "Session Producer Project" });
+	const conv = makeConversation({ id: "conv-shp", projectId: "proj-shp", title: "Multi-turn thread" });
 
-test.describe(
-  RUN_REAL
-    ? "session history producer — multi-turn chat parity"
-    : "session history producer — multi-turn chat parity (skipped: set DOCKER_TEST=1)",
-  () => {
-    test.skip(!RUN_REAL, "real-backend spec — requires DOCKER_TEST=1 + live container on :3000");
+	// A prior thread the follow-up turn must still see once the session tree
+	// produces the history.
+	const history = [
+		makeMessage({ id: "h-0", conversationId: "conv-shp", role: "user", content: "Remember the code word BANANA.", parentMessageId: null, runId: null }),
+		makeMessage({ id: "h-1", conversationId: "conv-shp", role: "assistant", content: "Got it — BANANA.", parentMessageId: "h-0", runId: null }),
+		makeMessage({ id: "h-2", conversationId: "conv-shp", role: "user", content: "What did I ask you to remember?", parentMessageId: "h-1", runId: null }),
+		makeMessage({ id: "h-3", conversationId: "conv-shp", role: "assistant", content: "The code word BANANA.", parentMessageId: "h-2", runId: null }),
+	];
 
-    const proj = makeProject({ id: "proj-shp", name: "Session Producer Project" });
-    const conv = makeConversation({ id: "conv-shp", projectId: "proj-shp", title: "Multi-turn thread" });
+	const REPLY = "Still BANANA — I have the whole thread.";
 
-    // A prior thread the follow-up turn must still see once the session tree
-    // produces the history.
-    const history = [
-      makeMessage({ id: "h-0", conversationId: "conv-shp", role: "user", content: "Remember the code word BANANA.", parentMessageId: null, runId: null }),
-      makeMessage({ id: "h-1", conversationId: "conv-shp", role: "assistant", content: "Got it — BANANA.", parentMessageId: "h-0", runId: null }),
-      makeMessage({ id: "h-2", conversationId: "conv-shp", role: "user", content: "What did I ask you to remember?", parentMessageId: "h-1", runId: null }),
-      makeMessage({ id: "h-3", conversationId: "conv-shp", role: "assistant", content: "The code word BANANA.", parentMessageId: "h-2", runId: null }),
-    ];
+	test("follow-up turn streams a normal reply that continues the thread; no error card", async ({ page, mockApi, emitSse }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: history });
+		const persisted = [...history];
+		await page.route("**/api/conversations/conv-shp/messages*", async (route) => {
+			if (route.request().method() !== "GET") return route.fallback();
+			const url = new URL(route.request().url());
+			if (url.searchParams.get("withToolCalls") === "true") {
+				return route.fulfill({ json: { messages: persisted.map((message) => ({ ...message, toolCalls: [] })), subConversations: [] } });
+			}
+			return route.fulfill({ json: persisted });
+		});
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-    const REPLY = "Still BANANA — I have the whole thread.";
+		const thread = threadMessages(page);
+		// Scope to the thread: the complete reply text is also a substring of
+		// its earlier user turn, and page-wide text queries are ambiguous.
+		await expect(thread.getByText("Got it — BANANA.", { exact: true })).toBeVisible({ timeout: 8000 });
+		await expect(thread.getByText("The code word BANANA.", { exact: true })).toBeVisible();
 
-    test("follow-up turn streams a normal reply that continues the thread; no error card", async ({ page, mockApi, emitSse }) => {
-      await mockApi({ projects: [proj], conversations: [conv], messages: history });
-      await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		// Send a follow-up, then surface the normal streamed reply.
+		const [postResponse] = await Promise.all([
+			page.waitForResponse((response) => response.url().includes("/messages") && response.request().method() === "POST"),
+			sendComposerMessage(page, "Say it one more time."),
+		]);
+		const posted = await postResponse.json() as {
+			userMessage: Message;
+			runId: string | null;
+		};
+		if (typeof posted.runId !== "string") {
+			throw new Error("The normal chat POST must return a streaming run id.");
+		}
+		expect(posted.userMessage.content).toBe("Say it one more time.");
+		expect(posted.userMessage.parentMessageId).toBe("h-3");
+		persisted.push(posted.userMessage);
 
-      // The existing multi-turn thread renders.
-      await expect(page.getByText("Got it — BANANA.")).toBeVisible({ timeout: 8000 });
-      await expect(page.getByText("The code word BANANA.")).toBeVisible();
+		await emitSse({ type: "run:token", data: { runId: posted.runId, token: REPLY, kind: "text" } });
+		await expect(thread.getByText(REPLY, { exact: true })).toBeVisible({ timeout: 8000 });
+		const reply = makeMessage({
+			id: "h-new",
+			conversationId: conv.id,
+			role: "assistant",
+			content: REPLY,
+			parentMessageId: posted.userMessage.id,
+			runId: posted.runId,
+		});
+		persisted.push(reply);
+		await emitSse({
+			type: "run:turn_saved",
+			data: { runId: posted.runId, conversationId: "conv-shp", messageId: reply.id, parentMessageId: posted.userMessage.id, content: REPLY, final: true },
+		});
+		await emitSse({
+			type: "run:complete",
+			data: { run: { id: posted.runId, agentName: "chat", status: "success", startedAt: "2026-01-01T00:00:00.000Z", logs: [], result: { success: true, output: REPLY } } },
+		});
 
-      // Send a follow-up: the real backend runs the session history producer
-      // to rebuild the branch, then streams a turn.
-      await Promise.all([
-        page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-        sendComposerMessage(page, "Say it one more time."),
-      ]);
-
-      await emitSse({ type: "run:token", data: { runId: "run-shp", token: REPLY, kind: "text" } });
-      await expect(page.getByText(REPLY)).toBeVisible({ timeout: 8000 });
-      await emitSse({
-        type: "run:turn_saved",
-        data: { runId: "run-shp", conversationId: "conv-shp", messageId: "h-new", parentMessageId: "h-3", content: REPLY, final: true },
-      });
-      await emitSse({
-        type: "run:complete",
-        data: { run: { id: "run-shp", agentName: "chat", status: "success", startedAt: "2026-01-01T00:00:00.000Z", logs: [], result: { success: true, output: REPLY } } },
-      });
-
-      // THE CONTRACT: a normal reply rendered, the whole thread is intact,
-      // and no producer failure surfaced as an error card.
-      await expect(page.getByText(REPLY)).toBeVisible();
-      await expect(page.getByText("Got it — BANANA.")).toBeVisible();
-      await expect(page.getByText(/history producer failed|invalid_session|Error:/i)).toHaveCount(0);
-      await expect(page.locator("textarea")).toBeEnabled();
-    });
-  },
-);
+		// THE CONTRACT: a normal reply rendered, the whole thread is intact,
+		// and no producer failure surfaced as an error card.
+		for (const message of [...history, posted.userMessage, reply]) {
+			await expect(thread.getByText(message.content, { exact: true })).toBeVisible();
+		}
+		await expect(thread.getByText(/history producer failed|invalid_session|Error:/i)).toHaveCount(0);
+		const composer = page.getByRole("group", { name: "Chat input with file drop zone" });
+		await composer.locator("textarea").fill("One more confirmation.");
+		await expect(composer.getByRole("button", { name: "Send message" })).toBeEnabled();
+	});
+});

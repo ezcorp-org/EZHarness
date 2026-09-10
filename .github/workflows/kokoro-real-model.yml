@@ -1,0 +1,41 @@
+name: External Kokoro model
+
+# The ONNX weights come from Hugging Face and are intentionally outside the
+# ordinary required browser path. A maintainer starts this workflow only when
+# they want to validate that supported external model boundary.
+on:
+  workflow_dispatch:
+    inputs:
+      run_external_kokoro:
+        description: Download and run the external Kokoro ONNX model
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  external-kokoro-real-model:
+    name: E2E (Kokoro external model)
+    if: inputs.run_external_kokoro
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - name: Run external Kokoro ONNX browser journey
+        env:
+          EZCORP_E2E_KOKORO_REAL: "1"
+        run: bash scripts/run-kokoro-realmodel-e2e.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: kokoro-real-model-results
+          path: web/test-results/
+          retention-days: 3
+          if-no-files-found: ignore

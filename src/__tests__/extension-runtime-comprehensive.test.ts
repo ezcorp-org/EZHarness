@@ -17,7 +17,6 @@ import { ReleaseProcess, configureReleaseRuntime } from "../extensions/release-p
 import { computeChecksum, verifyChecksum } from "../extensions/checksum";
 
 const MOCK_ENTRYPOINT = resolve(__dirname, "helpers/mock-extension/entrypoint.ts");
-const MOCK_INSTALL_PATH = resolve(__dirname, "helpers/mock-extension");
 
 beforeAll(async () => {
   await setupTestDb();

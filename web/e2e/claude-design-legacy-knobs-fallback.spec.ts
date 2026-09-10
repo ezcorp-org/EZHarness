@@ -6,11 +6,12 @@
  * The DesignCanvasCard is supposed to fall back to LEGACY_DESCRIPTORS
  * — primaryColor / secondaryColor / spacingScale / borderRadius /
  * density — so the sidebar keeps rendering the original five inputs
- * and Apply still round-trips through `claude-design:knob-change`.
+ * and Apply still round-trips through the inline `tweak-design` invocation.
  *
  * Pinning this in e2e protects the back-compat invariant from a
  * regression where someone removes the fallback.
  */
+import { mockCanvasPreview } from "./fixtures/canvas-preview.js";
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
@@ -35,30 +36,18 @@ test.describe("claude-design — legacy knob fallback", () => {
 
 	const TOOL_CALL_ID = "tc-legacy-1";
 
-	test("payload without `knobs` falls back to legacy 5; Apply still POSTs knob-change", async ({
+	test("payload without `knobs` falls back to legacy 5; Apply invokes tweak-design", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
-		const captured: Array<{ url: string; body: unknown }> = [];
-		await page.route(
-			"**/api/extensions/claude-design/events/knob-change",
-			async (route) => {
-				const reqBody = route.request().postDataJSON();
-				captured.push({ url: route.request().url(), body: reqBody });
-				await route.fulfill({
-					status: 200,
-					contentType: "application/json",
-					body: JSON.stringify({ ok: true }),
-				});
-			},
-		);
 
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
 			messages: [userMsg, assistantMsg],
 		});
+		await mockCanvasPreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
@@ -70,7 +59,7 @@ test.describe("claude-design — legacy knob fallback", () => {
 
 		// open-canvas returns a payload WITHOUT a `knobs` array. The
 		// canvas card must fall back to LEGACY_DESCRIPTORS.
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -115,21 +104,18 @@ test.describe("claude-design — legacy knob fallback", () => {
 		await radius.fill("12");
 		await radius.dispatchEvent("change");
 
+		const applied = page.waitForRequest(request => request.url().endsWith("/api/tool-invoke") && request.method() === "POST");
 		await page.getByTestId("design-canvas-apply").click();
 
-		await expect.poll(() => captured.length, { timeout: 3000 }).toBeGreaterThan(0);
-		const sent = captured[0]!;
-		expect(sent.url).toContain(
-			"/api/extensions/claude-design/events/knob-change",
-		);
-		const body = sent.body as {
-			toolCallId: string;
-			conversationId: string;
-			draftId: string;
-			knobs: Record<string, string>;
+		const body = (await applied).postDataJSON() as {
+			extensionName: string; toolName: string; invocationId: string;
+			conversationId: string; input: { draftId: string; knobs: Record<string, string> };
 		};
-		expect(body.toolCallId).toBe(TOOL_CALL_ID);
-		expect(body.draftId).toBe("draft-legacy-1");
-		expect(body.knobs.borderRadius).toBe("12px");
+		expect(body.extensionName).toBe("claude-design");
+		expect(body.toolName).toBe("tweak-design");
+		expect(body.invocationId).toMatch(/^[0-9a-f-]{36}$/);
+		expect(body.invocationId).not.toBe(TOOL_CALL_ID);
+		expect(body.input.draftId).toBe("draft-legacy-1");
+		expect(body.input.knobs.borderRadius).toBe("12px");
 	});
 });

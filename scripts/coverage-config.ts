@@ -28,16 +28,11 @@ export const REPO_ROOT = resolve(import.meta.dir, "..");
 // `gate-change-approved` label. Keep one path (or wildcard) per line with a
 // justification comment so the diff is reviewable.
 export const EXCLUDES: readonly string[] = [
-  "src/extensions/sdk/init.ts",
-  "src/db/migrations/**",
-  "src/providers/**",
-  "web/src/routes/**/+*.svelte",
   "web/e2e/**",
   // Template-string files: lcov counts the interior of returned
   // template literals as "missed lines" even when every template
   // function is exercised end-to-end via sdk-scaffold.test.ts. There's
-  // no executable code path inside the strings — they're literal
-  // output. Same justification as `web/src/routes/**/+*.svelte`.
+  // no executable code path inside the strings — they're literal output.
   "packages/@ezcorp/sdk/src/scaffold/templates/**",
   // Verbatim copied-into-the-extension skill runner: its `main()` +
   // stdin loop are process-level (only execute as a spawned
@@ -81,52 +76,12 @@ export const EXCLUDES: readonly string[] = [
   // uploaded as an `lcov-cov-*` artifact by the CI `web-security-coverage` job.
   // Each clears the `web/src/lib/**` 90% floor (measured 97.78–100%). Their
   // suites are ALSO run for pass/fail by the `web-bun-tests` job.
-  // Thin typed fetch client (~75 `fetch().then(json)` wrappers, no branching) —
-  // UI I/O glue, same spirit as the excluded `web/src/routes/**/+*.svelte`.
-  "web/src/lib/api.ts",
-  // Process-boot singleton orchestrator; its accessors only execute
-  // meaningfully in a fully-booted server (integration-only, like other boot
-  // wiring).
-  "web/src/lib/server/context.ts",
-  // Web logic that IS unit-tested (node-vitest leg) but can't be cleanly
-  // line-measured by this gate: the bun host/example shards transitively
-  // import these and emit their own span-filled zero-hit DA records, which
-  // merge-lcov unions with the vitest leg's clean coverage — the union of
-  // line sets drags the percentage below either measurement alone. Their
-  // tests run in the `Web tests (vitest)` CI job; coverage just can't see it
-  // under dual bun+v8 instrumentation. (Same family as the security excludes.)
-  "web/src/lib/mention-logic.ts",
-  "web/src/lib/markdown.ts",
-  "web/src/lib/chat-input-logic.ts",
-  "web/src/lib/utils/relative-time.ts",
-  "web/src/lib/server/http-errors.ts",
-  "web/src/lib/server/shutdown.ts",
-  "web/src/lib/server/auth/session-cookie.ts",
+  // Compatibility barrel only: it re-exports the backend clamp implementation
+  // so established `$lib` imports stay valid. The implementation's behavior is
+  // measured in `src/__tests__/clamp-extension-permissions.test.ts` and the
+  // route-level `web/src/__tests__/extension-helpers-clamp.server.test.ts`.
+  // The barrel has no independently instrumentable statement.
   "web/src/lib/server/extension-helpers.ts",
-  // Secure-preview SvelteKit dispatch glue. These ARE exhaustively covered by
-  // their vitest `.server.test.ts` suites (dispatch 96.5%, ws-bridge 100% under
-  // the v8 leg), but `web/src/hooks.server.ts` statically imports both, so the
-  // `c2-session-revocation` bun shard (which imports hooks.server.ts to test
-  // the app-origin session path) instruments them with BUN's TypeScript-line
-  // span set. merge-lcov then unions bun's superset of "executable" lines with
-  // the vitest leg's v8 line set — and the bun-only lines have no v8 hit to
-  // offset them, dragging the merged percentage to ~75/83 % even though the
-  // dedicated vitest leg covers every reachable line. The dispatch readFile dep
-  // (`Bun.file().stream()`) is additionally Bun-runtime-only (the vitest/jsdom
-  // leg can't run it). Identical dual-instrumentation hazard to the
-  // mention-logic / context / security excludes above: covered behaviourally
-  // and gated under `Web tests (vitest)`, just not line-measurable in this
-  // merged bun+v8 lcov.
-  "web/src/lib/server/preview/dispatch.ts",
-  "web/src/lib/server/preview/ws-bridge.ts",
-  // Scaffold string-template files: lcov counts the interior of the returned
-  // template literals as missed lines even when every template function is
-  // exercised (`src/__tests__/ext-sdk-types.test.ts`). Identical justification
-  // to packages/@ezcorp/sdk/src/scaffold/templates/** above.
-  "src/extensions/sdk/templates/agent.ts",
-  "src/extensions/sdk/templates/multi.ts",
-  "src/extensions/sdk/templates/skill.ts",
-  "src/extensions/sdk/templates/tool.ts",
   // Illustrative demo extensions whose index.ts is mostly narrative tool
   // handlers + a harness; exhaustive line coverage isn't a meaningful gate for
   // sample code (they're smoke-tested, not gated at 100 like real code). The
@@ -138,13 +93,11 @@ export const EXCLUDES: readonly string[] = [
   // not gateable product logic; same spirit as the example index.ts excludes
   // above. (The sample-loop index.ts IS covered by its own index.test.ts.)
   "docs/extensions/examples/sample-loop/ezcorp.config.ts",
-  // Route handlers tested by their *.server.test.ts (bun:test w/ mock.module,
-  // run in the `Web tests (vitest)` CI job) but NOT wired into the coverage
-  // pipeline — they show "no lcov data". Same justification as the web/src/lib
-  // and security excludes above: covered behaviourally, not measurable here.
+  // Protected historical threshold coordinate. The path is absent in this
+  // checkout, so it has no executable behaviour to measure. Keep this paired
+  // exclusion until the exact threshold key receives separately reviewed
+  // cleanup; otherwise the gate would report a false orphan.
   "web/src/routes/api/conversations/[id]/goal-state/+server.ts",
-  "web/src/routes/api/conversations/[id]/messages/+server.ts",
-  "web/src/routes/api/search/messages/+server.ts",
 ];
 
 /**
@@ -155,9 +108,14 @@ export const EXCLUDES: readonly string[] = [
  */
 export const SOURCE_GLOBS: readonly string[] = [
   "src/**/*.ts",
+  "scripts/git-worktree-clean.ts",
   "web/src/**/*.ts",
   "web/src/**/*.svelte",
   "packages/@ezcorp/sdk/src/**/*.ts",
+  "packages/@ezcorp/ai-kit/src/**/*.ts",
+  "packages/@ezcorp/harness-client/src/**/*.ts",
+  "packages/@ezcorp/extension-contract/src/**/*.ts",
+  "packages/@ezcorp/extension-runner/src/**/*.ts",
   "docs/extensions/examples/**/*.ts",
   // First-party BUNDLED extensions (registered in src/extensions/bundled.ts).
   // They ship in the product exactly like `src/**` does — the reference
@@ -165,6 +123,9 @@ export const SOURCE_GLOBS: readonly string[] = [
   // this tree was not, so `extensions/**` was outside BOTH the new-file and
   // patch-coverage gates and its three test files ran in no CI job.
   "extensions/**/*.ts",
+  // The Worker is a shipped execution target. Its source must receive the
+  // same changed/new-file coverage checks as the host runtime.
+  "worker/src/**/*.ts",
 ];
 
 // Test/spec/type files are never "product code" for the new-file gate.
@@ -184,6 +145,161 @@ const NON_SOURCE_GLOBS: readonly string[] = [
  * (default-100) key. Keep this list in sync with the catch-all keys in
  * coverage-thresholds.json.
  */
+/** Producer tags carried in LCOV `TN:` fields through every merge generation. */
+export const NODE_V8_COVERAGE_PRODUCER = "ezcorp-node-v8";
+export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
+
+/**
+ * These files have a canonical Node/V8 producer. Bun instruments their
+ * TypeScript spans differently when it transitively imports them, so summing
+ * the two line maps manufactures misses that neither producer observed.
+ * The two settings sections are exercised to their exact floors by their
+ * direct component tests; browser journeys deliberately cover only their
+ * interactive slice. If Node/V8 evidence disappears, exact thresholds fail
+ * for missing LCOV data rather than borrowing an incompatible map.
+ */
+export const V8_CANONICAL_SOURCES: readonly string[] = [
+  "web/src/lib/mention-logic.ts",
+  "web/src/lib/markdown.ts",
+  "web/src/lib/chat-input-logic.ts",
+  "web/src/lib/utils/relative-time.ts",
+  "web/src/lib/search-picker-position.ts",
+  "web/src/lib/server/http-errors.ts",
+  "web/src/lib/server/shutdown.ts",
+  "web/src/lib/server/auth/session-cookie.ts",
+  "web/src/lib/server/preview/dispatch.ts",
+  "web/src/lib/server/preview/ws-bridge.ts",
+  // Bun counts the catch header as a separate uncovered line; direct Node
+  // route tests own the executable map, including the rejection paths.
+  "web/src/routes/api/conversations/[id]/messages/+server.ts",
+  "web/src/routes/api/auth/setup/+server.ts",
+  "web/src/lib/components/settings/ProvidersSection.svelte",
+  "web/src/lib/components/settings/TeamsSection.svelte",
+  // Direct component and utility contracts own these maps. Native browser
+  // journeys still run, but their different statement spans are not merged.
+  "web/src/lib/invoke-inline-tool.ts",
+  "web/src/lib/sub-conversation-store.svelte.ts",
+  "web/src/lib/stores/extension-toolbar.svelte.ts",
+  "web/src/lib/chat/page-handlers/panel-persistence.svelte.ts",
+  "web/src/lib/components/message-toolbar-registry.ts",
+  "web/src/lib/components/ShortcutHelp.svelte",
+  "web/src/lib/components/InlineToolCard.svelte",
+  "web/src/lib/components/InlineToolForm.svelte",
+  "web/src/lib/components/SubConversationBlock.svelte",
+  "web/src/lib/components/SubConvoInput.svelte",
+  "web/src/lib/components/tool-cards/CopyButton.svelte",
+  "web/src/lib/components/tool-cards/DefaultCard.svelte",
+  "web/src/lib/components/tool-cards/SubstackReviewCard.svelte",
+  "web/src/lib/components/tool-cards/weather-card-element.ts",
+  "web/src/lib/components/ui/ComboBox.svelte",
+  "web/src/lib/components/ui/TagInput.svelte",
+  "web/src/lib/components/AgentConfigForm.svelte",
+  "web/src/lib/components/AgentDetailPanel.svelte",
+  "web/src/lib/components/AgentInputForm.svelte",
+  "web/src/lib/components/AssignmentPicker.svelte",
+  "web/src/lib/components/AssignmentPill.svelte",
+  "web/src/lib/components/MetaAgentChat.svelte",
+  "web/src/lib/components/ProjectPicker.svelte",
+  "web/src/lib/components/ProjectForm.svelte",
+  "web/src/lib/components/TaskLogsPanel.svelte",
+  "web/src/lib/components/ExtensionPanel.svelte",
+  "web/src/lib/components/PublishDialog.svelte",
+  "web/src/lib/components/ShareAgentDialog.svelte",
+  "web/src/lib/components/StuckRunBanner.svelte",
+  "web/src/lib/components/MarketplaceDetail.svelte",
+  "web/src/lib/components/FlagDialog.svelte",
+  "web/src/lib/components/EntityFormModal.svelte",
+  "web/src/lib/components/EntityTable.svelte",
+  "web/src/lib/components/FileUpload.svelte",
+  "web/src/lib/components/MemoryItem.svelte",
+  "web/src/lib/components/FeatureIndex.svelte",
+  "web/src/lib/components/ObservabilityPanel.svelte",
+  "web/src/lib/components/PanelChatInput.svelte",
+  "web/src/lib/components/TaskPanel.svelte",
+  "web/src/lib/components/TeamBuilderForm.svelte",
+  "web/src/lib/components/TeamChatPanel.svelte",
+  "web/src/lib/components/SwipeDrawer.svelte",
+  "web/src/lib/components/ez/EzPanel.svelte",
+  "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte",
+];
+
+/**
+ * These shared UI sources are owned by Chromium AST/source-map coverage.
+ * Their native browser journeys exercise focus, keyboard, pointer, layout,
+ * and rendered-card behavior that an incidental Node component import cannot
+ * measure with the same map. Each has a trusted browser receipt at its floor.
+ */
+export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
+  "web/src/lib/components/AgentSearchPicker.svelte",
+  "web/src/lib/components/ChatInput.svelte",
+  "web/src/lib/components/KnowledgeBaseTab.svelte",
+  "web/src/lib/components/MentionPopover.svelte",
+  "web/src/lib/components/ModeSearchPicker.svelte",
+  "web/src/lib/components/PermissionModeIndicator.svelte",
+  "web/src/lib/components/ProjectRail.svelte",
+  "web/src/lib/components/ThemeToggle.svelte",
+  "web/src/lib/components/ToolSearchPicker.svelte",
+  "web/src/lib/components/WaterfallTimeline.svelte",
+  "web/src/lib/components/chat/ConnectionBanner.svelte",
+  "web/src/lib/components/ez/EzButton.svelte",
+  "web/src/lib/components/tool-cards/SearchResultsCard.svelte",
+  "web/src/lib/components/tool-cards/TerminalCard.svelte",
+  "web/src/lib/components/ui/SearchBox.svelte",
+  "web/src/lib/components/ui/SharedFilePicker.svelte",
+];
+
+/** Direct, isolated Bun utility tests have one bounded coverage leg. */
+export const BUN_WEB_UTILITY_COVERAGE_PRODUCER = "ezcorp-bun-web-utility";
+export const BUN_WEB_UTILITY_SOURCES: readonly string[] = [
+  "web/src/lib/actions/hover-tooltip.ts",
+  "web/src/lib/auth-keepalive.ts",
+  "web/src/lib/chat-scroll-restore.ts",
+  "web/src/lib/chat/attachment-client.ts",
+  "web/src/lib/chat/chat-window-drop.ts",
+  "web/src/lib/chat/page-handlers/inline-tool-handlers.ts",
+  "web/src/lib/clipboard.ts",
+  "web/src/lib/combobox-nav.ts",
+  "web/src/lib/commands.ts",
+  "web/src/lib/components/tool-cards/price-chart-logic.ts",
+  "web/src/lib/ez/api.ts",
+  "web/src/lib/ez/pill-visibility.ts",
+  "web/src/lib/focus-trap.ts",
+  "web/src/lib/last-model.ts",
+  "web/src/lib/markdown-speech.ts",
+  "web/src/lib/panel-persistence.ts",
+  "web/src/lib/progressive-image.ts",
+  "web/src/lib/select-mode.ts",
+  "web/src/lib/shortcuts.ts",
+  "web/src/lib/sub-agent-routing.ts",
+  "web/src/lib/sub-convo-agent-state.ts",
+  "web/src/lib/theme.ts",
+  "web/src/lib/tool-display.ts",
+  "web/src/lib/workers/agent-fuzzy-search-bridge.ts",
+  "web/src/lib/workers/agent-fuzzy-search-worker.ts",
+  "web/src/lib/workers/kokoro-tts-bridge.ts",
+];
+
+/** Bun-only contracts with source layouts that must not be mixed with V8 maps. */
+export const BUN_CANONICAL_PRODUCERS = {
+  "web/src/lib/api.ts": "ezcorp-bun-api",
+  "web/src/lib/empty-node-shim.ts": "ezcorp-bun-shim",
+  ...Object.fromEntries<string>(BUN_WEB_UTILITY_SOURCES.map(source => [source, BUN_WEB_UTILITY_COVERAGE_PRODUCER])),
+} as const;
+
+/** Paths with an explicit tagged Bun producer. Derived to prevent registry drift. */
+export const BUN_CANONICAL_SOURCES: readonly string[] = Object.keys(BUN_CANONICAL_PRODUCERS);
+
+/**
+ * Return the sole trusted LCOV producer for source, if source maps must not
+ * be merged across instrumenters. Keep the registries above as the reviewable
+ * source-of-truth lists; consumers use this helper so tag checks cannot drift.
+ */
+export function canonicalCoverageProducer(source: string): string | undefined {
+  if (V8_CANONICAL_SOURCES.includes(source)) return NODE_V8_COVERAGE_PRODUCER;
+  if (BROWSER_CANONICAL_SOURCES.includes(source)) return BROWSER_V8_COVERAGE_PRODUCER;
+  return BUN_CANONICAL_PRODUCERS[source as keyof typeof BUN_CANONICAL_PRODUCERS];
+}
+
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [
   "src/**",
   "web/src/**",
@@ -259,6 +375,47 @@ export function wildcardTreeDropouts(
           `but lcov contains NONE of them — a coverage producer for this whole tree dropped ` +
           `out (dead leg / unwired set). Fix the producer in scripts/test-coverage.sh; do not ` +
           `delete the key.`,
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * TypeScript declarations compile to no JavaScript, so lcov cannot emit a
+ * line record for them. Keep this structural: an enum, value export, or any
+ * other runtime statement emits JavaScript and therefore remains gateable.
+ */
+export function isDeclarationOnlyTypeScript(source: string): boolean {
+  return new Bun.Transpiler({ loader: "ts" }).transformSync(source).trim() === "";
+}
+
+/**
+ * A wildcard threshold with *some* lcov data can still hide an omitted
+ * executable sibling. This is the per-file complement to
+ * {@link wildcardTreeDropouts}: every non-catchall wildcard source that has a
+ * real runtime emit must have a producer record. Declaration-only TypeScript
+ * is structurally exempt because it has no JavaScript line to measure.
+ */
+export async function wildcardSourceFileDropouts(
+  wildcardPats: readonly string[],
+  lcovFiles: readonly string[],
+  repoFilesForPattern: (pat: string) => readonly string[],
+  sourceForFile: (path: string) => Promise<string>,
+): Promise<string[]> {
+  const lcovSet = new Set(lcovFiles);
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const pat of wildcardPats) {
+    if (CATCHALL_THRESHOLD_KEYS.includes(pat)) continue;
+    for (const file of repoFilesForPattern(pat)) {
+      if (seen.has(file) || !isSourceFile(file) || isExcluded(file) || lcovSet.has(file)) continue;
+      seen.add(file);
+      if (file.endsWith(".ts") && isDeclarationOnlyTypeScript(await sourceForFile(file))) continue;
+      out.push(
+        `${file}: wildcard threshold ${pat} has no lcov record for this executable source — ` +
+          `a coverage producer omitted an individual file. Add the owning test/producer; do not hide it.`,
       );
     }
   }

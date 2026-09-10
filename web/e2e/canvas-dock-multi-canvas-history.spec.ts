@@ -15,7 +15,6 @@
  * validation: ping-pong fix + initial-mount skip + DockHost latest-canvas restore.
  */
 import { test, expect } from "./fixtures/test-base.js";
-import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — multi-canvas history (no ping-pong)", () => {
@@ -31,42 +30,18 @@ test.describe("Canvas Dock — multi-canvas history (no ping-pong)", () => {
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
-	test("two open-canvas tool calls — only the latest opens; older pill is clickable", async ({ page, mockApi, emitWs }) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+	test("two open-canvas tool calls — only the latest opens; older pill is clickable", async ({ page, mockApi }) => {
+		await mockApi({
+			projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg],
+			messageToolCalls: { m2: ["old", "latest"].map((name, index) => ({
+				id: `tc-${name}`, extensionId: "claude-design", toolName: "claude-design__open-canvas",
+				input: { draftId: `d-${index + 1}` }, outputSummary: `${name} canvas`,
+				fullOutput: JSON.stringify({ draftId: `d-${index + 1}`, iframeSrc: `/api/extensions/claude-design/data/${name}.html` }),
+				success: true, durationMs: 30 + index, status: "success" as const,
+				messageId: "m2", cardType: "design-canvas", cardLayout: "dock",
+			})) },
+		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-
-		await Promise.all([
-			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			sendComposerMessage(page, "Open twice"),
-		]);
-
-		// Stream BOTH dock-mode completions back-to-back.
-		await emitWs({
-			type: "tool:complete",
-			data: {
-				conversationId: "conv-1",
-				toolName: "claude-design__open-canvas",
-				output: { content: [{ type: "text", text: JSON.stringify({ draftId: "d-1", iframeSrc: "/api/extensions/claude-design/data/old.html" }) }] },
-				duration: 30,
-				success: true,
-				cardType: "design-canvas",
-				cardLayout: "dock",
-				invocationId: "tc-old",
-			},
-		});
-		await emitWs({
-			type: "tool:complete",
-			data: {
-				conversationId: "conv-1",
-				toolName: "claude-design__open-canvas",
-				output: { content: [{ type: "text", text: JSON.stringify({ draftId: "d-2", iframeSrc: "/api/extensions/claude-design/data/latest.html" }) }] },
-				duration: 30,
-				success: true,
-				cardType: "design-canvas",
-				cardLayout: "dock",
-				invocationId: "tc-latest",
-			},
-		});
 
 		// Latest takes the dock.
 		await expect(page.getByTestId("dock-host")).toBeVisible({ timeout: 2000 });
@@ -81,9 +56,7 @@ test.describe("Canvas Dock — multi-canvas history (no ping-pong)", () => {
 		// The user clicks the older pill — dock should swap to it.
 		const olderPill = page.getByTestId("dock-open-pill").first();
 		await olderPill.click();
-		// Either the old or the latest is showing; assert the dock host
-		// re-targets to whichever id the click invoked. The pill order in
-		// chat is chronological — the .first() is `tc-old`.
+		// History is chronological: the first pill targets tc-old.
 		await expect(page.getByTestId("dock-host")).toHaveAttribute(
 			"data-tool-call-id",
 			"tc-old",

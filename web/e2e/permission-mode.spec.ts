@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import type { Page } from "@playwright/test";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -20,6 +21,45 @@ test.describe("Permission Mode", () => {
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
+	const permissionModeButton = (page: Page) =>
+		page.getByRole("button", { name: /^Permission mode:/ });
+
+	type EmitSse = (event: { type: string; data: unknown }) => Promise<void>;
+
+	/** Start the SSE-backed stream and mount the router-backed tool card. */
+	async function startPermissionStream(page: Page, emitSse: EmitSse, command: string) {
+		await Promise.all([
+			page.waitForResponse((response) =>
+				response.url().includes("/messages") && response.request().method() === "POST",
+			),
+			sendComposerMessage(page, "Do something"),
+		]);
+		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "thinking..." } });
+		await emitSse({
+			type: "tool:start",
+			data: {
+				conversationId: conv.id,
+				toolName: "Bash",
+				input: { command },
+				cardType: "terminal",
+			},
+		});
+	}
+
+	async function emitPermissionRequest(emitSse: EmitSse, toolCallId: string, command: string) {
+		await emitSse({
+			type: "tool:permission_request",
+			data: {
+				conversationId: conv.id,
+				toolCallId,
+				toolName: "Bash",
+				input: { command },
+				cardType: "terminal",
+				category: "shell",
+			},
+		});
+	}
+
 	test("permission mode indicator shows on chat page", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
@@ -28,10 +68,10 @@ test.describe("Permission Mode", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const indicator = page.getByTitle(/Permission mode/);
+		const indicator = permissionModeButton(page);
 		await expect(indicator).toBeVisible();
-		await expect(indicator).toContainText("Ask");
-		await expect(indicator.locator("span.rounded-full.bg-red-500")).toBeVisible();
+		await expect(indicator).toContainText("YOLO");
+		await expect(indicator.locator("span.rounded-full.bg-green-500")).toBeVisible();
 	});
 
 	test("mode dropdown opens and shows all 3 options", async ({ page, mockApi }) => {
@@ -42,20 +82,15 @@ test.describe("Permission Mode", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await page.getByTitle(/Permission mode/).click();
+		await permissionModeButton(page).click();
 
 		// Verify all three options are visible with their descriptions
-		await expect(page.getByText("Ask", { exact: true }).last()).toBeVisible();
-		await expect(page.getByText("Ask before running dangerous tools")).toBeVisible();
-
-		await expect(page.getByText("Auto-edit", { exact: true })).toBeVisible();
-		await expect(page.getByText("Auto-approve edits, ask for shell commands")).toBeVisible();
-
-		await expect(page.getByText("YOLO", { exact: true })).toBeVisible();
-		await expect(page.getByText("Auto-approve everything")).toBeVisible();
+		const dropdown = page.locator(".absolute.right-0");
+		await expect(dropdown.getByRole("button", { name: "Ask Ask before running dangerous tools" })).toBeVisible();
+		await expect(dropdown.getByRole("button", { name: "Auto-edit Auto-approve edits, ask for shell commands" })).toBeVisible();
+		await expect(dropdown.getByRole("button", { name: "YOLO Auto-approve everything" })).toBeVisible();
 
 		// Verify color dots exist in the dropdown
-		const dropdown = page.locator(".absolute.right-0");
 		await expect(dropdown.locator("span.bg-red-500")).toBeVisible();
 		await expect(dropdown.locator("span.bg-yellow-500")).toBeVisible();
 		await expect(dropdown.locator("span.bg-green-500")).toBeVisible();
@@ -87,7 +122,7 @@ test.describe("Permission Mode", () => {
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const indicator = page.getByTitle(/Permission mode/);
+		const indicator = permissionModeButton(page);
 		await indicator.click();
 		await page.getByText("YOLO", { exact: true }).click();
 
@@ -96,7 +131,7 @@ test.describe("Permission Mode", () => {
 		await expect(indicator.locator("span.rounded-full.bg-green-500")).toBeVisible();
 
 		// Verify the PUT request was sent with the correct mode
-		expect(capturedBody).toEqual({ mode: "yolo" });
+		expect(capturedBody).toEqual({ mode: "yolo", conversationId: conv.id });
 	});
 
 	test("permission mode persists on refresh", async ({ page, mockApi }) => {
@@ -110,12 +145,12 @@ test.describe("Permission Mode", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const indicator = page.getByTitle(/Permission mode/);
+		const indicator = permissionModeButton(page);
 		await expect(indicator).toContainText("Auto-edit");
 		await expect(indicator.locator("span.rounded-full.bg-yellow-500")).toBeVisible();
 	});
 
-	test("permission gate shows on tool:permission_request WS event", async ({ page, mockApi, emitWs }) => {
+	test("permission gate shows on tool:permission_request SSE event", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -123,33 +158,8 @@ test.describe("Permission Mode", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		// Send a message to trigger streaming (sets up streamingRunToConversation)
-				// Wait for the message POST to complete, which returns runId "run-stream".
-		// Armed WITH the keypress: a waiter registered after it can miss its own
-		// response and then block for the full test timeout.
-		await Promise.all([
-			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			sendComposerMessage(page, "Do something"),
-		]);
-
-		// Emit run:start to set up the streaming run-to-conversation mapping
-		await emitWs({
-			type: "run:token",
-			data: { runId: "run-stream", token: "thinking..." },
-		});
-
-		// Emit permission request
-		await emitWs({
-			type: "tool:permission_request",
-			data: {
-				conversationId: "conv-1",
-				toolCallId: "tc-1",
-				toolName: "Bash",
-				input: { command: "rm -rf /" },
-				cardType: "terminal",
-				category: "shell",
-			},
-		});
+		await startPermissionStream(page, emitSse, "rm -rf /");
+		await emitPermissionRequest(emitSse, "tc-1", "rm -rf /");
 
 		// Verify the PermissionGate card appears
 		await expect(page.getByText("Bash")).toBeVisible();
@@ -157,7 +167,7 @@ test.describe("Permission Mode", () => {
 		await expect(page.getByRole("button", { name: "Deny" })).toBeVisible();
 	});
 
-	test("allow button sends approval", async ({ page, mockApi, emitWs }) => {
+	test("allow button sends approval", async ({ page, mockApi, emitSse }) => {
 		let capturedApproval: Record<string, unknown> | null = null;
 
 		await mockApi({
@@ -177,27 +187,8 @@ test.describe("Permission Mode", () => {
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		// Trigger streaming
-				await Promise.all([
-			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			sendComposerMessage(page, "Do something"),
-		]);
-
-		await emitWs({
-			type: "run:token",
-			data: { runId: "run-stream", token: "thinking..." },
-		});
-
-		await emitWs({
-			type: "tool:permission_request",
-			data: {
-				conversationId: "conv-1",
-				toolCallId: "tc-1",
-				toolName: "Bash",
-				input: { command: "echo hello" },
-				category: "shell",
-			},
-		});
+		await startPermissionStream(page, emitSse, "echo hello");
+		await emitPermissionRequest(emitSse, "tc-1", "echo hello");
 
 		await page.getByRole("button", { name: "Allow" }).click();
 
@@ -264,7 +255,7 @@ test.describe("Permission Mode", () => {
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const indicator = page.getByTitle(/Permission mode/);
+		const indicator = permissionModeButton(page);
 		await indicator.click();
 		await page.getByText("YOLO", { exact: true }).click();
 
@@ -313,7 +304,7 @@ test.describe("Permission Mode", () => {
 		expect(capturedApproval).toEqual({ approved: true });
 	});
 
-	test("deny button sends denial", async ({ page, mockApi, emitWs }) => {
+	test("deny button sends denial", async ({ page, mockApi, emitSse }) => {
 		let capturedDenial: Record<string, unknown> | null = null;
 
 		await mockApi({
@@ -333,27 +324,8 @@ test.describe("Permission Mode", () => {
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		// Trigger streaming
-				await Promise.all([
-			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			sendComposerMessage(page, "Do something"),
-		]);
-
-		await emitWs({
-			type: "run:token",
-			data: { runId: "run-stream", token: "thinking..." },
-		});
-
-		await emitWs({
-			type: "tool:permission_request",
-			data: {
-				conversationId: "conv-1",
-				toolCallId: "tc-1",
-				toolName: "Bash",
-				input: { command: "echo hello" },
-				category: "shell",
-			},
-		});
+		await startPermissionStream(page, emitSse, "echo hello");
+		await emitPermissionRequest(emitSse, "tc-1", "echo hello");
 
 		await page.getByRole("button", { name: "Deny" }).click();
 

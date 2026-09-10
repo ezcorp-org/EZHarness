@@ -91,9 +91,7 @@ function renderDrizzleChunks(value: unknown): string {
   return String(value);
 }
 
-function countGinSweepCalls(
-  spy: ReturnType<typeof spyOn<unknown, "execute">>,
-): number {
+function countGinSweepCalls(spy: { mock: { calls: ReadonlyArray<readonly unknown[]> } }): number {
   let n = 0;
   for (const call of spy.mock.calls) {
     const rendered = renderDrizzleChunks(call?.[0]);

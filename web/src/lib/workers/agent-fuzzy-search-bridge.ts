@@ -84,7 +84,7 @@ function ensureWorker(): WorkerLike {
       return;
     }
     const msg = (ev as MessageEvent).data as RankResponse | undefined;
-    if (!msg || msg.type !== "ranked") return;
+    if (msg?.type !== "ranked") return;
     const slot = pending.get(msg.id);
     if (!slot) return;
     pending.delete(msg.id);

@@ -12,7 +12,7 @@ test.describe("Canvas Dock — resize + persistence", () => {
 	const userMsg = makeMessage({ id: "m1", conversationId: "conv-1", role: "user", content: "Hello" });
 	const assistantMsg = makeMessage({ id: "m2", conversationId: "conv-1", role: "assistant", content: "Sure", parentMessageId: "m1", createdAt: "2026-01-01T00:01:00.000Z" });
 
-	test("drag handle changes width and the size persists across reload", async ({ page, mockApi, emitWs }) => {
+	test("drag handle changes width and the size persists across reload", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
@@ -21,7 +21,7 @@ test.describe("Canvas Dock — resize + persistence", () => {
 			sendComposerMessage(page, "Open"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: { conversationId: "conv-1", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify({ draftId: "d-1", iframeSrc: "/api/extensions/claude-design/data/x.html" }) }] }, duration: 30, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-r-1" },
 		});

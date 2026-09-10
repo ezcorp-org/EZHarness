@@ -57,7 +57,9 @@ const DENY_KEY: PermAuditKey = {
 /** A coalescer plus the summaries it emitted, in order. */
 function harness(opts?: { windowMs?: number; flushAt?: number; maxKeys?: number }) {
   const summaries: CoalescedPermSummary[] = [];
-  const coalescer = createPermAuditCoalescer((s) => summaries.push(s), opts);
+  const coalescer = createPermAuditCoalescer((s) => {
+    summaries.push(s);
+  }, opts);
   return { coalescer, summaries };
 }
 
@@ -344,6 +346,37 @@ describe("flushAll and dropAll are different on purpose", () => {
     expect(coalescer.size()).toBe(0);
   });
 
+  for (const startedBeforeDrain of [false, true]) {
+  test(`flushAll awaits a summary write (started before drain: ${startedBeforeDrain})`, async () => {
+    let release: () => void = () => {};
+    const persisted: CoalescedPermSummary[] = [];
+    const coalescer = createPermAuditCoalescer(async (summary) => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      persisted.push(summary);
+    }, { flushAt: 1 });
+    coalescer.shouldWrite(KEY, "a1");
+    coalescer.shouldWrite(KEY, "a2");
+    // The third decision starts an asynchronous threshold flush. Its new
+    // window has no suppressed decisions; shutdown must still await that
+    // earlier write as well as writes it starts itself.
+    if (startedBeforeDrain) coalescer.shouldWrite(KEY, "a3");
+
+    let drained = false;
+    const draining = coalescer.flushAll().then(() => { drained = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    expect(persisted).toEqual([]);
+    release();
+    await draining;
+    expect(drained).toBe(true);
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.suppressed).toBe(1);
+  });
+  }
+
   test("dropAll discards WITHOUT emitting — test isolation, not shutdown", async () => {
     const { coalescer, summaries } = harness({ windowMs: 20 });
     coalescer.shouldWrite(KEY, "a1");
@@ -368,6 +401,16 @@ describe("a broken summary writer cannot break a permission decision", () => {
     coalescer.shouldWrite(KEY, "a1");
     coalescer.shouldWrite(KEY, "a2");
     expect(() => coalescer.flushAll()).not.toThrow();
+    expect(coalescer.size()).toBe(0);
+  });
+
+  test("an asynchronous summary rejection is isolated and drain completes", async () => {
+    const coalescer = createPermAuditCoalescer(async () => {
+      throw new Error("audit table unreachable");
+    });
+    coalescer.shouldWrite(KEY, "a1");
+    coalescer.shouldWrite(KEY, "a2");
+    await expect(coalescer.flushAll()).resolves.toBeUndefined();
     expect(coalescer.size()).toBe(0);
   });
 });

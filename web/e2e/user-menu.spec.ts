@@ -85,7 +85,7 @@ test.describe("User Menu Dropdown", () => {
 		await expect(page.getByRole("link", { name: "Account" })).toBeVisible({ timeout: 3000 });
 
 		// Click outside the menu
-		await page.locator("main").first().click({ force: true });
+		await page.locator("main").first().click({ position: { x: 16, y: 16 } });
 
 		// Menu should close
 		await expect(page.getByRole("link", { name: "Account" })).not.toBeVisible({ timeout: 3000 });

@@ -242,7 +242,7 @@ export function pickLastTurnUsage(
 } | null {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i];
-		if (!m || m.role !== "assistant") continue;
+		if (m?.role !== "assistant") continue;
 		const inp = m.usage?.inputTokens;
 		if (typeof inp !== "number" || !Number.isFinite(inp) || inp <= 0) continue;
 		const out = m.usage?.outputTokens;

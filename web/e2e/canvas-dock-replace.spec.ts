@@ -23,7 +23,7 @@ test.describe("Canvas Dock — auto-replace", () => {
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
-	test("second dock-mode tool replaces the first; first bubble shows persistent pill", async ({ page, mockApi, emitWs }) => {
+	test("second dock-mode tool replaces the first; first bubble shows persistent pill", async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
@@ -33,11 +33,11 @@ test.describe("Canvas Dock — auto-replace", () => {
 		]);
 
 		// First dock call.
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: { conversationId: "conv-1", toolName: "claude-design__open-canvas", input: { draftId: "d-1" }, timestamp: Date.now(), cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-1" },
 		});
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: { conversationId: "conv-1", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify({ draftId: "d-1", iframeSrc: "/api/extensions/claude-design/data/p1.html" }) }] }, duration: 30, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-1" },
 		});
@@ -46,11 +46,11 @@ test.describe("Canvas Dock — auto-replace", () => {
 		await expect(page.getByTestId("dock-host")).toHaveAttribute("data-tool-call-id", "tc-dock-1");
 
 		// Second dock call replaces.
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: { conversationId: "conv-1", toolName: "claude-design__open-canvas", input: { draftId: "d-2" }, timestamp: Date.now(), cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-2" },
 		});
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: { conversationId: "conv-1", toolName: "claude-design__open-canvas", output: { content: [{ type: "text", text: JSON.stringify({ draftId: "d-2", iframeSrc: "/api/extensions/claude-design/data/p2.html" }) }] }, duration: 30, success: true, cardType: "design-canvas", cardLayout: "dock", invocationId: "tc-dock-2" },
 		});

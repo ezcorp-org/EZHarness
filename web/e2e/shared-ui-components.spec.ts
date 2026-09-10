@@ -1,75 +1,36 @@
+import type { Page } from "@playwright/test";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeAgent, makeExtension } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "UI Components Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 const agents = [makeAgent({ name: "Assistant", description: "General assistant" })];
 
 const EXT_NAME = "analyzer";
-const extensions = [{ name: EXT_NAME, description: "Code analysis tool", enabled: true }];
+const extensions = [makeExtension({ name: EXT_NAME, description: "Code analysis tool", enabled: true })];
 
-/** Set up base API mocks, navigate to chat page, and return a focused textarea. */
-async function setupPage(page: any, mockApi: any) {
+type MockApi = (overrides?: MockOverrides) => Promise<void>;
+type Tool = { name: string; description: string; inputSchema: Record<string, unknown> };
+
+/** Select a current extension mention; the composer opens its tools. */
+async function openTools(page: Page, mockApi: MockApi, tools: Tool[]) {
 	await mockApi({ projects: [proj], conversations: [conv], messages: [], agents, extensions });
-await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-	await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
-
-	await page.waitForFunction(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		if (listeners?.open) {
-			for (const fn of listeners.open) {
-				try { fn(new Event("open")); } catch {}
-			}
-		}
-		const ta = document.querySelector("textarea");
-		return ta && !ta.disabled;
-	}, { timeout: 5000 });
-
-	const textarea = page.locator("textarea");
-	await expect(textarea).toBeEnabled({ timeout: 5000 });
-	await page.waitForTimeout(100);
-	await textarea.click();
-	return textarea;
+	await page.route("**/api/extensions/*/tools", route => route.fulfill({ json: { tools } }));
+	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+	const textarea = page.getByRole("group", { name: "Chat input with file drop zone" }).locator("textarea");
+	await expect(textarea).toBeEnabled();
+	await textarea.fill(`!ext:${EXT_NAME}`);
+	const listbox = page.locator("#mention-listbox");
+	await expect(listbox.getByText(EXT_NAME, { exact: true })).toBeVisible();
+	await textarea.press("Enter");
+	await expect(listbox).toBeHidden();
+	await expect(page.locator('.chat-textarea-overlay [data-mention-kind="extension"]')).toContainText(EXT_NAME);
 }
 
-/**
- * Open the InlineToolForm for an extension tool by going through the mention flow.
- * The tools route must be registered AFTER mockApi (LIFO: last registered = highest priority).
- */
-async function openToolForm(page: any, mockApi: any, toolsData: any[]) {
-	// Set up base mocks first (registers generic **/api/** handler)
-	const textarea = await setupPage(page, mockApi);
-
-	// Register tools route AFTER mockApi so it takes precedence (LIFO ordering)
-	await page.route("**/api/extensions/*/tools", (route: any) => {
-		route.fulfill({ json: { tools: toolsData } });
-	});
-
-	// Type @ext:analyzer to open mention popover
-	await textarea.focus();
-	await textarea.pressSequentially(`@ext:${EXT_NAME}`, { delay: 50 });
-	await page.waitForTimeout(350);
-
-	const listbox = page.locator("#mention-listbox");
-	await expect(listbox).toBeVisible({ timeout: 5000 });
-	await expect(listbox.getByText(EXT_NAME, { exact: true })).toBeVisible({ timeout: 3000 });
-
-	// Use Enter to select the highlighted extension (like mention-system tests do)
-	await page.keyboard.press("Enter");
-	await expect(listbox).not.toBeVisible({ timeout: 3000 });
-
-	// Wait for the @analyzer chip to appear in the overlay.
-	// The chip is inside aria-hidden="true", so use CSS selector (not getByRole).
-	const chip = page.locator(`span[role="button"]`).filter({ hasText: `@${EXT_NAME}` });
-	await expect(chip).toBeVisible({ timeout: 3000 });
-
-	// Click the chip to trigger handleChipClick (the tools fetch)
-	await chip.click();
-
-	// Wait for the form to open
-	await expect(page.locator('form button[type="submit"]')).toBeVisible({ timeout: 5000 });
-
-	return textarea;
+async function openToolForm(page: Page, mockApi: MockApi, tools: Tool[]) {
+	await openTools(page, mockApi, tools);
+	await expect(page.locator('form button[type="submit"]')).toBeVisible();
 }
 
 /** Build a single-tool schema with one field. */
@@ -95,7 +56,7 @@ test.describe("SharedFilePicker (format: file-path)", () => {
 			type: "string", format: "file-path", description: "Path to the file",
 		}));
 
-		const fileInput = page.locator('input[type="text"]').first();
+		const fileInput = page.locator('form input[type="text"]').first();
 		await expect(fileInput).toBeVisible();
 		await expect(page.getByTitle("Browse")).toBeVisible();
 	});
@@ -106,7 +67,7 @@ test.describe("SharedFilePicker (format: file-path)", () => {
 		}));
 
 		// Override fs/list AFTER openToolForm (mockApi already ran, so this takes LIFO precedence)
-		await page.route("**/api/fs/list**", (route: any) => {
+		await page.route("**/api/fs/list**", (route) => {
 			route.fulfill({ json: [
 				{ name: "src", isDir: true },
 				{ name: "README.md", isDir: false },
@@ -126,7 +87,7 @@ test.describe("SearchBox (format: search)", () => {
 		}));
 
 		// SearchBox renders an input
-		const searchInput = page.locator('input[type="text"]').first();
+		const searchInput = page.locator('form input[type="text"]').first();
 		await expect(searchInput).toBeVisible();
 	});
 
@@ -135,9 +96,9 @@ test.describe("SearchBox (format: search)", () => {
 			type: "string", format: "search", description: "Search query",
 		}));
 
-		const searchInput = page.locator('input[type="text"]').first();
+		const searchInput = page.locator('form input[type="text"]').first();
 		await searchInput.fill("hello");
-		await page.waitForTimeout(50);
+
 
 		const clearBtn = page.getByTitle("Clear");
 		await expect(clearBtn).toBeVisible({ timeout: 2000 });
@@ -159,16 +120,16 @@ test.describe("ComboBox (format: combo-box)", () => {
 	test("renders input field", async ({ page, mockApi }) => {
 		await openToolForm(page, mockApi, comboTool);
 
-		const comboInput = page.locator('input[type="text"]').first();
+		const comboInput = page.locator('form input[type="text"]').first();
 		await expect(comboInput).toBeVisible();
 	});
 
 	test("opens dropdown with options on focus", async ({ page, mockApi }) => {
 		await openToolForm(page, mockApi, comboTool);
 
-		const comboInput = page.locator('input[type="text"]').first();
+		const comboInput = page.locator('form input[type="text"]').first();
 		await comboInput.click();
-		await page.waitForTimeout(100);
+
 
 		await expect(page.getByText("TypeScript")).toBeVisible({ timeout: 2000 });
 		await expect(page.getByText("Python")).toBeVisible();
@@ -178,9 +139,9 @@ test.describe("ComboBox (format: combo-box)", () => {
 	test("clicking an option selects it", async ({ page, mockApi }) => {
 		await openToolForm(page, mockApi, comboTool);
 
-		const comboInput = page.locator('input[type="text"]').first();
+		const comboInput = page.locator('form input[type="text"]').first();
 		await comboInput.click();
-		await page.waitForTimeout(100);
+
 
 		await page.getByText("Python").click();
 		await expect(comboInput).toHaveValue("Python");
@@ -206,7 +167,7 @@ test.describe("TagInput (format: tag-input)", () => {
 		await tagInput.click();
 		await tagInput.pressSequentially("mytag");
 		await page.keyboard.press("Enter");
-		await page.waitForTimeout(100);
+
 
 		await expect(page.getByText("mytag")).toBeVisible({ timeout: 2000 });
 		await expect(tagInput).toHaveValue("");
@@ -219,14 +180,14 @@ test.describe("TagInput (format: tag-input)", () => {
 		await tagInput.click();
 		await tagInput.pressSequentially("first");
 		await page.keyboard.press("Enter");
-		await page.waitForTimeout(100);
 
-		const chip = page.locator('.inline-flex').filter({ hasText: "first" });
+
+		const chip = page.locator('form span.inline-flex').filter({ hasText: 'first' });
 		await expect(chip).toBeVisible();
 
 		// Click the x button on the chip to remove the tag
 		await chip.locator('button').click();
-		await page.waitForTimeout(100);
+
 		await expect(chip).not.toBeVisible();
 	});
 });
@@ -291,13 +252,13 @@ test.describe("Mixed format form", () => {
 		// TagInput placeholder
 		await expect(page.locator('input[placeholder="Tags"]')).toBeVisible();
 		// Multiple text inputs for file-path, search, combo-box
-		const textInputs = page.locator('input[type="text"]');
+		const textInputs = page.locator('form input[type="text"]');
 		expect(await textInputs.count()).toBeGreaterThanOrEqual(3);
 	});
 });
 
 test.describe("InlineToolForm Cancel / Add buttons", () => {
-	async function openSimpleForm(page: any, mockApi: any) {
+	async function openSimpleForm(page: Page, mockApi: MockApi) {
 		return openToolForm(page, mockApi, makeTool("query", {
 			type: "string", format: "search", description: "Query",
 		}));
@@ -343,24 +304,7 @@ test.describe("ToolPicker (multiple tools)", () => {
 	];
 
 	test("shows tool picker when extension has multiple tools", async ({ page, mockApi }) => {
-		const textarea = await setupPage(page, mockApi);
-		// Register after mockApi so it takes precedence (LIFO)
-		await page.route("**/api/extensions/*/tools", (route: any) => {
-			route.fulfill({ json: { tools: multiTools } });
-		});
-
-		await textarea.focus();
-		await textarea.pressSequentially(`@ext:${EXT_NAME}`, { delay: 50 });
-		await page.waitForTimeout(350);
-
-		const listbox = page.locator("#mention-listbox");
-		await expect(listbox).toBeVisible({ timeout: 5000 });
-		await page.keyboard.press("Enter");
-		await expect(listbox).not.toBeVisible({ timeout: 3000 });
-
-		const chip = page.locator(`span[role="button"]`).filter({ hasText: `@${EXT_NAME}` });
-		await expect(chip).toBeVisible({ timeout: 3000 });
-		await chip.click();
+		await openTools(page, mockApi, multiTools);
 
 		// ToolPicker shows both tools (use role=option for the tool items)
 		await expect(page.getByRole("option", { name: /scan/ })).toBeVisible({ timeout: 3000 });
@@ -368,23 +312,7 @@ test.describe("ToolPicker (multiple tools)", () => {
 	});
 
 	test("selecting a tool from picker shows the form", async ({ page, mockApi }) => {
-		const textarea = await setupPage(page, mockApi);
-		await page.route("**/api/extensions/*/tools", (route: any) => {
-			route.fulfill({ json: { tools: multiTools } });
-		});
-
-		await textarea.focus();
-		await textarea.pressSequentially(`@ext:${EXT_NAME}`, { delay: 50 });
-		await page.waitForTimeout(350);
-
-		const listbox = page.locator("#mention-listbox");
-		await expect(listbox).toBeVisible({ timeout: 5000 });
-		await page.keyboard.press("Enter");
-		await expect(listbox).not.toBeVisible({ timeout: 3000 });
-
-		const chip = page.locator(`span[role="button"]`).filter({ hasText: `@${EXT_NAME}` });
-		await expect(chip).toBeVisible({ timeout: 3000 });
-		await chip.click();
+		await openTools(page, mockApi, multiTools);
 
 		// Wait for tool picker
 		await expect(page.getByRole("option", { name: /scan/ })).toBeVisible({ timeout: 3000 });

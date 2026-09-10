@@ -49,11 +49,8 @@ test.describe("Hub side-nav dropdown", () => {
 	test("sidebar Hub entry: starts collapsed, expands to an ABC list, collapses, navigates", async ({
 		page,
 		mockApi,
-		isMobile,
 	}) => {
-		// The dropdown lives in the desktop command column; the mobile drawer is
-		// a separate lane exercised by the same component's DOM tests.
-		test.skip(isMobile, "sidebar dropdown targets the desktop command column");
+		await page.setViewportSize({ width: 1024, height: 768 });
 		await mockApi({ projects: [proj] });
 		await mockHub(page);
 
@@ -108,9 +105,8 @@ test.describe("Hub side-nav dropdown", () => {
 	test("expanded dropdown + ABC tab bar render for visual evidence @evidence", async ({
 		page,
 		mockApi,
-		isMobile,
 	}, testInfo) => {
-		test.skip(isMobile, "sidebar dropdown targets the desktop command column");
+		await page.setViewportSize({ width: 1024, height: 768 });
 		await mockApi({ projects: [proj] });
 		await mockHub(page);
 

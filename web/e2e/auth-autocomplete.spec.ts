@@ -10,17 +10,10 @@
  * hydration all get a chance to drop an attribute, and only a browser sees the
  * result the password manager sees.
  *
- * WHICH PAGES: the two credential screens that genuinely render under the mock
- * tier. `/reset-password/[token]`'s server load touches no DB (it just echoes
- * the token), and `/account` runs on mocked APIs. `/login`, `/setup` and
- * `/signup/[token]` all call `getUserCount()` / `getInviteByToken()` in
- * `+page.server.ts`; under this tier's `PI_SKIP_INIT=1` preview server those
- * throw and the routes serve a 500 (verified: `curl /login` → 500), which is
- * exactly why `auth-login.spec.ts` and `setup-first-run.spec.ts` drive a static
- * HTML reimplementation instead. Asserting `autocomplete` against a hand-written
- * shell would assert the fixture, not the app — so those three pages are covered
- * by `auth-page-autocomplete.component.test.ts`, which renders the real
- * `+page.svelte` through the Svelte compiler.
+ * These cases exercise the reset and account forms and the MCP header field.
+ * The login suite renders the real Svelte page with controlled loader data;
+ * setup and invite signup run against the real database in their own lanes.
+ * Component tests also verify autocomplete across those auth pages.
  *
  * SCOPE is secret-bearing fields, not only auth ones (the filename predates the
  * widening): the MCP header box on `/extensions` holds an

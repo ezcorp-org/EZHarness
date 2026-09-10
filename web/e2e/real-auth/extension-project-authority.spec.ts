@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { captureEvidence } from "../fixtures/evidence";
 import { extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { resumePage } from "../fixtures/page-data";
 import type { WorkspaceRecord } from "../../../src/extensions/v4/types";
 
 test("real project binding, isolated Git read, host review and revoke @evidence", async ({ page, request, baseURL }, testInfo) => {
@@ -50,7 +51,10 @@ test("real project binding, isolated Git read, host review and revoke @evidence"
     expect(seeded.status(), await seeded.text()).toBe(201);
     const proposal = await seeded.json();
     expect(proposal.controlledFixture).toBe(true);
-    await page.goto(proposal.reviewUrl);
+    // Resume through the hydrated app shell so this interactive review route
+    // loads its client chunk. A direct SSR visit validates the server page but
+    // can leave the form enhancement code unexecuted in browser coverage.
+    await resumePage(page, proposal.reviewUrl);
     await expect(page.getByRole("heading", { name: "Review project changes" })).toBeVisible();
     await expect(page.getByText("docs/controlled-fixture.md")).toBeVisible();
     const reject = page.getByRole("button", { name: "Reject without changes", exact: true });
@@ -60,13 +64,28 @@ test("real project binding, isolated Git read, host review and revoke @evidence"
     await reject.scrollIntoViewIfNeeded();
     await captureEvidence(page, testInfo, "extension-project-review-mobile");
     await page.getByRole("checkbox").check();
+    // The form must use SvelteKit enhancement. A native form POST could show
+    // the same server-rendered confirmation while never loading this route's
+    // client module, which would leave its interactive pending/review state
+    // untested.
+    const actionRequest = page.waitForRequest(candidate =>
+      candidate.method() === "POST" && new URL(candidate.url()).pathname === new URL(proposal.reviewUrl, baseURL).pathname,
+    );
     await reject.click();
+    expect((await actionRequest).headers()["x-sveltekit-action"]).toBe("true");
     await expect(page.getByText("This decision is final.", { exact: false })).toBeVisible();
     await page.goto(created.openUrl);
     await page.getByRole("button", { name: "Revoke project access", exact: true }).click();
     await expect(page.getByRole("status")).toContainText("Project access revoked");
     const revoked = await client.invokeExtensionTool(conversation.id, name, "echo", { text: "binding" });
     expect(JSON.stringify(revoked.output)).toContain("Host capability denied or failed");
+		// A document reload must retain the revoked binding state. This also
+		// exercises the author → root → proposal client transition, then the
+		// final author document, through the coverage collector's navigation
+		// checkpoints.
+		await page.reload();
+		await expect(page.getByRole("button", { name: "Revoke project access", exact: true })).toBeDisabled();
+		await expect(page.getByText(/^Bound project:/)).toHaveCount(0);
     expect((await request.get(proposal.reviewUrl)).status()).toBe(403);
   } finally {
     if (installationId) await client.extensionControl("extensions_release", { action: "uninstall", installationId });

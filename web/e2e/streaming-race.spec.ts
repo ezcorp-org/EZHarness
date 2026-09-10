@@ -144,7 +144,7 @@ test.describe("Streaming Race Conditions", () => {
 
 		// Emit token to establish streaming state
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
-		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("button", { name: "Stop generating", exact: true })).toBeVisible({ timeout: 5000 });
 
 		// Complete the run
 		await emitSse({
@@ -155,7 +155,7 @@ test.describe("Streaming Race Conditions", () => {
 		});
 
 		// Stop button should disappear
-		await expect(page.getByRole("button", { name: /stop/i })).not.toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("button", { name: "Stop generating", exact: true })).not.toBeVisible({ timeout: 5000 });
 	});
 
 	test("run:error cleans up streaming state", async ({ page, mockApi, emitSse }) => {
@@ -187,7 +187,7 @@ test.describe("Streaming Race Conditions", () => {
 		// Streaming cursor should disappear
 		await expect(page.locator(".streaming-cursor")).not.toBeVisible({ timeout: 5000 });
 		// Stop button should disappear
-		await expect(page.getByRole("button", { name: /stop/i })).not.toBeVisible({ timeout: 5000 });
+		await expect(page.getByRole("button", { name: "Stop generating", exact: true })).not.toBeVisible({ timeout: 5000 });
 	});
 
 	test("streaming status text shows during processing", async ({ page, mockApi, emitSse }) => {

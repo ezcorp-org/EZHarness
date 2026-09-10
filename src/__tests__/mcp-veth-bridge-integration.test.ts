@@ -16,7 +16,7 @@
  *     `Operation not permitted`).
  */
 
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { test, expect, describe, } from "bun:test";
 
 const HAS_LINUX = process.platform === "linux";
 const HAS_IP = HAS_LINUX && Bun.which("ip") !== null;

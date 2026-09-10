@@ -79,6 +79,23 @@ describe("registerTeardown + shutdown ordering", () => {
 		await shutdown("test");
 		expect(done).toBe(true);
 	});
+
+	test("stops decision producers, drains permission audits, then closes the database", async () => {
+		const order: string[] = [];
+		registerTeardown("pglite-close", () => {
+			order.push("db");
+		});
+		registerTeardown("permission-audit-coalescer", async () => {
+			await Promise.resolve();
+			order.push("audit");
+		});
+		registerTeardown("decision-producer", () => {
+			order.push("producer");
+		});
+
+		await shutdown("test");
+		expect(order).toEqual(["producer", "audit", "db"]);
+	});
 });
 
 describe("shutdown state + signal", () => {

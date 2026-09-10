@@ -8,19 +8,21 @@
 	 * denial-only toggle + user-id filter.
 	 * Body: paginated timeline (cursor-based).
 	 */
-	import { onMount } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import { addToast } from "$lib/toast.svelte.js";
 	import type { PageData } from "./$types";
 
-	const { data }: { data: PageData } = $props();
+	let { data }: { data: PageData } = $props();
 
 	type Entry = (typeof data.entries)[number];
 
-	let entries = $state<Entry[]>(data.entries);
-	let nextCursor = $state<string | null>(data.nextCursor);
-	let stats = $state(data.stats);
+	// Filter actions own these values after construction; a prop update must
+	// not discard an in-progress filter or pagination result.
+	let entries = $state<Entry[]>(untrack(() => data.entries));
+	let nextCursor = $state<string | null>(untrack(() => data.nextCursor));
+	let stats = $state(untrack(() => data.stats));
 	let loading = $state(false);
-	let extensionFacets = data.extensionFacets;
+	let extensionFacets = untrack(() => data.extensionFacets);
 
 	// Filter state
 	let searchInput = $state("");

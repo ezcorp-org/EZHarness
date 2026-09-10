@@ -1,5 +1,89 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeAgent, makeAgentConfig, makeMode } from "./fixtures/data.js";
+import { makeAgent, makeAgentConfig, makeExtension, makeMode } from "./fixtures/data.js";
+
+const DESKTOP_WIDTH = 1280;
+const SHORT_DESKTOP_HEIGHT = 720;
+
+/**
+ * Put a real form control into the lower part of the viewport with native
+ * wheel input. A fixed picker must then use the usable space above it.
+ */
+async function wheelControlNearViewportBottom(
+  page: import("@playwright/test").Page,
+  control: import("@playwright/test").Locator,
+) {
+  await expect(page.locator("#splash")).toHaveCount(0);
+  await control.hover();
+  const minimumBottom = SHORT_DESKTOP_HEIGHT - 160;
+  const maximumBottom = SHORT_DESKTOP_HEIGHT - 32;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const box = await control.boundingBox();
+    const bottom = box ? box.y + box.height : 0;
+    if (box && box.y >= 0 && bottom >= minimumBottom && bottom <= maximumBottom) {
+      return box;
+    }
+    await page.mouse.wheel(0, bottom < minimumBottom ? -80 : 80);
+    await expect.poll(async () => (await control.boundingBox())?.y).not.toBe(box?.y);
+  }
+
+  const box = await control.boundingBox();
+  throw new Error(`Could not place picker control near the viewport bottom (bottom=${box ? box.y + box.height : "none"})`);
+}
+
+/**
+ * Click the exposed control at its current screen coordinates. Locator.click
+ * scrolls a lower form control back to the centre before opening it, which
+ * would test a different viewport constraint than a person clicking it.
+ */
+async function nativeClickControl(
+  page: import("@playwright/test").Page,
+  control: import("@playwright/test").Locator,
+) {
+  await expect(page.locator("#splash")).toHaveCount(0);
+  await expect(control).toBeInViewport();
+  const box = await control.boundingBox();
+  expect(box).not.toBeNull();
+  const point = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+  const hitTarget = await control.evaluate((element, coordinate) => {
+    const hit = document.elementFromPoint(coordinate.x, coordinate.y);
+    return {
+      isControl: hit === element || element.contains(hit),
+      hit: hit?.outerHTML.slice(0, 200) ?? null,
+    };
+  }, point);
+  expect(hitTarget.isControl, `native point is covered by ${hitTarget.hit}`).toBe(true);
+  await page.mouse.click(point.x, point.y);
+  return box!;
+}
+
+async function expectVisibleMenuAboveControl(
+  page: import("@playwright/test").Page,
+  control: import("@playwright/test").Locator,
+  menu: import("@playwright/test").Locator,
+) {
+  await wheelControlNearViewportBottom(page, control);
+  await nativeClickControl(page, control);
+  await expect(menu).toBeVisible();
+  await expect.poll(async () => {
+    const [anchorBox, menuBox] = await Promise.all([control.boundingBox(), menu.boundingBox()]);
+    return !!anchorBox && !!menuBox
+      && menuBox.y + menuBox.height <= anchorBox.y
+      && menuBox.y >= 0;
+  }).toBe(true);
+}
+
+async function expectVisibleMenuBelowControl(
+  page: import("@playwright/test").Page,
+  control: import("@playwright/test").Locator,
+  menu: import("@playwright/test").Locator,
+) {
+  await nativeClickControl(page, control);
+  await expect(menu).toBeVisible();
+  await expect.poll(async () => {
+    const [anchorBox, menuBox] = await Promise.all([control.boundingBox(), menu.boundingBox()]);
+    return !!anchorBox && !!menuBox && menuBox.y >= anchorBox.y + anchorBox.height;
+  }).toBe(true);
+}
 
 // Pills-with-× coverage for every combobox picker we use. Exercises:
 //   - pre-populated selected pills render inside the combobox chrome
@@ -22,8 +106,8 @@ test.describe("ExtensionSearchPicker — pills on the agent edit page", () => {
       agents: [makeAgent({ name: "pills-agent", source: "config", id: "cfg-exts", prompt: "P" })],
       agentConfigs: [config],
       extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "Lint/scan" },
-        { id: "ext-formatter", name: "formatter", description: "Format" },
+        makeExtension({ id: "ext-analyzer", name: "analyzer", description: "Lint/scan" }),
+        makeExtension({ id: "ext-formatter", name: "formatter", description: "Format" }),
       ],
     });
 
@@ -208,8 +292,8 @@ test.describe("SelectedPill — shared component contract", () => {
       agents: [makeAgent({ name: "a11y-agent", source: "config", id: "cfg-a11y", prompt: "P" })],
       agentConfigs: [config],
       extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "" },
-        { id: "ext-formatter", name: "formatter", description: "" },
+        makeExtension({ id: "ext-analyzer", name: "analyzer", description: "" }),
+        makeExtension({ id: "ext-formatter", name: "formatter", description: "" }),
       ],
     });
     await page.goto("/agents/a11y-agent");
@@ -231,7 +315,7 @@ test.describe("SelectedPill — shared component contract", () => {
     await mockApi({
       agents: [makeAgent({ name: "kbd-agent", source: "config", id: "cfg-kbd", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [{ id: "ext-analyzer", name: "analyzer", description: "" }],
+      extensions: [makeExtension({ id: "ext-analyzer", name: "analyzer", description: "" })],
     });
     await page.goto("/agents/kbd-agent");
 
@@ -265,9 +349,9 @@ test.describe("Combobox layout — input width preserved with pills inside", () 
       ],
       agentConfigs: [empty, many],
       extensions: [
-        { id: "ext-1", name: "one-extension", description: "" },
-        { id: "ext-2", name: "two-extension", description: "" },
-        { id: "ext-3", name: "three-extension", description: "" },
+        makeExtension({ id: "ext-1", name: "one-extension", description: "" }),
+        makeExtension({ id: "ext-2", name: "two-extension", description: "" }),
+        makeExtension({ id: "ext-3", name: "three-extension", description: "" }),
       ],
     });
 
@@ -305,7 +389,7 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     await mockApi({
       agents: [makeAgent({ name: "last-agent", source: "config", id: "cfg-last", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [{ id: "ext-only", name: "only", description: "" }],
+      extensions: [makeExtension({ id: "ext-only", name: "only", description: "" })],
     });
     await page.goto("/agents/last-agent");
 
@@ -328,9 +412,7 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     await mockApi({
       agents: [makeAgent({ name: "add-agent", source: "config", id: "cfg-add", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [
-        { id: "ext-add", name: "addable", description: "desc" },
-      ],
+      extensions: [makeExtension({ id: "ext-add", name: "addable", description: "desc" })],
     });
     await page.goto("/agents/add-agent");
     const combobox = page.getByTestId("extension-picker-combobox");
@@ -355,7 +437,7 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     await mockApi({
       agents: [makeAgent({ name: "long-agent", source: "config", id: "cfg-long", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [{ id: "ext-long", name: longName, description: "" }],
+      extensions: [makeExtension({ id: "ext-long", name: longName, description: "" })],
     });
     await page.goto("/agents/long-agent");
 
@@ -369,5 +451,114 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     expect(pillBB).not.toBeNull();
     expect(boxBB).not.toBeNull();
     expect(pillBB!.width).toBeLessThanOrEqual(boxBB!.width);
+  });
+});
+
+test.describe("Desktop picker placement — native form flows", () => {
+  test("a constrained Extension picker opens above the lower agent form and selects a scrolled option", async ({ page, mockApi }) => {
+    const config = makeAgentConfig({ id: "placement-extension", name: "placement-extension", prompt: "P", extensions: [] });
+    const extensions = Array.from({ length: 12 }, (_, index) => makeExtension({
+      id: `placement-extension-${index}`,
+      name: `Placement extension ${index}`,
+      description: `Extension ${index} for the placement list`,
+    }));
+    await mockApi({
+      agents: [makeAgent({ name: config.name, source: "config", id: config.id, prompt: config.prompt })],
+      agentConfigs: [config],
+      extensions,
+    });
+    await page.setViewportSize({ width: DESKTOP_WIDTH, height: SHORT_DESKTOP_HEIGHT });
+    await page.goto(`/agents/${config.name}`);
+
+    const combobox = page.getByTestId("extension-picker-combobox");
+    const input = combobox.getByTestId("open-extension-search-picker");
+    const listbox = page.getByRole("listbox", { name: "Available extensions", exact: true });
+    await expectVisibleMenuAboveControl(page, input, listbox);
+
+    // A real long list remains usable when the placement is constrained.
+    expect(await listbox.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    await input.press("Escape");
+    await page.setViewportSize({ width: DESKTOP_WIDTH, height: 450 });
+    await input.hover();
+    await nativeClickControl(page, input);
+    await expect(listbox).toBeVisible();
+    await input.fill("Placement extension");
+    await expect(input).toHaveValue("Placement extension");
+    const constrained = await listbox.boundingBox();
+    expect(constrained).not.toBeNull();
+    expect(constrained!.y).toBeGreaterThanOrEqual(0);
+    expect(constrained!.y + constrained!.height).toBeLessThanOrEqual(450);
+    await listbox.getByRole("button", { name: /Placement extension 11/i }).click();
+    await expect(combobox.getByTestId("selected-pill")).toContainText("Placement extension 11");
+  });
+
+  test("a model picker uses space below a taller agent form and keeps the selected model", async ({ page, mockApi }) => {
+    const config = makeAgentConfig({ id: "placement-model", name: "placement-model", prompt: "P" });
+    await mockApi({
+      agents: [makeAgent({ name: config.name, source: "config", id: config.id, prompt: config.prompt })],
+      agentConfigs: [config],
+    });
+    await page.setViewportSize({ width: DESKTOP_WIDTH, height: 1_000 });
+    await page.goto(`/agents/${config.name}`);
+
+    const combobox = page.getByTestId("model-picker-combobox");
+    const input = combobox.getByTestId("open-model-search-picker");
+    const listbox = page.getByRole("listbox", { name: "Available models", exact: true });
+    await expectVisibleMenuBelowControl(page, input, listbox);
+
+    await listbox.getByRole("button", { name: /GPT-4o/i }).click();
+    await expect(combobox.getByTestId("selected-pill")).toContainText("GPT-4o");
+  });
+
+  test("lower team mode and tool pickers keep visible native options and update their pills", async ({ page, mockApi }) => {
+    const members = Array.from({ length: 4 }, (_, index) => makeAgentConfig({
+      id: `placement-member-${index}`,
+      name: `placement-member-${index}`,
+      prompt: "P",
+    }));
+    const team = makeAgentConfig({
+      id: "placement-team",
+      name: "placement-team",
+      prompt: "Coordinate",
+      category: "team",
+      references: {
+        agents: members.map((member) => member.id),
+        extensions: [],
+        members: members.map((member) => ({ agentConfigId: member.id })),
+      },
+    });
+    const modes = Array.from({ length: 5 }, (_, index) => makeMode({
+      id: `placement-mode-${index}`,
+      name: `Placement Mode ${index}`,
+      slug: `placement-mode-${index}`,
+      description: `Mode ${index} for the placement list`,
+      toolRestriction: "all",
+      builtin: false,
+    }));
+    await mockApi({
+      agents: [
+        makeAgent({ name: team.name, source: "config", id: team.id, category: "team", prompt: team.prompt }),
+        ...members.map((member) => makeAgent({ name: member.name, source: "config", id: member.id, prompt: member.prompt })),
+      ],
+      agentConfigs: [team, ...members],
+      modes,
+    });
+    await page.setViewportSize({ width: DESKTOP_WIDTH, height: SHORT_DESKTOP_HEIGHT });
+    await page.goto(`/agents/${team.name}`);
+    await page.getByText(members[0]!.name, { exact: true }).click();
+
+    const modeBox = page.getByTestId("mode-picker-combobox").first();
+    const modeInput = modeBox.getByTestId("open-mode-search-picker");
+    const modeList = page.getByRole("listbox", { name: "Available modes", exact: true });
+    await expectVisibleMenuAboveControl(page, modeInput, modeList);
+    await modeList.getByRole("button", { name: /Placement Mode 4/i }).click();
+    await expect(modeBox.getByTestId("selected-pill")).toContainText("Placement Mode 4");
+
+    const toolBox = page.getByTestId("tool-picker-combobox").first();
+    const toolInput = toolBox.getByTestId("open-tool-search-picker");
+    const toolList = page.getByRole("listbox", { name: "Available tools", exact: true });
+    await expectVisibleMenuAboveControl(page, toolInput, toolList);
+    await toolList.getByRole("button", { name: "analyzer scan", exact: true }).click();
+    await expect(toolBox.getByTestId("selected-pill")).toContainText("analyzer__scan");
   });
 });

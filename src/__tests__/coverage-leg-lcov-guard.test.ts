@@ -28,13 +28,16 @@
  */
 import { describe, expect, test } from "bun:test";
 import { Glob } from "bun";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const SETS_LIB = "scripts/lib/test-file-sets.sh";
 const RUNNER = join(REPO_ROOT, "scripts/test-coverage.sh");
+const VITEST_INCLUDE_MANIFEST = join(REPO_ROOT, "scripts/web-vitest-coverage-includes.sh");
+const VITEST_RUNNER = join(REPO_ROOT, "scripts/web-vitest-coverage.sh");
+const WEB_UTILITY_RUNNER = join(REPO_ROOT, "scripts/web-utility-coverage.sh");
 const WEB_ROOT = join(REPO_ROOT, "web");
 
 const LCOV = "TN:\nSF:/repo/src/x.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n";
@@ -74,8 +77,13 @@ const REGISTER_ALL = [
   "register_leg harness-client cov_hc",
   "register_leg suggest cov_suggest",
   "register_leg ai-kit cov_aikit",
-  "register_leg web-vitest cov_vitest",
+  "register_leg providers cov_providers",
+  "register_leg api-client cov_api_client",
+  "register_leg empty-node-shim cov_empty_node_shim",
+  "register_leg worker cov_worker",
+  "register_leg web-utility cov_web_utility",
   "register_leg web-security cov_security",
+  "register_leg browser cov_browser",
 ].join("\n");
 
 const ALL_DIRS: ReadonlyArray<[string, string]> = [
@@ -83,8 +91,13 @@ const ALL_DIRS: ReadonlyArray<[string, string]> = [
   ["harness-client", "cov_hc"],
   ["suggest", "cov_suggest"],
   ["ai-kit", "cov_aikit"],
-  ["web-vitest", "cov_vitest"],
+  ["providers", "cov_providers"],
+  ["api-client", "cov_api_client"],
+  ["empty-node-shim", "cov_empty_node_shim"],
+  ["worker", "cov_worker"],
+  ["web-utility", "cov_web_utility"],
   ["web-security", "cov_security"],
+  ["browser", "cov_browser"],
 ];
 
 describe("check_leg_lcov: behaviour", () => {
@@ -110,7 +123,7 @@ describe("check_leg_lcov: behaviour", () => {
       expect(r.stdout).toContain("(infrastructure failure)");
       // The expected path is named so the failure is actionable, not just loud.
       expect(r.stdout).toContain(join(tmp, "cov_sdk", "lcov.info"));
-      for (const name of ["harness-client", "suggest", "ai-kit", "web-vitest", "web-security"]) {
+      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-utility", "web-security", "browser"]) {
         expect(r.stdout).not.toContain(`::error::${name} coverage leg`);
       }
     });
@@ -118,10 +131,10 @@ describe("check_leg_lcov: behaviour", () => {
 
   test("an EMPTY lcov counts as missing (it merges to nothing either way)", () => {
     withTmp((tmp) => {
-      for (const [name, dir] of ALL_DIRS) seedLeg(tmp, dir, name === "web-vitest" ? "" : LCOV);
+      for (const [name, dir] of ALL_DIRS) seedLeg(tmp, dir, name === "providers" ? "" : LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
-      expect(r.stdout).toContain("::error::web-vitest coverage leg produced no lcov output");
+      expect(r.stdout).toContain("::error::providers coverage leg produced no lcov output");
     });
   });
 
@@ -131,7 +144,7 @@ describe("check_leg_lcov: behaviour", () => {
       seedLeg(tmp, "cov_hc", LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
-      for (const name of ["suggest", "ai-kit", "web-vitest", "web-security"]) {
+      for (const name of ["suggest", "ai-kit", "providers", "api-client", "empty-node-shim", "worker", "web-utility", "web-security", "browser"]) {
         expect(r.stdout).toContain(`::error::${name} coverage leg produced no lcov output`);
       }
     });
@@ -141,9 +154,9 @@ describe("check_leg_lcov: behaviour", () => {
     withTmp((tmp) => {
       // legs-only mode never runs run_security_leg, so cov_security is absent
       // by design and must not be reported.
-      for (const [name, dir] of ALL_DIRS) if (name !== "web-security") seedLeg(tmp, dir, LCOV);
+      for (const [name, dir] of ALL_DIRS) if (name !== "web-security" && name !== "browser") seedLeg(tmp, dir, LCOV);
       const legsOnly = REGISTER_ALL.split("\n")
-        .filter((l) => !l.includes("web-security"))
+        .filter((l) => !l.includes("web-security") && !l.includes("browser"))
         .join("\n");
       const r = runGuard(tmp, `${legsOnly}\ncheck_leg_lcov`);
       expect(r.code).toBe(0);
@@ -278,9 +291,9 @@ describe("test-coverage.sh: every producer shares one per-test timeout", () => {
     expect(naked, `un-timed bun test invocation(s) in ${SETS_LIB}`).toEqual([]);
   });
 
-  test("the vitest leg gets it too — vitest's own default is also 5s", async () => {
-    const src = await runner;
-    expect(src).toContain('npx vitest run --testTimeout="$TEST_TIMEOUT_MS"');
+  test("the canonical Vitest launcher gets an explicit timeout too", async () => {
+    const src = await Bun.file(VITEST_RUNNER).text();
+    expect(src).toContain("--testTimeout=30000");
     // …and no config override silently reinstates the 5s default underneath it.
     const vitestConfig = await Bun.file(join(WEB_ROOT, "vitest.config.ts")).text();
     expect(vitestConfig).not.toMatch(/testTimeout\s*:/);
@@ -761,6 +774,15 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     return src.slice(i);
   }
 
+  /** Execute the extracted real verdict with every unrelated producer green. */
+  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number; webUtility?: number } = {}): Run {
+    const sdk = exits.sdk ?? 0;
+    const emptyNodeShim = exits.emptyNodeShim ?? 0;
+    const webUtility = exits.webUtility ?? 0;
+    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_UTILITY_EXIT=${webUtility}\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+    return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+  }
+
   test("both host-pool modes call the shared gate — neither has a private copy", async () => {
     const src = await runner;
     const calls = [...src.matchAll(/^\s*gate_host_failures\s*$/gm)];
@@ -811,15 +833,10 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(legsVerdictStart).toBeGreaterThan(-1);
     const legsVerdict = legsOnlyBranch.slice(legsVerdictStart, legsOnlyBranch.lastIndexOf("fi\n") + 3);
 
-    const runVerdict = (body: string, sdkExit: number): Run => {
-      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nVITEST_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
-      return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
-    };
-
-    const legsRed = runVerdict(legsVerdict, 1);
+    const legsRed = runCoverageVerdict(legsVerdict, { sdk: 1 });
     expect(legsRed.code).toBe(1);
     expect(legsRed.stdout).toContain("::error::sdk coverage leg failed (exit 1)");
-    expect(runVerdict(legsVerdict, 0).code).toBe(0);
+    expect(runCoverageVerdict(legsVerdict).code).toBe(0);
 
     const tail = await fullModeTail();
     const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
@@ -829,143 +846,210 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(fullVerdictStart).toBeGreaterThan(-1);
     expect(fullVerdictExit).toBeGreaterThan(fullVerdictStart);
     const fullVerdict = tail.slice(fullVerdictStart, fullVerdictEnd);
-    const fullRed = runVerdict(fullVerdict, 1);
+    const fullRed = runCoverageVerdict(fullVerdict, { sdk: 1 });
     expect(fullRed.code).toBe(1);
     expect(fullRed.stdout).toContain("COVERAGE: FAILED (check=0 sdk=1");
-    expect(runVerdict(fullVerdict, 0).code).toBe(0);
+    expect(runCoverageVerdict(fullVerdict).code).toBe(0);
     expect(fullVerdict).not.toContain("tolerated (not gated here): sdk=");
+  });
+
+  test("web utility producer failure gates both verdicts", async () => {
+    const src = await runner;
+    const legsOnlyStart = src.indexOf('if [ -n "$COVERAGE_LEGS_ONLY" ]');
+    const shardStart = src.indexOf("# Build the host file list (sliced for shard mode).");
+    const legsVerdictStart = src.indexOf('echo "  $' + '{TOTAL_PASS} pass | $' + '{TOTAL_FAIL} fail | legs"', legsOnlyStart);
+    const legsVerdict = src.slice(legsVerdictStart, src.lastIndexOf("fi\n", shardStart) + 3);
+    const tail = await fullModeTail();
+    const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
+    const fullExit = 'if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi';
+    const fullVerdict = tail.slice(fullVerdictStart, tail.indexOf(fullExit, fullVerdictStart) + fullExit.length);
+
+    const legs = runCoverageVerdict(legsVerdict, { webUtility: 1 });
+    expect(legs.code).toBe(1);
+    const full = runCoverageVerdict(fullVerdict, { webUtility: 1 });
+    expect(full.code).toBe(1);
+    expect(full.stdout).toContain("web_utility=1");
+  });
+
+  test("empty Node shim failure gates both verdicts even after its lcov guard passed", async () => {
+    const src = await runner;
+    const legsOnlyStart = src.indexOf('if [ -n "$COVERAGE_LEGS_ONLY" ]');
+    const shardStart = src.indexOf("# Build the host file list (sliced for shard mode).");
+    const legsVerdictStart = src.indexOf('echo "  $' + '{TOTAL_PASS} pass | $' + '{TOTAL_FAIL} fail | legs"', legsOnlyStart);
+    const legsVerdict = src.slice(legsVerdictStart, src.lastIndexOf("fi\n", shardStart) + 3);
+    const tail = await fullModeTail();
+    const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
+    const fullExit = 'if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi';
+    const fullVerdict = tail.slice(fullVerdictStart, tail.indexOf(fullExit, fullVerdictStart) + fullExit.length);
+
+    // First prove the actual producer-integrity guard accepts the shim's
+    // non-empty LCOV. LEG_LCOV_EXIT=0 then models that passed guard inside the
+    // extracted verdict; its own failed floor/check exit must still red both
+    // modes.
+    withTmp((tmp) => {
+      seedLeg(tmp, "cov_empty_node_shim", LCOV);
+      const guard = runGuard(tmp, "register_leg empty-node-shim cov_empty_node_shim\ncheck_leg_lcov");
+      expect(guard.code).toBe(0);
+    });
+    const legs = runCoverageVerdict(legsVerdict, { emptyNodeShim: 1 });
+    expect(legs.code).toBe(1);
+    const full = runCoverageVerdict(fullVerdict, { emptyNodeShim: 1 });
+    expect(full.code).toBe(1);
+    expect(full.stdout).toContain("empty-node-shim=1");
   });
 });
 
-// ── vitest-leg allowlist integrity ──────────────────────────────────────────
+// ── direct Bun utility coverage producer ───────────────────────────────────
+describe("web utility coverage producer", () => {
+  test("rejects an invalid local worker bound before it can run a suite", () => {
+    withTmp((tmp) => {
+      const proc = Bun.spawnSync(["bash", WEB_UTILITY_RUNNER], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          COV_OUT: join(tmp, "out"),
+          WEB_UTILITY_COVERAGE_MAX_WORKERS: "0",
+        },
+      });
+      expect(proc.exitCode).toBe(2);
+      expect(proc.stderr.toString()).toContain("WEB_UTILITY_COVERAGE_MAX_WORKERS must be a positive integer");
+    });
+  });
+
+  test("stamps trusted Bun ownership into raw LCOV before the producer merge", async () => {
+    const source = await Bun.file(WEB_UTILITY_RUNNER).text();
+    const registryIndex = source.indexOf("BUN_WEB_UTILITY_COVERAGE_PRODUCER");
+    const mergeIndex = source.indexOf('merge-lcov.ts');
+    expect(registryIndex).toBeGreaterThan(-1);
+    expect(mergeIndex).toBeGreaterThan(registryIndex);
+    expect(source).toContain("BUN_WEB_UTILITY_SOURCES");
+    expect(source).toContain("web_utility_coverage_files");
+    expect(source).toContain("WEB_UTILITY_COVERAGE_MAX_WORKERS=$" + "{WEB_UTILITY_COVERAGE_MAX_WORKERS:-3}");
+  });
+});
+
+// ── canonical Vitest V8 coverage integrity ──────────────────────────────────
 /**
- * The node/vitest leg is TWO hand-maintained allowlists that must agree: the
- * explicit test-file arguments (what RUNS) and the `--coverage.include`
- * patterns (what is MEASURED). A module is covered by this leg only when it is
- * on BOTH, and neither list is derived from the other — so a suite can be
- * thoroughly green and still report as untested.
- *
- * Two ways that goes wrong, both silent at the leg's exit code:
- *   - an include pattern that matches NOTHING (a typo, a moved file, or a
- *     SvelteKit `[param]` segment written in a form the matcher doesn't take).
- *     This is how `api/health/+server.ts` and the refresh-models handler
- *     reached CI tested-but-unmeasured in PR #97; the only downstream symptom
- *     was the patch gate's "changed source file has NO lcov data".
- *   - a listed test file that no longer exists. vitest does red on that today,
- *     but only as "no test files found" buried in a leg log — named here.
- *
- * Both checks run against the REAL command in scripts/test-coverage.sh, parsed
- * out of the file, so they cannot check a stale copy.
+ * The old selected V8 invocation duplicated a subset of the canonical Vitest
+ * pool. The three existing Web tests shards now run that pool once and produce
+ * its LCOV artifacts. These checks keep discovery and measurement fail-closed:
+ * the launcher must use the full Vitest selection, source the shared manifest,
+ * and remain wired into those automatic CI shards.
  */
-describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
-  const runnerSrc = Bun.file(RUNNER).text();
+describe("canonical Vitest V8 coverage launcher", () => {
+  const runnerSrc = Bun.file(VITEST_RUNNER).text();
 
-  /** The `( cd web && npx vitest run … )` invocation, verbatim. */
-  async function vitestBlock(): Promise<string> {
-    const src = await runnerSrc;
-    const start = src.indexOf("npx vitest run");
-    const end = src.indexOf('> "$legs/vitest.out"', start);
-    expect(start, "the vitest leg invocation moved — update this parser").toBeGreaterThan(-1);
-    expect(end, "the vitest leg's output redirect moved — update this parser").toBeGreaterThan(
-      start,
-    );
-    return src.slice(start, end);
-  }
-
-  /** Repo-relative-to-`web/` test files passed as positional args. */
-  async function listedTestFiles(): Promise<string[]> {
-    const block = await vitestBlock();
-    return [...block.matchAll(/^\s*"?(src\/[^\s"\\]+\.test\.ts)"?\s*\\?\s*$/gm)].map(
-      (m) => m[1] as string,
-    );
-  }
-
-  /** The `--coverage.include='…'` patterns, in file order. */
   async function includePatterns(): Promise<string[]> {
-    const block = await vitestBlock();
-    return [...block.matchAll(/--coverage\.include='([^']+)'/g)].map((m) => m[1] as string);
+    const manifest = await Bun.file(VITEST_INCLUDE_MANIFEST).text();
+    return [...manifest.matchAll(/"--coverage\.include=([^"\n]+)"/g)].map((m) => m[1] as string);
   }
 
-  // Every file under web/src, expressed the way the include patterns are
-  // (relative to `web/`, since the leg runs with cwd=web).
   const webSrcFiles = [...new Glob("**/*").scanSync({ cwd: join(WEB_ROOT, "src") })].map(
     (p) => `src/${p.split("\\").join("/")}`,
   );
 
-  /**
-   * Match one include pattern against the tree. Bun's `Glob` reads `[id]` as a
-   * character class, so a literal SvelteKit segment has to be escaped — and
-   * the script already carries two patterns pre-escaped for VITEST's matcher
-   * in the `[[]id]` form, which means the same literal `[id]`. Normalise that
-   * back first, then escape for Bun. (See the DYNAMIC ROUTE SEGMENTS note in
-   * scripts/test-coverage.sh for why the bare form is what vitest wants.)
-   */
   function matchesSomething(pattern: string): boolean {
     const literal = pattern.replace(/\[\[\]/g, "[");
     const escaped = literal.replace(/\[/g, "\\[").replace(/\]/g, "\\]");
-    const glob = new Glob(escaped);
-    return webSrcFiles.some((f) => glob.match(f));
+    return webSrcFiles.some((file) => new Glob(escaped).match(file));
   }
 
-  test("the parser still finds both allowlists (a rewrite must not silently empty them)", async () => {
-    const files = await listedTestFiles();
+  test("CI runs the canonical launcher once across the existing Web tests shards", async () => {
+    const runner = await runnerSrc;
+    const ci = readFileSync(join(REPO_ROOT, ".github/workflows/ci.yml"), "utf8");
+    expect(runner).toContain('source "$repo_root/scripts/web-vitest-coverage-includes.sh"');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash array expansion asserted as launcher syntax
+    expect(runner).toContain('npx "${args[@]}"');
+    expect(runner).toContain('args+=("--shard=$shard")');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions matrix placeholders asserted as workflow syntax
+    expect(ci).toContain("bash scripts/web-vitest-coverage.sh --output coverage-shard/web-vitest-${{ matrix.i }} --shard ${{ matrix.i }}/3");
+    expect((ci.match(/web-vitest-coverage\.sh/g) ?? [])).toHaveLength(1);
+    expect(await Bun.file(RUNNER).text()).not.toContain("npx vitest run");
+  });
+
+  test("bounds coverage producer parallelism without changing Bun isolation", async () => {
+    const coverageRunner = await Bun.file(RUNNER).text();
+    const vitestRunner = await runnerSrc;
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as scheduler syntax
+    expect(coverageRunner).toContain("COVERAGE_LEG_MAX_JOBS=${COVERAGE_LEG_MAX_JOBS:-3}");
+    expect(coverageRunner).toContain('while [ "$running" -ge "$COVERAGE_LEG_MAX_JOBS" ]');
+    expect(coverageRunner).toContain("wait -n || true");
+    expect(coverageRunner).not.toContain("--parallel=");
+    expect(coverageRunner).toContain("run_legs\n# Security is deliberately outside run_legs' PID accounting.");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as Vitest-cap syntax
+    expect(vitestRunner).toContain('max_workers=${WEB_VITEST_COVERAGE_MAX_WORKERS:-2}');
+    expect(vitestRunner).toContain('"--maxWorkers=$max_workers"');
+  });
+
+  test("every configured source include pattern matches a web source", async () => {
     const includes = await includePatterns();
-    // Ratchet floors in the style of the other set-size guards: 211 test files
-    // and 200 include patterns when this landed. A drop below means the parse
-    // rotted or the leg was gutted — either way the two checks below would
-    // pass vacuously, which is the failure mode worth catching.
-    expect(files.length, "vitest leg test-file list looks truncated").toBeGreaterThanOrEqual(200);
-    expect(includes.length, "vitest leg include list looks truncated").toBeGreaterThanOrEqual(190);
-    expect(webSrcFiles.length).toBeGreaterThan(500);
+    expect(includes.length).toBeGreaterThanOrEqual(190);
+    const dead = includes.filter((pattern) => !matchesSomething(pattern));
+    expect(dead).toEqual([]);
   });
 
-  test("every test file the vitest leg runs exists on disk", async () => {
-    const missing = (await listedTestFiles()).filter((f) => !existsSync(join(WEB_ROOT, f)));
-    expect(
-      missing,
-      `${missing.length} test file(s) are passed to the vitest coverage leg but do not ` +
-        `exist under web/ — the leg dies with "no test files found" and every module ` +
-        `they were the only measurer of drops out of the merged lcov:\n  ${missing.join("\n  ")}`,
-    ).toEqual([]);
-  });
-
-  test("every --coverage.include pattern matches at least one file under web/", async () => {
-    const dead = (await includePatterns()).filter((p) => !matchesSomething(p));
-    expect(
-      dead,
-      `${dead.length} --coverage.include pattern(s) in scripts/test-coverage.sh match NOTHING. ` +
-        `An include that matches nothing is indistinguishable from success at the leg's exit ` +
-        `code — it only resurfaces downstream as the patch-coverage gate's "changed source ` +
-        `file has NO lcov data" (PR #97). Fix the pattern; do not delete the ` +
-        `measurement:\n  ${dead.join("\n  ")}`,
-    ).toEqual([]);
-  });
-
-  test("web/src/hooks.server.ts is measured, and its suites are the leg's to run", async () => {
-    // Pinned by name, unlike every other module here, because hooks.server.ts
-    // is one the gate CANNOT self-diagnose. A file with an exact key in
-    // coverage-thresholds.json that stops being measured fails loudly on its
-    // own ("listed in thresholds but no lcov data"); hooks.server.ts has no
-    // exact key, it falls under the `web/src/**` catch-all, so going
-    // unmeasured produced no violation at all — it just quietly reported
-    // whatever incidental number the bun host shards happened to instrument.
-    // That is how nine green suites sat unmeasured, and how the last author to
-    // hit it ended up porting a passing vitest suite into the bun pool to work
-    // around the gate rather than fixing the leg.
+  test("hooks.server is measured by a suite that the canonical Vitest config discovers", async () => {
     const includes = await includePatterns();
     expect(includes).toContain("src/hooks.server.ts");
-
+    const config = readFileSync(join(WEB_ROOT, "vitest.config.ts"), "utf8");
+    expect(config).toContain('"src/**/*.server.test.ts"');
     const onDisk = [...new Glob("hooks-server-*.server.test.ts").scanSync({
       cwd: join(WEB_ROOT, "src/__tests__"),
-    })].map((f) => `src/__tests__/${f}`);
+    })];
     expect(onDisk.length).toBeGreaterThanOrEqual(9);
-
-    const listed = new Set(await listedTestFiles());
-    const unrun = onDisk.filter((f) => !listed.has(f));
-    expect(
-      unrun,
-      `${unrun.length} hooks.server.ts suite(s) exist but the vitest coverage leg does not ` +
-        `run them, so their coverage of hooks.server.ts is not measured:\n  ${unrun.join("\n  ")}`,
-    ).toEqual([]);
   });
+});
+
+describe("full-mode coverage timing receipt", () => {
+	test("emits shard-compatible host timings with separate phase costs", async () => {
+		const runner = await Bun.file(RUNNER).text();
+		expect(runner).toContain('bun "$SCRIPT_DIR/coverage-timing-receipt.ts" "$COV_OUT/timings-full.json"');
+		expect(runner).toContain("printf 'hostPool\\t%s\\n' \"$HOST_POOL_MS\"");
+		expect(runner).toContain("printf 'producers\\t%s\\n' \"$PRODUCER_POOL_MS\"");
+		expect(runner).toContain("printf 'security\\t%s\\n' \"$SECURITY_MS\"");
+		expect(runner.lastIndexOf("emit_full_timing_receipt")).toBeGreaterThan(
+			runner.indexOf("MERGE_GATE_MS=$(( $(date +%s%3N) - GATE_MERGE_STARTED_MS ))"),
+		);
+	});
+});
+
+describe("canonical extras producers: portable LCOV validation", () => {
+	const LCOV_VALIDATION = join(REPO_ROOT, "scripts/lib/lcov-validation.sh");
+
+	function runLcovGuard(lcov: string, expectedSources: number, producer?: string): Run {
+		return withTmp((tmp) => {
+			const file = join(tmp, "lcov.info");
+			const bin = join(tmp, "portable-bin");
+			mkdirSync(bin);
+			for (const command of ["awk", "grep"] as const) {
+				const resolved = Bun.which(command);
+				if (!resolved) throw new Error(`test host lacks required POSIX command: ${command}`);
+				symlinkSync(resolved, join(bin, command));
+			}
+			const bash = Bun.which("bash");
+			if (!bash) throw new Error("test host lacks bash");
+			writeFileSync(file, lcov);
+			const quotedFile = JSON.stringify(file);
+			const tagCheck = producer ? `lcov_has_trusted_producer ${quotedFile} ${JSON.stringify(producer)}` : ":";
+			const body = `set -e
+source ${JSON.stringify(LCOV_VALIDATION)}
+kept=$(lcov_source_count ${quotedFile})
+[ "$kept" -eq ${expectedSources} ]
+${tagCheck}
+lcov_has_executable_da ${quotedFile}`;
+			const noRg = Bun.spawnSync([bash, "-c", "command -v rg"], { cwd: REPO_ROOT, env: { ...process.env, PATH: bin } });
+			expect(noRg.exitCode).not.toBe(0);
+			const proc = Bun.spawnSync([bash, "-c", body], { cwd: REPO_ROOT, env: { ...process.env, PATH: bin } });
+			return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
+		});
+	}
+
+	test("actual shared validator accepts valid tagged records and rejects absent records, DA evidence, or producer tags without rg", () => {
+		const valid = "TN:ezcorp-bun-web-utility\nSF:web/src/lib/x.ts\nDA:1,1\nLF:1\nLH:1\nend_of_record\n";
+		expect(runLcovGuard(valid, 1, "ezcorp-bun-web-utility").code).toBe(0);
+		expect(runLcovGuard("TN:ezcorp-bun-web-utility\n", 1, "ezcorp-bun-web-utility").code).not.toBe(0);
+		expect(runLcovGuard("SF:web/src/lib/x.ts\nDA:1,1\n", 1, "ezcorp-bun-web-utility").code).not.toBe(0);
+		expect(runLcovGuard("TN:ezcorp-bun-web-utility\nSF:web/src/lib/x.ts\n", 1, "ezcorp-bun-web-utility").code).not.toBe(0);
+		expect(runLcovGuard(valid, 1, "foreign-producer").code).not.toBe(0);
+	});
 });

@@ -31,10 +31,6 @@ test("unauthenticated requests remain denied before the retirement response", as
   expect(response.status).toBe(401);
 });
 
-async function retiredActivation(user: typeof ADMIN_USER | typeof MEMBER_USER, body: unknown, id = "installation") {
-  return POST(createMockEvent({ method: "POST", url: `http://localhost/api/extensions/${id}/activate`, params: { id }, user, body }) as never);
-}
-
 
 import { sql } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../helpers/test-pglite";

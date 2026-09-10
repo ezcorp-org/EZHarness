@@ -150,6 +150,17 @@ describe("__overrideSessionConfig — test hook", () => {
 });
 
 describe("clearSessionCookie", () => {
+	test("an early hook response carries the expiry without replacing other cookies", async () => {
+		const { clearSessionCookie } = await load();
+		const { cookies, calls } = makeCookies();
+		const expiry = "ezcorp_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax";
+		cookies.serialize = vi.fn(() => expiry);
+		const response = new Response(null, { status: 401, headers: { "set-cookie": "other=keep; Path=/" } });
+		clearSessionCookie(cookies, response);
+		expect(response.headers.getSetCookie()).toEqual(["other=keep; Path=/", expiry]);
+		expect(cookies.serialize).toHaveBeenCalledWith(...calls[0]!);
+	});
+
 	test("writes an empty value with maxAge 0 to expire the cookie", async () => {
 		const { clearSessionCookie, getSessionCookieName } = await load();
 		const { cookies, calls } = makeCookies();

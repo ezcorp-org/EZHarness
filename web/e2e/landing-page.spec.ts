@@ -1,226 +1,108 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject } from "./fixtures/data.js";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
+const LAST_PATH_KEY = "ezcorp-last-path";
 
-// Landing page (/) is currently hidden — `/` redirects to chat.
-// Re-enable this suite when the landing page returns.
-test.describe.skip("Landing page", () => {
-	test("renders at / with a chat input and project picker", async ({
-		page,
-		mockApi,
-	}) => {
-		const proj = makeProject({ id: "proj-1", name: "Landing Project" });
-		await mockApi({ projects: [proj] });
-
-		await page.goto("/");
-
-		// Brand visible
-		await expect(page.getByText("EZCorp").first()).toBeVisible();
-
-		// Chat input (textarea) visible
-		await expect(page.locator("textarea")).toBeVisible();
-
-		// Project picker trigger visible (in the controls row below the input)
-		await expect(page.getByTestId("open-project-picker")).toBeVisible();
-	});
-
-	test("selected project persists to localStorage and survives reload", async ({
-		page,
-		mockApi,
-	}) => {
-		const projA = makeProject({ id: "proj-a", name: "Project A" });
-		const projB = makeProject({ id: "proj-b", name: "Project B" });
-		await mockApi({ projects: [projA, projB] });
-
-		await page.goto("/");
-		await expect(page.getByTestId("open-project-picker")).toBeVisible();
-
-		// The landing page auto-selects the first project when none is saved.
-		// Wait for that to settle so the subsequent click isn't overwritten.
-		await expect(page.getByTestId("open-project-picker")).toContainText(
-			"Project A",
-		);
-
-		// Pick Project B explicitly via the picker.
-		await page.getByTestId("open-project-picker").click();
-		await page.getByTestId("project-picker-item-proj-b").click();
-
-		// localStorage now carries the selected id.
-		await expect
-			.poll(async () =>
-				await page.evaluate((k) => localStorage.getItem(k), ACTIVE_PROJECT_KEY),
-			)
-			.toBe("proj-b");
-
-		// Trigger label reflects the selection.
-		await expect(page.getByTestId("open-project-picker")).toContainText(
-			"Project B",
-		);
-
-		// Full reload — store is re-initialized from localStorage. Selection must stick.
-		await page.reload();
-		await expect(page.getByTestId("open-project-picker")).toContainText(
-			"Project B",
-		);
-		const stillSaved = await page.evaluate(
-			(k) => localStorage.getItem(k),
-			ACTIVE_PROJECT_KEY,
-		);
-		expect(stillSaved).toBe("proj-b");
-	});
-
-	test("submitting with a project selected creates a conversation and navigates to chat", async ({
-		page,
-		mockApi,
-	}) => {
-		const proj = makeProject({ id: "proj-1", name: "Submit Project" });
-		await mockApi({ projects: [proj] });
-
-		// Pre-seed selection so the landing page doesn't race with auto-select.
-		await page.addInitScript(
-			({ key, value }) => {
-				try { localStorage.setItem(key, value); } catch { /* ignore */ }
-			},
-			{ key: ACTIVE_PROJECT_KEY, value: "proj-1" },
-		);
-
-		// Observe the POST /api/conversations call triggered by submit.
-		const createConvRequest = page.waitForRequest(
-			(req) =>
-				req.url().includes("/api/conversations") &&
-				!req.url().includes("/api/conversations/") &&
-				req.method() === "POST",
-		);
+// `/` used to be a landing-page composer. It is now the resume shell in
+// `src/routes/+page.svelte`. The previous picker, input, and toolbar cases
+// therefore map to the supported ways the shell chooses a safe destination:
+// saved route, saved project, and the global workspace fallback. Conversation
+// creation itself is covered from the project chat index in global-chat.spec.
+test.describe("Root resume shell", () => {
+	test("opens the global workspace when no resumable state exists", async ({ page, mockApi }) => {
+		await mockApi({ projects: [] });
 
 		await page.goto("/");
 
-		// Model auto-selects from /api/models once loaded — that enables the send button.
-		await sendComposerMessage(page, "hello landing");
-
-		const request = await createConvRequest;
-		expect(request.postDataJSON()).toMatchObject({ projectId: "proj-1" });
-
-		// Navigates to the new conversation. The chat page strips ?initial= via
-		// replaceState, so match the pathname only.
-		await page.waitForURL(/\/project\/proj-1\/chat\/new-conv/);
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
 	});
 
-	test("submitting with Global selected creates a global conversation", async ({
-		page,
-		mockApi,
-	}) => {
-		// Seed the global project alongside a real one so Global is selectable.
-		const globalProj = makeProject({ id: "global", name: "Global" });
-		const realProj = makeProject({ id: "proj-1", name: "Real Project" });
-		await mockApi({ projects: [globalProj, realProj] });
-
-		// Force activeProjectId to "global" before load.
-		await page.addInitScript(
-			({ key, value }) => {
-				try { localStorage.setItem(key, value); } catch { /* ignore */ }
-			},
-			{ key: ACTIVE_PROJECT_KEY, value: "global" },
-		);
-
-		const createConvRequest = page.waitForRequest(
-			(req) =>
-				req.url().includes("/api/conversations") &&
-				!req.url().includes("/api/conversations/") &&
-				req.method() === "POST",
-		);
+	test("opens the saved project chat when it is still available", async ({ page, mockApi }) => {
+		const project = makeProject({ id: "proj-a", name: "Project A" });
+		await mockApi({ projects: [project] });
+		await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), {
+			key: ACTIVE_PROJECT_KEY,
+			value: project.id,
+		});
 
 		await page.goto("/");
 
-		await sendComposerMessage(page, "hello global");
-
-		const request = await createConvRequest;
-		expect(request.postDataJSON()).toMatchObject({ projectId: "global" });
-
-		await page.waitForURL(/\/project\/global\/chat\/new-conv/);
+		await expect(page).toHaveURL(new RegExp(`/project/${project.id}/chat$`));
 	});
 
-	test("ChatInput toolbar is hidden; external controls row renders instead", async ({
-		page,
-		mockApi,
-	}) => {
-		const proj = makeProject({ id: "proj-1", name: "Toolbar Project" });
-		await mockApi({ projects: [proj] });
+	test("restores a saved route before the saved project", async ({ page, mockApi }) => {
+		const project = makeProject({ id: "proj-a", name: "Project A" });
+		await mockApi({ projects: [project] });
+		await page.addInitScript(({ lastPathKey, activeProjectKey, projectId }) => {
+			localStorage.setItem(lastPathKey, "/agents?tab=teams");
+			localStorage.setItem(activeProjectKey, projectId);
+		}, { lastPathKey: LAST_PATH_KEY, activeProjectKey: ACTIVE_PROJECT_KEY, projectId: project.id });
 
 		await page.goto("/");
 
-		// External controls row is present.
-		const controls = page.getByTestId("landing-controls");
-		await expect(controls).toBeVisible();
-
-		// Project picker is inside the external row.
-		await expect(controls.getByTestId("open-project-picker")).toBeVisible();
-
-		// The in-composer toolbar labels ("Model", "Thinking", "Mode") live under the
-		// `.toolbar-label` class inside ChatInput. With toolbarPosition="hidden" they
-		// should not render at all.
-		const inputContainer = page.locator(".chat-input-container");
-		await expect(inputContainer).toBeVisible();
-		await expect(inputContainer.locator(".toolbar-label")).toHaveCount(0);
-
-		// External row shows the Model + Mode labels (Thinking only appears when the
-		// selected model supports reasoning — skip asserting it here).
-		await expect(controls.getByText("Model", { exact: true })).toBeVisible();
-		await expect(controls.getByText("Mode", { exact: true })).toBeVisible();
-		await expect(controls.getByText("Project", { exact: true })).toBeVisible();
+		await expect(page).toHaveURL(/\/agents\?tab=teams$/);
+		await expect(page.getByRole("link", { name: "+ New Team" })).toBeVisible();
 	});
 
-	test("ProjectPicker single mode: clicking a project closes dropdown and hides Org-wide option", async ({
-		page,
-		mockApi,
-	}) => {
-		const projA = makeProject({ id: "proj-a", name: "Project A" });
-		const projB = makeProject({ id: "proj-b", name: "Project B" });
-		await mockApi({ projects: [projA, projB] });
+	test("drops a deleted saved project and falls back to Global", async ({ page, mockApi }) => {
+		await mockApi({ projects: [] });
+		await page.addInitScript(({ key }) => localStorage.setItem(key, "deleted-project"), {
+			key: ACTIVE_PROJECT_KEY,
+		});
 
 		await page.goto("/");
-		const trigger = page.getByTestId("open-project-picker");
-		await expect(trigger).toBeVisible();
 
-		// Open the dropdown.
-		await trigger.click();
-		const dropdown = page.getByTestId("project-picker-dropdown");
-		await expect(dropdown).toBeVisible();
-
-		// In single mode the standalone "Org-wide (Global)" row is hidden
-		// (Global is still in the project list if the API returns it).
-		await expect(page.getByTestId("project-picker-global")).toHaveCount(0);
-
-		// Click Project B — single mode should replace selection and auto-close.
-		await page.getByTestId("project-picker-item-proj-b").click();
-		await expect(dropdown).toBeHidden();
-		await expect(trigger).toContainText("Project B");
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
+		await expect.poll(async () => page.evaluate((key) => localStorage.getItem(key), ACTIVE_PROJECT_KEY)).toBeNull();
 	});
 
-	// `/pipelines` is the legacy path — it now 308-redirects to `/workflows`;
-	// this smoke-checks that the redirect target loads without console errors.
-	test("/agents and /pipelines (legacy redirect) load without console errors", async ({
-		page,
-		mockApi,
-	}) => {
-		const proj = makeProject({ id: "proj-1", name: "Smoke Project" });
-		await mockApi({ projects: [proj] });
+	test("does not resume a deleted project path when a saved project is valid", async ({ page, mockApi }) => {
+		const project = makeProject({ id: "proj-a", name: "Project A" });
+		await mockApi({ projects: [project] });
+		await page.addInitScript(({ lastPathKey, activeProjectKey, projectId }) => {
+			localStorage.setItem(lastPathKey, "/project/deleted-project/chat");
+			localStorage.setItem(activeProjectKey, projectId);
+		}, { lastPathKey: LAST_PATH_KEY, activeProjectKey: ACTIVE_PROJECT_KEY, projectId: project.id });
 
-		for (const path of ["/agents", "/pipelines"]) {
-			const errors: string[] = [];
-			page.on("console", (msg) => {
-				if (msg.type() === "error") errors.push(msg.text());
-			});
-			page.on("pageerror", (err) => errors.push(err.message));
+		await page.goto("/");
 
-			await page.goto(path);
-			await expect(page.locator("body")).toBeVisible();
+		await expect(page).toHaveURL(new RegExp(`/project/${project.id}/chat$`));
+	});
 
-			const realErrors = errors.filter(
-				(e) => !e.includes("WebSocket") && !e.includes("ERR_CONNECTION_REFUSED"),
-			);
-			expect(realErrors, `Console errors on ${path}: ${realErrors.join("\n")}`).toEqual([]);
+	test("falls back to Global when the project lookup fails", async ({ page, mockApi }) => {
+		await mockApi({ projects: [] });
+		await page.route("**/api/projects", async (route) => {
+			if (route.request().method() !== "GET") return route.fallback();
+			await route.abort("failed");
+		});
+
+		await page.goto("/");
+
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
+	});
+
+	// `/pipelines` is the legacy path — it redirects to `/workflows`; both
+	// destinations remain supported outside the removed landing surface.
+	test("/agents and /pipelines load without console errors", async ({ page, mockApi }) => {
+		const project = makeProject({ id: "proj-1", name: "Smoke Project" });
+		await mockApi({ projects: [project] });
+
+		const errors: string[] = [];
+		page.on("console", (message) => {
+			if (message.type() === "error") errors.push(message.text());
+		});
+		page.on("pageerror", (error) => errors.push(error.message));
+
+		for (const journey of [
+			{ path: "/agents", url: /\/agents$/, heading: "Agents" },
+			{ path: "/pipelines", url: /\/workflows$/, heading: "Workflows" },
+		]) {
+			errors.length = 0;
+			await page.goto(journey.path);
+			await expect(page).toHaveURL(journey.url);
+			await expect(page.getByRole("heading", { name: journey.heading, exact: true })).toBeVisible();
+			expect(errors, `Unexpected browser errors on ${journey.path}`).toEqual([]);
 		}
 	});
 });

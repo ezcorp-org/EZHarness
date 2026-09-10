@@ -35,7 +35,7 @@
   import { userFetch } from "$lib/utils/fetch-policy.js";
   import { addToast } from "$lib/toast.svelte.js";
   import { synthesize } from "$lib/workers/kokoro-tts-bridge";
-  import { getCachedSettings } from "$lib/stores/extensionSettings";
+  import { getCachedSettings, loadExtensionSettings } from "$lib/stores/extensionSettings";
 
   let {
     toolCall,
@@ -138,6 +138,10 @@
   // `null` means the worker hasn't reported a phase yet (or has
   // finished loading and is now generating audio).
   let loadingPhase = $state<"model" | "voice" | null>(null);
+  // The route layout can run on the server, whose module cache is separate
+  // from the browser cache this card reads. Load once in the browser before
+  // synthesis so an SSR render cannot silently fall back to default settings.
+  let settingsReady = $state(false);
 
   let isPersisted = $derived(persistedAttachmentId != null);
   let persistedSrc = $derived(persistedAttachmentId ? `/api/attachments/${persistedAttachmentId}` : null);
@@ -149,6 +153,9 @@
       isPersisted,
       hasInput: !!toolCall.input,
       inputTextLength: parsedInput.text.length,
+    });
+    void loadExtensionSettings("kokoro-tts").finally(() => {
+      settingsReady = true;
     });
   });
 
@@ -288,7 +295,7 @@
   // without a persisted output. Subsequent re-mounts after attachment
   // finalization fall through to the persisted-src branch.
   $effect(() => {
-    if (!isPersisted && !synthesizing && !uploading && !blobUrl && attempts === 0 && !error) {
+    if (settingsReady && !isPersisted && !synthesizing && !uploading && !blobUrl && attempts === 0 && !error) {
       void runSynthesisFlow();
     }
   });

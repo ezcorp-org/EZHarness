@@ -55,10 +55,10 @@ test.describe("OpenRouter provider card", () => {
 	});
 
 	test("self-heals a stored preference order saved before OpenRouter existed", async ({ page, mockApi }) => {
-		// Upgraded deployment: an admin reordered providers when only three
-		// existed, so the stored order is missing openrouter. The load path
-		// appends it, so the Provider Preference Order UI shows it (and backend
-		// routing can reach it) instead of it being permanently invisible.
+		// Upgraded deployment: an admin reordered providers before OpenRouter
+		// and Kilo existed. The load path appends both, so the Provider
+		// Preference Order UI stays aligned with backend routing instead of
+		// permanently hiding either provider.
 		await mockApi({
 			providers: providersWithOpenRouter(),
 			settings: { "provider:preferenceOrder": ["anthropic", "openai", "google"] },
@@ -67,10 +67,13 @@ test.describe("OpenRouter provider card", () => {
 		await page.goto("/settings/models");
 
 		const order = page.locator("#order");
-		// Three stored providers + the appended OpenRouter = four reorderable rows.
-		await expect(order.locator('button[title="Move up"]')).toHaveCount(4);
-		await expect(order.getByText("OpenRouter", { exact: true })).toBeVisible();
-		// Appended last — it is row number 4.
-		await expect(order.getByText("4.", { exact: true })).toBeVisible();
+		await expect(order.locator('button[title="Move up"]')).toHaveCount(5);
+		await expect(order.locator("span.flex-1")).toHaveText([
+			"Anthropic (Claude)",
+			"OpenAI",
+			"Google (Gemini)",
+			"OpenRouter",
+			"Kilo (Gateway)",
+		]);
 	});
 });

@@ -63,8 +63,10 @@ describe("parseMentions — $[feature:…] tokens", () => {
     expect(result.every((m) => m.kind === "feature")).toBe(true);
   });
 
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: The test name documents the literal false-positive token.
   test("does NOT match $5.00 / ${var} / $ARGUMENTS — no brackets, no false positives", () => {
     expect(parseMentions("price is $5.00")).toEqual([]);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: The parser must receive this literal non-token.
     expect(parseMentions("template ${var}")).toEqual([]);
     expect(parseMentions("$ARGUMENTS placeholder")).toEqual([]);
     expect(parseMentions("Owe $5 to Bob")).toEqual([]);
@@ -287,8 +289,11 @@ describe("insertMentionToken — $ sigil", () => {
 // bug surface — `parseMentions` reads completed `$[feature:…]` tokens
 // which never had this problem.
 describe("detectMentionTrigger — C1 false-positive guard", () => {
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: The test name identifies the literal trigger that must be rejected.
   test("rejects ${var} (curly brace immediately after $)", () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: The trigger must receive the literal invalid prefix.
     expect(detectMentionTrigger("${var}", 6)).toBeNull();
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: The trigger must receive the literal invalid prefix in prose.
     expect(detectMentionTrigger("hi ${var}", 9)).toBeNull();
   });
 

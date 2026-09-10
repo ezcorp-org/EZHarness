@@ -1,11 +1,13 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
+import { makeExtension, makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-file", name: "File Mention Project" });
 const conv = makeConversation({ id: "conv-file", projectId: "proj-file" });
 
 const agents = [makeAgent({ name: "Code Assistant", description: "Helps write code" })];
-const extensions = [{ name: "analyzer", description: "Code analysis", enabled: true }];
+const extensions = [makeExtension({ name: "analyzer", description: "Code analysis", enabled: true })];
 
 const files = [
 	{ name: "README.md", description: "/tmp/proj/README.md", kind: "file" as const },
@@ -27,7 +29,14 @@ const files = [
 	{ name: "output", description: "/tmp/proj/output", kind: "dir" as const },
 ];
 
-async function setupAndFocus(page: any, mockApi: any) {
+async function focusComposer(page: Page) {
+	const textarea = page.locator("textarea");
+	await expect(textarea).toBeEnabled({ timeout: 5000 });
+	await textarea.click();
+	return textarea;
+}
+
+async function setupAndFocus(page: Page, mockApi: (overrides?: MockOverrides) => Promise<void>) {
 	await mockApi({
 		projects: [proj],
 		conversations: [conv],
@@ -50,30 +59,16 @@ async function setupAndFocus(page: any, mockApi: any) {
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 	await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-	const textarea = page.locator("textarea");
-	await page.waitForFunction(() => {
-		const listeners = (window as any).__fakeWsListeners;
-		if (listeners?.open) {
-			for (const fn of listeners.open) {
-				try { fn(new Event("open")); } catch {}
-			}
-		}
-		const ta = document.querySelector("textarea");
-		return ta && !(ta as HTMLTextAreaElement).disabled;
-	}, { timeout: 5000 });
-	await expect(textarea).toBeEnabled({ timeout: 5000 });
-	await page.waitForTimeout(100);
-	await textarea.click();
-	return textarea;
+	return focusComposer(page);
 }
 
-async function typeIntoTextarea(page: any, textarea: any, text: string) {
+async function typeIntoTextarea(page: Page, textarea: Awaited<ReturnType<typeof focusComposer>>, text: string) {
 	await textarea.focus();
 	await textarea.pressSequentially(text, { delay: 50 });
 	await page.waitForTimeout(350);
 }
 
-async function waitForPopover(page: any) {
+async function waitForPopover(page: Page) {
 	await expect(page.locator("#mention-listbox")).toBeVisible({ timeout: 5000 });
 }
 
@@ -143,6 +138,26 @@ test.describe("File Mentions (@ sigil)", () => {
 		await expect(chip).toHaveClass(/green/);
 	});
 
+	test("submitting a selected file sends its full wire token", async ({ page, mockApi }) => {
+		const textarea = await setupAndFocus(page, mockApi);
+		await typeIntoTextarea(page, textarea, "@app");
+		await waitForPopover(page);
+		await expect(page.locator("#mention-listbox").getByText("src/app.ts", { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		await typeIntoTextarea(page, textarea, "review this");
+
+		const sent = page.waitForRequest((request) =>
+			request.method() === "POST" && request.url().includes(`/api/conversations/${conv.id}/messages`),
+		);
+		const send = page.getByRole("button", { name: "Send message" });
+		await expect(send).toBeEnabled();
+		await send.click();
+		const request = await sent;
+		expect(request.postDataJSON()).toMatchObject({
+			content: "@[file:src/app.ts] review this",
+		});
+	});
+
 	test("Escape dismisses the file popover", async ({ page, mockApi }) => {
 		const textarea = await setupAndFocus(page, mockApi);
 		await typeIntoTextarea(page, textarea, "@");
@@ -160,7 +175,11 @@ test.describe("File Mentions (@ sigil)", () => {
 		await page.keyboard.press("Enter");
 		await expect(textarea).toHaveValue(/^@README\.md\s+$/);
 
-		// Now type an ! trigger
+		// The picker restores a display-space selection after its async DOM
+		// projection. Put the native caret after the committed chip before
+		// starting the next trigger, as a user does when continuing the draft.
+		await textarea.press("End");
+		// Now type an ! trigger.
 		await typeIntoTextarea(page, textarea, "!co");
 		await waitForPopover(page);
 		const listbox = page.locator("#mention-listbox");
@@ -229,15 +248,16 @@ test.describe("File Mentions (@ sigil)", () => {
 		await expect(listbox.getByText("src/", { exact: true })).toBeVisible({ timeout: 3000 });
 	});
 
-	test("selecting a folder inserts @[dir:…] token", async ({ page, mockApi }) => {
+	test("Enter on a folder descends into it and keeps the picker open", async ({ page, mockApi }) => {
 		const textarea = await setupAndFocus(page, mockApi);
 		// Use a query that uniquely identifies the folder (no file named "output")
 		await typeIntoTextarea(page, textarea, "@output");
 		await waitForPopover(page);
 		await expect(page.locator("#mention-listbox").getByText("output/", { exact: true })).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
-		await expect(page.locator("#mention-listbox")).not.toBeVisible();
-		await expect(textarea).toHaveValue(/@\[dir:output\] /);
+		await expect(textarea).toHaveValue(/@output\//);
+		await expect(page.locator("#mention-listbox")).toBeVisible();
+		await expect(page.locator("#mention-listbox").getByText("Use this folder as path", { exact: false })).toBeVisible();
 	});
 
 	test("dir chip has amber styling (distinct from file green)", async ({ page, mockApi }) => {
@@ -245,7 +265,9 @@ test.describe("File Mentions (@ sigil)", () => {
 		await typeIntoTextarea(page, textarea, "@output");
 		await waitForPopover(page);
 		await page.keyboard.press("Enter");
-		const chip = page.locator("[aria-hidden='true'] span").filter({ hasText: "@output/" });
+		await expect(page.locator("#mention-listbox").getByText("Use this folder as path", { exact: false })).toBeVisible();
+		await page.keyboard.press("Enter");
+		const chip = page.locator('[data-mention-kind="dir"][data-mention-name="output"]');
 		await expect(chip).toBeVisible({ timeout: 3000 });
 		await expect(chip).toHaveClass(/amber/);
 	});
@@ -432,20 +454,7 @@ test.describe("Regression: projectId wiring from URL", () => {
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		const textarea = page.locator("textarea");
-		await page.waitForFunction(() => {
-			const listeners = (window as any).__fakeWsListeners;
-			if (listeners?.open) {
-				for (const fn of listeners.open) {
-					try { fn(new Event("open")); } catch {}
-				}
-			}
-			const ta = document.querySelector("textarea");
-			return ta && !(ta as HTMLTextAreaElement).disabled;
-		}, { timeout: 5000 });
-		await expect(textarea).toBeEnabled({ timeout: 5000 });
-		await page.waitForTimeout(100);
-		await textarea.click();
+		const textarea = await focusComposer(page);
 		await textarea.pressSequentially("@", { delay: 50 });
 		await page.waitForTimeout(350);
 
@@ -479,27 +488,14 @@ test.describe("Regression: projectId wiring from URL", () => {
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		const textarea = page.locator("textarea");
-		await page.waitForFunction(() => {
-			const listeners = (window as any).__fakeWsListeners;
-			if (listeners?.open) {
-				for (const fn of listeners.open) {
-					try { fn(new Event("open")); } catch {}
-				}
-			}
-			const ta = document.querySelector("textarea");
-			return ta && !(ta as HTMLTextAreaElement).disabled;
-		}, { timeout: 5000 });
-		await expect(textarea).toBeEnabled({ timeout: 5000 });
-		await textarea.click();
+		const textarea = await focusComposer(page);
 		await textarea.pressSequentially("@", { delay: 50 });
 		await page.waitForTimeout(400);
 
 		// At least one mention-search request must have included the route's
 		// projectId — NOT the stale localStorage one.
-		const fileReq = requests.find((u) => u.includes("type=file"));
+		const fileReq = requests.find((u) => new URL(u).searchParams.get("projectId") === proj.id);
 		expect(fileReq).toBeDefined();
-		expect(fileReq!).toContain(`projectId=${proj.id}`);
 		expect(fileReq!).not.toContain("some-other-project-id");
 	});
 });

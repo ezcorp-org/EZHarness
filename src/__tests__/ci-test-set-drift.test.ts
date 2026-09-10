@@ -1,7 +1,7 @@
 /**
  * Orphan-drift meta-test (wave 3, CI audit item 3.1).
  *
- * Asserts every `src/**​/*.test.ts` and `packages/**​/*.test.ts` belongs to
+ * Asserts every test under `src/`, `packages/`, and `scripts/` belongs to
  * at least one CI-EXECUTED test set:
  *
  *   - P  (passfail_files)        — shards (P∩C) + `residual-tests` (P\C)
@@ -35,6 +35,7 @@ const SETS_LIB = "scripts/lib/test-file-sets.sh";
 const SET_FUNCTIONS = [
   "passfail_files",
   "coverage_host_files",
+  "web_utility_coverage_files",
   "critical_backend_files",
   "suggest_leg_files",
   "sdk_leg_files",
@@ -67,7 +68,7 @@ function setMembers(fn: (typeof SET_FUNCTIONS)[number]): string[] {
 
 describe("CI test-set drift", () => {
   const allTestFiles = bashLines(
-    "find src packages -name '*.test.ts' ! -path '*/node_modules/*' | sort -u",
+    "find src packages scripts -name '*.test.ts' ! -path '*/node_modules/*' | sort -u",
   );
 
   const union = new Set<string>();
@@ -92,13 +93,13 @@ describe("CI test-set drift", () => {
     expect(allTestFiles.length).toBeGreaterThanOrEqual(900);
   });
 
-  test("every src/ + packages/ test file belongs to >=1 CI-executed set", () => {
+  test("every src/ + packages/ + scripts/ test file belongs to >=1 CI-executed set", () => {
     const excepted = new Set(DOCUMENTED_EXCEPTIONS.map((e) => e.file));
     const orphans = allTestFiles.filter((f) => !union.has(f) && !excepted.has(f));
     expect(
       orphans,
       `${orphans.length} test file(s) run in NO CI job:\n  ${orphans.join("\n  ")}\n` +
-        `A src/**/*.test.ts should be caught by the P/C sweeps in ${SETS_LIB} — ` +
+        `A src/ or scripts/ test should be caught by the P/C sweeps in ${SETS_LIB} — ` +
         `if it appears here, check the sweeps' named exclusions. A packages/** file ` +
         `belongs in a cov-extras leg (add/extend a *_leg_files function AND the ` +
         `matching leg in scripts/test-coverage.sh run_legs). Only a file that ` +
@@ -113,6 +114,15 @@ describe("CI test-set drift", () => {
       expect(union.has(e.file), `exception '${e.file}' is now covered by a CI set — remove it`).toBe(false);
     }
   });
+
+  test.each(["passfail_files", "coverage_host_files"] as const)(
+    "every script test belongs to %s",
+    (fn) => {
+      const members = new Set(setMembers(fn));
+      const missing = allTestFiles.filter((file) => file.startsWith("scripts/") && !members.has(file));
+      expect(missing, `Script tests missing from ${fn}: ${missing.join(", ")}`).toEqual([]);
+    },
+  );
 });
 
 /**
@@ -204,12 +214,59 @@ describe("web/src pass/fail gating", () => {
   const coverageFiles = setMembers("coverage_host_files");
   const webInC = coverageFiles.filter((f) => f.startsWith("web/src/"));
 
-  test("isolated Hub workers run in prepared host lanes, not web orphans", () => {
-    const file = "web/src/__tests__/hub-isolated-action.integration.test.ts";
+  const DIRECT_BUN_UTILITY_PRODUCERS = [
+    "web/src/__tests__/chat-scroll-restore.integration.test.ts",
+    "web/src/__tests__/chat-scroll-restore.test.ts",
+    "web/src/__tests__/auth-keepalive.test.ts",
+    "web/src/__tests__/clipboard.test.ts",
+    "web/src/__tests__/combobox-nav.test.ts",
+    "web/src/__tests__/focus-trap.test.ts",
+    "web/src/__tests__/last-model.test.ts",
+    "web/src/__tests__/panel-persistence.test.ts",
+    "web/src/__tests__/pill-visibility.test.ts",
+    "web/src/__tests__/stores-team-panel-persistence.test.ts",
+    "web/src/__tests__/sub-agent-routing.test.ts",
+    "web/src/__tests__/sub-convo-agent-state.test.ts",
+    "web/src/lib/__tests__/attachment-client.test.ts",
+    "web/src/lib/__tests__/chat-window-drop.test.ts",
+    "web/src/lib/actions/hover-tooltip.test.ts",
+    "web/src/lib/ez/api.test.ts",
+    "web/src/lib/tool-display.test.ts",
+    "web/src/lib/__tests__/commands.test.ts",
+    "web/src/lib/__tests__/markdown-speech.test.ts",
+    "web/src/lib/__tests__/progressive-image.test.ts",
+    "web/src/lib/__tests__/select-mode.test.ts",
+    "web/src/lib/__tests__/shortcuts.test.ts",
+    "web/src/lib/__tests__/theme.test.ts",
+    "web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts",
+    "web/src/lib/components/tool-cards/price-chart-logic.test.ts",
+    "web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts",
+    "web/src/lib/workers/__tests__/agent-fuzzy-search-worker.test.ts",
+    "web/src/lib/workers/__tests__/kokoro-tts-bridge.test.ts",
+  ] as const;
+
+  test.each([
+    ["isolated Hub worker suite", "web/src/__tests__/hub-isolated-action.integration.test.ts"],
+    ["invite limiter isolation", "web/src/__tests__/invite-rate-limit-isolation.test.ts"],
+    ["nested extension uploads", "web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts"],
+  ])("%s runs in prepared root host lanes, not web orphans", (_name, file) => {
     expect(inP.has(file)).toBe(true);
     expect(coverageFiles).toContain(file);
     expect(bashLines(`source ${SETS_LIB}; web_host_files`)).toContain(file);
     expect(bashLines(`source ${SETS_LIB}; web_bunleg_files`)).not.toContain(file);
+  });
+
+  test("direct Bun utility producers run in their coverage leg once", () => {
+    const utility = new Set(bashLines(`source ${SETS_LIB}; web_utility_coverage_files`));
+    const residual = new Set(bashLines(`source ${SETS_LIB}; residual_passfail_files`));
+    const orphaned = new Set(bashLines(`source ${SETS_LIB}; web_bunleg_files`));
+    for (const file of DIRECT_BUN_UTILITY_PRODUCERS) {
+      expect(inP.has(file), `${file} must remain pass/fail-gated`).toBe(true);
+      expect(utility.has(file), `${file} missing from web utility coverage leg`).toBe(true);
+      expect(coverageFiles).not.toContain(file);
+      expect(residual.has(file), `${file} would run twice in residual-tests`).toBe(false);
+      expect(orphaned.has(file), `${file} would run twice in web-bun-tests`).toBe(false);
+    }
   });
 
   /**
@@ -222,9 +279,8 @@ describe("web/src pass/fail gating", () => {
   const WEB_GATING_EXCEPTIONS: ReadonlyArray<{ file: string; reason: string }> = [];
 
   test("sweep floor — the scoped web host set still has its known population", () => {
-    // 34 when this gate landed; a ratchet floor in the same style as the
-    // examples sweep above. A drop below it means web_host_files rotted or a
-    // list was gutted.
+    // This root-host floor deliberately excludes the separate utility leg.
+    // A drop still means web_host_files rotted or a list was gutted.
     expect(
       webInC.length,
       `only ${webInC.length} web/src file(s) in the coverage set — did web_host_files rot?`,

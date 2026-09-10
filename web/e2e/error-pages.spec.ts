@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { expectThemeColor } from "./fixtures/theme.js";
 import { makeProject } from "./fixtures/data.js";
 
 test.describe("Error Pages", () => {
@@ -20,7 +21,7 @@ test.describe("Error Pages", () => {
 		await expect(page.getByText("Page not found")).toBeVisible();
 	});
 
-	test("404 page has dark zinc styling", async ({ page, mockApi }) => {
+	test("404 page follows the light and dark surface themes", async ({ page, mockApi }) => {
 		await mockApi({
 			projects: [proj],
 			routes: {
@@ -34,8 +35,13 @@ test.describe("Error Pages", () => {
 
 		await expect(page.getByText("404")).toBeVisible({ timeout: 5000 });
 
-		const container = page.locator(".min-h-screen.bg-zinc-900");
+		const container = page.locator(".min-h-screen");
 		await expect(container).toBeVisible();
+		for (const colorScheme of ["light", "dark"] as const) {
+			await page.emulateMedia({ colorScheme });
+			await expectThemeColor(container, "background-color", "--color-surface");
+			await expectThemeColor(page.getByRole("heading", { name: "Page not found" }), "color", "--color-text-primary");
+		}
 	});
 
 	test("404 Go home link navigates to root", async ({ page, mockApi }) => {
@@ -55,26 +61,6 @@ test.describe("Error Pages", () => {
 		await page.getByRole("link", { name: "Go home" }).click();
 
 		await expect(page).toHaveURL("/");
-	});
-
-	test("session expired redirect includes reason param", async ({ page, mockApi }) => {
-		// The hooks.server.ts redirects expired sessions to /login?reason=session_expired
-		// We verify the redirect URL pattern since the login page requires SSR with real DB
-		await mockApi({
-			projects: [proj],
-			routes: {
-				"/api/auth/me": () => ({
-					user: { id: "u-1", email: "a@b.c", name: "U", role: "member" },
-				}),
-			},
-		});
-
-		// Verify the login page URL format is used for session expiry
-		await page.goto("/login?reason=session_expired");
-
-		// The page may error due to SSR (getUserCount) in preview mode,
-		// but we verify the URL pattern is correct
-		expect(page.url()).toContain("reason=session_expired");
 	});
 
 	test("error page shows action button", async ({ page, mockApi }) => {

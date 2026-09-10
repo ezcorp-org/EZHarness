@@ -20,6 +20,12 @@ export async function command(binary: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+/** Finish first-admin staging before a proof needs an idle runner. A separate
+ * process closes its HTTP pool before resource baselines are measured. */
+export async function waitForProductionBootstrap(): Promise<void> {
+  await command(process.execPath, [join(import.meta.dir, "../verify-shipping-bootstrap.ts")]);
+}
+
 export async function readSessionCookie(file: string): Promise<string> {
   const cookies = (await readFile(file, "utf8")).split("\n").flatMap(raw => {
     const line = raw.startsWith("#HttpOnly_") ? raw.slice("#HttpOnly_".length) : raw;

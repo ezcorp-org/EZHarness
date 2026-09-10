@@ -8,8 +8,8 @@
  * NOT for a clean completion or a still-running assignment.
  */
 
-import { render, cleanup } from "@testing-library/svelte";
-import { describe, test, expect, afterEach } from "vitest";
+import { fireEvent, render, cleanup } from "@testing-library/svelte";
+import { describe, test, expect, afterEach, vi } from "vitest";
 import AssignmentPill from "./AssignmentPill.svelte";
 import type { TaskAssignment } from "$lib/stores.svelte.js";
 
@@ -55,5 +55,62 @@ describe("AssignmentPill schema-failure chip", () => {
 			now: Date.now(),
 		});
 		expect(queryByTestId("assignment-schema-failed")).toBeNull();
+	});
+});
+
+describe("AssignmentPill assignment controls", () => {
+	test("starts an assigned team member and labels a resumable assignment", async () => {
+		const onstart = vi.fn();
+		const { getByTitle, getByText } = render(AssignmentPill, {
+			assignment: assignment({ status: "assigned", isTeam: true, subConversationId: "sub-1" }),
+			now: Date.now(),
+			onstart,
+		});
+		expect(getByText("@researcher")).toBeInTheDocument();
+		const start = getByTitle("Resume assignment");
+		await fireEvent.click(start);
+		expect(onstart).toHaveBeenCalledTimes(1);
+	});
+
+	test("shows prerequisites instead of invoking a blocked assignment", () => {
+		const onstart = vi.fn();
+		const { getByTestId } = render(AssignmentPill, {
+			assignment: assignment({ status: "assigned" }),
+			now: Date.now(),
+			onstart,
+			blocked: true,
+			blockedBy: ["Fetch source", "Review change"],
+		});
+		expect(getByTestId("assignment-start-blocked")).toHaveAttribute(
+			"title",
+			"Waiting for prerequisites: Fetch source, Review change",
+		);
+		expect(onstart).not.toHaveBeenCalled();
+	});
+
+	test("shows a live autonomous cycle and stops a running assignment", async () => {
+		const onstop = vi.fn();
+		const { getByTestId, getByTitle } = render(AssignmentPill, {
+			assignment: assignment({
+				status: "running",
+				startedAt: "2026-01-01T00:00:00.000Z",
+				autonomousCycle: 2,
+				autonomousMaxCycles: 4,
+			}),
+			now: Date.parse("2026-01-01T00:00:05.000Z"),
+			onstop,
+		});
+		expect(getByTestId("autonomous-cycle")).toHaveTextContent("↻2/4");
+		await fireEvent.click(getByTitle("Stop assignment (preserves context for resume)"));
+		expect(onstop).toHaveBeenCalledTimes(1);
+	});
+
+	test("renders busy controls without firing duplicate start or stop actions", async () => {
+		const { container, rerender } = render(AssignmentPill, {
+			assignment: assignment({ status: "assigned" }), now: Date.now(), onstart: vi.fn(), starting: true,
+		});
+		expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+		await rerender({ assignment: assignment({ status: "running", startedAt: "2026-01-01T00:00:00.000Z" }), now: Date.now(), onstop: vi.fn(), stopping: true });
+		expect(container.querySelector(".animate-spin")).toBeInTheDocument();
 	});
 });

@@ -1,32 +1,7 @@
-/**
- * Phase 57 — UX-04 Wave 0 RED scaffold for drag-reorderable extension chips.
- *
- * Pins the must_haves contract from PLAN frontmatter:
- *   "On the agent edit page, a user can drag an extension chip to a new
- *    position via mouse, touch, or keyboard; the new order persists to
- *    agentConfigs.extensions JSONB array and survives a page reload."
- *
- * Four cases:
- *   1. Chip row has aria-label="Reorderable extension list" (Pitfall 5
- *      — screen-reader announce on focus).
- *   2. Chip row is wired with the dndzone action (data attribute OR a
- *      `consider` CustomEvent is handled).
- *   3. onfinalize CustomEvent on the chip row emits onchange with the
- *      new id order.
- *   4. aria-label includes keyboard hint ("Space" + "arrows") so users
- *      know the keyboard path exists.
- *
- * RED reason: ExtensionSearchPicker.svelte lines 101-107 wraps chips in
- * a bare `<div data-testid="selected-extension-chips">` — no aria-label,
- * no dndzone action, no finalize handler. Wave 2 Track C (Plan 57-05
- * Task 2) attaches `use:dndzone` + the aria-label + the handler.
- *
- * Runner: vitest (component suffix triggers the .component.test.ts glob
- * in web/vitest.config.ts).
- */
-
+/** Selected chip order must keep temporary drag state out of saved values. */
 import { render, screen, fireEvent } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
+import { SHADOW_ITEM_MARKER_PROPERTY_NAME, SHADOW_PLACEHOLDER_ITEM_ID } from "svelte-dnd-action";
 import ExtensionSearchPicker from "../ExtensionSearchPicker.svelte";
 
 beforeEach(() => {
@@ -41,9 +16,9 @@ beforeEach(() => {
 				return new Response(
 					JSON.stringify({
 						extensions: [
-							{ name: "ext-a", description: "ext A" },
-							{ name: "ext-b", description: "ext B" },
-							{ name: "ext-c", description: "ext C" },
+							{ id: "ext-a", name: "ext-a", description: "ext A" },
+							{ id: "ext-b", name: "ext-b", description: "ext B" },
+							{ id: "ext-c", name: "ext-c", description: "ext C" },
 						],
 					}),
 					{ status: 200, headers: { "content-type": "application/json" } },
@@ -68,17 +43,22 @@ describe("ExtensionSearchPicker drag-reorder", () => {
 		expect(label).toContain("Reorderable extension list");
 	});
 
-	test("selected chip row uses dndzone action (data-dnd-zone attribute present)", async () => {
-		render(ExtensionSearchPicker, {
-			selected: ["ext-a", "ext-b", "ext-c"],
-			onchange: vi.fn(),
+	test("consider updates the visible order without saving a temporary shadow ID", async () => {
+		const onchange = vi.fn();
+		const { rerender } = render(ExtensionSearchPicker, {
+			selected: ["ext-a", "ext-b", "ext-c"], onchange,
 		});
 		const row = await screen.findByTestId("selected-extension-chips");
-		// svelte-dnd-action stamps an internal `data-is-dnd-shadow-item-*`
-		// presence + `aria-roledescription="sortable"`. Either is a valid
-		// liveness signal; we assert the aria-roledescription which is
-		// the public contract surface.
-		expect(row.getAttribute("aria-roledescription")).toBe("sortable");
+		await fireEvent(row, new CustomEvent("consider", { detail: { items: [
+			{ id: SHADOW_PLACEHOLDER_ITEM_ID, [SHADOW_ITEM_MARKER_PROPERTY_NAME]: true },
+			{ id: "ext-a" }, { id: "ext-b" },
+		] } }));
+		expect(onchange).not.toHaveBeenCalled();
+		expect(Array.from(row.querySelectorAll("[data-chip-id]"), item => item.getAttribute("data-chip-id")))
+			.toEqual([SHADOW_PLACEHOLDER_ITEM_ID, "ext-a", "ext-b"]);
+		// A subsequent parent change still replaces the local order.
+		await rerender({ selected: ["ext-b"], onchange });
+		expect(Array.from(row.querySelectorAll("[data-chip-id]"), item => item.getAttribute("data-chip-id"))).toEqual(["ext-b"]);
 	});
 
 	test("onfinalize reorder emits onchange with new id order", async () => {

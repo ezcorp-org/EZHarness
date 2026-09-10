@@ -94,15 +94,15 @@
 	// MENTION_COLORS.workflow so a workflow pill looks the same in the
 	// composer overlay and in rendered assistant markdown.
 	const KIND_PILL_CLASSES: Record<string, string> = {
-		agent: 'border-blue-500/30 bg-blue-500/20 text-blue-300',
-		team: 'border-indigo-500/30 bg-indigo-500/20 text-indigo-300',
-		EZ: 'border-orange-500/30 bg-orange-500/20 text-orange-300',
-		file: 'border-green-500/30 bg-green-500/20 text-green-300',
-		dir: 'border-amber-500/30 bg-amber-500/20 text-amber-300',
-		command: 'border-pink-500/30 bg-pink-500/20 text-pink-300',
-		lesson: 'border-sky-500/30 bg-sky-500/20 text-sky-300',
-		workflow: 'border-teal-500/30 bg-teal-500/20 text-teal-300',
-		feature: 'border-violet-500/30 bg-violet-500/20 text-violet-300',
+		agent: 'border-blue-500/30 bg-blue-500/20 text-blue-800 dark:text-blue-300',
+		team: 'border-indigo-500/30 bg-indigo-500/20 text-indigo-800 dark:text-indigo-300',
+		EZ: 'border-orange-500/30 bg-orange-500/20 text-orange-800 dark:text-orange-300',
+		file: 'border-green-500/30 bg-green-500/20 text-green-800 dark:text-green-300',
+		dir: 'border-amber-500/30 bg-amber-500/20 text-amber-800 dark:text-amber-300',
+		command: 'border-pink-500/30 bg-pink-500/20 text-pink-800 dark:text-pink-300',
+		lesson: 'border-sky-500/30 bg-sky-500/20 text-sky-800 dark:text-sky-300',
+		workflow: 'border-teal-500/30 bg-teal-500/20 text-teal-800 dark:text-teal-300',
+		feature: 'border-violet-500/30 bg-violet-500/20 text-violet-800 dark:text-violet-300',
 		extension: 'border-purple-500/30 bg-purple-500/20 text-purple-800 dark:text-purple-300',
 	};
 	// Purple is `extension`'s colour AND the fallback for an unknown kind —

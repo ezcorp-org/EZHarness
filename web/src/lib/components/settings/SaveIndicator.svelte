@@ -13,7 +13,7 @@
 {#if saving}
 	<span class="text-xs text-[var(--color-text-muted)]" data-testid="save-indicator-saving" role="status">Saving...</span>
 {:else if error}
-	<span class="text-xs text-red-400" data-testid="save-indicator-error" role="alert">Save failed — try again</span>
+	<span class="text-xs text-red-800 dark:text-red-400" data-testid="save-indicator-error" role="alert">Save failed — try again</span>
 {:else if saved}
-	<span class="text-xs text-green-400" data-testid="save-indicator-saved" role="status">Saved ✓</span>
+	<span class="text-xs text-green-700 dark:text-green-400" data-testid="save-indicator-saved" role="status">Saved ✓</span>
 {/if}

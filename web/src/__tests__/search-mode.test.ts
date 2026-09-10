@@ -11,7 +11,7 @@
  * Pure logic → runs under `bun test`. localStorage is stubbed in-memory
  * since bun's test env has no DOM Storage.
  */
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, afterEach } from "bun:test";
 import type { MessageSearchHit } from "$lib/api.js";
 import {
 	SEARCH_MODE_LS_KEY,

@@ -91,7 +91,10 @@ function registerStubRuntime(opts: { assistantContent?: string | null; fail?: bo
   registerBriefingRuntime({ executor: makeStubExecutor(opts), bus: new EventBus<AgentEvents>() });
 }
 
-async function call(handler: (event: ReturnType<typeof createMockEvent>) => Promise<Response>, event: ReturnType<typeof createMockEvent>): Promise<Response> {
+async function call(
+  handler: (event: ReturnType<typeof createMockEvent>) => Response | Promise<Response>,
+  event: ReturnType<typeof createMockEvent>,
+): Promise<Response> {
   try {
     return await handler(event);
   } catch (e) {

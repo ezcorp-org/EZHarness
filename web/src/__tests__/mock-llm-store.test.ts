@@ -6,6 +6,7 @@ import {
   setMockScript,
   dequeueMockTurn,
   clearMockScripts,
+  getMockRequests,
   mockScriptKeyFromModel,
   mockTurnToChunks,
   mockTurnToSseFrames,
@@ -13,6 +14,8 @@ import {
   buildMockFaultResponse,
   buildMockStreamResponse,
   buildMockTurnResponse,
+  releaseMockHold,
+  recordMockRequest,
 } from "$lib/server/mock-llm";
 
 afterEach(() => clearMockScripts());
@@ -47,6 +50,18 @@ describe("store FIFO + sentinel", () => {
     setMockScript("k", [{ text: "a" }]);
     setMockScript("k", [{ text: "b" }]);
     expect(dequeueMockTurn("k").text).toBe("b");
+  });
+
+  test("records detached provider requests and resets them with a new script", () => {
+    setMockScript("capture", [{ text: "ok" }]);
+    const request = { model: "mock:capture", messages: [{ role: "user", content: "hello" }] };
+    recordMockRequest("capture", request);
+    request.messages[0]!.content = "mutated outside the store";
+    expect(getMockRequests("capture")).toEqual([
+      { model: "mock:capture", messages: [{ role: "user", content: "hello" }] },
+    ]);
+    setMockScript("capture", []);
+    expect(getMockRequests("capture")).toEqual([]);
   });
 });
 
@@ -193,6 +208,16 @@ describe("buildMockTurnResponse (dispatcher)", () => {
   test("fault turn → failing response", () => {
     const res = buildMockTurnResponse({ fault: { status: 503 } });
     expect(res.status).toBe(503);
+  });
+
+  test("held turn sends only after its explicit release", async () => {
+    const res = buildMockStreamResponse({ holdKey: "store-hold", text: "released" });
+    const reader = res.body!.getReader();
+    const first = reader.read();
+    expect(releaseMockHold("store-hold")).toBe(true);
+    const chunk = await first;
+    expect(new TextDecoder().decode(chunk.value)).toContain("released");
+    await reader.cancel();
   });
 
   test("matches buildMockStreamResponse for a non-fault turn", () => {

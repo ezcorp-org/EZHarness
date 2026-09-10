@@ -1,22 +1,7 @@
 /**
- * Canvas dock e2e — knob-change round-trip.
- *
- * Closes the user-facing leg of the chain that produced the original
- * 400 (toolCallId 83 chars > schema cap of 64). The fixture mocks the
- * `claude-design__open-canvas` tool result so the dock mounts with a
- * sidebar knob panel; the spec then drives the "Apply knobs" button
- * and asserts the POST to `/api/extensions/claude-design/events/
- * knob-change` carries the expected body shape AND returns 200 (not
- * 400).
- *
- * Why this lives at e2e and not unit: the route schema, the front-end
- * fetch (ExtensionIframeCard.postEvent), and the body builder
- * (DesignCanvasCard's "Apply knobs" handler) are independently
- * tested, but their composition was what broke. This spec is the
- * canary for a regression at the seams.
- *
- * No real LLM, no real subprocess — the tool response is seeded the
- * same way every other `canvas-dock-*` spec in this directory does it.
+ * A canvas whose original tool call has a long compound id can still apply
+ * knob edits through the current inline tool API. The mock verifies the UI
+ * request and completion; real API validation has its own route tests.
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
@@ -41,13 +26,12 @@ test.describe("Canvas Dock — knob-change round-trip", () => {
 	// regression fail loudly.
 	const OPENAI_TOOL_CALL_ID = "call_" + "a".repeat(24) + "|fc_" + "b".repeat(48);
 
-	test("Apply knobs POSTs the right body shape and the route returns 200", async ({ page, mockApi, emitWs }) => {
-		// Intercept the events POST BEFORE mockApi sets up the catch-all
-		// `**/api/**` route. Playwright applies routes in registration
-		// order, so a more-specific handler registered first wins.
+	test("Apply invokes tweak-design from a canvas with a long tool-call id", async ({ page, mockApi, emitSse }) => {
+		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
+		// Register the specific handler last: Playwright uses reverse order.
 		const captured: Array<{ url: string; body: unknown }> = [];
 		await page.route(
-			"**/api/extensions/claude-design/events/knob-change",
+			"**/api/tool-invoke",
 			async (route) => {
 				const reqBody = route.request().postDataJSON();
 				captured.push({ url: route.request().url(), body: reqBody });
@@ -59,7 +43,6 @@ test.describe("Canvas Dock — knob-change round-trip", () => {
 			},
 		);
 
-		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
@@ -73,7 +56,7 @@ test.describe("Canvas Dock — knob-change round-trip", () => {
 		// shape mirrors `canvas-dock-open-close.spec.ts`. We use the
 		// 81-char OpenAI compound shape as the invocationId so the
 		// downstream POST carries the same value as `toolCall.id`.
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -120,21 +103,34 @@ test.describe("Canvas Dock — knob-change round-trip", () => {
 		// The POST should have landed within a tick.
 		await expect.poll(() => captured.length, { timeout: 3000 }).toBeGreaterThan(0);
 
-		// Assert: 81-char toolCallId clears the schema (no 400), payload
-		// shape matches the route's contract: `{ toolCallId,
-		// conversationId, draftId, knobs }`.
+		// Applying creates a new invocation; the original compound id remains
+		// attached to the rendered canvas, rather than being reused as its id.
 		const sent = captured[0]!;
-		expect(sent.url).toContain("/api/extensions/claude-design/events/knob-change");
+		expect(sent.url).toContain("/api/tool-invoke");
 		const body = sent.body as {
-			toolCallId: string;
+			extensionName: string;
+			toolName: string;
+			invocationId: string;
 			conversationId: string;
-			draftId: string;
-			knobs: Record<string, string>;
+			input: { draftId: string; knobs: Record<string, string> };
 		};
-		expect(body.toolCallId).toBe(OPENAI_TOOL_CALL_ID);
-		expect(body.toolCallId.length).toBe(81);
+		expect(body.extensionName).toBe("claude-design");
+		expect(body.toolName).toBe("tweak-design");
+		expect(body.invocationId).toMatch(/^[0-9a-f-]{36}$/);
+		expect(body.invocationId).not.toBe(OPENAI_TOOL_CALL_ID);
 		expect(body.conversationId).toBe("conv-1");
-		expect(body.draftId).toBe("draft-knob-1");
-		expect(body.knobs).toMatchObject({ spacingScale: "+15%" });
+		expect(body.input.draftId).toBe("draft-knob-1");
+		expect(body.input.knobs).toMatchObject({ spacingScale: "+15%" });
+		await emitSse({
+			type: "tool:complete",
+			data: {
+				conversationId: "conv-1", extensionId: "claude-design",
+				toolName: "tweak-design", source: "inline", invocationId: body.invocationId,
+				output: { changedVars: ["--space-1"], knobValues: body.input.knobs },
+				success: true, duration: 10,
+			},
+		});
+		await expect(page.getByTestId("apply-banner-success")).toBeVisible();
+
 	});
 });

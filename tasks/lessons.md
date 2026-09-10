@@ -144,3 +144,210 @@
 - Verify a fresh dev image through Vite: Bun source exports alone do not satisfy the standard import exports. Build the trusted workspace packages in the image, then test a container replacement with persisted extension records.
 
 - Validate coverage with the actual merged producer reports and unchanged gate. A focused V8 report can omit a catch line that a Bun producer measures as zero, so a passing focused hit count alone does not prove patch coverage. Cover the behavior in the producing suite and replay the merge locally.
+
+## 2026-09-09 — Test review build isolation
+
+- Run production builds, `bun run typecheck`, and `web` checks in sequence within one checkout. Both type-check commands run SvelteKit sync and write `.svelte-kit`. Overlap can give the browser different server and client build identifiers. Read command side effects before parallel execution.
+
+## Test gap planning isolation — 2026-09-09
+
+- Check whether planning files are tracked before creating task records. This repository has historical root PLAN.md and GATES.md files. Keep new task plans under tasks/testing-gaps/ and use explicit gate-file arguments so old task gates are neither overwritten nor treated as current requirements.
+- Removing a typecheck exclusion list is incomplete if the gate still accepts its former baseline. Make the committed exclusion arrays required-empty and prove a former valid entry fails before the compiler starts.
+
+- When editing from a shell call, set its working directory to the repository root. Use a separate call for web commands; do not mix root-relative edit paths with a web working directory.
+- Keep a required E2E spec at its manifest path when replacing a skipped body. The lane manifest is a tested contract; move the real body into the existing file instead of creating a second path.
+
+## 2026-09-09 — Provider-error coverage
+
+- A failover test that writes context state directly does not cover the event bridge that supplies it. For each newly persisted bridge field, emit the real terminal event in a direct bridge test and assert the field before relying on end-to-end coverage.
+- A transport isolation probe must fail closed. Its spy may count an unexpected call, but must never forward it to the original transport.
+
+## 2026-09-09 — Coverage receipt accuracy
+
+- Read pass, failure, and skip counts from the complete runner summary. Do not infer passes by subtracting failures from collected tests: skipped tests are separate.
+- Keyboard model selection follows visible group order, not fixture insertion order. Assert the selected label and choose a reasoning model explicitly before testing its thinking control.
+- Cancelling Playwright can leave its preview child bound to the private port. Check the listener and working directory, stop only that owned process, then rerun. A port collision is not a product failure.
+
+## 2026-09-09 — Coverage record integrity
+
+- An LCOV `SF:` header is not evidence. A source producer guard must require at least one syntactically valid `DA:<positive-line>,<nonnegative-hit>` record before it treats a source as measured. Test empty, malformed, and valid records separately.
+- Do not infer executable source coverage from a generated source-map point alone. Validate mapping semantics against the established V8-to-Istanbul path or retain a negative control that makes a mapped but unexecuted source line remain `DA:0`.
+- When a test passes a fetch implementation as `typeof fetch`, preserve Bun's `preconnect` member with an exact helper; a plain async function type-checks too weakly even when it runs correctly.
+- For adapter-copied browser assets, resolve Vite map `sources` against `.svelte-kit/output/client`, not the adapter's `build/client` copy path.
+
+## 2026-09-10 — Coverage worker limits
+- `scripts/test-coverage.sh` default host pool can exceed the authorized backend worker cap. Record its actual concurrency as evidence, and pass `PARALLEL=3` for every later focused/backend coverage run unless the coordinator explicitly changes the limit.
+
+## 2026-09-10 — Canonical producer identity
+- A blank LCOV `TN:` is not producer evidence. Canonical sources must require a unique producer tag and preserve it through both merge stages; prove blank and other trusted-producer tags cannot supply that source.
+
+## 2026-09-10 — Execution receipts and bounded scheduling
+
+- Confirm each selected test path exists before invoking a runner. A multi-file command can ignore an unmatched filter while its other files pass. Record the exact collected count; use `./` for Bun test paths outside its default search root.
+- A `wait -n` scheduler must not count unregistered children. Include every child in its capacity accounting or run the independent child after the tracked pool drains.
+- A preview reuse config starts a new preview from existing production assets. It needs a verified build, not an already running server. Use a private port and rebuild after application source changes.
+- A browser test with no application scripts is a valid checkpoint. Retain and count it, but require the final same-build aggregate to contain real DA records for every expected route and canonical browser source.
+## 2026-09-09 — Picker reopening
+
+- When a picker closes on a delayed blur, test immediate native reopen with fake-timer advancement beyond the prior deadline. A browser assertion alone can miss a timing race or hide it behind a fixed wait.
+- Clear delayed picker-close callbacks at unmount, and keep both the selection callback and native outside-close behavior in the regression.
+
+## 2026-09-10 — Live source and process identity
+
+- Read the current manifest and its CI consumer before requesting lane changes. Historical checkpoint summaries can describe removed lanes. Existing source is authoritative; do not add overlapping lanes to solve stale checkout findings.
+- Do not stop only a flock wrapper to cancel a queued test: it can acquire the lock and start its child between inspection and termination. Serialize builds and preview runs in the same checkout from the start.
+
+## 2026-09-10 — Gate-integrity assertions
+- Do not add duplicate `expect` calls merely to satisfy a static gate. First inspect the called local helper. If it contains the behavior assertion, make the gate recognize only that local, assertionful call path and add opaque-helper and declaration-only negative controls. For a test-gutting finding, restore a distinct user action and its result.
+- A local helper's assertion is evidence only inside its parsed lexical body and only along an invoked call path. Never approximate a body with the next declaration: statements after an empty helper, or a never-called nested function, must remain vacuous.
+- File-scope assertion helpers must resolve through their actual lexical binding. A nested declaration or a parameter/local binding with the same name must never make another call assertionful.
+- Check a shadow declaration before skipping its nested function body. Resolve enclosing suite scopes too; when a static scan cannot prove the binding, it must reject the helper path.
+## 2026-09-10 — Session-history refresh fixtures
+
+- A mocked message POST must retain the client `parentMessageId`. Otherwise a completion refetch can correctly render a new root branch while a test falsely calls it a full-thread refresh. Capture the actual POST response and run ID, persist that returned user message, and assert every earlier turn plus the new reply after reconciliation.
+- Do not apply a lint auto-fix when it changes a constructible function into an arrow. Tests may instantiate it with `new`; keep a named constructor and run the affected browser flows. Do not narrow a public `Promise<T | void>` contract to satisfy a lint rule when existing `Promise<void>` implementations rely on it.
+
+## 2026-09-10 — Browser Worker aliases
+
+- Page-level CDP coverage does not prove code that runs only inside a browser Worker. For a literal Node-module alias, use a direct contract producer that asserts the public shape, stamp it with a unique TN, and require its own exact floor.
+
+- Do not place Vitest fixtures in a `bun test` batch. Their hoisted mocks require Vitest, while canonical backend coverage isolates Bun test files because module mocks leak across a shared process.
+
+## 2026-09-10 — Integration review and active runners
+
+- Do not edit a script, fixture, or generated build while its runner is active. A shell can resume reading at an old offset after an edit and execute broken text. Commit and align each checkout before the run, then retain that exact source until it exits.
+- Get the authoritative revision from the parent checkout. A peer worktree or old summary can contain already-fixed skips. Exclude comments when counting test skips, and inspect the actual executable call.
+- For retry tests, assert a successful response and new visible data. A timed error toast is separate state; its continued display does not prove that the retry failed.
+- Review every lint auto-fix, including all fake constructors, and remove unused pure declarations instead of hiding them with underscore names.
+- Preserve parent-path order when adding audit annotations to chat. Sort or merge only independent annotations, deduplicate IDs, and test inverted timestamps and branch isolation.
+
+- Large validation JSON files should remain linted. Use an exact-file size-limit override instead of excluding the files; measure the added lint cost. Keep historical skipped suite declarations unchanged when only documenting their executable replacements, so diff-scoped integrity checks do not misclassify them as new skips.
+- A leading underscore is not a cleanup for a dead declaration. Remove pure unused helpers and constants with their unused imports; retain only bindings that still have a side effect or a structural use.
+
+## 2026-09-10 — Picker component timing proof
+
+- Use fake timers to cross a known dismissal deadline in a component test. Do not use a fixed wall-clock delay when the timer is the behavior under test.
+- Describe dispatched component events accurately. Reserve “native interaction” for browser-engine evidence that performs the physical click path.
+
+- Explicitly pass empty storage state and assert no cookies for anonymous browser contexts. A new context can inherit the runner's configured storage state. Do not call a loaded admin page an anonymous access leak before that control passes.
+- A mock HTML copy is not application coverage. Render the actual component with controlled loader data, and use a real empty database to test server redirects.
+- When adding audit detail, preserve the existing burst volume bound. An allowed capability kind must not accidentally introduce one audit key per file path. Keep deny evidence complete.
+## 2026-09-10 — Shared-style coverage
+
+- Do not duplicate a shared style constant to satisfy V8 coverage. A source-mapped branch from Svelte's defensive generated `?? ''` fallback is not an executable product branch when the imported constant is typed and defined. Keep the import, test real event payloads, and report the generated mapping to the coverage owner.
+
+
+## 2026-09-10 — Completed browser write journeys
+
+- A captured write request proves only dispatch. For every browser write journey, wait for its response, prove the control returns to its completed state, then reload or refresh and assert the persisted user-visible value.
+
+- Before freezing coverage source, check every new source against its actual canonical producer. A web Bun test in the orphan pass/fail set does not emit LCOV. New server helpers with coverage floors must have their test in the shared host list (both coverage and pass/fail), with a file-set regression check. A standalone coverage proof does not establish full-run membership.
+
+## 2026-09-10 — Initial hydration and native composer tests
+
+- Do not hold a conversation’s first authoritative tool-history response while waiting for native composer entry. ChatThread keeps the composer disabled until that response completes. Release and assert the known initial snapshot first; hold only later refreshes when testing live-event reconciliation.
+
+## 2026-09-10 — Live-event stale history races
+
+- A delayed first-load response is not a valid live-event race if it prevents native input. Complete initial hydration, then start a separate stale history read before the event. Release it after the live event and assert the live surface remains; test the later persisted row as a separate refresh.
+
+## 2026-09-10 — Isolated stale-response races
+
+- Count the exact authoritative reads in a stale-response browser race before and after release. Without that count, an unexpected later persisted read can make the visible state pass while the intended stale overlap was never isolated.
+
+## 2026-09-10 — Full producer and native focus review
+
+- Reproduce test environments with the exact temporary-directory ancestry. Keep fixtures that assert no Git ancestor outside every checkout; preserve nested path length when diagnosing Unix sockets.
+- A failed startup has not acquired ownership of a public socket. Prove a rejected duplicate leaves the original service reachable before changing cleanup.
+- Assert modal focus after evidence capture and deferred frame callbacks. Initial focus alone can miss later composer autofocus.
+- Verify a visual evidence case is selected by the mandatory evidence lane, not merely tagged.
+- Recompute performance from the live final test inventory. Keep modeled time separate from measured hosted runtime.
+- Distinguish a passing direct test from a coverage producer. Verify each source's direct suite contributes a trusted receipt before adding replacement tests.
+# Testing coverage review rules
+
+- Check the visible result after an asynchronous response. A request call or cleared field alone does not prove success.
+- Wait for loaded records before clicking their controls. Static headings can appear before the data.
+- Restore global mocks, prototype descriptors, timers, and module mock state after each test.
+- Put Svelte test hosts under `__tests__` so product coverage does not count fixtures as shipped code.
+- Run the actual web type check for browser test fixtures; backend/E2E type checks do not cover that surface.
+- Match both quote styles when a temporary review tool selects tests. Verify its actual file list and counts.
+
+- Run every coverage gate as an early diagnostic before another full browser freeze. A passing per-file floor check cannot detect a changed file that has no record; the patch gate can.
+- When a canonical source inventory changes, update positive receipt fixtures from that shared inventory and retain a negative missing-source control.
+- Keep native runtime cleanup failures separate from assertion failures. Retain initial errors, reproduce under the exact runtime and temporary-directory shape, and do not claim that a passing retry proves a root-cause fix.
+
+- Scope repeated conversation titles to their actual UI surface. A page-wide exact-text locator can pass before hydration and fail after the same title appears in a header. Reproduce the fully loaded state, then use the named conversation navigation and its accessible row buttons.
+
+- Check Git's actual diff separately from text-search binary detection. A NUL byte beyond Git's initial sample can affect search output while Git still renders the full diff. Do not report a hidden Git diff without reproducing that result.
+
+## 2026-09-10 — Browser build artifacts
+
+- A Vite preview artifact needs SvelteKit's hidden `web/.svelte-kit/output/server` as well as `web/build` and client source maps. Test the exact upload/download root by restoring it into a clean consumer and starting preview; file-presence checks alone do not prove the server starts.
+
+## 2026-09-10 — Native drag activation
+
+- A drag ghost proves that the pointer crossed the library threshold, but not that the destination received a `consider` event. For a native drag across a long row, first cross the activation threshold, await the ghost, then move to the target and assert the live order before release. Do not replace that state check with a longer timeout or retry.
+
+## 2026-09-10 — Pagination controls and observers
+
+- Do not call an off-screen pagination button deterministic when scrolling it into view activates the same observer path first. Test the manual control with observer callbacks held inert, and test automatic loading with a native scroll. Keep both user-visible window and anchor assertions.
+
+## 2026-09-10 — Browser transport diagnosis
+
+- Do not state a transport root cause from a failed browser trace alone. First compare the exact server and browser paths, retain the failed asset response evidence, and describe any transport explanation as an inference until a matching red-to-green control proves it.
+
+## 2026-09-10 — Clean coverage runners and failed Git commands
+
+- Check the import graph of each no-install CI command. Shared text parsers must not load the AST package required by another job.
+- A failed Git diff is an error, never an empty set of changes. Test invalid base revisions through the real coverage commands.
+- Assign container tests to a lane that installs and checks the exact runner image. Validate collection as well as the test result.
+
+- Distinguish an import-graph concern from a reproduced runtime failure. Pinned Bun can resolve a stub differently from Node; report the actual clean-runner command result before calling a dependency a blocker.
+
+## 2026-09-10 — Loop dashboard integration fixtures
+
+- Inject the loop-log page seam before defining a dashboard loop. Loop event spies do not intercept `pushDashboard`; a live page seam creates the production channel and can allocate Bun stdout state during coverage. Capture registration and publish calls through one test-barrel helper, restore it after each test, and assert both calls in the real loop flow.
+- Pass an explicit `./` prefix when Bun test receives a nested path. Without it, Bun can treat the path as a name filter and run no test file.
+
+## 2026-09-10 — Drawer backdrop tests
+
+- A full-screen backdrop can be covered by its drawer panel. Do not force-click its locator centre: verify an exposed point with `elementFromPoint`, then perform a normal native click. Reuse that contract for each SwipeDrawer test.
+
+- When raising a popover trigger above its backdrop, keep it below the modal layer and verify the actual pointer target. A Playwright interception alone does not prove a user-visible failure; a coordinate click may already dismiss through the backdrop.
+- For canonical browser coverage, unit V8 coverage is supplementary. Exercise both changed placement branches in the real browser and inspect remapped line hits.
+
+## 2026-09-10 — Shared coverage runners
+
+- When a parent asks for a process status before any stop, report the exact process chain and wait for the response. Do not infer approval to terminate a shared coverage run. Use the shared heavy-run lock for every broad producer.
+- When reviewing a child process runtime, inspect the exact parent command and inherited PATH before using the ambient shell binary as evidence.
+
+## 2026-09-10 — Picker geometry and approval payloads
+
+- Wait until the startup overlay is removed before a native coordinate click. Measure the anchor again after opening when selected chips can change the control's height; an old rectangle can produce a false placement failure.
+- Prove timing changes with the corrected browser test. The tick-only control passed all 55 picker/team cases, so the extra animation-frame wait was removed.
+- Measure a constrained list at its natural height on each filter/open. Measuring its previous cap can remove that cap on the next update; retain a real short-window regression.
+- Validate the complete serialized permission payload in bytes. A valid canonical route permission can exceed an arbitrary per-string character limit; preserve exact grants and human approval rather than splitting or dropping capabilities.
+- Read the API result contract before writing a control script: activation returns an operation; inspect durable installation state separately. Keep script-shape errors separate from product failures.
+
+## 2026-09-10 — Async layout and browser-engine checks
+
+- Assert related asynchronous layout values in the same wait. Control deferred preferences so both the initial and updated menu layouts are proved.
+- Read operation state and ID from the operation heading. Diagnostic content can use the same inline elements.
+- Before a Nix WebKit run, check whether its launcher replaces LD_LIBRARY_PATH. Use a task-owned launcher copy for local compatibility; do not alter the shared browser cache. Keep Chromium-only coverage disabled for other engines and assign an unused task port.
+
+- Run gate integrity before every commit that changes tests, even after a passing suite. Its AST check does not follow local assertion helpers; keep a meaningful visible-result assertion in the test body.
+
+## 2026-09-10 — Standard coverage manifest
+
+- A focused coverage include does not prove the CI producer measures that source. Register every canonical source in the standard manifest and assert registry completeness. Use the actual standard launcher for the final coverage diagnostic. Do not let a manual include mask a missing producer registration.
+
+## 2026-09-10 — Production startup and idle baselines
+
+- When first-admin setup begins real background work, resource and recovery proofs must observe verified bootstrap completion before requiring an idle runner. Keep setup HTTP pools outside the measured process and retain the startup receipt.
+- Bounded container polling needs a pacing interval. A fast fixed-count loop can exhaust all observations before an asynchronously created container appears. Keep native pause/recovery and zero-resource assertions intact.
+
+## 2026-09-10 — Shutdown subprocess ownership
+
+- A passing shard can hide a first-attempt failure. Audit raw failed-test summaries and the actual `Retry sweep` / `isolated plain re-run` messages before accepting CI.
+- A readiness timeout must kill and reap the owned child. Drain stdout and stderr from spawn, bound exit after the signal, and retain diagnostics on early exit. Use the current executable rather than an ambient `bun` binary.
+- Shutdown tests need a real writable database, not repeated catalog creation inside the signal handshake. Build a closed empty catalog once, give each child a private copy, and keep writes and data-survival checks in the real child/reopen path. Verify the unchanged deadline under the same load that reproduced the failure.

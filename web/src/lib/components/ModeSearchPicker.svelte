@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { inputClass } from "$lib/styles.js";
 	import { fetchModes, type Mode } from "$lib/api";
-	import { onMount } from "svelte";
+	import { onDestroy, onMount, tick } from "svelte";
 	import SelectedPill from "./SelectedPill.svelte";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
+	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
+	import { createSearchPickerDismissal } from "$lib/search-picker-dismissal.js";
+	import { fixedSearchPickerLayout } from "$lib/search-picker-position.js";
 
 	let {
 		selected = null,
@@ -26,15 +29,26 @@
 	const bp = useBreakpoint("lg");
 
 	let modes = $state<Mode[]>([]);
+	let pickerEl: HTMLDivElement | undefined = $state();
 	let inputEl: HTMLInputElement | undefined = $state();
+	let dropdownEl: HTMLDivElement | undefined = $state();
 	let query = $state("");
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	let listStyle = $state("");
+	const dismissal = createSearchPickerDismissal({
+		getInput: () => inputEl,
+		isOpen: () => open,
+		dismiss: closeDropdown,
+	});
 
 	onMount(async () => {
 		try { modes = await fetchModes(); } catch { /* non-fatal */ }
+		if (open && !bp.below) await positionAfterRender();
 	});
+
+	onDestroy(dismissal.destroy);
 
 	let filtered = $derived(() => {
 		if (!query.trim()) return modes;
@@ -55,15 +69,29 @@
 
 	function computePosition() {
 		if (!inputEl) return;
-		const rect = inputEl.getBoundingClientRect();
-		dropdownStyle = `position:fixed;left:${rect.left}px;top:${rect.bottom + 2}px;width:${Math.max(rect.width, 320)}px;z-index:9999;`;
+		const layout = fixedSearchPickerLayout(
+			inputEl.getBoundingClientRect(),
+			dropdownEl?.getBoundingClientRect().height ?? 0,
+			window.innerHeight,
+			320,
+		);
+		dropdownStyle = layout.dropdownStyle;
+		listStyle = layout.listStyle;
 	}
 
-	function openDropdown() {
+	async function positionAfterRender() {
+		// Measure the natural list again after filtering or reopening.
+		listStyle = "";
+		await tick();
+		if (open && !bp.below) computePosition();
+	}
+
+	async function openDropdown() {
+		dismissal.cancelBlurDismissal();
 		open = true;
 		highlightIdx = -1;
 		query = "";
-		computePosition();
+		await positionAfterRender();
 	}
 
 	function closeDropdown() {
@@ -78,15 +106,23 @@
 		inputEl?.blur();
 	}
 
-	function onInput() {
-		query = inputEl?.value ?? "";
+	async function onInput(event: Event) {
+		query = (event.currentTarget as HTMLInputElement).value;
 		highlightIdx = -1;
-		if (!open) openDropdown();
-		else computePosition();
+		if (!open) await openDropdown();
+		else {
+			await positionAfterRender();
+		}
 	}
 
+	function onInputClick(event: MouseEvent) {
+		event.stopPropagation();
+		if (!open) openDropdown();
+	}
 	function onFocus() { if (!open) openDropdown(); }
-	function onBlur() { setTimeout(closeDropdown, 150); }
+	function onBlur() {
+		if (!bp.below) dismissal.scheduleBlurDismissal();
+	}
 
 	function onKeydown(e: KeyboardEvent) {
 		const items = filtered();
@@ -107,19 +143,15 @@
 		}
 	}
 
-	function onClickOutside(e: MouseEvent) {
-		if (!open) return;
-		if (inputEl?.contains(e.target as Node)) return;
-		closeDropdown();
-	}
 </script>
 
-<svelte:document onclick={onClickOutside} />
+<svelte:document onpointerdown={dismissal.onDocumentPointerDown} onclick={dismissal.onDocumentClick} />
 
 <!-- Combobox chrome — single-select. Pill (when set) sits on a row above
      the input so the input keeps its full width. × on the pill clears the
      selection via selectMode(null). -->
 <div
+	bind:this={pickerEl}
 	class="{inputClass} flex w-full flex-col gap-1 p-2 text-sm"
 	data-testid="mode-picker-combobox"
 >
@@ -137,6 +169,7 @@
 			bind:this={inputEl}
 			value={open ? query : ""}
 			oninput={onInput}
+			onclick={onInputClick}
 			onfocus={onFocus}
 			onblur={onBlur}
 			onkeydown={onKeydown}
@@ -155,9 +188,21 @@
 </div>
 
 {#snippet pickerBody()}
+	{#if bp.below}
+		<MobilePickerSearch
+			value={query}
+			{placeholder}
+			ariaLabel="Search modes"
+			controls="mode-picker-listbox"
+			activeDescendant={highlightIdx >= 0 ? `mode-picker-item-${highlightIdx}` : undefined}
+			oninput={onInput}
+			onkeydown={onKeydown}
+		/>
+	{/if}
 	{@const items = filtered()}
 	<ul
 		id="mode-picker-listbox"
+		style={listStyle}
 		class="max-h-64 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] shadow-lg"
 		role="listbox"
 		aria-label="Available modes"
@@ -221,7 +266,7 @@
 		{@render pickerBody()}
 	</BottomSheet>
 {:else if open}
-	<div style={dropdownStyle}>
+	<div bind:this={dropdownEl} data-mode-picker-popover style={dropdownStyle}>
 		{@render pickerBody()}
 	</div>
 {/if}

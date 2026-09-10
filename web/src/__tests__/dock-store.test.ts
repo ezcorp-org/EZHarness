@@ -60,7 +60,7 @@ class DockMirror {
 		// Manual or auto open clears any prior dismissal for this id so
 		// the chat-history pill click is a real reopen, not a no-op.
 		const dismissed = this.dismissedDocks[conversationId];
-		if (dismissed && dismissed[toolCallId]) {
+		if (dismissed?.[toolCallId]) {
 			const { [toolCallId]: _drop, ...remaining } = dismissed;
 			this.dismissedDocks = { ...this.dismissedDocks, [conversationId]: remaining };
 		}

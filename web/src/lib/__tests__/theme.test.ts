@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import * as theme from "../theme";
 
 // --- Browser-global mocks ---
 
@@ -79,20 +80,12 @@ function teardownBrowserMocks() {
 	delete (globalThis as any).localStorage;
 }
 
-// We need to re-import the module for each test group since the module
-// captures `mediaQuery`/`mediaHandler` in module-level variables.
-// Using dynamic import with cache-busting isn't feasible, so we rely on
-// the functions being stateless enough across tests with fresh mocks.
+// Theme reads browser globals when each function runs. Keep one static module
+// import so Bun instruments the same source that these browser fakes exercise.
 
 describe("theme", () => {
-	let theme: typeof import("../theme");
-
-	beforeEach(async () => {
+	beforeEach(() => {
 		setupBrowserMocks();
-		// Clear module cache so module-level state resets
-		const modulePath = require.resolve("../theme");
-		delete require.cache[modulePath];
-		theme = await import("../theme");
 	});
 
 	afterEach(() => {
@@ -175,6 +168,20 @@ describe("theme", () => {
 		test("'system' applies theme based on matchMedia", () => {
 			matchMediaResult.matches = true;
 			theme.setTheme("system");
+			expect(classList.has("dark")).toBe(true);
+		});
+	});
+
+	describe("system preference listener", () => {
+		test("applies an OS change only while the stored mode remains system", () => {
+			theme.setTheme("system");
+			const listener = mediaListeners.get("(prefers-color-scheme: dark):change")?.[0];
+			expect(listener).toBeDefined();
+			listener?.({ matches: true });
+			expect(classList.has("dark")).toBe(true);
+
+			storage.set("ezcorp-theme", "light");
+			listener?.({ matches: true });
 			expect(classList.has("dark")).toBe(true);
 		});
 	});

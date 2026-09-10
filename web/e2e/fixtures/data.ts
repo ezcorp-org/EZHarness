@@ -213,6 +213,8 @@ export interface MemoryData {
 	confidence: string;
 	status: string;
 	projectId: string | null;
+	projectIds: string[];
+	injectionEligible: boolean;
 	conversationId: string | null;
 	messageIds: string[] | null;
 	provenance: {
@@ -261,6 +263,8 @@ export function makeMemory(overrides: Partial<MemoryData> = {}): MemoryData {
 		confidence: "high",
 		status: "active",
 		projectId: "proj-1",
+		projectIds: overrides.projectId === null ? [] : [overrides.projectId ?? "proj-1"],
+		injectionEligible: true,
 		conversationId: "conv-1",
 		messageIds: ["msg-1"],
 		provenance: {
@@ -355,6 +359,7 @@ export interface ExtensionData {
 	consecutiveFailures: number;
 	isBundled: boolean;
 	manifest: {
+		kind?: "tool" | "mcp" | string;
 		schemaVersion?: number;
 		name?: string;
 		version?: string;
@@ -364,6 +369,13 @@ export interface ExtensionData {
 		persistent?: boolean;
 		tools?: Array<{ name: string; description: string; inputSchema?: Record<string, unknown> }>;
 		permissions?: Record<string, unknown>;
+		mcpServers?: Array<{
+			transport: "stdio" | "http" | "sse" | string;
+			name: string;
+			command?: string;
+			args?: string[];
+			url?: string;
+		}>;
 		acceptsCallerCaps?: boolean;
 		/**
 		 * Declared Hub tabs. Declaring a page IS the grant, so this alone

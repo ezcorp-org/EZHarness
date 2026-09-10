@@ -87,7 +87,7 @@
  *     web/src/lib/server/security/url-validation.ts
  */
 import { test, expect, describe } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, copyFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, copyFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -410,12 +410,7 @@ describe("coverage-gate semantics: #3 wildcard precedence", () => {
 //    check-coverage.ts are never counted toward failure, even if a
 //    threshold would otherwise enforce them.
 //
-// EXCLUDES (frozen verbatim in scripts/check-coverage.ts):
-//   "src/extensions/sdk/init.ts"
-//   "src/db/migrations/**"
-//   "src/providers/**"
-//   "web/src/routes/**/+*.svelte"
-//   "web/e2e/**"
+// Representative executable exclusion: e2e specs.
 // ---------------------------------------------------------------------------
 describe("coverage-gate semantics: #4 exclusion enforcement", () => {
   test("excluded files are never counted as violations", async () => {
@@ -425,10 +420,6 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // coverage. Also add a 100%-covered canary to prove the gate is
       // running enforcement (not accidentally vacuous).
       const excludedFiles = [
-        "src/extensions/sdk/init.ts",
-        "src/db/migrations/001_initial.ts",
-        "src/providers/anthropic.ts",
-        "web/src/routes/foo/+page.svelte",
         "web/e2e/login.spec.ts",
       ];
       const canary = "packages/@ezcorp/sdk/src/runtime/canary.ts";
@@ -442,9 +433,6 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // Thresholds that would fail every excluded file if not excluded.
       const thresholds: Record<string, number> = {
         "src/extensions/sdk/**": 100,
-        "src/db/migrations/**": 100,
-        "src/providers/**": 100,
-        "web/src/routes/**": 100,
         "web/e2e/**": 100,
         "packages/@ezcorp/sdk/src/**": 100,
       };
@@ -461,9 +449,25 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
     }
   });
 
+  test("scripted Svelte routes are enforced after route coverage activation", async () => {
+    const sb = makeSandbox();
+    try {
+      const route = "web/src/routes/foo/+page.svelte";
+      await writeFixtures(sb.root, lcovRecord(sb.root, route, 10, [1, 2]), {
+        "web/src/routes/**": 80,
+      });
+      const r = await runCheck(sb.root);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain(route);
+      expect(r.stderr).toContain("20.00%");
+      expect(r.stderr).toContain("< 80%");
+    } finally {
+      sb.cleanup();
+    }
+  });
+
   test("non-excluded file at same SDK prefix IS enforced (negative control)", async () => {
-    // Flips the init.ts case: a sibling file (not in EXCLUDES) under
-    // the same threshold glob at 20% coverage must fail. Proves
+    // A file under the SDK prefix at 20% coverage must fail. Proves
     // exclusion is pattern-scoped, not prefix-eating.
     const sb = makeSandbox();
     try {
@@ -477,6 +481,48 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       expect(r.exitCode).toBe(1);
       expect(r.stderr).toContain(sibling);
       expect(r.stderr).toContain("20.00%");
+    } finally {
+      sb.cleanup();
+    }
+  });
+});
+
+describe("coverage-gate semantics: declaration-only LCOV headers", () => {
+  test("permits a declaration-only TypeScript record with no measurable lines", async () => {
+    const sb = makeSandbox();
+    try {
+      const typePath = "web/src/lib/components/ui/types.ts";
+      const canary = "web/src/lib/components/ui/canary.ts";
+      mkdirSync(join(sb.root, "web/src/lib/components/ui"), { recursive: true });
+      writeFileSync(join(sb.root, typePath), "export interface SharedProps { id: string }\n");
+      writeFileSync(join(sb.root, canary), "export const covered = true;\n");
+      const zeroHeader = ["TN:ezcorp-node-v8", `SF:${join(sb.root, typePath)}`, "FNF:0", "FNH:0", "LF:0", "LH:0", "end_of_record", ""].join("\n");
+      await writeFixtures(sb.root, zeroHeader + lcovRecord(sb.root, canary, 1, [1]), {
+        "web/src/lib/**": 90,
+      });
+      const r = await runCheck(sb.root);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("PASSED");
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  test("still rejects a runtime TypeScript record with no measurable lines", async () => {
+    const sb = makeSandbox();
+    try {
+      const runtimePath = "web/src/lib/components/ui/runtime.ts";
+      const canary = "web/src/lib/components/ui/canary.ts";
+      mkdirSync(join(sb.root, "web/src/lib/components/ui"), { recursive: true });
+      writeFileSync(join(sb.root, runtimePath), "export enum RuntimeState { Ready }\n");
+      writeFileSync(join(sb.root, canary), "export const covered = true;\n");
+      const zeroHeader = ["TN:ezcorp-node-v8", `SF:${join(sb.root, runtimePath)}`, "FNF:0", "FNH:0", "LF:0", "LH:0", "end_of_record", ""].join("\n");
+      await writeFixtures(sb.root, zeroHeader + lcovRecord(sb.root, canary, 1, [1]), {
+        "web/src/lib/**": 90,
+      });
+      const r = await runCheck(sb.root);
+      expect(r.exitCode).toBe(1);
+      expect(r.stderr).toContain(`${runtimePath}: 0 measured lines`);
     } finally {
       sb.cleanup();
     }

@@ -25,6 +25,7 @@ import { __resetCapabilityCacheForTests } from "$lib/chat/attachment-client";
 import { makeCapabilitiesFetch } from "../../../__tests__/stubs/model-capabilities";
 
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	sendMessage: vi.fn(),
 	updateConversation: vi.fn(async (id: string) => ({ id })),
 	createSubConversation: vi.fn(async () => ({ id: "sub-1", agentConfigId: "" })),

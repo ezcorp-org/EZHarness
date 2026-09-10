@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Run the PR CI gates locally, in roughly the same order CI does, with a
-# single PASS/FAIL summary at the end. Every CI job in .github/workflows/ci.yml
-# is a thin wrapper around a repo script, so local parity is near-total; the
-# only things this CANNOT reproduce are the GitHub-side pieces (branch
-# protection rollup, PR bots, the visual-evidence PUBLISH workflow) and the CI
-# runner's exact environment (a handful of timing-sensitive suites flake
-# differently across machines).
+# single PASS/FAIL summary at the end. This runs the source checks, test pools,
+# coverage, and Chromium browser lanes. Separate CI jobs also check the
+# production image, kernel controls, Firefox/WebKit, secrets, dependencies,
+# and external Postgres. Those jobs and the GitHub review rules must be
+# checked separately before claiming complete CI validation.
 #
 # Usage:
-#   bash scripts/ci-local.sh           # full parity (~15-30 min: coverage + gated e2e)
+#   bash scripts/ci-local.sh           # local suite (coverage + gated e2e)
 #   bash scripts/ci-local.sh --fast    # pre-push sanity (~5 min: skips
 #                                      # coverage merge/gates + playwright)
 #   BASE_REF=origin/main               # diff base for the diff-scoped gates
@@ -77,34 +76,57 @@ git fetch origin main --quiet 2>/dev/null || true
 # ── Fast, always-on gates (mirror the cheap CI jobs) ────────────────────────
 run_step "Typecheck" bun run typecheck
 run_step "Lint (biome)" lint_step
+run_step "Dependency boundaries" bun scripts/check-boundaries.ts
 run_step "Gate integrity (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/gate-integrity.ts
 run_step "Visual evidence (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/check-visual-evidence.ts
 run_step "Manifest lockfile drift" bun run scripts/regenerate-manifest-lock.ts --check
 run_step "Route contract" bash -c 'cd web && bun test ./src/__tests__/route-contract.test.ts'
-# Vitest coverage runs in Node because coverage-v8 needs node:inspector. Keep
-# local component/server tests on that same runtime so a Bun-only pass cannot
-# hide a Node failure in the coverage producer.
-run_step "Web tests (vitest, Node)" bash -c 'cd web && npx vitest run'
+# The orphaned Bun pool is disjoint from the Vitest producer and from the
+# coverage host set (see web_bunleg_files in test-file-sets.sh). Keep it in
+# both modes: browser/Vitest coverage cannot prove these Bun-only tests.
 run_step "Web tests (bun-leg orphans)" bash scripts/test-web.sh
 run_step "Svelte check" bash -c 'cd web && bun run check'
-run_step "Web production build" bash -c 'cd web && bun run build'
 run_step "Backend + example tests (pass/fail pool)" bun run test
+
+# Fast mode intentionally stays coverage-free. The full path below runs the
+# same Vitest suite under Node/V8 and builds the mapped browser artifact once.
+if [ "$FAST" = "1" ]; then
+  # Vitest coverage runs in Node because coverage-v8 needs node:inspector.
+  # Keep the fast component/server check on that runtime so a Bun-only pass
+  # cannot hide a Node failure in the coverage producer.
+  run_step "Web tests (vitest, Node)" bash -c 'cd web && npx vitest run'
+  run_step "Web production build" bash -c 'cd web && bun run build'
+fi
 
 # ── Heavy gates (coverage merge + thresholds + diff gates + e2e) ────────────
 if [ "$FAST" = "0" ]; then
+  # Route coverage is one complete five-lane run against one source-mapped
+  # build. test:coverage consumes the raw + LCOV it produced; it must not
+  # launch a second browser sweep or accept a hand-written receipt.
+  BROWSER_COVERAGE_OUTPUT=$(mktemp -d "${TMPDIR:-/tmp}/ezcorp-ci-local-browser-coverage.XXXXXX") || {
+    echo "ci-local: could not create an isolated browser coverage receipt directory." >&2
+    exit 1
+  }
+  cleanup_browser_coverage() {
+    if [ "$FAILED" = "1" ]; then
+      echo "ci-local: retained browser coverage receipts after failed run: $BROWSER_COVERAGE_OUTPUT" >&2
+    else
+      rm -rf "$BROWSER_COVERAGE_OUTPUT"
+    fi
+  }
+  trap cleanup_browser_coverage EXIT
+  run_step "Browser route coverage (mandatory Chromium lanes)" \
+    env EZCORP_BROWSER_COVERAGE_OUTPUT="$BROWSER_COVERAGE_OUTPUT" bash scripts/run-browser-route-coverage.sh
   # Full mode merges every shard into coverage/lcov.info AND enforces
   # coverage-thresholds.json — the local twin of CI's "Per-file coverage gate".
-  run_step "Coverage + per-file thresholds" bun run test:coverage
+  # The strict receipt verifier checks both paths against this checkout's
+  # mapped manifest before adding regenerated browser LCOV to the merge.
+  run_step "Coverage + per-file thresholds" \
+    env BROWSER_COVERAGE_RAW="$BROWSER_COVERAGE_OUTPUT/merged/merged.json" \
+    BROWSER_COVERAGE_LCOV="$BROWSER_COVERAGE_OUTPUT/merged/lcov.info" bun run test:coverage
   # Both diff gates read the coverage/lcov.info the previous step produced.
   run_step "New-file coverage (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/check-new-file-coverage.ts
   run_step "Patch coverage (vs $BASE_REF)" env BASE_REF="$BASE_REF" bun scripts/check-patch-coverage.ts
-  run_step "E2E (mock gate, chromium)" bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
-    [ "${#ARGS[@]}" -gt 0 ] || exit 1
-    cd web && bunx playwright test --project=chromium "${ARGS[@]}"'
-  run_step "E2E (fresh setup, real PGlite)" bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts fresh-setup)
-    [ "${#ARGS[@]}" -gt 0 ] || exit 1
-    bun scripts/run-real-e2e.ts fresh-setup "${ARGS[@]}"'
-  run_step "E2E (real auth, real PGlite)" bun scripts/run-real-e2e.ts real-auth
 else
   RESULTS+=("SKIP  Coverage + per-file thresholds / new-file / patch coverage / gated E2E  (--fast)")
 fi

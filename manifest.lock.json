@@ -229,8 +229,8 @@
       "directory": "docs/extensions/examples/seo-watcher",
       "entrypoint": "extension.ts",
       "files": 8,
-      "bytes": 92550,
-      "sourceDigest": "81b264038b04251a8267fbe2d7f768ba70c0d204675430ea581a81f7d36af359"
+      "bytes": 92842,
+      "sourceDigest": "5f287152b27c6784615872744ac53b845e001f39ac356034ec2a831c265e1864"
     },
     "substack-engagement": {
       "directory": "docs/extensions/examples/substack-engagement",
@@ -348,8 +348,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 53,
-      "bytes": 397167,
-      "sourceDigest": "7a347ff970160fbdb367c2fb90b3c0593ff9b70a4793885ad6b6eca61331586f"
+      "bytes": 398232,
+      "sourceDigest": "080e8382de3a16ab01f99b81a7690003050d4cb566ee486a3383c0bb621ef797"
     }
   }
 }

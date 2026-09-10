@@ -31,9 +31,13 @@ vi.mock("$server/db/queries/sessions", () => ({
   createSession: vi.fn(async () => undefined),
 }));
 
+vi.mock("$server/extensions/bundled", () => ({
+  ensureBundledExtensions: vi.fn(async () => undefined),
+}));
+
 const { getUserCount, createUser } = await import("$server/db/queries/users");
 const { upsertSetting } = await import("$server/db/queries/settings");
-const { createSession } = await import("$server/db/queries/sessions");
+const { ensureBundledExtensions } = await import("$server/extensions/bundled");
 const { POST, __rateLimiter } = await import("../routes/api/auth/setup/+server");
 
 function makeCookies() {
@@ -66,11 +70,19 @@ const validBody = {
   password: "Secret123",
 };
 
+const createdAdmin = {
+  id: "u1",
+  email: "admin@example.com",
+  name: "Admin",
+  role: "admin",
+} as Awaited<ReturnType<typeof createUser>>;
+
 describe("POST /api/auth/setup", () => {
   beforeEach(() => {
     vi.mocked(getUserCount).mockReset();
     vi.mocked(createUser).mockReset();
     vi.mocked(upsertSetting).mockClear();
+    vi.mocked(ensureBundledExtensions).mockClear();
     __rateLimiter.reset();
   });
 
@@ -93,6 +105,7 @@ describe("POST /api/auth/setup", () => {
     expect(createUser).not.toHaveBeenCalled();
     expect(upsertSetting).not.toHaveBeenCalled();
     expect(event._cookies.set).not.toHaveBeenCalled();
+    expect(ensureBundledExtensions).not.toHaveBeenCalled();
   });
 
   test("returns 403 for any positive count (boundary: count = 2, count = 1000)", async () => {
@@ -156,12 +169,7 @@ describe("POST /api/auth/setup", () => {
 
   test("returns 201 + user + sets cookie on happy path", async () => {
     vi.mocked(getUserCount).mockResolvedValue(0);
-    vi.mocked(createUser).mockResolvedValue({
-      id: "u1",
-      email: "admin@example.com",
-      name: "Admin",
-      role: "admin",
-    } as any);
+    vi.mocked(createUser).mockResolvedValue(createdAdmin);
 
     const event = makeEvent({ body: validBody });
     const res = await POST(event);
@@ -177,5 +185,39 @@ describe("POST /api/auth/setup", () => {
       expect.objectContaining({ path: "/", httpOnly: true }),
     );
     expect(upsertSetting).toHaveBeenCalledWith("instance:initialized", true);
+    expect(ensureBundledExtensions).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps first-admin setup usable when staging cannot reach the runner", async () => {
+    vi.mocked(getUserCount).mockResolvedValue(0);
+    vi.mocked(createUser).mockResolvedValue(createdAdmin);
+    vi.mocked(ensureBundledExtensions).mockRejectedValueOnce(new Error("runner offline"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const res = await POST(makeEvent({ body: validBody }));
+
+      expect(res.status).toBe(201);
+      expect(error).toHaveBeenCalledWith(
+        "Bundled source staging unavailable after initial admin setup; it will retry on next boot",
+        expect.objectContaining({ error: "Error: runner offline" }),
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test("stages reviewed bundled sources only after the first admin exists", async () => {
+    vi.mocked(getUserCount).mockResolvedValue(0);
+    vi.mocked(createUser).mockResolvedValue(createdAdmin);
+
+    const res = await POST(makeEvent({ body: validBody }));
+
+    expect(res.status).toBe(201);
+    expect(createUser).toHaveBeenCalledTimes(1);
+    expect(ensureBundledExtensions).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(ensureBundledExtensions).mock.invocationCallOrder[0]).toBeGreaterThan(
+      vi.mocked(createUser).mock.invocationCallOrder[0]!,
+    );
   });
 });

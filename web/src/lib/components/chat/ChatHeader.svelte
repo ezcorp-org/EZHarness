@@ -212,7 +212,7 @@
 		<div class="relative">
 			<button
 				onclick={() => ontoolstoggle(!toolsOpen)}
-				class="flex items-center rounded p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors {toolsOpen ? 'bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : ''}"
+				class="relative flex items-center rounded p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-tertiary)] hover:text-[var(--color-text-primary)] transition-colors {toolsOpen ? 'z-[45] bg-[var(--color-surface-tertiary)] text-[var(--color-text-primary)]' : ''}"
 				aria-label="Loaded tools ({loadedTools.length})"
 			>
 				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1151,6 +1151,7 @@ describe("run:complete handler (loop core)", () => {
           startedAt: 0,
           logs: [],
           provider: "anthropic",
+          model: "claude-haiku-4-5-20250514",
         } as unknown as AgentRun,
         conversationId: convId,
       });
@@ -1175,6 +1176,16 @@ describe("run:complete handler (loop core)", () => {
       expect(options.modeId).toBe("mode-9");
       // Still its own run — the fix adds context, it does not reuse the runId.
       expect(options.runId).not.toBe("init-run");
+    });
+
+    test("the completed turn's provider and model reach streamChat", async () => {
+      const h = makeHost(armingTurnOptions);
+      await reenter(h);
+
+      expect(h.execCalls[0]!.options).toMatchObject({
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20250514",
+      });
     });
 
     test("they are exactly the conversation row's — the same source the user's turn reads", async () => {
@@ -1409,6 +1420,7 @@ describe("run:complete handler (loop core)", () => {
     await h.host.start();
     h.bus.emit("run:error", {
       run: { id: "init-run", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      runId: "init-run",
       conversationId: "c1",
       error: "boom",
     });
@@ -1442,6 +1454,7 @@ describe("run:complete handler (loop core)", () => {
     await h.host.start();
     h.bus.emit("run:error", {
       run: { id: "init-run", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      runId: "init-run",
       conversationId: "c1",
       error: "idle for 90s",
     });

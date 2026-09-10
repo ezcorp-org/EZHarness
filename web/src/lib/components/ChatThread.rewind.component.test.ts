@@ -97,6 +97,7 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 	invalidate: vi.fn(),
 }));
 vi.mock("$lib/api.js", () => ({
+	fetchSettings: vi.fn(async () => ({})),
 	sendMessage: sendMessageMock,
 	fetchAllMessages: fetchAllMessagesMock,
 	fetchConversationTree: fetchConversationTreeMock,
