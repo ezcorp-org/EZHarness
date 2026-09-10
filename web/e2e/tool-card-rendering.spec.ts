@@ -1,36 +1,8 @@
-import { test, expect } from "./fixtures/test-base.js";
+import type { Page } from "@playwright/test";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
-
-// PHASE 61-02 TESTID HARDENING (Bucket A #6): added `data-testid="tool-card-{kind}"`
-// to 7 tool-card variants (TerminalCard, DiffCard, SearchResultsCard,
-// TaskListCard, TaskDetailCard, PermissionGate, DefaultCard). Swapped
-// `.bg-gray-900` strict-mode-collision-prone locator on the TerminalCard
-// test for `getByTestId("tool-card-terminal")`.
-//
-// Audit context: per
-// .planning/phases/61-test-debt-followup-feature-rework-specs/baseline-passing.txt,
-// only the two `CopyButton exists on cards with output` cases at L393
-// pass on chromium + mobile-chromium. The 10 other cases below have
-// been failing since initial repo capture — they exercise streaming
-// `tool:start` / `tool:complete` `emitWs` events that arrive while
-// the page is still "Thinking..." and the chat composer hasn't
-// progressed into tool-call rendering. The locator swap to per-variant
-// testids does not (and cannot) fix that timing race; the testid
-// additions remain preventatively, so when the streaming race is
-// fixed, flipping `.fixme` → `test` on each case below is a one-
-// character revert with the testids already in place.
-//
-// UN-BLOCKER CONDITION: chat-page composer progresses past the
-// "Thinking..." placeholder into tool-call rendering deterministically
-// when an `emitWs({type:"tool:start"})` arrives after `run:token`
-// under api-mocks. Once that holds, flip `test.fixme` → `test` on
-// each case below; testid locators are already in place.
-// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-//           § Task 3 deviation (Bucket A #6 disposition refined from
-//             "REPAIR strict-mode collision swap" to "REPAIR testid
-//             additions + 10-case FIXME with UN-BLOCKER")
-// Filed-on: 2026-05-13 (Phase 61-02)
 
 test.describe("Tool Card Rendering", () => {
 	const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -51,7 +23,7 @@ test.describe("Tool Card Rendering", () => {
 	});
 
 	/** Navigate to chat, send a message, and emit run:token to set up streaming */
-	async function setupStreaming(page: any, mockApi: any, emitWs: any) {
+	async function setupStreaming(page: Page, mockApi: (overrides?: MockOverrides) => Promise<void>, emitSse: (event: { type: string; data: unknown }) => Promise<void>) {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -60,28 +32,24 @@ test.describe("Tool Card Rendering", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
-			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
 			sendComposerMessage(page, "Do something"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Working..." },
 		});
 	}
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("TerminalCard renders shell output", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("TerminalCard renders shell output", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "Bash",
 				input: { command: "echo hello world" },
 				timestamp: Date.now(),
@@ -89,10 +57,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "Bash",
 				output: "hello world",
 				duration: 120,
@@ -112,23 +81,19 @@ test.describe("Tool Card Rendering", () => {
 		const terminalCard = page.getByTestId("tool-card-terminal");
 		await expect(terminalCard).toBeVisible();
 		// Verify monospace command display with $ prompt
-		await expect(page.getByText("echo hello world")).toBeVisible();
+		await expect(terminalCard.getByText("echo hello world", { exact: true })).toBeVisible();
 		// Verify output rendered
-		await expect(page.getByText("hello world")).toBeVisible();
+		await expect(page.getByTestId("tool-card-terminal").getByText("hello world", { exact: true })).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("TerminalCard shows kill button while running", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("TerminalCard shows kill button while running", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "Bash",
 				input: { command: "sleep 60" },
 				timestamp: Date.now(),
@@ -148,18 +113,14 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByRole("button", { name: "Kill process" })).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("DiffCard renders diff view", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("DiffCard renders diff view", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "Edit",
 				input: { file_path: "/src/index.ts" },
 				timestamp: Date.now(),
@@ -167,10 +128,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "Edit",
 				output: {
 					oldContent: "const x = 1;",
@@ -189,25 +151,21 @@ test.describe("Tool Card Rendering", () => {
 		await toggle.click();
 
 		// Verify file path is displayed
-		await expect(page.getByText("/src/index.ts")).toBeVisible();
+		await expect(page.getByTestId("tool-card-diff").getByRole("button", { name: "/src/index.ts Copy output" })).toBeVisible();
 		// Verify diff rendering appears (d2h classes or diff content)
 		await expect(page.locator(".d2h-wrapper, .diff-card-content").first()).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("SearchResultsCard renders grep results", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("SearchResultsCard renders grep results", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
 		const grepOutput = "src/app.ts:10:import { foo } from 'bar';\nsrc/app.ts:25:foo();\nsrc/utils.ts:3:export function foo() {}";
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "grep",
 				input: { pattern: "foo" },
 				timestamp: Date.now(),
@@ -215,10 +173,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "grep",
 				output: grepOutput,
 				duration: 50,
@@ -242,20 +201,16 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByText("3 matches")).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("SearchResultsCard renders glob results", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("SearchResultsCard renders glob results @evidence", async ({ page, mockApi, emitSse }, testInfo) => {
+		await setupStreaming(page, mockApi, emitSse);
 
 		const globOutput = "src/index.ts\nsrc/utils.ts\nsrc/app.ts";
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "glob",
 				input: { pattern: "src/**/*.ts" },
 				timestamp: Date.now(),
@@ -263,10 +218,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "glob",
 				output: globOutput,
 				duration: 30,
@@ -286,21 +242,18 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByText("src/utils.ts")).toBeVisible();
 		await expect(page.getByText("src/app.ts")).toBeVisible();
 		// Verify file count
-		await expect(page.getByText("3 files")).toBeVisible();
+		await expect(page.getByTestId("tool-card-search-results").getByText("3 files", { exact: true })).toBeVisible();
+		await captureEvidence(page, testInfo, "glob-results-count");
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("DefaultCard renders for unknown cardType", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("DefaultCard renders for unknown cardType", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "some-unknown-tool",
 				input: { query: "test" },
 				timestamp: Date.now(),
@@ -308,10 +261,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "some-unknown-tool",
 				output: "some result",
 				duration: 40,
@@ -324,20 +278,15 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByText("some-unknown-tool")).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("tool:complete with success:false renders the red X (no green checkmark)", async ({ page, mockApi, emitWs }) => {
+	test("tool:complete with success:false renders the red X (no green checkmark)", async ({ page, mockApi, emitSse }) => {
 		// Regression guard: a runtime that finishes via `tool:complete` but signals
 		// failure with `success: false` MUST surface as the red X status icon, not
 		// a green checkmark. The fix lives in stores.svelte.ts's `tool:complete`
 		// handler — this test pins the user-visible contract end-to-end.
-		await setupStreaming(page, mockApi, emitWs);
+		await setupStreaming(page, mockApi, emitSse);
 
 		const toolCallId = "tc-failing";
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -349,7 +298,7 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -379,21 +328,22 @@ test.describe("Tool Card Rendering", () => {
 
 		// Expanding reveals the error block with the failure text
 		await headerBtn.click();
-		await expect(page.getByText("command failed: exit 1")).toBeVisible();
+		await expect(page.locator("pre").filter({ hasText: "command failed: exit 1" })).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:permission_request)
-	// after run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("PermissionGate renders for permission request", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("PermissionGate renders for permission request", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
+			type: "tool:start",
+			data: { conversationId: "conv-1", invocationId: "inv-card", toolName: "Bash", input: { command: "rm -rf /tmp/test" }, cardType: "terminal" },
+		});
+
+		await emitSse({
 			type: "tool:permission_request",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolCallId: "tc-perm-1",
 				toolName: "Bash",
 				input: { command: "rm -rf /tmp/test" },
@@ -411,18 +361,14 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByText("This tool will run a shell command")).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("TaskDetailCard renders task", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("TaskDetailCard renders task", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				extensionId: "ext-task-stack",
 				toolName: "task-stack.add-task",
 				input: { title: "Migrate DB" },
@@ -431,10 +377,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				extensionId: "ext-task-stack",
 				toolName: "task-stack.add-task",
 				output: { content: [{ type: "text", text: JSON.stringify({
@@ -457,18 +404,14 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByText("Due: 2026-05-01")).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: see top-of-file block — chat composer
-	// progresses to tool-call rendering on emitWs(tool:start) after
-	// run:token under api-mocks.
-	// Reference: .planning/phases/61-test-debt-followup-feature-rework-specs/61-02-PLAN.md
-	// Filed-on: 2026-05-13 (Phase 61-02)
-	test.fixme("TaskListCard renders task list", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("TaskListCard renders task list", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				extensionId: "ext-task-stack",
 				toolName: "task-stack.list-tasks",
 				input: {},
@@ -477,10 +420,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				extensionId: "ext-task-stack",
 				toolName: "task-stack.list-tasks",
 				output: { content: [{ type: "text", text: JSON.stringify([
@@ -502,13 +446,14 @@ test.describe("Tool Card Rendering", () => {
 		await expect(page.getByText("3 tasks")).toBeVisible();
 	});
 
-	test("CopyButton exists on cards with output", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("CopyButton exists on cards with output", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "Bash",
 				input: { command: "echo copytest" },
 				timestamp: Date.now(),
@@ -516,10 +461,11 @@ test.describe("Tool Card Rendering", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
+				invocationId: "inv-card",
 				toolName: "Bash",
 				output: "copytest output",
 				duration: 50,
@@ -536,25 +482,20 @@ test.describe("Tool Card Rendering", () => {
 		await toggle.click();
 
 		// Verify copy button exists (CopyButton renders a button with copy-related aria)
-		const copyButton = page.getByRole("button", { name: /copy/i });
+		const copyButton = page.getByTestId("tool-card-terminal").getByRole("button", { name: "Copy output", exact: true });
 		await expect(copyButton).toBeVisible();
 	});
 
-	// UN-BLOCKER CONDITION: same streaming race as the dev-card cases
-	// above (composer must progress past "Thinking..." into tool-call
-	// rendering on emitWs(tool:start) after run:token under api-mocks).
-	// Flip `test.fixme` → `test` together with the sibling cases; the
-	// collapse-shell assertions below are already written against the
-	// shipped CollapsibleCard behavior. Filed-on: 2026-05-17.
-	test.fixme(
+	test(
 		"dev-command card (Bash) renders collapsed by default and expands on click",
-		async ({ page, mockApi, emitWs }) => {
-			await setupStreaming(page, mockApi, emitWs);
+		async ({ page, mockApi, emitSse }) => {
+			await setupStreaming(page, mockApi, emitSse);
 
-			await emitWs({
+			await emitSse({
 				type: "tool:start",
 				data: {
 					conversationId: "conv-1",
+				invocationId: "inv-card",
 					toolName: "Bash",
 					input: { command: "echo hello world" },
 					timestamp: Date.now(),
@@ -562,10 +503,11 @@ test.describe("Tool Card Rendering", () => {
 				},
 			});
 
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: {
 					conversationId: "conv-1",
+				invocationId: "inv-card",
 					toolName: "Bash",
 					output: "hello world",
 					duration: 120,
@@ -590,25 +532,25 @@ test.describe("Tool Card Rendering", () => {
 			// command code block stays, still matching the command used.
 			await page.getByTestId("collapsible-card-toggle").click();
 			await expect(page.getByTestId("tool-card-terminal")).toBeVisible();
-			await expect(page.getByText("hello world")).toBeVisible();
+			await expect(page.getByTestId("tool-card-terminal").getByText("hello world", { exact: true })).toBeVisible();
 			await expect(page.getByTestId("collapsible-card-command")).toHaveText(
 				"echo hello world",
 			);
 		},
 	);
 
-	// UN-BLOCKER CONDITION: same streaming race as above. Filed-on: 2026-05-17.
-	test.fixme(
+	test(
 		"grep search-results card renders collapsed by default and expands on click",
-		async ({ page, mockApi, emitWs }) => {
-			await setupStreaming(page, mockApi, emitWs);
+		async ({ page, mockApi, emitSse }) => {
+			await setupStreaming(page, mockApi, emitSse);
 
 			const grepOutput = "src/app.ts:10:import { foo } from 'bar';\nsrc/utils.ts:3:export function foo() {}";
 
-			await emitWs({
+			await emitSse({
 				type: "tool:start",
 				data: {
 					conversationId: "conv-1",
+				invocationId: "inv-card",
 					toolName: "grep",
 					input: { pattern: "foo" },
 					timestamp: Date.now(),
@@ -616,10 +558,11 @@ test.describe("Tool Card Rendering", () => {
 				},
 			});
 
-			await emitWs({
+			await emitSse({
 				type: "tool:complete",
 				data: {
 					conversationId: "conv-1",
+				invocationId: "inv-card",
 					toolName: "grep",
 					output: grepOutput,
 					duration: 50,
