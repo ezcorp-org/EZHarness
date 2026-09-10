@@ -277,7 +277,10 @@ export const test = base.extend<{ browserCoverage: undefined; inviteRateLimitIso
 		let snapshotError: Error | undefined;
 		let snapshotQueue = Promise.resolve();
 		const snapshotCurrentDocument = () => {
-			snapshotQueue = snapshotQueue.then(async () => {
+			// Start CDP capture in this request-event turn. Chaining the *start*
+			// through a Promise lets a reload destroy the old V8 isolate first.
+			// The queue still gives teardown one awaitable completion point.
+			const snapshot = (async () => {
 				try {
 					const current = new URL(page.url());
 					if (!current.protocol.startsWith("http")) return;
@@ -286,24 +289,53 @@ export const test = base.extend<{ browserCoverage: undefined; inviteRateLimitIso
 				} catch (error) {
 					snapshotError ??= error instanceof Error ? error : new Error(String(error));
 				}
-			});
+			})();
+			snapshotQueue = snapshotQueue.then(() => snapshot);
 			return snapshotQueue;
-		};
-		const checkpointBeforeTopLevelNavigation = (request: { isNavigationRequest(): boolean; frame(): ReturnType<Page["mainFrame"]> }) => {
-			if (request.isNavigationRequest() && request.frame() === page.mainFrame()) void snapshotCurrentDocument();
 		};
 		const checkpointAfterTopLevelNavigation = (frame: Frame) => {
 			if (frame === page.mainFrame()) void snapshotCurrentDocument();
 		};
-		page.on("request", checkpointBeforeTopLevelNavigation);
+		// Playwright-issued navigations have an awaitable pre-navigation seam. It
+		// catches `page.reload()` and `page.goto()` even when a browser teardown
+		// would otherwise discard the old isolate before an event callback runs.
+		const checkpointNavigation = <Args extends unknown[], Result>(
+			navigation: (...args: Args) => Promise<Result>,
+		) => async (...args: Args): Promise<Result> => {
+			await snapshotCurrentDocument();
+			return navigation(...args);
+		};
+		const navigate = page.goto.bind(page);
+		const gotoWithCheckpoint = checkpointNavigation(
+			(url: string, options?: Parameters<Page["goto"]>[1]) => navigate(url, options),
+		);
+		page.goto = gotoWithCheckpoint;
+		const reload = page.reload.bind(page);
+		const reloadWithCheckpoint = checkpointNavigation(
+			(options?: Parameters<Page["reload"]>[0]) => reload(options),
+		);
+		page.reload = reloadWithCheckpoint;
+		const goBack = page.goBack.bind(page);
+		const goBackWithCheckpoint = checkpointNavigation(
+			(options?: Parameters<Page["goBack"]>[0]) => goBack(options),
+		);
+		page.goBack = goBackWithCheckpoint;
+		const goForward = page.goForward.bind(page);
+		const goForwardWithCheckpoint = checkpointNavigation(
+			(options?: Parameters<Page["goForward"]>[0]) => goForward(options),
+		);
+		page.goForward = goForwardWithCheckpoint;
 		page.on("framenavigated", checkpointAfterTopLevelNavigation);
 		let coverageError: Error | undefined;
 		try {
 			await use(undefined);
 		} finally {
 			try {
-				page.off("request", checkpointBeforeTopLevelNavigation);
 				page.off("framenavigated", checkpointAfterTopLevelNavigation);
+				page.goto = navigate;
+				page.reload = reload;
+				page.goBack = goBack;
+				page.goForward = goForward;
 				await snapshotCurrentDocument();
 				await snapshotQueue;
 				if (snapshotError) {
