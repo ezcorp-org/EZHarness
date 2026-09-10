@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import { normalizeUrl, requestOpenAICompatCompletion } from "../providers/openai-compat-client";
 
+function testFetch(handler: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>): typeof fetch {
+  return Object.assign(handler, { preconnect: globalThis.fetch.preconnect });
+}
+
 const request = {
   baseUrl: "http://127.0.0.1:11434/v1/",
   model: "qwen",
@@ -21,10 +25,10 @@ test("sends the schema-constrained completion body to the canonical endpoint", a
   const response = await requestOpenAICompatCompletion({
     ...request,
     schema: { name: "classification", schema: { type: "object", properties: { answer: { type: "string" } } } },
-    fetchFn: async (url, init) => {
+    fetchFn: testFetch(async (url, init) => {
       calls.push({ url: String(url), init: init! });
       return new Response("{}", { status: 200 });
-    },
+    }),
   });
 
   expect(response.ok).toBe(true);
@@ -52,10 +56,10 @@ test("retries one schema-rejected response without response_format", async () =>
   const response = await requestOpenAICompatCompletion({
     ...request,
     schema: { name: "result", schema: { type: "object" } },
-    fetchFn: async (_url, init) => {
+    fetchFn: testFetch(async (_url, init) => {
       bodies.push(JSON.parse(String(init!.body)));
       return new Response("unsupported schema", { status: bodies.length === 1 ? 400 : 200 });
-    },
+    }),
   });
 
   expect(response.status).toBe(200);
@@ -68,10 +72,10 @@ test("returns a non-schema HTTP failure without a retry", async () => {
   let calls = 0;
   const response = await requestOpenAICompatCompletion({
     ...request,
-    fetchFn: async () => {
+    fetchFn: testFetch(async () => {
       calls += 1;
       return new Response("down", { status: 503 });
-    },
+    }),
   });
   expect(response.status).toBe(503);
   expect(calls).toBe(1);
