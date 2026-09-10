@@ -11,7 +11,10 @@ const routeMap = JSON.stringify({
   names: [],
   mappings: "AAAA;AACA",
 });
-const covered = [{ ranges: [{ startOffset: 0, endOffset: code.length, count: 1 }] }, { ranges: [{ startOffset: 23, endOffset: code.length - 1, count: 0 }] }];
+const covered = [
+  { functionName: "root", isBlockCoverage: true, ranges: [{ startOffset: 0, endOffset: code.length, count: 1 }] },
+  { functionName: "unclicked", isBlockCoverage: true, ranges: [{ startOffset: 23, endOffset: code.length - 1, count: 0 }] },
+];
 
 test("AST conversion preserves an unexecuted original handler as DA:0", async () => {
   const lcov = await coverageToLcov({
@@ -23,7 +26,10 @@ test("AST conversion preserves an unexecuted original handler as DA:0", async ()
 });
 
 test("AST conversion distinguishes a loaded Svelte template from an unexecuted handler", async () => {
-  const { compile } = await import("../../web/node_modules/svelte/compiler/index.js");
+  type CompileResult = { js: { code: string; map: { toString(): string } } };
+  type SvelteCompiler = { compile(source: string, options: { filename: string; generate: "client"; dev: boolean }): CompileResult };
+  const compiler = await import(new URL("../../web/node_modules/svelte/compiler/index.js", import.meta.url).href) as SvelteCompiler;
+  const { compile } = compiler;
   const source = `<script>\nlet clicked = false;\nfunction unclicked() {\n  clicked = true;\n}\n</script>\n<button onclick={unclicked}>Click</button>`;
   const compiled = compile(source, { filename: "+page.svelte", generate: "client", dev: false });
   const map = JSON.parse(compiled.js.map.toString());
@@ -31,7 +37,7 @@ test("AST conversion distinguishes a loaded Svelte template from an unexecuted h
   const start = compiled.js.code.indexOf("function unclicked");
   const end = compiled.js.code.indexOf("\n\t}\n\n\tvar button", start) + 3;
   const lcov = await coverageToLcov({
-    result: [{ url: "http://app/_app/compiled-route.js", functions: [{ ranges: [{ startOffset: 0, endOffset: compiled.js.code.length, count: 1 }] }, { ranges: [{ startOffset: start, endOffset: end, count: 0 }] }] }],
+    result: [{ url: "http://app/_app/compiled-route.js", functions: [{ functionName: "root", isBlockCoverage: true, ranges: [{ startOffset: 0, endOffset: compiled.js.code.length, count: 1 }] }, { functionName: "unclicked", isBlockCoverage: true, ranges: [{ startOffset: start, endOffset: end, count: 0 }] }] }],
     expectedRouteFiles: [route],
   }, async () => ({ code: compiled.js.code, map: JSON.stringify(map) }));
   expect(lcov).toContain("DA:2,1");

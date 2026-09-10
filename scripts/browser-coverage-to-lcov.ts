@@ -2,16 +2,50 @@
 /** Convert Chromium precise coverage into AST-derived original-source LCOV. */
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import convert from "../web/node_modules/ast-v8-to-istanbul/dist/index.mjs";
-import { createCoverageMap } from "../web/node_modules/istanbul-lib-coverage/index.js";
-import { parseAstAsync } from "../web/node_modules/vite/dist/node/index.js";
+import type { Profiler } from "node:inspector";
 import { REPO_ROOT } from "./coverage-config.ts";
 
-export type Range = { startOffset: number; endOffset: number; count: number };
-export type ScriptCoverage = { url: string; functions: Array<{ ranges: Range[] }> };
+export type Range = Profiler.CoverageRange;
+export type ScriptCoverage = Pick<Profiler.ScriptCoverage, "url" | "functions">;
 export type RawCoverage = { result: ScriptCoverage[]; expectedRouteFiles?: string[]; expectedFiles?: string[] };
 export type AssetReader = (url: string) => Promise<{ code: string; map: string | null }>;
-type SourceMap = { version: 3; sources: string[]; sourcesContent?: Array<string | null>; mappings: string; names?: string[] };
+type SourceMap = {
+  version: 3;
+  sources: string[];
+  sourcesContent?: Array<string | null>;
+  mappings: string;
+  names: string[];
+};
+type CoverageMap = {
+  files(): string[];
+  fileCoverageFor(path: string): { getLineCoverage(): Record<string, number> };
+  merge(data: Record<string, unknown>): void;
+};
+type AstConverter = (input: {
+  ast: unknown;
+  code: string;
+  coverage: Pick<Profiler.ScriptCoverage, "url" | "functions">;
+  sourceMap: SourceMap;
+}) => Promise<Record<string, unknown>>;
+type BrowserCoverageModules = {
+  convert: AstConverter;
+  createCoverageMap: () => CoverageMap;
+  parseAstAsync: (code: string) => Promise<unknown>;
+};
+
+/** Load the browser-only transitive packages without making root typecheck
+ * resolve deep web workspace paths, which have no declaration entry point. */
+const browserCoverageModules: Promise<BrowserCoverageModules> = (async () => {
+  const webModules = resolve(REPO_ROOT, "web/node_modules");
+  const astModule = await import(pathToFileURL(resolve(webModules, "ast-v8-to-istanbul/dist/index.mjs")).href) as unknown as { default: AstConverter };
+  const istanbulModule = await import(pathToFileURL(resolve(webModules, "istanbul-lib-coverage/index.js")).href) as unknown as { createCoverageMap: () => CoverageMap };
+  const viteModule = await import(pathToFileURL(resolve(webModules, "vite/dist/node/index.js")).href) as unknown as { parseAstAsync: (code: string) => Promise<unknown> };
+  return {
+    convert: astModule.default,
+    createCoverageMap: istanbulModule.createCoverageMap,
+    parseAstAsync: viteModule.parseAstAsync,
+  };
+})();
 
 function repoFile(path: string): string {
   return relative(REPO_ROOT, path).replaceAll("\\", "/");
@@ -23,7 +57,7 @@ function isBrowserSource(file: string): boolean {
 function expectedSources(raw: RawCoverage): string[] {
   return raw.expectedFiles ?? raw.expectedRouteFiles ?? [];
 }
-function outputLcov(coverage: ReturnType<typeof createCoverageMap>): string {
+function outputLcov(coverage: CoverageMap): string {
   let output = "";
   for (const path of coverage.files().sort()) {
     const file = repoFile(path);
@@ -45,7 +79,8 @@ function outputLcov(coverage: ReturnType<typeof createCoverageMap>): string {
  * source-map point hit merely because its generated root range executed.
  */
 export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): Promise<string> {
-  const coverage = createCoverageMap({});
+  const { convert, createCoverageMap, parseAstAsync } = await browserCoverageModules;
+  const coverage = createCoverageMap();
   const assets = new Map<string, Promise<{ code: string; sourceMap: SourceMap; ast: unknown }>>();
   for (const script of raw.result) {
     let cached = assets.get(script.url);

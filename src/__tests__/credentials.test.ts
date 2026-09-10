@@ -1,6 +1,10 @@
 import { test, expect, beforeEach, mock, afterAll } from "bun:test";
 
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+
+function testFetch(handler: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>): typeof fetch {
+  return Object.assign(handler, { preconnect: globalThis.fetch.preconnect });
+}
 // ── Mock setup ────────────────────────────────────────────────────────
 
 // Mock data
@@ -205,10 +209,10 @@ test("getCredential('google') falls through to BYOK — pi has no google OAuth p
 test("Google OAuth discovers and persists a missing Cloud project before pi rejects its unsupported provider", async () => {
   const originalFetch = globalThis.fetch;
   const calls: RequestInit[] = [];
-  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = testFetch(async (_url, init) => {
     calls.push(init ?? {});
     return new Response(JSON.stringify({ cloudaicompanionProject: "cloud-project-42" }), { status: 200 });
-  }) as typeof fetch;
+  });
   try {
     decryptReturn = makeTokenData({ projectId: "" });
     settingsStore["provider:oauth:google"] = FAKE_ENCRYPTED;
@@ -225,7 +229,7 @@ test("Google OAuth discovers and persists a missing Cloud project before pi reje
 
 test("Google OAuth reports project-discovery HTTP failures", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response("denied", { status: 403 })) as typeof fetch;
+  globalThis.fetch = testFetch(async () => new Response("denied", { status: 403 }));
   try {
     decryptReturn = makeTokenData({ projectId: "" });
     settingsStore["provider:oauth:google"] = FAKE_ENCRYPTED;

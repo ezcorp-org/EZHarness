@@ -6,8 +6,10 @@ import { join } from "node:path";
 // preload registers a compatibility mock for a broken two-level relative
 // specifier used elsewhere. A query-string import is a distinct module key,
 // so this suite executes the shipping implementation itself.
+type EncryptionModule = Pick<typeof import("../providers/encryption"),
+  "_resetKeyCache" | "decrypt" | "decryptWithAad" | "encrypt" | "encryptWithAad">;
 const { _resetKeyCache, decrypt, decryptWithAad, encrypt, encryptWithAad } =
-  await import("../providers/encryption.ts?coverage-test");
+  await import(new URL("../providers/encryption.ts?coverage-test", import.meta.url).href) as EncryptionModule;
 
 const originalEnv = process.env.EZCORP_ENCRYPTION_SECRET;
 
