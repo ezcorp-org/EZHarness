@@ -20,49 +20,6 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
  * WITHOUT a page refresh.
  */
 
-async function installFakeEventSource(page: import("@playwright/test").Page) {
-	await page.addInitScript(() => {
-		const instances: any[] = [];
-		class FakeEventSource {
-			onopen: ((e: Event) => void) | null = null;
-			onmessage: ((e: MessageEvent) => void) | null = null;
-			onerror: ((e: Event) => void) | null = null;
-			readyState = 0;
-			url: string;
-			constructor(url: string) {
-				this.url = url;
-				instances.push(this);
-				queueMicrotask(() => {
-					this.readyState = 1;
-					this.onopen?.(new Event("open"));
-				});
-			}
-			close() { this.readyState = 2; }
-			addEventListener() {}
-			removeEventListener() {}
-		}
-		(window as any).EventSource = FakeEventSource;
-		(window as any).__fakeEventSources = instances;
-	});
-}
-
-/**
- * Push a bus event into the fake EventSource so the store handler runs
- * EXACTLY as it would for a real SSE message.
- */
-async function emitSseEvent(
-	page: import("@playwright/test").Page,
-	event: { type: string; data: unknown },
-) {
-	await page.evaluate((evt) => {
-		const list = (window as any).__fakeEventSources as any[];
-		const latest = list[list.length - 1];
-		if (!latest) throw new Error("no EventSource instance to push to");
-		const messageEvent = new MessageEvent("message", { data: JSON.stringify(evt) });
-		latest.onmessage?.(messageEvent);
-	}, event);
-}
-
 const proj = makeProject({ id: "p1", name: "Team Refresh Project" });
 const mainConv = makeConversation({ id: "main-conv", projectId: "p1", title: "Main chat" });
 
@@ -83,8 +40,7 @@ const asstMsg = makeMessage({
 });
 
 test.describe("team panel chat → main thread auto-refresh", () => {
-	test("agent:complete with parentConversationId=main triggers main-thread refetch", async ({ page, mockApi }) => {
-		await installFakeEventSource(page);
+	test("agent:complete with parentConversationId=main triggers main-thread refetch", async ({ page, mockApi, emitSse }) => {
 
 		// Track every messages-related GET so we can assert refetches happen.
 		const messagesGets: string[] = [];
@@ -126,7 +82,7 @@ test.describe("team panel chat → main thread auto-refresh", () => {
 		// In production this round-trips through agent-chat, which (post-fix)
 		// emits agent:complete with parentConversationId = ROOT (main-conv)
 		// even though the sub-conv's direct parent is the orchestrator.
-		await emitSseEvent(page, {
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-private-1",
@@ -154,8 +110,7 @@ test.describe("team panel chat → main thread auto-refresh", () => {
 		).toBe(true);
 	});
 
-	test("agent:complete for a DIFFERENT conversation does NOT refetch the current chat", async ({ page, mockApi }) => {
-		await installFakeEventSource(page);
+	test("agent:complete for a DIFFERENT conversation does NOT refetch the current chat", async ({ page, mockApi, emitSse }) => {
 
 		const messagesGets: string[] = [];
 		page.on("request", (req) => {
@@ -182,7 +137,7 @@ test.describe("team panel chat → main thread auto-refresh", () => {
 		// Emit agent:complete pointing at a DIFFERENT conv. The current
 		// chat page must IGNORE it — otherwise we'd refresh every chat
 		// page in the app whenever any sub-agent anywhere completed.
-		await emitSseEvent(page, {
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-other-1",
@@ -204,8 +159,7 @@ test.describe("team panel chat → main thread auto-refresh", () => {
 		).toHaveLength(0);
 	});
 
-	test("agent:complete with success=false ALSO refreshes (failed runs need to update UI too)", async ({ page, mockApi }) => {
-		await installFakeEventSource(page);
+	test("agent:complete with success=false ALSO refreshes (failed runs need to update UI too)", async ({ page, mockApi, emitSse }) => {
 
 		const messagesGets: string[] = [];
 		page.on("request", (req) => {
@@ -229,7 +183,7 @@ test.describe("team panel chat → main thread auto-refresh", () => {
 		await expect(page.getByText("Build me a thing")).toBeVisible({ timeout: 5000 });
 		const beforeCount = messagesGets.length;
 
-		await emitSseEvent(page, {
+		await emitSse({
 			type: "agent:complete",
 			data: {
 				runId: "run-failed-1",
@@ -248,8 +202,7 @@ test.describe("team panel chat → main thread auto-refresh", () => {
 		).toBe(true);
 	});
 
-	test("multiple back-to-back agent:complete events all trigger refresh (not throttled)", async ({ page, mockApi }) => {
-		await installFakeEventSource(page);
+	test("multiple back-to-back agent:complete events all trigger refresh (not throttled)", async ({ page, mockApi, emitSse }) => {
 
 		const messagesGets: string[] = [];
 		page.on("request", (req) => {
@@ -277,7 +230,7 @@ test.describe("team panel chat → main thread auto-refresh", () => {
 		// Emit two completes back-to-back. Both should trigger refresh —
 		// the listener must invalidate the throttle EACH time.
 		for (let i = 0; i < 2; i++) {
-			await emitSseEvent(page, {
+			await emitSse({
 				type: "agent:complete",
 				data: {
 					runId: `run-${i}`,

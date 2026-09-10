@@ -27,7 +27,7 @@ describe("ModeSearchPicker selection", () => {
 	test("immediate native reopen survives the prior blur deadline", async () => {
 		vi.useFakeTimers();
 		const onselect = vi.fn();
-		render(ModeSearchPicker, { selected: null, onselect });
+		const picker = render(ModeSearchPicker, { selected: null, onselect });
 		await vi.advanceTimersByTimeAsync(0);
 
 		const input = screen.getByRole("combobox");
@@ -38,6 +38,7 @@ describe("ModeSearchPicker selection", () => {
 		// can immediately reopen it to choose Inherited instead.
 		await fireEvent.mouseDown(option);
 		expect(onselect).toHaveBeenCalledWith(expect.objectContaining({ id: "full-auto" }));
+		await picker.rerender({ selected: "full-auto", onselect });
 		await fireEvent.blur(input);
 		await fireEvent.click(input);
 		await vi.advanceTimersByTimeAsync(151);
