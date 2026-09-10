@@ -26,7 +26,6 @@ import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const BASH = Bun.which("bash");
-if (!BASH) throw new Error("bash is required for CI shell contract tests");
 const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model"] as const;
 const OPTIONAL_OPERATOR_LANES = ["external-model"] as const;
 
@@ -67,6 +66,7 @@ type LocalCiRun = {
  * `env`, records step failures, and prints its own final summary.
  */
 function runLocalCi(mode: LocalCiMode): LocalCiRun {
+  if (!BASH) throw new Error("bash is required for CI shell contract tests");
   const fixture = mkdtempSync(join(tmpdir(), "ci-local-boundary-"));
   const bin = join(fixture, "bin");
   const tracePath = join(fixture, "trace.log");
