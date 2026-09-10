@@ -186,3 +186,6 @@
 - Confirm each selected test path exists before invoking a runner. A multi-file command can ignore an unmatched filter while its other files pass. Record the exact collected count; use `./` for Bun test paths outside its default search root.
 - A `wait -n` scheduler must not count unregistered children. Include every child in its capacity accounting or run the independent child after the tracked pool drains.
 - A preview reuse config starts a new preview from existing production assets. It needs a verified build, not an already running server. Use a private port and rebuild after application source changes.
+## 2026-09-09 — Picker reopening
+
+- When a picker closes on a delayed blur, test immediate native reopen with fake-timer advancement beyond the prior deadline. A browser assertion alone can miss a timing race or hide it behind a fixed wait.

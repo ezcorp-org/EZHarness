@@ -26,11 +26,13 @@
 	const bp = useBreakpoint("lg");
 
 	let modes = $state<Mode[]>([]);
+	let pickerEl: HTMLDivElement | undefined = $state();
 	let inputEl: HTMLInputElement | undefined = $state();
 	let query = $state("");
 	let open = $state(false);
 	let highlightIdx = $state(-1);
 	let dropdownStyle = $state("");
+	let blurCloseTimer: ReturnType<typeof setTimeout> | undefined;
 
 	onMount(async () => {
 		try { modes = await fetchModes(); } catch { /* non-fatal */ }
@@ -60,6 +62,10 @@
 	}
 
 	function openDropdown() {
+		if (blurCloseTimer) {
+			clearTimeout(blurCloseTimer);
+			blurCloseTimer = undefined;
+		}
 		open = true;
 		highlightIdx = -1;
 		query = "";
@@ -85,8 +91,17 @@
 		else computePosition();
 	}
 
+	function onInputClick(event: MouseEvent) {
+		event.stopPropagation();
+		if (!open) openDropdown();
+	}
 	function onFocus() { if (!open) openDropdown(); }
-	function onBlur() { setTimeout(closeDropdown, 150); }
+	function onBlur() {
+		blurCloseTimer = setTimeout(() => {
+			blurCloseTimer = undefined;
+			closeDropdown();
+		}, 150);
+	}
 
 	function onKeydown(e: KeyboardEvent) {
 		const items = filtered();
@@ -109,7 +124,7 @@
 
 	function onClickOutside(e: MouseEvent) {
 		if (!open) return;
-		if (inputEl?.contains(e.target as Node)) return;
+		if (pickerEl?.contains(e.target as Node)) return;
 		closeDropdown();
 	}
 </script>
@@ -120,6 +135,7 @@
      the input so the input keeps its full width. × on the pill clears the
      selection via selectMode(null). -->
 <div
+	bind:this={pickerEl}
 	class="{inputClass} flex w-full flex-col gap-1 p-2 text-sm"
 	data-testid="mode-picker-combobox"
 >
@@ -137,6 +153,7 @@
 			bind:this={inputEl}
 			value={open ? query : ""}
 			oninput={onInput}
+			onclick={onInputClick}
 			onfocus={onFocus}
 			onblur={onBlur}
 			onkeydown={onKeydown}
