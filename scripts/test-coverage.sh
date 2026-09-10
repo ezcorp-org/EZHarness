@@ -122,6 +122,7 @@ FULL_VITEST_EXIT=0
 PROVIDER_EXIT=0
 WORKER_EXIT=0
 WEB_VITEST_SOURCE_GUARD_EXIT=0
+BROWSER_RECEIPT_EXIT=0
 # Everything that failed, host files AND named legs — the visibility list.
 FAILED_FILES=()
 # Host POOL failures only (repo-relative test paths). Kept separate from
@@ -524,6 +525,39 @@ collect_security_leg() {
   fi
 }
 
+# Browser routes are canonical only after their broad exclusion is removed.
+# A full backend run must then consume a receipt produced from this exact HEAD;
+# it never launches another browser suite. Re-converting the raw CDP ranges and
+# comparing LCOV makes a hand-written or stale report fail before the merge.
+browser_route_coverage_required() {
+	bun -e 'import { isExcluded } from "./scripts/coverage-config.ts"; process.exit(isExcluded("web/src/routes/+page.svelte") ? 1 : 0)'
+}
+
+verify_browser_coverage_receipt() {
+	register_leg browser cov_browser
+	if [ -z "${BROWSER_COVERAGE_RAW:-}" ] || [ -z "${BROWSER_COVERAGE_LCOV:-}" ]; then
+		echo "::error::browser route coverage is required: set BROWSER_COVERAGE_RAW and BROWSER_COVERAGE_LCOV" >&2
+		return 1
+	fi
+	if [ ! -s "$BROWSER_COVERAGE_RAW" ] || [ ! -s "$BROWSER_COVERAGE_LCOV" ]; then
+		echo "::error::browser route coverage receipt is missing or empty" >&2
+		return 1
+	fi
+	local head revision build_id manifest_id regenerated
+	head="$(git rev-parse HEAD)"
+	revision="$(bun -e 'const raw=await Bun.file(process.argv.at(-1)).json(); if (!/^[0-9a-f]{40}$/.test(raw.sourceRevision ?? "")) process.exit(2); console.log(raw.sourceRevision)' "$BROWSER_COVERAGE_RAW")" || return 1
+	[ "$revision" = "$head" ] || { echo "::error::browser receipt revision $revision does not match HEAD $head" >&2; return 1; }
+	build_id="$(bun -e 'const raw=await Bun.file(process.argv.at(-1)).json(); if (!/^[0-9a-f]{64}$/.test(raw.buildId ?? "")) process.exit(2); console.log(raw.buildId)' "$BROWSER_COVERAGE_RAW")" || return 1
+	manifest_id="$(sha256sum web/build/client/manifest.json | awk '{print $1}')"
+	[ "$build_id" = "$manifest_id" ] || { echo "::error::browser receipt buildId does not match current mapped build" >&2; return 1; }
+	bun scripts/browser-route-coverage-manifest.ts --check "$BROWSER_COVERAGE_RAW" || return 1
+	regenerated="$TMPDIR/browser-recomputed.lcov"
+	bun scripts/browser-coverage-to-lcov.ts "$BROWSER_COVERAGE_RAW" "$regenerated" || return 1
+	cmp -s "$regenerated" "$BROWSER_COVERAGE_LCOV" || { echo "::error::browser LCOV does not match raw CDP conversion" >&2; return 1; }
+	mkdir -p "${LEG_COV_DIR[browser]}"
+	cp "$regenerated" "${LEG_COV_DIR[browser]}/lcov.info"
+}
+
 # Copy every per-leg lcov produced this run into $COV_OUT (CI artifact).
 # Used by legs-only mode (4 small files); host-shard mode PRE-MERGES its
 # ~200 per-file lcovs into one artifact file instead — see the shard branch.
@@ -743,6 +777,9 @@ run_legs
 run_security_leg
 wait
 collect_security_leg
+if browser_route_coverage_required; then
+	verify_browser_coverage_receipt || BROWSER_RECEIPT_EXIT=1
+fi
 
 echo ""
 echo "================================"
@@ -835,7 +872,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # 1 means no existing consumer's meaning changes. Both verdicts are always
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
-if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
+if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$BROWSER_RECEIPT_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
    [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
@@ -849,7 +886,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi

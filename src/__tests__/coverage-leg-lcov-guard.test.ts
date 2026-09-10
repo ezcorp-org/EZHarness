@@ -80,6 +80,7 @@ const REGISTER_ALL = [
   "register_leg api-client cov_api_client",
   "register_leg worker cov_worker",
   "register_leg web-security cov_security",
+  "register_leg browser cov_browser",
 ].join("\n");
 
 const ALL_DIRS: ReadonlyArray<[string, string]> = [
@@ -91,6 +92,7 @@ const ALL_DIRS: ReadonlyArray<[string, string]> = [
   ["api-client", "cov_api_client"],
   ["worker", "cov_worker"],
   ["web-security", "cov_security"],
+  ["browser", "cov_browser"],
 ];
 
 describe("check_leg_lcov: behaviour", () => {
@@ -116,7 +118,7 @@ describe("check_leg_lcov: behaviour", () => {
       expect(r.stdout).toContain("(infrastructure failure)");
       // The expected path is named so the failure is actionable, not just loud.
       expect(r.stdout).toContain(join(tmp, "cov_sdk", "lcov.info"));
-      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "worker", "web-security"]) {
+      for (const name of ["harness-client", "suggest", "ai-kit", "providers", "api-client", "worker", "web-security", "browser"]) {
         expect(r.stdout).not.toContain(`::error::${name} coverage leg`);
       }
     });
@@ -137,7 +139,7 @@ describe("check_leg_lcov: behaviour", () => {
       seedLeg(tmp, "cov_hc", LCOV);
       const r = runGuard(tmp, `${REGISTER_ALL}\ncheck_leg_lcov`);
       expect(r.code).toBe(1);
-      for (const name of ["suggest", "ai-kit", "providers", "api-client", "worker", "web-security"]) {
+      for (const name of ["suggest", "ai-kit", "providers", "api-client", "worker", "web-security", "browser"]) {
         expect(r.stdout).toContain(`::error::${name} coverage leg produced no lcov output`);
       }
     });
@@ -147,9 +149,9 @@ describe("check_leg_lcov: behaviour", () => {
     withTmp((tmp) => {
       // legs-only mode never runs run_security_leg, so cov_security is absent
       // by design and must not be reported.
-      for (const [name, dir] of ALL_DIRS) if (name !== "web-security") seedLeg(tmp, dir, LCOV);
+      for (const [name, dir] of ALL_DIRS) if (name !== "web-security" && name !== "browser") seedLeg(tmp, dir, LCOV);
       const legsOnly = REGISTER_ALL.split("\n")
-        .filter((l) => !l.includes("web-security"))
+        .filter((l) => !l.includes("web-security") && !l.includes("browser"))
         .join("\n");
       const r = runGuard(tmp, `${legsOnly}\ncheck_leg_lcov`);
       expect(r.code).toBe(0);
@@ -818,7 +820,7 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     const legsVerdict = legsOnlyBranch.slice(legsVerdictStart, legsOnlyBranch.lastIndexOf("fi\n") + 3);
 
     const runVerdict = (body: string, sdkExit: number): Run => {
-      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
       return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
     };
 
