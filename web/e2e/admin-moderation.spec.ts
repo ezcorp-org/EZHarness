@@ -87,4 +87,32 @@ test.describe("Admin Moderation Dashboard", () => {
 		await expect(page.getByRole("heading", { name: "Moderation Dashboard" })).toBeVisible({ timeout: 5000 });
 		await expect(page.getByText("No pending flags. All clear!")).toBeVisible();
 	});
+
+	test("keeps failed moderation actions visible and reports their errors", async ({ page, mockApi }) => {
+		await mockApi({
+			routes: {
+				"/api/auth/me": () => adminMe,
+				"/api/marketplace/flags": () => sampleFlags,
+			},
+		});
+		await page.route("**/api/marketplace/listing-1/flags", (route) =>
+			route.fulfill({ status: 500, json: { error: "Unable to resolve flag" } }),
+		);
+		await page.route("**/api/marketplace/listing-1/delete", (route) =>
+			route.fulfill({ status: 500, json: { error: "Unable to delete listing" } }),
+		);
+
+		await mockPageData(page, "/admin/moderation", {});
+		await resumePage(page, "/admin/moderation");
+		await expect(page.getByText("Suspicious Listing")).toBeVisible();
+
+		await page.getByRole("button", { name: "Remove Listing", exact: true }).first().click();
+		await expect(page.getByText("Action failed")).toBeVisible();
+		await expect(page.getByText("Suspicious Listing")).toBeVisible();
+
+		page.once("dialog", (dialog) => dialog.accept());
+		await page.getByRole("button", { name: "Delete", exact: true }).first().click();
+		await expect(page.getByText("Delete failed")).toBeVisible();
+		await expect(page.getByText("Suspicious Listing")).toBeVisible();
+	});
 });

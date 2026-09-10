@@ -65,6 +65,27 @@ test.describe("Setup — first run", () => {
     expect(setupCalls).toEqual([]);
   });
 
+  test("shows a field error returned by the setup endpoint", async ({ page }) => {
+    await page.route("**/api/auth/setup", (route) =>
+      route.fulfill({ status: 422, json: { fields: { email: "Email is already registered" } } }),
+    );
+
+    await page.goto("/setup");
+    await page.getByLabel("Name").fill("First Admin");
+    await page.getByLabel("Email").fill("first-admin@example.test");
+    await page.getByLabel("Password", { exact: true }).fill("GoodPass1");
+    await page.getByLabel("Confirm password").fill("GoodPass1");
+
+    const response = page.waitForResponse((candidate) =>
+      candidate.url().endsWith("/api/auth/setup") && candidate.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Create Admin Account" }).click();
+    expect((await response).status()).toBe(422);
+    await expect(page.getByText("Email is already registered")).toBeVisible();
+    await expect(page.getByLabel("Email")).toHaveAttribute("aria-invalid", "true");
+    await expect(page).toHaveURL(/\/setup$/);
+  });
+
   test("creates the first admin through the shipped setup page", async ({ page }) => {
     await page.goto("/setup");
 
