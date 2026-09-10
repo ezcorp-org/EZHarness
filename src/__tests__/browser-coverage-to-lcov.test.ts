@@ -169,3 +169,11 @@ test("refuses browser raw coverage from different or unnamed builds", async () =
   await expect(mergeRawCoverage([{ buildId: "a", result: [] }, { buildId: "b", result: [] }])).rejects.toThrow("buildId");
   await expect(mergeRawCoverage([{ result: [] }, { result: [] }])).rejects.toThrow("buildId");
 });
+
+test("preserves matching source revisions and refuses mixed provenance", async () => {
+  const first = { buildId: "a", sourceRevision: "a".repeat(40), result: [] };
+  const second = { buildId: "a", sourceRevision: "a".repeat(40), result: [] };
+  expect((await mergeRawCoverage([first, second])).sourceRevision).toBe("a".repeat(40));
+  await expect(mergeRawCoverage([first, { ...second, sourceRevision: "b".repeat(40) }])).rejects.toThrow("sourceRevision");
+  await expect(mergeRawCoverage([first, { buildId: "a", result: [] }])).rejects.toThrow("sourceRevision");
+});

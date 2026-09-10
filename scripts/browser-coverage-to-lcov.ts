@@ -12,6 +12,7 @@ export type RawCoverage = {
   expectedRouteFiles?: string[];
   expectedFiles?: string[];
   buildId?: string;
+  sourceRevision?: string;
   testsWithApplicationScripts?: number;
   testsWithoutApplicationScripts?: number;
 };
@@ -104,6 +105,10 @@ export async function mergeRawCoverage(receipts: readonly RawCoverage[]): Promis
   if (buildIds.size !== 1 || receipts.some((receipt) => !receipt.buildId)) {
     throw new Error("browser coverage: raw receipts must share one non-empty immutable buildId before merge");
   }
+  const sourceRevisions = new Set(receipts.map((receipt) => receipt.sourceRevision).filter((revision): revision is string => Boolean(revision)));
+  if (sourceRevisions.size > 1 || (sourceRevisions.size === 1 && receipts.some((receipt) => !receipt.sourceRevision))) {
+    throw new Error("browser coverage: raw receipts must share one sourceRevision when provenance is present");
+  }
   const { mergeProcessCovs } = await browserCoverageModules;
   // The library normalizes/mutates input ranges; keep the caller's receipts
   // intact because they are audit artifacts.
@@ -121,6 +126,7 @@ export async function mergeRawCoverage(receipts: readonly RawCoverage[]): Promis
   return {
     result: mergeProcessCovs(copies).result,
     buildId: [...buildIds][0],
+    ...(sourceRevisions.size === 1 ? { sourceRevision: [...sourceRevisions][0] } : {}),
     ...(expectedRouteFiles.length ? { expectedRouteFiles } : {}),
     ...(expectedFiles.length ? { expectedFiles } : {}),
     ...(testsWithApplicationScripts || testsWithoutApplicationScripts

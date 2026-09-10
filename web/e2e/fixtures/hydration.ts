@@ -35,6 +35,12 @@ function expectedCoverageManifest(raw: string | undefined): CoverageExpectedMani
 const browserCoverageExpectedManifest = BROWSER_COVERAGE
 	? expectedCoverageManifest(process.env.EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST)
 	: undefined;
+const browserCoverageSourceRevision = BROWSER_COVERAGE
+	? process.env.EZCORP_BROWSER_COVERAGE_SOURCE_REVISION
+	: undefined;
+if (BROWSER_COVERAGE && !/^[0-9a-f]{40}$/.test(browserCoverageSourceRevision ?? "")) {
+	throw new Error("browser coverage: EZCORP_BROWSER_COVERAGE_SOURCE_REVISION must be the current 40-character Git revision");
+}
 
 // Vite's copied client manifest contains every immutable asset name from one
 // production build. Its digest prevents range mergers from combining receipts
@@ -53,6 +59,7 @@ type CoverageReceipt = {
 	buildId: string;
 	expectedRouteFiles?: string[];
 	expectedFiles?: string[];
+	sourceRevision: string;
 	testsWithApplicationScripts: number;
 	testsWithoutApplicationScripts: number;
 };
@@ -94,6 +101,7 @@ async function checkpointCoverage(
 	const receipt: CoverageReceipt = {
 		result: mergedResult,
 		buildId: browserCoverageBuildId!,
+		sourceRevision: browserCoverageSourceRevision!,
 		expectedRouteFiles: [...new Set([
 			...(previous?.expectedRouteFiles ?? []),
 			...(expectedRouteFiles ?? []),

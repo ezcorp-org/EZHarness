@@ -14,8 +14,10 @@ fi
 mkdir -p "$output_dir"
 
 manifest="$(cd "$repo_root" && bun scripts/browser-route-coverage-manifest.ts --print)"
+source_revision="$(cd "$repo_root" && git rev-parse HEAD)"
 export EZCORP_BROWSER_COVERAGE=1
 export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$manifest"
+export EZCORP_BROWSER_COVERAGE_SOURCE_REVISION="$source_revision"
 export EZCORP_BROWSER_COVERAGE_OUTPUT="$output_dir"
 export PI_E2E_MOCK_BASE_URL="$base_url"
 
