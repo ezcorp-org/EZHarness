@@ -689,29 +689,24 @@ const handleApp: Handle = async ({ event, resolve }) => {
         return resolveBounded(event);
       }
 
-      if (verdict.reason === "invalid-jwt") {
-        clearSessionCookie(event.cookies);
-        if (url.pathname.startsWith("/api/")) {
-          return new Response(JSON.stringify({ error: "Session expired" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        throw redirect(302, buildLoginUrl("session_expired"));
-      }
-
       // Missing session row = revoked; clear cookies and reject (do not
       // auto-recreate). See sec-C2.
-      if (verdict.reason === "revoked") {
-        clearSessionCookie(event.cookies);
-        event.cookies.delete("pi_session", { path: "/" });
-        if (url.pathname.startsWith("/api/")) {
-          return new Response(JSON.stringify({ error: "Session revoked" }), {
+      if (verdict.reason === "invalid-jwt" || verdict.reason === "revoked") {
+        const revoked = verdict.reason === "revoked";
+        const response = url.pathname.startsWith("/api/")
+          ? new Response(JSON.stringify({ error: revoked ? "Session revoked" : "Session expired" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
-          });
+          })
+          : undefined;
+        clearSessionCookie(event.cookies, response);
+        if (revoked) {
+          const options = { path: "/", maxAge: 0 };
+          event.cookies.delete("pi_session", options);
+          if (response) response.headers.append("set-cookie", event.cookies.serialize("pi_session", "", options));
         }
-        throw redirect(302, buildLoginUrl("session_revoked"));
+        if (response) return response;
+        throw redirect(302, buildLoginUrl(revoked ? "session_revoked" : "session_expired"));
       }
 
       const { payload, secret, sessionId, viaPrevious, inboundTokenHash, dbAvailable } = verdict;
