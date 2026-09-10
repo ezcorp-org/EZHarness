@@ -407,15 +407,12 @@
 	// seed isn't clobbered by a `computeLatestLeaf` overwrite.
 	// `seedMessages` chooses construction-only test mode. Later prop changes
 	// must not replace a user-edited message tree.
-	// svelte-ignore state_referenced_locally
-	const __seeded = seedMessages !== undefined;
-	// svelte-ignore state_referenced_locally
+	const __seeded = untrack(() => seedMessages !== undefined);
 	let allMessages = $state<Message[]>(
-		seedMessages ? [...seedMessages] : [],
+		untrack(() => (seedMessages ? [...seedMessages] : [])),
 	);
-	// svelte-ignore state_referenced_locally
 	let activeLeafId = $state<string | null>(
-		__seeded ? (seedLeafId ?? null) : null,
+		untrack(() => (__seeded ? (seedLeafId ?? null) : null)),
 	);
 	let editingMessageId = $state<string | null>(null);
 	let editContent = $state("");

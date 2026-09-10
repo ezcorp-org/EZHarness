@@ -8,7 +8,7 @@
 	 *   - right (below): "Current grants" snapshot for cross-referencing
 	 *     denials with the manifest's declared permissions.
 	 */
-	import { onMount } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import { addToast } from "$lib/toast.svelte.js";
 	import type { PageData } from "./$types";
 
@@ -18,12 +18,9 @@
 
 	// Filter actions own these values after construction; a prop update must
 	// not discard an in-progress filter or pagination result.
-	// svelte-ignore state_referenced_locally
-	let entries = $state(data.entries);
-	// svelte-ignore state_referenced_locally
-	let nextCursor = $state<string | null>(data.nextCursor);
-	// svelte-ignore state_referenced_locally
-	let stats = $state(data.stats);
+	let entries = $state(untrack(() => data.entries));
+	let nextCursor = $state<string | null>(untrack(() => data.nextCursor));
+	let stats = $state(untrack(() => data.stats));
 	let loading = $state(false);
 	let activeFilter = $state<CapabilityFilter>("all");
 	let sinceInput = $state("");
