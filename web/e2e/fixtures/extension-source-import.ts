@@ -1,6 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 import { expect } from "./hydration.js";
-import { stringify } from "devalue";
+import { pageDataResponse } from "./page-data.js";
 
 type AuthorReviewOptions = {
   installationId: string;
@@ -53,10 +53,7 @@ export async function setupAuthorReviewMock(page: Page, options: AuthorReviewOpt
     reviewRequests.push(route);
     await route.fulfill({
       status: 200,
-      json: {
-        type: "data",
-        nodes: [null, null, { type: "data", data: JSON.parse(stringify(options.reviewData?.() ?? disabledAuthorReviewData(options.installationId))), uses: {} }],
-      },
+      json: pageDataResponse(options.reviewData?.() ?? disabledAuthorReviewData(options.installationId)),
     });
   };
   const responseHandler = (response: import("@playwright/test").Response) => {
@@ -100,9 +97,7 @@ export async function setupSourceImportMock(page: Page, options: { status?: numb
   const submitted: Record<string, unknown>[] = [];
   const unexpectedMutations: string[] = [];
   const review = await setupAuthorReviewMock(page, { installationId, workspaceId, reviewData: options.reviewData });
-  await page.route("**/extensions/import-source/__data.json**", route => route.fulfill({ json: {
-    type: "data", nodes: [null, null, { type: "data", data: [{ canCreate: 1, targets: 2, projects: 3, selectedTarget: 4 }, true, [], [], ""], uses: {} }],
-  } }));
+  await page.route("**/extensions/import-source/__data.json**", route => route.fulfill({ json: pageDataResponse({ canCreate: true, targets: [], projects: [], selectedTarget: "" }) }));
   await page.route("**/api/extensions/**", async route => {
     const request = route.request();
     if (request.method() === "GET") return route.fallback();
