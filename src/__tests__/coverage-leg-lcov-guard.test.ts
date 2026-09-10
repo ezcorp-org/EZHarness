@@ -924,7 +924,7 @@ describe("web utility coverage producer", () => {
     expect(tagIndex).toBeGreaterThan(-1);
     expect(mergeIndex).toBeGreaterThan(tagIndex);
     expect(source).toContain("web_utility_coverage_files");
-    expect(source).toContain("WEB_UTILITY_COVERAGE_MAX_WORKERS=${WEB_UTILITY_COVERAGE_MAX_WORKERS:-3}");
+    expect(source).toContain("WEB_UTILITY_COVERAGE_MAX_WORKERS=$" + "{WEB_UTILITY_COVERAGE_MAX_WORKERS:-3}");
   });
 });
 
