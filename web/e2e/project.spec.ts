@@ -1,5 +1,6 @@
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { AA_NORMAL_TEXT, measureContrast, useDarkTheme, useLightTheme } from "./fixtures/readable.js";
 
 test.describe("Projects", () => {
 	test("new project form renders", async ({ page, mockApi }) => {
@@ -140,38 +141,55 @@ test.describe("Projects", () => {
 	});
 
 
-	test("shows a project-instruction save error and permits a native retry @evidence", async ({ page, mockApi }, testInfo) => {
-		const proj = makeProject({ id: "proj-settings-retry", name: "Retry Settings Project" });
-		let saves = 0;
-		await mockApi({ projects: [proj] });
-		await page.route(`**/api/settings/project:${proj.id}:systemPrompt`, (route) => {
-			if (route.request().method() !== "PUT") return route.fallback();
-			saves += 1;
-			if (saves === 1) return route.fulfill({ status: 500, json: { error: "Save refused" } });
-			return route.fallback();
+	for (const theme of [
+		{ name: "light", apply: useLightTheme },
+		{ name: "dark", apply: useDarkTheme },
+	] as const) {
+		test(`${theme.name} save feedback is readable through a native retry @evidence`, async ({ page, mockApi }, testInfo) => {
+			const proj = makeProject({ id: `proj-settings-retry-${theme.name}`, name: "Retry Settings Project" });
+			let saves = 0;
+			await theme.apply(page);
+			await mockApi({ projects: [proj] });
+			await page.route(`**/api/settings/project:${proj.id}:systemPrompt`, (route) => {
+				if (route.request().method() !== "PUT") return route.fallback();
+				saves += 1;
+				if (saves === 1) return route.fulfill({ status: 500, json: { error: "Save refused" } });
+				return route.fallback();
+			});
+
+			await page.goto(`/project/${proj.id}/settings`);
+			const instructions = page.getByPlaceholder("e.g. You are a coding assistant for this project...");
+			const saveButton = instructions.locator("xpath=following-sibling::div[1]//button");
+			await instructions.fill("Retry this project instruction");
+			await saveButton.click();
+			const failure = page.getByTestId("save-indicator-error");
+			await expect(failure).toHaveText("Save failed — try again");
+			await expect(saveButton).toBeEnabled();
+			const failureContrast = await measureContrast(failure);
+			await captureEvidence(page, testInfo, `project-settings-save-error-${theme.name}`, { fullPage: true });
+
+			const retried = page.waitForResponse((response) =>
+				new URL(response.url()).pathname === `/api/settings/project:${proj.id}:systemPrompt`
+				&& response.request().method() === "PUT" && response.status() === 200,
+			);
+			await saveButton.click();
+			await retried;
+			const saved = saveButton.locator("xpath=following-sibling::*[@data-testid='save-indicator-saved']");
+			await expect(saved).toHaveText("Saved ✓");
+			const savedContrast = await measureContrast(saved);
+			await captureEvidence(page, testInfo, `project-settings-save-success-${theme.name}`, { fullPage: true });
+			await page.reload();
+			await expect(instructions).toHaveValue("Retry this project instruction");
+			expect(saves).toBe(2);
+			expect(failureContrast.dark, `${theme.name} theme should be active for the save failure`).toBe(theme.name === "dark");
+			expect(savedContrast.dark, `${theme.name} theme should be active for the save confirmation`).toBe(theme.name === "dark");
+			expect(
+				Math.min(failureContrast.ratio, savedContrast.ratio),
+				`${theme.name} save feedback: failure ${failureContrast.ratio.toFixed(2)}:1 (${failureContrast.color} on ${failureContrast.background}); ` +
+					`success ${savedContrast.ratio.toFixed(2)}:1 (${savedContrast.color} on ${savedContrast.background})`,
+			).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
 		});
-
-		await page.goto(`/project/${proj.id}/settings`);
-		const instructions = page.getByPlaceholder("e.g. You are a coding assistant for this project...");
-		const saveButton = instructions.locator("xpath=following-sibling::div[1]//button");
-		await instructions.fill("Retry this project instruction");
-		await saveButton.click();
-		await expect(page.getByTestId("save-indicator-error")).toHaveText("Save failed — try again");
-		await expect(saveButton).toBeEnabled();
-		await captureEvidence(page, testInfo, "project-settings-save-error", { fullPage: true });
-
-		const retried = page.waitForResponse((response) =>
-			new URL(response.url()).pathname === `/api/settings/project:${proj.id}:systemPrompt`
-			&& response.request().method() === "PUT" && response.status() === 200,
-		);
-		await saveButton.click();
-		await retried;
-		await expect(saveButton.locator("xpath=following-sibling::*[@data-testid='save-indicator-saved']")).toHaveText("Saved ✓");
-		await captureEvidence(page, testInfo, "project-settings-save-success", { fullPage: true });
-		await page.reload();
-		await expect(instructions).toHaveValue("Retry this project instruction");
-		expect(saves).toBe(2);
-	});
+	}
 
 	test("keeps settings usable when the integration check fails and deletes the project", async ({ page, mockApi }) => {
 		const proj = makeProject({ id: "proj-settings-delete", name: "Delete Settings Project" });
