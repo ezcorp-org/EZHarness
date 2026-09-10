@@ -134,14 +134,7 @@ test.describe("Mobile navigation", () => {
     await expect(page).toHaveURL(/\/settings/);
   });
 
-  // UN-BLOCKER CONDITION: chat-page mobile rendering surfaces the
-  // conversation list (currently the conv list panel isn't visible
-  // on mobile chat-route — same chat-page composer/streaming class
-  // of issue blocking 30 of the 36 FIXMEs in 61-02 per 61-02-SUMMARY).
-  // Reference: .planning/phases/59-test-debt-repair/deferred-items.md
-  //            § Out-of-scope spec files - #1 mobile-navigation.spec.ts
-  // Filed-on: 2026-05-13 (Phase 61-03)
-  test.fixme("conversation list is visible on mobile chat page", async ({
+  test("conversation list is visible on mobile chat page", async ({
     page,
     mockApi,
   }) => {
@@ -150,16 +143,10 @@ test.describe("Mobile navigation", () => {
     await mockApi({ projects: [proj], conversations: [conv] });
     await page.goto(`/project/${proj.id}/chat`);
 
-    await expect(page.getByText("Conversations")).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Conversations" })).toBeVisible();
   });
 
-  // UN-BLOCKER CONDITION: chat-page mobile rendering surfaces the
-  // conversation list (see "conversation list is visible on mobile
-  // chat page" UN-BLOCKER above — same root cause).
-  // Reference: .planning/phases/59-test-debt-repair/deferred-items.md
-  //            § Out-of-scope spec files - #1 mobile-navigation.spec.ts
-  // Filed-on: 2026-05-13 (Phase 61-03)
-  test.fixme("conversation list fills viewport width on mobile", async ({
+  test("conversation list fills the mobile space beside the project rail", async ({
     page,
     mockApi,
   }) => {
@@ -168,11 +155,12 @@ test.describe("Mobile navigation", () => {
     await mockApi({ projects: [proj], conversations: [conv] });
     await page.goto(`/project/${proj.id}/chat`);
 
-    const conversationList = page.getByText("Conversations").locator("..");
+    const conversationList = page.getByRole("navigation", { name: "Conversations" });
     const box = await conversationList.boundingBox();
     expect(box).not.toBeNull();
-    // The container should span (nearly) the full viewport width
-    expect(box!.width).toBeGreaterThanOrEqual(MOBILE_WIDTH - 20);
+    // The persistent ProjectRail takes 72px. The list must fill the remaining
+    // content column instead of collapsing to its desktop sidebar width.
+    expect(box!.width).toBeGreaterThanOrEqual(MOBILE_WIDTH - 72 - 20);
   });
 
   test("mobile drawer closes when backdrop is clicked", async ({
