@@ -55,18 +55,22 @@ test.describe("Extension host-capability policy — current read-only detail", (
     await expect(section).toContainText('"providers": "all"');
   });
 
-  test("detail shows the server-clamped effective quota, never a submitted value", async ({ page, mockApi }) => {
+  test("extension without a held host capability omits the policy display", async ({ page, mockApi }) => {
     await mockApi({ projects: [proj], routes: {
       "/api/extensions/ext-search": makeSearchDetail,
       "/api/auth/me": () => ADMIN_ME,
     } });
-    // The policy route has already clamped an attempted quota of 500 to 100.
-    await installEffectivePolicy(page, { denied: false, quota: 100, maxResults: 5, providers: "all" }, { quota: 100 });
+    await page.route("**/api/extensions/ext-search/settings", async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({ json: {
+        schema: null, declaredDefaults: {}, userValues: {}, resolved: {}, capabilities: [],
+      } });
+    });
 
     await page.goto("/extensions/ext-search");
     const section = page.getByTestId("extension-settings-section");
-    await expect(section).toContainText('"quota": 100');
-    await expect(section).not.toContainText('"quota": 500');
+    await expect(section).toBeVisible();
+    await expect(section.getByText("Effective host capability policy", { exact: true })).toHaveCount(0);
   });
 
   test("member sees the same policy without an editable capability control", async ({ page, mockApi }) => {
