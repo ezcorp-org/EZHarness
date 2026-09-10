@@ -96,9 +96,18 @@ describe("e2e lane manifest", () => {
     expect([...new Set(collected)].sort()).toEqual(lanes["real-auth"]!.slice().sort());
   }, 120_000);
 
-  test("fresh-setup lane contains the dedicated config's original-path spec", () => {
-    expect(lanes["fresh-setup"]).toEqual(["web/e2e/setup-first-run.spec.ts"]);
-  });
+  test("fresh-setup config collects the manifest in the state-safe order", () => {
+    const proc = Bun.spawnSync(
+      ["bunx", "playwright", "test", "--config", "playwright.fresh-setup.config.ts", "--list", "--reporter=list"],
+      { cwd: join(REPO_ROOT, "web"), stdout: "pipe", stderr: "pipe" },
+    );
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    const collected = [...proc.stdout.toString().matchAll(/›\s+([^\s:]+\.spec\.ts)(?=:\d+:)/g)].map(
+      (match) => `web/e2e/${match[1]}`,
+    );
+    const orderedFiles = collected.filter((path, index) => collected.indexOf(path) === index);
+    expect(orderedFiles, proc.stdout.toString()).toEqual(lanes["fresh-setup"]);
+  }, 120_000);
 
   test("real preview clears inherited alternate DB and mock-init modes", () => {
     const probe = [

@@ -1,35 +1,14 @@
 import { test, expect } from "./fixtures/hydration.js";
 
 // This config starts a production preview against a new PGlite directory and
-// deliberately has no global setup. The sequence keeps the user table empty
-// until its final test: both real redirect entry points, the shipped setup
-// form, its client validation, then the one native account creation.
-//
-// Do not split the redirect tests into another file or reset the database
-// between them. One fresh PGlite lifecycle proves the actual first-run state
-// that the server observes, and account creation must remain last.
-test.describe.serial("Setup — first run", () => {
-  async function expectSetupForm(page: import("@playwright/test").Page) {
-    await expect(page).toHaveURL(/\/setup$/);
-    await expect(page).toHaveTitle("EZCorp | Setup");
-    await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Create Admin Account" })).toBeEnabled();
-  }
-
-  test("fresh /login redirects to the shipped setup form", async ({ page }) => {
-    await page.goto("/login");
-    await expectSetupForm(page);
-  });
-
-  test("fresh / redirects to the shipped setup form", async ({ page }) => {
-    await page.goto("/");
-    await expectSetupForm(page);
-  });
-
-  test("fresh /setup renders the shipped accessible form and browser constraints", async ({ page }) => {
+// deliberately has no global setup. It exercises the shipped Svelte route,
+// its server load, the setup API, session cookie, and first post-setup route.
+test.describe("Setup — first run", () => {
+  test("renders the shipped accessible setup form and its browser constraints", async ({ page }) => {
     await page.goto("/setup");
 
-    await expectSetupForm(page);
+    await expect(page).toHaveTitle("EZCorp | Setup");
+    await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible();
     await expect(page.getByText("Create your admin account to get started")).toBeVisible();
     await expect(page.locator('img[alt="EZCorp"]').last()).toHaveAttribute("src", "/logo.svg");
 
