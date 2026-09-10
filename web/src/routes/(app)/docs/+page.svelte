@@ -20,7 +20,7 @@
 	let activeCategory = $state("");
 
 	const methodColors: Record<string, string> = {
-		GET: "bg-green-600",
+		GET: "bg-green-700",
 		POST: "bg-blue-600",
 		PUT: "bg-amber-600",
 		PATCH: "bg-orange-600",
