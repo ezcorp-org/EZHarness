@@ -42,34 +42,32 @@ test.describe("Projects", () => {
 			name: "Settings Project",
 			icon: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
 		});
-		const settings: Record<string, string> = {
-			"global:systemPrompt": "Existing global instruction",
-			[`project:${proj.id}:systemPrompt`]: "Existing project instruction",
-		};
-		let releaseProjectSave!: () => void;
-		const projectSaveHeld = new Promise<void>((resolve) => { releaseProjectSave = resolve; });
-		let releaseGlobalSave!: () => void;
-		const globalSaveHeld = new Promise<void>((resolve) => { releaseGlobalSave = resolve; });
-		let releaseUpdate!: () => void;
-		const updateHeld = new Promise<void>((resolve) => { releaseUpdate = resolve; });
-		await mockApi({ projects: [proj], settings });
-		await page.route("**/api/settings", (route) => route.fulfill({ json: settings }));
-		await page.route(`**/api/settings/project:${proj.id}:systemPrompt`, async (route) => {
-			await projectSaveHeld;
-			settings[`project:${proj.id}:systemPrompt`] = (route.request().postDataJSON() as { value: string }).value;
-			await route.fulfill({ json: { ok: true } });
+		const projectPromptKey = `project:${proj.id}:systemPrompt`;
+		const heldPuts = new Map<string, { wait: Promise<void>; release: () => void }>();
+		await mockApi({
+			projects: [proj],
+			settings: {
+				"global:systemPrompt": "Existing global instruction",
+				[projectPromptKey]: "Existing project instruction",
+			},
 		});
-		await page.route("**/api/settings/global:systemPrompt", async (route) => {
-			await globalSaveHeld;
-			settings["global:systemPrompt"] = (route.request().postDataJSON() as { value: string }).value;
-			await route.fulfill({ json: { ok: true } });
-		});
-		await page.route(`**/api/projects/${proj.id}`, async (route) => {
-			if (route.request().method() !== "PUT") return route.fallback();
-			await updateHeld;
-			Object.assign(proj, route.request().postDataJSON());
-			await route.fulfill({ json: proj });
-		});
+		for (const path of [
+			`/api/settings/${projectPromptKey}`,
+			"/api/settings/global:systemPrompt",
+			`/api/projects/${proj.id}`,
+		]) {
+			let release!: () => void;
+			const wait = new Promise<void>((resolve) => { release = resolve; });
+			heldPuts.set(path, { wait, release });
+			await page.route(`**${path}`, async (route) => {
+				if (route.request().method() !== "PUT") return route.fallback();
+				await wait;
+				return route.fallback();
+			});
+		}
+		const projectSaveGate = heldPuts.get(`/api/settings/${projectPromptKey}`)!;
+		const globalSaveGate = heldPuts.get("/api/settings/global:systemPrompt")!;
+		const updateGate = heldPuts.get(`/api/projects/${proj.id}`)!;
 		await page.route("**/api/integrations/github-projects/link**", (route) =>
 			route.fulfill({ status: 404, json: { error: "No connected board" } }),
 		);
@@ -86,9 +84,12 @@ test.describe("Projects", () => {
 			&& response.request().method() === "PUT",
 		);
 		await projectSaveButton.click();
-		await expect(projectSaveButton).toBeDisabled();
-		await expect(projectSaveButton).toHaveText("Saving...");
-		releaseProjectSave();
+		try {
+			await expect(projectSaveButton).toBeDisabled();
+			await expect(projectSaveButton).toHaveText("Saving...");
+		} finally {
+			projectSaveGate.release();
+		}
 		const projectSave = await projectSaveResponse;
 		expect(projectSave.status()).toBe(200);
 		expect(projectSave.request().postDataJSON()).toEqual({ value: "Project instructions updated by the user" });
@@ -103,9 +104,12 @@ test.describe("Projects", () => {
 			&& response.request().method() === "PUT",
 		);
 		await globalSaveButton.click();
-		await expect(globalSaveButton).toBeDisabled();
-		await expect(globalSaveButton).toHaveText("Saving...");
-		releaseGlobalSave();
+		try {
+			await expect(globalSaveButton).toBeDisabled();
+			await expect(globalSaveButton).toHaveText("Saving...");
+		} finally {
+			globalSaveGate.release();
+		}
 		const globalSave = await globalSaveResponse;
 		expect(globalSave.status()).toBe(200);
 		expect(globalSave.request().postDataJSON()).toEqual({ value: "Global instructions updated by the user" });
@@ -118,9 +122,12 @@ test.describe("Projects", () => {
 			new URL(response.url()).pathname === `/api/projects/${proj.id}` && response.request().method() === "PUT",
 		);
 		await updateButton.click();
-		await expect(updateButton).toBeDisabled();
-		await expect(updateButton).toHaveText("Saving...");
-		releaseUpdate();
+		try {
+			await expect(updateButton).toBeDisabled();
+			await expect(updateButton).toHaveText("Saving...");
+		} finally {
+			updateGate.release();
+		}
 		const update = await updateResponse;
 		expect(update.status()).toBe(200);
 		expect(update.request().postDataJSON()).toMatchObject({ name: "Renamed Settings Project", path: proj.path });
@@ -138,10 +145,10 @@ test.describe("Projects", () => {
 		let saves = 0;
 		await mockApi({ projects: [proj] });
 		await page.route(`**/api/settings/project:${proj.id}:systemPrompt`, (route) => {
+			if (route.request().method() !== "PUT") return route.fallback();
 			saves += 1;
-			return route.fulfill(saves === 1
-				? { status: 500, json: { error: "Save refused" } }
-				: { json: { ok: true } });
+			if (saves === 1) return route.fulfill({ status: 500, json: { error: "Save refused" } });
+			return route.fallback();
 		});
 
 		await page.goto(`/project/${proj.id}/settings`);
