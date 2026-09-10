@@ -107,4 +107,51 @@ describe("TaskPanel", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Collapse task panel" }));
 		expect(screen.getByRole("button", { name: "Expand task panel" })).toBeInTheDocument();
 	});
+
+	test("shows active and failed elapsed times, legacy ownership, and highlights a clicked dependency", async () => {
+		vi.useFakeTimers();
+		const scrollIntoView = vi.fn();
+		Element.prototype.scrollIntoView = scrollIntoView;
+		const now = new Date("2026-01-01T00:00:10.000Z");
+		vi.setSystemTime(now);
+		const snapshot = {
+			conversationId: "conv-1", activeTaskId: "active",
+			tasks: [
+				task({ id: "dependency", title: "Dependency", status: "active", priority: 0, startedAt: "2026-01-01T00:00:00.000Z" }),
+				task({ id: "waiting", title: "Waiting", dependsOn: ["dependency"], priority: 1, agentName: "Legacy" }),
+				task({ id: "failed", title: "Broken", status: "failed", priority: 2, startedAt: "2026-01-01T00:00:00.000Z", failedAt: "2026-01-01T00:00:03.000Z" }),
+			],
+		} as any;
+		render(TaskPanel, { snapshot, conversationId: "conv-1" });
+		await fireEvent.click(screen.getByRole("button", { name: "Collapse task panel" }));
+		expect(screen.getByTitle("Elapsed time for the active task")).toHaveTextContent("10s");
+		expect(screen.getByTitle("Assigned to Legacy")).toHaveTextContent("@Legacy");
+		await fireEvent.click(screen.getByRole("button", { name: "Expand task panel" }));
+		await fireEvent.click(screen.getByTitle("Click to highlight Dependency"));
+		expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
+		await vi.advanceTimersByTimeAsync(1_500);
+		vi.useRealTimers();
+	});
+
+	test("reports rejected retry, start, and stop requests without leaving their controls busy", async () => {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const fetchMock = vi.fn(async (url: string) => {
+			if (url.includes("retry")) return new Response(JSON.stringify({ error: "retry denied" }), { status: 409, statusText: "Conflict" });
+			if (url.includes("/start")) throw new Error("network down");
+			return new Response("not json", { status: 500, statusText: "Server Error" });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const snapshot = { conversationId: "conv-1", tasks: [
+			task({ id: "failed", title: "Failed", status: "failed" }),
+			task({ id: "assigned", title: "Assigned", assignments: [{ id: "start", agentConfigId: "a", agentName: "Starter", isTeam: false, status: "assigned" }] }),
+			task({ id: "running", title: "Running", status: "active", assignments: [{ id: "stop", agentConfigId: "a", agentName: "Runner", isTeam: false, status: "running" }] }),
+		] } as any;
+		render(TaskPanel, { snapshot, conversationId: "conv-1" });
+		await fireEvent.click(screen.getByText(/Retry/));
+		await fireEvent.click(screen.getByTitle("Start assignment"));
+		await fireEvent.click(screen.getByTitle("Stop assignment (preserves context for resume)"));
+		await waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(3));
+		expect(screen.getByText(/Retry/)).not.toHaveTextContent("Retrying");
+		errorSpy.mockRestore();
+	});
 });
