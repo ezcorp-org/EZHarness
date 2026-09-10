@@ -61,6 +61,21 @@ test("browser converter rejects a requested source absent from raw browser recor
   }, async () => ({ code, map: routeMap }))).rejects.toThrow("expected source has no mapped DA record");
 });
 
+test("checks missing routes even when a canonical shared source has mapped DA", async () => {
+  const sharedSource = "web/src/lib/empty-node-shim.ts";
+  const sharedMap = JSON.stringify({
+    ...JSON.parse(routeMap),
+    sources: ["../../../../src/lib/empty-node-shim.ts"],
+  });
+  await expect(coverageToLcov({
+    result: [{ url: "http://app/_app/shared.js", functions: covered }],
+    expectedFiles: [sharedSource],
+    expectedRouteFiles: ["web/src/routes/missing/+page.svelte"],
+  }, async () => ({ code, map: sharedMap }))).rejects.toThrow(
+    "expected source has no mapped DA record: web/src/routes/missing/+page.svelte",
+  );
+});
+
 test("resolves nested Vite map sources against the emitted chunk", async () => {
   const nestedMap = JSON.stringify({
     ...JSON.parse(routeMap),

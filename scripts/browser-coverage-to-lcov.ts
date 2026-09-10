@@ -82,7 +82,13 @@ function isBrowserSource(file: string): boolean {
     file.startsWith("web/src/lib/");
 }
 function expectedSources(raw: RawCoverage): string[] {
-  return raw.expectedFiles ?? raw.expectedRouteFiles ?? [];
+  // The fixture records routes and non-route browser sources independently.
+  // Both are mandatory; `??` here would silently discard every route whenever
+  // the canonical shared-source list is also present.
+  return [...new Set([
+    ...(raw.expectedRouteFiles ?? []),
+    ...(raw.expectedFiles ?? []),
+  ])].sort();
 }
 
 /**
