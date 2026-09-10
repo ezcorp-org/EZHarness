@@ -50,6 +50,9 @@ args=(
   --coverage.provider=v8
   --coverage.reporter=lcovonly
   --coverage.include='src/lib/**'
+  --coverage.exclude='**/*.test.ts'
+  --coverage.exclude='**/__tests__/**'
+  --coverage.exclude='**/*.d.ts'
   "--coverage.reportsDirectory=$out_dir"
 )
 if [ -n "$shard" ]; then
