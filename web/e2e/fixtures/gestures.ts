@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 /**
  * `use:longPress` (web/src/lib/actions/longPress.ts) defaults to
@@ -32,4 +32,25 @@ export async function longPressTouch(locator: Locator): Promise<void> {
 	await locator.dispatchEvent("pointerdown", point);
 	await locator.page().waitForTimeout(LONG_PRESS_DELAY_MS + LONG_PRESS_BUFFER_MS);
 	await locator.dispatchEvent("pointerup", point);
+}
+
+/** Drive browser-native touch input; synthetic pointer events do not exercise pan cancellation. */
+export async function dragTouch(
+	page: Page,
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+): Promise<void> {
+	const touch = await page.context().newCDPSession(page);
+	try {
+		await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [from] });
+		for (let step = 1; step <= 10; step++) {
+			await touch.send("Input.dispatchTouchEvent", {
+				type: "touchMove",
+				touchPoints: [{ x: from.x + (to.x - from.x) * step / 10, y: from.y + (to.y - from.y) * step / 10 }],
+			});
+		}
+		await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+	} finally {
+		await touch.detach();
+	}
 }

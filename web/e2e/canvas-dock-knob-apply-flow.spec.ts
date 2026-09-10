@@ -7,7 +7,7 @@
  *
  *   1. Apply invokes the `tweak-design` tool via `/api/tool-invoke`.
  *      Stubbed: returns 200 + `{}`, then the SSE-equivalent `tool:complete`
- *      WS event is pushed with the same invocationId so the card's
+ *      SSE event is pushed with the same invocationId so the card's
  *      $effect picks it up and renders the success banner.
  *   2. Banner auto-dismisses after 4s (we wait 4.5s).
  *   3. Error path: emit a `tool:error` event for a follow-up apply, assert
@@ -15,7 +15,7 @@
  *   4. Tokens diff drawer toggles open and `.d2h-diff-table` appears.
  *
  * The canvas card is mounted by sending a user prompt and emitting an
- * `open-canvas` `tool:complete` over the WS bridge — same pattern as
+ * `open-canvas` `tool:complete` over the SSE stream — same pattern as
  * `claude-design-adaptive-knobs.spec.ts`. We then drive the knob and
  * Apply, capture the `/api/tool-invoke` body to extract the invocationId
  * the client generated, and emit a follow-up `tool:complete` for the
@@ -64,18 +64,19 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 	test("Apply triggers tool-invoke, banner appears + auto-dismisses, diff drawer opens", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
 		// Capture invocations to /api/tool-invoke so we can extract the
-		// client-generated invocationId and echo it back via WS.
+		// client-generated invocationId and echo it back via SSE.
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg, assistantMsg],
+		});
 		let capturedInvocationId: string | null = null;
 		await page.route("**/api/tool-invoke", async (route) => {
-			try {
-				const body = JSON.parse(route.request().postData() ?? "{}");
-				if (body.invocationId) capturedInvocationId = body.invocationId;
-			} catch {
-				/* ignore */
-			}
+			const body = route.request().postDataJSON();
+			capturedInvocationId = body.invocationId;
 			await route.fulfill({
 				status: 200,
 				contentType: "application/json",
@@ -92,11 +93,6 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 			}),
 		);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
@@ -109,7 +105,7 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 		// Stream the open-canvas completion. The new payload includes the
 		// fields the apply-banner UI consumes (originalTokensBlock,
 		// tokensBlock, revisions[]).
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -161,7 +157,7 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 		await expect.poll(() => capturedInvocationId, { timeout: 5_000 }).not.toBeNull();
 
 		// Echo a tool:complete for the tweak-design invocation.
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -229,16 +225,17 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 	test("error path: tool:error renders sticky error banner with Retry button", async ({
 		page,
 		mockApi,
-		emitWs,
+		emitSse,
 	}) => {
+		await mockApi({
+			projects: [proj],
+			conversations: [conv],
+			messages: [userMsg, assistantMsg],
+		});
 		let capturedInvocationId: string | null = null;
 		await page.route("**/api/tool-invoke", async (route) => {
-			try {
-				const body = JSON.parse(route.request().postData() ?? "{}");
-				if (body.invocationId) capturedInvocationId = body.invocationId;
-			} catch {
-				/* ignore */
-			}
+			const body = route.request().postDataJSON();
+			capturedInvocationId = body.invocationId;
 			await route.fulfill({
 				status: 200,
 				contentType: "application/json",
@@ -253,11 +250,6 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 			}),
 		);
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
@@ -267,7 +259,7 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 			sendComposerMessage(page, "Open canvas"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
@@ -301,7 +293,7 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 
 		await expect.poll(() => capturedInvocationId, { timeout: 5_000 }).not.toBeNull();
 
-		await emitWs({
+		await emitSse({
 			type: "tool:error",
 			data: {
 				conversationId: "conv-1",

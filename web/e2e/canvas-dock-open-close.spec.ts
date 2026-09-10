@@ -1,5 +1,6 @@
 /** Canvas dock browser coverage for live SSE and persisted hydration. */
 import type { Page } from "@playwright/test";
+import { mockCanvasPreview, canvasPreviewPayload as payload } from "./fixtures/canvas-preview.js";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -14,26 +15,8 @@ const assistantMsg = makeMessage({
 	parentMessageId: "m1",
 	createdAt: "2026-01-01T00:01:00.000Z",
 });
-const payload = {
-	draftId: "d-1",
-	iframeSrc: "/api/extensions/claude-design/data/preview.html",
-	knobsTitle: "Design controls",
-	knobs: [
-		{ key: "primaryColor", label: "Primary color", kind: "color", current: "#4f46e5" },
-		{ key: "secondaryColor", label: "Secondary color", kind: "color", current: "#0ea5e9" },
-		{ key: "spacingScale", label: "Spacing scale", kind: "range", behavior: "scale-spacing", min: -25, max: 50, step: 5, unit: "%", current: "0" },
-		{ key: "borderRadius", label: "Border radius", kind: "range", min: 0, max: 24, step: 2, unit: "px", current: "12" },
-		{ key: "density", label: "Density", kind: "select", options: ["compact", "cozy", "spacious"], current: "cozy" },
-	],
-	knobValues: { primaryColor: "#4f46e5", secondaryColor: "#0ea5e9", spacingScale: "+0%", borderRadius: "12px", density: "cozy" },
-};
 
-async function routePreview(page: Page): Promise<void> {
-	await page.route("**/api/extensions/claude-design/data/preview.html", (route) => route.fulfill({
-		contentType: "text/html",
-		body: `<!doctype html><html><body style="margin:0;background:#f8fafc;font:16px system-ui;color:#172033"><main style="padding:48px"><p style="color:#6366f1;font-weight:700">CLAUDE DESIGN</p><h1>Quarterly planning canvas</h1><p>Move the controls to refine spacing, color, and density.</p></main></body></html>`,
-	}));
-}
+
 
 async function assertDock(page: Page): Promise<void> {
 	await expect(page.getByTestId("dock-host")).toBeVisible({ timeout: 3000 });
@@ -121,7 +104,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 				},
 			});
 		});
-		await routePreview(page);
+		await mockCanvasPreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		const textarea = page.locator("textarea.chat-textarea");
 		await expect(textarea).toBeEnabled({ timeout: 15_000 });
@@ -186,7 +169,7 @@ test.describe("Canvas Dock — live open and persisted restore", () => {
 			projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg],
 			messageToolCalls: { m2: [{ id: "tc-dock-saved", extensionId: "claude-design", toolName: "claude-design__open-canvas", input: { draftId: "d-1" }, outputSummary: "Canvas ready", fullOutput: JSON.stringify(payload), success: true, durationMs: 50, status: "success", messageId: "m2", cardType: "design-canvas", cardLayout: "dock" }] },
 		});
-		await routePreview(page);
+		await mockCanvasPreview(page);
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await assertDock(page);
 		await page.getByTestId("dock-close").click();

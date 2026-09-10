@@ -25,9 +25,8 @@ test.describe("Canvas Dock — pop-out button", () => {
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
-	test('clicking "Pop out" calls window.open with the canvas URL + _blank + noopener', async ({ page, mockApi, emitWs }) => {
+	test('clicking "Pop out" calls window.open with the canvas URL + _blank + noopener', async ({ page, mockApi, emitSse }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		// Intercept window.open in the page context BEFORE the click.
 		// Stash calls on `window.__popouts` so we can read them out.
@@ -42,12 +41,14 @@ test.describe("Canvas Dock — pop-out button", () => {
 			void orig; // explicit no-op to keep TS happy
 		});
 
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
 			sendComposerMessage(page, "Open canvas"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",
