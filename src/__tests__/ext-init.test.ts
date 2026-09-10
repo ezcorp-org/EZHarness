@@ -1,8 +1,14 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { validateManifest } from "@ezcorp/extension-contract";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
+
+const askLine = mock<(prompt: string) => Promise<string>>();
+mock.module("../ui/prompt", () => ({ askLine }));
+
+afterAll(() => restoreModuleMocks());
 
 function generatedManifest(content: string) {
   const prefix = "export default validateManifest(";
@@ -38,6 +44,7 @@ describe("initExtension", () => {
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "ezcorp-ext-init-"));
+    askLine.mockReset();
   });
 
   afterEach(() => {
@@ -174,5 +181,17 @@ describe("initExtension", () => {
     const content = await Bun.file(join(tempDir, "my-tool", "ezcorp.config.ts")).text();
     const manifest = generatedManifest(content);
     expect(manifest.description).toBe("My custom description");
+  });
+
+  test("interactive wizard trims its description and selects the requested type", async () => {
+    askLine.mockResolvedValueOnce("  Interactive skill  ").mockResolvedValueOnce("2");
+    const { initExtension } = await import("../extensions/sdk/init");
+
+    await initExtension({ extName: "guided", cwd: tempDir });
+
+    expect(askLine).toHaveBeenNthCalledWith(1, "Description (An ezcorp extension): ");
+    expect(askLine).toHaveBeenNthCalledWith(2, "\nSelect type [1-4]: ");
+    const config = readFileSync(join(tempDir, "guided", "ezcorp.config.ts"), "utf-8");
+    expect(generatedManifest(config)).toMatchObject({ description: "Interactive skill", skills: expect.any(Array) });
   });
 });

@@ -654,6 +654,7 @@ run_legs() {
       src/__tests__/api-conversations-id-messages.server.test.ts \
       src/__tests__/api-conversations-id-messages-coverage.server.test.ts \
       src/__tests__/api-conversations-id-messages-goal.server.test.ts \
+      src/__tests__/api-search-messages.server.test.ts \
       src/__tests__/api-conversations-id-agent-chat.server.test.ts \
       src/__tests__/api-settings-developer-api-keys.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
@@ -828,6 +829,7 @@ run_legs() {
       --coverage.include='src/routes/api/conversations/[id]/caller-tools/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/caller-tools/schema.ts' \
       --coverage.include='src/routes/api/conversations/[id]/messages/+server.ts' \
+      --coverage.include='src/routes/api/search/messages/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/agent-chat/+server.ts' \
       --coverage.include='src/routes/api/settings/developer/api-keys/+server.ts' \
       --coverage.include='src/routes/api/settings/developer/schema.ts' \

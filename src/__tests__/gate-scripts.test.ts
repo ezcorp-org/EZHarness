@@ -17,9 +17,11 @@ import {
   EXCLUDES,
   escapeGlob,
   isExcluded,
+  isDeclarationOnlyTypeScript,
   isSourceFile,
   parseHitLines,
   parseLcov,
+  wildcardSourceFileDropouts,
   wildcardTreeDropouts,
   type FileCov,
 } from "../../scripts/coverage-config.ts";
@@ -83,7 +85,7 @@ describe("coverage-config helpers", () => {
   });
 
   test("isExcluded matches EXCLUDES patterns (and only those)", () => {
-    expect(isExcluded("src/db/migrations/001.ts")).toBe(true);
+    expect(isExcluded("src/providers/example.ts")).toBe(true);
     expect(isExcluded("web/src/lib/api.ts")).toBe(true);
     expect(isExcluded("src/runtime/brand-new.ts")).toBe(false);
   });
@@ -92,6 +94,8 @@ describe("coverage-config helpers", () => {
     expect(isSourceFile("src/runtime/foo.ts")).toBe(true);
     expect(isSourceFile("web/src/lib/bar.svelte")).toBe(true);
     expect(isSourceFile("packages/@ezcorp/sdk/src/x.ts")).toBe(true);
+    expect(isSourceFile("packages/@ezcorp/harness-client/src/x.ts")).toBe(true);
+    expect(isSourceFile("worker/src/index.ts")).toBe(true);
     expect(isSourceFile("src/__tests__/foo.test.ts")).toBe(false);
     expect(isSourceFile("web/e2e/x.spec.ts")).toBe(false);
     expect(isSourceFile("src/types.d.ts")).toBe(false);
@@ -878,6 +882,45 @@ describe("check-coverage: wildcardTreeDropouts", () => {
   });
   test("pattern matching nothing on disk (dead key) → no violation", () => {
     expect(wildcardTreeDropouts(["src/gone/**"], [], () => [])).toEqual([]);
+  });
+});
+
+describe("check-coverage: wildcardSourceFileDropouts", () => {
+  test("fails an unmeasured executable sibling even when its tree has lcov", async () => {
+    const v = await wildcardSourceFileDropouts(
+      ["packages/@ezcorp/extension-contract/src/**"],
+      ["packages/@ezcorp/extension-contract/src/covered.ts"],
+      () => [
+        "packages/@ezcorp/extension-contract/src/covered.ts",
+        "packages/@ezcorp/extension-contract/src/missing.ts",
+      ],
+      async () => "export const missing = () => true;",
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("missing.ts");
+    expect(v[0]).toContain("individual file");
+  });
+
+  test("structurally exempts declaration-only TypeScript but not runtime code", async () => {
+    expect(isDeclarationOnlyTypeScript("export interface A { id: string }\nexport type B = A")).toBe(true);
+    expect(isDeclarationOnlyTypeScript("export enum A { One }")).toBe(false);
+    const v = await wildcardSourceFileDropouts(
+      ["packages/@ezcorp/sdk/src/**"],
+      [],
+      () => ["packages/@ezcorp/sdk/src/only-types.ts"],
+      async () => "export type Only = { id: string };",
+    );
+    expect(v).toEqual([]);
+  });
+
+  test("does not turn a ratchet catch-all into an individual evidence rule", async () => {
+    const v = await wildcardSourceFileDropouts(
+      ["web/src/lib/**"],
+      [],
+      () => ["web/src/lib/existing.ts"],
+      async () => "export const existing = 1;",
+    );
+    expect(v).toEqual([]);
   });
 });
 

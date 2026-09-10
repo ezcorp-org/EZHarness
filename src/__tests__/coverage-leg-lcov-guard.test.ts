@@ -941,6 +941,14 @@ describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
     ).toEqual([]);
   });
 
+  test("search messages has both a running suite and a measurement include", async () => {
+    // This route used to have a passing server suite that the coverage producer
+    // never ran or included. Pin both sides of producer ownership here so a
+    // future allowlist edit cannot restore that silent blind spot.
+    expect(await listedTestFiles()).toContain("src/__tests__/api-search-messages.server.test.ts");
+    expect(await includePatterns()).toContain("src/routes/api/search/messages/+server.ts");
+  });
+
   test("web/src/hooks.server.ts is measured, and its suites are the leg's to run", async () => {
     // Pinned by name, unlike every other module here, because hooks.server.ts
     // is one the gate CANNOT self-diagnose. A file with an exact key in

@@ -202,6 +202,41 @@ test("getCredential('google') falls through to BYOK — pi has no google OAuth p
   expect(mockRefreshExchange).not.toHaveBeenCalled();
 });
 
+test("Google OAuth discovers and persists a missing Cloud project before pi rejects its unsupported provider", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: RequestInit[] = [];
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    calls.push(init ?? {});
+    return new Response(JSON.stringify({ cloudaicompanionProject: "cloud-project-42" }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    decryptReturn = makeTokenData({ projectId: "" });
+    settingsStore["provider:oauth:google"] = FAKE_ENCRYPTED;
+    settingsStore["provider:accessMode:google"] = "oauth";
+
+    await expect(getCredential("google")).rejects.toThrow("cannot derive a token");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ method: "POST" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Google OAuth reports project-discovery HTTP failures", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("denied", { status: 403 })) as typeof fetch;
+  try {
+    decryptReturn = makeTokenData({ projectId: "" });
+    settingsStore["provider:oauth:google"] = FAKE_ENCRYPTED;
+    settingsStore["provider:accessMode:google"] = "oauth";
+
+    await expect(getCredential("google")).rejects.toThrow("project discovery failed: 403");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 // ── Anthropic Always BYOK Tests ─────────────────────────────────────
 
 test("getCredential('anthropic') always returns apikey credential (never OAuth)", async () => {

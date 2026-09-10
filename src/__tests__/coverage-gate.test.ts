@@ -411,8 +411,7 @@ describe("coverage-gate semantics: #3 wildcard precedence", () => {
 //    threshold would otherwise enforce them.
 //
 // EXCLUDES (frozen verbatim in scripts/check-coverage.ts):
-//   "src/extensions/sdk/init.ts"
-//   "src/db/migrations/**"
+//   "src/providers/**"
 //   "src/providers/**"
 //   "web/src/routes/**/+*.svelte"
 //   "web/e2e/**"
@@ -425,8 +424,7 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // coverage. Also add a 100%-covered canary to prove the gate is
       // running enforcement (not accidentally vacuous).
       const excludedFiles = [
-        "src/extensions/sdk/init.ts",
-        "src/db/migrations/001_initial.ts",
+        "src/providers/example.ts",
         "src/providers/anthropic.ts",
         "web/src/routes/foo/+page.svelte",
         "web/e2e/login.spec.ts",
@@ -442,7 +440,6 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // Thresholds that would fail every excluded file if not excluded.
       const thresholds: Record<string, number> = {
         "src/extensions/sdk/**": 100,
-        "src/db/migrations/**": 100,
         "src/providers/**": 100,
         "web/src/routes/**": 100,
         "web/e2e/**": 100,
@@ -462,8 +459,7 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
   });
 
   test("non-excluded file at same SDK prefix IS enforced (negative control)", async () => {
-    // Flips the init.ts case: a sibling file (not in EXCLUDES) under
-    // the same threshold glob at 20% coverage must fail. Proves
+    // A file under the SDK prefix at 20% coverage must fail. Proves
     // exclusion is pattern-scoped, not prefix-eating.
     const sb = makeSandbox();
     try {

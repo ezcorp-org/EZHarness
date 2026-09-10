@@ -28,8 +28,6 @@ export const REPO_ROOT = resolve(import.meta.dir, "..");
 // `gate-change-approved` label. Keep one path (or wildcard) per line with a
 // justification comment so the diff is reviewable.
 export const EXCLUDES: readonly string[] = [
-  "src/extensions/sdk/init.ts",
-  "src/db/migrations/**",
   "src/providers/**",
   "web/src/routes/**/+*.svelte",
   "web/e2e/**",
@@ -138,13 +136,11 @@ export const EXCLUDES: readonly string[] = [
   // not gateable product logic; same spirit as the example index.ts excludes
   // above. (The sample-loop index.ts IS covered by its own index.test.ts.)
   "docs/extensions/examples/sample-loop/ezcorp.config.ts",
-  // Route handlers tested by their *.server.test.ts (bun:test w/ mock.module,
-  // run in the `Web tests (vitest)` CI job) but NOT wired into the coverage
-  // pipeline — they show "no lcov data". Same justification as the web/src/lib
-  // and security excludes above: covered behaviourally, not measurable here.
+  // Protected historical threshold coordinate. The path is absent in this
+  // checkout, so it has no executable behaviour to measure. Keep this paired
+  // exclusion until the exact threshold key receives separately reviewed
+  // cleanup; otherwise the gate would report a false orphan.
   "web/src/routes/api/conversations/[id]/goal-state/+server.ts",
-  "web/src/routes/api/conversations/[id]/messages/+server.ts",
-  "web/src/routes/api/search/messages/+server.ts",
 ];
 
 /**
@@ -158,6 +154,10 @@ export const SOURCE_GLOBS: readonly string[] = [
   "web/src/**/*.ts",
   "web/src/**/*.svelte",
   "packages/@ezcorp/sdk/src/**/*.ts",
+  "packages/@ezcorp/ai-kit/src/**/*.ts",
+  "packages/@ezcorp/harness-client/src/**/*.ts",
+  "packages/@ezcorp/extension-contract/src/**/*.ts",
+  "packages/@ezcorp/extension-runner/src/**/*.ts",
   "docs/extensions/examples/**/*.ts",
   // First-party BUNDLED extensions (registered in src/extensions/bundled.ts).
   // They ship in the product exactly like `src/**` does — the reference
@@ -165,6 +165,9 @@ export const SOURCE_GLOBS: readonly string[] = [
   // this tree was not, so `extensions/**` was outside BOTH the new-file and
   // patch-coverage gates and its three test files ran in no CI job.
   "extensions/**/*.ts",
+  // The Worker is a shipped execution target. Its source must receive the
+  // same changed/new-file coverage checks as the host runtime.
+  "worker/src/**/*.ts",
 ];
 
 // Test/spec/type files are never "product code" for the new-file gate.
@@ -187,6 +190,7 @@ const NON_SOURCE_GLOBS: readonly string[] = [
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [
   "src/**",
   "web/src/**",
+  "web/src/lib/**",
   "packages/@ezcorp/ai-kit/src/**",
 ];
 
@@ -259,6 +263,47 @@ export function wildcardTreeDropouts(
           `but lcov contains NONE of them — a coverage producer for this whole tree dropped ` +
           `out (dead leg / unwired set). Fix the producer in scripts/test-coverage.sh; do not ` +
           `delete the key.`,
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * TypeScript declarations compile to no JavaScript, so lcov cannot emit a
+ * line record for them. Keep this structural: an enum, value export, or any
+ * other runtime statement emits JavaScript and therefore remains gateable.
+ */
+export function isDeclarationOnlyTypeScript(source: string): boolean {
+  return new Bun.Transpiler({ loader: "ts" }).transformSync(source).trim() === "";
+}
+
+/**
+ * A wildcard threshold with *some* lcov data can still hide an omitted
+ * executable sibling. This is the per-file complement to
+ * {@link wildcardTreeDropouts}: every non-catchall wildcard source that has a
+ * real runtime emit must have a producer record. Declaration-only TypeScript
+ * is structurally exempt because it has no JavaScript line to measure.
+ */
+export async function wildcardSourceFileDropouts(
+  wildcardPats: readonly string[],
+  lcovFiles: readonly string[],
+  repoFilesForPattern: (pat: string) => readonly string[],
+  sourceForFile: (path: string) => Promise<string>,
+): Promise<string[]> {
+  const lcovSet = new Set(lcovFiles);
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const pat of wildcardPats) {
+    if (CATCHALL_THRESHOLD_KEYS.includes(pat)) continue;
+    for (const file of repoFilesForPattern(pat)) {
+      if (seen.has(file) || !isSourceFile(file) || isExcluded(file) || lcovSet.has(file)) continue;
+      seen.add(file);
+      if (file.endsWith(".ts") && isDeclarationOnlyTypeScript(await sourceForFile(file))) continue;
+      out.push(
+        `${file}: wildcard threshold ${pat} has no lcov record for this executable source — ` +
+          `a coverage producer omitted an individual file. Add the owning test/producer; do not hide it.`,
       );
     }
   }

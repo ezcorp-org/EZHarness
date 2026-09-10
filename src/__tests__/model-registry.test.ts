@@ -17,6 +17,7 @@ import {
   getModelRegistry,
   getModelsForTier,
   findModelForProviderInTier,
+  getOAuthModelIds,
   modelPrices,
 } from "../providers/registry";
 import { priceSegment } from "../runtime/usage/cache-stats";
@@ -72,6 +73,14 @@ test("findModelForProviderInTier returns match", () => {
 test("findModelForProviderInTier returns null for missing combo", () => {
   const result = findModelForProviderInTier("anthropic" as any, "nonexistent" as any);
   expect(result).toBeNull();
+});
+
+test("OAuth model ids use the OAuth catalog and add local OAuth-only overrides", () => {
+  const openai = getOAuthModelIds("openai");
+  expect(openai).not.toBeNull();
+  expect(openai!.has("gpt-5.5")).toBe(true);
+  expect(getOAuthModelIds("anthropic")).toBeNull();
+  expect(getOAuthModelIds("not-a-provider")).toBeNull();
 });
 
 test("modelPrices reads the catalog rates in USD per 1M tokens", () => {

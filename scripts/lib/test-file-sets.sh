@@ -98,6 +98,7 @@ passfail_files() {
     # reason — never by silently shrinking back to a dir allowlist.
     find src -name "*.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
     # in NO pool: its three test files (memory-extractor index + manifest-load,
     # lessons-distiller index) ran in no CI job at all. Deterministic under
@@ -259,6 +260,7 @@ web_host_files() {
       web/src/__tests__/mock-llm-route.test.ts \
       web/src/__tests__/runs-wait-route.test.ts \
       web/src/__tests__/seed-reset-route.test.ts \
+      web/src/__tests__/test-agent-config.test.ts \
       web/src/__tests__/extensions-events-route.test.ts \
       web/src/__tests__/chat-scroll.test.ts \
       web/src/__tests__/chat-stick-to-bottom.integration.test.ts
@@ -292,6 +294,7 @@ coverage_host_files() {
       ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \) \
       ! -path "src/__tests__/production-image-lifecycle-launch.integration.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
     # hard-gates these inside the coverage shards.
