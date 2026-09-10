@@ -539,3 +539,150 @@ test.describe("Marketplace Detail Page", () => {
 		await expect(page.getByText(/Installed "My Install Agent" successfully!/)).toBeVisible({ timeout: 5000 });
 	});
 });
+
+test.describe("Marketplace browse interactions", () => {
+	const proj = makeProject({ id: "marketplace-interactions" });
+
+	test("tag toggle and sort selection send their exact browse parameters", async ({ page, mockApi }) => {
+		const listings = [makeListing({ id: "automation-agent", name: "Automation Agent" })];
+		await mockApi({
+			projects: [proj],
+			routes: {
+				"/api/marketplace/categories": () => ({ categories: [{ tag: "automation", count: 1 }] }),
+				"/api/marketplace": () => ({ listings, featured: [] }),
+			},
+		});
+		await page.goto("/marketplace");
+		const tag = page.getByTestId("marketplace-tag-chip").filter({ hasText: "automation" });
+		await expect(tag).toBeVisible();
+
+		const tagged = page.waitForResponse((response) => {
+			const url = new URL(response.url());
+			return url.pathname === "/api/marketplace" && url.searchParams.get("tag") === "automation";
+		});
+		await tag.click();
+		await tagged;
+		await expect(tag).toHaveAttribute("aria-pressed", "true");
+
+		const sorted = page.waitForResponse((response) => {
+			const url = new URL(response.url());
+			return url.pathname === "/api/marketplace" && url.searchParams.get("tag") === "automation" && url.searchParams.get("sort") === "rating";
+		});
+		await page.getByRole("combobox").selectOption("rating");
+		await sorted;
+
+		const cleared = page.waitForResponse((response) => {
+			const url = new URL(response.url());
+			return url.pathname === "/api/marketplace" && !url.searchParams.has("tag") && url.searchParams.get("sort") === "rating";
+		});
+		await tag.click();
+		await cleared;
+		await expect(tag).toHaveAttribute("aria-pressed", "false");
+	});
+
+	test("loads the next marketplace page and retains the first page", async ({ page, mockApi }) => {
+		const firstPage = Array.from({ length: 20 }, (_, index) => makeListing({ id: `first-${index}`, name: `First page agent ${index}` }));
+		const secondPage = [makeListing({ id: "second-page", name: "Second page agent" })];
+		await mockApi({
+			projects: [proj],
+			routes: {
+				"/api/marketplace": (url) => ({
+					listings: url.searchParams.get("offset") === "20" ? secondPage : firstPage,
+					featured: [],
+				}),
+			},
+		});
+		await page.goto("/marketplace");
+		await expect(page.getByRole("link", { name: /First page agent 19/ })).toBeVisible();
+		const more = page.waitForResponse((response) => {
+			const url = new URL(response.url());
+			return url.pathname === "/api/marketplace" && url.searchParams.get("offset") === "20";
+		});
+		await page.getByRole("button", { name: "Load More" }).click();
+		await more;
+		await expect(page.getByRole("link", { name: /Second page agent/ })).toBeVisible();
+		await expect(page.getByRole("link", { name: /First page agent 0/ })).toBeVisible();
+	});
+
+	test("shows the browse failure after the marketplace request fails", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj] });
+		await page.route(/\/api\/marketplace(?:\?.*)?$/, (route) => route.fulfill({ status: 503, json: { error: "Marketplace unavailable" } }));
+		await page.goto("/marketplace");
+		await expect(page.getByText("Marketplace unavailable", { exact: true })).toBeVisible();
+	});
+});
+
+test.describe("Marketplace detail actions", () => {
+	const proj = makeProject({ id: "marketplace-detail-actions" });
+
+	function detailForActions(overrides: Record<string, unknown> = {}) {
+		const listing = makeListing({ id: "listing-actions", name: "Action Agent", ...overrides });
+		return {
+			listing,
+			versions: [],
+			userRating: null,
+			installed: false,
+		};
+	}
+
+	test("install reports required extensions from the accepted install response", async ({ page, mockApi }) => {
+		const detail = detailForActions();
+		await mockApi({
+			projects: [proj],
+			routes: {
+				"/api/marketplace/listing-actions": () => detail,
+				"/api/auth/me": () => ({ user: null }),
+			},
+		});
+		await page.route("**/api/marketplace/listing-actions/install", (route) => route.fulfill({
+			json: {
+				agentConfig: { name: "Action Agent" },
+				extensionsNeeded: [{ name: "review-tools", source: "builtin", version: "1.0.0", required: true }],
+			},
+		}));
+		await page.goto("/marketplace/listing-actions");
+		const install = page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/marketplace/listing-actions/install");
+		await page.getByRole("button", { name: "Install" }).click();
+		await install;
+		await expect(page.getByText('Installed "Action Agent" successfully! Note: 1 extension(s) may be needed.')).toBeVisible();
+		await expect(page.getByRole("button", { name: "Installed" })).toBeDisabled();
+	});
+
+	test("install and export failures remain visible to the user", async ({ page, mockApi }) => {
+		const detail = detailForActions();
+		await mockApi({
+			projects: [proj],
+			routes: {
+				"/api/marketplace/listing-actions": () => detail,
+				"/api/auth/me": () => ({ user: null }),
+			},
+		});
+		await page.route("**/api/marketplace/listing-actions/install", (route) => route.fulfill({ status: 500, json: { error: "Install rejected" } }));
+		await page.route("**/api/marketplace/export/listing-actions", (route) => route.fulfill({ status: 500, json: { error: "Export rejected" } }));
+		await page.goto("/marketplace/listing-actions");
+
+		const rejectedInstall = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/marketplace/listing-actions/install");
+		await page.getByRole("button", { name: "Install" }).click();
+		await rejectedInstall;
+		await expect(page.getByText("Install rejected", { exact: true })).toBeVisible();
+
+		const rejectedExport = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/marketplace/export/listing-actions");
+		await page.getByRole("button", { name: "Export" }).click();
+		await rejectedExport;
+		await expect(page.getByText("Export rejected", { exact: true })).toBeVisible();
+	});
+
+	test("a member opens the report dialog for a listing they do not own", async ({ page, mockApi }) => {
+		const detail = detailForActions({ authorId: "another-user" });
+		await mockApi({
+			projects: [proj],
+			routes: {
+				"/api/marketplace/listing-actions": () => detail,
+				"/api/auth/me": () => ({ user: { id: "member-1", role: "member" } }),
+			},
+		});
+		await page.goto("/marketplace/listing-actions");
+		await page.getByRole("button", { name: "Report" }).click();
+		await expect(page.getByRole("dialog")).toBeVisible();
+	});
+});
