@@ -77,3 +77,12 @@ jobs:
       # imply real-driver verification they do not provide.
       - name: Run external-Postgres DB suite
         run: bun test src/__tests__/db-migration-postgres.test.ts
+
+      # A separate process is necessary because connection.ts captures the
+      # pool size at module load. This keeps the normal-pool suite above and
+      # runs the exact DB_POOL_MAX=1 lifecycle under the existing 60s real
+      # initialization hook plus Bun's unchanged 5s test budget.
+      - name: Run one-connection Postgres migration lifecycle
+        env:
+          DB_POOL_MAX: "1"
+        run: bun test ./tests/postgres/pool-one.test.ts
