@@ -781,9 +781,9 @@ Review: run 34494839199 passed the full production image lifecycle, including hi
 
 - [x] Preserve the fourth hosted failure and reproduce the native extension-option click at the viewport edge.
 - [x] Share viewport placement across all five desktop search pickers; native tick-only control passes 55/55 without the extra frame wait.
-- [ ] Retain native selection and pill assertions; cover placement and asynchronous content changes where relevant.
-- [ ] Run focused mapped browser checks, types, lint, and independent Terra review.
-- [ ] Check diagnostic merged coverage before pushing; then require a clean complete hosted run and all coverage gates.
+- [x] Retain native selection and pill assertions; all 55 picker/team browser cases pass, including constrained filtering and reopening.
+- [x] Focused mapped browser checks pass (55 picker/team plus 23 mobile/preferences cases); parent reviewed the final repair after Terra reached its usage limit. Full type/lint/Svelte checks run in the normal push hook.
+- [x] Diagnostic merged coverage passes all 1,625 source floors, 11 new-source gates, and all changed executable lines. Final hosted validation remains tracked below.
 
 Review: fourth run `34500430524` passed all 12 backend shards on the first attempt (24,999 pass, zero retries), all web unit shards, both focused browser engines, real-auth, and visual evidence. The broad mock suite passed 1,419 cases and failed the native extension option click in `picker-pills.spec.ts:326`, because the option remained outside the viewport. The failed lane cannot certify the final coverage gate.
 
@@ -794,8 +794,8 @@ Review: fourth run `34500430524` passed all 12 backend shards on the first attem
 - [x] Add those public checks and the four real subprocess cases to the standard real-auth lane; both browser wrappers pass locally in 8.2s, including unconditional persisted-owner assertions and key revocation.
 - [x] Preserve first-boot and second-boot controls for missing bundled AI-kit installation; distinguish pending human approval from active releases.
 - [x] Retry bundled staging after first-admin creation; isolated setup returns 201 in 753ms, creates a pending workspace/build, and leaves activation disabled.
-- [ ] Validate the local bundled endpoint after a real test-admin approval lifecycle; retain explicit model-dependent limits.
-- [ ] Independently review the setup change and verify its source coverage and real browser/API path before the next hosted run.
+- [x] Validate the local bundled endpoint after a real test-admin approval lifecycle: verified build, exact approved activation, and 3/3 endpoint cases pass at c1c02f8a6; model-stream completion remains outside this deployed-service contract.
+- [x] Parent-reviewed setup change: direct V8 covers all 31 lines, fresh setup passes 7/7, and the complete real-auth lane passes 106/106.
 
 Review: on an empty database, initial boot defers bundled source staging until an administrator exists. The local first-admin setup currently does not reschedule that work. A second boot stages the source but correctly holds activation for release approval. The optional bundled E2E test requires a prepared and approved local installation; its missing-extension failure does not justify automatic activation or weaker approval rules.
 
@@ -804,10 +804,14 @@ Review: on an empty database, initial boot defers bundled source staging until a
 - [x] Retain the fourth hosted raw coverage diagnostic: toast resume and message-route refusal now have direct tests; Node owns the message route's executable map.
 - [x] Reproduce AI-kit approval through the real local runner: its canonical host API grant exceeds the old 1,000-character limit.
 - [x] Test the actual bundled manifest through approval/activation; retain human review and exact grants, and reject oversized whole UTF-8 JSON payloads with the shared contract limit (7/7 lifecycle cases).
-- [ ] Complete approved AI-kit endpoint validation and verify the permanent public/subprocess CI wrapper.
-- [ ] Verify constrained picker sizing after filtering and reopening, including native browser bounds.
-- [ ] Review final changes, run static and focused coverage checks, and inspect mapped browser hits.
+- [x] Approved AI-kit endpoint flow passes 3/3; the permanent wrapper passes 7 public and 4 real subprocess package cases inside the 106-test real-auth run.
+- [x] Constrained list reproduction extends 43 pixels off-screen; reset natural sizing before each measurement. Native browser and component regressions pass.
+- [x] Review final changes and inspect fresh mapped hits; 163 focused Node tests pass in 7.91s. New model-picker keyboard contracts close the final measured gap; the diagnostic source/new-file/patch gates all pass.
 - [ ] Commit and push through normal hooks; require the complete hosted run and all coverage gates to pass.
 - [ ] Merge only after required non-author approval; do not bypass repository protection.
 
 Review: Terra agents reached their usage limit after saving their work. The parent continues the remaining review and verification locally. Fourth hosted production lifecycle passed all eight proofs; the fourth CI run still failed its broad mock producer and dependent gates. No failed or cancelled run counts as final validation.
+
+Fifth-repair review at c1c02f8a6: build passes; direct Node/V8 passes 161 tests in 14 files (7.30s), with helper 11/11, setup 31/31 and messages 170/170 measured lines. All 55 native picker/team cases pass (48.4s); 7 fresh setup and 106 real-auth cases pass (8.8m for real-auth), with no retries. The real approved AI-kit endpoint flow passes all 3 cases using pinned Bun and an isolated database. Twelve separate lifecycle coverage files pass 37 tests. Gate/lane/producer controls pass 135 tests and 799 assertions. Normal commit hooks pass. Only AI-kit changes in the regenerated first-party source lock. Final coverage diagnostic, normal push hooks, complete hosted CI and non-author approval remain required.
+
+Final local fifth-repair diagnostic: remove every shifted source map before combining fresh measurements with unchanged fourth-run source records. All 1,625 source floors pass; 11 new source files are gated; the patch gate covers 97 changed sources. Desktop and mobile picker verification passes 78 cases in two runs (55 + 23); all changed picker executable lines have real Chromium hits. The new model keyboard suite covers bounded ArrowUp/ArrowDown, Enter selection and Escape without selection. These local combined measurements are a diagnostic; final CI must regenerate every producer on the submitted revision.
