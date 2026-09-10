@@ -11,7 +11,7 @@ import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 import { makeProject, makeConversation, makeMessage, makeExtension } from "./fixtures/data.js";
-import type { ExpiredGrant } from "../src/lib/components/permissions/ExpiredGrantsBanner.svelte";
+import type { ExpiredGrant } from "../src/lib/components/permissions/expired-grant.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const project = makeProject({ id: "proj-1", name: "Test Project" });

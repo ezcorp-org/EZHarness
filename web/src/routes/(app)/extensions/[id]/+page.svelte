@@ -8,9 +8,8 @@
 	import type { HeldCapabilityView } from "$lib/capability-policy-ui.js";
 	import JsonBlock from "$lib/components/JsonBlock.svelte";
 	import { invalidateExtensionSettings } from "$lib/stores/extensionSettings";
-	import ExpiredGrantsBanner, {
-		type ExpiredGrant,
-	} from "$lib/components/permissions/ExpiredGrantsBanner.svelte";
+	import ExpiredGrantsBanner from "$lib/components/permissions/ExpiredGrantsBanner.svelte";
+	import type { ExpiredGrant } from "$lib/components/permissions/expired-grant.js";
 	import EntityTable from "$lib/components/EntityTable.svelte";
 	import UninstallDialog from "$lib/components/extensions/UninstallDialog.svelte";
 	import { goto } from "$app/navigation";
