@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { HarnessClient } from "@ezcorp/harness-client";
 import type { RunnerInspection } from "@ezcorp/extension-contract";
 import type { InstallationRecord, InstallationState, LifecycleOperation, WorkspaceRecord } from "../src/extensions/v4/types";
-import { command, inspectProductionRunner, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
+import { waitForProductionBootstrap, command, inspectProductionRunner, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
 import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
 import { requireBundledBootstrapVerified, waitForBundledBootstrap } from "./lib/shipping-bootstrap-state";
 
@@ -79,6 +79,7 @@ async function waitForVerified(client: HarnessClient, installationId: string, op
 
 async function pauseOwnedBuild(client: HarnessClient, installationId: string, operationId: string, store: string): Promise<{ container: string; runnerOperationId: string; attempts: number }> {
   for (let attempt = 1; attempt <= 120; attempt++) {
+    if (attempt > 1) await Bun.sleep(250);
     const state = await stateOf(client, installationId, operationId);
     const operation = state.operations[operationId];
     if (!operation || !["queued", "building", "verifying"].includes(operation.state)) throw new Error(`Build ended before its owned container could be paused: ${operation?.state ?? "missing"}`);
@@ -115,6 +116,7 @@ async function waitForHealth(origin: string): Promise<void> {
 const origin = required("EZ_PRODUCTION_ORIGIN");
 const appContainer = required("EZ_PRODUCTION_CONTAINER");
 const runRoot = required("EZ_PRODUCTION_RUN_ROOT");
+await waitForProductionBootstrap();
 const { client, approveAndActivate } = await productionLifecycleClient();
 const name = `r1-${crypto.randomUUID().replaceAll("-", "")}`;
 const marker = `before-restart-${crypto.randomUUID()}`;

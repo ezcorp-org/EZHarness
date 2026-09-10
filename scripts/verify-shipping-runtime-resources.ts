@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, readlink, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
+import { waitForProductionBootstrap, command, productionLifecycleClient, required } from "./lib/production-lifecycle-client";
 import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
 import { resourceRunConfig, resourceRunReachedTarget } from "./lib/shipping-runtime-resource-config";
 import { invokeExtensionOnceInFreshConversation } from "./lib/shipping-runtime-cycle-conversation";
@@ -231,6 +231,7 @@ const config = resourceRunConfig();
 const appContainer = required("EZ_PRODUCTION_CONTAINER");
 const runRoot = required("EZ_PRODUCTION_RUN_ROOT");
 const runnerPid = required("EZ_PRODUCTION_RUNNER_PID");
+await waitForProductionBootstrap();
 const production = await productionLifecycleClient();
 const { origin, cookie, client, createBuild, approveAndActivate, inspect, sessionResponse } = production;
 const appProcessPid = await appPid(appContainer);

@@ -340,3 +340,8 @@
 ## 2026-09-10 — Standard coverage manifest
 
 - A focused coverage include does not prove the CI producer measures that source. Register every canonical source in the standard manifest and assert registry completeness. Use the actual standard launcher for the final coverage diagnostic. Do not let a manual include mask a missing producer registration.
+
+## 2026-09-10 — Production startup and idle baselines
+
+- When first-admin setup begins real background work, resource and recovery proofs must observe verified bootstrap completion before requiring an idle runner. Keep setup HTTP pools outside the measured process and retain the startup receipt.
+- Bounded container polling needs a pacing interval. A fast fixed-count loop can exhaust all observations before an asynchronously created container appears. Keep native pause/recovery and zero-resource assertions intact.

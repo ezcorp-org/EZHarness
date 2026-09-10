@@ -847,3 +847,16 @@ Review: this adds a meaningful visibility assertion; it does not alter the integ
 - [ ] Run normal integrity and push hooks, then validate a complete fresh hosted run before merge.
 
 Review: the seventh run passed 25,000 backend tests, 7,379 Node tests, 2,170 canonical browser tests, both browser engines, all 1,625 source floors and all 11 new-source checks. Its changed-line gate correctly rejected one unmeasured added line. The run is not green.
+
+## PR256 production startup boundary
+
+- [x] Preserve the eighth hosted failure: all coverage and browser gates pass; R1 exhausts 120 container probes before the owned build container exists, and R4 samples one active bootstrap container.
+- [x] Reuse verified bundled-bootstrap observation before R1 and R4. Run that observation in a child process so its HTTP pool cannot contaminate the R4 socket baseline. Preserve all zero-resource and recovery assertions.
+- [x] Pace R1's existing bounded polling loop at 250ms after the first observation.
+- [x] Build the exact submitted application image from the archived commit; Docker and Podman IDs both match `6679c82c36b1e0fc687de2d8c0d89c57136f6404604a5fb2d18eb5a96a07f5d3`.
+- [x] Add real subprocess controls for verified and failed startup. All 16 focused bootstrap/resource controls pass (57 assertions); lint and gate integrity pass.
+- [x] Replay R1 locally: all 28 bootstrap builds verify; the target container pauses on probe 2; real SIGKILL recovers one candidate after the six-minute lease; old release remains active until explicit approval. App logs and owned cleanup all exit 0.
+- [x] Replay all 10 R4 resource cycles and 100 SSE reconnects in 61.03s after verified startup. All 11 samples have zero runner containers; initial app TCP connections are zero. Memory, descriptor, SSE cleanup and owned cleanup checks pass. Both proof receipts pass `tasks/pr-submit/audit-ninth-production.py`.
+- [ ] Run relevant controls, integrity, normal hooks and complete fresh hosted CI before merge.
+
+Review: the production suite retained all eight proof results. File Organizer (13 cases), embeddings, delivery, revocation, historical upgrade and legacy adoption passed. Startup now correctly stages bundled sources after first-admin setup; the two failed verifiers began before that background work settled. The required proof job failed correctly.
