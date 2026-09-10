@@ -78,10 +78,6 @@ export const EXCLUDES: readonly string[] = [
   // uploaded as an `lcov-cov-*` artifact by the CI `web-security-coverage` job.
   // Each clears the `web/src/lib/**` 90% floor (measured 97.78–100%). Their
   // suites are ALSO run for pass/fail by the `web-bun-tests` job.
-  // Process-boot singleton orchestrator; its accessors only execute
-  // meaningfully in a fully-booted server (integration-only, like other boot
-  // wiring).
-  "web/src/lib/server/context.ts",
   // Compatibility barrel only: it re-exports the backend clamp implementation
   // so established `$lib` imports stay valid. The implementation's behavior is
   // measured in `src/__tests__/clamp-extension-permissions.test.ts` and the
