@@ -528,17 +528,16 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
 
     // 4. Allow.
     //
-    // Coalesced: this call site passes `cap: undefined`, so the row
-    // carries no capability kind and no value — a burst of them is one
-    // fact with a count, not N facts. `read_files` walking a project
-    // emitted up to 700 of them per tool call and evicted every other
-    // governance event from `/api/audit`'s first page. First-in-window is
-    // written verbatim; the tail becomes a single counted summary.
+    // Coalesced: a single requested capability belongs in the row and in
+    // its burst identity. That lets an audit reader distinguish an allowed
+    // append from an allowed filesystem or network operation. A multi-cap
+    // decision has no truthful single kind, so it remains an aggregate.
     // Prompts, the fail-closed `override-lookup-failed` deny and the
     // sensitive `bundled-ceiling-auto-allow` above are NEVER folded —
     // see `perm-audit-coalescer.ts`.
-    if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "allow"), auditId)) {
-      await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined);
+    const auditCapability = needed.length === 1 ? needed[0] : undefined;
+    if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "allow", auditCapability), auditId)) {
+      await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, auditCapability);
     }
     return { decision: "allow", auditId };
   }

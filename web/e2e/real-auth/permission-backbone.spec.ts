@@ -13,11 +13,11 @@ import { installKokoroWorkerStub } from "../fixtures/kokoro-worker.js";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 type ToolCall = {
-  id: string;
-  toolName: string;
-  cardType: string | null;
-  status: string;
-  output: string | null;
+	id: string;
+	toolName: string;
+	cardType: string | null;
+	status: string;
+	fullOutput: string | null;
 };
 
 type StoredMessage = {
@@ -34,11 +34,15 @@ type AuditEntry = {
 
 test.describe("permission backbone — native toolbar and retired reapproval", () => {
   test("anonymous audit navigation is redirected to sign in", async ({ browser, baseURL }) => {
-    const anonymous = await browser.newContext({ baseURL });
+		const anonymous = await browser.newContext({
+			baseURL,
+			// The configured real-auth browser has an admin storage state. Supply
+			// an empty state explicitly so this is a server-side anonymous check.
+			storageState: { cookies: [], origins: [] },
+		});
     try {
-      // This must be an independent browser context. If Playwright ever
-      // inherits the admin storage state here, the authorization control is
-      // invalid rather than a passing admin journey.
+		// This must be an independent browser context. A session cookie here
+		// invalidates the authorization control.
       expect(await anonymous.cookies()).toEqual([]);
       const page = await anonymous.newPage();
       await page.goto("/audit");
@@ -138,8 +142,8 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
       const stored = (await persisted.json()) as { messages: StoredMessage[] };
       extensionTurn = stored.messages.find(message => message.id === speakBody.messageId);
       toolCall = extensionTurn?.toolCalls?.find(call => call.id === speakBody.toolCallIds[0]);
-      return toolCall?.output ?? null;
-    }, { timeout: 10_000 }).toMatch(/"attachmentId":"[^"]+"/);
+		return toolCall?.fullOutput ?? null;
+	}, { timeout: 10_000 }).toMatch(/^\{"attachmentId":"[^"]+"\}$/);
     expect(extensionTurn).toMatchObject({
       role: "extension",
       content: `🔊 TTS of message (${history.firstContent.length} chars)`,
@@ -173,4 +177,3 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
     });
   });
 });
-

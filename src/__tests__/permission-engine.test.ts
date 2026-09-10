@@ -306,7 +306,32 @@ describe("authorize — audit log row per decision", () => {
     const meta = rows[0]!.metadata as Record<string, unknown>;
     expect(meta.toolName).toBe("writer");
     expect(meta.conversationId).toBe(HELLO_CONV);
+    expect(meta.capabilityKind).toBe("storage");
     expect(rows[0]!.target).toBe(HELLO_EXT);
+  });
+
+  test("keeps distinct allowed capabilities while coalescing repeats", async () => {
+    const engine = makeEngine({
+      granted: { grantedAt: {}, storage: true, network: ["example.com"] },
+    });
+    const context = {
+      extensionId: HELLO_EXT,
+      userId: HELLO_USER,
+      conversationId: HELLO_CONV,
+      toolName: "writer",
+    };
+
+    await engine.authorize(context, [{ kind: "storage" }]);
+    await engine.authorize(context, [{ kind: "storage" }]);
+    await engine.authorize(context, [{ kind: "network", value: "example.com" }]);
+
+    const rows = await getTestDb()
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "ext:perm:allowed"));
+    expect(rows).toHaveLength(2);
+    expect(rows.map(row => (row.metadata as Record<string, unknown>).capabilityKind).sort())
+      .toEqual(["network", "storage"]);
   });
 
   test("writes one PERM_DENIED row on deny", async () => {
