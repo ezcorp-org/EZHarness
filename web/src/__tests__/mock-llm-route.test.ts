@@ -110,7 +110,29 @@ describe("completions endpoint", () => {
 });
 
 describe("/release endpoint", () => {
-  test("releases a held stream once and rejects unknown holds", async () => {
+	test("fails closed for disabled, unscoped, malformed, and unauthenticated requests", async () => {
+		delete process.env.PI_E2E_REAL;
+		expect((await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: cookieLocals } as any)).status).toBe(404);
+		process.env.PI_E2E_REAL = "1";
+
+		const unscoped = await releaseHold({
+			request: jsonReq({ holdKey: "route-hold" }),
+			locals: { ...cookieLocals, apiKeyScopes: ["read"] },
+		} as any);
+		expect(unscoped.status).toBe(403);
+		expect((await releaseHold({ request: new Request("http://127.0.0.1/x", { method: "POST", body: "{not json" }), locals: cookieLocals } as any)).status).toBe(400);
+
+		let denial: unknown;
+		try {
+			await releaseHold({ request: jsonReq({ holdKey: "route-hold" }), locals: {} } as any);
+		} catch (error) {
+			denial = error;
+		}
+		expect(denial).toBeInstanceOf(Response);
+		expect((denial as Response).status).toBe(401);
+	});
+
+	test("releases a held stream once and rejects unknown holds", async () => {
     const held = buildMockStreamResponse({ holdKey: "route-hold", text: "released" });
     const reader = held.body!.getReader();
     const first = reader.read();
