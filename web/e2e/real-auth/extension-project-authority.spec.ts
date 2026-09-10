@@ -69,7 +69,7 @@ test("real project binding, isolated Git read, host review and revoke @evidence"
     // client module, which would leave its interactive pending/review state
     // untested.
     const actionRequest = page.waitForRequest(candidate =>
-      candidate.method() === "POST" && new URL(candidate.url()).pathname === new URL(proposal.reviewUrl).pathname,
+      candidate.method() === "POST" && new URL(candidate.url()).pathname === new URL(proposal.reviewUrl, baseURL).pathname,
     );
     await reject.click();
     expect((await actionRequest).headers()["x-sveltekit-action"]).toBe("true");

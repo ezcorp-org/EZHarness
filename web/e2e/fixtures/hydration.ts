@@ -54,6 +54,7 @@ const browserCoverageBuildId = BROWSER_COVERAGE
 	: undefined;
 
 type CoverageScript = { url: string; functions: unknown[] };
+type RawCoverage = { result: Array<CoverageScript & { scriptId: string }> };
 type CoverageReceipt = {
 	result: CoverageScript[];
 	buildId: string;
@@ -82,6 +83,28 @@ function coverageOutput(testInfo: TestInfo): string {
 		?? resolve(process.cwd(), "..", "tasks", "testing-gaps", "browser", "v8-coverage");
 	const project = testInfo.project.name.replaceAll(/[^a-zA-Z0-9]+/g, "-");
 	return resolve(outputDir, `${project}-worker-${testInfo.workerIndex}.json`);
+}
+
+/**
+ * Retain only source-mapped application assets from the document that is
+ * currently running. A test can leave that document by a native form POST or
+ * a reload; its V8 isolate then disappears before the end-of-test snapshot.
+ */
+function applicationScripts(
+	raw: RawCoverage,
+	origin: string,
+	sourceMapUrls: ReadonlyMap<string, string>,
+): CoverageScript[] {
+	return raw.result.flatMap((script) => {
+		try {
+			const url = new URL(script.url);
+			const sourceMapURL = sourceMapUrls.get(script.scriptId);
+			if (url.origin !== origin || !url.pathname.startsWith("/_app/") || !sourceMapURL) return [];
+			return [{ url: script.url, functions: script.functions }];
+		} catch {
+			return [];
+		}
+	});
 }
 
 async function checkpointCoverage(
@@ -250,34 +273,50 @@ export const test = base.extend<{ browserCoverage: undefined; inviteRateLimitIso
 		await session.send("Debugger.enable");
 		await session.send("Profiler.enable");
 		await session.send("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+		const documentSnapshots: CoverageScript[][] = [];
+		let snapshotError: Error | undefined;
+		let snapshotQueue = Promise.resolve();
+		const snapshotCurrentDocument = () => {
+			snapshotQueue = snapshotQueue.then(async () => {
+				try {
+					const current = new URL(page.url());
+					if (!current.protocol.startsWith("http")) return;
+					const raw = await session.send("Profiler.takePreciseCoverage") as RawCoverage;
+					documentSnapshots.push(applicationScripts(raw, current.origin, sourceMapUrls));
+				} catch (error) {
+					snapshotError ??= error instanceof Error ? error : new Error(String(error));
+				}
+			});
+			return snapshotQueue;
+		};
+		const checkpointBeforeTopLevelNavigation = (request: { isNavigationRequest(): boolean; frame(): ReturnType<Page["mainFrame"]> }) => {
+			if (request.isNavigationRequest() && request.frame() === page.mainFrame()) void snapshotCurrentDocument();
+		};
+		page.on("request", checkpointBeforeTopLevelNavigation);
 		let coverageError: Error | undefined;
 		try {
 			await use(undefined);
 		} finally {
 			try {
-				const raw = await session.send("Profiler.takePreciseCoverage") as {
-					result: Array<{ scriptId: string; url: string; functions: unknown[] }>;
-				};
-				const origin = new URL(page.url()).origin;
-				const result = raw.result.flatMap((script) => {
-					try {
-						const url = new URL(script.url);
-						const sourceMapURL = sourceMapUrls.get(script.scriptId);
-						if (url.origin !== origin || !url.pathname.startsWith("/_app/") || !sourceMapURL) return [];
-						return [{ ...script, sourceMapURL }];
-					} catch {
-						return [];
-					}
-				});
-				// CLI/API-only and PWA-manifest checks can legitimately load no
-				// application chunk. Keep their checkpoint for an auditable count;
-				// the final merged route/shim manifest still requires real DA data.
-				await checkpointCoverage(
-					testInfo,
-					result,
-					browserCoverageExpectedManifest?.routes,
-					browserCoverageExpectedManifest?.files,
-				);
+				page.off("request", checkpointBeforeTopLevelNavigation);
+				await snapshotCurrentDocument();
+				await snapshotQueue;
+				if (snapshotError) {
+					coverageError = snapshotError;
+				} else {
+					const result = documentSnapshots.length > 1
+						? (await v8CoverageMerger!).mergeProcessCovs(documentSnapshots.map((snapshot) => ({ result: snapshot }))).result
+						: (documentSnapshots[0] ?? []);
+					// CLI/API-only and PWA-manifest checks can legitimately load no
+					// application chunk. Keep their checkpoint for an auditable count;
+					// the final merged route/shim manifest still requires real DA data.
+					await checkpointCoverage(
+						testInfo,
+						result,
+						browserCoverageExpectedManifest?.routes,
+						browserCoverageExpectedManifest?.files,
+					);
+				}
 			} catch (error) {
 				coverageError = error instanceof Error ? error : new Error(String(error));
 			} finally {
