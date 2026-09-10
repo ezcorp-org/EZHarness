@@ -309,7 +309,7 @@ const DEFAULT_AGENT = makeAgent({ name: "summarizer", description: "Summarizes t
 const DEFAULT_CONV = makeConversation({ id: "conv-1", projectId: "proj-1", title: "Hello Chat" });
 
 export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
-	const projects = overrides.projects ?? [DEFAULT_PROJECT];
+	const projects = [...(overrides.projects ?? [DEFAULT_PROJECT])];
 	const agents = overrides.agents ?? [DEFAULT_AGENT];
 	const runs = overrides.runs ?? [];
 	const conversations = overrides.conversations ?? [DEFAULT_CONV];
@@ -383,7 +383,7 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 	];
 	const subConversations = overrides.subConversations ?? [];
 	const subConversationToolCalls = overrides.subConversationToolCalls ?? {};
-	const settings = overrides.settings ?? {};
+	const settings: Record<string, unknown> = { ...(overrides.settings ?? {}) };
 	const routes = overrides.routes ?? {};
 
 	// Feature Index — mutable in-memory state so PATCH / DELETE / POST
@@ -595,6 +595,14 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		}
 		if (path === "/api/projects" && method === "POST") {
 			return route.fulfill({ json: makeProject({ id: "new-proj" }) });
+		}
+		if (path.match(/^\/api\/projects\/[^/]+$/) && method === "PUT") {
+			const id = path.split("/").pop()!;
+			const index = projects.findIndex((project) => project.id === id);
+			if (index < 0) return route.fulfill({ status: 404, json: { error: "Not found" } });
+			const update = route.request().postDataJSON() as Partial<(typeof projects)[number]>;
+			projects[index] = { ...projects[index]!, ...update };
+			return route.fulfill({ json: projects[index] });
 		}
 
 		// Agents
@@ -952,6 +960,8 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 			return route.fulfill({ json: settings });
 		}
 		if (path.match(/^\/api\/settings\//) && method === "PUT") {
+			const key = decodeURIComponent(path.slice("/api/settings/".length));
+			settings[key] = (route.request().postDataJSON() as { value?: unknown }).value;
 			return route.fulfill({ json: { ok: true } });
 		}
 		// A key whose ABSENCE is its off state (`provider:routingShadow`) is

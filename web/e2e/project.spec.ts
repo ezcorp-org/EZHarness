@@ -60,32 +60,42 @@ test.describe("Projects", () => {
 		const projectInstructions = page.getByPlaceholder("e.g. You are a coding assistant for this project...");
 		await projectInstructions.fill("Project instructions updated by the user");
 		const [projectSave] = await Promise.all([
-			page.waitForRequest((request) =>
-				new URL(request.url()).pathname === `/api/settings/project:${proj.id}:systemPrompt`
-				&& request.method() === "PUT",
+			page.waitForResponse((response) =>
+				new URL(response.url()).pathname === `/api/settings/project:${proj.id}:systemPrompt`
+				&& response.request().method() === "PUT",
 			),
 			page.getByRole("button", { name: "Save Project Instructions" }).click(),
 		]);
-		expect(projectSave.postDataJSON()).toEqual({ value: "Project instructions updated by the user" });
+		expect(projectSave.status()).toBe(200);
+		expect(projectSave.request().postDataJSON()).toEqual({ value: "Project instructions updated by the user" });
+		await expect(page.getByRole("button", { name: "Save Project Instructions" })).toBeEnabled();
 
 		const globalInstructions = page.getByPlaceholder("e.g. You are a helpful AI assistant...");
 		await globalInstructions.fill("Global instructions updated by the user");
 		const [globalSave] = await Promise.all([
-			page.waitForRequest((request) =>
-				new URL(request.url()).pathname === "/api/settings/global:systemPrompt"
-				&& request.method() === "PUT",
+			page.waitForResponse((response) =>
+				new URL(response.url()).pathname === "/api/settings/global:systemPrompt"
+				&& response.request().method() === "PUT",
 			),
 			page.getByRole("button", { name: "Save Global Instructions" }).click(),
 		]);
-		expect(globalSave.postDataJSON()).toEqual({ value: "Global instructions updated by the user" });
+		expect(globalSave.status()).toBe(200);
+		expect(globalSave.request().postDataJSON()).toEqual({ value: "Global instructions updated by the user" });
+		await expect(page.getByRole("button", { name: "Save Global Instructions" })).toBeEnabled();
 
 		await page.getByRole("textbox", { name: "Name", exact: true }).fill("Renamed Settings Project");
 		const [update] = await Promise.all([
-			page.waitForRequest((request) =>
-				new URL(request.url()).pathname === `/api/projects/${proj.id}` && request.method() === "PUT",
+			page.waitForResponse((response) =>
+				new URL(response.url()).pathname === `/api/projects/${proj.id}` && response.request().method() === "PUT",
 			),
 			page.getByRole("button", { name: "Update", exact: true }).click(),
 		]);
-		expect(update.postDataJSON()).toMatchObject({ name: "Renamed Settings Project", path: proj.path });
+		expect(update.status()).toBe(200);
+		expect(update.request().postDataJSON()).toMatchObject({ name: "Renamed Settings Project", path: proj.path });
+		await page.reload();
+		await expect(projectInstructions).toHaveValue("Project instructions updated by the user");
+		await expect(globalInstructions).toHaveValue("Global instructions updated by the user");
+		await expect(page.getByRole("heading", { name: "Renamed Settings Project", exact: true })).toBeVisible();
+		await expect(page.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("Renamed Settings Project");
 	});
 });

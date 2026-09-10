@@ -235,3 +235,8 @@
 ## 2026-09-10 — Shared-style coverage
 
 - Do not duplicate a shared style constant to satisfy V8 coverage. A source-mapped branch from Svelte's defensive generated `?? ''` fallback is not an executable product branch when the imported constant is typed and defined. Keep the import, test real event payloads, and report the generated mapping to the coverage owner.
+
+
+## 2026-09-10 — Completed browser write journeys
+
+- A captured write request proves only dispatch. For every browser write journey, wait for its response, prove the control returns to its completed state, then reload or refresh and assert the persisted user-visible value.
