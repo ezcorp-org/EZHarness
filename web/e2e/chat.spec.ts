@@ -14,8 +14,8 @@ test.describe("Chat", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat`);
 
-		await expect(page.getByText("First Chat")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Second Chat")).toBeVisible({ timeout: 5000 });
+		await expect(page.getByText("First Chat", { exact: true })).toBeVisible({ timeout: 5000 });
+		await expect(page.getByText("Second Chat", { exact: true })).toBeVisible({ timeout: 5000 });
 	});
 
 	test("chat list shows empty state with New Chat button", async ({ page, mockApi }) => {

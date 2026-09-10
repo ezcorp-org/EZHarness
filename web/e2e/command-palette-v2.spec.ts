@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeSearchHit } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage, makeSearchHit } from "./fixtures/data.js";
 
 // PHASE 61-02 ROUTE PIVOT (Bucket A #4): the historical "/" landing page
 // does NOT render the (app) sidebar/aside — it's a marketing/landing
@@ -168,28 +168,28 @@ test.describe("Command Palette v2", () => {
 		await expect(palette.getByText("Install Extension")).toBeVisible();
 	});
 
-	test("search mode shows conversation search sub-view", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], conversations: [conv] });
-		await page.goto(`/project/${proj.id}`);
-		// Phase 61-02: viewport-agnostic hydration wait (see "opens with Ctrl+K
-		// on project page" above for rationale — redirect target varies by
-		// viewport so a heading-based wait is unreliable here).
-		await page.waitForLoadState("networkidle");
-
-		await page.keyboard.press("Control+k");
-		await expect(page.getByPlaceholder("Type a command...")).toBeVisible();
-
-		// Click the "Search conversations..." command
-		await page.getByText("Search conversations...").click();
-
-		// Placeholder should change to search mode
-		await expect(page.getByPlaceholder("Search conversations...")).toBeVisible();
-
-		// Back button should appear (aria-label="Back").
-		// Phase 61-02: `{ exact: true }` scopes away from mobile-chromium's
-		// "Back to project menu" sidebar button that also matches "Back"
-		// via Playwright's default substring `name` semantics.
-		await expect(page.getByRole("button", { name: "Back", exact: true })).toBeVisible();
+	test("typing a query searches messages and opens the matching conversation", async ({ page, mockApi }) => {
+		const message = makeMessage({ id: "matched-message", conversationId: conv.id, role: "user", content: "A searchable result" });
+		await mockApi({ projects: [proj], conversations: [conv], messages: [message], searchMessages: { hits: [makeSearchHit({
+			conversationId: conv.id, conversationTitle: conv.title, projectId: proj.id, projectName: proj.name,
+			messageId: "matched-message", snippet: "A <mark>searchable</mark> result",
+		})] } });
+		await page.goto(`/project/${proj.id}/chat`);
+		await openPaletteViaButton(page);
+		const palette = page.getByRole("dialog", { name: "Command palette" });
+		const searched = page.waitForRequest((request) => new URL(request.url()).pathname === "/api/search/messages"
+			&& new URL(request.url()).searchParams.get("q") === "searchable");
+		await palette.getByRole("textbox", { name: "Command palette input" }).fill("searchable");
+		const request = await searched;
+		expect(new URL(request.url()).searchParams.get("scope")).toBe("all");
+		await expect(palette.getByText("A searchable result", { exact: true })).toBeVisible();
+		await palette.getByText("A searchable result", { exact: true }).click();
+		// The chat consumes ?m= and removes it once the jump is armed.
+		const match = page.locator(`[data-message-id="${message.id}"].message-pulse`);
+		await expect(match).toBeVisible();
+		await expect(match).toContainText(message.content);
+		await expect(page).toHaveURL(`/project/${proj.id}/chat/${conv.id}`);
+		await expect(palette).toHaveCount(0);
 	});
 
 	test("Projects command drills down to a project's actions and navigates", async ({ page, mockApi }) => {

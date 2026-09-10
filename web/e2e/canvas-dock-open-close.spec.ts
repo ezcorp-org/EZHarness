@@ -1,4 +1,5 @@
 /** Canvas dock browser coverage for live SSE and persisted hydration. */
+import { expectThemeColor } from "./fixtures/theme.js";
 import type { Page } from "@playwright/test";
 import { mockCanvasPreview, canvasPreviewPayload as payload } from "./fixtures/canvas-preview.js";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
@@ -27,24 +28,9 @@ async function assertDock(page: Page): Promise<void> {
 }
 
 async function assertCanvasThemeTokens(page: Page): Promise<void> {
-	const colors = await page.getByRole("complementary", { name: "Preview controls" }).evaluate((sidebar) => {
-		const probe = document.createElement("div");
-		probe.style.background = "var(--color-surface-secondary)";
-		probe.style.color = "var(--color-text-primary)";
-		document.body.append(probe);
-		const expected = getComputedStyle(probe);
-		const actualHeader = getComputedStyle(sidebar.querySelector("header")!);
-		const result = {
-			background: getComputedStyle(sidebar).backgroundColor,
-			expectedBackground: expected.backgroundColor,
-			header: actualHeader.color,
-			expectedHeader: expected.color,
-		};
-		probe.remove();
-		return result;
-	});
-	expect(colors.background).toBe(colors.expectedBackground);
-	expect(colors.header).toBe(colors.expectedHeader);
+	const controls = page.getByRole("complementary", { name: "Preview controls" });
+	await expectThemeColor(controls, "background-color", "--color-surface-secondary");
+	await expectThemeColor(controls.locator("header"), "color", "--color-text-primary");
 }
 
 test.describe("Canvas Dock — live open and persisted restore", () => {

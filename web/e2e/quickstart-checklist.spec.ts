@@ -31,18 +31,22 @@ test.describe("QuickStart Checklist", () => {
 		await expect(page.getByText("0/4")).toBeVisible({ timeout: 5000 });
 	});
 
-	test("dismiss button hides checklist", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+	test("dismiss button hides a started checklist", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], routes: {
+			"/api/quickstart": () => ({ steps: { provider: true, chat: false, extension: false, agent: false } }),
+		} });
 
 		await page.goto(`/project/${proj.id}`);
 
 		await expect(page.getByText("Get Started")).toBeVisible({ timeout: 5000 });
 
-		// Click dismiss button
+		// A started checklist can be dismissed; a new checklist cannot.
+		await expect(page.getByText("1/4", { exact: true })).toBeVisible();
 		await page.getByRole("button", { name: "Dismiss checklist" }).click();
 
 		// Checklist should disappear
 		await expect(page.getByText("Get Started")).not.toBeVisible({ timeout: 3000 });
+		await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("pi-quickstart") ?? "{}").dismissed)).toBe(true);
 	});
 
 	test("collapse/expand toggle", async ({ page, mockApi }) => {
