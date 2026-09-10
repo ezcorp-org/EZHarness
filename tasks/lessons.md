@@ -345,3 +345,9 @@
 
 - When first-admin setup begins real background work, resource and recovery proofs must observe verified bootstrap completion before requiring an idle runner. Keep setup HTTP pools outside the measured process and retain the startup receipt.
 - Bounded container polling needs a pacing interval. A fast fixed-count loop can exhaust all observations before an asynchronously created container appears. Keep native pause/recovery and zero-resource assertions intact.
+
+## 2026-09-10 — Shutdown subprocess ownership
+
+- A passing shard can hide a first-attempt failure. Audit raw failed-test summaries and the actual `Retry sweep` / `isolated plain re-run` messages before accepting CI.
+- A readiness timeout must kill and reap the owned child. Drain stdout and stderr from spawn, bound exit after the signal, and retain diagnostics on early exit. Use the current executable rather than an ambient `bun` binary.
+- Shutdown tests need a real writable database, not repeated catalog creation inside the signal handshake. Build a closed empty catalog once, give each child a private copy, and keep writes and data-survival checks in the real child/reopen path. Verify the unchanged deadline under the same load that reproduced the failure.

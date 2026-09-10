@@ -860,3 +860,15 @@ Review: the seventh run passed 25,000 backend tests, 7,379 Node tests, 2,170 can
 - [ ] Run relevant controls, integrity, normal hooks and complete fresh hosted CI before merge.
 
 Review: the production suite retained all eight proof results. File Organizer (13 cases), embeddings, delivery, revocation, historical upgrade and legacy adoption passed. Startup now correctly stages bundled sources after first-admin setup; the two failed verifiers began before that background work settled. The required proof job failed correctly.
+
+## PR256 database shutdown test ownership
+
+- [x] Preserve ninth hosted first-attempt failure: database shutdown Path A never signals READY within the test's 10s startup timer; an isolated plain rerun hides the failure in a passing shard.
+- [x] Reproduce the real child/database flow: four coverage workers on one CPU fail all eight signal cases at the unchanged 10s readiness limit. Two-CPU controls pass; raw logs and exact CPU sets are retained.
+- [x] Build one closed empty catalog and privately copy it for each signal path. Seed-only control passes all eight previously failing cases. Shared child handling drains both streams, uses the current Bun executable, bounds readiness and exit separately, and always kills/reaps the owned child. Production shutdown behavior and data-survival assertions are unchanged.
+- [x] Final suite passes 24/24 cases and 84 assertions on one CPU, then 24/24 and 84 assertions on two CPUs. New controls verify readiness timeout, post-signal timeout, early-exit diagnostics and 1 MiB stderr backpressure. Lint and integrity pass.
+- [ ] Run normal commit/push hooks and require fresh hosted checks without hidden first failures.
+
+Review: the current helper applies its only 10s guard before the signal, leaves post-signal exit unbounded, drains stderr only after exit, and does not kill/reap the child if readiness fails. The repair must address those lifecycle defects, not accept the existing retry as success.
+
+Performance review: the final four-worker, two-CPU run completes all six cases per worker in at most 15.98s, versus 18.59s for the original two-case suite in the same local setup. These are local single-run controls, not an overall CI speedup claim. The one-CPU red/green controls are retained under `tasks/pr-submit/tenth-shutdown-*`.
