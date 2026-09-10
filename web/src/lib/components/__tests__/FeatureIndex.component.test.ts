@@ -14,11 +14,13 @@ import { render, fireEvent, screen, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import FeatureIndex from "../FeatureIndex.svelte";
 import { addToast } from "$lib/toast.svelte.js";
+import { searchMentions } from "$lib/api";
 
 // Mock the toast store so scan toasts can be asserted without a mounted
 // Toaster (and so the auto-dismiss setTimeout doesn't interact with the
 // fake timers below).
 vi.mock("$lib/toast.svelte.js", () => ({ addToast: vi.fn() }));
+vi.mock("$lib/api", () => ({ searchMentions: vi.fn() }));
 
 interface FeatureFixture {
 	id: string;
@@ -486,4 +488,88 @@ describe("FeatureIndex — scan banner lifecycle + toasts", () => {
 		expect(err).toHaveTextContent("network down");
 		expect(screen.queryByTestId("scan-notice")).toBeNull();
 	});
+});
+
+describe("FeatureIndex — create, scan, and row lifecycle", () => {
+	test("creates, scans, expands, removes, and deletes through the visible controls", async () => {
+		const feature = makeFeature({ files: undefined });
+		let listed = [feature];
+		vi.stubGlobal("confirm", () => true);
+		vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+			const method = init?.method ?? "GET";
+			if (input.endsWith('/scan')) return new Response(JSON.stringify({ features: listed, notice: null }), { status: 200 });
+			if (method === "POST") { const created = makeFeature({ id: "feat-2", name: "docs", source: "user" }); listed = [...listed, created]; return new Response(JSON.stringify(created), { status: 200 }); }
+			if (method === "DELETE") { listed = []; return new Response("{}", { status: 200 }); }
+			if (method === "PATCH") return new Response(JSON.stringify({ ...feature, files: [] }), { status: 200 });
+			if (input.endsWith('/feat-1')) return new Response(JSON.stringify({ ...feature, files: [{ featureId: "feat-1", relpath: "src/auth.ts", source: "user", addedAt: "2026" }] }), { status: 200 });
+			return new Response(JSON.stringify(listed), { status: 200 });
+		}));
+		render(FeatureIndex, { projectId: "proj-1" });
+		await waitFor(() => expect(screen.getByText("auth", { exact: true })).toBeTruthy());
+		await fireEvent.click(screen.getByRole("button", { name: /New feature/i }));
+		await fireEvent.input(screen.getByPlaceholderText(/Feature name/), { target: { value: "docs" } });
+		await fireEvent.click(screen.getByRole("button", { name: "Create" }));
+		await waitFor(() => expect(screen.getByText("docs", { exact: true })).toBeTruthy());
+		await fireEvent.click(screen.getByRole("button", { name: "Scan features" }));
+		await waitFor(() => expect(vi.mocked(addToast)).toHaveBeenCalledWith(expect.objectContaining({ message: "Scan complete — 2 features" })));
+		await fireEvent.click(screen.getAllByRole("button", { name: "Expand" })[0]!);
+		await waitFor(() => expect(screen.getByText("src/auth.ts")).toBeTruthy());
+		await fireEvent.click(screen.getByRole("button", { name: "Remove file" }));
+		await fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]!);
+		await waitFor(() => expect(screen.queryByText("auth", { exact: true })).toBeNull());
+	});
+});
+
+test("filters rows and keeps failed create, scan, edit, and delete actions actionable", async () => {
+	const feature = makeFeature({ description: "Authentication paths" });
+	vi.stubGlobal("confirm", () => true);
+	vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+		const method = init?.method ?? "GET";
+		if (input.endsWith('/scan')) return new Response(JSON.stringify({ fields: { name: "Scan permission denied" } }), { status: 403 });
+		if (method === "POST") return new Response(JSON.stringify({ error: "Duplicate feature" }), { status: 409 });
+		if (method === "PATCH") return new Response(JSON.stringify({ fields: { name: "Name already used" } }), { status: 400 });
+		if (method === "DELETE") return new Response(JSON.stringify({ error: "Delete denied" }), { status: 403 });
+		return new Response(JSON.stringify([feature]), { status: 200 });
+	}));
+	render(FeatureIndex, { projectId: "proj-1" });
+	await waitFor(() => expect(screen.getByText("auth", { exact: true })).toBeTruthy());
+	await fireEvent.input(screen.getByPlaceholderText("Search features..."), { target: { value: "nope" } });
+	expect(screen.getByText('No features match "nope".')).toBeTruthy();
+	await fireEvent.input(screen.getByPlaceholderText("Search features..."), { target: { value: "auth" } });
+	await fireEvent.click(screen.getByRole("button", { name: /New feature/ }));
+	await fireEvent.input(screen.getByPlaceholderText(/Feature name/), { target: { value: "auth" } });
+	await fireEvent.keyDown(screen.getByPlaceholderText(/Feature name/), { key: "Enter" });
+	await waitFor(() => expect(screen.getByTestId("feature-error").textContent).toContain("Duplicate feature"));
+	await fireEvent.click(screen.getByRole("button", { name: "Scan features" }));
+	await waitFor(() => expect(screen.getByTestId("feature-error").textContent).toContain("Scan permission denied"));
+	await fireEvent.click(screen.getByRole("button", { name: "Edit name" }));
+	const edit = screen.getByDisplayValue("auth");
+	await fireEvent.input(edit, { target: { value: "taken" } });
+	await fireEvent.keyDown(edit, { key: "Enter" });
+	await waitFor(() => expect(screen.getByTestId("feature-error").textContent).toContain("Name already used"));
+	expect(screen.getByDisplayValue("taken")).toBeTruthy();
+	await fireEvent.keyDown(edit, { key: "Escape" });
+	await fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+	await waitFor(() => expect(screen.getByTestId("feature-error").textContent).toContain("Delete denied"));
+});
+
+test("adds and removes an expanded project file through the scoped autocomplete", async () => {
+	const feature = makeFeature();
+	vi.mocked(searchMentions).mockResolvedValue([{ name: "src/auth.ts", description: "Auth", kind: "file" }]);
+	vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+		if (init?.method === "PATCH") return new Response(JSON.stringify({ ...feature, files: [{ featureId: feature.id, relpath: "src/auth.ts", source: "user", addedAt: "2026" }] }), { status: 200 });
+		if (input.endsWith(`/${feature.id}`)) return new Response(JSON.stringify({ ...feature, files: [] }), { status: 200 });
+		return new Response(JSON.stringify([feature]), { status: 200 });
+	}));
+	render(FeatureIndex, { projectId: "proj-1" });
+	await waitFor(() => expect(screen.getByRole("button", { name: "Expand" })).toBeTruthy());
+	await fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+	await waitFor(() => expect(screen.getByText("No files yet — use the picker below to pin one.")).toBeTruthy());
+	const picker = screen.getByPlaceholderText("+ Add file (search project paths)");
+	await fireEvent.input(picker, { target: { value: "auth" } });
+	await vi.advanceTimersByTimeAsync(200);
+	await waitFor(() => expect(screen.getByText("src/auth.ts")).toBeTruthy());
+	await fireEvent.click(screen.getByText("src/auth.ts"));
+	await waitFor(() => expect(screen.getByText("src/auth.ts")).toBeTruthy());
+	await fireEvent.click(screen.getByRole("button", { name: "Remove file" }));
 });
