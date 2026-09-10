@@ -1,14 +1,14 @@
 import type { Page } from "@playwright/test";
 import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
+import { makeProject, makeConversation, makeAgent, makeExtension } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "UI Components Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 const agents = [makeAgent({ name: "Assistant", description: "General assistant" })];
 
 const EXT_NAME = "analyzer";
-const extensions = [{ name: EXT_NAME, description: "Code analysis tool", enabled: true }];
+const extensions = [makeExtension({ name: EXT_NAME, description: "Code analysis tool", enabled: true })];
 
 type MockApi = (overrides?: MockOverrides) => Promise<void>;
 type Tool = { name: string; description: string; inputSchema: Record<string, unknown> };

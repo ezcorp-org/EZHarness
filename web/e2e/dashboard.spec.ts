@@ -1,57 +1,17 @@
+/** The old dashboard routes now lead to chat; agent cards remain covered by agents-list.spec.ts. */
 import { test, expect } from "./fixtures/test-base.js";
-import { makeAgent, makeRun, makeProject } from "./fixtures/data.js";
+import { makeProject } from "./fixtures/data.js";
 
-test.describe("Dashboard", () => {
-	test("shows agent cards when agents exist", async ({ page, mockApi }) => {
-		await mockApi({
-			agents: [
-				makeAgent({ name: "summarizer", description: "Summarizes text" }),
-				makeAgent({ name: "coder", description: "Writes code" }),
-			],
-		});
-		await page.goto("/");
-
-		await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
-		await expect(page.getByText("summarizer")).toBeVisible();
-		await expect(page.getByText("coder")).toBeVisible();
+for (const entry of [
+	{ path: "/", projectId: "global", name: "Global" },
+	{ path: "/project/proj-1", projectId: "proj-1", name: "My Project" },
+]) {
+	test(`legacy dashboard ${entry.path} opens a usable chat workspace`, async ({ page, mockApi }) => {
+		await mockApi({ projects: [makeProject({ id: entry.projectId, name: entry.name })], conversations: [] });
+		await page.goto(entry.path);
+		await expect(page).toHaveURL(`/project/${entry.projectId}/chat`);
+		await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible();
+		await expect(page.locator("aside").getByRole("link", { name: "Chat", exact: true })).toHaveAttribute("aria-current", "page");
+		await expect(page.getByRole("button", { name: "New Conversation", exact: true })).toBeVisible();
 	});
-
-	test("shows empty state when no agents", async ({ page, mockApi }) => {
-		await mockApi({ agents: [] });
-		await page.goto("/");
-
-		await expect(page.getByText("No agents available.")).toBeVisible();
-	});
-
-	test("shows recent runs", async ({ page, mockApi }) => {
-		await mockApi({
-			runs: [
-				makeRun({ id: "run-1", agentName: "summarizer", status: "success" }),
-				makeRun({ id: "run-2", agentName: "coder", status: "error" }),
-			],
-		});
-		await page.goto("/");
-
-		await expect(page.getByText("Recent Runs")).toBeVisible();
-	});
-
-	test("shows empty state when no runs", async ({ page, mockApi }) => {
-		await mockApi({ runs: [] });
-		await page.goto("/");
-
-		await expect(page.getByText("No runs yet.")).toBeVisible();
-	});
-
-	test("project dashboard shows project-filtered content", async ({ page, mockApi }) => {
-		const proj = makeProject({ id: "proj-1", name: "My Project" });
-		await mockApi({
-			projects: [proj],
-			agents: [makeAgent({ name: "agent-1" })],
-			runs: [makeRun({ id: "run-1", projectId: "proj-1" })],
-		});
-		await page.goto(`/project/${proj.id}`);
-
-		await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
-		await expect(page.getByRole("heading", { name: "Recent Runs" })).toBeVisible();
-	});
-});
+}

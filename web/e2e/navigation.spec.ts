@@ -4,47 +4,49 @@ import { makeProject } from "./fixtures/data.js";
 test.describe("Navigation", () => {
 	const proj = makeProject({ id: "proj-1", name: "Nav Project" });
 
-	test("sidebar shows default nav links without project", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+	test("global sidebar links point to the supported destinations", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto("/");
-
-		const sidebar = page.locator("aside");
-		await expect(sidebar.getByText("Dashboard")).toBeVisible();
-		await expect(sidebar.getByText("Workflows")).toBeVisible();
-		await expect(sidebar.getByText("New Agent")).toBeVisible();
+		const sidebar = page.getByRole("navigation", { name: "Main navigation", exact: true });
+		for (const [name, href] of [["Chat", "/project/global/chat"], ["Workflows", "/workflows"], ["Agents", "/agents"]] as const) {
+			const link = sidebar.getByRole("link", { name, exact: true });
+			await expect(link).toBeVisible();
+			await expect(link).toHaveAttribute("href", href);
+		}
 	});
 
-	test("sidebar shows project nav links with active project", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+	test("project sidebar links preserve project scope", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto(`/project/${proj.id}`);
-
-		const sidebar = page.locator("aside");
-		await expect(sidebar.getByText("Dashboard")).toBeVisible();
-		await expect(sidebar.getByText("Chat")).toBeVisible();
-		await expect(sidebar.getByText("Settings")).toBeVisible();
-		await expect(sidebar.getByText("Workflows")).toBeVisible();
+		const sidebar = page.getByRole("navigation", { name: "Main navigation", exact: true });
+		for (const [name, href] of [["Chat", `/project/${proj.id}/chat`], ["Project Settings", `/project/${proj.id}/settings`], ["Workflows", "/workflows"]] as const) {
+			const link = sidebar.getByRole("link", { name, exact: true });
+			await expect(link).toBeVisible();
+			await expect(link).toHaveAttribute("href", href);
+		}
 	});
 
-	test("sidebar shows project name when project is active", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+	test("sidebar shows the active project name", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto(`/project/${proj.id}`);
-
-		await expect(page.locator("aside h1")).toContainText("Nav Project");
+		await expect(page.getByTestId("active-context-name")).toHaveText("Nav Project");
 	});
 
-	test("clicking sidebar links navigates correctly", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+	test("sidebar links navigate away and return to the same project", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto(`/project/${proj.id}`);
-
-		await page.locator("aside").getByText("Chat").click();
+		const sidebar = page.getByRole("navigation", { name: "Main navigation", exact: true });
+		await sidebar.getByRole("link", { name: "Agents", exact: true }).click();
+		await expect(page).toHaveURL("/agents");
+		await expect(page.getByRole("heading", { name: "Agents", exact: true })).toBeVisible();
+		await sidebar.getByRole("link", { name: "Chat", exact: true }).click();
 		await expect(page).toHaveURL(`/project/${proj.id}/chat`);
+		await expect(page.getByTestId("active-context-name")).toHaveText("Nav Project");
 	});
 
-	test("connection status indicator is visible", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+	test("connection status has an accessible connected label", async ({ page, mockApi }) => {
+		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto("/");
-
-		// The status dot should be present (red or green)
-		await expect(page.locator("aside span.rounded-full")).toBeVisible();
+		await expect(page.locator("aside").getByTitle("Connected", { exact: true })).toBeVisible();
 	});
 });
