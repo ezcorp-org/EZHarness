@@ -346,3 +346,73 @@ describe("scroll cache (sessionStorage persistence)", () => {
 		expect(getCachedScrollState("conv-A")).toEqual({ scrollTop: 250 });
 	});
 });
+
+describe("message anchor restoration", () => {
+	function element(id: string | null, top: number, bottom: number) {
+		return {
+			getBoundingClientRect: () => ({ top, bottom }),
+			getAttribute: (name: string) => name === "data-message-id" ? id : null,
+		} as unknown as HTMLElement;
+	}
+
+	test("uses the message straddling the viewport top, or the first one below it", async () => {
+		const { computeAnchor } = await import("$lib/chat-scroll-restore.js");
+		const straddling = element("visible", 80, 130);
+		const below = element("below", 150, 200);
+		const container = {
+			getBoundingClientRect: () => ({ top: 100 }),
+			querySelectorAll: () => [straddling, below],
+		} as unknown as HTMLElement;
+		expect(computeAnchor(container)).toEqual({ messageId: "visible", offset: -20 });
+
+		const firstBelow = element("next", 120, 160);
+		const aboveWithoutId = element(null, 60, 99);
+		const belowContainer = {
+			getBoundingClientRect: () => ({ top: 100 }),
+			querySelectorAll: () => [aboveWithoutId, firstBelow],
+		} as unknown as HTMLElement;
+		expect(computeAnchor(belowContainer)).toEqual({ messageId: "next", offset: 20 });
+	});
+
+	test("returns null without a valid anchor and calculates an anchor scroll position", async () => {
+		const { computeAnchor, scrollTopForAnchor } = await import("$lib/chat-scroll-restore.js");
+		const empty = {
+			getBoundingClientRect: () => ({ top: 100 }),
+			querySelectorAll: () => [],
+		} as unknown as HTMLElement;
+		expect(computeAnchor(empty)).toBeNull();
+
+		(globalThis as { CSS?: { escape: (text: string) => string } }).CSS = { escape: (id) => `escaped-${id}` };
+		const anchored = element("msg-1", 170, 210);
+		const container = {
+			scrollTop: 400,
+			getBoundingClientRect: () => ({ top: 100 }),
+			querySelector: (selector: string) => selector === '[data-message-id="escaped-msg-1"]' ? anchored : null,
+		} as unknown as HTMLElement;
+		expect(scrollTopForAnchor(container, "msg-1", 15)).toBe(455);
+		expect(scrollTopForAnchor(container, "missing", 0)).toBeNull();
+		delete (globalThis as { CSS?: unknown }).CSS;
+	});
+
+	test("persists valid anchor fields and filters invalid stored anchor state", () => {
+		const storage = installMemorySessionStorage();
+		storage.setItem("ezcorp:chat-scroll:valid", JSON.stringify({
+			scrollTop: 25,
+			windowSize: 30,
+			anchorMessageId: "message-7",
+			anchorOffset: -12,
+		}));
+		expect(getCachedScrollState("valid")).toEqual({
+			scrollTop: 25,
+			windowSize: 30,
+			anchorMessageId: "message-7",
+			anchorOffset: -12,
+		});
+
+		storage.setItem("ezcorp:chat-scroll:invalid", JSON.stringify({
+			anchorMessageId: "",
+			anchorOffset: "nope",
+		}));
+		expect(getCachedScrollState("invalid")).toBeUndefined();
+	});
+});

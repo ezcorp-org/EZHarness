@@ -9,8 +9,20 @@
  * scoring without spinning up a Worker stub.
  */
 
-import { test, expect, describe } from "bun:test";
-import { rank } from "../agent-fuzzy-search-worker";
+import { afterAll, test, expect, describe, mock } from "bun:test";
+
+const listeners = new Map<string, (event: MessageEvent) => void>();
+const postMessage = mock(() => {});
+(globalThis as { self?: unknown }).self = {
+  importScripts: () => {},
+  addEventListener: (type: string, listener: (event: MessageEvent) => void) => listeners.set(type, listener),
+  postMessage,
+};
+const { rank } = await import("../agent-fuzzy-search-worker");
+
+afterAll(() => {
+  delete (globalThis as { self?: unknown }).self;
+});
 
 describe("agent-fuzzy-search-worker — rank()", () => {
   test("ranks exact-prefix matches before subsequence matches", () => {
@@ -92,6 +104,21 @@ describe("agent-fuzzy-search-worker — rank()", () => {
       ],
     });
     expect(res.indices).toEqual([0]);
+  });
+
+  test("worker message protocol ignores other events and posts the ranked response", () => {
+    const listener = listeners.get("message");
+    expect(listener).toBeDefined();
+    listener?.({ data: { type: "other" } } as MessageEvent);
+    expect(postMessage).not.toHaveBeenCalled();
+
+    listener?.({ data: { type: "rank", id: "worker-id", query: "alp", candidates: [{ name: "alpha" }] } } as MessageEvent);
+    expect(postMessage).toHaveBeenCalledWith({
+      type: "ranked",
+      id: "worker-id",
+      indices: [0],
+      scores: [4998],
+    });
   });
 
   test("response carries the request id back unchanged", () => {
