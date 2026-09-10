@@ -2457,7 +2457,7 @@
 <svelte:window onkeydown={handlePromptNavKey} />
 
 <div
-	class="flex flex-1 flex-col min-w-0"
+	class="flex flex-1 min-h-0 flex-col min-w-0"
 	data-testid="chat-thread"
 	data-variant={variant}
 	role="region"
