@@ -3,8 +3,10 @@
  *
  * The host AgentExecutor reaches database and native sandbox modules, neither
  * of which can load in workerd. This runtime deliberately owns only the
- * Worker contract: one LLM-only summarizer and ephemeral run inspection.
+ * Worker contract: one LLM-only summarizer and bounded ephemeral run inspection.
  */
+
+import { complete, getModel, getModels } from "@earendil-works/pi-ai/compat";
 
 type Provider = "anthropic" | "google" | "openai";
 type RunStatus = "running" | "success" | "error";
@@ -46,6 +48,8 @@ interface Completion {
   outputTokens?: number;
 }
 
+const MAX_RUNS = 100;
+
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -81,53 +85,47 @@ function provider(value: unknown): Provider {
   throw new Error(`Unsupported provider: ${String(value)}`);
 }
 
-function endpoint(baseUrl: string | undefined, fallback: string, path: string): string {
-  return new URL(path, `${baseUrl ?? fallback}`.replace(/\/?$/, "/")).toString();
+function apiKey(providerName: Provider, env: Env): string | undefined {
+  if (providerName === "openai") return env.OPENAI_API_KEY;
+  if (providerName === "anthropic") return env.ANTHROPIC_API_KEY;
+  return env.GOOGLE_API_KEY;
 }
 
-async function failure(response: Response, providerName: Provider): Promise<never> {
-  const body = (await response.text()).slice(0, 500);
-  throw new Error(`${providerName} completion failed (${response.status}): ${body || response.statusText}`);
+function baseUrl(providerName: Provider, env: Env): string | undefined {
+  if (providerName === "openai") return env.OPENAI_BASE_URL;
+  if (providerName === "anthropic") return env.ANTHROPIC_BASE_URL;
+  return env.GOOGLE_BASE_URL;
 }
 
-async function complete(providerName: Provider, model: string, prompt: string, env: Env): Promise<Completion> {
+function resolvePortableModel(providerName: Provider, modelId: string, env: Env): Parameters<typeof complete>[0] {
+  const known = getModel(providerName, modelId) ?? getModels(providerName)[0];
+  if (!known) throw new Error(`No portable model definition for ${providerName}`);
+  return {
+    ...known,
+    id: modelId,
+    name: modelId,
+    provider: providerName,
+    ...(baseUrl(providerName, env) ? { baseUrl: baseUrl(providerName, env) } : {}),
+  } as Parameters<typeof complete>[0];
+}
+
+async function completeSummary(providerName: Provider, model: string, prompt: string, env: Env): Promise<Completion> {
   const system = "Summarize the following text concisely.";
-  if (providerName === "openai") {
-    const response = await fetch(endpoint(env.OPENAI_BASE_URL, "https://api.openai.com/v1", "chat/completions"), {
-      method: "POST",
-      headers: { authorization: `Bearer ${env.OPENAI_API_KEY ?? ""}`, "content-type": "application/json" },
-      body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: prompt }] }),
-    });
-    if (!response.ok) return failure(response, providerName);
-    const body = await response.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } };
-    const result = body.choices?.[0]?.message?.content;
-    if (!result) throw new Error("openai completion response did not include choices[0].message.content");
-    return { text: result, inputTokens: body.usage?.prompt_tokens, outputTokens: body.usage?.completion_tokens };
+  const key = apiKey(providerName, env);
+  if (!key) throw new Error(`Missing ${providerName} API key binding`);
+  const response = await complete(resolvePortableModel(providerName, model, env), {
+    systemPrompt: system,
+    messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+  }, { apiKey: key });
+  if (response.stopReason === "error" || response.stopReason === "aborted") {
+    throw new Error(response.errorMessage ?? `${providerName} completion stopped: ${response.stopReason}`);
   }
-
-  if (providerName === "anthropic") {
-    const response = await fetch(endpoint(env.ANTHROPIC_BASE_URL, "https://api.anthropic.com/v1", "messages"), {
-      method: "POST",
-      headers: { "anthropic-version": "2023-06-01", "content-type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY ?? "" },
-      body: JSON.stringify({ model, max_tokens: 1024, system, messages: [{ role: "user", content: prompt }] }),
-    });
-    if (!response.ok) return failure(response, providerName);
-    const body = await response.json() as { content?: Array<{ type?: string; text?: string }>; usage?: { input_tokens?: number; output_tokens?: number } };
-    const result = body.content?.find((part) => part.type === "text")?.text;
-    if (!result) throw new Error("anthropic completion response did not include text content");
-    return { text: result, inputTokens: body.usage?.input_tokens, outputTokens: body.usage?.output_tokens };
-  }
-
-  const response = await fetch(`${endpoint(env.GOOGLE_BASE_URL, "https://generativelanguage.googleapis.com/v1beta", `models/${model}:generateContent`)}?key=${encodeURIComponent(env.GOOGLE_API_KEY ?? "")}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents: [{ role: "user", parts: [{ text: prompt }] }] }),
-  });
-  if (!response.ok) return failure(response, providerName);
-  const body = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } };
-  const result = body.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
-  if (!result) throw new Error("google completion response did not include candidate text");
-  return { text: result, inputTokens: body.usageMetadata?.promptTokenCount, outputTokens: body.usageMetadata?.candidatesTokenCount };
+  const result = response.content
+    .filter((part): part is { type: "text"; text: string } => part.type === "text")
+    .map((part) => part.text)
+    .join("");
+  if (!result) throw new Error(`${providerName} completion response did not include text content`);
+  return { text: result, inputTokens: response.usage.input, outputTokens: response.usage.output };
 }
 
 class WorkerExecutor {
@@ -148,6 +146,7 @@ class WorkerExecutor {
       run.status = "success";
       run.finishedAt = Date.now();
       run.result = { success: false, output: null, error: "Missing input.text" };
+      trimRuns();
       return run;
     }
 
@@ -158,12 +157,13 @@ class WorkerExecutor {
       run.provider = providerName;
       run.model = model;
       run.logs.push({ timestamp: Date.now(), level: "info", message: "Summarizing text..." });
-      const result = await complete(providerName, model, source, env);
+      const result = await completeSummary(providerName, model, source, env);
       run.inputTokens = result.inputTokens;
       run.outputTokens = result.outputTokens;
       run.status = "success";
       run.finishedAt = Date.now();
       run.result = { success: true, output: { summary: result.text } };
+      trimRuns();
       return run;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -171,8 +171,17 @@ class WorkerExecutor {
       run.finishedAt = Date.now();
       run.logs.push({ timestamp: Date.now(), level: "error", message });
       run.result = { success: false, output: null, error: message };
+      trimRuns();
       return run;
     }
+  }
+}
+
+function trimRuns(): void {
+  while (runs.size > MAX_RUNS) {
+    const terminal = [...runs.values()].find((run) => run.status !== "running");
+    if (!terminal) return;
+    runs.delete(terminal.id);
   }
 }
 

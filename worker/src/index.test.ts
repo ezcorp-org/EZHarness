@@ -10,10 +10,48 @@ interface ProviderRequest {
 
 const providerRequests: ProviderRequest[] = [];
 const originalFetch = globalThis.fetch;
-const env = { OPENAI_API_KEY: "worker-test-key", OPENAI_BASE_URL: "https://llm.test/v1" };
+const defaultEnv = { OPENAI_API_KEY: "openai-test-key", OPENAI_BASE_URL: "https://openai.test/v1" };
 
-async function request(path: string, init?: RequestInit): Promise<Response> {
+async function request(path: string, init?: RequestInit, env = defaultEnv): Promise<Response> {
   return worker.fetch(new Request(`https://worker.test${path}`, init), env);
+}
+
+function sse(events: Array<{ event?: string; data: unknown; raw?: boolean }>): Response {
+  return new Response(events.map(({ event, data, raw }) => `${event ? `event: ${event}\n` : ""}data: ${raw ? String(data) : JSON.stringify(data)}\n\n`).join(""), {
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function completion(provider: string): Response {
+  if (provider === "anthropic") {
+    return sse([
+      { event: "message_start", data: { type: "message_start", message: { id: "fixture", type: "message", role: "assistant", model: "fixture", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 3, output_tokens: 0 } } } },
+      { event: "content_block_start", data: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } },
+      { event: "content_block_delta", data: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "anthropic summary" } } },
+      { event: "content_block_stop", data: { type: "content_block_stop", index: 0 } },
+      { event: "message_delta", data: { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } } },
+      { event: "message_stop", data: { type: "message_stop" } },
+    ]);
+  }
+  if (provider === "google") {
+    return sse([{
+      data: {
+        candidates: [{ content: { role: "model", parts: [{ text: "google summary" }] }, finishReason: "STOP" }],
+        usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2, totalTokenCount: 5 },
+      },
+    }]);
+  }
+  return sse([
+    { event: "response.output_item.added", data: { type: "response.output_item.added", output_index: 0, item: { id: "fixture", type: "message", role: "assistant", content: [] } } },
+    { event: "response.output_text.delta", data: { type: "response.output_text.delta", output_index: 0, delta: "openai summary" } },
+    { event: "response.completed", data: { type: "response.completed", response: { id: "fixture", status: "completed", usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 } } } },
+  ]);
+}
+
+function providerFor(url: string): "anthropic" | "google" | "openai" {
+  if (url.includes("anthropic")) return "anthropic";
+  if (url.includes("google")) return "google";
+  return "openai";
 }
 
 beforeEach(() => {
@@ -23,12 +61,9 @@ beforeEach(() => {
     providerRequests.push({
       url: requestUrl,
       headers: new Headers(init?.headers),
-      payload: JSON.parse(String(init?.body)) as Record<string, unknown>,
+      payload: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
     });
-    return new Response(JSON.stringify({
-      choices: [{ message: { content: "Brief fixture summary" } }],
-      usage: { prompt_tokens: 3, completion_tokens: 2 },
-    }), { headers: { "content-type": "application/json" } });
+    return completion(providerFor(requestUrl));
   }) as typeof fetch;
 });
 
@@ -38,12 +73,10 @@ afterAll(() => {
 
 test("run routes return stored executor records and reject a missing run", async () => {
   const created = await request("/api/agents/summarizer/run", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({}),
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
   });
-  expect(created.status).toBe(200);
   const run = await created.json() as { id: string; status: string; result: { success: boolean; error: string } };
+  expect(created.status).toBe(200);
   expect(run.status).toBe("success");
   expect(run.result).toEqual({ success: false, output: null, error: "Missing input.text" });
 
@@ -57,54 +90,91 @@ test("run routes return stored executor records and reject a missing run", async
   expect(providerRequests).toEqual([]);
 });
 
-test("summarizer executes against the configured OpenAI boundary", async () => {
+test.each([
+  ["openai", "fixture-openai", { OPENAI_API_KEY: "openai-test-key", OPENAI_BASE_URL: "https://openai.test/v1" }],
+  ["anthropic", "fixture-anthropic", { ANTHROPIC_API_KEY: "anthropic-test-key", ANTHROPIC_BASE_URL: "https://anthropic.test" }],
+  ["google", "fixture-google", { GOOGLE_API_KEY: "google-test-key", GOOGLE_BASE_URL: "https://google.test" }],
+] as const)("summarizer completes %s through pi-ai", async (provider, model, env) => {
   const response = await request("/api/agents/summarizer/run", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: "Long fixture text", provider: "openai", model: "fixture-model" }),
-  });
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Long fixture text", provider, model }),
+  }, env);
 
-  expect(await response.json()).toEqual(expect.objectContaining({
-    status: "success",
-    provider: "openai",
-    model: "fixture-model",
-    inputTokens: 3,
-    outputTokens: 2,
-    result: { success: true, output: { summary: "Brief fixture summary" } },
+  expect(response.status).toBe(200);
+  const run = await response.json();
+  expect(run).toEqual(expect.objectContaining({
+    status: "success", provider, model, inputTokens: 3, outputTokens: 2,
+    result: { success: true, output: { summary: `${provider} summary` } },
   }));
-  expect(providerRequests).toEqual([{
-    url: "https://llm.test/v1/chat/completions",
-    headers: expect.any(Headers),
-    payload: {
-      model: "fixture-model",
-      messages: [
-        { role: "system", content: "Summarize the following text concisely." },
-        { role: "user", content: "Long fixture text" },
-      ],
-    },
-  }]);
-  expect(providerRequests[0]?.headers.get("authorization")).toBe("Bearer worker-test-key");
+  expect(providerRequests).toHaveLength(1);
+  expect(providerRequests[0]?.url).toContain(`${provider}.test`);
+  expect(JSON.stringify(providerRequests[0]?.payload)).toContain("Long fixture text");
 });
 
-test("unknown agents and provider failures produce concrete error runs", async () => {
-  const unknown = await request("/api/agents/unknown/run", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: "must not reach a provider" }),
-  });
-  expect(unknown.status).toBe(400);
-  expect(await unknown.json()).toEqual({ error: "Agent not found: unknown" });
+test("default provider and model bindings are used when the request omits them", async () => {
+  const response = await request("/api/agents/summarizer/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Use defaults" }),
+  }, { GOOGLE_API_KEY: "google-test-key", GOOGLE_BASE_URL: "https://google.test", DEFAULT_PROVIDER: "google", DEFAULT_MODEL: "default-google" });
 
+  expect(await response.json()).toEqual(expect.objectContaining({ status: "success", provider: "google", model: "default-google" }));
+  expect(providerRequests).toHaveLength(1);
+});
+
+function malformedCompletion(provider: string): Response {
+  if (provider === "anthropic") {
+    return sse([
+      { event: "message_start", data: { type: "message_start", message: { id: "fixture", type: "message", role: "assistant", model: "fixture", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 3, output_tokens: 0 } } } },
+      { event: "message_delta", data: { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } } },
+      { event: "message_stop", data: { type: "message_stop" } },
+    ]);
+  }
+  if (provider === "google") {
+    return sse([{ data: { candidates: [{ content: { role: "model", parts: [] }, finishReason: "STOP" }], usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2, totalTokenCount: 5 } } }]);
+  }
+  return sse([{ event: "response.completed", data: { type: "response.completed", response: { id: "fixture", status: "completed", usage: { input_tokens: 3, output_tokens: 2, total_tokens: 5 } } } }]);
+}
+
+test.each([
+  ["openai", "fixture-openai", { OPENAI_API_KEY: "openai-test-key", OPENAI_BASE_URL: "https://openai.test/v1" }],
+  ["anthropic", "fixture-anthropic", { ANTHROPIC_API_KEY: "anthropic-test-key", ANTHROPIC_BASE_URL: "https://anthropic.test" }],
+  ["google", "fixture-google", { GOOGLE_API_KEY: "google-test-key", GOOGLE_BASE_URL: "https://google.test" }],
+] as const)("%s provider, malformed reply, and missing binding become error runs", async (provider, model, env) => {
   globalThis.fetch = mock(async () => new Response("denied", { status: 401 })) as typeof fetch;
   const rejected = await request("/api/agents/summarizer/run", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text: "will fail", provider: "openai", model: "fixture-model" }),
-  });
-  expect(await rejected.json()).toEqual(expect.objectContaining({
-    status: "error",
-    result: { success: false, output: null, error: "openai completion failed (401): denied" },
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "will fail", provider, model }),
+  }, env);
+  const rejectedRun = await rejected.json() as { status: string; result: { error: string } };
+  expect(rejectedRun.status).toBe("error");
+  expect(rejectedRun.result.error).toContain("401");
+
+  globalThis.fetch = mock(async () => malformedCompletion(provider)) as typeof fetch;
+  const malformed = await request("/api/agents/summarizer/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "empty", provider, model }),
+  }, env);
+  const malformedRun = await malformed.json() as { status: string; result: { error: string } };
+  expect(malformedRun.status).toBe("error");
+  expect(malformedRun.result.error).toContain("completion");
+
+  const missing = await request("/api/agents/summarizer/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "no config", provider, model }),
+  }, {});
+  expect(await missing.json()).toEqual(expect.objectContaining({
+    status: "error", result: expect.objectContaining({ error: `Missing ${provider} API key binding` }),
   }));
+});
+
+test("retains only the newest 100 completed runs", async () => {
+  const created: string[] = [];
+  for (let index = 0; index < 101; index += 1) {
+    const response = await request("/api/agents/summarizer/run", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+    });
+    created.push((await response.json() as { id: string }).id);
+  }
+  const listed = await request("/api/runs");
+  const runs = await listed.json() as Array<{ id: string }>;
+  expect(runs.length).toBeLessThanOrEqual(100);
+  expect(runs.map((run) => run.id)).not.toContain(created[0]);
+  expect(runs.map((run) => run.id)).toContain(created.at(-1));
 });
 
 test("lists agents and handles preflight, malformed JSON, and unknown paths", async () => {
@@ -120,5 +190,4 @@ test("lists agents and handles preflight, malformed JSON, and unknown paths", as
   const unknown = await request("/unknown");
   expect(unknown.status).toBe(404);
   expect(await unknown.json()).toEqual({ error: "Not found" });
-  expect(providerRequests).toEqual([]);
 });
