@@ -1,3 +1,5 @@
+import type { Page } from "@playwright/test";
+import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
@@ -21,7 +23,7 @@ test.describe("Rendering Edge Cases", () => {
 	});
 
 	/** Navigate to chat, send a message, and emit run:token to set up streaming */
-	async function setupStreaming(page: any, mockApi: any, emitWs: any) {
+	async function setupStreaming(page: Page, mockApi: (overrides?: MockOverrides) => Promise<void>, emitSse: (event: { type: string; data: unknown }) => Promise<void>) {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -30,11 +32,11 @@ test.describe("Rendering Edge Cases", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
 		await Promise.all([
-			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
 			sendComposerMessage(page, "Do something"),
 		]);
 
-		await emitWs({
+		await emitSse({
 			type: "run:token",
 			data: { runId: "run-stream", token: "Working..." },
 		});
@@ -97,7 +99,7 @@ test.describe("Rendering Edge Cases", () => {
 		await page.goto("/extensions/ext-1");
 
 		// Page renders without crash
-		await expect(page.getByText("empty-tools-ext")).toBeVisible();
+		await expect(page.getByRole("heading", { name: "empty-tools-ext", exact: true })).toBeVisible();
 		// Shows "No tools defined" message
 		await expect(page.getByText("No tools defined")).toBeVisible();
 	});
@@ -139,11 +141,11 @@ test.describe("Rendering Edge Cases", () => {
 
 	// --- Tool call rendering edge cases ---
 
-	test("multiple tool calls with same name don't crash", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("multiple tool calls with same name don't crash", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
 		// Emit two tool:start events for the same tool name with different implicit IDs
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -154,7 +156,7 @@ test.describe("Rendering Edge Cases", () => {
 			},
 		});
 
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -170,11 +172,11 @@ test.describe("Rendering Edge Cases", () => {
 		await expect(page.getByText("echo second")).toBeVisible();
 	});
 
-	test("tool:permission_request after tool:start for same tool", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("tool:permission_request after tool:start for same tool", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
 		// Emit tool:start first
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -186,7 +188,7 @@ test.describe("Rendering Edge Cases", () => {
 		});
 
 		// Then emit permission_request for the same tool
-		await emitWs({
+		await emitSse({
 			type: "tool:permission_request",
 			data: {
 				conversationId: "conv-1",
@@ -203,11 +205,11 @@ test.describe("Rendering Edge Cases", () => {
 		await expect(page.getByRole("button", { name: "Deny" })).toBeVisible();
 	});
 
-	test("tool calls with undefined id render correctly", async ({ page, mockApi, emitWs }) => {
-		await setupStreaming(page, mockApi, emitWs);
+	test("tool calls with undefined id render correctly", async ({ page, mockApi, emitSse }) => {
+		await setupStreaming(page, mockApi, emitSse);
 
 		// Emit tool:start without an id field (the store creates entries without id)
-		await emitWs({
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: "conv-1",
@@ -219,7 +221,7 @@ test.describe("Rendering Edge Cases", () => {
 		});
 
 		// Emit tool:complete for the same tool
-		await emitWs({
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: "conv-1",

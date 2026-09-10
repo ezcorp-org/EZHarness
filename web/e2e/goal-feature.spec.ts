@@ -6,7 +6,7 @@
  * persistence → mock-LLM stream → visible status and clear cards. The mock
  * replaces only the LLM HTTP boundary; auth, database, and route logic are real.
  */
-import type { APIResponse, Page } from "@playwright/test";
+import type { Response, Page } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 
@@ -135,7 +135,7 @@ async function readConversation(page: Page, conversationId: string): Promise<Con
 	return (await response.json()) as ConversationState;
 }
 
-async function sendAndCapture(page: Page, conversationId: string, content: string): Promise<APIResponse> {
+async function sendAndCapture(page: Page, conversationId: string, content: string): Promise<Response> {
 	const sent = page.waitForResponse((response) =>
 		response.request().method() === "POST" && response.url().endsWith(`/api/conversations/${conversationId}/messages`),
 	);
