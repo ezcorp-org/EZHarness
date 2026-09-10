@@ -387,11 +387,11 @@ test.describe("Multi-Agent Orchestration", () => {
 		// Sub-conversation WITH agentConfigId = agent-spawned
 		const historicalAgentSubConvo: SubConversationMock = {
 			...makeConversation({
-			id: "sub-conv-1",
-			title: "researcher",
-			projectId: "proj-1",
-			agentConfigId: "cfg-1",
+				id: "sub-conv-1",
+				title: "researcher",
+				projectId: "proj-1",
 			}),
+			agentConfigId: "cfg-1",
 			parentMessageId: "msg-1",
 			parentConversationId: conv.id,
 			agentName: "researcher",
