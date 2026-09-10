@@ -87,6 +87,7 @@ if [ "$1" = "run" ] && [ "$2" = "test:coverage" ]; then
 fi
 `);
   writeExecutable("bash", `#!${BASH}
+printf 'bash\\t%s\\n' "$*" >> "$CI_LOCAL_TRACE"
 if [ "$1" = "scripts/run-browser-route-coverage.sh" ]; then
   printf 'browser\\t%s\\n' "\${EZCORP_BROWSER_COVERAGE_OUTPUT:-}" >> "$CI_LOCAL_TRACE"
   mkdir -p "\${EZCORP_BROWSER_COVERAGE_OUTPUT}/merged"
@@ -366,7 +367,7 @@ describe("e2e lane manifest", () => {
     expect((local.match(/bash scripts\/run-browser-route-coverage\.sh/g) ?? [])).toHaveLength(1);
     const browserCommand = local.slice(fullStart, coverage);
     expect(browserCommand).toContain('EZCORP_BROWSER_COVERAGE_OUTPUT="$BROWSER_COVERAGE_OUTPUT"');
-    expect(browserStep).toBeGreaterThan(browserReceipt);
+    expect(browserStep).toBeLessThan(browserReceipt);
     const coverageCommand = local.slice(local.lastIndexOf('run_step "Coverage + per-file thresholds"', coverage), local.indexOf("# Both diff gates", coverage));
     expect(coverageCommand).toContain('BROWSER_COVERAGE_RAW="$BROWSER_COVERAGE_OUTPUT/merged/merged.json"');
     expect(coverageCommand).toContain('BROWSER_COVERAGE_LCOV="$BROWSER_COVERAGE_OUTPUT/merged/lcov.info"');
@@ -397,12 +398,17 @@ describe("e2e lane manifest", () => {
       expect(run.stdout).toContain("PASS  Coverage + per-file thresholds");
       expect(run.stdout).toContain("ci-local: all executed gates PASSED.");
       expect(run.trace.filter((line) => line.startsWith("browser\t"))).toHaveLength(1);
+      const bashCalls = run.trace.filter((line) => line.startsWith("bash\t"));
+      expect(bashCalls).toContain("bash\t-c cd web && bun test ./src/__tests__/route-contract.test.ts");
+      expect(bashCalls).toContain("bash\tscripts/test-web.sh");
+      expect(bashCalls).toContain("bash\t-c cd web && bun run check");
+      expect(bashCalls).toContain("bash\tscripts/run-browser-route-coverage.sh");
       const coverage = run.trace.filter((line) => line.startsWith("bun\trun test:coverage\t"));
       expect(coverage).toEqual([
         `bun\trun test:coverage\t${run.browserReceiptDir}/merged/merged.json\t${run.browserReceiptDir}/merged/lcov.info`,
       ]);
-      expect(run.trace.some((line) => line.includes("npx vitest run"))).toBe(false);
-      expect(run.trace.some((line) => line.includes("run build"))).toBe(false);
+      expect(bashCalls.some((line) => line.includes("npx vitest run"))).toBe(false);
+      expect(bashCalls.some((line) => line.includes("bun run build"))).toBe(false);
       expect(existsSync(run.browserReceiptDir)).toBe(false);
     } finally {
       run.dispose();
@@ -416,7 +422,7 @@ describe("e2e lane manifest", () => {
       expect(run.stdout).toContain("FAIL  Browser route coverage (mandatory Chromium lanes)");
       expect(run.stdout).toContain("FAIL  Coverage + per-file thresholds");
       expect(run.stdout).toContain("ci-local: FAILED");
-      expect(run.stderr).toContain(`retained failed browser coverage receipts: ${run.browserReceiptDir}`);
+      expect(run.stderr).toContain(`retained browser coverage receipts after failed run: ${run.browserReceiptDir}`);
       expect(readFileSync(join(run.browserReceiptDir, "partial.json"), "utf8")).toContain("partial receipt");
     } finally {
       run.dispose();
@@ -424,17 +430,18 @@ describe("e2e lane manifest", () => {
     }
   });
 
-  test("local CI command propagates a backend coverage failure without retaining a good browser receipt", () => {
+  test("local CI command retains a valid browser receipt when backend coverage fails", () => {
     const run = runLocalCi("backend-failure");
     try {
       expect(run.code).toBe(1);
       expect(run.stdout).toContain("PASS  Browser route coverage (mandatory Chromium lanes)");
       expect(run.stdout).toContain("FAIL  Coverage + per-file thresholds");
       expect(run.stdout).toContain("ci-local: FAILED");
-      expect(run.stderr).not.toContain("retained failed browser coverage receipts");
-      expect(existsSync(run.browserReceiptDir)).toBe(false);
+      expect(run.stderr).toContain(`retained browser coverage receipts after failed run: ${run.browserReceiptDir}`);
+      expect(readFileSync(join(run.browserReceiptDir, "merged/merged.json"), "utf8")).toContain('"raw":true');
     } finally {
       run.dispose();
+      rmSync(run.browserReceiptDir, { recursive: true, force: true });
     }
   });
 
