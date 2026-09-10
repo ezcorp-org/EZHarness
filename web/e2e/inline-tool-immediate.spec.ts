@@ -42,30 +42,20 @@ test.describe("Inline Tool Immediate Execution", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await page.waitForSelector("textarea");
 
-		// Type @ext:task-stack to trigger the mention
+		// Type the extension-only sigil and select it through the native picker.
 		const textarea = page.locator("textarea");
-		await textarea.fill("@ext:task-stack");
-
-		// Wait for mention popover and click the extension
-		// The chip should appear — click it to open tools
-		const chip = page.locator("[data-mention-chip]").first();
-		if (await chip.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await chip.click();
-		}
-
-		// If the tool form appears, submit it
-		const submitBtn = page.locator('button[type="submit"]');
-		if (await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await submitBtn.click();
-
-			// Wait for the tool-invoke request
-			await page.waitForTimeout(500);
-
-			// Verify tool-invoke was called immediately (not staged)
-			expect(toolInvokeBody).not.toBeNull();
-			expect((toolInvokeBody as any)?.toolName).toBe("list-tasks");
-			expect((toolInvokeBody as any)?.extensionName).toBe("task-stack");
-		}
+		await textarea.fill("!ext:task-stack");
+		const listbox = page.locator("#mention-listbox");
+		await expect(listbox.getByText("task-stack", { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		const chip = page.locator('span[role="button"]').filter({ hasText: "@task-stack" });
+		await expect(chip).toBeVisible();
+		await chip.click();
+		const submitBtn = page.locator('form button[type="submit"]');
+		await expect(submitBtn).toBeVisible();
+		await submitBtn.click();
+		await expect.poll(() => toolInvokeBody).not.toBeNull();
+		expect(toolInvokeBody).toMatchObject({ toolName: "list-tasks", extensionName: "task-stack" });
 	});
 
 	test("tool form closes after submission", async ({ page, mockApi }) => {
@@ -91,21 +81,16 @@ test.describe("Inline Tool Immediate Execution", () => {
 		await page.waitForSelector("textarea");
 
 		const textarea = page.locator("textarea");
-		await textarea.fill("@ext:task-stack");
-
-		const chip = page.locator("[data-mention-chip]").first();
-		if (await chip.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await chip.click();
-		}
-
-		const submitBtn = page.locator('button[type="submit"]');
-		if (await submitBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-			await submitBtn.click();
-			await page.waitForTimeout(300);
-
-			// Form should be closed after submission
-			await expect(submitBtn).not.toBeVisible();
-		}
+		await textarea.fill("!ext:task-stack");
+		await expect(page.locator("#mention-listbox").getByText("task-stack", { exact: true })).toBeVisible();
+		await page.keyboard.press("Enter");
+		const chip = page.locator('span[role="button"]').filter({ hasText: "@task-stack" });
+		await expect(chip).toBeVisible();
+		await chip.click();
+		const submitBtn = page.locator('form button[type="submit"]');
+		await expect(submitBtn).toBeVisible();
+		await submitBtn.click();
+		await expect(submitBtn).not.toBeVisible();
 	});
 
 	test("tool result renders in chat after immediate execution", async ({ page, mockApi, emitWs }) => {

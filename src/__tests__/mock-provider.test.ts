@@ -21,12 +21,13 @@ mock.module("../providers/encryption", () => ({
   _resetKeyCache: () => {},
 }));
 
-const { resolveModel } = await import("../providers/router");
+const { resolveModel, suggestFallback } = await import("../providers/router");
 const { getCredential } = await import("../providers/credentials");
 
 const savedE2E = process.env.PI_E2E_REAL;
 const savedNodeEnv = process.env.NODE_ENV;
 const savedAllow = process.env.EZCORP_ALLOW_TEST_SURFACE;
+const savedIsolation = process.env.PI_E2E_ISOLATE_PROVIDERS;
 
 function enableSurface(on: boolean): void {
   if (on) {
@@ -43,10 +44,16 @@ afterEach(() => {
   if (savedE2E === undefined) delete process.env.PI_E2E_REAL; else process.env.PI_E2E_REAL = savedE2E;
   if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
   if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE; else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
+  if (savedIsolation === undefined) delete process.env.PI_E2E_ISOLATE_PROVIDERS; else process.env.PI_E2E_ISOLATE_PROVIDERS = savedIsolation;
 });
 afterAll(() => restoreModuleMocks());
 
 describe("resolveModel: ezcorp-mock", () => {
+  test("isolated harness rejects a real provider before credential or network resolution", async () => {
+    process.env.PI_E2E_ISOLATE_PROVIDERS = "1";
+    await expect(resolveModel("openai", "gpt-5")).rejects.toThrow(/Real provider access is disabled/);
+    expect(await suggestFallback("ezcorp-mock", "balanced")).toBeNull();
+  });
   test("under the surface → custom openai-completions model at loopback mock baseUrl", async () => {
     // mockLlmBaseUrl() requires one of EZCORP_MOCK_LLM_BASE_URL / PORT /
     // EZCORP_PORT to be set — it no longer guesses a default port.
