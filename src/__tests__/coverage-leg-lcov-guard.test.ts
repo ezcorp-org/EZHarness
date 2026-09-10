@@ -74,6 +74,7 @@ const REGISTER_ALL = [
   "register_leg harness-client cov_hc",
   "register_leg suggest cov_suggest",
   "register_leg ai-kit cov_aikit",
+  "register_leg providers cov_providers",
   "register_leg web-vitest cov_vitest",
   "register_leg web-security cov_security",
 ].join("\n");
@@ -83,6 +84,7 @@ const ALL_DIRS: ReadonlyArray<[string, string]> = [
   ["harness-client", "cov_hc"],
   ["suggest", "cov_suggest"],
   ["ai-kit", "cov_aikit"],
+  ["providers", "cov_providers"],
   ["web-vitest", "cov_vitest"],
   ["web-security", "cov_security"],
 ];
@@ -812,7 +814,7 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     const legsVerdict = legsOnlyBranch.slice(legsVerdictStart, legsOnlyBranch.lastIndexOf("fi\n") + 3);
 
     const runVerdict = (body: string, sdkExit: number): Run => {
-      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nVITEST_EXIT=0\nFULL_VITEST_EXIT=0\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+      const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdkExit}\nVITEST_EXIT=0\nFULL_VITEST_EXIT=0\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nPROVIDER_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
       return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
     };
 

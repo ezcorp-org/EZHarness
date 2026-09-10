@@ -410,11 +410,7 @@ describe("coverage-gate semantics: #3 wildcard precedence", () => {
 //    check-coverage.ts are never counted toward failure, even if a
 //    threshold would otherwise enforce them.
 //
-// EXCLUDES (frozen verbatim in scripts/check-coverage.ts):
-//   "src/providers/**"
-//   "src/providers/**"
-//   "web/src/routes/**/+*.svelte"
-//   "web/e2e/**"
+// Representative executable exclusions: route Svelte markup and e2e specs.
 // ---------------------------------------------------------------------------
 describe("coverage-gate semantics: #4 exclusion enforcement", () => {
   test("excluded files are never counted as violations", async () => {
@@ -424,8 +420,6 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // coverage. Also add a 100%-covered canary to prove the gate is
       // running enforcement (not accidentally vacuous).
       const excludedFiles = [
-        "src/providers/example.ts",
-        "src/providers/anthropic.ts",
         "web/src/routes/foo/+page.svelte",
         "web/e2e/login.spec.ts",
       ];
@@ -440,7 +434,6 @@ describe("coverage-gate semantics: #4 exclusion enforcement", () => {
       // Thresholds that would fail every excluded file if not excluded.
       const thresholds: Record<string, number> = {
         "src/extensions/sdk/**": 100,
-        "src/providers/**": 100,
         "web/src/routes/**": 100,
         "web/e2e/**": 100,
         "packages/@ezcorp/sdk/src/**": 100,

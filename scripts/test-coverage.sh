@@ -108,6 +108,7 @@ COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FULL_VITEST_EXIT=0
+PROVIDER_EXIT=0
 WEB_VITEST_SOURCE_GUARD_EXIT=0
 # Everything that failed, host files AND named legs — the visibility list.
 FAILED_FILES=()
@@ -241,6 +242,7 @@ run_legs() {
   register_leg harness-client cov_hc
   register_leg suggest cov_suggest
   register_leg ai-kit cov_aikit
+  register_leg providers cov_providers
   register_leg web-vitest cov_vitest
   # Transitional local producer for the entire canonical Vitest pool. CI will
   # publish the same three shard artifacts from its existing test-web jobs;
@@ -330,6 +332,14 @@ run_legs() {
       > "$legs/aikit.out" 2>&1
     echo "$?" > "$legs/aikit.code"
   ) &
+
+  # Providers are a Bun-only canonical producer: each suite runs in its own
+  # process and the resulting lcov is filtered to src/providers/**.
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[providers]}" bash "$SCRIPT_DIR/provider-coverage.sh"       > "$legs/providers.out" 2>&1
+    echo "$?" > "$legs/providers.code"
+  )
 
   # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
   # needs node:inspector's Coverage domain, which Bun does not implement, so this
@@ -958,7 +968,7 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  local printed_legs=(sdk hc suggest aikit vitest)
+  local printed_legs=(sdk hc suggest aikit providers vitest)
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
@@ -987,6 +997,12 @@ run_legs() {
   if [ "$AIKIT_EXIT" != "0" ]; then
     FAILED_FILES+=("ai-kit coverage leg")
     echo "--- FAIL: ai-kit coverage leg (exit $AIKIT_EXIT) ---"
+  fi
+
+  PROVIDER_EXIT=$(cat "$legs/providers.code" 2>/dev/null || echo 1)
+  if [ "$PROVIDER_EXIT" != "0" ]; then
+    FAILED_FILES+=("provider coverage leg")
+    echo "--- FAIL: provider coverage leg (exit $PROVIDER_EXIT) ---"
   fi
 
   # The suggest leg is pass/fail-gated by the residual job. Keep its local
@@ -1113,7 +1129,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     exit 1
   fi
   if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
-     [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
+     [ "$PROVIDER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -1378,7 +1394,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+   [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 

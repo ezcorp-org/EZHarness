@@ -28,7 +28,6 @@ export const REPO_ROOT = resolve(import.meta.dir, "..");
 // `gate-change-approved` label. Keep one path (or wildcard) per line with a
 // justification comment so the diff is reviewable.
 export const EXCLUDES: readonly string[] = [
-  "src/providers/**",
   "web/src/routes/**/+*.svelte",
   "web/e2e/**",
   // Template-string files: lcov counts the interior of returned

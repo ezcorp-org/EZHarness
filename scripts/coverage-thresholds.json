@@ -701,5 +701,19 @@
   "web/src/routes/api/conversations/[id]/caller-tools/schema.ts": 100,
   "src/db/migrations/add-extension-event-receipts.ts": 100,
   "src/db/queries/extension-event-receipts.ts": 100,
-  "src/runtime/ask-user-answer.ts": 100
+  "src/runtime/ask-user-answer.ts": 100,
+  "src/providers/credential-store.ts": 100,
+  "src/providers/credentials.ts": 99,
+  "src/providers/encryption.ts": 100,
+  "src/providers/file.ts": 100,
+  "src/providers/kilo.ts": 98,
+  "src/providers/llm.ts": 100,
+  "src/providers/local-model-check.ts": 97,
+  "src/providers/model-capabilities.ts": 97,
+  "src/providers/model-discovery.ts": 100,
+  "src/providers/openai-compat-client.ts": 100,
+  "src/providers/provider-error.ts": 100,
+  "src/providers/registry.ts": 99,
+  "src/providers/router.ts": 100,
+  "src/providers/shell.ts": 100
 }
