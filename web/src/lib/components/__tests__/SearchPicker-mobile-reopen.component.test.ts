@@ -57,6 +57,8 @@ async function verifyMobileCloseAndNativeReopen(renderPicker: () => void, result
 	await waitFor(() => expect(within(sheet).queryByText(resultLabel, { exact: true })).toBeNull());
 	await fireEvent.input(sheetInput, { target: { value: resultLabel } });
 	await within(sheet).findByText(resultLabel, { exact: true });
+	await fireEvent.keyDown(sheetInput, { key: "ArrowDown" });
+	expect(sheetInput.getAttribute("aria-activedescendant")).toMatch(/picker-item-/);
 
 	// BottomSheet traps focus while mounting. This input blur is expected and
 	// must not dismiss the sheet the user just opened.
