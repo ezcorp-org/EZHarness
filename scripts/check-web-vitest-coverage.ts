@@ -2,6 +2,7 @@
 /** Fail when a shipped, executable shared-web source has no V8 DA record. */
 import { Glob } from "bun";
 import { relative, resolve } from "node:path";
+import { scriptedRouteFiles } from "./browser-route-coverage-manifest.ts";
 import { BROWSER_CANONICAL_SOURCES, BUN_CANONICAL_SOURCES, isDeclarationOnlyTypeScript, isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
 
 export function lcovSourceFiles(lcov: string): Set<string> {
@@ -57,11 +58,16 @@ export function configuredWebVitestSources(patterns: readonly string[]): string[
  * Product sources owned by the Node/V8 producer. This is shared with the
  * LCOV filter so a broad Vitest include cannot add test fixtures, styles, or
  * assets to a product threshold while the source guard checks a different
- * set. Browser-canonical code intentionally has one producer only.
+ * set. The browser route inventory is the authoritative owner of every
+ * scripted SvelteKit route, and browser-canonical code has one producer only.
  */
 export async function canonicalWebVitestSources(): Promise<string[]> {
   const manifest = await Bun.file(WEB_VITEST_INCLUDE_MANIFEST).text();
-  const nonNodeCanonical = new Set([...BROWSER_CANONICAL_SOURCES, ...BUN_CANONICAL_SOURCES]);
+  const nonNodeCanonical = new Set([
+    ...scriptedRouteFiles(),
+    ...BROWSER_CANONICAL_SOURCES,
+    ...BUN_CANONICAL_SOURCES,
+  ]);
   return configuredWebVitestSources(webVitestIncludePatterns(manifest))
     .filter((file) => isSourceFile(file) && !nonNodeCanonical.has(file));
 }

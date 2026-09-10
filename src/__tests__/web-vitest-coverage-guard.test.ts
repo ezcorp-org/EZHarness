@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
+import { resolve } from "node:path";
 import { REPO_ROOT } from "../../scripts/coverage-config";
-import { configuredWebVitestSources, lcovSourceFiles, missingWebLibCoverage, webVitestIncludePatterns } from "../../scripts/check-web-vitest-coverage";
+import { scriptedRouteFiles } from "../../scripts/browser-route-coverage-manifest";
+import { canonicalWebVitestSources, configuredWebVitestSources, lcovSourceFiles, missingWebLibCoverage, webVitestIncludePatterns } from "../../scripts/check-web-vitest-coverage";
 
 test("normalizes relative and absolute Vitest LCOV source paths", () => {
   const files = lcovSourceFiles(`SF:web/src/lib/a.ts\nDA:1,1\nend_of_record\nSF:${REPO_ROOT}/web/src/lib/b.ts\nDA:1,1`);
@@ -43,4 +45,18 @@ test("expands the shared V8 manifest routes and shared libraries", () => {
   const sources = configuredWebVitestSources(includes);
   expect(sources).toContain("web/src/lib/mention-logic.ts");
   expect(sources).toContain("web/src/routes/api/projects/[id]/+server.ts");
+});
+
+test("assigns scripted routes to browser coverage while node omissions still fail", async () => {
+  const previewRoute = "web/src/routes/(app)/extensions/[id]/preview/+page.svelte";
+  expect(scriptedRouteFiles()).toContain(previewRoute);
+  const manifest = await Bun.file(resolve(REPO_ROOT, "scripts/web-vitest-coverage-includes.sh")).text();
+  expect(configuredWebVitestSources(webVitestIncludePatterns(manifest))).toContain(previewRoute);
+  expect(await canonicalWebVitestSources()).not.toContain(previewRoute);
+  const missingIfNodeOwned = await missingWebLibCoverage(
+    [previewRoute],
+    new Set(),
+    async () => "<script>const preview = true;</script>",
+  );
+  expect(missingIfNodeOwned).toEqual([previewRoute]);
 });
