@@ -31,10 +31,6 @@ test("unauthenticated requests remain denied before the retirement response", as
   expect(response.status).toBe(401);
 });
 
-async function _retiredInstall(user: typeof ADMIN_USER | typeof MEMBER_USER, body: unknown) {
-  return POST(createMockEvent({ method: "POST", url: "http://localhost/api/extensions", user, body }) as never);
-}
-
 
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
