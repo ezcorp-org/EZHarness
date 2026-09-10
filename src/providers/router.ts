@@ -195,6 +195,15 @@ function isE2eProviderIsolationEnabled(): boolean {
   return isTestSurfaceEnabled() && process.env.PI_E2E_ISOLATE_PROVIDERS === "1";
 }
 
+/** Resolve a harness model without consulting user-configured provider URLs. */
+function resolveMockModel(model: string): { provider: string; model: string; piModel: AnyModel } {
+  return {
+    provider: MOCK_PROVIDER,
+    model,
+    piModel: resolveModelObject(MOCK_PROVIDER, model, mockLlmBaseUrl()),
+  };
+}
+
 export async function resolveModel(
   rawProvider?: string,
   rawModelId?: string,
@@ -236,8 +245,16 @@ export async function resolveModel(
   const provider = rawProvider === CURRENT_MODEL_SENTINEL ? undefined : rawProvider;
   const modelId = rawModelId === CURRENT_MODEL_SENTINEL ? undefined : rawModelId;
 
-  if (isE2eProviderIsolationEnabled() && provider !== MOCK_PROVIDER) {
-    throw new Error("Real provider access is disabled in the isolated E2E harness");
+  if (isE2eProviderIsolationEnabled()) {
+    if (provider !== MOCK_PROVIDER || !modelId) {
+      throw new Error(
+        "Real provider access is disabled in the isolated E2E harness; an explicit ezcorp-mock model is required",
+      );
+    }
+    // Do this before the tier/custom-model reads. A test database can carry
+    // arbitrary provider configuration from a developer profile; isolated
+    // turns must use only the in-process endpoint, never that configuration.
+    return resolveMockModel(modelId);
   }
 
   // WS3 quality-tier routing. When the caller passes a tier (the heuristic
@@ -258,7 +275,7 @@ export async function resolveModel(
     // has no `ezcorp-mock` models → custom openai-completions w/ default
     // OpenAI baseUrl, requiring credentials it won't have → clean failure).
     if (provider === MOCK_PROVIDER && isTestSurfaceEnabled()) {
-      return { provider, model: modelId, piModel: resolveModelObject(provider, modelId, mockLlmBaseUrl()) };
+      return resolveMockModel(modelId);
     }
     // Prefer a model discovered via /api/providers/:provider/refresh-models — it carries
     // the correct api + baseUrl for provider-native calls (e.g. openai-responses for gpt-5.x).
