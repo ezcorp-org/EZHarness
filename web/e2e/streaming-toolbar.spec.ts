@@ -381,6 +381,7 @@ test.describe("Keyboard Shortcuts", () => {
 		const close = page.getByRole("button", { name: "Close" });
 		await expect(close).toBeFocused();
 		await captureEvidence(page, testInfo, "keyboard-shortcuts-open");
+		await expect(close).toBeFocused();
 
 		await page.keyboard.press("Escape");
 

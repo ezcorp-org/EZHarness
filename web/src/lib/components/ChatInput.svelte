@@ -32,6 +32,7 @@
 	import type { ToolDefinition } from '../../../../src/extensions/types';
 	import { connectionState } from "$lib/stores/connection";
 	import { isChatDisabled, chatPlaceholder } from "$lib/chat-input-logic";
+	import { isNavBlockedByOverlay } from "$lib/chat-prompt-nav.js";
 	import { detectMentionTrigger, insertMentionToken, insertCommandLiteral, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
 	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
 	import { searchMentions } from "$lib/api";
@@ -1004,7 +1005,9 @@
 		if (disabled || isChatDisabled(streaming, connState)) return;
 		const el = textarea;
 		if (!el) return;
-		requestAnimationFrame(() => el.focus());
+		requestAnimationFrame(() => {
+			if (!isNavBlockedByOverlay(document)) el.focus();
+		});
 	});
 </script>
 
