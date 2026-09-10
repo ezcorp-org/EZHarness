@@ -544,8 +544,23 @@ Current main CI has 35 successful jobs, including production-image and Firefox/W
 - [ ] Close browser coverage and CI discovery gaps.
 - [ ] Enforce excluded executable source coverage.
 - [ ] Remove all test type-check exclusions.
-- [ ] Resolve and verify the real Postgres timeout.
+- [x] Resolve and verify the real Postgres timeout.
 - [ ] Independently verify integration and measure performance.
 - [ ] Record final review and evidence.
 
 Plan review: four isolated Terra agents own disjoint work; the parent verifies and integrates. Heavy work uses one shared lock. No weakened gates or unverified completion.
+
+Integration review: all13 migration producers now have direct real-database tests and100% measured lines. Parent Postgres validation passes24default-pool cases andtwo one-connection runs; wrongpool config and required-CI dependency controls fail as intended. Parent Canvas repair passes15browser cases on a freshbuild, plus3 focused cases after sharedfixture cleanup. Typeleaf removes49exclusions and passes808changed backendtests; parent integration exposed two fixture/migration signature errors and one assertion-free legacy test, with repairs under verification. New fullbrowser and original-source coverage work remains active.
+
+- Parent visual review: opened final Canvas mobile before/after swipe and desktop dark captures from `tasks/testing-gaps/canvas-evidence-final-blob/`; controls fit, text is readable, and native swipe closes the dock. The final affected three-case browser run passed.
+
+- Parent integration review: 23 design/shared-form browser cases passed with fresh build (45.5s, two workers); committed 53e66faf0. Shared-form setup uses the supported !ext mention and removes fixed waits.
+- Parent coverage review rejected the initial mapping-point converter. The integrated replacement uses the Vitest AST converter; eight independent controls pass (550ms). Corrected an agent-worktree absolute path in the guard test (0a142a15d).
+- Parent actual CI aggregator/discovery checks: 41 pass, 163 assertions (4.96s). Required E2E check name preserved; Postgres remains required by Backend tests.
+- Expanded browser baseline: 1,253 pass, 201 fail of 1,454. Team repairs are still in progress; no claim that browser coverage is complete.
+- Parent native chip diagnostics: startup splash intercepted early raw gestures. After native hit-target readiness, original component still corrupts the selected list with the drag placeholder. Full item-state fix and regression test pending final five-case real-auth receipt.
+- Full integrated typecheck exposed new errors in coverage imports/types, CDP fixture, and shared UI fixture. Owners are fixing those without adding type exclusions.
+- Real-auth negative provider test escaped to a real Kilo fallback. Types owner is adding central test-mode provider isolation and adversarial guards; do not run external provider failure paths until isolated.
+- Parent chip closure: five real-auth cases passed in51.6s, including native mouse/touch, keyboard, Escape, and zero axe violations. Save response, database read, and reload preserve exact order. Four PNGs are in `tasks/testing-gaps/chip-evidence-blob/`; parent viewed both mobile captures and confirmed the long-name header and controls no longer overlap.
+- Parent Worker check:11cases/60assertions pass with real portable pi-ai adapters and stubbed HTTP transport; backend typecheck passes after the catalog generic repair. Browser capture/coverage guards:58pass244assertions2.62s.
+- Scheduling refinement: full suites keep the heavy lock. One short private-port repair run may run beside a full two-worker browser suite under a separate focused lock; measuredhost32CPUs/about12GBavailable. Never build and sync the same worktree concurrently.
