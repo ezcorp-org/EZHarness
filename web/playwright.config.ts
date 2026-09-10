@@ -87,12 +87,6 @@ export default defineConfig({
 	},
 	projects: [
 		{ name: "chromium", use: { browserName: "chromium" } },
-		// The engine matrix selects these explicitly for the mobile-sheet
-		// dismissal journey. Keeping them in the shared mock config lets that
-		// job reuse the already-built preview instead of maintaining a second
-		// browser configuration just for one focused cross-engine contract.
-		{ name: "firefox", use: { browserName: "firefox" } },
-		{ name: "webkit", use: { browserName: "webkit" } },
 		// Phase 57 UX-04 (Plan 57-05) — touch-drag fixture target for
 		// `chip-reorder.spec.ts`. Pixel 5 devices preset gives Playwright
 		// the touchscreen + viewport metrics svelte-dnd-action's touch

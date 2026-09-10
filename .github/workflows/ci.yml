@@ -413,10 +413,10 @@ jobs:
         run: cd web && bunx playwright test --config playwright.real.config.ts e2e/real-auth/extension-lifecycle-flow.spec.ts
       # The restored bottom-sheet suite exercises native Escape/backdrop/Close
       # dismissal and safe-area layout under both non-Chromium engines. The
-      # reuse config starts preview from the lifecycle build above, so this
-      # focused engine proof adds no second production build.
+      # tracked focused config starts preview from the lifecycle build above,
+      # so this proof adds no second production build or default test project.
       - name: Verify bottom-sheet dismissal and safe-area behavior
-        run: cd web && bunx playwright test --config ../tasks/testing-gaps/browser/playwright.reuse-mock.config.ts --project=${{ matrix.browser }} --workers=1 --reporter=list e2e/bottom-sheet-pickers.spec.ts
+        run: cd web && bunx playwright test --config playwright.reuse-mock.config.ts --project=${{ matrix.browser }} --workers=1 --reporter=list e2e/bottom-sheet-pickers.spec.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

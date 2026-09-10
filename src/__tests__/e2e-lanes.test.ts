@@ -287,14 +287,38 @@ describe("e2e lane manifest", () => {
     const shipping = await Bun.file(join(REPO_ROOT, "scripts/verify-shipping-production-suite.sh")).text();
     expect(shipping).toContain("replay-file-organizer-runtime.sh");
 
-    const engines = ciJobBlock(ci, "extension-browser-engines");
-    expect(engines, "missing CI job: extension-browser-engines").not.toBe("");
-    expect(engines).toContain("e2e/bottom-sheet-pickers.spec.ts");
-    expect(engines).toContain("--project=");
-    expect(engines).toContain("matrix.browser");
-    const mockConfig = await Bun.file(join(REPO_ROOT, "web/playwright.config.ts")).text();
-    expect(mockConfig).toContain('{ name: "firefox", use: { browserName: "firefox" } }');
-    expect(mockConfig).toContain('{ name: "webkit", use: { browserName: "webkit" } }');
+	const engines = ciJobBlock(ci, "extension-browser-engines");
+	expect(engines, "missing CI job: extension-browser-engines").not.toBe("");
+	expect(engines).toContain("e2e/bottom-sheet-pickers.spec.ts");
+	expect(engines).toContain("--config playwright.reuse-mock.config.ts");
+	expect(engines).toContain("--project=");
+	expect(engines).toContain("matrix.browser");
+	const reuseConfig = join(REPO_ROOT, "web/playwright.reuse-mock.config.ts");
+	expect(existsSync(reuseConfig), "engine CI config must be present in a clean checkout").toBe(true);
+	const trackedConfig = Bun.spawnSync(["git", "ls-files", "--error-unmatch", "web/playwright.reuse-mock.config.ts"], {
+		cwd: REPO_ROOT,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	expect(trackedConfig.exitCode, trackedConfig.stderr.toString()).toBe(0);
+	const mockConfig = await Bun.file(join(REPO_ROOT, "web/playwright.config.ts")).text();
+	expect(mockConfig).not.toContain('{ name: "firefox", use: { browserName: "firefox" } }');
+	expect(mockConfig).not.toContain('{ name: "webkit", use: { browserName: "webkit" } }');
+	const collected = Bun.spawnSync(
+		[
+			"bunx",
+			"playwright",
+			"test",
+			"--config",
+			"playwright.reuse-mock.config.ts",
+			"--project=firefox",
+			"--list",
+			"e2e/bottom-sheet-pickers.spec.ts",
+		],
+		{ cwd: join(REPO_ROOT, "web"), stdout: "pipe", stderr: "pipe" },
+	);
+	expect(collected.exitCode, collected.stderr.toString()).toBe(0);
+	expect(collected.stdout.toString()).toContain("bottom-sheet");
 
     const aggregate = ciJobBlock(ci, "e2e-mock");
     for (const [job] of jobs) expect(aggregate).toContain(job);
