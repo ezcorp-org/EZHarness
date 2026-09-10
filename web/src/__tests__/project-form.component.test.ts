@@ -39,3 +39,27 @@ describe("ProjectForm", () => {
 		expect(onsubmit).toHaveBeenCalledWith({ name: "Existing", path: "/repo", icon: "data:image/png;base64,icon", variables: { KEEP: true } });
 	});
 });
+
+test("turns an uploaded image into the scaled icon sent on submit", async () => {
+	class Reader {
+		result: string | ArrayBuffer | null = "data:image/source";
+		onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+		readAsDataURL() { this.onload?.(new ProgressEvent("load") as ProgressEvent<FileReader>); }
+	}
+	class DecodedImage {
+		onload: (() => void) | null = null;
+		set src(_value: string) { this.onload?.(); }
+	}
+	vi.stubGlobal("FileReader", Reader);
+	vi.stubGlobal("Image", DecodedImage);
+	vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+	vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,resized");
+	const onsubmit = vi.fn();
+	const { container, getByLabelText, getByRole } = render(ProjectForm, { onsubmit });
+	await fireEvent.input(getByLabelText("Name"), { target: { value: "Image project" } });
+	const upload = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+	await fireEvent.change(upload, { target: { files: [new File(["image"], "icon.png", { type: "image/png" })] } });
+	await waitFor(() => expect(getByRole("img", { name: "Project icon" })).toBeInTheDocument());
+	await fireEvent.submit(getByRole("button", { name: "Create" }).closest("form")!);
+	expect(onsubmit).toHaveBeenCalledWith(expect.objectContaining({ icon: "data:image/png;base64,resized" }));
+});
