@@ -103,8 +103,30 @@ test.describe("real browser context compaction", () => {
       { text: recovery },
     ]);
 
-    await page.goto(`/project/${seeded.projectId}/chat/${seeded.conversationId}`);
+    // A hydrated composer must still wait for its persisted model. Hold the
+    // real conversation response to reproduce a slow first load deterministically.
+    let releaseConversation!: () => void;
+    const conversationReady = new Promise<void>((resolve) => { releaseConversation = resolve; });
+    let observedConversation!: () => void;
+    const conversationRequested = new Promise<void>((resolve) => { observedConversation = resolve; });
+    await page.route(`**/api/conversations/${seeded.conversationId}`, async (route) => {
+      const response = await route.fetch();
+      observedConversation();
+      await conversationReady;
+      await route.fulfill({ response });
+    });
+    try {
+      await page.goto(`/project/${seeded.projectId}/chat/${seeded.conversationId}`);
+      await conversationRequested;
+      await expect(page.locator("textarea")).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+    } finally {
+      releaseConversation();
+    }
+    const sent = page.waitForRequest((request) => request.method() === "POST"
+      && new URL(request.url()).pathname === `/api/conversations/${seeded.conversationId}/messages`);
     await sendComposerMessage(page, "ACTIVE_OVERFLOW_PROMPT");
+    expect((await sent).postDataJSON()).toMatchObject({ provider: "ezcorp-mock", model: `mock:${scriptKey}` });
     // A 400 context error is a caller error, so it must be shown unchanged;
     // it must not silently complete the run or route to another provider.
     await expect(threadMessages(page).getByText(/context_length_exceeded/i)).toBeVisible({ timeout: 30_000 });

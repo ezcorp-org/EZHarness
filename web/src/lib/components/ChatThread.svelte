@@ -2927,6 +2927,7 @@
 	{:else}
 		<ChatInput
 			bind:this={chatInput}
+			disabled={!initialLoadDone}
 			onsubmit={handleSend}
 			onstop={handleStop}
 			streaming={isStreaming}
