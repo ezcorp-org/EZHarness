@@ -11,8 +11,8 @@
  * These tests pin what a user can tell apart WITHOUT clicking.
  */
 
-import { render, cleanup } from "@testing-library/svelte";
-import { describe, test, expect, afterEach, beforeAll } from "vitest";
+import { render, cleanup, fireEvent, waitFor } from "@testing-library/svelte";
+import { describe, test, expect, afterEach, beforeAll, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import DefaultCard from "./DefaultCard.svelte";
 import type { ToolCallState } from "$lib/stores.svelte";
@@ -31,7 +31,7 @@ beforeAll(() => {
 	}
 });
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 function renderCard(overrides: Partial<ToolCallState> = {}) {
 	return render(DefaultCard, {
@@ -49,6 +49,50 @@ function renderCard(overrides: Partial<ToolCallState> = {}) {
 function failure(code: string, error: string): string {
 	return JSON.stringify({ ok: false, code, error });
 }
+
+test("expansion loads complete output once and retains typed input and duration", async () => {
+	let release!: (response: Response) => void;
+	const fetch = vi.fn(() => new Promise<Response>(resolve => { release = resolve; }));
+	vi.stubGlobal("fetch", fetch);
+	const ui = renderCard({ status: "complete", output: "Preview", duration: 1200 });
+	const header = ui.getByRole("button", { expanded: false });
+	await fireEvent.click(header);
+	expect(ui.getByText("Loading full output...")).toBeVisible();
+	expect(fetch).toHaveBeenCalledWith("/api/tool-calls/tc-1/output");
+	release(Response.json({ output: { answer: "Saved full result" } }));
+	await waitFor(() => expect(ui.getByText(/Saved full result/)).toBeVisible());
+	expect(ui.getByText("Duration: 1.2s")).toBeVisible();
+	expect(ui.getByText("Input")).toBeVisible();
+	await fireEvent.click(header);
+	await fireEvent.click(header);
+	expect(fetch).toHaveBeenCalledOnce();
+});
+
+test.each([false, true])("failed expansion retains inline output and permits retry (network=%s)", async (network) => {
+	const fetch = vi.fn<() => Promise<Response>>()
+		.mockImplementationOnce(() => network ? Promise.reject(new Error("Offline")) : Promise.resolve(new Response(null, { status: 503 })))
+		.mockResolvedValueOnce(Response.json({ output: "Recovered output" }));
+	vi.stubGlobal("fetch", fetch);
+	const ui = renderCard({ status: "complete", output: "Retained preview" });
+	const header = ui.getByRole("button", { expanded: false });
+	await fireEvent.click(header);
+	await waitFor(() => expect(ui.queryByText("Loading full output...")).toBeNull());
+	expect(ui.getByText("Retained preview")).toBeVisible();
+	await fireEvent.click(header);
+	await fireEvent.click(header);
+	await waitFor(() => expect(ui.getByText("Recovered output")).toBeVisible());
+	expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+test.each([false, true])("image output eagerly loads the complete image without losing a failed preview (failure=%s)", async (failure) => {
+	const fetch = vi.fn(() => failure
+		? Promise.reject(new Error("Offline"))
+		: Promise.resolve(Response.json({ output: "![Full image](/full.png)" })));
+	vi.stubGlobal("fetch", fetch);
+	const ui = renderCard({ status: "complete", output: "![Preview image](/preview.png)" });
+	await waitFor(() => expect(ui.getByRole("img", { name: failure ? "Preview image" : "Full image" })).toBeInTheDocument());
+	expect(fetch).toHaveBeenCalledOnce();
+});
 
 describe("DefaultCard — failure class is visible while collapsed", () => {
 	test("execution failure shows the class chip, the draft, and the reason", () => {

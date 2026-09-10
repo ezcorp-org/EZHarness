@@ -203,6 +203,13 @@ describe("/script seed endpoint", () => {
     expect((await bad([{ usage: { output: Number.POSITIVE_INFINITY } }])).status).toBe(400);
   });
 
+  test.each(["", 42, null])("rejects invalid hold keys without seeding a turn (%j)", async (holdKey) => {
+    const response = await seedScript({ request: jsonReq({ scriptKey: "invalid-hold", turns: [{ text: "must not run", holdKey }] }), locals: cookieLocals } as any);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "turns[0].holdKey must be a non-empty string" });
+    expect(dequeueMockTurn("invalid-hold").text).toContain("no scripted turn");
+  });
+
   test("rejects bad fault shapes", async () => {
     const bad = (turns: unknown) => seedScript({ request: jsonReq({ scriptKey: "k", turns }), locals: cookieLocals } as any);
     expect((await bad([{ fault: "nope" }])).status).toBe(400);
