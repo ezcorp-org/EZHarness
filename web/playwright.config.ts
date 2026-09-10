@@ -25,10 +25,11 @@ const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
 const browserCoverage = process.env.EZCORP_BROWSER_COVERAGE === "1";
 
 // The mock preview cannot serve the real-PGlite test surface. Keep the
-// partition in lanes.json: root real journeys must be ignored just as strictly
-// as files under e2e/real-auth/, while the real config derives the same list
+// partition in lanes.json: root real journeys and the production-image journey must be ignored just as
+// strictly as files under e2e/real-auth/. The Docker-run production lane opts
+// back in through DOCKER_TEST, while the real config derives its own list
 // as its exact testMatch below.
-const realTestIgnore = ["fresh-setup", "real-auth"].flatMap((lane) =>
+const realTestIgnore = isDocker ? [] : ["fresh-setup", "real-auth", "production-image"].flatMap((lane) =>
 	lanesManifest.lanes[lane].map(
 		(path) => new RegExp(`${path.slice("web/".length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
 	),

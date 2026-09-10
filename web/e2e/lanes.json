@@ -1,5 +1,5 @@
 {
-  "//": "E2E lane manifest. EVERY web/e2e/**/*.spec.ts has exactly ONE lane and every lane has an automatic, blocking CI consumer. mock-gate is the fast protected mock set; mock-full is the remaining mock-preview product coverage. fresh-setup and real-auth are real-PGlite journeys. evidence contains every @evidence spec and runs with screenshot capture. docker contains every DOCKER_TEST-gated production-container journey. ci.yml derives Playwright arguments from this manifest through scripts/e2e-lane-args.ts; no browser backlog lane exists.",
+  "//": "E2E lane manifest. EVERY web/e2e/**/*.spec.ts has exactly ONE lane and every lane has an automatic, blocking CI consumer. mock-gate is the fast protected mock set; mock-full is the remaining mock-preview product coverage. fresh-setup and real-auth are real-PGlite journeys. evidence contains every @evidence spec and runs with screenshot capture. production-image contains the Docker-backed File Organizer journey. ci.yml derives Playwright arguments from this manifest through scripts/e2e-lane-args.ts; no browser backlog lane exists.",
   "lanes": {
     "mock-gate": [
       "web/e2e/agent-panel-parity.spec.ts",
@@ -28,7 +28,6 @@
       "web/e2e/ez-factory-console.spec.ts",
       "web/e2e/ez-factory-job-editor.spec.ts",
       "web/e2e/file-organizer-hub.spec.ts",
-      "web/e2e/file-organizer-real.spec.ts",
       "web/e2e/hub.spec.ts",
       "web/e2e/main-chat-parity.spec.ts",
       "web/e2e/onboarding-provider-access.spec.ts",
@@ -82,6 +81,9 @@
       "web/e2e/real-auth/workflow-service-release-flow.spec.ts",
       "web/e2e/signup-token.spec.ts",
       "web/e2e/validate-prod-shape.spec.ts"
+    ],
+    "production-image": [
+      "web/e2e/file-organizer-real.spec.ts"
     ],
     "evidence": [
       "web/e2e/admin-routing-cost.spec.ts",

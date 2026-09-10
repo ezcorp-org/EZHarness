@@ -7,7 +7,7 @@
  *   - exhaustive: every on-disk spec appears in exactly ONE lane; no
  *     phantom entries for deleted specs.
  *   - marker consistency per lane (fresh-setup and real-auth each match their
- *     dedicated real-PGlite config; evidence members carry @evidence).
+ *     dedicated real-PGlite config; evidence members carry @evidence; the production-image lane is the live Docker replay target).
  *   - the blocking mock-gate list has ONE home: ci.yml derives its
  *     playwright args via scripts/e2e-lane-args.ts (anchored regexes) —
  *     asserted both at the generator level and as an invocation anchor in
@@ -24,7 +24,7 @@ import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
-const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "evidence"] as const;
+const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence"] as const;
 
 // Every browser spec is now wired to a strict CI lane. Keep lane membership
 // exhaustive and unique so a new spec cannot become an unexecuted backlog
@@ -49,6 +49,9 @@ const lanes = lanesManifest.lanes as Record<string, string[]>;
 const onDisk = bashLines("find web/e2e -name '*.spec.ts' | sort");
 const evidenceTagged = new Set(
   bashLines("grep -rl --include='*.spec.ts' '@evidence' web/e2e || true"),
+);
+const dockerGated = new Set(
+  bashLines("grep -rl --include='*.spec.ts' 'DOCKER_TEST' web/e2e || true"),
 );
 
 describe("e2e lane manifest", () => {
@@ -130,6 +133,39 @@ describe("e2e lane manifest", () => {
     expect(Object.hasOwn(lanes, "unwired")).toBe(false);
     expect(lanes["mock-full"]!.length).toBeGreaterThan(0);
   });
+
+  test("production-image lane owns exactly the Docker-backed File Organizer replay", async () => {
+    const production = ["web/e2e/file-organizer-real.spec.ts"];
+    expect(lanes["production-image"]).toEqual(production);
+    expect(production.every((path) => dockerGated.has(path))).toBe(true);
+
+    const replay = await Bun.file(
+      join(REPO_ROOT, "docs/validation/extension-v4-flows/runtime/replay-file-organizer-runtime.sh"),
+    ).text();
+    expect(replay).toContain("DOCKER_TEST=1");
+    expect(replay).toContain("playwright test e2e/file-organizer-real.spec.ts --project=chromium");
+
+    // The default config must keep this production-only journey out of the
+    // mock preview, but its Docker mode must still collect the real target.
+    // `--list` loads the actual config and source without starting a browser
+    // or mutating a container.
+    const collector = Bun.spawnSync(
+      ["bunx", "playwright", "test", "e2e/file-organizer-real.spec.ts", "--list", "--reporter=list"],
+      {
+        cwd: join(REPO_ROOT, "web"),
+        env: {
+          ...process.env,
+          DOCKER_TEST: "1",
+          DOCKER_TEST_URL: "http://127.0.0.1:3000",
+          EZCORP_APP_CONTAINER: "lane-contract-owned-container",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    expect(collector.exitCode, collector.stderr.toString()).toBe(0);
+    expect(collector.stdout.toString()).toContain("file-organizer real-backend");
+  }, 120_000);
 
   test("mock-gate args generator emits one anchored web-relative regex per member", () => {
     const args = laneArgs(lanes, "mock-gate");
@@ -225,6 +261,14 @@ describe("e2e lane manifest", () => {
       expect(block).toContain(`bun scripts/e2e-lane-args.ts ${lane}`);
       expect(block).not.toContain("continue-on-error: true");
     }
+
+    const production = ciJobBlock(ci, "production-image-file-organizer");
+    expect(production, "missing CI job: production-image-file-organizer").not.toBe("");
+    expect(production).toContain("bash scripts/verify-shipping-production-suite.sh");
+    expect(production).not.toContain("continue-on-error: true");
+
+    const shipping = await Bun.file(join(REPO_ROOT, "scripts/verify-shipping-production-suite.sh")).text();
+    expect(shipping).toContain("replay-file-organizer-runtime.sh");
 
     const aggregate = ciJobBlock(ci, "e2e-mock");
     for (const [job] of jobs) expect(aggregate).toContain(job);
