@@ -41,7 +41,7 @@
 import type { Page, APIRequestContext } from "@playwright/test";
 import { test, expect } from "../fixtures/hydration.js";
 import { importAndActivateBundledExtension } from "../fixtures/extension-v4";
-import { acceptMemberInvitation } from "../fixtures/member-session";
+import { EMPTY_STORAGE_STATE, acceptMemberInvitation, assertNoAuthenticationCookies } from "../fixtures/member-session";
 
 const FACTORY_PAGE = "ext:ez-factory:factory";
 const JOB_PAGE = "ext:ez-factory:job";
@@ -82,8 +82,9 @@ test.describe("ez-factory — a job fired from the console produces a correlated
     test.setTimeout(360000);
     const installed = await importAndActivateBundledExtension({ page, request, baseURL: baseURL!, name: "ez-factory" });
     try {
-    const member = await browser.newContext({ baseURL });
+    const member = await browser.newContext({ baseURL, storageState: EMPTY_STORAGE_STATE });
     try {
+      await assertNoAuthenticationCookies(member);
       await acceptMemberInvitation(request, member.request, "Workflow Privacy Member");
       for (const query of ["type=workflow&q=ez-factory", "q=ez-factory"]) {
         const ownerResponse = await request.get(`/api/mentions/search?${query}`);

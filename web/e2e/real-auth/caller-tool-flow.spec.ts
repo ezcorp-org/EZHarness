@@ -19,6 +19,7 @@ import { STORAGE_STATE_PATH } from "../real-auth-setup";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
+import { EMPTY_STORAGE_STATE, assertNoAuthenticationCookies } from "../fixtures/member-session";
 
 const OPEN_APP = {
   name: "open_app",
@@ -96,8 +97,12 @@ function createAdminSession(playwright: typeof import("playwright-core")): Promi
 /** Create one invited member session for a describe block. */
 async function provisionMember(playwright: typeof import("playwright-core"), label: string): Promise<APIRequestContext> {
   const admin = await createAdminSession(playwright);
-  const member = await playwright.request.newContext({ baseURL: REAL_AUTH_BASE_URL });
+  const member = await playwright.request.newContext({
+    baseURL: REAL_AUTH_BASE_URL,
+    storageState: EMPTY_STORAGE_STATE,
+  });
   try {
+    await assertNoAuthenticationCookies(member);
     const email = `e2e-caller-tools-${label}-${crypto.randomUUID()}@example.com`;
     const invited = await admin.post("/api/auth/invite", { data: { email, role: "member" } });
     expect(invited.status(), await invited.text()).toBe(201);
