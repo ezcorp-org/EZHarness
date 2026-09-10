@@ -274,6 +274,42 @@ describe("e2e lane manifest", () => {
     expect(ci).not.toMatch(/e2e\/file-organizer-hub\\.spec\\.ts/);
   });
 
+  test("local full coverage consumes one verified browser receipt without repeating its lanes or V8 build", async () => {
+    const local = await Bun.file(join(REPO_ROOT, "scripts/ci-local.sh")).text();
+    const syntax = Bun.spawnSync(["bash", "-n", "scripts/ci-local.sh"], { cwd: REPO_ROOT, stderr: "pipe" });
+    expect(syntax.exitCode, syntax.stderr.toString()).toBe(0);
+
+    const fullStart = local.indexOf('if [ "$FAST" = "0" ]; then');
+    const browserReceipt = local.indexOf("bash scripts/run-browser-route-coverage.sh", fullStart);
+    const coverage = local.indexOf("bun run test:coverage", fullStart);
+    expect(fullStart).toBeGreaterThan(-1);
+    expect(browserReceipt).toBeGreaterThan(fullStart);
+    expect(coverage).toBeGreaterThan(browserReceipt);
+    expect((local.match(/bash scripts\/run-browser-route-coverage\.sh/g) ?? [])).toHaveLength(1);
+    const browserCommand = local.slice(local.lastIndexOf('run_step "Browser route coverage', browserReceipt), coverage);
+    expect(browserCommand).toContain('EZCORP_BROWSER_COVERAGE_OUTPUT="$BROWSER_COVERAGE_OUTPUT"');
+    const coverageCommand = local.slice(local.lastIndexOf('run_step "Coverage + per-file thresholds"', coverage), local.indexOf("# Both diff gates", coverage));
+    expect(coverageCommand).toContain('BROWSER_COVERAGE_RAW="$BROWSER_COVERAGE_OUTPUT/merged/merged.json"');
+    expect(coverageCommand).toContain('BROWSER_COVERAGE_LCOV="$BROWSER_COVERAGE_OUTPUT/merged/lcov.info"');
+
+    const full = local.slice(fullStart);
+    // The receipt collector owns mock-gate, mock-full, evidence, fresh setup,
+    // and real auth. Re-running any individual lane creates a second build or
+    // a receipt from a different build identity.
+    expect(full).not.toContain("scripts/e2e-lane-args.ts");
+    expect(full).not.toContain("scripts/run-real-e2e.ts");
+    // Full coverage runs the Node/V8 suite; the plain Vitest suite and build
+    // remain fast-mode checks only.
+    const fastStart = local.indexOf('if [ "$FAST" = "1" ]; then');
+    expect(fastStart).toBeGreaterThan(-1);
+    expect(fastStart).toBeLessThan(fullStart);
+    const fast = local.slice(fastStart, fullStart);
+    expect(fast).toContain("npx vitest run");
+    expect(fast).toContain("bun run build");
+    expect(full).not.toContain("npx vitest run");
+    expect(full).not.toContain("bun run build");
+  });
+
   test("every standard browser lane is a hard CI dependency", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
     const jobs = [
