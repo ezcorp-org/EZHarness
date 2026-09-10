@@ -37,6 +37,7 @@ import { V8_CANONICAL_SOURCES } from "./coverage-config.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const v8CanonicalSources = new Set(V8_CANONICAL_SOURCES);
+const NODE_V8_PRODUCER = "ezcorp-node-v8";
 
 /** Normalise an incoming SF path to a repo-root-relative key. Robust to:
  *  - Plain absolute paths (`/home/dev/.../src/foo.ts`).
@@ -257,22 +258,24 @@ const rec = async (target: Map<string, FileRec>, sf: string): Promise<FileRec> =
 
 type InputBlock = {
   sf: string;
+  producer: string;
   fn: Array<[string, number]>;
   fnda: Array<[string, number]>;
   da: Array<[number, number]>;
 };
 
 /**
- * V8 lcov has function declarations (`FN:`); Bun 1.3 lcov has none. For the
- * small set whose TypeScript maps disagree, choose the V8 record as the sole
- * source of truth. A Bun-only input is deliberately discarded: after its
- * exact threshold is enabled, the final gate fails loud until V8 returns.
+ * The trusted Node/Vitest producer writes `TN:ezcorp-node-v8`. For the small
+ * set whose TypeScript maps disagree, choose only that explicitly-marked
+ * producer. Browser AST coverage may have DA records but is not this canonical
+ * producer. A Bun-only input is deliberately discarded: after its exact
+ * threshold is enabled, the final gate fails loud until Node/Vitest returns.
  */
 const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
   if (!block) return;
-  const hasV8Functions = block.fn.length > 0;
+  const trustedNodeV8 = block.producer === NODE_V8_PRODUCER;
   const canonical = v8CanonicalSources.has(block.sf);
-  if (canonical && !hasV8Functions) return;
+  if (canonical && !trustedNodeV8) return;
   const r = await rec(canonical ? v8Files : files, block.sf);
   for (const [name, lineNo] of block.fn) r.fn.set(name, lineNo);
   for (const [name, hits] of block.fnda) {
@@ -287,16 +290,20 @@ const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
 const glob = new Glob(globPat);
 for await (const path of glob.scan({ absolute: true })) {
   const text = await Bun.file(path).text();
+  let producer = "";
   let block: InputBlock | null = null;
   const endBlock = async (): Promise<void> => {
     await absorbInputBlock(block);
     block = null;
   };
   for (const line of text.split("\n")) {
-    if (line.startsWith("SF:")) {
+    if (line.startsWith("TN:")) {
+      producer = line.slice(3);
+    } else if (line.startsWith("SF:")) {
       await endBlock();
       block = {
         sf: canonicaliseSF(line.slice(3)),
+        producer,
         fn: [],
         fnda: [],
         da: [],

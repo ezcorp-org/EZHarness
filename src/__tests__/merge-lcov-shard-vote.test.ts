@@ -456,7 +456,7 @@ describe("merge-lcov: V8 canonical source ownership", () => {
       "TN:", `SF:${canonicalSource}`, "DA:80,0", "DA:82,0", "LF:2", "LH:0", "end_of_record", "",
     ].join("\n"));
     writeFileSync(join(v8Dir, "lcov.info"), [
-      "TN:", `SF:${canonicalSource}`, "FN:80,v8Function", "FNDA:3,v8Function", "DA:80,3", "LF:2", "LH:1", "end_of_record", "",
+      "TN:ezcorp-node-v8", `SF:${canonicalSource}`, "FN:80,v8Function", "FNDA:3,v8Function", "DA:80,3", "LF:2", "LH:1", "end_of_record", "",
     ].join("\n"));
     writeFileSync(join(otherDir, "lcov.info"), [
       "TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", "",

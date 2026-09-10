@@ -747,7 +747,7 @@ run_legs() {
   # vitest (run from web/) emits SF paths web/-relative — re-root so merge-lcov.ts
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then
-    sed -i 's#^SF:src/#SF:web/src/#' "$VITEST_COV/lcov.info"
+    sed -i 's#^SF:src/#SF:web/src/#; s#^TN:.*#TN:ezcorp-node-v8#' "$VITEST_COV/lcov.info"
   fi
   if [ "$VITEST_EXIT" != "0" ]; then
     FAILED_FILES+=("web vitest-coverage leg")

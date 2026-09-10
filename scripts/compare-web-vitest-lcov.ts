@@ -6,7 +6,7 @@
  * covered. A wider full producer may add lines or hits, never erase evidence.
  */
 import { relative, resolve } from "node:path";
-import { REPO_ROOT } from "./coverage-config.ts";
+import { isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
 
 type LineHits = Map<number, number>;
 export type LcovLines = Map<string, LineHits>;
@@ -18,6 +18,61 @@ function sourceKey(source: string): string {
   // stable across worktrees, while absolute checkout prefixes are not.
   const web = rel.indexOf("web/");
   return web >= 0 ? rel.slice(web) : rel;
+}
+
+export type ReceiptAudit = {
+  sourceRecords: number;
+  validDaRecords: number;
+  malformedDaRecords: string[];
+  zeroDaSources: string[];
+};
+
+export function auditLcovReceipt(lcov: string): ReceiptAudit {
+  let current: string | null = null;
+  let sourceRecords = 0;
+  let validDaRecords = 0;
+  let currentHasDa = false;
+  const malformedDaRecords: string[] = [];
+  const zeroDaSources: string[] = [];
+  const finish = () => {
+    if (current && !currentHasDa && isSourceFile(current) && !isExcluded(current)) {
+      zeroDaSources.push(current);
+    }
+    current = null;
+    currentHasDa = false;
+  };
+  for (const line of lcov.split("\n")) {
+    if (line.startsWith("SF:")) {
+      finish();
+      current = sourceKey(line.slice(3));
+      sourceRecords++;
+      continue;
+    }
+    if (line === "end_of_record") {
+      finish();
+      continue;
+    }
+    if (!current || !line.startsWith("DA:")) continue;
+    const [numberText, hitsText] = line.slice(3).split(",", 2);
+    if (!/^[1-9]\d*$/.test(numberText ?? "") || !/^\d+$/.test(hitsText ?? "")) {
+      malformedDaRecords.push(`${current}: ${line}`);
+      continue;
+    }
+    currentHasDa = true;
+    validDaRecords++;
+  }
+  finish();
+  return { sourceRecords, validDaRecords, malformedDaRecords, zeroDaSources };
+}
+
+export function receiptProblems(lcov: string, name: string): string[] {
+  const audit = auditLcovReceipt(lcov);
+  const problems: string[] = [];
+  if (audit.sourceRecords === 0) problems.push(`${name}: no SF records`);
+  if (audit.validDaRecords === 0) problems.push(`${name}: no valid DA records`);
+  for (const malformed of audit.malformedDaRecords) problems.push(`${name}: malformed DA record ${malformed}`);
+  for (const source of audit.zeroDaSources) problems.push(`${name}: executable source has no DA record: ${source}`);
+  return problems;
 }
 
 export function parseLcovLines(lcov: string): LcovLines {
@@ -69,9 +124,15 @@ if (import.meta.main) {
   if (!selectedPath || !fullPath) {
     throw new Error("usage: compare-web-vitest-lcov.ts <selected-lcov.info> <full-lcov.info>");
   }
-  const selected = parseLcovLines(await Bun.file(selectedPath).text());
-  const full = parseLcovLines(await Bun.file(fullPath).text());
-  const failures = missingSelectedEvidence(selected, full);
+  const selectedText = await Bun.file(selectedPath).text();
+  const fullText = await Bun.file(fullPath).text();
+  const selected = parseLcovLines(selectedText);
+  const full = parseLcovLines(fullText);
+  const failures = [
+    ...receiptProblems(selectedText, "selected receipt"),
+    ...receiptProblems(fullText, "full-pool receipt"),
+    ...missingSelectedEvidence(selected, full),
+  ];
   if (failures.length > 0) {
     console.error(`full Vitest receipt does not yet supersede selected receipt (${failures.length} gap(s)):`);
     for (const failure of failures.slice(0, 100)) console.error(`  ${failure}`);
