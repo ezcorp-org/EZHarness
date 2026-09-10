@@ -36,6 +36,10 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
   test("anonymous audit navigation is redirected to sign in", async ({ browser, baseURL }) => {
     const anonymous = await browser.newContext({ baseURL });
     try {
+      // This must be an independent browser context. If Playwright ever
+      // inherits the admin storage state here, the authorization control is
+      // invalid rather than a passing admin journey.
+      expect(await anonymous.cookies()).toEqual([]);
       const page = await anonymous.newPage();
       await page.goto("/audit");
       await expect(page).toHaveURL(/\/login(?:[?#]|$)/, { timeout: 10_000 });
@@ -52,7 +56,7 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
       // Invited members start in onboarding. Complete that real authenticated
       // transition before exercising the protected loaders themselves.
       const onboarded = await member.post("/api/onboarding/complete");
-      expect(onboarded.status(), await onboarded.text()).toBe(200);
+      expect(onboarded.status(), await onboarded.text()).toBe(204);
       const page = await member.get("/audit");
       expect(page.status(), await page.text()).toBe(403);
       const api = await member.get("/api/audit");
@@ -124,21 +128,27 @@ test.describe("permission backbone — native toolbar and retired reapproval", (
     const save = await saveResponse;
     expect(save.status(), await save.text()).toBe(200);
 
-    const persisted = await request.get(`/api/conversations/${conversationId}/messages?withToolCalls=true`);
-    expect(persisted.status(), await persisted.text()).toBe(200);
-    const stored = (await persisted.json()) as { messages: StoredMessage[] };
-    const extensionTurn = stored.messages.find(message => message.id === speakBody.messageId);
+    let extensionTurn: StoredMessage | undefined;
+    let toolCall: ToolCall | undefined;
+    // The save route returns once it has accepted the card's attachment. Poll
+    // the real persistence read until its finalize transaction is observable.
+    await expect.poll(async () => {
+      const persisted = await request.get(`/api/conversations/${conversationId}/messages?withToolCalls=true`);
+      expect(persisted.status(), await persisted.text()).toBe(200);
+      const stored = (await persisted.json()) as { messages: StoredMessage[] };
+      extensionTurn = stored.messages.find(message => message.id === speakBody.messageId);
+      toolCall = extensionTurn?.toolCalls?.find(call => call.id === speakBody.toolCallIds[0]);
+      return toolCall?.output ?? null;
+    }, { timeout: 10_000 }).toMatch(/"attachmentId":"[^"]+"/);
     expect(extensionTurn).toMatchObject({
       role: "extension",
       content: `🔊 TTS of message (${history.firstContent.length} chars)`,
     });
-    const toolCall = extensionTurn?.toolCalls?.find(call => call.id === speakBody.toolCallIds[0]);
     expect(toolCall).toMatchObject({
       toolName: "kokoro-tts.synthesize",
       cardType: "kokoro-tts-player",
       status: "success",
     });
-    expect(toolCall?.output).toMatch(/"attachmentId":"[^"]+"/);
 
     const audit = await request.get(`/api/extensions/${installationId}/audit?legacy=1&limit=100`);
     expect(audit.status(), await audit.text()).toBe(200);
