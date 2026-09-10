@@ -209,12 +209,16 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
     };
     recordEvidence.set(repoFile(source), evidence);
   }
+  const missing: string[] = [];
+  const zeroOnly: string[] = [];
   for (const expected of expectedSources(raw)) {
     if (!isBrowserSource(expected)) throw new Error(`browser coverage: invalid expected source ${expected}`);
     const evidence = recordEvidence.get(expected);
-    if (!evidence?.hasDa) throw new Error(`browser coverage: expected source has no mapped DA record: ${expected}`);
-    if (!evidence.hasHit) throw new Error(`browser coverage: expected source has only zero-hit DA records: ${expected}`);
+    if (!evidence?.hasDa) missing.push(expected);
+    else if (!evidence.hasHit) zeroOnly.push(expected);
   }
+  if (missing.length) throw new Error(`browser coverage: expected source has no mapped DA record: ${missing.join(", ")}`);
+  if (zeroOnly.length) throw new Error(`browser coverage: expected source has only zero-hit DA records: ${zeroOnly.join(", ")}`);
   return lcov;
 }
 
