@@ -815,3 +815,15 @@ Review: Terra agents reached their usage limit after saving their work. The pare
 Fifth-repair review at c1c02f8a6: build passes; direct Node/V8 passes 161 tests in 14 files (7.30s), with helper 11/11, setup 31/31 and messages 170/170 measured lines. All 55 native picker/team cases pass (48.4s); 7 fresh setup and 106 real-auth cases pass (8.8m for real-auth), with no retries. The real approved AI-kit endpoint flow passes all 3 cases using pinned Bun and an isolated database. Twelve separate lifecycle coverage files pass 37 tests. Gate/lane/producer controls pass 135 tests and 799 assertions. Normal commit hooks pass. Only AI-kit changes in the regenerated first-party source lock. Final coverage diagnostic, normal push hooks, complete hosted CI and non-author approval remain required.
 
 Final local fifth-repair diagnostic: remove every shifted source map before combining fresh measurements with unchanged fourth-run source records. All 1,625 source floors pass; 11 new source files are gated; the patch gate covers 97 changed sources. Desktop and mobile picker verification passes 78 cases in two runs (55 + 23); all changed picker executable lines have real Chromium hits. The new model keyboard suite covers bounded ArrowUp/ArrowDown, Enter selection and Escape without selection. These local combined measurements are a diagnostic; final CI must regenerate every producer on the submitted revision.
+
+## PR256 sixth hosted repair
+
+- [x] Reproduce and fix the saved-search layout assertion race: control preference arrival and wait for both placement and list size after each render.
+- [x] Replay the exact failing Node shard: 194 files and 2,393 tests pass in 106.39s; the focused 163-test suite also passes.
+- [x] Scope lifecycle state and operation ID reads to their shared heading, since runner diagnostics also contain bold text and code.
+- [x] Run all three real WebKit lifecycle cases with the corrected selector: 3/3 pass in 4.3m.
+- [x] WebKit bottom-sheet suite passes 19/19 in 25.4s against the lifecycle build.
+- [ ] Commit and push through normal hooks.
+- [ ] Require all checks and coverage gates to pass on the submitted head, then merge after the required non-author approval.
+
+Review: fifth hosted run `34510858830` passed all 12 backend shards on the first attempt (25,000 tests, no retry/crash markers), real-auth, Firefox and visual evidence. It exposed two test defects: a component assertion read an intermediate render, and a lifecycle locator also matched a runner-busy diagnostic. No product behavior, timeout, retry count or coverage threshold changes in this repair. Local WebKit setup first failed because the Nix browser wrapper replaced the library path, then because Chromium-only coverage was enabled. A task-owned browser copy and the actual WebKit CI configuration resolved those invocation errors; they are not product failures.

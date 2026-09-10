@@ -64,9 +64,20 @@ describe("AgentSearchPicker desktop placement", () => {
 
 	test("caps the list below saved-search chrome when neither side fits", async () => {
 		Object.defineProperty(window, "innerHeight", { value: 600, configurable: true });
+		let resolvePrefs!: (response: Response) => void;
+		vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolvePrefs = resolve; })));
 		const picker = await openAt(300, 340, 400, 256);
-		await waitFor(() => expect(picker.style.bottom).toBe("302px"));
-		expect(screen.getByRole("listbox").style.maxHeight).toBe("154px");
+		const expectCappedAbove = () => waitFor(() => {
+			expect(picker.style.bottom).toBe("302px");
+			expect(screen.getByRole("listbox").style.maxHeight).toBe("154px");
+		});
+		await expectCappedAbove();
+
+		// Preference arrival remeasures the open menu. Both layout values must
+		// settle together after the saved-search controls appear.
+		resolvePrefs(Response.json({ savedSearches: [{ query: "Agent", createdAt: 1 }], pinned: [] }));
+		await screen.findByText("Agent", { selector: "button", exact: true });
+		await expectCappedAbove();
 	});
 
 	test("shows details and selects the keyboard-highlighted result", async () => {

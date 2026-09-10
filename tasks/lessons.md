@@ -328,3 +328,9 @@
 - Measure a constrained list at its natural height on each filter/open. Measuring its previous cap can remove that cap on the next update; retain a real short-window regression.
 - Validate the complete serialized permission payload in bytes. A valid canonical route permission can exceed an arbitrary per-string character limit; preserve exact grants and human approval rather than splitting or dropping capabilities.
 - Read the API result contract before writing a control script: activation returns an operation; inspect durable installation state separately. Keep script-shape errors separate from product failures.
+
+## 2026-09-10 — Async layout and browser-engine checks
+
+- Assert related asynchronous layout values in the same wait. Control deferred preferences so both the initial and updated menu layouts are proved.
+- Read operation state and ID from the operation heading. Diagnostic content can use the same inline elements.
+- Before a Nix WebKit run, check whether its launcher replaces LD_LIBRARY_PATH. Use a task-owned launcher copy for local compatibility; do not alter the shared browser cache. Keep Chromium-only coverage disabled for other engines and assign an unused task port.
