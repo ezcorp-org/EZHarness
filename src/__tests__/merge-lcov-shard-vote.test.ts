@@ -470,6 +470,38 @@ describe("merge-lcov: V8 canonical source ownership", () => {
     expect(da.has(82)).toBe(false);
   });
 
+  test("retains the trusted producer marker through a two-stage CI merge", async () => {
+    const canonicalSource = join(REPO_ROOT, canonical);
+    const unrelated = writeSource("case10-marker/unrelated.ts", "export const marker = true;\n");
+    const base = "case10-marker";
+    const bunDir = join(root, base, "bun", "cov_0");
+    const otherDir = join(root, base, "bun", "cov_1");
+    const v8Dir = join(root, base, "v8", "cov_0");
+    mkdirSync(bunDir, { recursive: true });
+    mkdirSync(otherDir, { recursive: true });
+    mkdirSync(v8Dir, { recursive: true });
+    writeFileSync(join(bunDir, "lcov.info"), [
+      "TN:", `SF:${canonicalSource}`, "DA:80,0", "LF:1", "LH:0", "end_of_record", "",
+    ].join("\n"));
+    writeFileSync(join(otherDir, "lcov.info"), [
+      "TN:", `SF:${unrelated}`, "DA:1,1", "LF:1", "LH:1", "end_of_record", "",
+    ].join("\n"));
+    writeFileSync(join(v8Dir, "lcov.info"), [
+      "TN:ezcorp-node-v8", `SF:${canonicalSource}`, "FN:80,v8Function", "FNDA:1,v8Function", "DA:80,1", "LF:1", "LH:1", "end_of_record", "",
+    ].join("\n"));
+
+    const direct = await merge(join(root, base, "*", "*", "lcov.info"), "case10-marker-direct.info");
+    const stage = join(root, "case10-marker-stage");
+    mkdirSync(stage, { recursive: true });
+    await merge(join(root, base, "bun", "*", "lcov.info"), "case10-marker-stage/bun.info");
+    await merge(join(root, base, "v8", "*", "lcov.info"), "case10-marker-stage/v8.info");
+    const twoStage = await merge(join(stage, "*.info"), "case10-marker-twostage.info");
+
+    expect(twoStage.text).toBe(direct.text);
+    expect(twoStage.text).toContain("TN:ezcorp-node-v8");
+    expect(twoStage.da.get(80)).toBe(1);
+  });
+
   test("drops Bun-only canonical evidence so the final exact threshold fails loud", async () => {
     const canonicalSource = join(REPO_ROOT, canonical);
     const unrelated = writeSource("case11/unrelated.ts", "export const marker = true;\n");

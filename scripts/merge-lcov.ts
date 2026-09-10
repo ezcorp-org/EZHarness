@@ -81,6 +81,8 @@ function absSourcePath(sf: string): string {
 }
 
 type FileRec = {
+  /** Trusted producer tag retained through shard pre-merges. */
+  producer: string;
   fn: Map<string, number>; // fn name -> declared line
   fnda: Map<string, number>; // fn name -> summed hits
   da: Map<number, number>; // line -> summed hits
@@ -241,6 +243,7 @@ const rec = async (target: Map<string, FileRec>, sf: string): Promise<FileRec> =
   const existing = target.get(sf);
   if (existing) return existing;
   const r: FileRec = {
+    producer: "",
     fn: new Map(),
     fnda: new Map(),
     da: new Map(),
@@ -277,6 +280,7 @@ const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
   const canonical = v8CanonicalSources.has(block.sf);
   if (canonical && !trustedNodeV8) return;
   const r = await rec(canonical ? v8Files : files, block.sf);
+  if (trustedNodeV8) r.producer = NODE_V8_PRODUCER;
   for (const [name, lineNo] of block.fn) r.fn.set(name, lineNo);
   for (const [name, hits] of block.fnda) {
     r.fnda.set(name, (r.fnda.get(name) ?? 0) + hits);
@@ -361,7 +365,7 @@ if (files.size === 0) {
 const out: string[] = [];
 const sortedFiles = [...files.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 for (const [sf, r] of sortedFiles) {
-  out.push("TN:");
+  out.push(`TN:${r.producer}`);
   out.push(`SF:${sf}`);
   const fnSorted = [...r.fn.entries()].sort(
     (a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0),
