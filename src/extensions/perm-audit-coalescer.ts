@@ -122,10 +122,11 @@ export interface PermAuditKey {
   conversationId: string | null;
   toolName: string | null;
   callerExtensionId: string | null;
-  /** The missing capability's kind on a deny; `null` on an allow (the
-   *  step-4 row carries no capability). */
+  /** The capability kind. An allowed row has the kind but intentionally no
+   * value, so high-cardinality reads retain one bounded audit window. */
   capabilityKind: string | null;
-  /** The missing capability's value on a deny, when it has one. */
+  /** The missing capability's value on a deny, when it has one. Allow rows
+   * omit it so distinct read paths do not defeat coalescing. */
   capabilityValue: string | null;
   /** The deny reason as written to the row; `null` on an allow. */
   reason: string | null;

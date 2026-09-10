@@ -334,6 +334,35 @@ describe("authorize — audit log row per decision", () => {
       .toEqual(["network", "storage"]);
   });
 
+  test("coalesces 700 allowed read paths by kind without recording paths", async () => {
+    const engine = makeEngine();
+    const context = {
+      extensionId: HELLO_EXT,
+      userId: HELLO_USER,
+      conversationId: HELLO_CONV,
+      toolName: "read_files",
+      capContext: [{ kind: "fs.read" as const, value: "/data" }],
+    };
+
+    const decisions = [];
+    for (let i = 0; i < 700; i++) {
+      decisions.push(await engine.authorize(context, [{ kind: "fs.read", value: `/data/${i}.txt` }]));
+    }
+
+    expect(decisions.every(decision => decision.decision === "allow")).toBe(true);
+    const rows = await getTestDb()
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "ext:perm:allowed"));
+    // Production flushes after 250 folded decisions: 3 heads plus 2
+    // summaries for 700 reads. It must not grow one row per path.
+    expect(rows).toHaveLength(5);
+    expect(rows.every(row =>
+      (row.metadata as Record<string, unknown>).capabilityKind === "fs.read"
+      && (row.metadata as Record<string, unknown>).capabilityValue === undefined,
+    )).toBe(true);
+  });
+
   test("writes one PERM_DENIED row on deny", async () => {
     const engine = makeEngine({ granted: { grantedAt: {} } });
     await engine.authorize(

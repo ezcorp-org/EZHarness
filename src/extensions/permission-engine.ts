@@ -535,7 +535,14 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     // Prompts, the fail-closed `override-lookup-failed` deny and the
     // sensitive `bundled-ceiling-auto-allow` above are NEVER folded —
     // see `perm-audit-coalescer.ts`.
-    const auditCapability = needed.length === 1 ? needed[0] : undefined;
+    // Values are intentionally excluded from an allowed capability record.
+    // A read walk supplies a distinct path per file; including that value in
+    // the key would turn one bounded allow window into hundreds of audit rows.
+    // Denials still retain the requested value below because it identifies
+    // the exact refused operation.
+    const auditCapability = needed.length === 1
+      ? { kind: needed[0]!.kind }
+      : undefined;
     if (permCoalescer.shouldWrite(permKeyOf(ctxWithChain, "allow", auditCapability), auditId)) {
       await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, auditCapability);
     }
