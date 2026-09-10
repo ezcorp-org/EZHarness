@@ -59,3 +59,15 @@ describe("FileUpload", () => {
 		expect(click).toHaveBeenCalled();
 	});
 });
+
+test("uploads an allowed file dropped onto the native drop target", async () => {
+	const fetchMock = vi.fn().mockResolvedValue(response({ id: "kb-2" }));
+	vi.stubGlobal("fetch", fetchMock);
+	const onuploaded = vi.fn();
+	render(FileUpload, { props: { projectId: "project-1", onuploaded } });
+	const dropZone = screen.getByRole("button", { name: /Drop files here or click to upload/ });
+	await fireEvent.drop(dropZone, { dataTransfer: { files: [file("dropped.json", "{}", "application/json")] } });
+	await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+	expect(screen.getByText("dropped.json")).toBeTruthy();
+	expect(onuploaded).toHaveBeenCalledTimes(1);
+});
