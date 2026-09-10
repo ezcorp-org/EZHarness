@@ -186,7 +186,7 @@ async function forwardToBundled(
   } catch {
     // Fall through — handled below.
   }
-  if (!envelope || envelope.__ezDistillerOutcome !== true) {
+  if (envelope?.__ezDistillerOutcome !== true) {
     return {
       kind: "error",
       card: {

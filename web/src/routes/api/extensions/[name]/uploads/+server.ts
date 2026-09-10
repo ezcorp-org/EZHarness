@@ -110,7 +110,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // Extension lookup. Returns null when the name is unknown OR the
   // extension is disabled — both produce the opaque 404.
   const ext = await getExtensionByName(name);
-  if (!ext || !ext.enabled) return errorJson(404, "Not found");
+  if (!ext?.enabled) return errorJson(404, "Not found");
 
   // Extension must be wired to this conversation. The append-message
   // reverse-RPC enforces the same wiring rule on the subprocess side;

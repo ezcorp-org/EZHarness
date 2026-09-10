@@ -50,7 +50,7 @@ export const POST: RequestHandler = async ({ locals, params, request }) => {
   const user = requireAuth(locals);
 
   const parsed = parseHubPageId(params.id ?? "");
-  if (!parsed || parsed.kind !== "core") return errorJson(404, "Not found");
+  if (parsed?.kind !== "core") return errorJson(404, "Not found");
 
   const actionName = params.action ?? "";
   if (!ACTION_NAME_REGEX.test(actionName)) return errorJson(404, "Not found");

@@ -301,7 +301,7 @@ export async function ensureInitialized(): Promise<void> {
   // dashboards never receive their `pushPage` live-refresh signal and the
   // Hub only updates via the render-pull stale-serve fallback. See
   // `ToolExecutor.ensureSubprocessRpcWired` (falls back to
-  // `getStateMediator()`).
+  // the singleton fallback).
   setStateMediatorSingleton(stateMediator);
 
   // Wire lifecycle hook dispatcher (sends sanitized events to subscribed extensions)
@@ -482,10 +482,6 @@ export function getGoalHost(): GoalHost | null {
   return goalHost;
 }
 
-function getStateMediator(): ExtensionStateMediator | null {
-  return stateMediator;
-}
-
 /**
  * The merged cache as bare definitions.
  *
@@ -536,19 +532,4 @@ async function buildWorkflowCache(): Promise<CachedWorkflow[]> {
 
 export async function reloadWorkflows(): Promise<void> {
   workflows = await buildWorkflowCache();
-}
-
-function reset(): void {
-  // Tear down executor-owned timers + in-flight runs before dropping
-  // the reference; otherwise the orphan-cleanup interval keeps the
-  // singleton (and its closures) alive for the lifetime of the process.
-  if (executor) executor.destroy();
-  if (goalHost) goalHost.stop();
-  executor = null;
-  workflowExecutor = null;
-  bus = null;
-  commandRegistry = null;
-  goalHost = null;
-  workflows = [];
-  initialized = false;
 }
