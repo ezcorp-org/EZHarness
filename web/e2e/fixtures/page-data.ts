@@ -17,5 +17,5 @@ export async function mockPageData(page: Page, pathname: string, data: Record<st
 export async function resumePage(page: Page, pathname: string) {
   await page.addInitScript(({ key, value }) => localStorage.setItem(key, value), { key: LAST_PATH_KEY, value: pathname });
   await page.goto("/");
-  await expect(page).toHaveURL(url => url.pathname === pathname);
+  await expect(page).toHaveURL(url => `${url.pathname}${url.search}${url.hash}` === pathname);
 }
