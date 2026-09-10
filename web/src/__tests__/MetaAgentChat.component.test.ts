@@ -27,7 +27,12 @@ import { __resetCapabilityCacheForTests } from "$lib/chat/attachment-client";
 
 const originalFetch = globalThis.fetch;
 
-type GenerateBody = { text: string; config: Record<string, unknown> | null };
+type GenerateBody = {
+	text: string;
+	config: Record<string, unknown> | null;
+	error?: string;
+	status?: number;
+};
 
 /**
  * Stub fetch so:
@@ -36,7 +41,7 @@ type GenerateBody = { text: string; config: Record<string, unknown> | null };
  *   /api/agent-configs/generate → caller-supplied body
  *   everything else → []
  */
-function stubFetch(generateBody: GenerateBody) {
+function stubFetch(generateBody: GenerateBody, options: { reasoning?: boolean; modes?: unknown[] } = {}) {
 	globalThis.fetch = vi.fn(async (input: any) => {
 		const url = typeof input === "string" ? input : input?.url;
 		// IMPORTANT: order matters — `/api/models/capabilities` shares a
@@ -65,22 +70,29 @@ function stubFetch(generateBody: GenerateBody) {
 						provider: "anthropic",
 						model: "claude-test",
 						available: true,
-						reasoning: false,
+						reasoning: options.reasoning ?? false,
 						contextWindow: 200000,
+					},
+					{
+						provider: "openai",
+						model: "gpt-test",
+						available: true,
+						reasoning: true,
+						contextWindow: 128000,
 					},
 				]),
 				{ status: 200, headers: { "content-type": "application/json" } },
 			);
 		}
 		if (url?.includes("/api/modes")) {
-			return new Response(JSON.stringify([]), {
+			return new Response(JSON.stringify(options.modes ?? []), {
 				status: 200,
 				headers: { "content-type": "application/json" },
 			});
 		}
 		if (url?.includes("/api/agent-configs/generate")) {
 			return new Response(JSON.stringify(generateBody), {
-				status: 200,
+				status: generateBody.status ?? 200,
 				headers: { "content-type": "application/json" },
 			});
 		}
@@ -189,5 +201,75 @@ describe("MetaAgentChat — onconfig wiring", () => {
 		await new Promise((r) => setTimeout(r, 50));
 
 		expect(onconfig).not.toHaveBeenCalled();
+	});
+
+	test("persists explicit model, thinking, and mode selections made in the composer", async () => {
+		const mode = {
+			id: "mode-deep", name: "Deep planning", slug: "deep-planning", icon: "✨",
+			description: "Plan carefully", systemPromptInstruction: "plan", instructionPosition: "append",
+			preferredModel: null, preferredProvider: null, preferredTier: null, preferredThinkingLevel: "xhigh",
+			temperature: null, toolRestriction: "all", extensionIds: null, extensionTools: null, builtin: false,
+		};
+		stubFetch({ text: "", config: null }, { reasoning: true, modes: [mode] });
+		const { container } = render(MetaAgentChat, { props: { onconfig: vi.fn() } });
+		const modelSelector = await waitFor(() => {
+			const el = container.querySelector<HTMLElement>('[data-testid="model-selector"]');
+			expect(el).not.toBeNull();
+			return el!;
+		});
+		await fireEvent.click(modelSelector.querySelector("button")!);
+		const gptOption = await waitFor(() => {
+			const option = Array.from(modelSelector.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((candidate) => candidate.textContent?.includes("gpt-test"));
+			expect(option).toBeDefined();
+			return option!;
+		});
+		await fireEvent.click(gptOption);
+		expect(localStorage.getItem("ezcorp-last-model")).toBe(JSON.stringify({ provider: "openai", model: "gpt-test" }));
+
+		const thinkingSelector = await waitFor(() => {
+			const el = container.querySelector<HTMLElement>('[data-testid="thinking-selector"]');
+			expect(el).not.toBeNull();
+			return el!;
+		});
+		await fireEvent.click(thinkingSelector.querySelector("button")!);
+		const high = await waitFor(() => {
+			const option = Array.from(thinkingSelector.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((candidate) => candidate.textContent?.includes("High"));
+			expect(option).toBeDefined();
+			return option!;
+		});
+		await fireEvent.click(high);
+		expect(localStorage.getItem("ezcorp-thinking-level")).toBe("high");
+
+		const modeSelector = await waitFor(() => {
+			const el = container.querySelector<HTMLElement>('[data-testid="mode-selector"]');
+			expect(el).not.toBeNull();
+			return el!;
+		});
+		await fireEvent.click(modeSelector.querySelector("button")!);
+		const modeOption = await waitFor(() => {
+			const option = Array.from(modeSelector.querySelectorAll<HTMLButtonElement>('[role="option"]')).find((candidate) => candidate.textContent?.includes("Deep planning"));
+			expect(option).toBeDefined();
+			return option!;
+		});
+		await fireEvent.click(modeOption);
+		expect(localStorage.getItem("ezcorp-thinking-level")).toBe("xhigh");
+	});
+
+	test("shows the server error and does not add a false assistant reply when generation is rejected", async () => {
+		const fetchSpy = stubFetch({
+			text: "",
+			config: null,
+			error: "A team name is required",
+			status: 422,
+		});
+		const { container, getByText } = render(MetaAgentChat, { props: { onconfig: vi.fn() } });
+		await waitFor(() => expect(callsTo(fetchSpy, "/api/models")).toBeGreaterThan(0));
+		const textarea = container.querySelector<HTMLTextAreaElement>(".chat-textarea");
+		expect(textarea).not.toBeNull();
+		await fireEvent.input(textarea!, { target: { value: "Create a team" } });
+		await waitFor(() => expect(container.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.disabled).toBe(false));
+		await fireEvent.keyDown(textarea!, { key: "Enter" });
+		await waitFor(() => expect(getByText("A team name is required")).toBeInTheDocument());
+		expect(container).not.toHaveTextContent("Here is your agent.");
 	});
 });

@@ -97,7 +97,7 @@ vi.mock("$lib/utils/fetch-policy.js", () => ({
 }));
 
 import AgentDetailPanel from "../lib/components/AgentDetailPanel.svelte";
-import type { AgentCallState } from "$lib/stores.svelte.js";
+import { store, type AgentCallState } from "$lib/stores.svelte.js";
 import { __resetCapabilityCacheForTests } from "$lib/chat/attachment-client";
 import { makeCapabilitiesFetch } from "./stubs/model-capabilities";
 
@@ -213,6 +213,32 @@ describe("AgentDetailPanel embeds <ChatThread variant=panel>", () => {
 			onclose: vi.fn(),
 		});
 		expect(getByText("Failed")).toBeInTheDocument();
+		rerender({
+			agent: makeAgent({ status: "idle" }),
+			open: true,
+			onclose: vi.fn(),
+		});
+		expect(getByText("Idle")).toBeInTheDocument();
+	});
+
+	test("shows Running while a task assignment owns the sub-conversation", () => {
+		const previousSnapshots = store.taskSnapshots;
+		store.taskSnapshots = {
+			"conv-1": {
+				conversationId: "conv-1",
+				tasks: [{ id: "task-1", assignments: [{ subConversationId: "sub-1", status: "running" }] }],
+			},
+		} as typeof store.taskSnapshots;
+		try {
+			const { getByText } = render(AgentDetailPanel, {
+				agent: makeAgent({ status: "complete", subConversationId: "sub-1" }),
+				open: true,
+				onclose: vi.fn(),
+			});
+			expect(getByText("Running")).toBeInTheDocument();
+		} finally {
+			store.taskSnapshots = previousSnapshots;
+		}
 	});
 
 	test("header Close button invokes onclose", async () => {
