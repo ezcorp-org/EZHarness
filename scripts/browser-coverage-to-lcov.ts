@@ -7,7 +7,7 @@ import { REPO_ROOT } from "./coverage-config.ts";
 
 export type Range = Profiler.CoverageRange;
 export type ScriptCoverage = Pick<Profiler.ScriptCoverage, "url" | "functions">;
-export type RawCoverage = { result: ScriptCoverage[]; expectedRouteFiles?: string[]; expectedFiles?: string[] };
+export type RawCoverage = { result: ScriptCoverage[]; expectedRouteFiles?: string[]; expectedFiles?: string[]; buildId?: string };
 export type AssetReader = (url: string) => Promise<{ code: string; map: string | null }>;
 type SourceMap = {
   version: 3;
@@ -32,6 +32,7 @@ type BrowserCoverageModules = {
   convert: AstConverter;
   createCoverageMap: () => CoverageMap;
   parseAstAsync: (code: string) => Promise<unknown>;
+  mergeProcessCovs: (coverages: Array<{ result: ScriptCoverage[] }>) => { result: ScriptCoverage[] };
 };
 
 /** Load the browser-only transitive packages without making root typecheck
@@ -41,10 +42,12 @@ const browserCoverageModules: Promise<BrowserCoverageModules> = (async () => {
   const astModule = await import(pathToFileURL(resolve(webModules, "ast-v8-to-istanbul/dist/index.mjs")).href) as unknown as { default: AstConverter };
   const istanbulModule = await import(pathToFileURL(resolve(webModules, "istanbul-lib-coverage/index.js")).href) as unknown as { createCoverageMap: () => CoverageMap };
   const viteModule = await import(pathToFileURL(resolve(webModules, "vite/dist/node/index.js")).href) as unknown as { parseAstAsync: (code: string) => Promise<unknown> };
+  const v8MergeModule = await import(pathToFileURL(resolve(webModules, "@bcoe/v8-coverage/src/lib/index.js")).href) as unknown as { mergeProcessCovs: (coverages: Array<{ result: ScriptCoverage[] }>) => { result: ScriptCoverage[] } };
   return {
     convert: astModule.default,
     createCoverageMap: istanbulModule.createCoverageMap,
     parseAstAsync: viteModule.parseAstAsync,
+    mergeProcessCovs: v8MergeModule.mergeProcessCovs,
   };
 })();
 
@@ -73,6 +76,33 @@ function isBrowserSource(file: string): boolean {
 }
 function expectedSources(raw: RawCoverage): string[] {
   return raw.expectedFiles ?? raw.expectedRouteFiles ?? [];
+}
+
+/**
+ * Merge precise CDP ranges once per immutable browser build, before expensive
+ * AST/source-map conversion. @bcoe/v8-coverage preserves nested range counts
+ * by script URL. A build ID is mandatory for multi-receipt merges so coverage
+ * from different generated assets can never be attributed to one source map.
+ */
+export async function mergeRawCoverage(receipts: readonly RawCoverage[]): Promise<RawCoverage> {
+  if (receipts.length === 0) throw new Error("browser coverage: no raw receipts to merge");
+  if (receipts.length === 1) return receipts[0]!;
+  const buildIds = new Set(receipts.map((receipt) => receipt.buildId).filter((id): id is string => Boolean(id)));
+  if (buildIds.size !== 1 || receipts.some((receipt) => !receipt.buildId)) {
+    throw new Error("browser coverage: raw receipts must share one non-empty immutable buildId before merge");
+  }
+  const { mergeProcessCovs } = await browserCoverageModules;
+  // The library normalizes/mutates input ranges; keep the caller's receipts
+  // intact because they are audit artifacts.
+  const copies = receipts.map((receipt) => structuredClone({ result: receipt.result }));
+  const expectedRouteFiles = [...new Set(receipts.flatMap((receipt) => receipt.expectedRouteFiles ?? []))].sort();
+  const expectedFiles = [...new Set(receipts.flatMap((receipt) => receipt.expectedFiles ?? []))].sort();
+  return {
+    result: mergeProcessCovs(copies).result,
+    buildId: [...buildIds][0],
+    ...(expectedRouteFiles.length ? { expectedRouteFiles } : {}),
+    ...(expectedFiles.length ? { expectedFiles } : {}),
+  };
 }
 function outputLcov(coverage: CoverageMap): string {
   let output = "";
@@ -148,7 +178,17 @@ export async function coverageToLcov(raw: RawCoverage, readAsset: AssetReader): 
 }
 
 if (import.meta.main) {
-  const [input, output] = process.argv.slice(2);
+  const [first, ...rest] = process.argv.slice(2);
+  if (first === "--merge-raw") {
+    const [output, ...inputs] = rest;
+    if (!output || inputs.length === 0) throw new Error("usage: browser-coverage-to-lcov.ts --merge-raw <output.json> <raw.json>...");
+    const receipts = await Promise.all(inputs.map(async (input) => Bun.file(input).json() as Promise<RawCoverage>));
+    await Bun.write(output, JSON.stringify(await mergeRawCoverage(receipts)) + "\n");
+    console.log(`merged ${receipts.length} browser raw receipt(s) → ${output}`);
+    process.exit(0);
+  }
+  const input = first;
+  const output = rest[0];
   if (!input || !output) throw new Error("usage: browser-coverage-to-lcov.ts <raw.json> <output.lcov>");
   const raw = await Bun.file(input).json() as RawCoverage;
   const assetRoot = resolve(REPO_ROOT, "web/build/client");

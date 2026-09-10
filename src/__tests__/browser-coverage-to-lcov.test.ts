@@ -84,3 +84,28 @@ test("final browser manifests must enumerate every scripted Svelte route", () =>
   expect(() => assertBrowserCanonicalSources([])).toThrow("empty-node-shim");
   expect(() => assertBrowserCanonicalSources(["web/src/lib/empty-node-shim.ts"])).not.toThrow();
 });
+
+import { mergeRawCoverage } from "../../scripts/browser-coverage-to-lcov";
+
+test("merges same-build CDP ranges before one AST conversion", async () => {
+  const first = {
+    buildId: "immutable-build-a",
+    result: [{ url: "http://app/_app/chunk.js", functions: [{ functionName: "root", isBlockCoverage: true, ranges: [{ startOffset: 0, endOffset: 10, count: 1 }] }] }],
+    expectedRouteFiles: [route],
+  };
+  const second = {
+    buildId: "immutable-build-a",
+    result: [{ url: "http://app/_app/chunk.js", functions: [{ functionName: "root", isBlockCoverage: true, ranges: [{ startOffset: 0, endOffset: 10, count: 2 }] }] }],
+    expectedFiles: ["web/src/lib/empty-node-shim.ts"],
+  };
+  const merged = await mergeRawCoverage([first, second]);
+  expect(merged.result).toHaveLength(1);
+  expect(merged.result[0]!.functions[0]!.ranges[0]!.count).toBe(3);
+  expect(merged.expectedRouteFiles).toEqual([route]);
+  expect(merged.expectedFiles).toEqual(["web/src/lib/empty-node-shim.ts"]);
+});
+
+test("refuses browser raw coverage from different or unnamed builds", async () => {
+  await expect(mergeRawCoverage([{ buildId: "a", result: [] }, { buildId: "b", result: [] }])).rejects.toThrow("buildId");
+  await expect(mergeRawCoverage([{ result: [] }, { result: [] }])).rejects.toThrow("buildId");
+});
