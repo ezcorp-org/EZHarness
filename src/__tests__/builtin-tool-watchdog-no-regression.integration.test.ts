@@ -190,6 +190,7 @@ function setupHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): BuiltinH
     pendingPermissions: pendingPermissions as unknown as Map<string, { conversationId: string }>,
     bus,
     persist: true,
+    errorMessagePersisted: new Set(),
   };
   const watchdog = new WatchdogManager(watchdogHost);
   watchdog.startWatchdog(RUN_ID, CONV_ID, () => "");
@@ -227,6 +228,7 @@ function setupHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): BuiltinH
     spawnQuota: {} as StreamChatHost["spawnQuota"],
     executor: {} as StreamChatHost["executor"],
     permissionEngine: {} as StreamChatHost["permissionEngine"],
+    errorMessagePersisted: watchdogHost.errorMessagePersisted,
   };
 
   const piAgent = makePiAgent();

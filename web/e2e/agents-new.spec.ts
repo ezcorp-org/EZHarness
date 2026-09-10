@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { dismissPickerSheet } from "./fixtures/picker-helpers.js";
+import { makeExtension } from "./fixtures/data.js";
 
 test.describe("New Agent Page", () => {
 	test("shows heading, tabs, and back link", async ({ page, mockApi }) => {
@@ -95,9 +96,7 @@ test.describe("New Agent Page", () => {
 	test("Configure tab: attach extension, deselect a tool → POST body carries extensionTools subset", async ({ page, mockApi }) => {
 		await mockApi({
 			agents: [],
-			extensions: [
-				{ id: "ext-tools", name: "Toolbox", description: "Two tools", manifest: { tools: [{ name: "alpha" }, { name: "beta" }] } },
-			],
+			extensions: [makeExtension({ id: "ext-tools", name: "Toolbox", description: "Two tools", manifest: { tools: [{ name: "alpha", description: "Alpha" }, { name: "beta", description: "Beta" }] } })],
 		});
 
 		let postBody: Record<string, unknown> | null = null;
@@ -137,9 +136,7 @@ test.describe("New Agent Page", () => {
 	test("Configure tab: attach-picker per-card scoping persists into POST body", async ({ page, mockApi }) => {
 		await mockApi({
 			agents: [],
-			extensions: [
-				{ id: "ext-tools", name: "Toolbox", description: "Two tools", manifest: { tools: [{ name: "alpha" }, { name: "beta" }] } },
-			],
+			extensions: [makeExtension({ id: "ext-tools", name: "Toolbox", description: "Two tools", manifest: { tools: [{ name: "alpha", description: "Alpha" }, { name: "beta", description: "Beta" }] } })],
 		});
 
 		let postBody: Record<string, unknown> | null = null;

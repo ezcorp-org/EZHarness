@@ -40,6 +40,7 @@
   },
   "include": [
     "src/**/*.test.ts",
+    "tests/postgres/**/*.test.ts",
     "extensions/**/*.test.ts",
     "packages/@ezcorp/sdk/test/types-host-parity.test.ts",
     "web/.svelte-kit/ambient.d.ts",

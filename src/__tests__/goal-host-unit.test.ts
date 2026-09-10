@@ -1409,6 +1409,7 @@ describe("run:complete handler (loop core)", () => {
     await h.host.start();
     h.bus.emit("run:error", {
       run: { id: "init-run", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      runId: "init-run",
       conversationId: "c1",
       error: "boom",
     });
@@ -1442,6 +1443,7 @@ describe("run:complete handler (loop core)", () => {
     await h.host.start();
     h.bus.emit("run:error", {
       run: { id: "init-run", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      runId: "init-run",
       conversationId: "c1",
       error: "idle for 90s",
     });

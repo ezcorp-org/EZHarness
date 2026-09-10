@@ -10,6 +10,7 @@
  */
 import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
+import type { GithubAuth } from "../types";
 
 afterAll(() => restoreModuleMocks());
 
@@ -114,8 +115,12 @@ function makeFakeClient(opts: {
   setItemStatusImpl?: () => Promise<void>;
 } = {}) {
   return {
-    addComment: mock(opts.addCommentImpl ?? (() => Promise.resolve())),
-    setItemStatus: mock(opts.setItemStatusImpl ?? (() => Promise.resolve())),
+    addComment: mock((_auth: GithubAuth, _nodeId: string, _body: string) =>
+      (opts.addCommentImpl ?? (() => Promise.resolve()))(),
+    ),
+    setItemStatus: mock((_boardId: string, _auth: GithubAuth, _itemId: string, _optionId: string) =>
+      (opts.setItemStatusImpl ?? (() => Promise.resolve()))(),
+    ),
     // Satisfy the full GithubClient shape (unused by progress.ts but typed).
     resolveBoardFromUrl: mock(() => Promise.resolve({} as never)),
     validateAuth: mock(() => Promise.resolve({} as never)),

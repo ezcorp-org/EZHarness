@@ -186,6 +186,7 @@ function setupHarness(): E2EHarness {
     pendingPermissions: pendingPermissions as unknown as Map<string, { conversationId: string }>,
     bus,
     persist: true,
+    errorMessagePersisted: new Set(),
   };
   const watchdog = new WatchdogManager(watchdogHost);
   watchdog.startWatchdog(RUN_ID, CONV_ID, () => "");
@@ -222,6 +223,8 @@ function setupHarness(): E2EHarness {
     stateMediator: undefined,
     spawnQuota: {} as StreamChatHost["spawnQuota"],
     executor: {} as StreamChatHost["executor"],
+    permissionEngine: {} as StreamChatHost["permissionEngine"],
+    errorMessagePersisted: watchdogHost.errorMessagePersisted,
   };
 
   const piAgent = makePiAgent();

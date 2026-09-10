@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
+import { makeExtension, makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
 
 /**
  * E2E tests for keyboard navigation (including Tab) in
@@ -15,8 +15,8 @@ const agents = [
 ];
 
 const extensions = [
-	{ name: "analyzer", description: "Code analysis tool", enabled: true },
-	{ name: "formatter", description: "Code formatter", enabled: true },
+	makeExtension({ name: "analyzer", description: "Code analysis tool", enabled: true }),
+	makeExtension({ name: "formatter", description: "Code formatter", enabled: true }),
 ];
 
 async function setupAndFocus(page: any, mockApi: any) {

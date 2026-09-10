@@ -8,7 +8,7 @@
  * (→ PUT extensionTools:null).
  */
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeMode } from "./fixtures/data.js";
+import { makeExtension, makeProject, makeConversation, makeMode } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1", title: "Scoped Chat" });
@@ -22,12 +22,12 @@ const mode = makeMode({
 	extensionTools: null,
 });
 
-const extension = {
+const extension = makeExtension({
 	id: "ext-tools",
 	name: "Toolbox",
 	description: "Two tools",
-	manifest: { tools: [{ name: "alpha" }, { name: "beta" }] },
-};
+	manifest: { tools: [{ name: "alpha", description: "Alpha" }, { name: "beta", description: "Beta" }] },
+});
 
 function toolsTrigger(page: import("@playwright/test").Page) {
 	return page.getByTestId("conversation-tools-trigger");
@@ -221,12 +221,12 @@ test("ask-user (orchestration) is listed and toggleable under a mode that doesn'
 	// the allowlist (ORCHESTRATION_TOOLS) — so it must appear in the badge
 	// AND in the dropdown, and the explicit conversation toggle must remove
 	// it. The stateful /api/tools mock mirrors the real endpoint.
-	const askUserExt = {
+	const askUserExt = makeExtension({
 		id: "ext-askuser",
 		name: "ask-user",
 		description: "Human in the loop",
-		manifest: { tools: [{ name: "ask_user_question" }] },
-	};
+		manifest: { tools: [{ name: "ask_user_question", description: "Ask the user" }] },
+	});
 	let askUserOff = false;
 	const listing = () => ({
 		tools: [
@@ -293,19 +293,19 @@ test("a DISABLED orchestration extension (scratchpad) is not listed; enabled ask
 	// (b) orchestration extensions only ride through when their namespaced
 	// tool names appear in /api/tools' orchestrationTools (which the server
 	// intersects with actually-registered tools).
-	const askUserExt = {
+	const askUserExt = makeExtension({
 		id: "ext-askuser",
 		name: "ask-user",
 		description: "Human in the loop",
-		manifest: { tools: [{ name: "ask_user_question" }] },
-	};
-	const scratchpadExt = {
+		manifest: { tools: [{ name: "ask_user_question", description: "Ask the user" }] },
+	});
+	const scratchpadExt = makeExtension({
 		id: "ext-scratchpad",
 		name: "scratchpad",
 		description: "Scratch",
 		enabled: false,
-		manifest: { tools: [{ name: "scratchpad_write" }] },
-	};
+		manifest: { tools: [{ name: "scratchpad_write", description: "Write scratchpad" }] },
+	});
 	// The server never registered scratchpad's tools, so the listing carries
 	// neither its tools nor its namespaced orchestration names.
 	const listing = {

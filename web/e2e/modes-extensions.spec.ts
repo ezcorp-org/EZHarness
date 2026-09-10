@@ -14,7 +14,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeMode, type ModeData } from "./fixtures/data.js";
+import { makeExtension, makeProject, makeMode, type ModeData } from "./fixtures/data.js";
 import { dismissPickerSheet } from "./fixtures/picker-helpers.js";
 
 const PROJECT = makeProject({ id: "proj-modes-ext", name: "Modes Ext Project" });
@@ -44,9 +44,9 @@ const SEEDED_CUSTOM = makeMode({
 });
 
 const EXTENSIONS_FIXTURE = [
-	{ id: "ext-a", name: "Extension A", description: "Provides analysis tools" },
-	{ id: "ext-b", name: "Extension B", description: "Provides formatting tools" },
-	{ id: "ext-c", name: "Extension C", description: "Provides code-search tools" },
+	makeExtension({ id: "ext-a", name: "Extension A", description: "Provides analysis tools" }),
+	makeExtension({ id: "ext-b", name: "Extension B", description: "Provides formatting tools" }),
+	makeExtension({ id: "ext-c", name: "Extension C", description: "Provides code-search tools" }),
 ];
 
 test.describe("Modes settings — Tools & Extensions picker flow", () => {
@@ -287,13 +287,12 @@ test.describe("Modes settings — Tools & Extensions picker flow", () => {
 		// Extension exposing two tools so we can narrow to one. The mock
 		// returns this array verbatim at GET /api/extensions, so the
 		// per-tool selector reads manifest.tools from it.
-		const EXTENSIONS_WITH_TOOLS = [
-			{
+		const EXTENSIONS_WITH_TOOLS = [makeExtension({
 				id: "ext-tools",
 				name: "Toolbox",
 				description: "Two tools",
 				manifest: { tools: [{ name: "alpha", description: "first" }, { name: "beta", description: "second" }] },
-			},
+			}),
 		];
 		const SEEDED_TOOLS_MODE = makeMode({
 			id: "mode-tools",

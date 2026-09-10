@@ -30,9 +30,9 @@ bun x tsc --noEmit || WEB_FAIL=1
 
 echo ""
 # Wave-3 legs: backend test files + web/e2e — previously typechecked by
-# NOTHING. scripts/typecheck-tests.ts composes the dirty-file ratchet
-# (scripts/typecheck-tests-ratchet.json; shrink-only, enforced there) into
-# temp child configs of tsconfig.tests.json / web/tsconfig.e2e.json. Needs
+# NOTHING. scripts/typecheck-tests.ts rejects any entry in its committed
+# exclusion JSON, then composes temp child configs of tsconfig.tests.json /
+# web/tsconfig.e2e.json. Needs
 # the svelte-kit sync above (aliases + generated $types).
 cd "$ROOT"
 bun scripts/typecheck-tests.ts || TESTS_FAIL=1

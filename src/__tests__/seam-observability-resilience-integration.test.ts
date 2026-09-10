@@ -187,8 +187,9 @@ describe("Seam 4: observability DB failure must not break chat turn events", () 
       bus.emit("run:error", {
         conversationId: "conv-seam4",
         run: { id: "run-1", agentName: "a", status: "error" as const, startedAt: 0, logs: [] },
+        runId: "run-1",
         error: "boom",
-      } as AgentEvents["run:error"]);
+      });
     }).not.toThrow();
 
     expect(seen).toHaveLength(1);

@@ -25,6 +25,7 @@ import {
 } from "../../../__tests__/helpers/test-pglite";
 import { extensions } from "../../../db/schema";
 import { sql } from "drizzle-orm";
+import type { AuthUser } from "../../../auth/types";
 
 // Real DB-backed connection for every query module under test.
 mockDbConnection();
@@ -124,7 +125,7 @@ afterAll(async () => {
 
 const USER = { id: "user-1", email: "u@test.local", name: "U", role: "member" as const };
 
-function ev(method: string, opts: { body?: unknown; url?: string; user?: typeof USER } = {}) {
+function ev(method: string, opts: { body?: unknown; url?: string; user?: AuthUser } = {}) {
   const url = new URL(opts.url ?? "http://localhost/api/integrations/github-projects/link");
   const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
   if (opts.body !== undefined && method !== "GET") init.body = JSON.stringify(opts.body);

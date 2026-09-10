@@ -114,16 +114,21 @@ describe("updateMcpExtension", () => {
       name: "upd-mcp-1",
       description: "v1 desc",
       server: { transport: "stdio", name: "upd-mcp-1", command: "node", args: ["v1.js"] },
-      cachedTools: [{ name: "old-tool" }],
+      cachedTools: [{ name: "old-tool", description: "Old tool", inputSchema: {} }],
     });
     const originalVersion = ext.manifest.version;
     const originalAuthor = ext.manifest.author.name;
 
+    const refreshedTools = [
+      { name: "new-tool", description: "New tool", inputSchema: {} },
+      { name: "second", description: "Second tool", inputSchema: {} },
+    ];
+    const expectedTools = refreshedTools.map((tool) => ({ ...tool, capabilities: MCP_ONLY_DECL }));
     const updated = await updateMcpExtension({
       id: ext.id,
       description: "v2 desc",
       server: { transport: "stdio", name: "upd-mcp-1", command: "node", args: ["v2.js"] },
-      cachedTools: [{ name: "new-tool" }, { name: "second" }],
+      cachedTools: refreshedTools,
     });
 
     expect(updated).not.toBeNull();
@@ -133,10 +138,7 @@ describe("updateMcpExtension", () => {
     // Refreshed tools are re-stamped with the hostless-stdio declaration — a
     // bare `{...manifest, tools}` would drop it and put the PDP back on an
     // undeclared needed set.
-    expect(updated!.manifest.tools).toEqual([
-      { name: "new-tool", capabilities: MCP_ONLY_DECL },
-      { name: "second", capabilities: MCP_ONLY_DECL },
-    ]);
+    expect(updated!.manifest.tools).toEqual(expectedTools);
     const server0 = updated!.manifest.mcpServers?.[0] as { args?: string[] } | undefined;
     expect(server0?.args).toEqual(["v2.js"]);
     // Identity preserved.
@@ -145,10 +147,7 @@ describe("updateMcpExtension", () => {
     expect(updated!.manifest.author.name).toBe(originalAuthor);
 
     const roundtrip = await getExtension(ext.id);
-    expect((roundtrip!.manifest as any).tools).toEqual([
-      { name: "new-tool", capabilities: MCP_ONLY_DECL },
-      { name: "second", capabilities: MCP_ONLY_DECL },
-    ]);
+    expect(roundtrip!.manifest.tools).toEqual(expectedTools);
   });
 
   test("keeps the existing description when omitted", async () => {

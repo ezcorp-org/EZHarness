@@ -27,7 +27,7 @@ describe("createReadFileTool", () => {
     const tool = createReadFileTool(projectPath);
     const result = await tool.execute("1", { path: "hello.txt" });
     expect(getText(result)).toBe("hello world");
-    expect(result.details.isError).toBeUndefined();
+    expect(result.details).toEqual({});
   });
 
   test("reads files inside nested subdirectories", async () => {
@@ -40,14 +40,14 @@ describe("createReadFileTool", () => {
     const tool = createReadFileTool(projectPath);
     const result = await tool.execute("1", { path: "nope.txt" });
     expect(getText(result)).toContain("Error:");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 
   test("rejects path traversal with ../", async () => {
     const tool = createReadFileTool(projectPath);
     const result = await tool.execute("1", { path: "../../etc/passwd" });
     expect(getText(result)).toContain("Path traversal");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 
   test("truncates files larger than the readFile cap and flags details.truncated", async () => {
@@ -61,8 +61,8 @@ describe("createReadFileTool", () => {
       const text = getText(result);
       expect(text).toContain("[output truncated:");
       expect(text).toContain("readFile cap is 4 KB");
-      expect(result.details.truncated).toBe(true);
-      expect(result.details.originalBytes).toBe(10 * 1024);
+      expect(result.details).toMatchObject({ truncated: true });
+      expect(result.details).toMatchObject({ originalBytes: 10 * 1024 });
     } finally {
       if (originalCap === undefined) delete TOOL_OUTPUT_LIMITS.readFile;
       else TOOL_OUTPUT_LIMITS.readFile = originalCap;

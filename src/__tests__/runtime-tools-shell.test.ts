@@ -23,21 +23,21 @@ describe("createShellTool", () => {
     const tool = createShellTool(projectPath);
     const result = await tool.execute("1", { command: "echo hello" });
     expect(getText(result).trim()).toBe("hello");
-    expect(result.details.exitCode).toBe(0);
+    expect(result.details).toMatchObject({ exitCode: 0 });
   });
 
   test("reports a non-zero exit code in details", async () => {
     const tool = createShellTool(projectPath);
     const result = await tool.execute("1", { command: "false" });
-    expect(result.details.exitCode).toBe(1);
+    expect(result.details).toMatchObject({ exitCode: 1 });
   });
 
   test("blocks dangerous commands by pattern", async () => {
     const tool = createShellTool(projectPath);
     const result = await tool.execute("1", { command: "rm -rf /" });
     expect(getText(result)).toContain("blocked by security policy");
-    expect(result.details.isError).toBe(true);
-    expect(result.details.exitCode).toBe(-1);
+    expect(result.details).toMatchObject({ isError: true });
+    expect(result.details).toMatchObject({ exitCode: -1 });
   });
 
   test("sanitizes sensitive env vars from the child process", async () => {
@@ -68,7 +68,7 @@ describe("createShellTool", () => {
     // Must return well before the 10s sleep finishes.
     expect(elapsed).toBeLessThan(5000);
     expect(getText(result).toLowerCase()).toContain("timed out");
-    expect(result.details.timeout).toBe(true);
+    expect(result.details).toMatchObject({ timeout: true });
   });
 
   test("runs commands in the configured project directory", async () => {
@@ -84,10 +84,10 @@ describe("createShellTool", () => {
   test("a spawn failure is reported as an error result, not a rejection", async () => {
     const tool = createShellTool(resolve(tmpdir(), "shell-test-does-not-exist-" + Date.now()));
     const result = await tool.execute("1", { command: "echo hi" });
-    expect(result.details.isError).toBe(true);
-    expect(result.details.exitCode).toBe(-1);
+    expect(result.details).toMatchObject({ isError: true });
+    expect(result.details).toMatchObject({ exitCode: -1 });
     expect(getText(result)).toContain("Error:");
     // The message is echoed into BOTH places the UI reads.
-    expect(result.details.stderr).toBe(getText(result).replace("Error: ", ""));
+    expect(result.details).toMatchObject({ stderr: getText(result).replace("Error: ", "") });
   });
 });

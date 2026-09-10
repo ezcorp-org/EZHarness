@@ -97,9 +97,10 @@ describe("pg_trgm migration", () => {
 
   test("PGlite construction registered pg_trgm in pg_extension catalog", async () => {
     const pglite = getPglite();
+    expect(pglite).not.toBeNull();
     // Direct catalog query — sanity check that pg_trgm shows up under
     // pg_extension after construction (not just after CREATE EXTENSION).
-    const result = await pglite.query<{ extname: string }>(
+    const result = await pglite!.query<{ extname: string }>(
       `SELECT extname FROM pg_extension WHERE extname = 'pg_trgm'`,
     );
     expect(result.rows.length).toBe(1);

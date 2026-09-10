@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { and, eq } from "drizzle-orm";
-import { buildSessionContext } from "@earendil-works/pi-agent-core";
+import { buildSessionContext, type AgentMessage, type Entry } from "@earendil-works/pi-agent-core";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { agentSessionEntries, agentSessions, conversations, messageAttachments, messages, projects } from "../db/schema";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
@@ -58,9 +58,10 @@ function stripTimestamps<T extends { timestamp?: unknown }>(msgs: T[]): T[] {
   return msgs.map((m) => ({ ...m, timestamp: 0 }));
 }
 
-function textOf(m: { content: unknown }): string {
+function textOf(m: AgentMessage): string {
+  if (!("content" in m)) return "";
   if (typeof m.content === "string") return m.content;
-  return (m.content as Array<{ text?: string }>).map((p) => p.text ?? "").join("");
+  return m.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 }
 
 /** REFERENCE branch that today's runtime feeds pi-ai: loadHistory with NO
@@ -87,7 +88,47 @@ async function referenceHistory(convId: string) {
  * unique to the fresh-build path would stop tripping these tests.
  */
 async function contextOf(storage: Awaited<ReturnType<typeof backfillSessionForConversation>>) {
-  return buildSessionContext(await storage.getPathToRootOrCompaction(await storage.getLeafId())).messages;
+  const branch = await storage.getPathToRootOrCompaction(await storage.getLeafId());
+  // Pi's builder uses an ordered entry sequence. DB storage owns tree order
+  // rather than the engine's transient sequence number, so derive it from the
+  // already ordered branch at the adapter boundary.
+  const piEntries: Entry[] = branch.map((entry, seq): Entry => {
+    const timestamp = Date.parse(entry.timestamp);
+    if (entry.type === "compaction") {
+      return { ...entry, seq, timestamp, retainedTail: entry.retainedTail ?? [] };
+    }
+    if (
+      entry.type === "message" ||
+      entry.type === "thinking_level_change" ||
+      entry.type === "model_change" ||
+      entry.type === "active_tools_change" ||
+      entry.type === "branch_summary" ||
+      entry.type === "custom"
+    ) {
+      return { ...entry, seq, timestamp };
+    }
+    // These DB-only bookkeeping nodes retain a tree link but have no pi
+    // engine equivalent. Preserve their payload as a non-emitting custom node.
+    if (entry.type === "custom_message") {
+      return {
+        type: "custom",
+        id: entry.id,
+        seq,
+        parentId: entry.parentId,
+        timestamp,
+        customType: entry.customType,
+        data: { content: entry.content, details: entry.details, display: entry.display },
+      };
+    }
+    if (entry.type === "label") {
+      return { type: "custom", id: entry.id, seq, parentId: entry.parentId, timestamp, customType: "label", data: { targetId: entry.targetId, label: entry.label } };
+    }
+    if (entry.type === "session_info") {
+      return { type: "custom", id: entry.id, seq, parentId: entry.parentId, timestamp, customType: "session_info", data: { name: entry.name } };
+    }
+    return { type: "custom", id: entry.id, seq, parentId: entry.parentId, timestamp, customType: "leaf", data: { targetId: entry.targetId } };
+  });
+  return buildSessionContext(piEntries).messages;
 }
 
 /** CANDIDATE: backfill → the stored branch → pi's context builder. */

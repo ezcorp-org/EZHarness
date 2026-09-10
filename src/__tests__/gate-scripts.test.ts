@@ -44,10 +44,6 @@ import {
   uncoveredAddedLines,
 } from "../../scripts/check-patch-coverage.ts";
 import {
-  BACKEND_RATCHET_BASELINE,
-  BACKEND_RATCHET_CEILING,
-  E2E_RATCHET_BASELINE,
-  E2E_RATCHET_CEILING,
   ratchetViolation,
 } from "../../scripts/typecheck-tests.ts";
 import {
@@ -793,45 +789,34 @@ describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
   });
 });
 
-// ── typecheck-tests: ratchet validation (subset-of-baseline) ────────────────
+// ── typecheck-tests: exclusion validation ───────────────────────────────────
 describe("typecheck-tests: ratchetViolation", () => {
-  const baseline = ["src/__tests__/a.test.ts", "src/__tests__/b.test.ts", "src/__tests__/c.test.ts"];
-
-  test("subset of the baseline within the ceiling passes", () => {
-    expect(ratchetViolation("k", ["src/__tests__/a.test.ts"], 3, baseline)).toBeNull();
-    expect(ratchetViolation("k", [], 3, baseline)).toBeNull();
+  test("only an empty list passes", () => {
+    expect(ratchetViolation("k", [])).toBeNull();
   });
 
-  test("SWAP is rejected even at constant length (remove b, add d)", () => {
-    const v = ratchetViolation(
-      "k",
-      ["src/__tests__/a.test.ts", "src/__tests__/d.test.ts"],
-      3,
-      baseline,
+  test("a former valid exclusion is rejected", () => {
+    expect(ratchetViolation("backendTests", ["src/__tests__/briefing-api.test.ts"])).toContain(
+      "must be empty",
     );
-    expect(v).toContain("not in the landing-time baseline");
-  });
-
-  test("growth past the ceiling is rejected", () => {
-    expect(ratchetViolation("k", baseline, 2, baseline)).toContain("> ceiling");
   });
 
   test("duplicates and non-string shapes are rejected", () => {
     const dup = ["src/__tests__/a.test.ts", "src/__tests__/a.test.ts"];
-    expect(ratchetViolation("k", dup, 3, baseline)).toContain("duplicates");
-    expect(ratchetViolation("k", "nope", 3, baseline)).toContain("string array");
-    expect(ratchetViolation("k", [42], 3, baseline)).toContain("string array");
+    expect(ratchetViolation("k", dup)).toContain("duplicates");
+    expect(ratchetViolation("k", "nope")).toContain("string array");
+    expect(ratchetViolation("k", [42])).toContain("string array");
   });
 
-  test("the COMMITTED ratchet passes against the committed baselines + ceilings", async () => {
+  test("the COMMITTED ratchet has no exclusions", async () => {
     const raw = (await Bun.file(
       join(import.meta.dir, "..", "..", "scripts/typecheck-tests-ratchet.json"),
     ).json()) as { backendTests: string[]; e2eSpecs: string[] };
     expect(
-      ratchetViolation("backendTests", raw.backendTests, BACKEND_RATCHET_CEILING, BACKEND_RATCHET_BASELINE),
+      ratchetViolation("backendTests", raw.backendTests),
     ).toBeNull();
     expect(
-      ratchetViolation("e2eSpecs", raw.e2eSpecs, E2E_RATCHET_CEILING, E2E_RATCHET_BASELINE),
+      ratchetViolation("e2eSpecs", raw.e2eSpecs),
     ).toBeNull();
   });
 });

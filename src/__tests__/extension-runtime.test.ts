@@ -107,7 +107,7 @@ describe("mock extension subprocess", () => {
 
 describe("extension CRUD queries", () => {
   const testManifest = {
-    schemaVersion: 2,
+    schemaVersion: 2 as const,
     name: "test-tools",
     version: "1.0.0",
     description: "Test extension",

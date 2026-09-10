@@ -665,6 +665,7 @@ describe("ObservabilityCollector — run:error", () => {
         logs: [],
         result: { success: false, output: null, error: "Watchdog: no activity for 92s" },
       },
+      runId: "run-err-1",
       error: "Watchdog: no activity for 92s",
       conversationId: CONV_ID,
     });
@@ -696,6 +697,7 @@ describe("ObservabilityCollector — run:error", () => {
         logs: [],
         result: { success: false, output: null, error: "Legacy" },
       },
+      runId: "run-err-2",
       error: "Legacy",
     });
 

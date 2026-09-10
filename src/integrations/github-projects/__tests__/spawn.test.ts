@@ -22,6 +22,8 @@
  */
 import { test, expect, describe, mock, beforeEach, afterAll, spyOn } from "bun:test";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
+import type { AgentRun } from "../../../types";
+import type { SpawnRuntime } from "../spawn";
 
 afterAll(() => restoreModuleMocks());
 
@@ -153,6 +155,7 @@ type Proposal = {
   id: string; linkId: string; projectId: string; statusOptionId: string;
   action: "plan" | "execute"; title: string; ticketUrl: string | null;
   status: string;
+	contentNodeId?: string | null;
 };
 type Link = {
   id: string; projectId: string;
@@ -188,23 +191,34 @@ function makeLink(over: Partial<Link> = {}): Link {
 
 type LifecycleEvent = "run:complete" | "run:error" | "run:cancel";
 
+function makeAgentRun(overrides: Partial<AgentRun> = {}): AgentRun {
+	return {
+		id: "run-x",
+		agentName: "github-projects",
+		status: "running",
+		startedAt: 0,
+		logs: [],
+		...overrides,
+	};
+}
+
 /** Injected runtime: streamChat spy + a manual event bus we can fire. */
 function makeRuntime() {
-  const handlers: Record<string, Array<(d: unknown) => void>> = {
+  const handlers: Record<LifecycleEvent, Array<(data: { run: AgentRun }) => void>> = {
     "run:complete": [], "run:error": [], "run:cancel": [],
   };
   const offCalls: string[] = [];
-  const streamChat = mock((_cid: string, _msg: string, _opts: unknown) =>
-    Promise.resolve({ id: (_opts as { runId?: string }).runId ?? "run-x" }),
+  const streamChat = mock((_cid: string, _msg: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) =>
+    Promise.resolve(makeAgentRun({ id: opts.runId ?? "run-x" })),
   );
-  const on = mock((event: LifecycleEvent, fn: (d: unknown) => void) => {
+  const on = mock((event: LifecycleEvent, fn: (data: { run: AgentRun }) => void) => {
     handlers[event]!.push(fn);
     return () => { offCalls.push(event); };
   });
   return {
-    runtime: { streamChat, on },
-    fire: (event: LifecycleEvent, data: unknown) => {
-      for (const fn of handlers[event]!) fn(data);
+    runtime: { streamChat, on } satisfies SpawnRuntime,
+		fire: (event: LifecycleEvent, data: { run: Partial<AgentRun> }) => {
+			for (const fn of handlers[event]!) fn({ run: makeAgentRun(data.run) });
     },
     offCalls,
   };
@@ -847,9 +861,9 @@ describe("approveProposal — run lifecycle", () => {
   test("run:complete for OUR runId → proposal moves to done", async () => {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) => Promise.resolve(makeProposal({ id: "prop-1" })));
     installMocks();
@@ -870,9 +884,9 @@ describe("approveProposal — run lifecycle", () => {
   test("run:cancel for OUR runId → proposal moves to cancelled (+ cancelled comment)", async () => {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) => Promise.resolve(makeProposal({ id: "prop-1" })));
     installMocks();
@@ -897,9 +911,9 @@ describe("approveProposal — run lifecycle", () => {
   test("run:error for OUR runId → proposal moves to failed with an error", async () => {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) => Promise.resolve(makeProposal({ id: "prop-1" })));
     installMocks();
@@ -931,9 +945,9 @@ describe("approveProposal — run lifecycle", () => {
   test("only the FIRST terminal event settles (subsequent fires are no-ops)", async () => {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) => Promise.resolve(makeProposal()));
     installMocks();
@@ -954,9 +968,9 @@ describe("approveProposal — run lifecycle", () => {
   test("a missing proposal-by-runId at terminal time is a no-op (no update)", async () => {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) => Promise.resolve(null));
     installMocks();
@@ -971,9 +985,9 @@ describe("approveProposal — run lifecycle", () => {
   test("a LOST terminal claim (already terminal'd elsewhere) skips the write-back", async () => {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) => Promise.resolve(makeProposal({ id: "prop-1" })));
     installMocks();
@@ -994,9 +1008,9 @@ describe("approveProposal — run lifecycle", () => {
   test("a throwing lifecycle lookup is swallowed (never an unhandled rejection)", async () => {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) => Promise.reject(new Error("db down")));
     installMocks();
@@ -1015,9 +1029,9 @@ describe("approveProposal — lifecycle write-back", () => {
   async function spawnAndCapture() {
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     getProposalByRunIdMock = mock((_rid: string) =>
       Promise.resolve(makeProposal({ id: "prop-1" })),
@@ -1085,7 +1099,7 @@ describe("approveProposal — lifecycle write-back", () => {
     h.fire("run:error", {
       run: {
         id: spawnedRunId,
-        result: { success: false, error: "timeout after 30s" },
+			result: { success: false, output: null, error: "timeout after 30s" },
       },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -1100,7 +1114,7 @@ describe("approveProposal — lifecycle write-back", () => {
     h.fire("run:error", {
       run: {
         id: spawnedRunId,
-        result: { success: false, error: { code: "cancelled", message: "run was cancelled" } },
+			result: { success: false, output: null, error: { code: "cancelled", message: "run was cancelled" } },
       },
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -1161,9 +1175,9 @@ describe("approveProposal — lifecycle write-back", () => {
     installMocks();
     const h = makeRuntime();
     let spawnedRunId = "";
-    h.runtime.streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) => {
-      spawnedRunId = opts.runId as string;
-      return Promise.resolve({ id: spawnedRunId });
+    h.runtime.streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) => {
+      spawnedRunId = opts.runId ?? "run-x";
+      return Promise.resolve(makeAgentRun({ id: spawnedRunId }));
     });
     await approveProposal("prop-1", { kind: "auto" }, { runtime: h.runtime });
     claimProposalMock.mockClear();
@@ -1189,8 +1203,8 @@ describe("approveProposal — lifecycle write-back", () => {
 
 describe("approveProposal — default runtime resolution", () => {
   test("uses the registered runtime when no deps.runtime is injected", async () => {
-    const streamChat = mock((_c: string, _m: string, opts: Record<string, unknown>) =>
-      Promise.resolve({ id: opts.runId as string }),
+    const streamChat = mock((_c: string, _m: string, opts: Parameters<SpawnRuntime["streamChat"]>[2]) =>
+		Promise.resolve(makeAgentRun({ id: opts.runId ?? "run-x" })),
     );
     const on = mock((_e: string, _f: unknown) => () => {});
     getBriefingRuntimeMock = mock(() => ({ executor: { streamChat }, bus: { on } }) as unknown);

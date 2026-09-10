@@ -186,8 +186,8 @@ describe("renderExtensionPage", () => {
     expect(result.page!.title).toBe("Cron Dashboard");
     // Granted action kept, un-granted action dropped by validation.
     const labels = result.page!.nodes
-      .filter((n: { type: string }) => n.type === "button")
-      .map((n: { label?: string }) => n.label);
+      .filter((n): n is Extract<typeof n, { type: "button" }> => n.type === "button")
+      .map((n) => n.label);
     expect(labels).toEqual(["Clear"]);
     expect(deps.calls).toEqual(["dashboard"]);
     // Cached for the next caller.

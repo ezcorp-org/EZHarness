@@ -1,11 +1,11 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
+import { makeExtension, makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-file", name: "File Mention Project" });
 const conv = makeConversation({ id: "conv-file", projectId: "proj-file" });
 
 const agents = [makeAgent({ name: "Code Assistant", description: "Helps write code" })];
-const extensions = [{ name: "analyzer", description: "Code analysis", enabled: true }];
+const extensions = [makeExtension({ name: "analyzer", description: "Code analysis", enabled: true })];
 
 const files = [
 	{ name: "README.md", description: "/tmp/proj/README.md", kind: "file" as const },

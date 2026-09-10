@@ -32,22 +32,22 @@ describe("createGlobTool", () => {
     expect(text).toContain("utils.ts");
     expect(text).not.toContain("Button.svelte");
     expect(text).not.toContain("readme.md");
-    expect(result.details.fileCount).toBe(2);
-    expect(result.details.truncated).toBe(false);
+    expect(result.details).toMatchObject({ fileCount: 2 });
+    expect(result.details).toMatchObject({ truncated: false });
   });
 
   test("returns a 'no files found' message for patterns with no matches", async () => {
     const tool = createGlobTool(projectPath);
     const result = await tool.execute("1", { pattern: "**/*.nonexistentext" });
     expect(getText(result)).toContain("No files found");
-    expect(result.details.fileCount).toBe(0);
+    expect(result.details).toMatchObject({ fileCount: 0 });
   });
 
   test("respects maxResults and flags truncated in details", async () => {
     const tool = createGlobTool(projectPath);
     const result = await tool.execute("1", { pattern: "**/*", maxResults: 2 });
-    expect(result.details.truncated).toBe(true);
-    expect(result.details.fileCount).toBe(2);
+    expect(result.details).toMatchObject({ truncated: true });
+    expect(result.details).toMatchObject({ fileCount: 2 });
     expect(getText(result)).toContain("[truncated at 2 results]");
   });
 
@@ -66,6 +66,6 @@ describe("createGlobTool", () => {
     const tool = createGlobTool(projectPath);
     const result = await tool.execute("1", { pattern: "*.ts", path: "../.." });
     expect(getText(result)).toContain("Path traversal");
-    expect(result.details.isError).toBe(true);
+    expect(result.details).toMatchObject({ isError: true });
   });
 });

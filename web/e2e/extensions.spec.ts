@@ -1,70 +1,46 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject } from "./fixtures/data.js";
+import { makeExtension as makeExtensionFixture, makeProject, type ExtensionData } from "./fixtures/data.js";
+
+type ExtensionDetailOverrides = Partial<ExtensionData> & {
+	author?: string | { name: string };
+	entrypoint?: string | { command: string[] };
+	persistent?: boolean;
+	tools?: ExtensionData["manifest"]["tools"];
+	permissions?: Record<string, unknown>;
+};
 
 // Factory for a full extension record (as returned by GET /api/extensions)
-function makeExtension(overrides: Record<string, unknown> = {}) {
-	return {
-		id: overrides.id ?? "ext-1",
-		name: overrides.name ?? "my-extension",
-		version: overrides.version ?? "1.0.0",
-		description: overrides.description ?? "A handy extension for testing",
-		enabled: overrides.enabled !== undefined ? overrides.enabled : true,
-		source: overrides.source ?? "local",
-		consecutiveFailures: overrides.consecutiveFailures ?? 0,
-		manifest: {
-			tools: overrides.tools ?? [
-				{ name: "analyze", description: "Analyze code" },
-			],
-			permissions: overrides.permissions ?? {},
-			...(overrides.manifest as object ?? {}),
-		},
-		grantedPermissions: overrides.grantedPermissions ?? {},
+function makeExtension(overrides: Partial<ExtensionData> = {}): ExtensionData {
+	return makeExtensionFixture({
 		...overrides,
-	};
+		manifest: {
+			tools: [{ name: "analyze", description: "Analyze code" }],
+			permissions: {},
+			...overrides.manifest,
+		},
+	});
 }
 
 // Factory for extension detail page response (GET /api/extensions/:id)
-function makeExtensionDetail(overrides: Record<string, unknown> = {}) {
-	return {
-		id: overrides.id ?? "ext-1",
-		name: overrides.name ?? "my-extension",
-		version: overrides.version ?? "1.0.0",
-		description: overrides.description ?? "A handy extension for testing",
-		enabled: overrides.enabled !== undefined ? overrides.enabled : true,
-		source: overrides.source ?? "local",
-		installPath: overrides.installPath ?? "/home/user/.extensions/my-extension",
-		checksumVerified: overrides.checksumVerified !== undefined ? overrides.checksumVerified : true,
-		consecutiveFailures: overrides.consecutiveFailures ?? 0,
+function makeExtensionDetail(overrides: ExtensionDetailOverrides = {}): ExtensionData {
+	const { author, entrypoint, persistent, tools, permissions, ...extensionOverrides } = overrides;
+	return makeExtensionFixture({
+		...extensionOverrides,
+		installPath: extensionOverrides.installPath ?? "/home/user/.extensions/my-extension",
 		manifest: {
-			author: overrides.author ?? "Test Author",
-			entrypoint: overrides.entrypoint ?? "index.ts",
-			persistent: overrides.persistent ?? false,
-			tools: overrides.tools ?? [
-				{
-					name: "analyze",
-					description: "Analyze code for issues",
-					inputSchema: { type: "object", properties: { file: { type: "string", description: "File path" } } },
-				},
-			],
-			permissions: {
-				network: overrides.network ?? [],
-				filesystem: overrides.filesystem ?? [],
-				shell: overrides.shell ?? false,
-				env: overrides.env ?? [],
-				...(overrides.permissions as object ?? {}),
-			},
+			author: author ?? "Test Author",
+			entrypoint: entrypoint ?? "index.ts",
+			persistent: persistent ?? false,
+			tools: tools ?? [{
+				name: "analyze",
+				description: "Analyze code for issues",
+				inputSchema: { type: "object", properties: { file: { type: "string", description: "File path" } } },
+			}],
+			permissions: permissions ?? { network: [], filesystem: [], shell: false, env: [] },
+			...extensionOverrides.manifest,
 		},
-		grantedPermissions: {
-			network: [],
-			filesystem: [],
-			shell: false,
-			env: [],
-			grantedAt: {},
-			...(overrides.grantedPermissions as object ?? {}),
-		},
-		createdAt: "2026-01-01T00:00:00.000Z",
-		...overrides,
-	};
+		grantedPermissions: { network: [], filesystem: [], shell: false, env: [], grantedAt: {}, ...extensionOverrides.grantedPermissions },
+	});
 }
 
 test.describe("Extensions List Page", () => {

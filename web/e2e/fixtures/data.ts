@@ -355,6 +355,7 @@ export interface ExtensionData {
 	consecutiveFailures: number;
 	isBundled: boolean;
 	manifest: {
+		kind?: "tool" | "mcp" | string;
 		schemaVersion?: number;
 		name?: string;
 		version?: string;
@@ -364,6 +365,13 @@ export interface ExtensionData {
 		persistent?: boolean;
 		tools?: Array<{ name: string; description: string; inputSchema?: Record<string, unknown> }>;
 		permissions?: Record<string, unknown>;
+		mcpServers?: Array<{
+			transport: "stdio" | "http" | "sse" | string;
+			name: string;
+			command?: string;
+			args?: string[];
+			url?: string;
+		}>;
 		acceptsCallerCaps?: boolean;
 		/**
 		 * Declared Hub tabs. Declaring a page IS the grant, so this alone

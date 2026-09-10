@@ -608,7 +608,7 @@ int main(void) { ptrace(PTRACE_TRACEME, 0, 0, 0); return 0; }`;
           stderr: "pipe",
           // Pass the BPF FD to the child at index 3 (FD-passthrough).
           stdio: [null, null, null, fd],
-        } as Parameters<typeof Bun.spawn>[0]);
+        });
 
         const childPid = child.pid;
         await child.exited;

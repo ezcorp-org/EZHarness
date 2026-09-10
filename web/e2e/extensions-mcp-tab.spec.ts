@@ -12,27 +12,18 @@
  * returns the freshly-installed extension.
  */
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject } from "./fixtures/data.js";
+import { makeExtension, makeProject, type ExtensionData } from "./fixtures/data.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 
-function makeExt(overrides: Record<string, unknown> = {}) {
-	return {
-		id: overrides.id ?? "ext-1",
-		name: overrides.name ?? "my-extension",
-		version: overrides.version ?? "1.0.0",
-		description: overrides.description ?? "A handy extension",
-		enabled: overrides.enabled !== undefined ? overrides.enabled : true,
-		source: overrides.source ?? "local",
-		consecutiveFailures: overrides.consecutiveFailures ?? 0,
-		isBundled: overrides.isBundled ?? false,
+function makeExt(overrides: Partial<ExtensionData> = {}): ExtensionData {
+	return makeExtension({
+		...overrides,
 		manifest: {
 			tools: [{ name: "analyze", description: "Analyze code" }],
 			permissions: {},
-			...(overrides.manifest as object ?? {}),
+			...overrides.manifest,
 		},
-		grantedPermissions: overrides.grantedPermissions ?? {},
-		...overrides,
-	};
+	});
 }
 
 const proj = makeProject({ id: "proj-1" });
@@ -79,7 +70,7 @@ test.describe("Extensions — MCP tab", () => {
 	});
 
 	test("successful MCP install shows the connected tool-count confirmation", async ({ page, mockApi }) => {
-		const installed = {
+		const installed = makeExt({
 			id: "mcp-new",
 			name: "db-mcp",
 			version: "1.0.0",
@@ -99,7 +90,7 @@ test.describe("Extensions — MCP tab", () => {
 				mcpServers: [{ transport: "stdio", name: "db", command: "npx", args: ["db-mcp"] }],
 			},
 			grantedPermissions: {},
-		};
+		});
 		await mockApi({
 			projects: [proj],
 			extensions: [],

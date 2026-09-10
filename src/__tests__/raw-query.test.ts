@@ -28,6 +28,13 @@ mock.module("../db/connection", () => ({
 const { rawQuery } = await import("../db/connection");
 const { toVectorLiteral } = await import("../memory/vector-utils");
 
+function field(row: unknown, name: string): unknown {
+  if (typeof row !== "object" || row === null || !(name in row)) {
+    throw new Error(`Expected query row with '${name}' field`);
+  }
+  return (row as Record<string, unknown>)[name];
+}
+
 /**
  * Test-local hybridSearch that mirrors the SQL from retrieval.ts but uses
  * the mocked rawQuery. This validates that hybridSearch's SQL works correctly
@@ -140,26 +147,26 @@ describe("rawQuery", () => {
   test("simple SELECT returns correct result", async () => {
     const result = await rawQuery("SELECT 1 as num", []);
     expect(result.rows.length).toBe(1);
-    expect(result.rows[0].num).toBe(1);
+    expect(field(result.rows[0], "num")).toBe(1);
   });
 
   test("parameterized query with $1", async () => {
     const result = await rawQuery("SELECT $1 as val", ["hello"]);
     expect(result.rows.length).toBe(1);
-    expect(result.rows[0].val).toBe("hello");
+    expect(field(result.rows[0], "val")).toBe("hello");
   });
 
   test("multiple params $1 and $2", async () => {
     const result = await rawQuery("SELECT $1 as a, $2 as b", ["foo", "bar"]);
     expect(result.rows.length).toBe(1);
-    expect(result.rows[0].a).toBe("foo");
-    expect(result.rows[0].b).toBe("bar");
+    expect(field(result.rows[0], "a")).toBe("foo");
+    expect(field(result.rows[0], "b")).toBe("bar");
   });
 
   test("NULL param", async () => {
     const result = await rawQuery("SELECT $1::text as val", [null]);
     expect(result.rows.length).toBe(1);
-    expect(result.rows[0].val).toBeNull();
+    expect(field(result.rows[0], "val")).toBeNull();
   });
 
   test("query against memories table returns inserted row", async () => {
@@ -174,7 +181,7 @@ describe("rawQuery", () => {
 
     const result = await rawQuery("SELECT content FROM memories WHERE id = $1", [id]);
     expect(result.rows.length).toBe(1);
-    expect(result.rows[0].content).toBe("rawQuery test content");
+    expect(field(result.rows[0], "content")).toBe("rawQuery test content");
   });
 
   test("empty result for nonexistent id", async () => {

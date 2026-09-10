@@ -318,6 +318,7 @@ describe("subscription error catches", () => {
     await host.start();
     bus.emit("run:error", {
       run: { id: "r", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      runId: "r",
       conversationId: "c1",
       error: "boom",
     });

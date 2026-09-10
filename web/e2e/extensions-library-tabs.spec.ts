@@ -12,26 +12,17 @@
  * is the source of truth in the e2e env.
  */
 import { test, expect } from "./fixtures/test-base.js";
-import { makeProject } from "./fixtures/data.js";
+import { makeExtension, makeProject, type ExtensionData } from "./fixtures/data.js";
 
-function makeExt(overrides: Record<string, unknown> = {}) {
-	return {
-		id: overrides.id ?? "ext-1",
-		name: overrides.name ?? "my-extension",
-		version: overrides.version ?? "1.0.0",
-		description: overrides.description ?? "A handy extension for testing",
-		enabled: overrides.enabled !== undefined ? overrides.enabled : true,
-		source: overrides.source ?? "local",
-		consecutiveFailures: overrides.consecutiveFailures ?? 0,
-		isBundled: overrides.isBundled ?? false,
+function makeExt(overrides: Partial<ExtensionData> = {}): ExtensionData {
+	return makeExtension({
+		...overrides,
 		manifest: {
 			tools: [{ name: "analyze", description: "Analyze code" }],
 			permissions: {},
-			...(overrides.manifest as object ?? {}),
+			...overrides.manifest,
 		},
-		grantedPermissions: overrides.grantedPermissions ?? {},
-		...overrides,
-	};
+	});
 }
 
 test.describe("Extensions Library tabs", () => {

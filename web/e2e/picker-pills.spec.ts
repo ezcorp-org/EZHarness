@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { makeAgent, makeAgentConfig, makeMode } from "./fixtures/data.js";
+import { makeAgent, makeAgentConfig, makeExtension, makeMode } from "./fixtures/data.js";
 
 // Pills-with-× coverage for every combobox picker we use. Exercises:
 //   - pre-populated selected pills render inside the combobox chrome
@@ -22,8 +22,8 @@ test.describe("ExtensionSearchPicker — pills on the agent edit page", () => {
       agents: [makeAgent({ name: "pills-agent", source: "config", id: "cfg-exts", prompt: "P" })],
       agentConfigs: [config],
       extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "Lint/scan" },
-        { id: "ext-formatter", name: "formatter", description: "Format" },
+        makeExtension({ id: "ext-analyzer", name: "analyzer", description: "Lint/scan" }),
+        makeExtension({ id: "ext-formatter", name: "formatter", description: "Format" }),
       ],
     });
 
@@ -208,8 +208,8 @@ test.describe("SelectedPill — shared component contract", () => {
       agents: [makeAgent({ name: "a11y-agent", source: "config", id: "cfg-a11y", prompt: "P" })],
       agentConfigs: [config],
       extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "" },
-        { id: "ext-formatter", name: "formatter", description: "" },
+        makeExtension({ id: "ext-analyzer", name: "analyzer", description: "" }),
+        makeExtension({ id: "ext-formatter", name: "formatter", description: "" }),
       ],
     });
     await page.goto("/agents/a11y-agent");
@@ -231,7 +231,7 @@ test.describe("SelectedPill — shared component contract", () => {
     await mockApi({
       agents: [makeAgent({ name: "kbd-agent", source: "config", id: "cfg-kbd", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [{ id: "ext-analyzer", name: "analyzer", description: "" }],
+      extensions: [makeExtension({ id: "ext-analyzer", name: "analyzer", description: "" })],
     });
     await page.goto("/agents/kbd-agent");
 
@@ -265,9 +265,9 @@ test.describe("Combobox layout — input width preserved with pills inside", () 
       ],
       agentConfigs: [empty, many],
       extensions: [
-        { id: "ext-1", name: "one-extension", description: "" },
-        { id: "ext-2", name: "two-extension", description: "" },
-        { id: "ext-3", name: "three-extension", description: "" },
+        makeExtension({ id: "ext-1", name: "one-extension", description: "" }),
+        makeExtension({ id: "ext-2", name: "two-extension", description: "" }),
+        makeExtension({ id: "ext-3", name: "three-extension", description: "" }),
       ],
     });
 
@@ -305,7 +305,7 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     await mockApi({
       agents: [makeAgent({ name: "last-agent", source: "config", id: "cfg-last", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [{ id: "ext-only", name: "only", description: "" }],
+      extensions: [makeExtension({ id: "ext-only", name: "only", description: "" })],
     });
     await page.goto("/agents/last-agent");
 
@@ -328,9 +328,7 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     await mockApi({
       agents: [makeAgent({ name: "add-agent", source: "config", id: "cfg-add", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [
-        { id: "ext-add", name: "addable", description: "desc" },
-      ],
+      extensions: [makeExtension({ id: "ext-add", name: "addable", description: "desc" })],
     });
     await page.goto("/agents/add-agent");
     const combobox = page.getByTestId("extension-picker-combobox");
@@ -355,7 +353,7 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     await mockApi({
       agents: [makeAgent({ name: "long-agent", source: "config", id: "cfg-long", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [{ id: "ext-long", name: longName, description: "" }],
+      extensions: [makeExtension({ id: "ext-long", name: longName, description: "" })],
     });
     await page.goto("/agents/long-agent");
 

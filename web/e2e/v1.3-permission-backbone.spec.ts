@@ -1119,17 +1119,18 @@ test.describe("ttl picker", () => {
 
 			// Capture the reapprove POST body so we can assert the
 			// ttlOverrideMs field rode the wire.
-			let capturedBody: { ttlOverrideMs?: number | null } | null = null;
+			const capturedBodies: Array<{ ttlOverrideMs?: number | null }> = [];
 			await page.route(
 				`**/api/extensions/${ext.id}/reapprove`,
 				async (route) => {
 					if (route.request().method() === "POST") {
 						try {
-							capturedBody = (await route.request().postDataJSON()) as {
-								ttlOverrideMs?: number | null;
-							};
-						} catch {
-							capturedBody = null;
+						capturedBodies.push((await route.request().postDataJSON()) as {
+							ttlOverrideMs?: number | null;
+						});
+					} catch {
+						// Invalid JSON is deliberately ignored; the assertion below
+						// requires a typed request body to have been captured.
 						}
 						await route.fulfill({
 							status: 200,
@@ -1170,7 +1171,8 @@ test.describe("ttl picker", () => {
 			await approveBtn.click();
 
 			// The POST captured the chosen ttlOverrideMs.
-			expect(capturedBody).not.toBeNull();
+			const capturedBody = capturedBodies.at(-1);
+			expect(capturedBody).toBeDefined();
 			expect(capturedBody?.ttlOverrideMs).toBe(7 * DAY_MS);
 
 			// After re-approve, the banner redraws with an Intl-formatted
