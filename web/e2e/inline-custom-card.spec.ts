@@ -13,11 +13,11 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 
 	/**
 	 * Helper: add an inline tool call to the store via page.evaluate,
-	 * then emit WS events with matching invocationId.
+	 * then emit runtime SSE events with a matching invocationId.
 	 */
 	async function invokeInlineTool(
 		page: any,
-		emitWs: any,
+		emitSse: any,
 		opts: {
 			invocationId: string;
 			extensionName: string;
@@ -48,8 +48,8 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			},
 		);
 
-		// Step 2: Emit tool:start via WS
-		await emitWs({
+		// Step 2: Emit tool:start through the runtime SSE transport.
+		await emitSse({
 			type: "tool:start",
 			data: {
 				conversationId: convId,
@@ -63,8 +63,8 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			},
 		});
 
-		// Step 3: Emit tool:complete via WS
-		await emitWs({
+		// Step 3: Emit tool:complete through the runtime SSE transport.
+		await emitSse({
 			type: "tool:complete",
 			data: {
 				conversationId: convId,
@@ -82,7 +82,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 		await page.waitForTimeout(300);
 	}
 
-	test("inline tool with task-list cardType renders TaskListCard", async ({ page, mockApi, emitWs }) => {
+	test("inline tool with task-list cardType renders TaskListCard", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -120,7 +120,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			{ id: "t3", title: "Write tests", status: "completed", priority: 2 },
 		];
 
-		await invokeInlineTool(page, emitWs, {
+		await invokeInlineTool(page, emitSse, {
 			invocationId: "inv-list-1",
 			extensionName: "task-stack",
 			toolName: "task-stack.list-tasks",
@@ -135,7 +135,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 		await expect(page.getByText("Write tests")).toBeVisible();
 	});
 
-	test("inline tool with task-detail cardType renders TaskDetailCard", async ({ page, mockApi, emitWs }) => {
+	test("inline tool with task-detail cardType renders TaskDetailCard", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -170,7 +170,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			dueDate: "2026-04-01",
 		};
 
-		await invokeInlineTool(page, emitWs, {
+		await invokeInlineTool(page, emitSse, {
 			invocationId: "inv-detail-1",
 			extensionName: "task-stack",
 			toolName: "task-stack.get-active-task",
@@ -184,7 +184,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 		await expect(page.getByText("agent-ready")).toBeVisible();
 	});
 
-	test("inline tool without cardType renders generic expandable card", async ({ page, mockApi, emitWs }) => {
+	test("inline tool without cardType renders generic expandable card", async ({ page, mockApi, emitSse }) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -209,7 +209,7 @@ test.describe("Inline Tool Custom Card Rendering", () => {
 			}) as EventListener);
 		});
 
-		await invokeInlineTool(page, emitWs, {
+		await invokeInlineTool(page, emitSse, {
 			invocationId: "inv-generic-1",
 			extensionName: "some-ext",
 			toolName: "some-ext.do-thing",

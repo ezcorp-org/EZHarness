@@ -229,15 +229,16 @@ test.describe("File Mentions (@ sigil)", () => {
 		await expect(listbox.getByText("src/", { exact: true })).toBeVisible({ timeout: 3000 });
 	});
 
-	test("selecting a folder inserts @[dir:…] token", async ({ page, mockApi }) => {
+	test("Enter on a folder descends into it and keeps the picker open", async ({ page, mockApi }) => {
 		const textarea = await setupAndFocus(page, mockApi);
 		// Use a query that uniquely identifies the folder (no file named "output")
 		await typeIntoTextarea(page, textarea, "@output");
 		await waitForPopover(page);
 		await expect(page.locator("#mention-listbox").getByText("output/", { exact: true })).toBeVisible({ timeout: 3000 });
 		await page.keyboard.press("Enter");
-		await expect(page.locator("#mention-listbox")).not.toBeVisible();
-		await expect(textarea).toHaveValue(/@\[dir:output\] /);
+		await expect(textarea).toHaveValue(/@output\//);
+		await expect(page.locator("#mention-listbox")).toBeVisible();
+		await expect(page.locator("#mention-listbox").getByText("Use this folder as path", { exact: false })).toBeVisible();
 	});
 
 	test("dir chip has amber styling (distinct from file green)", async ({ page, mockApi }) => {
@@ -245,7 +246,9 @@ test.describe("File Mentions (@ sigil)", () => {
 		await typeIntoTextarea(page, textarea, "@output");
 		await waitForPopover(page);
 		await page.keyboard.press("Enter");
-		const chip = page.locator("[aria-hidden='true'] span").filter({ hasText: "@output/" });
+		await expect(page.locator("#mention-listbox").getByText("Use this folder as path", { exact: false })).toBeVisible();
+		await page.keyboard.press("Enter");
+		const chip = page.locator('[data-mention-kind="dir"][data-mention-name="output"]');
 		await expect(chip).toBeVisible({ timeout: 3000 });
 		await expect(chip).toHaveClass(/amber/);
 	});
@@ -497,9 +500,8 @@ test.describe("Regression: projectId wiring from URL", () => {
 
 		// At least one mention-search request must have included the route's
 		// projectId — NOT the stale localStorage one.
-		const fileReq = requests.find((u) => u.includes("type=file"));
+		const fileReq = requests.find((u) => new URL(u).searchParams.get("projectId") === proj.id);
 		expect(fileReq).toBeDefined();
-		expect(fileReq!).toContain(`projectId=${proj.id}`);
 		expect(fileReq!).not.toContain("some-other-project-id");
 	});
 });
