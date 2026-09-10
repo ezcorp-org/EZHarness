@@ -263,3 +263,11 @@
 - Verify a visual evidence case is selected by the mandatory evidence lane, not merely tagged.
 - Recompute performance from the live final test inventory. Keep modeled time separate from measured hosted runtime.
 - Distinguish a passing direct test from a coverage producer. Verify each source's direct suite contributes a trusted receipt before adding replacement tests.
+# Testing coverage review rules
+
+- Check the visible result after an asynchronous response. A request call or cleared field alone does not prove success.
+- Wait for loaded records before clicking their controls. Static headings can appear before the data.
+- Restore global mocks, prototype descriptors, timers, and module mock state after each test.
+- Put Svelte test hosts under `__tests__` so product coverage does not count fixtures as shipped code.
+- Run the actual web type check for browser test fixtures; backend/E2E type checks do not cover that surface.
+- Match both quote styles when a temporary review tool selects tests. Verify its actual file list and counts.

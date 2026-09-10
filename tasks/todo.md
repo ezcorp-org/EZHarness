@@ -659,10 +659,12 @@ Final execution remains pending in [the task gates](testing-gaps/GATES.md). Thos
 - [x] Prove full V8 preserves the old selected producer: 559 source records retained.
 - [x] Repair native help Escape and deferred composer focus; verify all three engines.
 - [x] Reproduce nested Unix socket failure and preserve an active socket when duplicate startup fails.
-- [ ] Assign one trusted producer per incompatible source map; retain strict missing-producer controls.
-- [ ] Collect existing direct utility tests in the coverage producer without duplicate execution.
-- [ ] Add direct behavior tests for uncovered components, stores, and error paths.
+- [x] Assign one trusted producer per incompatible source map; retain strict missing-producer controls.
+- [x] Collect existing direct utility tests in the coverage producer without duplicate execution.
+- [x] Add direct behavior tests for uncovered components, stores, and error paths.
 - [ ] Run all five browser lanes, all backend producers, all source floors, and final static gates on one clean revision.
 - [ ] Recompute the live shard plan and complete all 23 task gates with actual receipts.
 
 Review: a746 had 2,162 browser passes and one failure; all 64 route floors passed. Full backend had 7,164 Vitest passes, two Unix runner failures, a browser-route ownership error, and 91 aggregate coverage misses. These are diagnostic receipts, not a completed green run. Terra agents own disjoint coverage and component clusters.
+
+Combined review: all 25 utility sources have direct Bun producers; panel persistence runs inside a real Svelte host. Direct component coverage closes the remaining source gaps, including FeatureIndex94.84%, TaskPanel90.86%, TeamChatPanel93.62%, and PanelChatInput100%. Independent review strengthened saved-result assertions and mock cleanup. The first combined preflight passed300/301 tests and exposed an entity-table readiness race; its corrected12-test suite passes. Invalid component and fetch fixtures are repaired. Final complete browser/backend coverage and all23 task gates remain pending until receipts from one clean revision pass.
