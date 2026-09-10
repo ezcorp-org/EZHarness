@@ -505,5 +505,8 @@
   ],
   "web/e2e/mention-pill-history.spec.ts": [
     "web/src/lib/components/MentionChip.svelte"
+  ],
+  "web/e2e/project.spec.ts": [
+    "web/src/routes/(app)/project/[id]/settings/+page.svelte"
   ]
 }

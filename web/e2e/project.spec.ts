@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 test.describe("Projects", () => {
@@ -94,7 +94,7 @@ test.describe("Projects", () => {
 		expect(projectSave.status()).toBe(200);
 		expect(projectSave.request().postDataJSON()).toEqual({ value: "Project instructions updated by the user" });
 		await expect(projectSaveButton).toBeEnabled();
-		await expect(page.getByTestId("save-indicator-saved")).toHaveCount(1);
+		await expect(projectSaveButton.locator("xpath=following-sibling::*[@data-testid='save-indicator-saved']")).toHaveText("Saved ✓");
 
 		const globalInstructions = page.getByPlaceholder("e.g. You are a helpful AI assistant...");
 		const globalSaveButton = globalInstructions.locator("xpath=following-sibling::div[1]//button");
@@ -114,7 +114,7 @@ test.describe("Projects", () => {
 		expect(globalSave.status()).toBe(200);
 		expect(globalSave.request().postDataJSON()).toEqual({ value: "Global instructions updated by the user" });
 		await expect(globalSaveButton).toBeEnabled();
-		await expect(page.getByTestId("save-indicator-saved")).toHaveCount(2);
+		await expect(globalSaveButton.locator("xpath=following-sibling::*[@data-testid='save-indicator-saved']")).toHaveText("Saved ✓");
 
 		const updateButton = page.locator("form button[type=submit]");
 		await page.getByRole("textbox", { name: "Name", exact: true }).fill("Renamed Settings Project");
@@ -131,7 +131,7 @@ test.describe("Projects", () => {
 		const update = await updateResponse;
 		expect(update.status()).toBe(200);
 		expect(update.request().postDataJSON()).toMatchObject({ name: "Renamed Settings Project", path: proj.path });
-		await expect(page.getByTestId("save-indicator-saved")).toHaveCount(3);
+		await expect(updateButton.locator("xpath=ancestor::form/following-sibling::*[1]//*[@data-testid='save-indicator-saved']")).toHaveText("Saved ✓");
 		await page.reload();
 		await expect(projectInstructions).toHaveValue("Project instructions updated by the user");
 		await expect(globalInstructions).toHaveValue("Global instructions updated by the user");
@@ -140,7 +140,7 @@ test.describe("Projects", () => {
 	});
 
 
-	test("shows a project-instruction save error and permits a native retry", async ({ page, mockApi }) => {
+	test("shows a project-instruction save error and permits a native retry @evidence", async ({ page, mockApi }, testInfo) => {
 		const proj = makeProject({ id: "proj-settings-retry", name: "Retry Settings Project" });
 		let saves = 0;
 		await mockApi({ projects: [proj] });
@@ -158,6 +158,7 @@ test.describe("Projects", () => {
 		await saveButton.click();
 		await expect(page.getByTestId("save-indicator-error")).toHaveText("Save failed — try again");
 		await expect(saveButton).toBeEnabled();
+		await captureEvidence(page, testInfo, "project-settings-save-error", { fullPage: true });
 
 		const retried = page.waitForResponse((response) =>
 			new URL(response.url()).pathname === `/api/settings/project:${proj.id}:systemPrompt`
@@ -165,7 +166,10 @@ test.describe("Projects", () => {
 		);
 		await saveButton.click();
 		await retried;
-		await expect(page.getByTestId("save-indicator-saved")).toHaveCount(1);
+		await expect(saveButton.locator("xpath=following-sibling::*[@data-testid='save-indicator-saved']")).toHaveText("Saved ✓");
+		await captureEvidence(page, testInfo, "project-settings-save-success", { fullPage: true });
+		await page.reload();
+		await expect(instructions).toHaveValue("Retry this project instruction");
 		expect(saves).toBe(2);
 	});
 
@@ -184,7 +188,7 @@ test.describe("Projects", () => {
 			page.getByRole("button", { name: "Delete", exact: true }).click(),
 		]);
 		expect(deleted.status()).toBe(200);
-		await expect(page).toHaveURL(/\/$/);
+		await expect(page).toHaveURL(/\/project\/global\/chat$/);
 		await expect(page.getByRole("button", { name: "Delete Settings Project", exact: true })).toHaveCount(0);
 	});
 });
