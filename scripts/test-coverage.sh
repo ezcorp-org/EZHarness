@@ -115,14 +115,6 @@ if ! [[ "$COVERAGE_LEG_MAX_JOBS" =~ ^[1-9][0-9]*$ ]]; then
   echo "COVERAGE_LEG_MAX_JOBS must be a positive integer (got $COVERAGE_LEG_MAX_JOBS)" >&2
   exit 2
 fi
-# One Bun worker per scheduled leg keeps the parent cap meaningful. The suite
-# files are already isolated by producer; this prevents each leg from fanning
-# out to every CPU while another leg is still collecting coverage.
-COVERAGE_LEG_BUN_PARALLEL=${COVERAGE_LEG_BUN_PARALLEL:-1}
-if ! [[ "$COVERAGE_LEG_BUN_PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
-  echo "COVERAGE_LEG_BUN_PARALLEL must be a positive integer (got $COVERAGE_LEG_BUN_PARALLEL)" >&2
-  exit 2
-fi
 COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
@@ -297,7 +289,7 @@ run_legs() {
   await_leg_slot
   (
     set +e
-    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
       ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ ./packages/@ezcorp/sdk/src/v4/ ./packages/@ezcorp/sdk/src/browser/ \
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
@@ -313,7 +305,7 @@ run_legs() {
   await_leg_slot
   (
     set +e
-    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
       ./packages/@ezcorp/harness-client/ \
       > "$legs/hc.out" 2>&1
     echo "$?" > "$legs/hc.code"
@@ -337,7 +329,7 @@ run_legs() {
       echo 1 > "$legs/suggest.code"
       exit 1
     fi
-    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[suggest]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[suggest]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/suggest.out" 2>&1
     echo "$?" > "$legs/suggest.code"
@@ -361,7 +353,7 @@ run_legs() {
       echo 1 > "$legs/aikit.code"
       exit 1
     fi
-    bun test $TEST_TIMEOUT_FLAG --parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1 --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[ai-kit]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[ai-kit]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/aikit.out" 2>&1
     echo "$?" > "$legs/aikit.code"
@@ -744,9 +736,12 @@ if [ -n "$SHARD_TOTAL" ]; then
 fi
 
 # ── full local mode: legs + merge + threshold check ─────────────────────────
-# Started BEFORE run_legs so it overlaps them; run_legs' own `wait` reaps it.
-run_security_leg
 run_legs
+# Security is deliberately outside run_legs' PID accounting. Start it only
+# after that bounded pool has drained so `wait -n` cannot reap an uncounted
+# child and admit a fourth coverage producer.
+run_security_leg
+wait
 collect_security_leg
 
 echo ""

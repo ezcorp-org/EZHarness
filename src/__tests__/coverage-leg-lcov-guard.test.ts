@@ -882,16 +882,15 @@ describe("canonical Vitest V8 coverage launcher", () => {
     expect(await Bun.file(RUNNER).text()).not.toContain("npx vitest run");
   });
 
-  test("bounds top-level and internal coverage producer parallelism", async () => {
+  test("bounds coverage producer parallelism without changing Bun isolation", async () => {
     const coverageRunner = await Bun.file(RUNNER).text();
     const vitestRunner = await runnerSrc;
     // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as scheduler syntax
     expect(coverageRunner).toContain("COVERAGE_LEG_MAX_JOBS=${COVERAGE_LEG_MAX_JOBS:-3}");
     expect(coverageRunner).toContain('while [ "$running" -ge "$COVERAGE_LEG_MAX_JOBS" ]');
     expect(coverageRunner).toContain("wait -n || true");
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as worker-cap syntax
-    expect(coverageRunner).toContain('COVERAGE_LEG_BUN_PARALLEL=${COVERAGE_LEG_BUN_PARALLEL:-1}');
-    expect(coverageRunner).toContain('--parallel="$COVERAGE_LEG_BUN_PARALLEL" --max-concurrency=1');
+    expect(coverageRunner).not.toContain("--parallel=");
+    expect(coverageRunner).toContain("run_legs\n# Security is deliberately outside run_legs' PID accounting.");
     // biome-ignore lint/suspicious/noTemplateCurlyInString: literal Bash default expansion asserted as Vitest-cap syntax
     expect(vitestRunner).toContain('max_workers=${WEB_VITEST_COVERAGE_MAX_WORKERS:-2}');
     expect(vitestRunner).toContain('"--maxWorkers=$max_workers"');
