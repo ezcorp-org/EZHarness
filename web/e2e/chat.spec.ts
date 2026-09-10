@@ -14,8 +14,10 @@ test.describe("Chat", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat`);
 
-		await expect(page.getByText("First Chat", { exact: true })).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Second Chat", { exact: true })).toBeVisible({ timeout: 5000 });
+		const conversations = page.getByRole("navigation", { name: "Conversations" });
+		await expect(conversations.getByRole("button", { name: /^First Chat\b/ })).toBeVisible();
+		await expect(page.getByTestId("chat-title")).toHaveText("First Chat");
+		await expect(conversations.getByRole("button", { name: /^Second Chat\b/ })).toBeVisible();
 	});
 
 	test("chat list shows empty state with New Chat button", async ({ page, mockApi }) => {
