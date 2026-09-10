@@ -9,6 +9,12 @@ const emptyNodeShim = fileURLToPath(
 );
 
 export default defineConfig({
+	// Browser coverage is an explicit build mode. Normal production builds keep
+	// their current source-map policy; the collector refuses scripts without a
+	// map instead of guessing original Svelte locations from generated code.
+	build: {
+		sourcemap: process.env.EZCORP_BROWSER_COVERAGE === '1',
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit(),
