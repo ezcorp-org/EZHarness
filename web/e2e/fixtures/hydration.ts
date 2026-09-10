@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { test as base, type Page, type TestInfo } from "@playwright/test";
+import { test as base, request as playwrightRequest, type Page, type TestInfo } from "@playwright/test";
 
 const BROWSER_COVERAGE = process.env.EZCORP_BROWSER_COVERAGE === "1";
 
@@ -206,7 +206,25 @@ export async function waitForHydration(
  * written out at each call site — would be 489 of them across 150 specs, and
  * the 490th would reintroduce the bug.
  */
-export const test = base.extend<{ browserCoverage: undefined }>({
+export const test = base.extend<{ browserCoverage: undefined; inviteRateLimitIsolation: undefined }>({
+	// The serial real-auth suite shares one server. Preserve the real ten-attempt
+	// limit within each case, while preventing previous cases from spending it.
+	// Use the saved administrator session even when a case uses an empty cookie jar.
+	inviteRateLimitIsolation: [async ({ baseURL }, use, testInfo) => {
+		if (testInfo.config.globalSetup?.endsWith("/real-auth-setup.ts")) {
+			const administrator = await playwrightRequest.newContext({
+				baseURL,
+				storageState: resolve(process.cwd(), "e2e", ".real-auth.json"),
+			});
+			try {
+				const reset = await administrator.post("/api/__test/invite-rate-limit");
+				if (reset.status() !== 200) throw new Error(`Invite limiter isolation failed (${reset.status()}): ${await reset.text()}`);
+			} finally {
+				await administrator.dispose();
+			}
+		}
+		await use(undefined);
+	}, { auto: true }],
 	page: async ({ page }, use) => {
 		const navigate = page.goto.bind(page);
 		page.goto = async (url: string, options?: Parameters<Page["goto"]>[1]) => {

@@ -16,6 +16,20 @@
 import { test, expect } from "../fixtures/hydration.js";
 
 test.describe("admin invite API reachability (F5)", () => {
+  test("invite attempts remain limited within a case and only an administrator can reset test state", async ({ request, baseURL }) => {
+    const attempt = () => fetch(`${baseURL}/api/auth/invite/missing-rate-limit-token`, { method: "POST" });
+    for (let count = 0; count < 10; count++) expect((await attempt()).status).toBe(404);
+    const blocked = await attempt();
+    expect(blocked.status).toBe(429);
+    expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
+    const anonymousReset = await fetch(`${baseURL}/api/__test/invite-rate-limit`, { method: "POST" });
+    expect(anonymousReset.status).toBe(401);
+    expect((await attempt()).status).toBe(429);
+    const reset = await request.post("/api/__test/invite-rate-limit");
+    expect(reset.status(), await reset.text()).toBe(200);
+    expect((await attempt()).status).toBe(404);
+  });
+
   test("bare path is admin-authenticated; :token path stays anonymous", async ({
     request,
     baseURL,

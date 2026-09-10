@@ -595,6 +595,7 @@
   "web/src/routes/api/__test/mock-llm/script/+server.ts": 100,
   "web/src/routes/api/__test/seed/+server.ts": 100,
   "web/src/routes/api/__test/reset/+server.ts": 100,
+  "web/src/routes/api/__test/invite-rate-limit/+server.ts": 100,
   "web/src/routes/api/runs/[id]/+server.ts": 100,
   "src/integrations/github-projects/auth.ts": 100,
   "src/integrations/github-projects/client.ts": 100,
