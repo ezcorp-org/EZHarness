@@ -60,7 +60,7 @@ test.describe("Per-conversation audit drill-down", () => {
 			],
 			nextCursor: null,
 			extensionsById: {},
-		});
+		}, { layoutCount: 3 });
 
 		// Resume from the app shell to force a hydrated client transition. A
 		// direct SSR visit validates the loader, but it can leave this route's

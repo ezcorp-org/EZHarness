@@ -3,14 +3,22 @@ import { stringify } from "devalue";
 import { expect } from "./hydration.js";
 import { LAST_PATH_KEY } from "../../src/lib/resume-path.js";
 
-/** Controlled loader data for the root + app layouts and one page. */
-export function pageDataResponse(data: Record<string, unknown>) {
-  return { type: "data", nodes: [null, null, { type: "data", data: JSON.parse(stringify(data)), uses: {} }] };
+type PageDataOptions = {
+	/** Number of active route layouts before the page loader. Root + app is two. */
+	layoutCount?: number;
+};
+
+/** Controlled loader data for route layouts and one page. */
+export function pageDataResponse(data: Record<string, unknown>, { layoutCount = 2 }: PageDataOptions = {}) {
+	return {
+		type: "data",
+		nodes: [...Array.from({ length: layoutCount }, () => null), { type: "data", data: JSON.parse(stringify(data)), uses: {} }],
+	};
 }
 
 /** Mock only the loader response; SvelteKit still loads and renders the page. */
-export async function mockPageData(page: Page, pathname: string, data: Record<string, unknown>) {
-  await page.route(`**${pathname}/__data.json**`, route => route.fulfill({ json: pageDataResponse(data) }));
+export async function mockPageData(page: Page, pathname: string, data: Record<string, unknown>, options?: PageDataOptions) {
+	await page.route(`**${pathname}/__data.json**`, route => route.fulfill({ json: pageDataResponse(data, options) }));
 }
 
 /** The existing resume shell provides client navigation to a saved page. */
