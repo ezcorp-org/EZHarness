@@ -10,6 +10,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
+import { marked } from "marked";
 import { markdownToSpeech } from "../markdown-speech";
 
 describe("markdownToSpeech", () => {
@@ -110,6 +111,39 @@ describe("markdownToSpeech", () => {
     expect(markdownToSpeech("call snake_case_fn here")).toBe(
       "call snake_case_fn here",
     );
+  });
+
+  test("drops reference definitions and keeps text from a supported parser extension", () => {
+    // `def` is a real marked token with neither children nor text. It travels
+    // through the defensive default branch and must not leak its URL to TTS.
+    expect(markdownToSpeech("[docs]: https://example.test/reference")).toBe("");
+
+    marked.use({
+      extensions: [{
+        name: "spoken-token",
+        level: "block",
+        start: (src: string) => src.indexOf("%% "),
+        tokenizer: (src: string) => src.startsWith("%% ")
+          ? { type: "spoken-token", raw: src, text: src.slice(3) }
+          : undefined,
+      }],
+    });
+    expect(markdownToSpeech("%% extension prose")).toBe("extension prose");
+
+    marked.use({
+      extensions: [{
+        name: "broken-token",
+        level: "block",
+        start: (src: string) => src.indexOf("!! "),
+        tokenizer: (src: string) => {
+          if (src.startsWith("!! ")) throw new Error("synthetic parser failure");
+          return undefined;
+        },
+      }],
+    });
+    // A parser extension can fail at runtime. The TTS boundary must still
+    // return useful plain text through the documented last-ditch stripper.
+    expect(markdownToSpeech("!! # Title\n- **spoken** [label](https://example.test)")).toBe("!! Title\nspoken label");
   });
 
   test("kitchen-sink: no markdown control chars remain", () => {
