@@ -1,5 +1,5 @@
 {
-  "//": "E2E lane manifest. EVERY web/e2e/**/*.spec.ts has exactly ONE lane and every lane has an automatic, blocking CI consumer. mock-gate is the fast protected mock set; mock-full is the remaining mock-preview product coverage. fresh-setup and real-auth are real-PGlite journeys. evidence contains every @evidence spec and runs with screenshot capture. production-image contains the Docker-backed File Organizer journey. ci.yml derives Playwright arguments from this manifest through scripts/e2e-lane-args.ts; no browser backlog lane exists.",
+  "//": "E2E lane manifest. EVERY web/e2e/**/*.spec.ts has exactly ONE lane. Standard lanes have automatic, blocking CI consumers; external-model is the explicit supported-provider lane. mock-gate is the fast protected mock set; mock-full is the remaining mock-preview product coverage. fresh-setup and real-auth are real-PGlite journeys. evidence contains every @evidence spec and runs with screenshot capture. production-image contains the Docker-backed File Organizer journey. ci.yml derives Playwright arguments from this manifest through scripts/e2e-lane-args.ts; no browser backlog lane exists. external-model is an executable operator opt-in for supported third-party model weights, not a CI substitute for deterministic Kokoro coverage.",
   "lanes": {
     "mock-gate": [
       "web/e2e/agent-panel-parity.spec.ts",
@@ -295,7 +295,6 @@
       "web/e2e/inline-tool-immediate.spec.ts",
       "web/e2e/interleaved-blocks.spec.ts",
       "web/e2e/kokoro-tts-flow.spec.ts",
-      "web/e2e/kokoro-tts-realmodel.spec.ts",
       "web/e2e/landing-page.spec.ts",
       "web/e2e/lessons-tab.spec.ts",
       "web/e2e/local-model-settings.spec.ts",
@@ -389,6 +388,9 @@
     "fresh-setup": [
       "web/e2e/register-redirects.spec.ts",
       "web/e2e/setup-first-run.spec.ts"
+    ],
+    "external-model": [
+      "web/e2e/kokoro-tts-realmodel.spec.ts"
     ]
   }
 }

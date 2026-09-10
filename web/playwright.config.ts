@@ -29,7 +29,10 @@ const browserCoverage = process.env.EZCORP_BROWSER_COVERAGE === "1";
 // strictly as files under e2e/real-auth/. The Docker-run production lane opts
 // back in through DOCKER_TEST, while the real config derives its own list
 // as its exact testMatch below.
-const realTestIgnore = isDocker ? [] : ["fresh-setup", "real-auth", "production-image"].flatMap((lane) =>
+const mockExcludedLanes = isDocker
+	? ["external-model"]
+	: ["fresh-setup", "real-auth", "production-image", "external-model"];
+const realTestIgnore = mockExcludedLanes.flatMap((lane) =>
 	lanesManifest.lanes[lane].map(
 		(path) => new RegExp(`${path.slice("web/".length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
 	),
@@ -87,12 +90,10 @@ export default defineConfig({
 	},
 	projects: [
 		{ name: "chromium", use: { browserName: "chromium" } },
-		// Phase 57 UX-04 (Plan 57-05) — touch-drag fixture target for
-		// `chip-reorder.spec.ts`. Pixel 5 devices preset gives Playwright
-		// the touchscreen + viewport metrics svelte-dnd-action's touch
-		// handler exercises. Currently unused (all chip-reorder cases are
-		// fixme pending auth + test-agent seed); kept here so future
-		// un-fixme is one-line on the test side. Run via
+		// Touch interaction target for mock-preview journeys. Pixel 5 provides
+		// the touchscreen and viewport metrics needed by mobile controls. The
+		// real-auth chip-reorder journey has its own native engine selection;
+		// run mock touch coverage via
 		// `bunx playwright test --project=mobile-chromium`.
 		{ name: "mobile-chromium", use: { ...devices["Pixel 5"] } },
 	],

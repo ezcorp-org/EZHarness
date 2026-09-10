@@ -24,7 +24,7 @@ import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
-const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence"] as const;
+const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model"] as const;
 
 // Every browser spec is now wired to a strict CI lane. Keep lane membership
 // exhaustive and unique so a new spec cannot become an unexecuted backlog
@@ -334,5 +334,15 @@ describe("e2e lane manifest", () => {
     expect(aggregate).toContain("production-image-file-organizer");
     expect(aggregate).toContain("extension-browser-engines");
     expect(aggregate).toContain('result }}" != success');
+  });
+
+  test("external Kokoro model lane is explicit and executable", async () => {
+    expect(lanes["external-model"]).toEqual(["web/e2e/kokoro-tts-realmodel.spec.ts"]);
+    const runner = join(REPO_ROOT, "scripts/run-kokoro-realmodel-e2e.sh");
+    expect(existsSync(runner)).toBe(true);
+    expect(bashLines("bash scripts/run-kokoro-realmodel-e2e.sh >/dev/null 2>&1; echo $? ")[0]).toBe("2");
+    const source = await Bun.file(runner).text();
+    expect(source).toContain('EZCORP_E2E_KOKORO_REAL=1');
+    expect(source).toContain("playwright.kokoro-real.config.ts");
   });
 });
