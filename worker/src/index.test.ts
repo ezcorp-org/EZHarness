@@ -1,39 +1,39 @@
 import { afterAll, beforeEach, expect, mock, test } from "bun:test";
 
-import { restoreModuleMocks } from "../../src/__tests__/helpers/mock-cleanup";
+import worker from "./index";
 
-afterAll(() => restoreModuleMocks());
-
-interface LlmCall {
-  messages: Array<{ role: string; content: string }>;
-  options: Record<string, unknown> | undefined;
+interface ProviderRequest {
+  headers: Headers;
+  payload: Record<string, unknown>;
+  url: string;
 }
 
-const llmCalls: LlmCall[] = [];
-
-// The route constructs the production AgentExecutor.  Only its provider
-// boundary is replaced so this HTTP test never needs credentials or network.
-mock.module("../../src/runtime/executor-helpers", () => ({
-  createPiLlmAdapter: () => ({
-    complete: async (messages: LlmCall["messages"], options: LlmCall["options"]) => {
-      llmCalls.push({ messages, options });
-      return { text: "Brief fixture summary", usage: { inputTokens: 3, outputTokens: 2 } };
-    },
-  }),
-  persistErrorMessage: async () => undefined,
-  resolveFailoverAttempt: async () => {
-    throw new Error("Failover is outside the worker agent-run route");
-  },
-}));
-
-const worker = (await import("./index")).default;
+const providerRequests: ProviderRequest[] = [];
+const originalFetch = globalThis.fetch;
+const env = { OPENAI_API_KEY: "worker-test-key", OPENAI_BASE_URL: "https://llm.test/v1" };
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  return worker.fetch(new Request(`https://worker.test${path}`, init));
+  return worker.fetch(new Request(`https://worker.test${path}`, init), env);
 }
 
 beforeEach(() => {
-  llmCalls.length = 0;
+  providerRequests.length = 0;
+  globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+    const requestUrl = typeof url === "string" ? url : url.toString();
+    providerRequests.push({
+      url: requestUrl,
+      headers: new Headers(init?.headers),
+      payload: JSON.parse(String(init?.body)) as Record<string, unknown>,
+    });
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "Brief fixture summary" } }],
+      usage: { prompt_tokens: 3, completion_tokens: 2 },
+    }), { headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+});
+
+afterAll(() => {
+  globalThis.fetch = originalFetch;
 });
 
 test("run routes return stored executor records and reject a missing run", async () => {
@@ -48,51 +48,63 @@ test("run routes return stored executor records and reject a missing run", async
   expect(run.result).toEqual({ success: false, output: null, error: "Missing input.text" });
 
   const listed = await request("/api/runs");
-  expect(listed.status).toBe(200);
-  const runs = await listed.json() as Array<{ id: string; result: unknown }>;
-  expect(runs).toEqual(expect.arrayContaining([expect.objectContaining({ id: run.id, result: run.result })]));
-
+  expect(await listed.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: run.id, result: run.result })]));
   const found = await request(`/api/runs/${run.id}`);
-  expect(found.status).toBe(200);
   expect(await found.json()).toEqual(expect.objectContaining({ id: run.id, result: run.result }));
-
   const missing = await request("/api/runs/no-such-run");
   expect(missing.status).toBe(404);
   expect(await missing.json()).toEqual({ error: "Not found" });
+  expect(providerRequests).toEqual([]);
 });
 
-test("summarizer runs through the LLM adapter with the submitted binding", async () => {
+test("summarizer executes against the configured OpenAI boundary", async () => {
   const response = await request("/api/agents/summarizer/run", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text: "Long fixture text", provider: "openai", model: "fixture-model" }),
   });
 
-  expect(response.status).toBe(200);
   expect(await response.json()).toEqual(expect.objectContaining({
     status: "success",
+    provider: "openai",
+    model: "fixture-model",
+    inputTokens: 3,
+    outputTokens: 2,
     result: { success: true, output: { summary: "Brief fixture summary" } },
   }));
-  expect(llmCalls).toEqual([{
-    messages: [{ role: "user", content: "Long fixture text" }],
-    options: {
-      system: "Summarize the following text concisely.",
-      provider: "openai",
+  expect(providerRequests).toEqual([{
+    url: "https://llm.test/v1/chat/completions",
+    headers: expect.any(Headers),
+    payload: {
       model: "fixture-model",
+      messages: [
+        { role: "system", content: "Summarize the following text concisely." },
+        { role: "user", content: "Long fixture text" },
+      ],
     },
   }]);
+  expect(providerRequests[0]?.headers.get("authorization")).toBe("Bearer worker-test-key");
 });
 
-test("unknown agents produce a client error without invoking the LLM boundary", async () => {
-  const response = await request("/api/agents/unknown/run", {
+test("unknown agents and provider failures produce concrete error runs", async () => {
+  const unknown = await request("/api/agents/unknown/run", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text: "must not reach a provider" }),
   });
+  expect(unknown.status).toBe(400);
+  expect(await unknown.json()).toEqual({ error: "Agent not found: unknown" });
 
-  expect(response.status).toBe(400);
-  expect(await response.json()).toEqual({ error: "Agent not found: unknown" });
-  expect(llmCalls).toEqual([]);
+  globalThis.fetch = mock(async () => new Response("denied", { status: 401 })) as typeof fetch;
+  const rejected = await request("/api/agents/summarizer/run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: "will fail", provider: "openai", model: "fixture-model" }),
+  });
+  expect(await rejected.json()).toEqual(expect.objectContaining({
+    status: "error",
+    result: { success: false, output: null, error: "openai completion failed (401): denied" },
+  }));
 });
 
 test("lists agents and handles preflight, malformed JSON, and unknown paths", async () => {
@@ -108,5 +120,5 @@ test("lists agents and handles preflight, malformed JSON, and unknown paths", as
   const unknown = await request("/unknown");
   expect(unknown.status).toBe(404);
   expect(await unknown.json()).toEqual({ error: "Not found" });
-  expect(llmCalls).toEqual([]);
+  expect(providerRequests).toEqual([]);
 });
