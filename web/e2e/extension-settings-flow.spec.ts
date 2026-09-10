@@ -245,8 +245,7 @@ test.describe("Per-extension settings — UI flow", () => {
 
     await expect.poll(() => ctrl.state().userValues.voice ?? null, { timeout: 3000 }).toBeNull();
 
-    const voiceAfterReset = await userPanel.getByTestId("schema-input-voice").inputValue();
-    expect(voiceAfterReset).not.toBe("bf_emma");
+    await expect(userPanel.getByTestId("schema-input-voice")).toHaveValue("af_bella");
   });
 
   test("no-settings extension GET returns schema:null with empty value blobs", async ({ page, mockApi }) => {
