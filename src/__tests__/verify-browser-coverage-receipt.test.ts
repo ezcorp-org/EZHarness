@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertBrowserCanonicalSources, assertCompleteRouteInventory } from "../../scripts/browser-route-coverage-manifest.ts";
+import { BROWSER_CANONICAL_SOURCES } from "../../scripts/coverage-config.ts";
 import {
   browserCoverageReceiptVerifierForRoot,
   verifyBrowserCoverageReceipt,
@@ -32,7 +33,7 @@ function fixture(): {
     sourceRevision: REVISION,
     buildId: createHash("sha256").update(manifest).digest("hex"),
     expectedRouteFiles: [ROUTE],
-    expectedFiles: [],
+    expectedFiles: [...BROWSER_CANONICAL_SOURCES],
   }));
   writeFileSync(lcovPath, LCOV);
   const verifier = browserCoverageReceiptVerifierForRoot(root, {
@@ -86,6 +87,16 @@ test("browser receipt verifier rejects a missing route inventory", async () => {
     raw.expectedRouteFiles = [];
     await Bun.write(rawPath, JSON.stringify(raw));
     await expect(verifyBrowserCoverageReceipt(rawPath, lcovPath, verifier)).rejects.toThrow("route inventory is incomplete");
+  });
+});
+
+test("browser receipt verifier rejects a missing browser canonical source", async () => {
+  await withFixture(async ({ rawPath, lcovPath, verifier }) => {
+    const raw = await Bun.file(rawPath).json() as { expectedFiles: string[] };
+    const required = BROWSER_CANONICAL_SOURCES[0]!;
+    raw.expectedFiles = raw.expectedFiles.filter((source) => source !== required);
+    await Bun.write(rawPath, JSON.stringify(raw));
+    await expect(verifyBrowserCoverageReceipt(rawPath, lcovPath, verifier)).rejects.toThrow(required);
   });
 });
 
