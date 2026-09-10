@@ -184,6 +184,7 @@ jobs:
             web/.svelte-kit/output/client/
           retention-days: 3
           if-no-files-found: error
+          include-hidden-files: true
 
   e2e-mock-run:
     name: E2E mock lane
@@ -502,14 +503,26 @@ jobs:
           name: browser-coverage-build
           path: web
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: browser-v8-*
-          path: tasks/testing-gaps/browser/v8-coverage/receipts
-          merge-multiple: false
+        with: { name: browser-v8-mock-gate, path: tasks/testing-gaps/browser/v8-coverage/receipts/mock-gate }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: { name: browser-v8-mock-full, path: tasks/testing-gaps/browser/v8-coverage/receipts/mock-full }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: { name: browser-v8-evidence, path: tasks/testing-gaps/browser/v8-coverage/receipts/evidence }
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with: { name: browser-v8-real-auth, path: tasks/testing-gaps/browser/v8-coverage/receipts/real-auth }
       - name: Merge and verify browser source coverage
         shell: bash
         run: |
-          mapfile -t RECEIPTS < <(find tasks/testing-gaps/browser/v8-coverage/receipts -type f -name 'chromium-worker-*.json' -print | sort)
+          RECEIPT_ROOT=tasks/testing-gaps/browser/v8-coverage/receipts
+          for lane in mock-gate mock-full evidence real-auth; do
+            find "$RECEIPT_ROOT/$lane" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
+              echo "::error::browser coverage artifact has no receipt for $lane"; exit 1;
+            }
+          done
+          find "$RECEIPT_ROOT/real-auth/fresh-setup" -type f -name 'chromium-worker-*.json' -print -quit | grep --line-buffered -q . || {
+            echo "::error::browser coverage artifact has no receipt for fresh-setup"; exit 1;
+          }
+          mapfile -t RECEIPTS < <(find "$RECEIPT_ROOT" -type f -name 'chromium-worker-*.json' -print | sort)
           [ "${#RECEIPTS[@]}" -gt 0 ] || { echo "::error::browser coverage artifacts had no worker receipts"; exit 1; }
           OUT=tasks/testing-gaps/browser/v8-coverage/merged
           mkdir -p "$OUT"
@@ -790,7 +803,7 @@ jobs:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard]
+    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage]
     if: always()
     steps:
       - name: Require coverage producers to have succeeded
@@ -798,7 +811,8 @@ jobs:
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.cov-extras.result }}" != "success" ] || \
              [ "${{ needs.web-security-coverage.result }}" != "success" ] || \
-             [ "${{ needs.test-web-shard.result }}" != "success" ]; then
+             [ "${{ needs.test-web-shard.result }}" != "success" ] || \
+             [ "${{ needs.browser-route-coverage.result }}" != "success" ]; then
             echo "::error::coverage producers failed — coverage data is incomplete"
             exit 1
           fi
@@ -816,6 +830,14 @@ jobs:
           pattern: lcov-cov-*
           path: coverage-artifacts
           merge-multiple: true
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-route-coverage
+          path: browser-route-coverage-artifact
+      - name: Require converted browser route coverage
+        run: |
+          test -s browser-route-coverage-artifact/lcov.info
+          cp browser-route-coverage-artifact/lcov.info coverage-artifacts/lcov_browser_routes.info
       - name: Require V8 coverage for every executable shared web source
         run: bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
       - name: Merge lcov + enforce thresholds
