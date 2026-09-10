@@ -1,4 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const lanesManifest = JSON.parse(readFileSync(join(__dirname, "e2e", "lanes.json"), "utf8")) as {
+	lanes: Record<string, string[]>;
+};
 
 const isDocker = !!process.env.DOCKER_TEST;
 const baseURL = isDocker
@@ -16,10 +24,20 @@ const previewPort = new URL(baseURL).port || "4173";
 const evidence = process.env.EZCORP_E2E_EVIDENCE === "1";
 const browserCoverage = process.env.EZCORP_BROWSER_COVERAGE === "1";
 
+// The mock preview cannot serve the real-PGlite test surface. Keep the
+// partition in lanes.json: root real journeys must be ignored just as strictly
+// as files under e2e/real-auth/, while the real config derives the same list
+// as its exact testMatch below.
+const realTestIgnore = ["fresh-setup", "real-auth"].flatMap((lane) =>
+	lanesManifest.lanes[lane].map(
+		(path) => new RegExp(`${path.slice("web/".length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+	),
+);
+
 export default defineConfig({
 	testDir: "./e2e",
 	// The fresh-setup spec and real-auth tier live inside this testDir, so without
-	// an explicit ignore a bare `playwright test` sweeps them into the mock lane.
+	// a manifest-derived ignore a bare `playwright test` sweeps them into the mock lane.
 	// Those specs
 	// need a webServer booted with `PI_E2E_REAL=1`; under the mock preview
 	// `isTestSurfaceEnabled()` fail-closes and every `/api/__test/**` route
@@ -34,10 +52,9 @@ export default defineConfig({
 	// worth pinning — the protection today is the arg list, and a future switch
 	// to plain `testDir` collection would re-open it silently.
 	//
-	// The dedicated configs scope themselves to `setup-first-run.spec.ts` and
-	// `./e2e/real-auth`, so the configs partition e2e/ instead of overlapping.
-	// Pinned in src/__tests__/e2e-lanes.test.ts.
-	testIgnore: ["**/setup-first-run.spec.ts", "**/real-auth/**"],
+	// The dedicated configs scope themselves from this same manifest, so the
+	// configs partition e2e/ instead of overlapping. Pinned in e2e-lanes.test.
+	testIgnore: realTestIgnore,
 	fullyParallel: true,
 	forbidOnly: !!process.env.CI,
 	// retries: 0 even in CI — a retry that turns a red test green hides a real

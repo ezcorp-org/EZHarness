@@ -147,7 +147,7 @@ describe("e2e lane manifest", () => {
     expect(new RegExp(hub!).test("e2e/hub.spec.ts")).toBe(true);
   });
 
-  test("the MOCK config cannot reach the real-auth tier", () => {
+  test("mock and real configs partition the manifest exactly", () => {
     // The two configs share one e2e tree. The real config's manifest-derived
     // match deliberately includes root-level real journeys; without the mock
     // config's `testIgnore`, its normal collection sweeps those real specs in.
@@ -161,7 +161,7 @@ describe("e2e lane manifest", () => {
     // CI gives each lane an explicit anchored file list from the manifest;
     // this collection check prevents an unscoped local mock invocation from
     // silently changing that partition.
-    const proc = Bun.spawnSync(["bunx", "playwright", "test", "--list", "--reporter=list"], {
+    const proc = Bun.spawnSync(["bunx", "playwright", "test", "--list", "--reporter=list", "--project=chromium"], {
       cwd: join(REPO_ROOT, "web"),
       stdout: "pipe",
       stderr: "pipe",
@@ -173,22 +173,15 @@ describe("e2e lane manifest", () => {
       /Total: \d+ tests? in \d+ files?/,
     );
 
-    const leaked = out
-      .split("\n")
-      .filter((l) => l.includes("real-auth/") || l.includes("setup-first-run.spec.ts"))
-      .map((l) => l.trim());
-    expect(
-      leaked,
-      `web/playwright.config.ts collects ${leaked.length} real-PGlite test(s) into the MOCK lane — ` +
-        `they need a PI_E2E_REAL=1 webServer and will fail against the mock preview. ` +
-        `Restore \`testIgnore\` for **/setup-first-run.spec.ts and **/real-auth/**:\n  ${leaked.slice(0, 5).join("\n  ")}`,
-    ).toEqual([]);
+    const collected = [...out.matchAll(/›\s+([^\s:]+\.spec\.ts)(?=:\d+:)/g)].map(
+      (match) => `web/e2e/${match[1]}`,
+    );
+    const expectedMock = ["mock-gate", "mock-full", "evidence"].flatMap((lane) => lanes[lane]!);
+    expect(collected.length, out).toBeGreaterThan(0);
+    expect([...new Set(collected)].sort()).toEqual(expectedMock.slice().sort());
 
-    // The real tier must still be reachable SOMEWHERE — the partition has to
-    // move these specs to the other config, not orphan them. (The population
-    // itself is pinned against the real config's testDir by the lane test
-    // above; this asserts the manifest is non-empty so a delete can't satisfy
-    // both halves at once.)
+    // The remaining files are reachable through the dedicated real configs,
+    // not merely absent from mock collection.
     expect(lanes["fresh-setup"]!.length).toBeGreaterThan(0);
     expect(lanes["real-auth"]!.length).toBeGreaterThan(0);
   }, 120_000);

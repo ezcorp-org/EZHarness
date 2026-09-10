@@ -38,14 +38,6 @@ export type { TaskHydrationHost, TaskSnapshotResponse } from "./task-hydrate.js"
  */
 export const TASK_RECONNECT_HYDRATION_COOLDOWN_MS = 10_000;
 
-const reconnectHydrationCooldownByConv = new Map<string, number>();
-
-/** Test-only reset for the module-scoped per-conversation cooldown table. */
-export function __resetTaskHydrationReconnectCooldown(convId?: string): void {
-	if (convId === undefined) reconnectHydrationCooldownByConv.clear();
-	else reconnectHydrationCooldownByConv.delete(convId);
-}
-
 export function shouldHydrateTaskSnapshotAfterReconnect(
 	lastHydrationAt: number,
 	now: number,
@@ -71,6 +63,7 @@ export function attachTaskHydration(
 	let previousConvId: string | undefined;
 	let previousReconnectCount: number | undefined;
 	let previousRequestCount: number | undefined;
+	let lastReconnectHydrationAt = 0;
 	const now = options.now ?? (() => Date.now());
 
 	const resolved: TaskHydrationHost = {
@@ -95,12 +88,16 @@ export function attachTaskHydration(
 		previousRequestCount = requestCount;
 		if (!cid) return;
 
-		const lastReconnectHydrationAt = reconnectHydrationCooldownByConv.get(cid) ?? 0;
-		const reconnectNeedsHydration = reconnectChanged
-			&& !conversationChanged
-			&& shouldHydrateTaskSnapshotAfterReconnect(lastReconnectHydrationAt, now());
+		let reconnectNeedsHydration = false;
+		if (reconnectChanged && !conversationChanged) {
+			const currentTime = now();
+			reconnectNeedsHydration = shouldHydrateTaskSnapshotAfterReconnect(
+				lastReconnectHydrationAt,
+				currentTime,
+			);
+			if (reconnectNeedsHydration) lastReconnectHydrationAt = currentTime;
+		}
 		if (!(conversationChanged || requestChanged || reconnectNeedsHydration)) return;
-		if (reconnectNeedsHydration) reconnectHydrationCooldownByConv.set(cid, now());
 
 		const mine = ++generation;
 		// `untrack` is load-bearing: `hydrateTaskSnapshot` reads the store's

@@ -32,7 +32,6 @@ vi.mock("$lib/stores.svelte.js", async () => {
 });
 
 const { hydrationStub, resetHydrationStub } = await import("./task-hydrate-stub.svelte.js");
-const { __resetTaskHydrationReconnectCooldown } = await import("../task-hydrate.svelte.js");
 const Harness = (await import("./TaskHydrateHarness.svelte")).default;
 
 function jsonResponse(body: unknown): Response {
@@ -51,7 +50,6 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
 	resetHydrationStub();
-	__resetTaskHydrationReconnectCooldown();
 	fetchMock = vi.fn(async (url: string) =>
 		jsonResponse({ conversationId: url.split("/")[3], tasks: [{ id: "t1" }] }),
 	);
