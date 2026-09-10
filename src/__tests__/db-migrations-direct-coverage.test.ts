@@ -21,7 +21,7 @@ import { up as addSdkCapabilityAudit } from "../db/migrations/add-sdk-capability
 import { up as addSessionStorage } from "../db/migrations/add-session-storage";
 import { up as addSubConvoAndReferences } from "../db/migrations/add-sub-convo-and-references";
 import { addSuggestionFeedback } from "../db/migrations/add-suggestion-feedback";
-import { CONTEXT_TYPE_SEED, up as addTopicContexts } from "../db/migrations/add-topic-contexts";
+import { up as addTopicContexts } from "../db/migrations/add-topic-contexts";
 
 let pglite: PGlite;
 let db: ReturnType<typeof drizzle>;
@@ -30,14 +30,34 @@ async function query<T extends Record<string, unknown> = Record<string, unknown>
   return pglite.query<T>(text, params);
 }
 
-async function expectRejected(action: () => Promise<unknown>): Promise<void> {
-  let rejected = false;
+async function expectConstraint(
+  action: () => Promise<unknown>,
+  constraint: string,
+): Promise<void> {
+  let failure: { code?: string; constraint?: string } | undefined;
   try {
     await action();
-  } catch {
-    rejected = true;
+  } catch (error) {
+    failure = error as { code?: string; constraint?: string };
   }
-  expect(rejected).toBe(true);
+  expect(failure?.code).toBe("23505");
+  expect(failure?.constraint).toBe(constraint);
+}
+
+async function expectForeignKeyRestriction(
+  action: () => Promise<unknown>,
+  constraint: string,
+): Promise<void> {
+  let failure: { code?: string; constraint?: string } | undefined;
+  try {
+    await action();
+  } catch (error) {
+    failure = error as { code?: string; constraint?: string };
+  }
+  // PostgreSQL reports a RESTRICT action as foreign-key violation 23503;
+  // PGlite reports its more precise referential-integrity code 23001.
+  expect(failure?.code).toBe("23001");
+  expect(failure?.constraint).toBe(constraint);
 }
 
 async function createPreMigrationSchema(): Promise<void> {
@@ -122,19 +142,23 @@ describe("standalone migration producers", () => {
     await query("INSERT INTO briefing_configs (user_id, enabled, watchlist) VALUES ($1, TRUE, $2::jsonb)", ["user-1", '["release"]']);
     const { rows } = await query<{ enabled: boolean; watchlist: string }>("SELECT enabled, watchlist::text AS watchlist FROM briefing_configs WHERE user_id = $1", ["user-1"]);
     expect(rows[0]).toEqual({ enabled: true, watchlist: '["release"]' });
-    await expectRejected(() => query("INSERT INTO briefing_configs (user_id) VALUES ($1)", ["user-1"]));
+    await expectConstraint(() => query("INSERT INTO briefing_configs (user_id) VALUES ($1)", ["user-1"]), "briefing_configs_pkey");
     await addBriefingConfigs(db);
+    const replay = await query<{ enabled: boolean }>("SELECT enabled FROM briefing_configs WHERE user_id = 'user-1'");
+    expect(replay.rows).toEqual([{ enabled: true }]);
   });
 
   test("add-extension-rbac and add-extension-secrets enforce nullable scope uniqueness", async () => {
     await addExtensionRbac(db);
     await addExtensionSecrets(db);
     await query("INSERT INTO extension_rbac_grants (id, user_id, scopes) VALUES ($1, $2, $3::jsonb)", ["grant-1", "user-1", '["invoke"]']);
-    await expectRejected(() => query("INSERT INTO extension_rbac_grants (id, user_id, scopes) VALUES ($1, $2, $3::jsonb)", ["grant-2", "user-1", '["manage"]']));
+    await expectConstraint(() => query("INSERT INTO extension_rbac_grants (id, user_id, scopes) VALUES ($1, $2, $3::jsonb)", ["grant-2", "user-1", '["manage"]']), "idx_extension_rbac_grants_scope");
     await query("INSERT INTO extension_secrets (id, extension_id, name, ciphertext) VALUES ($1, $2, $3, $4)", ["secret-1", "github-projects", "apiToken", "ciphertext"]);
-    await expectRejected(() => query("INSERT INTO extension_secrets (id, extension_id, name, ciphertext) VALUES ($1, $2, $3, $4)", ["secret-2", "github-projects", "apiToken", "other"]));
+    await expectConstraint(() => query("INSERT INTO extension_secrets (id, extension_id, name, ciphertext) VALUES ($1, $2, $3, $4)", ["secret-2", "github-projects", "apiToken", "other"]), "idx_extension_secrets_scope");
     await addExtensionRbac(db);
     await addExtensionSecrets(db);
+    const replay = await query<{ grants: number; secrets: number }>("SELECT (SELECT count(*) FROM extension_rbac_grants)::int AS grants, (SELECT count(*) FROM extension_secrets)::int AS secrets");
+    expect(replay.rows).toEqual([{ grants: 1, secrets: 1 }]);
   });
 
   test("add-ez-mode-and-kind seeds Ez and permits only one Ez conversation per user", async () => {
@@ -146,16 +170,20 @@ describe("standalone migration producers", () => {
     expect(rows[0]?.builtin).toBe(true);
     expect(rows[0]?.allowed_tools).toContain("read_page");
     await query("INSERT INTO conversations (id, user_id, project_id, title, kind) VALUES ($1, $2, $3, $4, 'ez')", ["conversation-ez-1", "user-1", "project-1", "Ez"]);
-    await expectRejected(() => query("INSERT INTO conversations (id, user_id, project_id, title, kind) VALUES ($1, $2, $3, $4, 'ez')", ["conversation-ez-2", "user-1", "project-1", "duplicate"]));
+    await expectConstraint(() => query("INSERT INTO conversations (id, user_id, project_id, title, kind) VALUES ($1, $2, $3, $4, 'ez')", ["conversation-ez-2", "user-1", "project-1", "duplicate"]), "conversations_user_ez_unique");
     await addEzModeAndKind(db);
+    const replay = await query<{ count: number }>("SELECT count(*)::int AS count FROM modes WHERE slug = 'ez'");
+    expect(replay.rows).toEqual([{ count: 1 }]);
   });
 
   test("add-feature-index keeps files project-scoped and rejects duplicate pins", async () => {
     await addFeatureIndex(db);
     await query("INSERT INTO features (id, project_id, name) VALUES ($1, $2, $3)", ["feature-1", "project-1", "attachments"]);
     await query("INSERT INTO feature_files (feature_id, relpath) VALUES ($1, $2)", ["feature-1", "src/file.ts"]);
-    await expectRejected(() => query("INSERT INTO feature_files (feature_id, relpath) VALUES ($1, $2)", ["feature-1", "src/file.ts"]));
+    await expectConstraint(() => query("INSERT INTO feature_files (feature_id, relpath) VALUES ($1, $2)", ["feature-1", "src/file.ts"]), "feature_files_pkey");
     await addFeatureIndex(db);
+    const replay = await query<{ count: number }>("SELECT count(*)::int AS count FROM feature_files WHERE feature_id = 'feature-1'");
+    expect(replay.rows).toEqual([{ count: 1 }]);
   });
 
   test("fork and sub-conversation migrations retain the distinct delete contracts", async () => {
@@ -170,6 +198,8 @@ describe("standalone migration producers", () => {
     expect(children.rows).toHaveLength(0);
     await addForkTracking(db);
     await addSubConvoAndReferences(db);
+    const replay = await query<{ count: number }>("SELECT count(*)::int AS count FROM conversations WHERE id = 'fork-1' AND forked_from_conversation_id IS NULL");
+    expect(replay.rows).toEqual([{ count: 1 }]);
   });
 
   test("add-github-projects upgrades a single-board table and deduplicates active work", async () => {
@@ -185,7 +215,7 @@ describe("standalone migration producers", () => {
     await addGithubProjects(db);
     const proposals = await query<{ id: string; status: string }>("SELECT id, status FROM github_projects_proposals WHERE item_node_id = 'item-1' ORDER BY id");
     expect(proposals.rows).toEqual([{ id: "proposal-new", status: "pending" }, { id: "proposal-old", status: "cancelled" }]);
-    await expectRejected(() => query("INSERT INTO github_projects_proposals (id, project_id, link_id, item_node_id, status_option_id, action, dedupe_key, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')", ["proposal-duplicate", "project-1", "link-1", "item-1", "status-c", "run", "duplicate"]));
+    await expectConstraint(() => query("INSERT INTO github_projects_proposals (id, project_id, link_id, item_node_id, status_option_id, action, dedupe_key, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')", ["proposal-duplicate", "project-1", "link-1", "item-1", "status-c", "run", "duplicate"]), "idx_gh_proposals_active_item");
   });
 
   test("lessons and SDK audit migrations enforce scoped slugs, provenance, and restrict deletes", async () => {
@@ -193,11 +223,14 @@ describe("standalone migration producers", () => {
     await addSdkCapabilityAudit(db);
     await query("INSERT INTO lessons (id, project_id, owner_id, slug, title, body) VALUES ($1, $2, $3, $4, $5, $6)", ["lesson-user-1", "project-1", "user-1", "deploy", "Deploy", "body"]);
     await query("INSERT INTO lessons (id, project_id, owner_id, visibility, slug, title, body) VALUES ($1, $2, $3, 'project', $4, $5, $6)", ["lesson-project-1", "project-1", "user-2", "deploy", "Shared", "body"]);
-    await expectRejected(() => query("INSERT INTO lessons (id, project_id, owner_id, slug, title, body) VALUES ($1, $2, $3, $4, $5, $6)", ["lesson-user-2", "project-1", "user-1", "deploy", "Duplicate", "body"]));
-    await query("INSERT INTO sdk_capability_calls (id, extension_id, on_behalf_of, capability, action, success, duration_ms) VALUES ($1, $2, $3, $4, $5, TRUE, 1)", ["audit-1", "extension-1", "user-1", "memory", "read"]);
-    await expectRejected(() => query("DELETE FROM users WHERE id = $1", ["user-1"]));
+    await expectConstraint(() => query("INSERT INTO lessons (id, project_id, owner_id, slug, title, body) VALUES ($1, $2, $3, $4, $5, $6)", ["lesson-user-2", "project-1", "user-1", "deploy", "Duplicate", "body"]), "idx_lessons_user_slug_unique");
+    await query("INSERT INTO users (id) VALUES ($1)", ["user-audit-only"]);
+    await query("INSERT INTO sdk_capability_calls (id, extension_id, on_behalf_of, capability, action, success, duration_ms) VALUES ($1, $2, $3, $4, $5, TRUE, 1)", ["audit-1", "extension-1", "user-audit-only", "memory", "read"]);
+    await expectForeignKeyRestriction(() => query("DELETE FROM users WHERE id = $1", ["user-audit-only"]), "sdk_capability_calls_on_behalf_of_fkey");
     await addLessons(db);
     await addSdkCapabilityAudit(db);
+    const replay = await query<{ lessons: number; calls: number }>("SELECT (SELECT count(*) FROM lessons)::int AS lessons, (SELECT count(*) FROM sdk_capability_calls)::int AS calls");
+    expect(replay.rows).toEqual([{ lessons: 2, calls: 1 }]);
   });
 
   test("session storage preserves entry identity per session and cascades session deletion", async () => {
@@ -205,11 +238,13 @@ describe("standalone migration producers", () => {
     await query("INSERT INTO agent_sessions (id, cwd) VALUES ($1, $2), ($3, $4)", ["session-1", "/repo", "session-2", "/repo"]);
     await query("INSERT INTO agent_session_entries (session_id, entry_id, type, timestamp, payload) VALUES ($1, $2, $3, $4, $5::jsonb)", ["session-1", "entry-shared", "message", "2026-01-01T00:00:00.000Z", '{"text":"one"}']);
     await query("INSERT INTO agent_session_entries (session_id, entry_id, type, timestamp) VALUES ($1, $2, $3, $4)", ["session-2", "entry-shared", "message", "2026-01-01T00:00:01.000Z"]);
-    await expectRejected(() => query("INSERT INTO agent_session_entries (session_id, entry_id, type, timestamp) VALUES ($1, $2, $3, $4)", ["session-1", "entry-shared", "message", "2026-01-01T00:00:02.000Z"]));
+    await expectConstraint(() => query("INSERT INTO agent_session_entries (session_id, entry_id, type, timestamp) VALUES ($1, $2, $3, $4)", ["session-1", "entry-shared", "message", "2026-01-01T00:00:02.000Z"]), "agent_session_entries_pkey");
     await query("DELETE FROM agent_sessions WHERE id = $1", ["session-1"]);
     const entries = await query("SELECT entry_id FROM agent_session_entries WHERE session_id = 'session-1'");
     expect(entries.rows).toHaveLength(0);
     await addSessionStorage(db);
+    const replay = await query<{ count: number }>("SELECT count(*)::int AS count FROM agent_session_entries WHERE session_id = 'session-2'");
+    expect(replay.rows).toEqual([{ count: 1 }]);
   });
 
   test("suggestion feedback and topic contexts protect retained telemetry and live classification data", async () => {
@@ -220,11 +255,15 @@ describe("standalone migration producers", () => {
     const feedback = await query<{ conversation_id: string | null }>("SELECT conversation_id FROM suggestion_feedback WHERE id = 'feedback-1'");
     expect(feedback.rows[0]?.conversation_id).toBeNull();
     const types = await query<{ id: string }>("SELECT id FROM context_types ORDER BY sort_order");
-    expect(types.rows.map((row) => row.id)).toEqual(CONTEXT_TYPE_SEED.map((type) => type.id));
+    expect(types.rows.map((row) => row.id)).toEqual([
+      "feature", "idea", "decision", "bug-fix", "requirement", "how-to", "code-snippet", "fact", "question", "plan",
+    ]);
     await query("INSERT INTO conversations (id, user_id, project_id, title) VALUES ($1, $2, $3, $4)", ["conversation-topic", "user-2", "project-1", "topic"]);
     await query("INSERT INTO conversation_topics (id, conversation_id, label, type_id) VALUES ($1, $2, $3, $4)", ["topic-1", "conversation-topic", "Release plan", "plan"]);
-    await expectRejected(() => query("INSERT INTO conversation_topics (id, conversation_id, label, type_id) VALUES ($1, $2, $3, $4)", ["topic-2", "conversation-topic", "release PLAN", "plan"]));
+    await expectConstraint(() => query("INSERT INTO conversation_topics (id, conversation_id, label, type_id) VALUES ($1, $2, $3, $4)", ["topic-2", "conversation-topic", "release PLAN", "plan"]), "idx_conversation_topics_conv_label_unique");
     await addSuggestionFeedback(db);
     await addTopicContexts(db);
+    const replay = await query<{ feedback: number; topics: number }>("SELECT (SELECT count(*) FROM suggestion_feedback)::int AS feedback, (SELECT count(*) FROM conversation_topics)::int AS topics");
+    expect(replay.rows).toEqual([{ feedback: 1, topics: 1 }]);
   });
 });
