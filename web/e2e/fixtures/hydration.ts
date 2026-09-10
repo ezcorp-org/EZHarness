@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { test as base, type Page, type TestInfo } from "@playwright/test";
 
@@ -18,12 +18,59 @@ const browserCoverageBuildId = BROWSER_COVERAGE
 		.digest("hex")
 	: undefined;
 
+type CoverageScript = { url: string; functions: unknown[] };
+type CoverageReceipt = {
+	result: CoverageScript[];
+	buildId: string;
+	expectedRouteFiles?: string[];
+};
+
+type V8CoverageMerger = {
+	mergeProcessCovs(receipts: Array<{ result: CoverageScript[] }>): { result: CoverageScript[] };
+};
+
+const v8CoverageMerger = BROWSER_COVERAGE
+	? import("@bcoe/v8-coverage") as Promise<V8CoverageMerger>
+	: undefined;
+const coverageByWorker = new Map<number, CoverageReceipt>();
+
 function coverageOutput(testInfo: TestInfo): string {
 	const outputDir = process.env.EZCORP_BROWSER_COVERAGE_OUTPUT
 		?? resolve(process.cwd(), "..", "tasks", "testing-gaps", "browser", "v8-coverage");
 	const project = testInfo.project.name.replaceAll(/[^a-zA-Z0-9]+/g, "-");
-	const testId = testInfo.testId.replaceAll(/[^a-zA-Z0-9]+/g, "-");
-	return resolve(outputDir, `${project}-${testId}-${testInfo.repeatEachIndex}.json`);
+	return resolve(outputDir, `${project}-worker-${testInfo.workerIndex}.json`);
+}
+
+async function checkpointCoverage(
+	testInfo: TestInfo,
+	result: CoverageScript[],
+	expectedRouteFiles: string[] | undefined,
+): Promise<void> {
+	const key = testInfo.workerIndex;
+	const previous = coverageByWorker.get(key);
+	const mergedResult = previous
+		? (await v8CoverageMerger!).mergeProcessCovs([
+			structuredClone({ result: previous.result }),
+			structuredClone({ result }),
+		]).result
+		: result;
+	const receipt: CoverageReceipt = {
+		result: mergedResult,
+		buildId: browserCoverageBuildId!,
+		expectedRouteFiles: [...new Set([
+			...(previous?.expectedRouteFiles ?? []),
+			...(expectedRouteFiles ?? []),
+		])].sort(),
+	};
+	coverageByWorker.set(key, receipt);
+	const output = coverageOutput(testInfo);
+	await mkdir(dirname(output), { recursive: true });
+	const temporaryOutput = `${output}.${process.pid}.tmp`;
+	// This file is an execution artifact, not a review document. Compact JSON
+	// keeps a full two-worker run bounded near two merged asset graphs rather
+	// than multiplying indentation across millions of nested V8 ranges.
+	await writeFile(temporaryOutput, JSON.stringify(receipt));
+	await rename(temporaryOutput, output);
 }
 
 /**
@@ -158,13 +205,7 @@ export const test = base.extend<{ browserCoverage: undefined }>({
 					const expectedRouteFiles = testInfo.file.endsWith("canvas-dock-open-close.spec.ts")
 						? [CANVAS_CHAT_ROUTE]
 						: undefined;
-					const output = coverageOutput(testInfo);
-					await mkdir(dirname(output), { recursive: true });
-					await writeFile(output, JSON.stringify({
-						result,
-						buildId: browserCoverageBuildId,
-						expectedRouteFiles,
-					}, null, 2));
+					await checkpointCoverage(testInfo, result, expectedRouteFiles);
 				}
 			} catch (error) {
 				coverageError = error instanceof Error ? error : new Error(String(error));
