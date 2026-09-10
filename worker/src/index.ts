@@ -6,7 +6,7 @@
  * Worker contract: one LLM-only summarizer and bounded ephemeral run inspection.
  */
 
-import { complete, getModel, getModels } from "@earendil-works/pi-ai/compat";
+import { complete, getModels } from "@earendil-works/pi-ai/compat";
 
 type Provider = "anthropic" | "google" | "openai";
 type RunStatus = "running" | "success" | "error";
@@ -98,7 +98,7 @@ function baseUrl(providerName: Provider, env: Env): string | undefined {
 }
 
 function resolvePortableModel(providerName: Provider, modelId: string, env: Env): Parameters<typeof complete>[0] {
-  const known = getModel(providerName, modelId) ?? getModels(providerName)[0];
+  const known = getModels(providerName).find((candidate) => candidate.id === modelId) ?? getModels(providerName)[0];
   if (!known) throw new Error(`No portable model definition for ${providerName}`);
   return {
     ...known,

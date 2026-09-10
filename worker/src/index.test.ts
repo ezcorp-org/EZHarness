@@ -10,9 +10,20 @@ interface ProviderRequest {
 
 const providerRequests: ProviderRequest[] = [];
 const originalFetch = globalThis.fetch;
-const defaultEnv = { OPENAI_API_KEY: "openai-test-key", OPENAI_BASE_URL: "https://openai.test/v1" };
+interface WorkerEnv {
+  ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_BASE_URL?: string;
+  DEFAULT_MODEL?: string;
+  DEFAULT_PROVIDER?: "anthropic" | "google" | "openai";
+  GOOGLE_API_KEY?: string;
+  GOOGLE_BASE_URL?: string;
+  OPENAI_API_KEY?: string;
+  OPENAI_BASE_URL?: string;
+}
 
-async function request(path: string, init?: RequestInit, env = defaultEnv): Promise<Response> {
+const defaultEnv: WorkerEnv = { OPENAI_API_KEY: "openai-test-key", OPENAI_BASE_URL: "https://openai.test/v1" };
+
+async function request(path: string, init?: RequestInit, env: WorkerEnv = defaultEnv): Promise<Response> {
   return worker.fetch(new Request(`https://worker.test${path}`, init), env);
 }
 
@@ -106,8 +117,44 @@ test.each([
     result: { success: true, output: { summary: `${provider} summary` } },
   }));
   expect(providerRequests).toHaveLength(1);
-  expect(providerRequests[0]?.url).toContain(`${provider}.test`);
-  expect(JSON.stringify(providerRequests[0]?.payload)).toContain("Long fixture text");
+  const providerRequest = providerRequests[0]!;
+  expect(JSON.stringify(providerRequest.payload)).toContain("Long fixture text");
+  if (provider === "openai") {
+    expect(providerRequest.url).toBe("https://openai.test/v1/responses");
+    expect(providerRequest.headers.get("authorization")).toBe("Bearer openai-test-key");
+    expect(providerRequest.payload.model).toBe(model);
+  } else if (provider === "anthropic") {
+    expect(providerRequest.url).toBe("https://anthropic.test/v1/messages");
+    expect(providerRequest.headers.get("x-api-key")).toBe("anthropic-test-key");
+    expect(providerRequest.payload.model).toBe(model);
+  } else {
+    expect(providerRequest.url).toContain(`https://google.test/models/${model}:streamGenerateContent?`);
+    expect(providerRequest.headers.get("x-goog-api-key")).toBe("google-test-key");
+  }
+});
+
+
+test("rejects unknown agents and missing or unsupported provider input before transport", async () => {
+  const unknown = await request("/api/agents/unknown/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "must not reach a provider" }),
+  });
+  expect(unknown.status).toBe(400);
+  expect(await unknown.json()).toEqual({ error: "Agent not found: unknown" });
+
+  const missingModel = await request("/api/agents/summarizer/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "missing model" }),
+  });
+  expect(await missingModel.json()).toEqual(expect.objectContaining({
+    status: "error", result: expect.objectContaining({ error: "Missing input.model; provide model or configure DEFAULT_MODEL" }),
+  }));
+
+  const unsupportedProvider = await request("/api/agents/summarizer/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "unsupported", provider: "not-a-provider", model: "fixture" }),
+  });
+  expect(await unsupportedProvider.json()).toEqual(expect.objectContaining({
+    status: "error", result: expect.objectContaining({ error: "Unsupported provider: not-a-provider" }),
+  }));
+  expect(providerRequests).toEqual([]);
 });
 
 test("default provider and model bindings are used when the request omits them", async () => {

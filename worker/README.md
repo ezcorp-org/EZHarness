@@ -11,8 +11,9 @@ wrangler secret put ANTHROPIC_API_KEY --config worker/wrangler.jsonc
 wrangler secret put GOOGLE_API_KEY --config worker/wrangler.jsonc
 ```
 
-A run must specify `provider` and `model`, or set both `DEFAULT_PROVIDER` and
-`DEFAULT_MODEL` as non-secret Worker variables. Optional `*_BASE_URL` variables
+A run defaults to `anthropic` when `provider` is omitted. It must specify
+`model`, or set `DEFAULT_MODEL` as a non-secret Worker variable. Set
+`DEFAULT_PROVIDER` to change the provider default. Optional `*_BASE_URL` variables
 send each provider to a compatible gateway or test service. The Worker passes
 requests through `@earendil-works/pi-ai/compat`; it does not implement provider
 HTTP formats itself.
