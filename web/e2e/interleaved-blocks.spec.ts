@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { modelCatalogRoutes } from "./fixtures/model-routes.js";
 import type { Page } from "@playwright/test";
 
 test.describe("Interleaved Content Blocks", () => {
@@ -23,11 +24,9 @@ test.describe("Interleaved Content Blocks", () => {
 		createdAt: "2026-01-01T00:01:00.000Z",
 	});
 
-	const modelsRoute = {
-		"/api/models": () => [
+	const modelsRoute = modelCatalogRoutes([
 			{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true },
-		],
-	};
+		]);
 
 	/** Send a chat message and wait for the API response (ensures startStreaming is called) */
 	async function sendAndWaitForStream(page: Page, text: string) {
