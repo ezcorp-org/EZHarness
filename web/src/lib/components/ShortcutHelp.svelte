@@ -19,13 +19,13 @@
 		function closeOnEscape(e: KeyboardEvent) {
 			if (e.key !== "Escape") return;
 			const activeElement = document.activeElement;
-			// A dialog opened above this one owns Escape. The help dialog's focus
-			// trap keeps its own close button active during normal use.
-			if (
-				activeElement !== document.body &&
-				activeElement !== document.documentElement &&
-				!(activeElement instanceof Node && dialogEl?.contains(activeElement))
-			) {
+			const activeModal =
+				activeElement instanceof Element
+					? activeElement.closest('[role="dialog"][aria-modal="true"]')
+					: null;
+			// A real modal that holds focus above this dialog owns Escape. Ordinary
+			// background focus still closes help; it can occur during app hydration.
+			if (activeModal && activeModal !== dialogEl) {
 				return;
 			}
 			e.preventDefault();

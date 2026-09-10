@@ -67,15 +67,45 @@ describe("ShortcutHelp", () => {
 		expect(onclose).toHaveBeenCalledTimes(1);
 	});
 
-	test("Escape leaves the help dialog open when another dialog owns focus", async () => {
+	test("Escape leaves the help dialog open when another modal owns focus", async () => {
 		const onclose = vi.fn();
 		render(ShortcutHelp, { open: true, onclose });
+		const otherDialog = document.createElement("div");
+		otherDialog.setAttribute("role", "dialog");
+		otherDialog.setAttribute("aria-modal", "true");
 		const otherDialogControl = document.createElement("button");
-		document.body.append(otherDialogControl);
+		otherDialog.append(otherDialogControl);
+		document.body.append(otherDialog);
 		otherDialogControl.focus();
 		await fireEvent.keyDown(otherDialogControl, { key: "Escape" });
 		expect(onclose).not.toHaveBeenCalled();
-		otherDialogControl.remove();
+		otherDialog.remove();
+	});
+
+	test("Escape closes help when ordinary background focus is active", async () => {
+		const onclose = vi.fn();
+		render(ShortcutHelp, { open: true, onclose });
+		const backgroundControl = document.createElement("button");
+		document.body.append(backgroundControl);
+		backgroundControl.focus();
+		await fireEvent.keyDown(backgroundControl, { key: "Escape" });
+		expect(onclose).toHaveBeenCalledTimes(1);
+		backgroundControl.remove();
+	});
+
+	test("a non-Escape key does not close the dialog", async () => {
+		const onclose = vi.fn();
+		render(ShortcutHelp, { open: true, onclose });
+		await fireEvent.keyDown(document, { key: "Enter" });
+		expect(onclose).not.toHaveBeenCalled();
+	});
+
+	test("unmount removes the global Escape listener", async () => {
+		const onclose = vi.fn();
+		const { unmount } = render(ShortcutHelp, { open: true, onclose });
+		unmount();
+		await fireEvent.keyDown(document, { key: "Escape" });
+		expect(onclose).not.toHaveBeenCalled();
 	});
 
 	test("clicking backdrop surface fires onclose; clicking inner dialog does not", async () => {
