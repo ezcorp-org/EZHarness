@@ -72,3 +72,4 @@ fi
 # Vitest writes paths relative to web/. Convert them to repo-absolute paths so
 # merge-lcov and the source-record guard agree with every other producer.
 sed -i "s#^SF:src/#SF:$repo_root/web/src/#; s#^TN:.*#TN:ezcorp-node-v8#" "$lcov"
+bun "$repo_root/scripts/filter-web-vitest-lcov.ts" "$lcov"

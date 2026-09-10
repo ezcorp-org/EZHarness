@@ -65,25 +65,8 @@ done
 bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" "$TMPDIR/merged.lcov"
 
 OUT_LCOV="$COV_OUT/lcov.info"
-: > "$OUT_LCOV"
-keep=" ${PROVIDER_SRC[*]} "
-in_block=0
-kept=0
-while IFS= read -r line; do
-  if [[ "$line" == SF:* ]]; then
-    sf="${line#SF:}"
-    if [[ "$keep" == *" $sf "* ]]; then
-      in_block=1
-      kept=$((kept + 1))
-    else
-      in_block=0
-    fi
-  fi
-  if [ "$in_block" = "1" ]; then
-    printf '%s\n' "$line" >> "$OUT_LCOV"
-    [ "$line" = "end_of_record" ] && in_block=0
-  fi
-done < "$TMPDIR/merged.lcov"
+bun scripts/filter-lcov-sources.ts "$TMPDIR/merged.lcov" --output "$OUT_LCOV" "${PROVIDER_SRC[@]}"
+kept=$(rg -c '^SF:' "$OUT_LCOV")
 
 if [ "$kept" -ne "${#PROVIDER_SRC[@]}" ]; then
   echo "::error::provider producer expected ${#PROVIDER_SRC[@]} source records, got $kept" >&2

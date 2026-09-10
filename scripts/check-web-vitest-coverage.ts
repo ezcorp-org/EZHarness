@@ -53,6 +53,19 @@ export function configuredWebVitestSources(patterns: readonly string[]): string[
   return [...sources].sort();
 }
 
+/**
+ * Product sources owned by the Node/V8 producer. This is shared with the
+ * LCOV filter so a broad Vitest include cannot add test fixtures, styles, or
+ * assets to a product threshold while the source guard checks a different
+ * set. Browser-canonical code intentionally has one producer only.
+ */
+export async function canonicalWebVitestSources(): Promise<string[]> {
+  const manifest = await Bun.file(WEB_VITEST_INCLUDE_MANIFEST).text();
+  const browserCanonical = new Set(BROWSER_CANONICAL_SOURCES);
+  return configuredWebVitestSources(webVitestIncludePatterns(manifest))
+    .filter((file) => isSourceFile(file) && !browserCanonical.has(file));
+}
+
 export async function missingWebLibCoverage(
   files: readonly string[],
   lcovFiles: ReadonlySet<string>,
@@ -70,10 +83,7 @@ export async function missingWebLibCoverage(
 if (import.meta.main) {
   if (process.argv.length < 3) throw new Error("usage: check-web-vitest-coverage.ts <lcov.info> [...]");
   const lcov = await Promise.all(process.argv.slice(2).map((path) => Bun.file(path).text()));
-  const manifest = await Bun.file(WEB_VITEST_INCLUDE_MANIFEST).text();
-  const browserCanonical = new Set(BROWSER_CANONICAL_SOURCES);
-  const sources = configuredWebVitestSources(webVitestIncludePatterns(manifest))
-    .filter((file) => isSourceFile(file) && !browserCanonical.has(file));
+  const sources = await canonicalWebVitestSources();
   const missing = await missingWebLibCoverage(
     sources,
     lcovSourceFiles(lcov.join("\n")),

@@ -167,3 +167,13 @@
 - Read pass, failure, and skip counts from the complete runner summary. Do not infer passes by subtracting failures from collected tests: skipped tests are separate.
 - Keyboard model selection follows visible group order, not fixture insertion order. Assert the selected label and choose a reasoning model explicitly before testing its thinking control.
 - Cancelling Playwright can leave its preview child bound to the private port. Check the listener and working directory, stop only that owned process, then rerun. A port collision is not a product failure.
+
+## 2026-09-09 — Coverage record integrity
+
+- An LCOV `SF:` header is not evidence. A source producer guard must require at least one syntactically valid `DA:<positive-line>,<nonnegative-hit>` record before it treats a source as measured. Test empty, malformed, and valid records separately.
+- Do not infer executable source coverage from a generated source-map point alone. Validate mapping semantics against the established V8-to-Istanbul path or retain a negative control that makes a mapped but unexecuted source line remain `DA:0`.
+- When a test passes a fetch implementation as `typeof fetch`, preserve Bun's `preconnect` member with an exact helper; a plain async function type-checks too weakly even when it runs correctly.
+- For adapter-copied browser assets, resolve Vite map `sources` against `.svelte-kit/output/client`, not the adapter's `build/client` copy path.
+
+## 2026-09-10 — Coverage worker limits
+- `scripts/test-coverage.sh` default host pool can exceed the authorized backend worker cap. Record its actual concurrency as evidence, and pass `PARALLEL=3` for every later focused/backend coverage run unless the coordinator explicitly changes the limit.

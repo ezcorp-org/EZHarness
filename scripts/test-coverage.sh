@@ -109,6 +109,7 @@ TOTAL_PASS=0
 TOTAL_FAIL=0
 FULL_VITEST_EXIT=0
 PROVIDER_EXIT=0
+WORKER_EXIT=0
 WEB_VITEST_SOURCE_GUARD_EXIT=0
 # Everything that failed, host files AND named legs — the visibility list.
 FAILED_FILES=()
@@ -243,6 +244,7 @@ run_legs() {
   register_leg suggest cov_suggest
   register_leg ai-kit cov_aikit
   register_leg providers cov_providers
+  register_leg worker cov_worker
   register_leg web-vitest cov_vitest
   # Transitional local producer for the entire canonical Vitest pool. CI will
   # publish the same three shard artifacts from its existing test-web jobs;
@@ -339,6 +341,15 @@ run_legs() {
     set +e
     COV_OUT="${LEG_COV_DIR[providers]}" bash "$SCRIPT_DIR/provider-coverage.sh"       > "$legs/providers.out" 2>&1
     echo "$?" > "$legs/providers.code"
+  )
+
+  # Worker/index.ts has an HTTP-boundary suite that is its canonical source
+  # of truth. Keep its filtered receipt separate from incidental host imports.
+  (
+    set +e
+    COV_OUT="${LEG_COV_DIR[worker]}" bash "$SCRIPT_DIR/worker-coverage.sh" \
+      > "$legs/worker.out" 2>&1
+    echo "$?" > "$legs/worker.code"
   )
 
   # Node-run vitest leg for the vitest-only web/src/lib files. @vitest/coverage-v8
@@ -701,7 +712,7 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  local printed_legs=(sdk hc suggest aikit providers vitest)
+  local printed_legs=(sdk hc suggest aikit providers worker vitest)
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
@@ -738,6 +749,12 @@ run_legs() {
     echo "--- FAIL: provider coverage leg (exit $PROVIDER_EXIT) ---"
   fi
 
+  WORKER_EXIT=$(cat "$legs/worker.code" 2>/dev/null || echo 1)
+  if [ "$WORKER_EXIT" != "0" ]; then
+    FAILED_FILES+=("worker coverage leg")
+    echo "--- FAIL: worker coverage leg (exit $WORKER_EXIT) ---"
+  fi
+
   # The suggest leg is pass/fail-gated by the residual job. Keep its local
   # tolerance visible instead of silently discarding the written exit code.
   SUGGEST_LEG_EXIT=$(cat "$legs/suggest.code" 2>/dev/null || echo "?")
@@ -748,6 +765,7 @@ run_legs() {
   # resolves them against the repo root and the web/src/... threshold keys match.
   if [ -f "$VITEST_COV/lcov.info" ]; then
     sed -i 's#^SF:src/#SF:web/src/#; s#^TN:.*#TN:ezcorp-node-v8#' "$VITEST_COV/lcov.info"
+    bun "$SCRIPT_DIR/filter-web-vitest-lcov.ts" "$VITEST_COV/lcov.info"
   fi
   if [ "$VITEST_EXIT" != "0" ]; then
     FAILED_FILES+=("web vitest-coverage leg")
@@ -862,7 +880,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     exit 1
   fi
   if [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || \
-     [ "$PROVIDER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
+     [ "$PROVIDER_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -1127,7 +1145,7 @@ bun scripts/check-coverage.ts || CHECK_EXIT=$?
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+   [ "$AIKIT_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 
@@ -1140,7 +1158,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest=$VITEST_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi
