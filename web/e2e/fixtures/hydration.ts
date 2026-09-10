@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { test as base, type Page, type TestInfo } from "@playwright/test";
 
 const BROWSER_COVERAGE = process.env.EZCORP_BROWSER_COVERAGE === "1";
@@ -29,8 +30,12 @@ type V8CoverageMerger = {
 	mergeProcessCovs(receipts: Array<{ result: CoverageScript[] }>): { result: CoverageScript[] };
 };
 
-const v8CoverageMerger = BROWSER_COVERAGE
-	? import("@bcoe/v8-coverage") as Promise<V8CoverageMerger>
+// The package has no declaration entry point. Resolve its runtime module just
+// like the converter does, so the normal test typecheck does not need to
+// weaken its module boundary to `any`.
+const v8CoverageMerger: Promise<V8CoverageMerger> | undefined = BROWSER_COVERAGE
+	? import(pathToFileURL(resolve(process.cwd(), "node_modules", "@bcoe/v8-coverage/src/lib/index.js")).href)
+		.then((module) => module as unknown as V8CoverageMerger)
 	: undefined;
 const coverageByWorker = new Map<number, CoverageReceipt>();
 
