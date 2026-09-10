@@ -8,7 +8,6 @@
 
 import { test, expect } from "./fixtures/hydration.js";
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
-import { once } from "node:events";
 import {
 	chmodSync,
 	cpSync,
@@ -56,21 +55,29 @@ function buildResult(result: ReturnType<typeof runCli>): BuildResult {
 	return JSON.parse(result.stdout) as BuildResult;
 }
 
+function waitForExit(child: ChildProcessByStdio<null, Readable, Readable>, timeoutMs: number): Promise<boolean> {
+	if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+
+	return new Promise((resolve) => {
+		const finish = (exited: boolean) => {
+			clearTimeout(timeout);
+			child.off("exit", onExit);
+			resolve(exited);
+		};
+		const onExit = () => finish(true);
+		const timeout = setTimeout(() => finish(false), timeoutMs);
+		child.once("exit", onExit);
+	});
+}
+
 async function terminateRunner(child: ChildProcessByStdio<null, Readable, Readable>): Promise<void> {
 	if (child.exitCode !== null || child.signalCode !== null) return;
-	const exited = once(child, "exit").then(() => true);
+	const gracefulExit = waitForExit(child, 5_000);
 	child.kill("SIGTERM");
-	const graceful = await Promise.race([
-		exited,
-		new Promise<false>((resolve) => setTimeout(() => resolve(false), 5_000)),
-	]);
-	if (graceful || child.exitCode !== null || child.signalCode !== null) return;
-	const killed = once(child, "exit");
+	if (await gracefulExit || child.exitCode !== null || child.signalCode !== null) return;
+	const forcedExit = waitForExit(child, 5_000);
 	child.kill("SIGKILL");
-	await Promise.race([
-		killed,
-		new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-	]);
+	await forcedExit;
 }
 
 async function startRunner(): Promise<StartedRunner> {
