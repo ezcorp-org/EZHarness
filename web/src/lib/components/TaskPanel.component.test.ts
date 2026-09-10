@@ -3,7 +3,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import TaskPanel from "./TaskPanel.svelte";
 
-afterEach(() => vi.unstubAllGlobals());
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+
+afterEach(() => {
+	if (originalScrollIntoView) Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
+	else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+	vi.useRealTimers();
+	vi.unstubAllGlobals();
+});
 
 function task(overrides: Record<string, unknown>) {
 	return {
@@ -111,7 +118,7 @@ describe("TaskPanel", () => {
 	test("shows active and failed elapsed times, legacy ownership, and highlights a clicked dependency", async () => {
 		vi.useFakeTimers();
 		const scrollIntoView = vi.fn();
-		Element.prototype.scrollIntoView = scrollIntoView;
+		Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
 		const now = new Date("2026-01-01T00:00:10.000Z");
 		vi.setSystemTime(now);
 		const snapshot = {
@@ -130,7 +137,6 @@ describe("TaskPanel", () => {
 		await fireEvent.click(screen.getByTitle("Click to highlight Dependency"));
 		expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
 		await vi.advanceTimersByTimeAsync(1_500);
-		vi.useRealTimers();
 	});
 
 	test("reports rejected retry, start, and stop requests without leaving their controls busy", async () => {

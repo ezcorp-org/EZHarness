@@ -111,9 +111,10 @@ describe("TeamBuilderForm", () => {
 
 	test("adds a nested member through the member action and removes the parent without leaving stale rows", async () => {
 		stubCatalogs();
-		render(TeamBuilderForm, {
+		const onsubmit = vi.fn();
+		const { container } = render(TeamBuilderForm, {
 			agentConfigs: agents,
-			onsubmit: vi.fn(),
+			onsubmit,
 			initial: { name: "Existing", prompt: "Delegate", references: { members: [{ agentConfigId: "agent-1" }] } },
 		});
 		await fireEvent.click(screen.getByTitle("Add sub-agent"));
@@ -122,7 +123,14 @@ describe("TeamBuilderForm", () => {
 		await fireEvent.keyDown(picker, { key: "ArrowDown" });
 		await fireEvent.keyDown(picker, { key: "ArrowDown" });
 		await fireEvent.keyDown(picker, { key: "Enter" });
-		await waitFor(() => expect(screen.getAllByText("Reviewer")).not.toHaveLength(0));
+		await waitFor(() => expect(screen.getAllByTitle("Remove member")).toHaveLength(2));
+		await fireEvent.submit(container.querySelector("form")!);
+		expect(onsubmit).toHaveBeenCalledWith(expect.objectContaining({
+			references: expect.objectContaining({
+				agents: ["agent-1", "agent-2"],
+				members: [{ agentConfigId: "agent-1", subAgents: [{ agentConfigId: "agent-2" }] }],
+			}),
+		}));
 		await fireEvent.click(screen.getAllByTitle("Remove member")[0]!);
 		expect(screen.getByText("No members added yet. Add agents to build your team.")).toBeInTheDocument();
 	});
