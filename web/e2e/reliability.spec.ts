@@ -1,13 +1,13 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import AxeBuilder from "@axe-core/playwright";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 type Page = import("@playwright/test").Page;
 
-/** Wait for the chat page to fully initialize (textarea visible = WS handlers registered). */
+/** The composer is enabled only after the live runtime event transport opens. */
 async function waitForChatReady(page: Page) {
-	await page.locator("textarea").waitFor({ state: "visible" });
-	// Small buffer for WS client initialization
-	await page.waitForTimeout(300);
+	await expect(page.locator("textarea")).toBeEnabled();
 }
 
 /**
@@ -208,27 +208,48 @@ test("connection banner shows Connection failed with Retry button", async ({ pag
 
 // ---- Memory Unavailable ----
 
-test("memory unavailable warning appears in chat", async ({ page, mockApi, emitSse }) => {
-	await mockApi(chatSetup());
+async function startMemoryRun(page: Page) {
 	await page.goto("/project/proj-1/chat/conv-1");
-	await waitForChatReady(page);
+	const posted = page.waitForResponse((response) => response.request().method() === "POST"
+		&& new URL(response.url()).pathname === "/api/conversations/conv-1/messages");
+	await sendComposerMessage(page, "Use my saved context");
+	const response = await posted;
+	expect(response.status()).toBe(200);
+	expect(await response.json()).toMatchObject({ runId: "run-stream" });
+	await expect(page.getByRole("button", { name: "Stop generating", exact: true })).toBeVisible();
+}
 
-	await emitSse({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
+for (const colorScheme of ["light", "dark"] as const) {
+	test(`memory unavailable warning is readable in ${colorScheme} mode @evidence`, async ({ page, mockApi, emitSse }, testInfo) => {
+		await mockApi(chatSetup());
+		await page.emulateMedia({ colorScheme });
+		await startMemoryRun(page);
+		await emitSse({ type: "run:status", data: { runId: "run-stream", status: "memory_unavailable" } });
+		await expect(page.getByTestId("memory-unavailable-warning")).toContainText("Memory is currently unavailable");
+		await expect(page.getByText(/memory_unavailable/)).toHaveCount(0);
+		const accessibility = await new AxeBuilder({ page }).include('[data-testid="memory-unavailable-warning"]').analyze();
+		expect(accessibility.violations).toEqual([]);
+		await captureEvidence(page, testInfo, `memory-unavailable-warning-${colorScheme}`);
+	});
+}
 
-	await expect(page.getByText(/Memory is currently unavailable/)).toBeVisible();
+test("memory warning does not repeat and clears when its run recovers", async ({ page, mockApi, emitSse }) => {
+	await mockApi(chatSetup());
+	await startMemoryRun(page);
+	const warning = page.getByText(/Memory is currently unavailable/);
+	await emitSse({ type: "run:status", data: { runId: "run-stream", status: "memory_unavailable" } });
+	await expect(warning).toBeVisible();
+	await emitSse({ type: "run:status", data: { runId: "run-stream", status: "memory_unavailable" } });
+	await expect(warning).toHaveCount(1);
+	await emitSse({ type: "run:status", data: { runId: "run-stream", status: "Memory recovered" } });
+	await expect(warning).toHaveCount(0);
 });
 
-test("memory warning does not repeat for same run", async ({ page, mockApi, emitSse }) => {
+test("a memory warning for another run does not appear in this chat", async ({ page, mockApi, emitSse }) => {
 	await mockApi(chatSetup());
-	await page.goto("/project/proj-1/chat/conv-1");
-	await waitForChatReady(page);
-
-	await emitSse({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
-	await expect(page.getByText(/Memory is currently unavailable/)).toBeVisible();
-
-	await emitSse({ type: "run:status", data: { runId: "run-1", status: "memory_unavailable" } });
-
-	await expect(page.getByText(/Memory is currently unavailable/)).toHaveCount(1);
+	await startMemoryRun(page);
+	await emitSse({ type: "run:status", data: { runId: "run-other", status: "memory_unavailable" } });
+	await expect(page.getByText(/Memory is currently unavailable/)).toHaveCount(0);
 });
 
 // ---- SystemHealth ----

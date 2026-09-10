@@ -492,5 +492,8 @@
   "web/e2e/chip-reorder.spec.ts": [
     "web/src/lib/components/ExtensionSearchPicker.svelte",
     "web/src/routes/(app)/agents/[name]/+page.svelte"
+  ],
+  "web/e2e/reliability.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
   ]
 }

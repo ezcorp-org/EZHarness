@@ -2472,6 +2472,12 @@
 				</div>
 			{/if}
 
+			{#if activeRunId && store.memoryUnavailableRunId === activeRunId}
+				<p role="status" data-testid="memory-unavailable-warning" class="mx-4 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-[var(--color-text-primary)]">
+					Memory is currently unavailable. This response may omit saved context.
+				</p>
+			{/if}
+
 			{#if error}
 				<div
 					class="mx-4 rounded-md border border-red-800 bg-red-900/30 p-3 text-sm text-red-300"
