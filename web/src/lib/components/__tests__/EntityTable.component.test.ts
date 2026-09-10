@@ -293,3 +293,38 @@ describe("EntityTable — error and create journeys", () => {
 		await waitFor(() => expect(screen.getByTestId("entity-row-post-type-weekly")).toBeTruthy());
 	});
 });
+
+test("shows HTTP and network load errors", async () => {
+	vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response("{}", { status: 503 })).mockRejectedValueOnce(new Error("offline")));
+	const { rerender } = render(EntityTable, { props: { extensionId: "ext-1", decl: DECL } });
+	await waitFor(() => expect(screen.getByTestId("entity-error-post-type").textContent).toContain("HTTP 503"));
+	rerender({ extensionId: "ext-2", decl: DECL });
+	await waitFor(() => expect(screen.getByTestId("entity-error-post-type").textContent).toContain("offline"));
+});
+
+test("uses nested preview substitutions and preserves missing data placeholders", async () => {
+	const decl = { ...DECL, preview: "{slug}: {meta.title} / {missing}" };
+	vi.stubGlobal("fetch", makeFetchStub([{ method: "GET", match: "/entities/post-type", respond: () => ({ status: 200, body: { items: [{ slug: "weekly", data: { meta: { title: "Weekly" } } }] } }) }]));
+	render(EntityTable, { props: { extensionId: "ext-1", decl } });
+	await waitFor(() => expect(screen.getByText(/weekly: Weekly/)).toBeTruthy());
+});
+
+test("shows declaration guidance and honors a cancelled delete", async () => {
+	vi.stubGlobal("confirm", () => false);
+	const decl = { ...DECL, schema: { ...DECL.schema, description: "A typed post record" } };
+	const fetchMock = makeFetchStub([{ method: "GET", match: "/entities/post-type", respond: () => ({ status: 200, body: { items: [{ slug: "weekly", data: { name: "Weekly", cadence: "weekly" } }] } }) }]);
+	vi.stubGlobal("fetch", fetchMock);
+	render(EntityTable, { props: { extensionId: "ext-1", decl } });
+	await waitFor(() => expect(screen.getByText("A typed post record")).toBeTruthy());
+	await fireEvent.click(screen.getByTestId("entity-delete-post-type-weekly"));
+	expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("cancelling a create form returns to the entity table", async () => {
+	vi.stubGlobal("fetch", makeFetchStub([{ method: "GET", match: "/entities/post-type", respond: () => ({ status: 200, body: { items: [] } }) }]));
+	render(EntityTable, { props: { extensionId: "ext-1", decl: DECL } });
+	await fireEvent.click(screen.getByTestId("entity-create-post-type"));
+	await waitFor(() => expect(screen.getByTestId("entity-form-modal-post-type")).toBeTruthy());
+	await fireEvent.click(screen.getByTestId("entity-form-cancel"));
+	await waitFor(() => expect(screen.queryByTestId("entity-form-modal-post-type")).toBeNull());
+});
