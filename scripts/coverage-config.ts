@@ -85,8 +85,11 @@ export const EXCLUDES: readonly string[] = [
   // meaningfully in a fully-booted server (integration-only, like other boot
   // wiring).
   "web/src/lib/server/context.ts",
-  // `extension-helpers.ts` has no executable DA record in the current V8
-  // producer. Keep it excluded until a real extension-runtime producer exists.
+  // Compatibility barrel only: it re-exports the backend clamp implementation
+  // so established `$lib` imports stay valid. The implementation's behavior is
+  // measured in `src/__tests__/clamp-extension-permissions.test.ts` and the
+  // route-level `web/src/__tests__/extension-helpers-clamp.server.test.ts`.
+  // The barrel has no independently instrumentable statement.
   "web/src/lib/server/extension-helpers.ts",
   // Scaffold string-template files: lcov counts the interior of the returned
   // template literals as missed lines even when every template function is
@@ -176,6 +179,11 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/server/auth/session-cookie.ts",
   "web/src/lib/server/preview/dispatch.ts",
   "web/src/lib/server/preview/ws-bridge.ts",
+];
+
+/** Browser AST coverage is the sole producer for this runtime alias shim. */
+export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
+  "web/src/lib/empty-node-shim.ts",
 ];
 
 export const CATCHALL_THRESHOLD_KEYS: readonly string[] = [

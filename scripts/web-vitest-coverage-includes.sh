@@ -229,7 +229,6 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/server/extension-document.ts"
     "--coverage.include=src/lib/components/extensions/ExtensionBrowser.svelte"
     "--coverage.include=src/routes/api/extensions/[[]name]/preview/+server.ts"
-    "--coverage.include=src/routes/(app)/extensions/[[]id]/preview/+page.server.ts"
     "--coverage.include=src/routes/(app)/extensions/[[]id]/preview/+page.svelte"
     "--coverage.include=src/lib/server/workflow-access.ts"
     "--coverage.include=src/routes/**/pipelines/+page.server.ts"

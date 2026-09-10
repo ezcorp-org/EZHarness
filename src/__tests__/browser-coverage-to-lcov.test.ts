@@ -73,7 +73,7 @@ test("resolves nested Vite map sources against the emitted chunk", async () => {
   expect(lcov).toContain(`SF:${process.cwd()}/${route}`);
 });
 
-import { assertCompleteRouteInventory, scriptedRouteFiles } from "../../scripts/browser-route-coverage-manifest";
+import { assertBrowserCanonicalSources, assertCompleteRouteInventory, scriptedRouteFiles } from "../../scripts/browser-route-coverage-manifest";
 
 test("final browser manifests must enumerate every scripted Svelte route", () => {
   const routes = scriptedRouteFiles();
@@ -81,4 +81,6 @@ test("final browser manifests must enumerate every scripted Svelte route", () =>
   expect(routes).toContain("web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte");
   expect(() => assertCompleteRouteInventory(routes.slice(1))).toThrow("browser coverage route inventory is incomplete");
   expect(() => assertCompleteRouteInventory([...routes, "web/src/routes/removed/+page.svelte"])).toThrow("extra=");
+  expect(() => assertBrowserCanonicalSources([])).toThrow("empty-node-shim");
+  expect(() => assertBrowserCanonicalSources(["web/src/lib/empty-node-shim.ts"])).not.toThrow();
 });

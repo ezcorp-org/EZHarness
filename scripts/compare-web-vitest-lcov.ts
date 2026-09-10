@@ -6,7 +6,7 @@
  * covered. A wider full producer may add lines or hits, never erase evidence.
  */
 import { relative, resolve } from "node:path";
-import { isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
+import { BROWSER_CANONICAL_SOURCES, isDeclarationOnlyTypeScript, isExcluded, isSourceFile, REPO_ROOT } from "./coverage-config.ts";
 
 type LineHits = Map<number, number>;
 export type LcovLines = Map<string, LineHits>;
@@ -65,13 +65,18 @@ export function auditLcovReceipt(lcov: string): ReceiptAudit {
   return { sourceRecords, validDaRecords, malformedDaRecords, zeroDaSources };
 }
 
-export function receiptProblems(lcov: string, name: string): string[] {
+export async function receiptProblems(lcov: string, name: string): Promise<string[]> {
   const audit = auditLcovReceipt(lcov);
   const problems: string[] = [];
   if (audit.sourceRecords === 0) problems.push(`${name}: no SF records`);
   if (audit.validDaRecords === 0) problems.push(`${name}: no valid DA records`);
   for (const malformed of audit.malformedDaRecords) problems.push(`${name}: malformed DA record ${malformed}`);
-  for (const source of audit.zeroDaSources) problems.push(`${name}: executable source has no DA record: ${source}`);
+  for (const source of audit.zeroDaSources) {
+    if (BROWSER_CANONICAL_SOURCES.includes(source)) continue;
+    const file = Bun.file(resolve(REPO_ROOT, source));
+    if (await file.exists() && source.endsWith(".ts") && isDeclarationOnlyTypeScript(await file.text())) continue;
+    problems.push(`${name}: executable source has no DA record: ${source}`);
+  }
   return problems;
 }
 
@@ -129,8 +134,8 @@ if (import.meta.main) {
   const selected = parseLcovLines(selectedText);
   const full = parseLcovLines(fullText);
   const failures = [
-    ...receiptProblems(selectedText, "selected receipt"),
-    ...receiptProblems(fullText, "full-pool receipt"),
+    ...(await receiptProblems(selectedText, "selected receipt")),
+    ...(await receiptProblems(fullText, "full-pool receipt")),
     ...missingSelectedEvidence(selected, full),
   ];
   if (failures.length > 0) {

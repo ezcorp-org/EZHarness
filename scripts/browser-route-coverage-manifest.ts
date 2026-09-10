@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /** Fail closed if a final browser-coverage raw manifest omits a scripted route. */
-import { REPO_ROOT } from "./coverage-config.ts";
+import { BROWSER_CANONICAL_SOURCES, REPO_ROOT } from "./coverage-config.ts";
 import type { RawCoverage } from "./browser-coverage-to-lcov.ts";
 
 export function scriptedRouteFiles(): string[] {
@@ -24,6 +24,13 @@ export function assertCompleteRouteInventory(expected: readonly string[]): void 
   }
 }
 
+export function assertBrowserCanonicalSources(expected: readonly string[]): void {
+  const missing = BROWSER_CANONICAL_SOURCES.filter((source) => !expected.includes(source));
+  if (missing.length > 0) {
+    throw new Error(`browser coverage source inventory is incomplete: missing=${missing.join(",")}`);
+  }
+}
+
 if (import.meta.main) {
   const [flag, rawPath] = process.argv.slice(2);
   if (flag !== "--check" || !rawPath) {
@@ -31,5 +38,6 @@ if (import.meta.main) {
   }
   const raw = await Bun.file(rawPath).json() as RawCoverage;
   assertCompleteRouteInventory(raw.expectedRouteFiles ?? []);
-  console.log(`verified ${scriptedRouteFiles().length} scripted Svelte routes`);
+  assertBrowserCanonicalSources(raw.expectedFiles ?? []);
+  console.log(`verified ${scriptedRouteFiles().length} scripted Svelte routes and ${BROWSER_CANONICAL_SOURCES.length} browser source(s)`);
 }

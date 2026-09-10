@@ -35,12 +35,12 @@ test("rejects a missing source, DA line, or lost covered line", () => {
 
 import { receiptProblems } from "../../scripts/compare-web-vitest-lcov";
 
-test("rejects empty, malformed, and executable zero-DA receipts", () => {
-  expect(receiptProblems("", "selected receipt")).toEqual([
+test("rejects empty, malformed, and executable zero-DA receipts", async () => {
+  expect(await receiptProblems("", "selected receipt")).toEqual([
     "selected receipt: no SF records",
     "selected receipt: no valid DA records",
   ]);
-  expect(receiptProblems("SF:web/src/lib/mention-logic.ts\nDA:bad,1\nend_of_record\n", "selected receipt")).toEqual([
+  expect(await receiptProblems("SF:web/src/lib/mention-logic.ts\nDA:bad,1\nend_of_record\n", "selected receipt")).toEqual([
     "selected receipt: no valid DA records",
     "selected receipt: malformed DA record web/src/lib/mention-logic.ts: DA:bad,1",
     "selected receipt: executable source has no DA record: web/src/lib/mention-logic.ts",
