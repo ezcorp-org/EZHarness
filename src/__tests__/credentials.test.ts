@@ -227,6 +227,20 @@ test("Google OAuth discovers and persists a missing Cloud project before pi reje
   }
 });
 
+test("Google OAuth rejects a discovery response with no project id", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = testFetch(async () => new Response(JSON.stringify({ currentTier: "free" }), { status: 200 }));
+  try {
+    decryptReturn = makeTokenData({ projectId: "" });
+    settingsStore["provider:oauth:google"] = FAKE_ENCRYPTED;
+    settingsStore["provider:accessMode:google"] = "oauth";
+
+    await expect(getCredential("google")).rejects.toThrow("No Google Cloud project found");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("Google OAuth reports project-discovery HTTP failures", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = testFetch(async () => new Response("denied", { status: 403 }));

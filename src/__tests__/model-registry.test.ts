@@ -19,6 +19,8 @@ import {
   findModelForProviderInTier,
   getOAuthModelIds,
   modelPrices,
+  tierForModel,
+  resolveModelObject,
 } from "../providers/registry";
 import { priceSegment } from "../runtime/usage/cache-stats";
 
@@ -53,6 +55,11 @@ test("all three tiers are populated", async () => {
   expect(tiers.has("fast")).toBe(true);
   expect(tiers.has("balanced")).toBe(true);
   expect(tiers.has("powerful")).toBe(true);
+});
+
+test("tierForModel exposes the registry's inferred tier", () => {
+  expect(tierForModel(resolveModelObject("anthropic", "claude-haiku-4-5-20251001"))).toBe("fast");
+  expect(tierForModel(resolveModelObject("anthropic", "claude-opus-4-5-20251101"))).toBe("powerful");
 });
 
 test("getModelsForTier filters correctly", () => {
