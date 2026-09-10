@@ -1,6 +1,7 @@
 {
   "web/e2e/streaming-toolbar.spec.ts": [
-    "web/src/lib/components/ShortcutHelp.svelte"
+    "web/src/lib/components/ShortcutHelp.svelte",
+    "web/src/lib/components/ChatInput.svelte"
   ],
   "web/e2e/tool-card-rendering.spec.ts": [
     "web/src/lib/components/tool-cards/SearchResultsCard.svelte"
