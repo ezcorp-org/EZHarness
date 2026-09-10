@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { inputClass } from "$lib/styles.js";
+
 	let {
 		value,
 		placeholder,
@@ -36,6 +38,6 @@
 		autocomplete="off"
 		oninput={oninput}
 		onkeydown={onkeydown}
-		class="w-full rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface)] px-3 py-2 pl-8 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] transition-colors focus:border-[var(--color-accent)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+		class="{inputClass} w-full pl-8 text-sm"
 	/>
 </div>

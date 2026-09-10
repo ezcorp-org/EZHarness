@@ -34,5 +34,12 @@ describe("MobilePickerSearch", () => {
 		await fireEvent.keyDown(input, { key: "ArrowDown" });
 		expect(componentProps.oninput).toHaveBeenCalledTimes(1);
 		expect(componentProps.onkeydown).toHaveBeenCalledTimes(1);
+
+		const inputEvent = componentProps.oninput.mock.calls[0]?.[0];
+		expect(inputEvent).toMatchObject({ type: "input", target: input });
+		expect((inputEvent.target as HTMLInputElement).value).toBe("needle");
+
+		const keyEvent = componentProps.onkeydown.mock.calls[0]?.[0];
+		expect(keyEvent).toMatchObject({ type: "keydown", key: "ArrowDown", target: input });
 	});
 });

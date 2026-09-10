@@ -232,3 +232,6 @@
 - Explicitly pass empty storage state and assert no cookies for anonymous browser contexts. A new context can inherit the runner's configured storage state. Do not call a loaded admin page an anonymous access leak before that control passes.
 - A mock HTML copy is not application coverage. Render the actual component with controlled loader data, and use a real empty database to test server redirects.
 - When adding audit detail, preserve the existing burst volume bound. An allowed capability kind must not accidentally introduce one audit key per file path. Keep deny evidence complete.
+## 2026-09-10 — Shared-style coverage
+
+- Do not duplicate a shared style constant to satisfy V8 coverage. A source-mapped branch from Svelte's defensive generated `?? ''` fallback is not an executable product branch when the imported constant is typed and defined. Keep the import, test real event payloads, and report the generated mapping to the coverage owner.
