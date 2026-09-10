@@ -31,10 +31,22 @@ describe("appendCapabilityAnnotations", () => {
 		const globalCapability = message("cap-global", "capability-event", "2026-01-04T00:00:00.000Z");
 		const duplicateCapability = message("cap-global", "capability-event", "2026-01-05T00:00:00.000Z");
 		const otherBranchMessage = message("other-leaf", "assistant", "2026-01-06T00:00:00.000Z");
+		const parentedOtherBranchCapability = {
+			...message("cap-other-branch", "capability-event", "2026-01-07T00:00:00.000Z"),
+			parentMessageId: otherBranchMessage.id,
+		};
 
 		const result = appendCapabilityAnnotations(
 			[root, alreadyInBranch, leaf],
-			[root, globalCapability, otherBranchMessage, duplicateCapability, alreadyInBranch, leaf],
+			[
+				root,
+				globalCapability,
+				otherBranchMessage,
+				parentedOtherBranchCapability,
+				duplicateCapability,
+				alreadyInBranch,
+				leaf,
+			],
 		);
 
 		expect(result.map((row) => row.id)).toEqual([

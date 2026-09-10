@@ -13,7 +13,14 @@ export function appendCapabilityAnnotations<T extends Message>(
 	const seen = new Set(branch.map((message) => message.id));
 	const annotations: T[] = [];
 	for (const message of allMessages) {
-		if (message.role !== "capability-event" || seen.has(message.id)) continue;
+		// Production writes are root-level. A parented capability row belongs to
+		// that branch and reaches it through pathToRoot; never append one from a
+		// different branch as a global annotation.
+		if (
+			message.role !== "capability-event" ||
+			message.parentMessageId !== null ||
+			seen.has(message.id)
+		) continue;
 		seen.add(message.id);
 		annotations.push(message);
 	}
