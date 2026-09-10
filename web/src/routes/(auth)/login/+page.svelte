@@ -55,7 +55,11 @@
     </div>
 
     {#if sessionExpired}
-      <div class="bg-amber-900/30 border border-amber-700/50 text-amber-200 rounded-md px-4 py-3 text-sm mb-4">
+      <div
+        class="mb-4 rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 px-4 py-3 text-sm text-[var(--color-text-primary)]"
+        role="alert"
+        data-testid="login-session-expired"
+      >
         Your session has expired. Please log in again.
       </div>
     {/if}
@@ -88,8 +92,12 @@
       </div>
 
       {#if error}
-        <div class="bg-red-900/30 border border-red-700 rounded-md p-3">
-          <p class="text-red-400 text-sm">{error}</p>
+        <div
+          class="rounded-md border border-red-500/50 bg-red-500/10 p-3"
+          role="alert"
+          data-testid="login-error"
+        >
+          <p class="text-sm text-red-800 dark:text-red-300">{error}</p>
         </div>
       {/if}
 
