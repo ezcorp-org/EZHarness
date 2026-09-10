@@ -202,3 +202,6 @@
 - A local helper's assertion is evidence only inside its parsed lexical body and only along an invoked call path. Never approximate a body with the next declaration: statements after an empty helper, or a never-called nested function, must remain vacuous.
 - File-scope assertion helpers must resolve through their actual lexical binding. A nested declaration or a parameter/local binding with the same name must never make another call assertionful.
 - Check a shadow declaration before skipping its nested function body. Resolve enclosing suite scopes too; when a static scan cannot prove the binding, it must reject the helper path.
+## 2026-09-10 — Session-history refresh fixtures
+
+- A mocked message POST must retain the client `parentMessageId`. Otherwise a completion refetch can correctly render a new root branch while a test falsely calls it a full-thread refresh. Capture the actual POST response and run ID, persist that returned user message, and assert every earlier turn plus the new reply after reconciliation.
