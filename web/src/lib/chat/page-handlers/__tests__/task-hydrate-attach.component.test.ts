@@ -32,6 +32,7 @@ vi.mock("$lib/stores.svelte.js", async () => {
 });
 
 const { hydrationStub, resetHydrationStub } = await import("./task-hydrate-stub.svelte.js");
+const { __resetTaskHydrationReconnectCooldown } = await import("../task-hydrate.svelte.js");
 const Harness = (await import("./TaskHydrateHarness.svelte")).default;
 
 function jsonResponse(body: unknown): Response {
@@ -50,6 +51,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
 	resetHydrationStub();
+	__resetTaskHydrationReconnectCooldown();
 	fetchMock = vi.fn(async (url: string) =>
 		jsonResponse({ conversationId: url.split("/")[3], tasks: [{ id: "t1" }] }),
 	);
@@ -141,6 +143,28 @@ describe("attachTaskHydration", () => {
 		await flush();
 
 		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("bounds repeated SSE reconnect snapshot hydrations to one per cooldown", async () => {
+		let clock = 1_000_000;
+		render(Harness, {
+			convId: "conv-1",
+			fetchImpl: fetchMock as never,
+			onapply: vi.fn(),
+			now: () => clock,
+		});
+		await flush();
+
+		hydrationStub.reconnects += 1;
+		await flush();
+		for (let i = 0; i < 9; i++) hydrationStub.reconnects += 1;
+		await flush();
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+
+		clock += 10_000;
+		hydrationStub.reconnects += 1;
+		await flush();
+		expect(fetchMock).toHaveBeenCalledTimes(3);
 	});
 
 	test("re-hydrates when the store asks for a resync", async () => {

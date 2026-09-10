@@ -95,10 +95,13 @@ test.describe("Marketplace Browse", () => {
 
 		const card = page.getByRole("link", { name: /Code Reviewer/ });
 		await expect(card).toBeVisible({ timeout: 5000 });
-		await expect(card.getByText("Automatically reviews pull requests", { exact: true })).toBeVisible();
-		await expect(card.getByText("123 installs", { exact: true })).toBeVisible();
-		await expect(card.getByText("Jane Dev", { exact: true })).toBeVisible();
-		await expect(card.getByText("v2.1.0", { exact: true })).toBeVisible();
+		// Card metadata intentionally uses truncation at narrow widths. The card
+		// itself is the interactive, visible surface; assert its rendered text
+		// rather than requiring each clipped child to report a box.
+		await expect(card).toContainText("Automatically reviews pull requests");
+		await expect(card).toContainText("123 installs");
+		await expect(card).toContainText("Jane Dev");
+		await expect(card).toContainText("v2.1.0");
 	});
 
 	test("shows Featured section when featured listings present and no query/category", async ({ page, mockApi }) => {
@@ -112,7 +115,7 @@ test.describe("Marketplace Browse", () => {
 		await page.goto("/marketplace");
 
 		await expect(page.getByRole("heading", { name: "Featured", exact: true })).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Featured Agent")).toBeVisible();
+		await expect(page.getByRole("link", { name: /Featured Agent/ }).first()).toBeVisible();
 	});
 
 	test("listing card links to detail page", async ({ page, mockApi }) => {
@@ -221,9 +224,13 @@ test.describe("Marketplace Browse", () => {
 
 		const sortSelect = page.getByRole("combobox");
 		await expect(sortSelect).toBeVisible({ timeout: 5000 });
-		await expect(sortSelect.getByText("Most Popular")).toBeVisible();
-		await expect(sortSelect.getByText("Highest Rated")).toBeVisible();
-		await expect(sortSelect.getByText("Newest")).toBeVisible();
+		// Native <option>s have no independent layout box while their select is
+		// closed. Their DOM labels are the browser-visible choices on open.
+		await expect(sortSelect.locator("option")).toHaveText([
+			"Most Popular",
+			"Highest Rated",
+			"Newest",
+		]);
 	});
 
 	test("multiple listings render in a grid", async ({ page, mockApi }) => {
@@ -446,10 +453,13 @@ test.describe("Marketplace Detail Page", () => {
 		// Click Versions tab
 		await page.getByRole("button", { name: /Versions/ }).click();
 
-		await expect(page.getByText("v1.2.0")).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText("Bug fixes")).toBeVisible();
-		await expect(page.getByText("v1.0.0")).toBeVisible();
-		await expect(page.getByText("Initial release")).toBeVisible();
+		const versionHistory = page.locator(".space-y-3").filter({
+			has: page.getByText("Initial release", { exact: true }),
+		});
+		await expect(versionHistory.getByText("v1.2.0", { exact: true })).toBeVisible({ timeout: 5000 });
+		await expect(versionHistory.getByText("Bug fixes", { exact: true })).toBeVisible();
+		await expect(versionHistory.getByText("v1.0.0", { exact: true })).toBeVisible();
+		await expect(versionHistory.getByText("Initial release", { exact: true })).toBeVisible();
 	});
 
 	test("shows Export button on detail page", async ({ page, mockApi }) => {

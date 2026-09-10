@@ -110,27 +110,34 @@ export const test = base.extend<{ browserCoverage: undefined }>({
 	// fail closed when a requested Svelte route has no DA record.
 	browserCoverage: [async ({ page }, use, testInfo) => {
 		if (!BROWSER_COVERAGE) {
-			await use();
+			await use(undefined);
 			return;
 		}
 		const session = await page.context().newCDPSession(page);
+		const sourceMapUrls = new Map<string, string>();
+		session.on("Debugger.scriptParsed", (event) => {
+			if (event.sourceMapURL) sourceMapUrls.set(event.scriptId, event.sourceMapURL);
+		});
+		await session.send("Debugger.enable");
 		await session.send("Profiler.enable");
 		await session.send("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
 		let coverageError: Error | undefined;
 		try {
-			await use();
+			await use(undefined);
 		} finally {
 			try {
 				const raw = await session.send("Profiler.takePreciseCoverage") as {
-					result: Array<{ url: string; functions: unknown[] }>;
+					result: Array<{ scriptId: string; url: string; functions: unknown[] }>;
 				};
 				const origin = new URL(page.url()).origin;
-				const result = raw.result.filter((script) => {
+				const result = raw.result.flatMap((script) => {
 					try {
 						const url = new URL(script.url);
-						return url.origin === origin && url.pathname.startsWith("/_app/");
+						const sourceMapURL = sourceMapUrls.get(script.scriptId);
+						if (url.origin !== origin || !url.pathname.startsWith("/_app/") || !sourceMapURL) return [];
+						return [{ ...script, sourceMapURL }];
 					} catch {
-						return false;
+						return [];
 					}
 				});
 				if (result.length === 0) coverageError = new Error("browser coverage: no same-origin /_app/ scripts were collected");

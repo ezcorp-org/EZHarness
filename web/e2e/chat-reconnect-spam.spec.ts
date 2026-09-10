@@ -170,39 +170,36 @@ test("user can scroll the chat while SSE is flapping", async ({ page, mockApi })
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 	await page.waitForTimeout(600);
 
-	// Helper: find any scrollable container on the page.
-	const findScrollable = async () => page.evaluate(() => {
-		const all = Array.from(document.querySelectorAll("*")) as HTMLElement[];
-		for (const el of all) {
-			const cs = getComputedStyle(el);
-			if ((cs.overflowY === "auto" || cs.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 10) {
-				return { tag: el.tagName, cls: el.className, scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
-			}
-		}
-		return null;
+	const chatMessages = page.getByTestId("chat-messages-container");
+	await expect(chatMessages, "chat message viewport is missing").toBeVisible();
+	const readScroll = () => chatMessages.evaluate((element) => {
+		const el = element as HTMLElement;
+		return { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
 	});
 
-	const initial = await findScrollable();
-	console.log("=== scrollable found ===", JSON.stringify(initial, null, 2));
-	expect(initial, "no scrollable container found — chat is not rendering enough content").not.toBeNull();
+	// Start at the newest message, as a user does before reading older context.
+	// The application deliberately leaves an initial history render at top, so
+	// asserting a downward move without this setup would test fixture layout.
+	await chatMessages.evaluate((element) => {
+		const el = element as HTMLElement;
+		el.scrollTop = el.scrollHeight;
+	});
+	const initial = await readScroll();
+	console.log("=== chat message scroll ===", JSON.stringify(initial, null, 2));
+	expect(initial.scrollHeight, "chat is not rendering enough content to scroll").toBeGreaterThan(initial.clientHeight + 10);
 
 	const scrollTops: number[] = [];
 	for (let i = 0; i < 10; i++) {
 		await flap(page);
-		// Scroll up via the discovered scrollable container.
-		await page.evaluate(() => {
-			const all = Array.from(document.querySelectorAll("*")) as HTMLElement[];
-			for (const el of all) {
-				const cs = getComputedStyle(el);
-				if ((cs.overflowY === "auto" || cs.overflowY === "scroll") && el.scrollHeight > el.clientHeight + 10) {
-					el.scrollTop = Math.max(0, el.scrollTop - 200);
-					return;
-				}
-			}
+		await chatMessages.evaluate((element) => {
+			const el = element as HTMLElement;
+			// Keep clear of the history-window threshold. Reaching that threshold
+			// intentionally loads older rows and preserves their anchor, which is
+			// a different behavior from a reconnect pulling the user to bottom.
+			el.scrollTop = Math.max(0, el.scrollTop - 50);
 		});
 		await page.waitForTimeout(50);
-		const obs = await findScrollable();
-		if (obs) scrollTops.push(obs.scrollTop);
+		scrollTops.push((await readScroll()).scrollTop);
 	}
 
 	console.log("=== scrollTops during flaps ===", scrollTops);
@@ -221,9 +218,9 @@ test("user can scroll the chat while SSE is flapping", async ({ page, mockApi })
 	expect(scrollTops[0]!, `first scroll command had no effect (initial=${initialScrollTop}, after=${scrollTops[0]})`)
 		.toBeLessThan(initialScrollTop);
 
-	// And the LAST observed should be at least 1500px below the initial
-	// (10 commands × 200px = 2000px commanded; allow some leeway).
+	// And the LAST observed should be at least 400px below the initial
+	// (10 commands × 50px = 500px commanded; allow room for a small reflow).
 	const finalScrollTop = scrollTops[scrollTops.length - 1]!;
 	expect(initialScrollTop - finalScrollTop, `scroll did not respond to repeated commands (observed: ${scrollTops.join(", ")})`)
-		.toBeGreaterThanOrEqual(1500);
+		.toBeGreaterThanOrEqual(400);
 });

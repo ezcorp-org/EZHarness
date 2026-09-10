@@ -8,6 +8,7 @@
 	 */
 	import { attachTaskHydration } from "../task-hydrate.svelte.js";
 	import type { TaskSnapshotResponse } from "../task-hydrate.js";
+	import { untrack } from "svelte";
 
 	interface Props {
 		convId?: string;
@@ -15,9 +16,11 @@
 		fetchImpl?: typeof fetch;
 		/** Surfaced so the test can assert what the effect wrote. */
 		onapply?: (convId: string, payload: TaskSnapshotResponse, seq: number) => void;
+		/** Injectable clock for the reconnect cooldown. */
+		now?: () => number;
 	}
 
-	let { convId = "conv-1", fetchImpl, onapply }: Props = $props();
+	let { convId = "conv-1", fetchImpl, onapply, now = () => Date.now() }: Props = $props();
 
 	attachTaskHydration({
 		convId: () => convId,
@@ -27,7 +30,7 @@
 			(fetchImpl ?? fetch)(...args)) as typeof fetch,
 		apply: (cid, payload, seq) => onapply?.(cid, payload, seq),
 		seqFor: () => 0,
-	});
+	}, { now: untrack(() => now) });
 </script>
 
 <div data-testid="conv">{convId}</div>

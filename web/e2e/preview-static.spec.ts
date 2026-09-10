@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/hydration.js";
+import { createMemberSession } from "./fixtures/member-session.js";
 
 /**
  * E2E for the secure-preview origin (Secure User-Site Preview / Port
@@ -20,6 +21,16 @@ const APP = process.env.PI_E2E_REAL_BASE_URL ?? "http://localhost:4173";
 const PREVIEW_HOST = `${VALID_ID}.preview.localhost`;
 
 test.describe("secure preview origin — access layer", () => {
+  test("test-only seed fixture requires an authenticated session", async ({ playwright, baseURL }) => {
+    const anonymous = await playwright.request.newContext({ baseURL: baseURL ?? APP });
+    try {
+      const seeded = await anonymous.post("/api/__test/seed-static-preview");
+      expect(seeded.status()).toBe(401);
+    } finally {
+      await anonymous.dispose();
+    }
+  });
+
   test("access denied: a preview request with no __ezpreview cookie is 404", async ({ request }) => {
     const res = await request.get(`${APP}/index.html`, {
       headers: { host: PREVIEW_HOST },
@@ -52,6 +63,27 @@ test.describe("secure preview origin — access layer", () => {
 });
 
 test.describe("secure preview origin — static happy path", () => {
+  test("seed cleanup validates its payload and hides another owner's preview", async ({ request, baseURL }) => {
+    const seeded = await request.post("/api/__test/seed-static-preview");
+    expect(seeded.ok(), await seeded.text()).toBeTruthy();
+    const { previewId } = await seeded.json();
+    try {
+      const missingId = await request.delete("/api/__test/seed-static-preview", { data: {} });
+      expect(missingId.status()).toBe(400);
+
+      const member = await createMemberSession(request, baseURL ?? APP, "static-preview-owner-boundary");
+      try {
+        const foreignCleanup = await member.delete("/api/__test/seed-static-preview", { data: { previewId } });
+        expect(foreignCleanup.status()).toBe(404);
+      } finally {
+        await member.dispose();
+      }
+    } finally {
+      const cleanup = await request.delete("/api/__test/seed-static-preview", { data: { previewId } });
+      expect(cleanup.ok(), await cleanup.text()).toBeTruthy();
+    }
+  });
+
   test("access denied: an invalid __ezpreview cookie is 404 (verify needs the JWT secret -> DB)", async ({ request }) => {
     const res = await request.get(`${APP}/`, {
       headers: { host: PREVIEW_HOST, cookie: "__ezpreview=garbage.jwt.value" },
