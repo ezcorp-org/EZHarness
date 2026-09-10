@@ -52,7 +52,12 @@ interface Memory {
 	projectIds?: string[];
 	conversationId: string | null;
 	messageIds: string[] | null;
-	provenance: null;
+	provenance: {
+		sourceConversationId?: string;
+		extractedAt?: string;
+		sourceMessageIds?: string[];
+		history?: Array<{ action: string; timestamp: string; reason: string }>;
+	} | null;
 	lastAccessedAt: string;
 	createdAt: string;
 	updatedAt: string;
@@ -449,5 +454,72 @@ describe("MemoryItem — injection-eligibility — accessibility regression", ()
 				"This memory is excluded from chat context. Click to allow.",
 			);
 		});
+	});
+});
+
+describe("MemoryItem — row management DOM behavior", () => {
+	test("focus opens the requested row and scrolls it into view", async () => {
+		const scrollIntoView = vi.fn();
+		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+		const onupdated = vi.fn();
+		const ondeleted = vi.fn();
+		render(MemoryItem, { memory: makeMemory(), focusMemoryId: "mem-1", onupdated, ondeleted });
+		await waitFor(() => expect(screen.getByText("Confidence:")).toBeInTheDocument());
+		await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center" }));
+	});
+
+	test("edits content, category and confidence through the rendered form then persists only changed fields", async () => {
+		const fetchSpy = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(makeMemory({ content: "updated", category: "technical", confidence: "low" })), { status: 200 }));
+		vi.stubGlobal("fetch", fetchSpy);
+		const { summary, onupdated } = renderRow(makeMemory());
+		await fireEvent.click(summary);
+		await fireEvent.click(screen.getByText("Edit"));
+		const textarea = screen.getByRole("textbox");
+		await fireEvent.input(textarea, { target: { value: "updated" } });
+		await fireEvent.click(screen.getByText("Advanced: Change category and confidence"));
+		const selects = screen.getAllByRole("combobox");
+		await fireEvent.change(selects[0]!, { target: { value: "technical" } });
+		await fireEvent.change(selects[1]!, { target: { value: "low" } });
+		await fireEvent.click(screen.getByText("Save"));
+		await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("/api/memories/mem-1", expect.objectContaining({ method: "PUT" })));
+		const updateCall = fetchSpy.mock.calls.find(([url]) => String(url) === "/api/memories/mem-1")!;
+		expect(JSON.parse((updateCall[1] as RequestInit).body as string)).toEqual({ content: "updated", category: "technical", confidence: "low" });
+		await waitFor(() => expect(onupdated).toHaveBeenCalledWith(expect.objectContaining({ content: "updated" })));
+		expect(screen.queryByText("Advanced: Change category and confidence")).toBeNull();
+	});
+
+	test("archives active memory and requires a second destructive click before deleting", async () => {
+		const fetchSpy = vi.fn(async (_url: string, init: RequestInit) => init.method === "DELETE" ? new Response(null, { status: 204 }) : new Response(JSON.stringify(makeMemory({ status: "archived" })), { status: 200 }));
+		vi.stubGlobal("fetch", fetchSpy);
+		const { summary, onupdated, ondeleted } = renderRow(makeMemory({ status: "active" }));
+		await fireEvent.click(summary);
+		await fireEvent.click(screen.getByText("Archive"));
+		await waitFor(() => expect(onupdated).toHaveBeenCalledWith(expect.objectContaining({ status: "archived" })));
+		await fireEvent.click(screen.getByText("Delete"));
+		expect(screen.getByText("Confirm Delete?")).toBeInTheDocument();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		await fireEvent.click(screen.getByText("Confirm Delete?"));
+		await waitFor(() => expect(ondeleted).toHaveBeenCalledWith("mem-1"));
+		expect(fetchSpy.mock.calls[1]![1]).toEqual({ method: "DELETE" });
+	});
+
+	test("shows scoped provenance and reactivates a stale memory", async () => {
+		const fetchSpy = vi.fn(async () => new Response(JSON.stringify(makeMemory({ status: "active" })), { status: 200 }));
+		vi.stubGlobal("fetch", fetchSpy);
+		const { summary, onupdated } = renderRow(makeMemory({
+			content: "x".repeat(120),
+			category: "custom",
+			status: "stale",
+			projectIds: ["p1", "p2"],
+			provenance: { sourceConversationId: "conversation-9", extractedAt: "2026-01-02T00:00:00.000Z", sourceMessageIds: ["m1"], history: [{ action: "created", timestamp: "2026-01-02T00:00:00.000Z", reason: "import" }] },
+		}));
+		expect(summary).toHaveTextContent("2 projects");
+		expect(summary).toHaveTextContent("custom");
+		await fireEvent.click(summary);
+		expect(screen.getByText("Provenance")).toBeInTheDocument();
+		expect(screen.getByText(/Source conversation:/)).toHaveTextContent("conversation-9");
+		expect(screen.getByText("History")).toBeInTheDocument();
+		await fireEvent.click(screen.getByText("Reactivate"));
+		await waitFor(() => expect(onupdated).toHaveBeenCalledWith(expect.objectContaining({ status: "active" })));
 	});
 });
