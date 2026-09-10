@@ -751,3 +751,28 @@ Review: the strict plain suite at ea63de53b passed 25,630 tests in 1,629 files. 
 Review: second hosted run `34490303620` passed 101 real-auth cases, 7 fresh setup cases, both focused browser engines, and all web shards. It exposed lint scope drift and a broad mock run with 1416 passed, 4 failed, and 1 not run. The CI dependency guard correctly rejected incomplete coverage; no failed producer was treated as passing.
 
 Final second-repair preflight: independent Terra review is clear; combined gate, lane, LCOV, and lint controls pass 273 tests and 933 assertions (9.16s). Pinned Bun reached the old patch gate without installed TypeScript, so that import was not a reproduced CI blocker. The confirmed gate defect was invalid base refs passing as empty diffs. All coverage thresholds remain unchanged.
+
+## PR256 hosted mobile drawer backdrop
+
+- [x] Preserve and inspect the hosted failure screenshot and trace from run `34494839199`.
+- [x] Replace the forced centre click with a verified native click on exposed backdrop space.
+- [x] Repair the same centre-click path in the mobile theme sidebar test through one shared helper.
+- [x] Run both complete mobile suites and repeat both formerly affected cases under browser coverage.
+
+### Review
+
+- The hosted failure clicked the full-screen backdrop's centre with `force: true`. At 375px wide, that point is behind the left drawer panel, whose click handler correctly stops propagation. `clickExposedSwipeDrawerBackdrop` verifies the target through `elementFromPoint` and then uses a normal native Playwright click. The coverage-enabled mobile and theme suites pass 20/20 in 17.6s; both repaired cases pass six consecutive runs each (12/12 in 22.7s).
+
+## PR256 reliability and native UI repairs
+
+- [x] Audit raw hosted backend logs: identify docs-updater production-stdout use hidden by an isolated retry.
+- [x] Share a test-only dashboard recorder between docs-updater and SEO-watcher; retain registration/publish assertions. Both suites pass under coverage; twelve four-worker-wave docs runs are clean.
+- [x] Fix both drawer tests through one exposed, hit-tested backdrop helper; 20 focused cases and 12 repeated repaired cases pass.
+- [x] Keep the desktop agent picker in the viewport by measuring the menu and opening above when required. Real browser checks cover above at 720px and below at 1600px, both with native selection.
+- [x] Use normal tools/user-menu actions; put the active tools trigger above its backdrop and below modal dialogs. Hit-target and modal-priority assertions pass.
+- [x] Final mapped browser run: 59/59 pass, 29.6s; changed executable picker lines have Chromium LCOV hits. Node component tests remain a separate behavior check, since this source uses canonical browser coverage.
+- [x] Independent reliability and UI reviews found no remaining blocker.
+- [ ] Commit, run normal push hooks, and validate all hosted jobs and first-attempt logs on the next revision.
+- [ ] Obtain the required non-author approval and merge the verified head without bypassing protection.
+
+Review: run 34494839199 passed the full production image lifecycle, including historical upgrade and legacy adoption. Its broad mock lane failed two native-action cases and its backend retry hid two first-attempt fixture failures; that run is not a clean final validation. The new repairs preserve coverage floors, real integration actions, and native browser interactions.

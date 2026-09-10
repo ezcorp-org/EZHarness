@@ -32,6 +32,12 @@ async function openPopover(page: import("@playwright/test").Page) {
 	await expect(popover(page)).toBeVisible({ timeout: 3000 });
 }
 
+async function closePopoverFromBackdrop(page: import("@playwright/test").Page) {
+	const backdrop = page.getByTestId("tools-backdrop");
+	await expect(backdrop).toBeVisible();
+	await backdrop.click({ position: { x: 1, y: 1 } });
+}
+
 test("displays tool icon with correct count badge", async ({ page, mockApi }) => {
 	await mockApi({
 		projects: [proj],
@@ -72,7 +78,7 @@ test("clicking outside popover closes it", async ({ page, mockApi }) => {
 
 	await openPopover(page);
 
-	await page.getByTestId("tools-backdrop").click({ force: true });
+	await closePopoverFromBackdrop(page);
 	await expect(popover(page)).not.toBeVisible();
 });
 
@@ -86,8 +92,39 @@ test("clicking tool icon again toggles popover closed", async ({ page, mockApi }
 
 	await openPopover(page);
 
-	await toolButton(page).click({ force: true });
+	const toggle = toolButton(page);
+	const box = await toggle.boundingBox();
+	if (!box) throw new Error("tools toggle has no visible bounds");
+	const nativeTarget = await page.evaluate(({ x, y }) =>
+		document.elementFromPoint(x, y)?.closest("button")?.getAttribute("aria-label"),
+	{ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+	expect(nativeTarget).toMatch(/^Loaded tools \(3\)$/);
+	await toggle.click();
 	await expect(popover(page)).not.toBeVisible();
+});
+
+test("command palette stays above an open tools trigger", async ({ page, mockApi }) => {
+	await mockApi({
+		projects: [proj],
+		conversations: [conv],
+		routes: { "/api/tools": () => mockTools },
+	});
+	await page.goto(`/project/proj-1/chat/conv-1`);
+	await openPopover(page);
+
+	const box = await toolButton(page).boundingBox();
+	if (!box) throw new Error("tools toggle has no visible bounds");
+	await page.keyboard.press("Control+k");
+	await expect(page.getByPlaceholder("Type a command...")).toBeVisible();
+	const layer = await page.evaluate(({ x, y }) => {
+		const target = document.elementFromPoint(x, y);
+		return {
+			isToolsToggle: !!target?.closest('button[aria-label^="Loaded tools"]'),
+			className: target?.getAttribute("class") ?? "",
+		};
+	}, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
+	expect(layer.isToolsToggle).toBe(false);
+	expect(layer.className).toContain("z-50");
 });
 
 test("shows empty state when no tools loaded", async ({ page, mockApi }) => {
@@ -283,7 +320,7 @@ test("picking a mode mid-session refetches and narrows the badge to the mode's t
 	await expect(popover(page)).toBeVisible({ timeout: 3000 });
 	await expect(popover(page).getByText("summarize")).not.toBeVisible();
 	await expect(popover(page).getByTestId("tool-row")).toHaveCount(2);
-	await page.getByTestId("tools-backdrop").click({ force: true });
+	await closePopoverFromBackdrop(page);
 
 	// Clearing back to Default restores the full listing (the client sends
 	// an explicit empty modeId, so the stale persisted modeId can't win).

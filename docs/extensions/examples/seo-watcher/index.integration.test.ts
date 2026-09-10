@@ -32,10 +32,11 @@ import {
   _setCheckFetchForTests,
   _setLlmFactoryForTests,
   _setProposalClosuresForTests,
+  captureLoopPagesForTests,
 } from "@ezcorp/sdk/test";
 import { __resetChannelForTests } from "@ezcorp/sdk/test";
 import type { LoopApprovalLabel, LoopRunState } from "@ezcorp/sdk/runtime";
-import { defineSeoWatcherLoop, handleApproveAction, handleDeclineAction, LOOP_ID, type SeoOutcome } from "./index";
+import { defineSeoWatcherLoop, handleApproveAction, handleDeclineAction, LOOP_ID, PAGE_ID, type SeoOutcome } from "./index";
 
 // ── in-memory Storage (mirrors the host storage RPC contract) ───────
 
@@ -66,6 +67,7 @@ function makeMemStorage() {
 
 let kv: Map<string, unknown>;
 let events: { pending: unknown[]; resolved: unknown[] };
+let dashboardPages: ReturnType<typeof captureLoopPagesForTests>;
 let endpointBody: string;
 let endpointOk: boolean;
 let completion: string;
@@ -75,6 +77,7 @@ beforeEach(() => {
   const mem = makeMemStorage();
   kv = mem.kv;
   events = { pending: [], resolved: [] };
+  dashboardPages = captureLoopPagesForTests();
   endpointBody = JSON.stringify({ data: { rank: 3 } });
   endpointOk = true;
   completion = "Refresh the landing copy and target the rising keyword.";
@@ -114,6 +117,7 @@ afterEach(() => {
   _setCheckFetchForTests(null);
   _setLlmFactoryForTests(null);
   _setLoopEventsForTests(null);
+  dashboardPages.restore();
   _setProposalClosuresForTests(LOOP_ID, "*", null);
   __resetChannelForTests();
 });
@@ -157,6 +161,8 @@ describe("seo-watcher full flow (real primitive + injected endpoint + llm)", () 
     expect(cursor()).toBe(3);
     // A pending approval nudge was emitted.
     expect(events.pending.length).toBe(1);
+    expect(dashboardPages.registered).toEqual([PAGE_ID]);
+    expect(dashboardPages.published).toContain(PAGE_ID);
   });
 
   test("unchanged reading on a second fire → the check skips (no new proposal)", async () => {

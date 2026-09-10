@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from "svelte";
+	import { onDestroy, onMount, tick } from "svelte";
 	import { inputClass } from "$lib/styles.js";
 	import type { AgentConfig } from "$lib/api";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
@@ -21,6 +21,7 @@
 	const bp = useBreakpoint("lg");
 
 	let inputEl: HTMLInputElement | undefined = $state();
+	let dropdownEl: HTMLDivElement | undefined = $state();
 	let query = $state("");
 	let open = $state(false);
 	let highlightIdx = $state(-1);
@@ -120,13 +121,19 @@
 	function computePosition() {
 		if (!inputEl) return;
 		const rect = inputEl.getBoundingClientRect();
-		dropdownStyle = `position:fixed;left:${rect.left}px;top:${rect.bottom + 2}px;width:${Math.max(rect.width, 320)}px;z-index:9999;`;
+		const dropdownHeight = dropdownEl?.getBoundingClientRect().height ?? 0;
+		const opensAbove = rect.bottom + 2 + dropdownHeight > window.innerHeight;
+		const verticalPosition = opensAbove
+			? `bottom:${window.innerHeight - rect.top + 2}px;`
+			: `top:${rect.bottom + 2}px;`;
+		dropdownStyle = `position:fixed;left:${rect.left}px;${verticalPosition}width:${Math.max(rect.width, 320)}px;z-index:9999;`;
 	}
 
-	function openDropdown() {
+	async function openDropdown() {
 		dismissal.cancelBlurDismissal();
 		open = true;
 		highlightIdx = -1;
+		await tick();
 		computePosition();
 	}
 
@@ -352,7 +359,7 @@
 		{@render pickerBody()}
 	</BottomSheet>
 {:else if open}
-	<div style={dropdownStyle}>
+<div bind:this={dropdownEl} data-agent-picker-popover style={dropdownStyle}>
 		{@render pickerBody()}
 	</div>
 {/if}

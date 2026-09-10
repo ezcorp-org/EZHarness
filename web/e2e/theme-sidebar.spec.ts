@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { clickExposedSwipeDrawerBackdrop } from "./fixtures/swipe-drawer.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
 
@@ -263,7 +264,8 @@ test.describe("Sidebar", () => {
 
 		// Click the backdrop to close the drawer
 		const backdrop = page.getByTestId("swipe-drawer-backdrop");
-		await backdrop.click({ force: true });
+		await expect(backdrop).toBeVisible();
+		await clickExposedSwipeDrawerBackdrop(page);
 
 		await expect(drawer).toBeHidden();
 	});

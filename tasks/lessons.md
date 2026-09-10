@@ -303,3 +303,15 @@
 - Assign container tests to a lane that installs and checks the exact runner image. Validate collection as well as the test result.
 
 - Distinguish an import-graph concern from a reproduced runtime failure. Pinned Bun can resolve a stub differently from Node; report the actual clean-runner command result before calling a dependency a blocker.
+
+## 2026-09-10 — Loop dashboard integration fixtures
+
+- Inject the loop-log page seam before defining a dashboard loop. Loop event spies do not intercept `pushDashboard`; a live page seam creates the production channel and can allocate Bun stdout state during coverage. Capture registration and publish calls through one test-barrel helper, restore it after each test, and assert both calls in the real loop flow.
+- Pass an explicit `./` prefix when Bun test receives a nested path. Without it, Bun can treat the path as a name filter and run no test file.
+
+## 2026-09-10 — Drawer backdrop tests
+
+- A full-screen backdrop can be covered by its drawer panel. Do not force-click its locator centre: verify an exposed point with `elementFromPoint`, then perform a normal native click. Reuse that contract for each SwipeDrawer test.
+
+- When raising a popover trigger above its backdrop, keep it below the modal layer and verify the actual pointer target. A Playwright interception alone does not prove a user-visible failure; a coordinate click may already dismiss through the backdrop.
+- For canonical browser coverage, unit V8 coverage is supplementary. Exercise both changed placement branches in the real browser and inspect remapped line hits.

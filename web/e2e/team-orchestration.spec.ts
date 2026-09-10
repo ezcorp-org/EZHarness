@@ -598,24 +598,38 @@ test.describe("agent search picker", () => {
 		await expect(lb).not.toBeVisible({ timeout: 3000 });
 	});
 
-	test("mouse click selects agent", async ({ page, mockApi }) => {
-		await openTeamBuilder(page, mockApi);
+	for (const { viewportHeight, placement } of [
+		{ viewportHeight: 720, placement: "above" },
+		{ viewportHeight: 1600, placement: "below" },
+	] as const) {
+		test(`mouse click selects agent when the picker opens ${placement}`, async ({ page, mockApi }) => {
+			await page.setViewportSize({ width: 1280, height: viewportHeight });
+			await openTeamBuilder(page, mockApi);
 
-		const input = searchInput(page);
-		await input.click();
+			const input = searchInput(page);
+			await input.click();
 
-		const lb = listbox(page);
-		await expect(lb).toBeVisible({ timeout: 3000 });
+			const lb = listbox(page);
+			const picker = page.locator("[data-agent-picker-popover]");
+			await expect(lb).toBeVisible({ timeout: 3000 });
+			await expect(picker).toBeInViewport();
+			const [inputBox, pickerBox] = await Promise.all([input.boundingBox(), picker.boundingBox()]);
+			if (!inputBox || !pickerBox) throw new Error("agent picker has no visible bounds");
+			if (placement === "above") {
+				expect(pickerBox.y + pickerBox.height).toBeLessThanOrEqual(inputBox.y - 2);
+			} else {
+				expect(pickerBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height + 2);
+			}
 
-		// Click directly on the "Fixer" agent item (uses onmousedown)
-		await lb.locator('button', { hasText: "Fixer" }).click({ force: true });
+			// Click directly on the "Fixer" agent item (uses onmousedown).
+			const fixer = lb.locator('button', { hasText: "Fixer" });
+			await expect(fixer).toBeInViewport();
+			await fixer.click();
 
-		// Dropdown should close
-		await expect(lb).not.toBeVisible({ timeout: 3000 });
-
-		// Agent should appear in the team member list
-		await expect(page.locator(".font-medium", { hasText: "Fixer" })).toBeVisible({ timeout: 3000 });
-	});
+			await expect(lb).not.toBeVisible({ timeout: 3000 });
+			await expect(page.locator(".font-medium", { hasText: "Fixer" })).toBeVisible({ timeout: 3000 });
+		});
+	}
 });
 
 // ── Model search picker ──────────────────────────────────────────────

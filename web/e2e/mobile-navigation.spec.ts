@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
+import { clickExposedSwipeDrawerBackdrop } from "./fixtures/swipe-drawer.js";
 
 // ============================================================================
 // Phase 61-03 disposition: REWRITE (Bucket A #1, Path A — SwipeDrawer behavior)
@@ -175,9 +176,10 @@ test.describe("Mobile navigation", () => {
 
     await page.getByTestId("mobile-menu-toggle").click();
     const drawer = page.getByTestId("swipe-drawer");
+    const backdrop = page.getByTestId("swipe-drawer-backdrop");
     await expect(drawer).toBeVisible({ timeout: 3000 });
-
-    await page.getByTestId("swipe-drawer-backdrop").click({ force: true });
+    await expect(backdrop).toBeVisible();
+    await clickExposedSwipeDrawerBackdrop(page);
     await expect(drawer).toBeHidden({ timeout: 3000 });
   });
 
