@@ -53,10 +53,13 @@ describe("resolveModel: ezcorp-mock", () => {
     process.env.PI_E2E_ISOLATE_PROVIDERS = "1";
     const originalFetch = globalThis.fetch;
     let transportCalls = 0;
-    globalThis.fetch = (async () => {
-      transportCalls++;
-      throw new Error("isolated provider attempted transport");
-    }) as typeof fetch;
+    globalThis.fetch = Object.assign(
+      async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+        transportCalls++;
+        throw new Error("isolated provider attempted transport");
+      },
+      { preconnect: originalFetch.preconnect },
+    );
     try {
       await expect(resolveModel("openai", "gpt-5")).rejects.toThrow(/Real provider access is disabled/);
       expect(await suggestFallback("ezcorp-mock", "balanced")).toBeNull();
