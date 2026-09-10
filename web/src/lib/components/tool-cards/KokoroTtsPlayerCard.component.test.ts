@@ -232,13 +232,13 @@ describe("KokoroTtsPlayerCard — running state", () => {
     expect(body.messageId).toBe("msg-1");
   });
 
-  test("synthesizing label shows before audio is ready", () => {
+  test("synthesizing label shows before audio is ready", async () => {
     // Make the bridge hang so we can observe the running state.
     mockSynthesize = vi.fn().mockReturnValue(new Promise(() => {}));
-    const { getByTestId } = render(KokoroTtsPlayerCard, {
+    const { findByTestId } = render(KokoroTtsPlayerCard, {
       toolCall: makeToolCall(),
     });
-    expect(getByTestId("kokoro-tts-synthesizing")).toBeInTheDocument();
+    expect(await findByTestId("kokoro-tts-synthesizing")).toBeInTheDocument();
   });
 
   test("loading-phase callback flips the label to 'Loading model…'", async () => {
