@@ -123,6 +123,11 @@ PROVIDER_EXIT=0
 WORKER_EXIT=0
 WEB_VITEST_SOURCE_GUARD_EXIT=0
 BROWSER_RECEIPT_EXIT=0
+HOST_POOL_MS=0
+PRODUCER_POOL_MS=0
+SECURITY_MS=0
+BROWSER_RECEIPT_MS=0
+MERGE_GATE_MS=0
 # Everything that failed, host files AND named legs — the visibility list.
 FAILED_FILES=()
 # Host POOL failures only (repo-relative test paths). Kept separate from
@@ -194,6 +199,7 @@ TEST_TIMEOUT_FLAG="--timeout $TEST_TIMEOUT_MS"
 # ── host pool ───────────────────────────────────────────────────────────────
 run_host_pool() {
   local -n _files=$1
+  local started_ms=$(date +%s%3N)
   local running=0 idx=0
   for f in "${_files[@]}"; do
     local outfile="$TMPDIR/result_$idx" codefile="$TMPDIR/code_$idx" covdir="$TMPDIR/cov_$idx"
@@ -218,6 +224,7 @@ run_host_pool() {
   done
   wait
   HOST_COUNT=$idx
+  HOST_POOL_MS=$(( $(date +%s%3N) - started_ms ))
 }
 
 # Tally pass/fail from a shard's captured output (summary counts only — the
@@ -233,6 +240,7 @@ tally() {
 
 # ── Package, provider, API-client, and Worker legs ─────────────────────────
 run_legs() {
+  local started_ms=$(date +%s%3N)
   # Producers use disjoint covdirs and run through a bounded scheduler. Each
   # leg's combined stdout/stderr is captured to its own file and printed
   # SEQUENTIALLY after the wait, so logs never interleave. Exit-code
@@ -487,6 +495,7 @@ run_legs() {
       echo "--- FAIL: web full-vitest coverage leg (exit $FULL_VITEST_EXIT) ---"
     fi
   fi
+  PRODUCER_POOL_MS=$(( $(date +%s%3N) - started_ms ))
 }
 
 # ── web-security coverage leg (FULL LOCAL MODE ONLY) ────────────────────────
@@ -512,6 +521,7 @@ run_legs() {
 # job already produces this lcov there, and merging it twice would double every
 # hit count for no gain.
 run_security_leg() {
+  SECURITY_STARTED_MS=$(date +%s%3N)
   # Registered HERE, not alongside the run_legs legs, so the lcov guard expects
   # this leg in exactly the mode that runs it — legs-only mode calls run_legs
   # but never this, and must not be told the security lcov is "missing".
@@ -543,6 +553,7 @@ collect_security_leg() {
     FAILED_FILES+=("web security coverage leg")
     echo "--- FAIL: web security coverage leg (exit $SECURITY_EXIT) ---"
   fi
+  SECURITY_MS=$(( $(date +%s%3N) - SECURITY_STARTED_MS ))
 }
 
 # Browser routes are canonical only after their broad exclusion is removed.
@@ -573,6 +584,26 @@ verify_browser_coverage_receipt() {
 # Copy every per-leg lcov produced this run into $COV_OUT (CI artifact).
 # Used by legs-only mode (4 small files); host-shard mode PRE-MERGES its
 # ~200 per-file lcovs into one artifact file instead — see the shard branch.
+emit_full_timing_receipt() {
+  [ -n "$COV_OUT" ] || return 0
+  local timings_tsv="$TMPDIR/full-timings.tsv" phases_tsv="$TMPDIR/full-phases.tsv"
+  : > "$timings_tsv"
+  for ((i = 0; i < HOST_COUNT; i++)); do
+    [ -f "$TMPDIR/time_$i" ] || continue
+    printf '%s\t%s\n' "${FILES[$i]}" "$(cat "$TMPDIR/time_$i")" >> "$timings_tsv"
+  done
+  {
+    printf 'hostPool\t%s\n' "$HOST_POOL_MS"
+    printf 'producers\t%s\n' "$PRODUCER_POOL_MS"
+    printf 'security\t%s\n' "$SECURITY_MS"
+    printf 'browserReceipt\t%s\n' "$BROWSER_RECEIPT_MS"
+    printf 'mergeAndGate\t%s\n' "$MERGE_GATE_MS"
+  } > "$phases_tsv"
+  bun "$SCRIPT_DIR/coverage-timing-receipt.ts" "$COV_OUT/timings-full.json" \
+    "full local coverage run" "$phases_tsv" "$timings_tsv"
+  echo "emitted full-mode timing receipt → $COV_OUT/timings-full.json"
+}
+
 emit_lcov() {
   [ -n "$COV_OUT" ] || return 0
   local n=0
@@ -789,9 +820,12 @@ run_legs
 run_security_leg
 wait
 collect_security_leg
+BROWSER_RECEIPT_STARTED_MS=$(date +%s%3N)
 if browser_route_coverage_required; then
 	verify_browser_coverage_receipt || BROWSER_RECEIPT_EXIT=1
 fi
+BROWSER_RECEIPT_MS=$(( $(date +%s%3N) - BROWSER_RECEIPT_STARTED_MS ))
+GATE_MERGE_STARTED_MS=$(date +%s%3N)
 
 echo ""
 echo "================================"
@@ -867,6 +901,8 @@ bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" coverage/lcov.info
 
 CHECK_EXIT=0
 bun scripts/check-coverage.ts || CHECK_EXIT=$?
+MERGE_GATE_MS=$(( $(date +%s%3N) - GATE_MERGE_STARTED_MS ))
+emit_full_timing_receipt
 
 # ── the two verdicts ────────────────────────────────────────────────────────
 # COVERAGE verdict (exit 1): check-coverage.ts + the vitest leg's integrity +

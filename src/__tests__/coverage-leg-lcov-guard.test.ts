@@ -918,3 +918,16 @@ describe("canonical Vitest V8 coverage launcher", () => {
     expect(onDisk.length).toBeGreaterThanOrEqual(9);
   });
 });
+
+describe("full-mode coverage timing receipt", () => {
+	test("emits shard-compatible host timings with separate phase costs", async () => {
+		const runner = await Bun.file(RUNNER).text();
+		expect(runner).toContain('bun "$SCRIPT_DIR/coverage-timing-receipt.ts" "$COV_OUT/timings-full.json"');
+		expect(runner).toContain("printf 'hostPool\\t%s\\n' \"$HOST_POOL_MS\"");
+		expect(runner).toContain("printf 'producers\\t%s\\n' \"$PRODUCER_POOL_MS\"");
+		expect(runner).toContain("printf 'security\\t%s\\n' \"$SECURITY_MS\"");
+		expect(runner.lastIndexOf("emit_full_timing_receipt")).toBeGreaterThan(
+			runner.indexOf("MERGE_GATE_MS=$(( $(date +%s%3N) - GATE_MERGE_STARTED_MS ))"),
+		);
+	});
+});
