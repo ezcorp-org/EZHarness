@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage, makeMode } from "./fixtures/data.js";
+import { modelCatalogRoutes } from "./fixtures/model-routes.js";
 
 const proj = makeProject({ id: "proj-1", name: "KB Nav" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
@@ -18,7 +19,7 @@ const models = [
 test.beforeEach(async ({ page, mockApi }) => {
 	await mockApi({
 		projects: [proj], conversations: [conv], messages: [msg], modes,
-		routes: { "/api/models": () => models },
+		routes: modelCatalogRoutes(models),
 	});
 	await page.goto("/project/proj-1/chat/conv-1");
 });

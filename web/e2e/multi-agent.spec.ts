@@ -10,7 +10,7 @@ test.describe("Multi-Agent Orchestration", () => {
 	const conv = makeConversation({ id: "conv-1", projectId: "proj-1", model: "gpt-4", provider: "openai" });
 
 	const modelsRoute = modelCatalogRoutes([
-			{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true },
+			{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true, tier: "balanced", costTier: "medium" },
 		]);
 
 	/** Send a chat message and wait for the API response (ensures startStreaming is called) */

@@ -14,6 +14,7 @@ import base from "./playwright.config";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const browserProjects = {
+	chromium: { browserName: "chromium" as const },
 	firefox: { browserName: "firefox" as const },
 	webkit: { browserName: "webkit" as const },
 };

@@ -11,23 +11,25 @@ export type MockModel = {
 	model: string;
 	displayName: string;
 	available: boolean;
+	tier: string;
+	costTier: string;
 	[key: string]: unknown;
 };
 
 export function modelCatalogRoutes(models: readonly MockModel[]) {
 	const selected = models[0];
-	if (!selected) throw new Error("A chat model route needs at least one available model.");
+	if (!selected) throw new Error("A chat model route needs at least one model.");
 
 	return {
-		"/api/models/capabilities": () => ({
-			provider: selected.provider,
-			model: selected.model,
+		"/api/models/capabilities": (url: URL) => ({
+			provider: url.searchParams.get("provider") ?? selected.provider,
+			model: url.searchParams.get("model") ?? selected.model,
 			kinds: ["text"],
 			acceptedMimeTypes: [],
 			maxBytesPerFile: 0,
 			maxFilesPerMessage: 0,
 		}),
-		"/api/models/default-selection": () => ({ value: "first" }),
+		"/api/models/default-selection": () => ({ value: "auto" }),
 		"/api/models": () => models,
 	};
 }

@@ -25,7 +25,7 @@ test.describe("Interleaved Content Blocks", () => {
 	});
 
 	const modelsRoute = modelCatalogRoutes([
-			{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true },
+			{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true, tier: "balanced", costTier: "medium" },
 		]);
 
 	/** Send a chat message and wait for the API response (ensures startStreaming is called) */

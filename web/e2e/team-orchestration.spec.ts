@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeAgent, makeAgentConfig, makeMessage } from "./fixtures/data.js";
+import { modelCatalogRoutes } from "./fixtures/model-routes.js";
 import type { MockOverrides } from "./fixtures/api-mocks.js";
 import type { Locator, Page } from "@playwright/test";
 
@@ -19,11 +20,9 @@ const teamConfig = makeAgentConfig({
 	references: { agents: ["Code Assistant", "Summarizer"], extensions: [] },
 });
 
-const modelsRoute = {
-	"/api/models": () => [
-		{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true },
-	],
-};
+const modelsRoute = modelCatalogRoutes([
+	{ provider: "openai", model: "gpt-4", displayName: "GPT-4", available: true, tier: "balanced", costTier: "medium" },
+]);
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
