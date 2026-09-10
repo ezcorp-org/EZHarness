@@ -6,7 +6,7 @@ const { createDir, fetchFavicon } = vi.hoisted(() => ({ createDir: vi.fn(), fetc
 vi.mock("$lib/api.js", () => ({ createDir, fetchFavicon }));
 import ProjectForm from "$lib/components/ProjectForm.svelte";
 
-afterEach(() => { createDir.mockReset(); fetchFavicon.mockReset(); });
+afterEach(() => { createDir.mockReset(); fetchFavicon.mockReset(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("ProjectForm", () => {
 	test("creates the requested folder and submits its resolved path", async () => {

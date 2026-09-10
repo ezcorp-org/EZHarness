@@ -206,6 +206,10 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/components/EntityFormModal.svelte",
   "web/src/lib/components/EntityTable.svelte",
   "web/src/lib/components/FileUpload.svelte",
+  "web/src/lib/components/MemoryItem.svelte",
+  "web/src/lib/components/SwipeDrawer.svelte",
+  "web/src/lib/components/ez/EzPanel.svelte",
+  "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte",
 ];
 
 /**

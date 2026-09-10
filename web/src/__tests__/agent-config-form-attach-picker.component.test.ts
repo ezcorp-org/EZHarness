@@ -15,7 +15,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
-import { describe, test, expect, vi, beforeEach } from "vitest";
+import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("$lib/api", () => ({
 	CURRENT_MODEL_SENTINEL: "current",
@@ -45,9 +45,9 @@ beforeEach(() => {
 			headers: { "Content-Type": "application/json" },
 		});
 	});
-	(globalThis as { fetch: typeof fetch }).fetch =
-		fetchMock as unknown as typeof fetch;
+	vi.stubGlobal("fetch", fetchMock);
 });
+afterEach(() => { vi.unstubAllGlobals(); });
 
 import AgentConfigForm from "$lib/components/AgentConfigForm.svelte";
 

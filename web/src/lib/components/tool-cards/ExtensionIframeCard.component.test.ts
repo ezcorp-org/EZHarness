@@ -2,9 +2,9 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ToolCallState } from "$lib/stores.svelte.js";
-import ExtensionIframeCardHarness from "./ExtensionIframeCardHarness.svelte";
+import ExtensionIframeCardHarness from "./__tests__/ExtensionIframeCardHarness.svelte";
 
-const toolCall = { id: "call-1", status: "complete", error: null } as unknown as ToolCallState;
+const toolCall: ToolCallState = { id: "call-1", toolName: "weather", status: "complete", startedAt: 0 };
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ExtensionIframeCard from "./ExtensionIframeCard.svelte";
+	import ExtensionIframeCard from "../ExtensionIframeCard.svelte";
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 
 	let {

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import PublishDialog from "../PublishDialog.svelte";
 import FlagDialog from "../FlagDialog.svelte";
 import ShareAgentDialog from "../ShareAgentDialog.svelte";
@@ -10,9 +10,11 @@ import { addToast } from "$lib/toast.svelte.js";
 vi.mock("$lib/api.js", () => ({ publishToMarketplace: vi.fn() }));
 vi.mock("$lib/toast.svelte.js", () => ({ addToast: vi.fn() }));
 
+beforeEach(() => { vi.clearAllMocks(); });
 afterEach(() => {
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
+	vi.useRealTimers();
 });
 
 function json(body: unknown, status = 200) {
@@ -74,7 +76,7 @@ describe("FlagDialog", () => {
 		expect(onclose).toHaveBeenCalledTimes(1);
 	});
 
-	test("reports rate-limit, API, and network errors without falsely closing", async () => {
+	test("closes on the rate limit and retains API and network failure feedback", async () => {
 		const onclose = vi.fn();
 		const fetchMock = vi.fn()
 			.mockResolvedValueOnce(json({}, 429))
@@ -94,11 +96,19 @@ describe("FlagDialog", () => {
 
 describe("ShareAgentDialog", () => {
 	test("loads shares, finds a user, grants edit access, and removes a share", async () => {
+		let shares = [{ id: "share-1", teamId: null, teamName: null, userId: "u-1", recipientName: "Avery", permission: "read", sharedBy: "admin", sharedByName: "Admin", createdAt: "2026-01-01" }];
 		const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
 			if (input.includes("/users/search")) return json({ users: [{ id: "u-2", name: "Robin", email: "r@example.test" }] });
-			if (init?.method === "POST") return json({ ok: true });
-			if (init?.method === "DELETE") return json({ ok: true });
-			return json({ shares: [{ id: "share-1", teamId: null, teamName: null, userId: "u-1", recipientName: "Avery", permission: "read", sharedBy: "admin", sharedByName: "Admin", createdAt: "2026-01-01" }] });
+			if (init?.method === "POST") {
+				shares.push({ ...shares[0]!, id: "share-2", userId: "u-2", recipientName: "Robin", permission: "edit" });
+				return json({ ok: true });
+			}
+			if (init?.method === "DELETE") {
+				const body = JSON.parse(String(init.body)) as { userId: string };
+				shares = shares.filter(share => share.userId !== body.userId);
+				return json({ ok: true });
+			}
+			return json({ shares });
 		});
 		vi.stubGlobal("fetch", fetchMock);
 		render(ShareAgentDialog, { props: { agentId: "agent-1", agentName: "Writer", open: true, onclose: vi.fn() } });
@@ -109,9 +119,15 @@ describe("ShareAgentDialog", () => {
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/agents/agent-1/share", expect.objectContaining({ method: "POST" })));
 		const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
 		expect(JSON.parse(post[1]!.body as string)).toEqual({ userIds: ["u-2"], permission: "edit" });
-		await waitFor(() => expect(screen.getByRole("button", { name: "Remove share" })).toBeTruthy());
-		await fireEvent.click(screen.getByRole("button", { name: "Remove share" }));
+		await waitFor(() => expect(screen.getByText("Robin")).toBeVisible());
+		expect(screen.getByLabelText("Username or email")).toHaveValue("");
+		expect(screen.queryByRole("button", { name: "Sharing..." })).toBeNull();
+		const originalRow = screen.getByText("Avery").parentElement!.parentElement!;
+		await fireEvent.click(within(originalRow).getByRole("button", { name: "Remove share" }));
 		await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/agents/agent-1/share", expect.objectContaining({ method: "DELETE" })));
+		await waitFor(() => expect(screen.queryByText("Avery")).toBeNull());
+		expect(screen.getByText("Robin")).toBeVisible();
+		expect(addToast).toHaveBeenLastCalledWith({ type: "success", message: "Share removed" });
 	});
 
 	test("keeps sharing failures visible as toasts and closes from the dialog", async () => {

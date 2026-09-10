@@ -105,12 +105,12 @@ describe("AssignmentPill assignment controls", () => {
 		expect(onstop).toHaveBeenCalledTimes(1);
 	});
 
-	test("renders busy controls without firing duplicate start or stop actions", () => {
+	test("renders busy controls without firing duplicate start or stop actions", async () => {
 		const { container, rerender } = render(AssignmentPill, {
 			assignment: assignment({ status: "assigned" }), now: Date.now(), onstart: vi.fn(), starting: true,
 		});
 		expect(container.querySelector(".animate-spin")).toBeInTheDocument();
-		rerender({ assignment: assignment({ status: "running", startedAt: "2026-01-01T00:00:00.000Z" }), now: Date.now(), onstop: vi.fn(), stopping: true });
+		await rerender({ assignment: assignment({ status: "running", startedAt: "2026-01-01T00:00:00.000Z" }), now: Date.now(), onstop: vi.fn(), stopping: true });
 		expect(container.querySelector(".animate-spin")).toBeInTheDocument();
 	});
 });

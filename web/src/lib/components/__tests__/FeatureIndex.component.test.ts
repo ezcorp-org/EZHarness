@@ -10,7 +10,7 @@
  * web/e2e/feature-index-scan.spec.ts; this is the faster pre-flight.
  */
 
-import { render, fireEvent, screen, waitFor } from "@testing-library/svelte";
+import { render, fireEvent, screen, waitFor, within } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach, afterEach } from "vitest";
 import FeatureIndex from "../FeatureIndex.svelte";
 import { addToast } from "$lib/toast.svelte.js";
@@ -31,6 +31,7 @@ interface FeatureFixture {
 	fileCount: number;
 	createdAt: string;
 	updatedAt: string;
+	files?: Array<{ featureId: string; relpath: string; source: "user" | "scan"; addedAt: string }>;
 }
 
 const makeFeature = (overrides: Partial<FeatureFixture> = {}): FeatureFixture => ({
@@ -74,6 +75,7 @@ function makeFetchStub(routes: Array<{
 beforeEach(() => {
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 	vi.mocked(addToast).mockClear();
+	vi.mocked(searchMentions).mockReset().mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -515,6 +517,7 @@ describe("FeatureIndex — create, scan, and row lifecycle", () => {
 		await fireEvent.click(screen.getAllByRole("button", { name: "Expand" })[0]!);
 		await waitFor(() => expect(screen.getByText("src/auth.ts")).toBeTruthy());
 		await fireEvent.click(screen.getByRole("button", { name: "Remove file" }));
+		await waitFor(() => expect(screen.queryByText("src/auth.ts")).toBeNull());
 		await fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]!);
 		await waitFor(() => expect(screen.queryByText("auth", { exact: true })).toBeNull());
 	});
@@ -543,7 +546,8 @@ test("filters rows and keeps failed create, scan, edit, and delete actions actio
 	await fireEvent.click(screen.getByRole("button", { name: "Scan features" }));
 	await waitFor(() => expect(screen.getByTestId("feature-error").textContent).toContain("Scan permission denied"));
 	await fireEvent.click(screen.getByRole("button", { name: "Edit name" }));
-	const edit = screen.getByDisplayValue("auth");
+	const row = screen.getByRole("button", { name: "Delete" }).closest("tr")!;
+	const edit = within(row).getByDisplayValue("auth");
 	await fireEvent.input(edit, { target: { value: "taken" } });
 	await fireEvent.keyDown(edit, { key: "Enter" });
 	await waitFor(() => expect(screen.getByTestId("feature-error").textContent).toContain("Name already used"));
@@ -557,7 +561,11 @@ test("adds and removes an expanded project file through the scoped autocomplete"
 	const feature = makeFeature();
 	vi.mocked(searchMentions).mockResolvedValue([{ name: "src/auth.ts", description: "Auth", kind: "file" }]);
 	vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
-		if (init?.method === "PATCH") return new Response(JSON.stringify({ ...feature, files: [{ featureId: feature.id, relpath: "src/auth.ts", source: "user", addedAt: "2026" }] }), { status: 200 });
+		if (init?.method === "PATCH") {
+			const body = JSON.parse(String(init.body)) as { addFiles?: string[]; removeFiles?: string[] };
+			const files = body.addFiles ? [{ featureId: feature.id, relpath: "src/auth.ts", source: "user", addedAt: "2026" }] : [];
+			return new Response(JSON.stringify({ ...feature, files }), { status: 200 });
+		}
 		if (input.endsWith(`/${feature.id}`)) return new Response(JSON.stringify({ ...feature, files: [] }), { status: 200 });
 		return new Response(JSON.stringify([feature]), { status: 200 });
 	}));
@@ -570,6 +578,78 @@ test("adds and removes an expanded project file through the scoped autocomplete"
 	await vi.advanceTimersByTimeAsync(200);
 	await waitFor(() => expect(screen.getByText("src/auth.ts")).toBeTruthy());
 	await fireEvent.click(screen.getByText("src/auth.ts"));
-	await waitFor(() => expect(screen.getByText("src/auth.ts")).toBeTruthy());
+	await waitFor(() => expect(screen.getByRole("button", { name: "Remove file" })).toBeVisible());
+	expect(picker).toHaveValue("");
+	expect(searchMentions).toHaveBeenCalledWith("auth", "path", "proj-1");
 	await fireEvent.click(screen.getByRole("button", { name: "Remove file" }));
+	await waitFor(() => expect(screen.queryByText("src/auth.ts")).toBeNull());
+});
+
+test.each([false, true])("initial load failure is visible and leaves scanning available (network=%s)", async (network) => {
+	vi.stubGlobal("fetch", vi.fn(() => network ? Promise.reject(new Error("Offline")) : Promise.resolve(new Response(null, { status: 503 }))));
+	render(FeatureIndex, { projectId: "proj-1" });
+	await waitFor(() => expect(screen.getByTestId("feature-error")).toHaveTextContent(network ? "Offline" : "HTTP 503"));
+	expect(screen.getByRole("button", { name: "Scan features" })).toBeEnabled();
+});
+
+test.each(["Create", "Save", "Delete"])("a network failure during %s retains the feature and editable input", async (action) => {
+	const feature = makeFeature();
+	vi.stubGlobal("confirm", () => true);
+	vi.stubGlobal("fetch", vi.fn(async (_input: string, init?: RequestInit) => {
+		if (init?.method) throw new Error("Offline");
+		return Response.json([feature]);
+	}));
+	render(FeatureIndex, { projectId: "proj-1" });
+	await waitFor(() => expect(screen.getByText("auth", { exact: true })).toBeVisible());
+	if (action === "Create") {
+		await fireEvent.click(screen.getByRole("button", { name: /New feature/ }));
+		const input = screen.getByPlaceholderText(/Feature name/);
+		await fireEvent.input(input, { target: { value: "new-feature" } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+	} else if (action === "Save") {
+		await fireEvent.click(screen.getByRole("button", { name: "Edit name" }));
+		const input = screen.getByDisplayValue("auth");
+		await fireEvent.input(input, { target: { value: "new-feature" } });
+		await fireEvent.keyDown(input, { key: "Enter" });
+	} else {
+		await fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+	}
+	await waitFor(() => expect(screen.getByTestId("feature-error")).toHaveTextContent(`${action} failed: Error: Offline`));
+	if (action !== "Delete") {
+		const input = screen.getByDisplayValue("new-feature");
+		await fireEvent.keyDown(input, { key: "Escape" });
+		expect(screen.queryByDisplayValue("new-feature")).toBeNull();
+	}
+	expect(screen.getByText("auth", { exact: true })).toBeVisible();
+});
+
+test.each([
+	["Add", false], ["Add", true], ["Remove", false], ["Remove", true],
+] as const)("a failed file %s preserves existing pins (network=%s)", async (action, network) => {
+	const feature = makeFeature();
+	vi.mocked(searchMentions).mockResolvedValue([{ name: "src/new.ts", description: "New file", kind: "file" }]);
+	vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+		if (init?.method === "PATCH") {
+			if (network) throw new Error("Offline");
+			return new Response("service unavailable", { status: 503 });
+		}
+		if (input.endsWith(`/${feature.id}`)) return Response.json({ ...feature, files: [{ featureId: feature.id, relpath: "src/existing.ts", source: "scan", addedAt: "2026" }] });
+		return Response.json([feature]);
+	}));
+	render(FeatureIndex, { projectId: "proj-1" });
+	await waitFor(() => expect(screen.getByRole("button", { name: "Expand" })).toBeVisible());
+	await fireEvent.click(screen.getByRole("button", { name: "Expand" }));
+	await waitFor(() => expect(screen.getByText("src/existing.ts")).toBeVisible());
+	if (action === "Add") {
+		const input = screen.getByPlaceholderText("+ Add file (search project paths)");
+		await fireEvent.focus(input);
+		await fireEvent.input(input, { target: { value: "new" } });
+		await vi.advanceTimersByTimeAsync(200);
+		await fireEvent.click(screen.getByRole("button", { name: /src\/new.ts/ }));
+	} else {
+		await fireEvent.click(screen.getByRole("button", { name: "Remove file" }));
+	}
+	await waitFor(() => expect(screen.getByTestId("feature-error")).toHaveTextContent(network ? `${action} failed: Error: Offline` : `${action} failed (HTTP 503)`));
+	expect(screen.getByText("src/existing.ts")).toBeVisible();
+	expect(screen.queryByText("src/new.ts")).toBeNull();
 });
