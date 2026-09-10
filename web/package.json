@@ -42,8 +42,8 @@
 		"vitest": "4.1.11"
 	},
 	"dependencies": {
-		"@electric-sql/pglite": "0.5.7",
-		"@electric-sql/pglite-pgvector": "0.0.8",
+		"@electric-sql/pglite": "0.5.8",
+		"@electric-sql/pglite-pgvector": "0.0.9",
 		"@huggingface/transformers": "^4.2.0",
 		"ansi_up": "^6.0.6",
 		"diff2html": "^3.4.56",
