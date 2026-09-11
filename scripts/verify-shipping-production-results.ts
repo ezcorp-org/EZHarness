@@ -99,20 +99,8 @@ function parseLauncherFields(text: string, label: string): Map<string, string> {
 function isCandidateLauncher(proof: string, nested: string): boolean {
   return !(proof === "historical-upgrade" && nested === "upgrade/seed-previous") && !(proof === "legacy-adoption" && nested === "legacy/seed");
 }
-function stripAnsi(text: string): string {
-  let plain = "";
-  for (let index = 0; index < text.length;) {
-    if (text.charCodeAt(index) !== 27 || text[index + 1] !== "[") { plain += text[index++]!; continue; }
-    index += 2;
-    while (index < text.length) {
-      const byte = text.charCodeAt(index++);
-      if (byte >= 0x40 && byte <= 0x7e) break;
-    }
-  }
-  return plain;
-}
 async function assertNamespaceEvidence(controllerLog: string): Promise<void> {
-  const output = stripAnsi(await readFile(controllerLog, "utf8"));
+  const output = Bun.stripANSI(await readFile(controllerLog, "utf8"));
   if (!/\b4 pass\b/.test(output) || !/\b0 fail\b/.test(output)) fail("namespace controller does not contain a successful native Bun summary");
   if (/\bskipp?(?:ed|ing)?\b/i.test(output)) fail("namespace controller contains skipped tests");
   for (const name of NAMESPACE_TESTS) if (!output.includes(name)) fail(`namespace controller is missing real test: ${name}`);

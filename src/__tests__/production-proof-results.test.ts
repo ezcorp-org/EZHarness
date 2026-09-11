@@ -111,3 +111,17 @@ test("aggregate refuses overlapping or nonempty output roots without deleting in
     expect(await Bun.file(join(output, "keep")).text()).toBe("must remain");
   });
 });
+
+test("aggregate rejects each failed cleanup stage and missing launcher receipts", async () => {
+  for (const field of ["command_exit", "app_log_exit", "owned_cleanup_exit", "verifier_cleanup_exit"]) {
+    await withFixture(async ({ root, output }) => {
+      const path = join(root, "production-proof-recovery", "historical-upgrade", "upgrade", "seed-previous", "command.log");
+      await writeFile(path, (await readFile(path, "utf8")).replace(`${field}=0`, `${field}=1`));
+      await expect(verifyShippingProductionResults(root, REVISION, IMAGE, output)).rejects.toThrow(`${field} does not match`);
+    });
+  }
+  await withFixture(async ({ root, output }) => {
+    await rm(join(root, "production-proof-resources", "runtime-resources", "runtime", "command.log"));
+    await expect(verifyShippingProductionResults(root, REVISION, IMAGE, output)).rejects.toThrow("command.log is missing");
+  });
+});
