@@ -877,10 +877,12 @@ Performance review: the final four-worker, two-CPU run completes all six cases p
 
 - [x] Measure the 58m35s baseline and identify independent proof groups.
 - [x] Review a Terra plan for image build/transfer and isolated proof shards.
-- [ ] Implement bounded parallel jobs with one candidate image and strict receipt aggregation.
+- [x] Implement bounded parallel jobs with one candidate image and strict receipt aggregation.
 - [x] Review image ownership cost; retain the existing Dockerfile because removing the traversal would change runtime permissions or add build complexity.
-- [ ] Add failure controls for missing, duplicate, stale or failed shard evidence.
+- [x] Add failure controls for missing, duplicate, stale or failed shard evidence.
 - [ ] Run focused checks, real image proofs and required local checks.
 - [ ] Submit a PR and measure a full hosted run against the baseline; require all existing proofs and coverage to pass.
 
 Review target: reduce production wall time from 58m35s to below 30 minutes on hosted CI without dropping a proof, shortening real recovery leases, adding retries, or running resource baselines beside competing proofs on one host. Report total runner time and transfer cost as well as wall time.
+
+Implementation review: five isolated proof groups share one attested image; the protected result validates all nine proof records, all eleven launcher cleanup records, exact candidate identity, and all four namespace cases. Local sequential callers keep the original eight proofs. The first real image transfer exposed archive-sized memory buffering; native pipes reduced Terra's measured peak from 8,311,060 KiB to 145,180 KiB. Parent repeats that transfer before full local and hosted validation. No Dockerfile, coverage floor, recovery lease, or retry policy change.
