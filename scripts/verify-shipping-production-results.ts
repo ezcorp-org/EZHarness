@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /** Verify isolated production-proof artifacts before publishing one receipt. */
 import { copyFile, lstat, mkdir, readdir, readFile, chmod } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PRODUCTION_PROOF_SHARDS } from "./production-proof-plan.ts";
 
 type SummaryRow = { proof: string; exit: number; startedAt: string; finishedAt: string; durationMs: number; receipt: string };
@@ -14,8 +14,18 @@ const CLEANUP_RECEIPTS: Readonly<Record<string, readonly string[]>> = {
   "historical-upgrade": ["upgrade/seed-previous", "upgrade/assert-candidate", "upgrade/assert-restore"],
   "legacy-adoption": ["legacy/seed", "legacy/adopt"], namespace: [],
 };
+const NAMESPACE_TESTS = [
+  "the production namespace blocks direct TCP; removing only nft makes the deny assertion fail",
+  "the launcher removes seeded IPv6 while IPv4 proxy traffic works; omitting only the disable writes fails",
+  "four workers complete 400 real proxy requests over five minutes and leave no owned containers",
+  "a killed worker fails the same controller despite low connection counts",
+];
 
 function fail(message: string): never { throw new Error(`production proof receipt rejected: ${message}`); }
+function containsPath(parent: string, candidate: string): boolean {
+  const child = relative(parent, candidate);
+  return child === "" || (!isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
+}
 function canonicalImageId(value: string, field: string): string {
   const canonical = value.replace(/^sha256:/, "");
   if (!/^[0-9a-f]{64}$/.test(canonical)) fail(`${field} must be a full sha256 image ID`);
@@ -89,6 +99,24 @@ function parseLauncherFields(text: string, label: string): Map<string, string> {
 function isCandidateLauncher(proof: string, nested: string): boolean {
   return !(proof === "historical-upgrade" && nested === "upgrade/seed-previous") && !(proof === "legacy-adoption" && nested === "legacy/seed");
 }
+function stripAnsi(text: string): string {
+  let plain = "";
+  for (let index = 0; index < text.length;) {
+    if (text.charCodeAt(index) !== 27 || text[index + 1] !== "[") { plain += text[index++]!; continue; }
+    index += 2;
+    while (index < text.length) {
+      const byte = text.charCodeAt(index++);
+      if (byte >= 0x40 && byte <= 0x7e) break;
+    }
+  }
+  return plain;
+}
+async function assertNamespaceEvidence(controllerLog: string): Promise<void> {
+  const output = stripAnsi(await readFile(controllerLog, "utf8"));
+  if (!/\b4 pass\b/.test(output) || !/\b0 fail\b/.test(output)) fail("namespace controller does not contain a successful native Bun summary");
+  if (/\bskipp?(?:ed|ing)?\b/i.test(output)) fail("namespace controller contains skipped tests");
+  for (const name of NAMESPACE_TESTS) if (!output.includes(name)) fail(`namespace controller is missing real test: ${name}`);
+}
 async function assertLauncherReceipts(artifact: string, row: SummaryRow, revision: string, expectedImageId: string): Promise<void> {
   for (const nested of CLEANUP_RECEIPTS[row.proof] ?? fail(`no cleanup declaration for ${row.proof}`)) {
     const root = join(artifact, row.receipt, nested);
@@ -122,8 +150,7 @@ export async function verifyShippingProductionResults(inputRoot: string, revisio
   const expectedCanonical = canonicalImageId(expectedImageId, "expected image ID");
   const input = resolve(inputRoot);
   const output = resolve(outputRoot);
-  const outputToInput = relative(output, input);
-  if (input === output || outputToInput === "" || (!outputToInput.startsWith("..") && !outputToInput.startsWith(`..${"/"}`))) fail("output root must not contain the input root");
+  if (containsPath(input, output) || containsPath(output, input)) fail("input and output roots must not overlap");
   const outputStat = await lstat(output).catch(() => null);
   if (outputStat && (outputStat.isSymbolicLink() || !outputStat.isDirectory() || (await readdir(output)).length !== 0)) fail("output root must be absent or an empty regular directory");
   await assertRegularTree(input, "input root");
@@ -145,7 +172,9 @@ export async function verifyShippingProductionResults(inputRoot: string, revisio
     const rows = parseSummary(await readFile(join(artifact, "summary.tsv"), "utf8").catch(() => fail(`${shard} summary is missing`)), shard);
     for (const row of rows) {
       await assertRegularTree(join(artifact, row.receipt), `${shard}/${row.receipt}`);
-      await assertRegularFile(join(artifact, row.receipt, "controller.log"), `${shard}/${row.receipt}/controller.log`);
+      const controllerLog = join(artifact, row.receipt, "controller.log");
+      await assertRegularFile(controllerLog, `${shard}/${row.receipt}/controller.log`);
+      if (row.proof === "namespace") await assertNamespaceEvidence(controllerLog);
       await assertLauncherReceipts(artifact, row, revision, expectedCanonical);
     }
     verified.push({ shard, rows, artifact });

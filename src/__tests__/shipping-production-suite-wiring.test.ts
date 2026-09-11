@@ -28,17 +28,18 @@ exec "$@"
 `);
   await executable(join(directory, "bash"), `
 case "$1" in
-  *verify-shipping-runtime.sh) status=7 ;;
+  *verify-shipping-runtime.sh) status="\${FAKE_RUNTIME_EXIT:-0}" ;;
   *) status=0 ;;
 esac
 if [[ -n "\${EZ_RUNTIME_RECEIPT_DIR:-}" ]]; then mkdir -p "$EZ_RUNTIME_RECEIPT_DIR"; fi
 if [[ -n "\${EZ_PRODUCTION_RECEIPT_DIR:-}" ]]; then mkdir -p "$EZ_PRODUCTION_RECEIPT_DIR"; fi
+printf 'argv=%s\nargs=%s\nruntime_image=%s\ncandidate_image=%s\nsource=%s\nstage2=%s\nstage2_image=%s\n' "$1" "$*" "\${EZ_PRODUCTION_IMAGE:-\${EZ_RUNTIME_IMAGE:-}}" "\${VERIFY_UPGRADE_CANDIDATE_IMAGE:-\${VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE:-}}" "\${VERIFY_UPGRADE_CANDIDATE_SOURCE:-\${VERIFY_LEGACY_ADOPTION_CANDIDATE_SOURCE:-}}" "\${EZCORP_STAGE2_PROOF:-}" "\${EZCORP_STAGE2_PROOF_IMAGE:-}" >> "\${FAKE_INVOCATION_LOG:?}"
 printf 'leaf=%s\\n' "$1"
 exit "$status"
 `);
 }
 
-async function runSuite(directory: string, receipt: string, podmanId: string, shard = "", expectedImageId: string | null = `sha256:${"b".repeat(64)}`): Promise<{ code: number; output: string }> {
+async function runSuite(directory: string, receipt: string, podmanId: string, shard = "", expectedImageId: string | null = `sha256:${"b".repeat(64)}`, runtimeExit = "0"): Promise<{ code: number; output: string }> {
   const fake = join(directory, "bin");
   const child = Bun.spawn({
     cmd: [shell, suite],
@@ -56,6 +57,8 @@ async function runSuite(directory: string, receipt: string, podmanId: string, sh
       EZ_SHIPPING_EXPECTED_IMAGE_ID: expectedImageId ?? "",
       FAKE_DOCKER_IMAGE_ID: `sha256:${"b".repeat(64)}`,
       FAKE_PODMAN_IMAGE_ID: podmanId,
+      FAKE_RUNTIME_EXIT: runtimeExit,
+      FAKE_INVOCATION_LOG: join(directory, "invocations.log"),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -75,7 +78,7 @@ test("shipping suite attests the independent image ID, retains later proof recei
     await mkdir(fake);
     await createFakeEngines(fake);
     const receipt = join(directory, "receipts");
-    const result = await runSuite(directory, receipt, "b".repeat(64), "", null);
+    const result = await runSuite(directory, receipt, "b".repeat(64), "", null, "7");
     expect(result.code).toBe(1);
     const summary = await readFile(join(receipt, "summary.tsv"), "utf8");
     expect(summary).toContain("runtime\t7\t");
@@ -117,8 +120,45 @@ test("shipping suite rejects mismatched engine candidates and nonempty receipt r
     const namedMissingExpected = await runSuite(directory, join(directory, "named-missing-expected"), "b".repeat(64), "content", null);
     expect(namedMissingExpected.code).toBe(2);
     expect(namedMissingExpected.output).toContain("Set EZ_SHIPPING_EXPECTED_IMAGE_ID for a CI shard");
+
+    const localWrongExpected = await runSuite(directory, join(directory, "local-wrong-expected"), "b".repeat(64), "", `sha256:${"c".repeat(64)}`);
+    expect(localWrongExpected.code).toBe(1);
+    expect(localWrongExpected.output).toContain("independently expected ID");
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("shipping suite runs each named shard with only its registered proofs and critical environment", async () => {
+  const expected: Record<string, readonly string[]> = {
+    recovery: ["runtime", "historical-upgrade"], content: ["file-organizer", "legacy-adoption"],
+    delivery: ["delivery", "revocation", "embeddings"], resources: ["runtime-resources"], namespace: ["namespace"],
+  };
+  for (const [shard, proofs] of Object.entries(expected)) {
+    const directory = await mkdtemp(join(tmpdir(), `shipping-suite-${shard}-`));
+    try {
+      const fake = join(directory, "bin");
+      await mkdir(fake);
+      await createFakeEngines(fake);
+      const receipt = join(directory, "receipts");
+      const result = await runSuite(directory, receipt, "b".repeat(64), shard);
+      expect(result.code).toBe(0);
+      const rows = (await readFile(join(receipt, "summary.tsv"), "utf8")).trim().split("\n").slice(1).map((line) => line.split("\t")[0]);
+      expect(rows).toEqual(proofs);
+      const invocations = await readFile(join(directory, "invocations.log"), "utf8");
+      expect(invocations).toContain("source=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+      if (shard === "namespace") {
+        expect(invocations).toContain("argv=-c");
+        expect(invocations).toContain("stage2=1");
+        expect(invocations).toContain("stage2_image=ezcorp:test-candidate");
+        expect(invocations).toContain("mcp-stage2-conntrack-soak.test.ts");
+      } else {
+        expect(invocations).toContain("runtime_image=ezcorp:test-candidate");
+        if (shard === "recovery" || shard === "content") expect(invocations).toContain("candidate_image=ezcorp:test-candidate");
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 });
 

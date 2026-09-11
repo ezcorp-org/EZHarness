@@ -48,7 +48,7 @@ canonical_podman_id="${podman_id#sha256:}"
   echo "Candidate image ID differs between Docker ($docker_id) and Podman ($podman_id)" >&2
   exit 1
 }
-if [[ "$selected_shard" == local ]]; then
+if [[ "$selected_shard" == local && -z "$expected_image_id" ]]; then
   expected_image_id="$docker_id"
 else
   [[ -n "$expected_image_id" ]] || { echo "Set EZ_SHIPPING_EXPECTED_IMAGE_ID for a CI shard" >&2; exit 2; }
