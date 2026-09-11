@@ -872,3 +872,15 @@ Review: the production suite retained all eight proof results. File Organizer (1
 Review: the current helper applies its only 10s guard before the signal, leaves post-signal exit unbounded, drains stderr only after exit, and does not kill/reap the child if readiness fails. The repair must address those lifecycle defects, not accept the existing retry as success.
 
 Performance review: the final four-worker, two-CPU run completes all six cases per worker in at most 15.98s, versus 18.59s for the original two-case suite in the same local setup. These are local single-run controls, not an overall CI speedup claim. The one-CPU red/green controls are retained under `tasks/pr-submit/tenth-shutdown-*`.
+
+## Production CI performance
+
+- [x] Measure the 58m35s baseline and identify independent proof groups.
+- [x] Review a Terra plan for image build/transfer and isolated proof shards.
+- [ ] Implement bounded parallel jobs with one candidate image and strict receipt aggregation.
+- [x] Review image ownership cost; retain the existing Dockerfile because removing the traversal would change runtime permissions or add build complexity.
+- [ ] Add failure controls for missing, duplicate, stale or failed shard evidence.
+- [ ] Run focused checks, real image proofs and required local checks.
+- [ ] Submit a PR and measure a full hosted run against the baseline; require all existing proofs and coverage to pass.
+
+Review target: reduce production wall time from 58m35s to below 30 minutes on hosted CI without dropping a proof, shortening real recovery leases, adding retries, or running resource baselines beside competing proofs on one host. Report total runner time and transfer cost as well as wall time.
