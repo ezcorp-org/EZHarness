@@ -143,7 +143,7 @@ test("shipping suite runs each named shard with only its registered proofs and c
       const receipt = join(directory, "receipts");
       const result = await runSuite(directory, receipt, "b".repeat(64), shard);
       expect(result.code).toBe(0);
-      const rows = (await readFile(join(receipt, "summary.tsv"), "utf8")).trim().split("\n").slice(1).map((line) => line.split("\t")[0]);
+      const rows: readonly string[] = (await readFile(join(receipt, "summary.tsv"), "utf8")).trim().split("\n").slice(1).map((line) => line.split("\t")[0]);
       expect(rows).toEqual(proofs);
       const invocations = await readFile(join(directory, "invocations.log"), "utf8");
       expect(invocations).toContain("source=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
