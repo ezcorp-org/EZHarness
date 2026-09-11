@@ -21,6 +21,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
 
@@ -499,8 +500,27 @@ describe("e2e lane manifest", () => {
 
     const production = ciJobBlock(ci, "production-image-file-organizer");
     expect(production, "missing CI job: production-image-file-organizer").not.toBe("");
-    expect(production).toContain("bash scripts/verify-shipping-production-suite.sh");
+    expect(production).toContain("needs: [production-candidate-image, production-proof-shard]");
+    expect(production).toContain("if: always()");
+    expect(production).toContain("scripts/verify-shipping-production-results.ts");
     expect(production).not.toContain("continue-on-error: true");
+
+    const proofRunner = ciJobBlock(ci, "production-proof-shard");
+    expect(proofRunner).toContain("bash scripts/verify-shipping-production-suite.sh");
+    expect(proofRunner).toContain("fail-fast: false");
+    expect(proofRunner).toContain("max-parallel: 5");
+    expect(proofRunner).toContain("scripts/production-image-artifact.ts load");
+    expect(proofRunner).toContain("EZ_SHIPPING_EXPECTED_IMAGE_ID:");
+    expect(proofRunner).toContain("if: always()");
+    expect(proofRunner).toContain("if-no-files-found: error");
+    expect(proofRunner).not.toContain("continue-on-error: true");
+    expect(proofRunner).not.toContain("docker build --load");
+
+    const candidate = ciJobBlock(ci, "production-candidate-image");
+    expect(candidate).toContain("scripts/production-image-artifact.ts pack");
+    expect(candidate).toContain("scripts/production-proof-plan.ts matrix");
+    expect(candidate).toContain("compression-level: 0");
+    expect(candidate).not.toContain("continue-on-error: true");
 
     const shipping = await Bun.file(join(REPO_ROOT, "scripts/verify-shipping-production-suite.sh")).text();
     expect(shipping).toContain("replay-file-organizer-runtime.sh");
@@ -549,6 +569,28 @@ describe("e2e lane manifest", () => {
     expect(aggregate).toContain("production-image-file-organizer");
     expect(aggregate).toContain("extension-browser-engines");
     expect(aggregate).toContain('result }}" != success');
+  });
+
+  test("the protected production result refuses failed, cancelled, skipped and absent producers", async () => {
+    const ci = parseYaml(await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text());
+    const production = ci.jobs["production-image-file-organizer"];
+    expect(production.if).toBe("always()");
+    expect(production.needs).toEqual(["production-candidate-image", "production-proof-shard"]);
+    const guard = production.steps.find((step: { name?: string }) => step.name === "Require the candidate and every proof runner");
+    expect(typeof guard.run).toBe("string");
+    if (!BASH) throw new Error("bash is required for the production aggregate control");
+    for (const candidate of ["success", "failure", "cancelled", "skipped", ""]) {
+      for (const proofs of ["success", "failure", "cancelled", "skipped", ""]) {
+        const result = Bun.spawnSync([BASH, "-e", "-c", guard.run], {
+          env: { ...process.env, CANDIDATE_RESULT: candidate, PROOFS_RESULT: proofs },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const shouldPass = candidate === "success" && proofs === "success";
+        expect(result.exitCode, `candidate=${candidate}, proofs=${proofs}`).toBe(shouldPass ? 0 : 1);
+        if (!shouldPass) expect(result.stdout.toString()).toContain("did not all succeed");
+      }
+    }
   });
 
   test("external Kokoro model lane has an explicit manual CI consumer", async () => {
