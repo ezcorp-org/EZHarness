@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -90,7 +91,9 @@ async function regularFile(path: string, description: string): Promise<void> {
 }
 
 async function checksum(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path, { highWaterMark: 1024 * 1024 })) hash.update(chunk);
+  return hash.digest("hex");
 }
 
 async function writeMetadata(path: string, metadata: ArtifactMetadata): Promise<void> {
@@ -121,9 +124,24 @@ export async function pack(image: string, revision: string, outdir: string): Pro
   if (producerRevision !== revision) fail(`producer image revision label ${JSON.stringify(producerRevision)} does not match ${revision}`);
 
   const saver = Bun.spawn(["docker", "image", "save", image], { stdout: "pipe", stderr: "pipe" });
-  const compressor = Bun.spawn(["zstd", "--no-progress", "--threads=2", "-q", "-o", archive], { stdin: saver.stdout, stdout: "pipe", stderr: "pipe" });
+  let compressor: Bun.ReadableSubprocess;
+  try {
+    compressor = Bun.spawn(["zstd", "--no-progress", "--threads=2", "-q", "-o", archive], { stdin: saver.stdout, stdout: "pipe", stderr: "pipe" });
+  } catch (error) {
+    saver.kill();
+    await saver.exited;
+    throw error;
+  }
+  const saverExit = saver.exited.then((exit) => {
+    if (exit !== 0) compressor.kill();
+    return exit;
+  });
+  const compressorExit = compressor.exited.then((exit) => {
+    if (exit !== 0) saver.kill();
+    return exit;
+  });
   const [saveStderr, compressionStderr, saveExit, compressionExit] = await Promise.all([
-    new Response(saver.stderr).text(), new Response(compressor.stderr).text(), saver.exited, compressor.exited,
+    new Response(saver.stderr).text(), new Response(compressor.stderr).text(), saverExit, compressorExit,
   ]);
   if (saveExit !== 0 || compressionExit !== 0) {
     await unlink(archive).catch(() => undefined);
@@ -161,9 +179,17 @@ export async function load(outdir: string, revision: string, expectedImageId: st
 
   for (const engine of ["docker", "podman"] as const) {
     const decompressor = Bun.spawn(["zstd", "-d", "--no-progress", "--threads=2", "-q", "-c", archive], { stdout: "pipe", stderr: "pipe" });
-    const loaded = command(engine, ["image", "load"], decompressor.stdout);
-    const [decompressionStderr, decompressionExit] = await Promise.all([new Response(decompressor.stderr).text(), decompressor.exited]);
-    await loaded;
+    const loadError = command(engine, ["image", "load"], decompressor.stdout).then(
+      () => undefined,
+      (error: unknown) => {
+        decompressor.kill();
+        return error;
+      },
+    );
+    const [[decompressionStderr, decompressionExit], error] = await Promise.all([
+      Promise.all([new Response(decompressor.stderr).text(), decompressor.exited]), loadError,
+    ]);
+    if (error) throw error;
     if (decompressionExit !== 0) fail(`${engine} archive decompression failed: ${decompressionStderr.trim() || `exit ${decompressionExit}`}`);
 
     const [actualImageId, actualRevision] = await Promise.all([imageId(engine, metadata.image), revisionLabel(engine, metadata.image)]);

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -29,6 +30,7 @@ elif [ "$1" = image ] && [ "$2" = save ]; then
   printf 'fake docker save bytes\\n'
 elif [ "$1" = image ] && [ "$2" = load ]; then
   cat >/dev/null
+  if [ "\${ENGINE_LOAD_FAILURE:-}" = "$(basename "$0")" ]; then exit 44; fi
 else
   exit 91
 fi
@@ -40,6 +42,7 @@ if [ "$1" = -d ]; then
   for value in "$@"; do last="$value"; done
   cat "$last"
 else
+  if [ "\${ZSTD_FAILURE:-}" = pack ]; then exit 43; fi
   output=''
   previous=''
   for value in "$@"; do
@@ -148,5 +151,37 @@ test("rejects a loaded engine whose OCI revision label differs from the independ
     value.env.PODMAN_REVISION = `b${REVISION.slice(1)}`;
     await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).rejects.toThrow("podman revision label");
     expect(await readFile(log, "utf8")).toContain("podman image load");
+  });
+});
+
+test("checksums a multi-megabyte compressed archive before loading it", async () => {
+  await withFixture(async (value) => {
+    const { outdir } = value;
+    await cli(value, ["pack", IMAGE, REVISION, outdir]);
+    const bytes = Buffer.alloc(8 * 1024 * 1024, "a");
+    await writeFile(join(outdir, ARCHIVE_FILENAME), bytes);
+    const metadataPath = join(outdir, METADATA_FILENAME);
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+    metadata.archiveSha256 = createHash("sha256").update(bytes).digest("hex");
+    await writeFile(metadataPath, `${JSON.stringify(metadata)}\n`);
+    await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).resolves.toBe("");
+  });
+});
+
+test("settles the decompressor when an engine rejects the archive load", async () => {
+  await withFixture(async (value) => {
+    const { outdir, log } = value;
+    await cli(value, ["pack", IMAGE, REVISION, outdir]);
+    value.env.ENGINE_LOAD_FAILURE = "podman";
+    await expect(cli(value, ["load", outdir, REVISION, IMAGE_ID])).rejects.toThrow("podman image load failed");
+    expect(await readFile(log, "utf8")).toContain("podman image load");
+  });
+});
+
+test("cleans up a partial archive when compression fails", async () => {
+  await withFixture(async (value) => {
+    value.env.ZSTD_FAILURE = "pack";
+    await expect(cli(value, ["pack", IMAGE, REVISION, value.outdir])).rejects.toThrow("archive creation failed");
+    expect(await Bun.file(join(value.outdir, ARCHIVE_FILENAME)).exists()).toBe(false);
   });
 });

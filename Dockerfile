@@ -240,11 +240,19 @@ COPY --from=builder /app/web/build ./web/build
 # mount in compose.prod.yml creates the directory as root at runtime, and
 # the unprivileged `bun` user can't mkdir extension-data/<name>/ inside it.
 #
-# Only these persistent directories need runtime write access. Leaving the
-# application tree root-owned avoids walking all of /app at build time and
-# preserves the root-owned 4755 preview-spawn helper installed above.
-RUN mkdir -p /app/data /app/.ezcorp \
-  && chown bun:bun /app/data /app/.ezcorp
+# chown to the `bun` user so the runtime (which runs unprivileged — see USER
+# below) can write snapshots, backups, and the persistent encryption secret.
+RUN mkdir -p /app/data /app/.ezcorp && chown -R bun:bun /app /app/data /app/.ezcorp
+
+# Re-establish the setuid-root preview-spawn helper AFTER the recursive
+# `chown -R bun:bun /app` above, which would otherwise strip its root
+# ownership (a setuid binary owned by `bun` yields euid=1000 — useless).
+# This restores root:root + the 4755 setuid bit so the helper grants euid=0
+# when uid 1000 execs it. MUST stay after the chown. Path is /app/bin/ (out
+# of the src tree) to avoid shadowing preview-spawn.ts — see the compile
+# step above.
+RUN chown root:root /app/bin/preview-spawn \
+  && chmod 4755 /app/bin/preview-spawn
 
 VOLUME /app/data
 VOLUME /app/.ezcorp
@@ -261,9 +269,9 @@ ENV EZCORP_DB_PATH=/app/data/ezcorp
 # relying on NODE_ENV being unset (which evaluates !== "production" → true).
 ENV NODE_ENV=production
 
-# Drop root. The oven/bun:1-slim base image ships a `bun` user (uid 1000).
-# Anything in a bind-mounted /app/data from the host must be readable +
-# writable by uid 1000.
+# Drop root. The oven/bun:1-slim base image ships a `bun` user (uid 1000); all
+# files under /app are chowned to it above. Anything in a bind-mounted
+# /app/data from the host must be readable + writable by uid 1000.
 USER bun
 
 # start-period=60s covers first-boot cost: migrate() + bundled-extension
