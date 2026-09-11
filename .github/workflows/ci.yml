@@ -220,7 +220,8 @@ jobs:
       # invocation.
       - shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-gate" \
             bash scripts/collect-browser-route-coverage-lane.sh mock-gate
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -263,7 +264,8 @@ jobs:
       - name: Run every non-smoke mock browser journey
         shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-full" \
             bash scripts/collect-browser-route-coverage-lane.sh mock-full
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -306,7 +308,8 @@ jobs:
         env:
           EZCORP_E2E_EVIDENCE: "1"
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/evidence" \
             bash scripts/collect-browser-route-coverage-lane.sh evidence
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -341,7 +344,7 @@ jobs:
         with:
           bun-version-file: .bun-version
       - name: Build exact candidate image
-        run: docker build --load --build-arg VERSION=ci-${GITHUB_SHA::12} --build-arg REVISION=${GITHUB_SHA} --build-arg CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t ezcorp:ci-production .
+        run: docker build --load --build-arg "VERSION=ci-${GITHUB_SHA::12}" --build-arg "REVISION=${GITHUB_SHA}" --build-arg "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t ezcorp:ci-production .
       - name: Attest and compress the candidate image
         id: candidate
         shell: bash
@@ -530,13 +533,15 @@ jobs:
       - name: Verify fresh real-auth setup without committed storage state
         shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/fresh-setup" \
             bash scripts/collect-browser-route-coverage-lane.sh fresh-setup
       - name: Run real-auth journeys with browser coverage
         shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/real-auth" \
             bash scripts/collect-browser-route-coverage-lane.sh real-auth
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
