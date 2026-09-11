@@ -41,8 +41,8 @@ function requireImageReference(image: string): void {
   if (!IMAGE_REFERENCE.test(image)) fail("image must be a lowercase container image reference");
 }
 
-async function command(binary: string, args: string[], stdin?: ReadableStream<Uint8Array>): Promise<string> {
-  const child = Bun.spawn([binary, ...args], { stdin, stdout: "pipe", stderr: "pipe" });
+async function command(binary: string, args: string[]): Promise<string> {
+  const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exit] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -50,6 +50,16 @@ async function command(binary: string, args: string[], stdin?: ReadableStream<Ui
   ]);
   if (exit !== 0) fail(`${binary} ${args.join(" ")} failed: ${stderr.trim() || `exit ${exit}`}`);
   return stdout.trim();
+}
+
+/** Bash owns both native pipes. Arguments stay positional, never shell source. */
+async function pipeline(description: string, source: string, values: string[]): Promise<string> {
+  try {
+    return await command("bash", ["-o", "pipefail", "-c", source, "--", ...values]);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`${description} failed: ${message}`);
+  }
 }
 
 async function inspect(binary: "docker" | "podman", image: string, format: string): Promise<string> {
@@ -123,29 +133,13 @@ export async function pack(image: string, revision: string, outdir: string): Pro
   const producerRevision = await revisionLabel("docker", image);
   if (producerRevision !== revision) fail(`producer image revision label ${JSON.stringify(producerRevision)} does not match ${revision}`);
 
-  const saver = Bun.spawn(["docker", "image", "save", image], { stdout: "pipe", stderr: "pipe" });
-  let compressor: Bun.ReadableSubprocess;
   try {
-    compressor = Bun.spawn(["zstd", "--no-progress", "--threads=2", "-q", "-o", archive], { stdin: saver.stdout, stdout: "pipe", stderr: "pipe" });
+    // `pipefail` returns a producer or compressor failure only after Bash has
+    // waited for both native-pipe children, so neither becomes an orphan.
+    await pipeline("archive creation", 'docker image save "$1" | zstd --no-progress --threads=2 -q -o "$2"', [image, archive]);
   } catch (error) {
-    saver.kill();
-    await saver.exited;
-    throw error;
-  }
-  const saverExit = saver.exited.then((exit) => {
-    if (exit !== 0) compressor.kill();
-    return exit;
-  });
-  const compressorExit = compressor.exited.then((exit) => {
-    if (exit !== 0) saver.kill();
-    return exit;
-  });
-  const [saveStderr, compressionStderr, saveExit, compressionExit] = await Promise.all([
-    new Response(saver.stderr).text(), new Response(compressor.stderr).text(), saverExit, compressorExit,
-  ]);
-  if (saveExit !== 0 || compressionExit !== 0) {
     await unlink(archive).catch(() => undefined);
-    fail(`archive creation failed: docker=${saveExit} ${saveStderr.trim()} zstd=${compressionExit} ${compressionStderr.trim()}`.trim());
+    throw error;
   }
 
   const metadata: ArtifactMetadata = {
@@ -178,19 +172,7 @@ export async function load(outdir: string, revision: string, expectedImageId: st
   if ((await checksum(archive)) !== metadata.archiveSha256) fail("archive SHA-256 does not match metadata");
 
   for (const engine of ["docker", "podman"] as const) {
-    const decompressor = Bun.spawn(["zstd", "-d", "--no-progress", "--threads=2", "-q", "-c", archive], { stdout: "pipe", stderr: "pipe" });
-    const loadError = command(engine, ["image", "load"], decompressor.stdout).then(
-      () => undefined,
-      (error: unknown) => {
-        decompressor.kill();
-        return error;
-      },
-    );
-    const [[decompressionStderr, decompressionExit], error] = await Promise.all([
-      Promise.all([new Response(decompressor.stderr).text(), decompressor.exited]), loadError,
-    ]);
-    if (error) throw error;
-    if (decompressionExit !== 0) fail(`${engine} archive decompression failed: ${decompressionStderr.trim() || `exit ${decompressionExit}`}`);
+    await pipeline(`${engine} image load`, 'zstd -d --no-progress --threads=2 -q -c "$1" | "$2" image load', [archive, engine]);
 
     const [actualImageId, actualRevision] = await Promise.all([imageId(engine, metadata.image), revisionLabel(engine, metadata.image)]);
     if (actualImageId !== expectedImageId) fail(`${engine} image ID ${actualImageId} does not match expected image ID ${expectedImageId}`);
