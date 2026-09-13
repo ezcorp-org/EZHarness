@@ -563,3 +563,5 @@
 - A native runner function is not an isolated runner. Keep the durable tenant launch intent in the gateway database, run the Bun and Python bridges inside the per-attempt guest, and keep the host to opaque process facts and physical-stop receipts.
 - A physical-stop receipt digest identifies the canonical unsigned facts. Sign those same bytes with the configured RSA host key; do not digest a separate signed wrapper.
 - A physical-stop proof needs the configured host principal as a signed required fact. Provider allocations without a stable host identity cannot use this stop-settlement path.
+- A launch claim must identify its one winner. A `launching` row alone does not grant another caller permission to start or invoke a guest; after a recovery boundary, use a durable result or report uncertainty.
+- Compare a prepared package receipt with the full canonical runner reference, including model and configuration fields. A stopped worker is physically absent only after a terminal runtime observation, never because an inspect call says `unknown`.

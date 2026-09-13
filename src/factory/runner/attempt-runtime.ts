@@ -86,7 +86,7 @@ export interface FactoryAttemptRuntime {
 
 export interface FactoryAttemptLaunchStore {
   prepare(request: FactoryRunnerRequest, lease: FactoryAttemptLease, preparedPackage: FactoryPreparedPackageReceipt): Promise<FactoryAttemptLaunchIntent>;
-  claimStart(attemptId: string): Promise<FactoryAttemptLaunchIntent>;
+  claimStart(attemptId: string): Promise<{ readonly intent: FactoryAttemptLaunchIntent; readonly claimed: boolean }>;
   state(attemptId: string, state: FactoryAttemptLaunchState): Promise<void>;
 }
 
@@ -142,7 +142,7 @@ function snapshotIntent(request: FactoryRunnerRequest, lease: FactoryAttemptLeas
   const requestDigest = factoryRunnerRequestDigest(snapshot);
   if (!requestDigestPattern.test(requestDigest)) throw new FactoryAttemptRuntimeError("invalid_request", "Factory runner request identity is invalid.");
   const capturedLease = snapshotLease(lease);
-  if (preparedPackage.projectId !== snapshot.authority.projectId || preparedPackage.reference.package !== snapshot.runner.package || preparedPackage.reference.version !== snapshot.runner.version || preparedPackage.reference.digest !== snapshot.runner.digest || preparedPackage.reference.export !== snapshot.runner.export || !digestPattern.test(preparedPackage.receiptDigest) || !/^[a-f0-9]{64}$/.test(preparedPackage.artifactDigest)) throw new FactoryAttemptRuntimeError("invalid_launch", "Prepared package does not match the factory runner request.");
+  if (preparedPackage.projectId !== snapshot.authority.projectId || canonicalJson(preparedPackage.reference) !== canonicalJson(snapshot.runner) || !digestPattern.test(preparedPackage.receiptDigest) || !/^[a-f0-9]{64}$/.test(preparedPackage.artifactDigest)) throw new FactoryAttemptRuntimeError("invalid_launch", "Prepared package does not match the factory runner request.");
   if (snapshot.authority.grantRevision !== capturedLease.grantRevision || snapshot.authority.reservationGeneration !== capturedLease.allocationGeneration) throw new FactoryAttemptRuntimeError("invalid_launch", "Held compute lease does not match factory runner authority.");
   return Object.freeze({ request: snapshot, requestDigest, lease: capturedLease, preparedPackage: copy(preparedPackage), workerId: factoryAttemptWorkerId(snapshot.authority.attemptId), state: "prepared" });
 }
@@ -180,15 +180,14 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
     });
   }
 
-  async claimStart(attemptId: string): Promise<FactoryAttemptLaunchIntent> {
+  async claimStart(attemptId: string): Promise<{ readonly intent: FactoryAttemptLaunchIntent; readonly claimed: boolean }> {
     opaque(attemptId, "attempt id");
     return this.database.transaction(async transaction => {
       const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
       if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
       const stored = rowIntent(row);
-      if (stored.state === "prepared") await transaction.execute(sql`UPDATE factory_attempt_launches SET state='launching',updated_at=NOW() WHERE attempt_id=${attemptId} AND state='prepared'`);
-      const current = stored.state === "prepared" ? Object.freeze({ ...stored, state: "launching" as const }) : stored;
-      return current;
+      const claimed = stored.state === "prepared" && releaseRows(await transaction.execute(sql`UPDATE factory_attempt_launches SET state='launching',updated_at=NOW() WHERE attempt_id=${attemptId} AND state='prepared' RETURNING attempt_id`)).length === 1;
+      return Object.freeze({ intent: claimed ? Object.freeze({ ...stored, state: "launching" as const }) : stored, claimed });
     });
   }
 
@@ -216,6 +215,7 @@ export interface IsolatedFactoryAttemptRuntimeOptions {
 /** Host adapter for the isolated v4 guest. It holds only live worker handles, never tenant records. */
 export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
   private readonly active = new Map<string, RunnerExecution>();
+  private readonly stops = new Map<string, Promise<FactoryPhysicalStopReceipt>>();
   private readonly now: () => number;
   constructor(private readonly options: IsolatedFactoryAttemptRuntimeOptions) { this.now = options.now ?? Date.now; }
 
@@ -231,8 +231,14 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
       await this.options.launches.state(persisted.request.authority.attemptId, "uncertain");
       return this.uncertain(persisted);
     }
-    const claimed = await this.options.launches.claimStart(persisted.request.authority.attemptId);
-    if (claimed.state !== "launching") return this.open(claimed.request, claimed.lease, claimed.preparedPackage);
+    const claim = await this.options.launches.claimStart(persisted.request.authority.attemptId);
+    if (!claim.claimed) {
+      const afterClaim = await this.options.runner.inspect(persisted.workerId);
+      if (afterClaim.state === "running") return this.attached(claim.intent);
+      await this.options.launches.state(persisted.request.authority.attemptId, "uncertain");
+      return this.uncertain(claim.intent);
+    }
+    const claimed = claim.intent;
     const token = await this.options.mintAttemptToken(claimed.request);
     opaque(token, "attempt token");
     const guestRequest = copy({ ...claimed.request, broker: { ...claimed.request.broker, attemptToken: token } });
@@ -272,7 +278,15 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
     this.active.set(intent.request.authority.attemptId, execution);
     await this.options.pool.acknowledgeStart(this.fence(intent.lease));
     await this.options.launches.state(intent.request.authority.attemptId, "launched");
-    return this.opened("attached", intent, execution, copy({ ...intent.request, broker: { ...intent.request.broker, attemptToken: token } }));
+    return Object.freeze({
+      disposition: "attached" as const,
+      workerId: intent.workerId,
+      wait: async () => {
+        void execution;
+        throw new FactoryAttemptRuntimeError("launch_uncertain", "Recovered factory workers require a durable terminal result before another invocation.");
+      },
+      stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason),
+    });
   }
 
   private opened(disposition: "started" | "attached", intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, guestRequest: FactoryRunnerRequest): FactoryAttemptOpen {
@@ -301,14 +315,24 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
       const value = await execution.request("extension/invoke", { name: intent.request.runner.export, input: guestRequest, context: this.startRequest(intent, guestRequest).context });
       if (renewalFailure) throw new FactoryAttemptRuntimeError("lease_revoked", renewalFailure.message);
       requireValid(validateFactoryRunnerResult(value), "Factory guest result");
-      return copy(value) as FactoryRunnerResult;
+      const result = copy(value) as FactoryRunnerResult;
+      await this.stop(intent, result.status === "completed" ? "completed" : result.status === "failed" ? "failed" : "cancelled");
+      return result;
     } finally { clearInterval(timer); }
   }
 
   private async stop(intent: FactoryAttemptLaunchIntent, reason: FactoryPhysicalStopReason): Promise<FactoryPhysicalStopReceipt> {
+    const existing = this.stops.get(intent.request.authority.attemptId);
+    if (existing) return existing;
+    const stopping = this.stopPhysical(intent, reason);
+    this.stops.set(intent.request.authority.attemptId, stopping);
+    try { return await stopping; } catch (error) { this.stops.delete(intent.request.authority.attemptId); throw error; }
+  }
+
+  private async stopPhysical(intent: FactoryAttemptLaunchIntent, reason: FactoryPhysicalStopReason): Promise<FactoryPhysicalStopReceipt> {
     await this.options.runner.cancel(intent.workerId);
     const inspection = await this.options.runner.inspect(intent.workerId);
-    if (inspection.state === "running") throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory worker remains running after a physical stop.");
+    if (inspection.state !== "succeeded" && inspection.state !== "failed" && inspection.state !== "cancelled") throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory worker absence is not physically confirmed after stop.");
     this.active.delete(intent.request.authority.attemptId);
     await this.options.launches.state(intent.request.authority.attemptId, "terminal");
     const unsigned: FactoryUnsignedPhysicalStopReceipt = { schemaVersion: "factory.physical-stop.v1", attemptId: intent.request.authority.attemptId, reservationId: intent.lease.reservationId, workerId: intent.workerId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration, processGroupAbsent: true, stoppedAtMs: this.now(), reason, hostId: intent.lease.hostId };

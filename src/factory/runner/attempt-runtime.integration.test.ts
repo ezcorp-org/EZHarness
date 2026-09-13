@@ -24,7 +24,7 @@ const digest = `sha256:${raw}`;
 const request = {
   schemaVersion: "factory.runner.request.v1" as const,
   authority: { attemptId: "attempt-runtime", tenantId: "tenant-runtime", projectId: "project-runtime", runId: "run-runtime", nodeInstanceId: "node-runtime", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, deadlineAtMs: Date.now() + 60_000, nextOperationIndex: 0 },
-  runner: { package: "runner", version: "1", digest, export: "run" }, input: { kind: "inline" as const, value: { prompt: "isolated" } }, grants: [], resources: {}, tools: [], broker: { audience: "gateway", attemptToken: "ephemeral-token" },
+  runner: { package: "runner", version: "1", digest, export: "run", model: "runtime-model", configurationDigest: digest }, input: { kind: "inline" as const, value: { prompt: "isolated" } }, grants: [], resources: {}, tools: [], broker: { audience: "gateway", attemptToken: "ephemeral-token" },
 };
 const lease: FactoryAttemptLease = { reservationId: "reservation-runtime", grantRevision: 4, allocationGeneration: 5, holderGeneration: 5, allocationToken: "allocation-runtime", hostId: "host-runtime" };
 const renewedLease: PoolLease = { ...lease, tenantId: request.authority.tenantId, fence: "lease-fence", deadlineAt: new Date(Date.now() + 60_000), resources: {} };
@@ -53,7 +53,7 @@ class MemoryLaunchStore implements FactoryAttemptLaunchStore {
     this.intent ??= { request: value, requestDigest: factoryRunnerRequestDigest(value), lease: held, preparedPackage: receipt, workerId: `factory_${createHash("sha256").update(value.authority.attemptId).digest("hex").slice(0, 48)}`, state: this.initialState };
     return this.intent;
   }
-  async claimStart(): Promise<FactoryAttemptLaunchIntent> { if (!this.intent) throw new Error("launch is missing"); this.intent = { ...this.intent, state: "launching" }; return this.intent; }
+  async claimStart(): Promise<{ readonly intent: FactoryAttemptLaunchIntent; readonly claimed: boolean }> { if (!this.intent) throw new Error("launch is missing"); if (this.intent.state !== "prepared") return { intent: this.intent, claimed: false }; this.intent = { ...this.intent, state: "launching" }; return { intent: this.intent, claimed: true }; }
   async state(_attemptId: string, state: FactoryAttemptLaunchState): Promise<void> { if (!this.intent) throw new Error("launch is missing"); this.intent = { ...this.intent, state }; }
 }
 
@@ -95,7 +95,7 @@ test("a durable launch intent attaches after start response loss and never start
     expect(runner.starts).toBe(1);
     expect(runner.attaches).toBe(1);
     expect(runner.acknowledgements[0]?.context.token).toBe("fresh-attempt-token");
-    expect(await opened.wait()).toEqual({ schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: 0, operations: [] });
+    await expect(opened.wait()).rejects.toThrow("durable terminal result");
     const restarted = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("response-loss runner does not call the broker"); } }, signStopReceipt, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-recovery-token" });
     const recovered = await restarted.open(request, lease, prepared);
     expect(recovered.disposition).toBe("attached");
@@ -130,6 +130,27 @@ test("terminal and uncertain recovery states cannot execute another worker", asy
   expect(uncertain.disposition).toBe("uncertain");
   await expect(uncertain.wait()).rejects.toThrow("outcome is uncertain");
 });
+
+test("concurrent open calls have one durable start winner and the other caller only attaches", async () => {
+  const database = new PGlite({ extensions: { vector, pg_trgm } });
+  try {
+    await database.waitReady;
+    const db = drizzle(database, { schema });
+    await migrate(db);
+    await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${request.authority.projectId},'Concurrent runtime','/tmp/concurrent-runtime')`);
+    await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${request.authority.tenantId},6)`);
+    await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${request.authority.tenantId},${request.authority.projectId})`);
+    await db.execute(sql`INSERT INTO factory_runs(tenant_id,project_id,run_id,definition_digest,interpreter_build,execution_epoch,request_digest,request_payload) VALUES (${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${digest},'runtime',6,${digest},'{}')`);
+    await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${request.authority.attemptId},${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${request.authority.nodeInstanceId},2,3,4,5,6,0,${new Date(request.authority.deadlineAtMs)},${digest},'{}','admitted')`);
+    const runner = new ResponseLossRunner();
+    const pool = { acknowledgeStart: async () => renewedLease, renew: async () => renewedLease };
+    const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("concurrent recovery does not invoke the broker"); } }, signStopReceipt, presentStopReceipt: async () => {}, mintAttemptToken: async () => "concurrent-token" });
+    const [first, second] = await Promise.all([runtime.open(request, lease, prepared), runtime.open(request, lease, prepared)]);
+    expect([first.disposition, second.disposition].sort()).toEqual(["attached", "attached"]);
+    expect(runner.starts).toBe(1);
+    expect(runner.attaches).toBe(2);
+  } finally { await database.close(); }
+}, 120_000);
 
 test("the trusted runner checks current package readiness before the isolated runtime opens", async () => {
   const canonical = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: 0, operations: [] } as const;

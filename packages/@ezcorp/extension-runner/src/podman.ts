@@ -108,10 +108,11 @@ export class PodmanRunner implements Runner {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
   }
   private args(id: string, limits: ResourceLimits, mount?: string, assignedDevices = false): string[] {
-    const name = `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`;
+    const name = this.containerName(id);
     this.containers.set(id, name);
     return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), "--entrypoint=/usr/local/bin/bun", "-i"];
   }
+  private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
     const target = join(directory, relativePath(path));
     await mkdir(dirname(target), { recursive: true, mode: 0o755 });
@@ -314,7 +315,17 @@ export class PodmanRunner implements Runner {
   }
   async inspect(id: string): Promise<RunnerInspection> {
     identifier(id);
-    return structuredClone(this.operations.get(id) ?? { id, state: "unknown", diagnostics: [] });
+    const known = this.operations.get(id);
+    if (known) return structuredClone(known);
+    try {
+      const state = JSON.parse(await command(this.podman, ["inspect", "--format={{json .State}}", this.containerName(id)])) as { Running?: unknown; ExitCode?: unknown };
+      if (state.Running === true) return { id, state: "running", diagnostics: [] };
+      if (Number.isInteger(state.ExitCode)) return { id, state: Number(state.ExitCode) === 0 ? "succeeded" : "failed", diagnostics: [] };
+      throw new RunnerError("inspect_invalid", "Podman returned an invalid worker state");
+    } catch (error) {
+      if (error instanceof RunnerError && error.code === "command_failed" && /no such (?:object|container)/i.test(error.message)) return { id, state: "unknown", diagnostics: [] };
+      throw error;
+    }
   }
   async close(): Promise<void> {
     await Promise.all([...this.operations.values()].filter(operation => operation.state === "building" || operation.state === "running").map(operation => this.cancel(operation.id)));
