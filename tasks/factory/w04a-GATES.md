@@ -40,10 +40,13 @@ authorization, and they close the credential-separation half of C06.14 only.
 | `213e4dc82` | `feat(factory): archive every publication member before the dispatch claim` |
 | `213b6f076` | `test(factory): prove the archive restrictions on the real local services` |
 | `ee210ffde` | `docs(factory): record the W04a archive gates, review, and lessons` |
-| `<stamp>` | `docs(factory): stamp the W04a gate commit table` (adds the row above; a file cannot carry its own hash) |
+| `4c5fc573c` | `docs(factory): stamp the W04a gate commit table` |
+| `8f5f8e633` | `test(factory): prove two concurrent preparations archive one member set` |
+| `db01ad2b3` | `test(factory): prove the receipt precedes the orchestration notification` |
+| `<final>` | `docs(factory): point the W04a gates at the clean final receipts` (a file cannot carry its own hash) |
 
-Every executable change is in the first three commits. The two documentation commits change no
-code, so the receipts below were produced at `213b6f076` and re-run clean at the final commit.
+Every gate below was re-run at `db01ad2b3` against a clean tree; those receipts are named
+`final-*`. Earlier receipts at `213b6f076` are kept for the two neighbouring-producer runs.
 
 ## The landed API
 
@@ -92,24 +95,25 @@ no change to W07's file.
       exercised.
       CHECK: `bun test --timeout 30000 ./src/factory/archive-writer.test.ts`
       EXPECT: 12 pass, 0 fail, 100 assertions.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04a/receipts.jsonl` record `archive-writer-unit`.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04a/receipts.jsonl` records `archive-writer-unit`
+      and `final-focused`.
 - [x] G2: Every line of `src/factory/archive-writer.ts` is measured.
       CHECK: the G1 command under `--coverage --coverage-reporter=lcov`.
       EXPECT: 257 of 257 lines, 0 uncovered.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04a/cov-unit/lcov.info`, receipt
-      `archive-writer-unit`.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04a/final-cov-focused/lcov.info` and the merged
+      `coverage/lcov.info`, receipts `archive-writer-unit` and `final-merge-lcov`.
 - [x] G3: The archive holds every referenced member before a dispatch claim is possible, and
       publication stays pending when a member is unavailable or reads back different bytes.
       CHECK: `bun test --timeout 120000 ./src/factory/archive-writer.integration.test.ts`
       EXPECT: 10 pass, 0 fail, 78 assertions.
-      EVIDENCE: receipt `focused`.
+      EVIDENCE: receipt `final-focused` (10 files: 300 pass, 0 fail, 1417 assertions).
 - [x] G4: A crash at each archive boundary recovers by identity and writes no second object.
       CHECK: the G3 suite, case "a crash at each archive boundary before the claim recovers by
       identity".
       EXPECT: the archive receives exactly 1, 4, 5, 6, and 6 objects across the five attempts
       (intent only; intent plus three members; plus the manifest; plus the material; then the
       identical set on the successful retry), and `archive_ready` is false until the last.
-      EVIDENCE: receipt `focused` and `postgres-storage`.
+      EVIDENCE: receipts `final-focused` and `final-postgres`.
 - [x] G5: The confirmed receipt reaches the archive before the product row, and recovery settles
       the same operation by identity without a second dispatch.
       CHECK: the G3 suite, cases "the confirmed receipt reaches the archive before the product row
@@ -121,7 +125,7 @@ no change to W07's file.
       outbox holds `["release_uncertain", "release_settled"]`; `publishes` stays at 1 through
       recovery; a receipt naming another generation, operation, request digest, object, account,
       or provider is never used.
-      EVIDENCE: receipts `focused` and `postgres-storage`.
+      EVIDENCE: receipts `final-focused` and `final-postgres`.
 - [x] G6: Settlement waits for the ordinary store. With the product store unreachable the archive
       still returns the receipt and recovery refuses to settle; it settles once the store returns.
       CHECK: the G3 suite case "the confirmed receipt reaches the archive before the product row",
@@ -129,21 +133,21 @@ no change to W07's file.
       EXPECT: `productSettlementBlockedWith: "Error: ECONNREFUSED"`,
       `archiveReadableWhileProductStoreDown: true`, `productSettlementResumed: true`.
       EVIDENCE: `/tmp/factory-platform-evidence/w04a/archive-writer-real.json`, receipt
-      `archive-writer-real-services`.
+      `final-archive-writer-real`.
 - [x] G7: The same cases pass against real PostgreSQL and the real local SeaweedFS services.
       CHECK: `bun test --timeout 300000 ./tests/postgres/factory-archive-writer.test.ts` with
       `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set, under the shared
       heavy lock.
       EXPECT: 10 pass, 0 fail, 78 assertions.
-      EVIDENCE: receipts `postgres-archive-writer-concurrent`, `final-postgres`, and
-      `postgres-storage`.
+      EVIDENCE: receipts `final-postgres` (6 files: 79 pass, 0 fail, 527 assertions) and
+      `postgres-archive-writer-concurrent`.
 - [x] G8: No product or restore credential can read, overwrite, or delete an archive object, for
       all ten tenant identities, and no foreign tenant's archive credential can either.
       CHECK: `bun scripts/verify-factory-archive-writer.ts`
       EXPECT: `tenants: 10`, `readinessPasses: 10`, `refusedAttempts: 130`,
       `refusalStatuses: {"403": 130}`. Every refusal is an authorization denial, not a 404.
       EVIDENCE: `/tmp/factory-platform-evidence/w04a/archive-writer-real.json`, receipt
-      `archive-writer-real-services`.
+      `final-archive-writer-real`.
       NOTE: this profile mints no separate restore identity. A restore runs with the product
       credential set plus the database backups, so the `restore` probe uses that set and the
       receipt says so in `restoreCredentialNote`. A deployment that mints a distinct restore
@@ -159,17 +163,27 @@ no change to W07's file.
       services, so W18's registration gate stays closed.
       CHECK: `bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts`
       EXPECT: 5 pass, 0 fail.
-      EVIDENCE: receipt `focused`.
+      EVIDENCE: receipt `final-focused`.
 - [x] G11: Static gates.
       CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
       `bun scripts/gate-integrity.ts`
       EXPECT: exit 0 each; lint reports the same eight pre-existing infos and no errors.
-      EVIDENCE: receipts `typecheck`, `lint`, `boundaries`, `gate-integrity`.
+      EVIDENCE: receipts `final-typecheck`, `final-lint`, `final-boundaries`,
+      `final-gate-integrity`.
 - [x] G12: Coverage of every new file and every changed executable line.
       CHECK: `bun scripts/merge-lcov.ts`, then `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts`
       and `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
       EXPECT: exit 0 from each.
-      EVIDENCE: receipts `merge-lcov`, `new-file-coverage`, `patch-coverage`.
+      EVIDENCE: receipts `final-merge-lcov`, `final-new-file-coverage`, `final-patch-coverage`.
+      `src/factory/archive-writer.ts` measures 257 of 257 lines in the merged report.
+- [x] G13: Every neighbouring producer that uses the shared PostgreSQL storage helper stays green
+      after that helper gained the archive service.
+      CHECK: the fifteen `tests/postgres/factory-*` suites that import
+      `tests/postgres/helpers/factory-storage.ts`, in two invocations.
+      EXPECT: 159 pass, 0 fail, 1458 assertions for the first thirteen, and 19 pass, 0 fail, 133
+      assertions for `factory-private-service` and `factory-package-preparation`.
+      EVIDENCE: receipts `postgres-storage` and `postgres-storage-rest`, both produced at
+      `213b6f076`. That commit already carried the helper change, and no later commit touches it.
 - [x] G14: Two concurrent preparations of the same operation archive one member set and leave one
       claimable operation.
       CHECK: the G3 suite, case "two concurrent preparations archive one member set and leave one
@@ -177,14 +191,7 @@ no change to W07's file.
       EXPECT: both calls return the same operation with the same intent and material archive
       references, more than six writes land on exactly six distinct immutable objects, and the
       manifest still names three members.
-      EVIDENCE: receipts `final-focused` and `postgres-archive-writer-concurrent`.
-- [x] G13: Every neighbouring producer that uses the shared PostgreSQL storage helper stays green
-      after that helper gained the archive service.
-      CHECK: the fifteen `tests/postgres/factory-*` suites that import
-      `tests/postgres/helpers/factory-storage.ts`, in two invocations.
-      EXPECT: 159 pass, 0 fail, 1458 assertions for the first thirteen, and 19 pass, 0 fail, 133
-      assertions for `factory-private-service` and `factory-package-preparation`.
-      EVIDENCE: receipts `postgres-storage` and `postgres-storage-rest`.
+      EVIDENCE: receipts `final-focused` and `final-postgres`.
 
 ## What remains open
 
