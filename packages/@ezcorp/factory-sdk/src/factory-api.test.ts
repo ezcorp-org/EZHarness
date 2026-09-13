@@ -19,6 +19,7 @@ const preconditions = { idempotencyKey: "request-1", payloadDigest: sourceDigest
 const project = { projectId: "project-1" } as const;
 const draft = { ...project, factoryId: referenceCodeV1.id } as const;
 const definitionBody = { source: referenceCodeV1 } as const;
+const packageLock = { package: "@ezcorp/release-runner", version: "1.2.3", digest: `sha256:${sourceDigest}`, export: "release", model: "model-1", configurationDigest: `sha256:${compiledBlobDigest}` } as const;
 
 function code(result: ReturnType<typeof validateFactoryApiRequest> | ReturnType<typeof validateFactoryApiResponse>): string | undefined {
   return result.ok ? undefined : result.issues[0]?.code;
@@ -51,6 +52,9 @@ function requests(): FactoryApiRequest[] {
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.revoke", path: { ...project, principalKind: "user", principalId: "user-1", action: "factory.author" }, preconditions },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "service-credential.issue", path: { ...project, serviceAccountId: "service-1" }, preconditions: { ...preconditions, expectedRevision: 0 }, body: { scopes: ["read", "chat"], expiresAtMs: 2_000_000_000_000 } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "service-credential.revoke", path: { ...project, serviceAccountId: "service-1", credentialId: "credential-1" }, preconditions },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "release.trust.publish", path: project, preconditions: { ...preconditions, expectedRevision: 0 }, body: { packageLock, validatorTrustDigest: `sha256:${sourceDigest}` } },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "release.trust.revoke", path: project, preconditions },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "release.control.set", path: project, preconditions: { ...preconditions, expectedRevision: 0 }, body: { enabled: true } },
   ];
   return values.map((request) => "preconditions" in request
     ? { ...request, preconditions: { ...request.preconditions, payloadDigest: factoryApiPayloadDigest(request) } } as FactoryApiRequest
@@ -67,6 +71,7 @@ function responses(): FactoryApiResponse[] {
   const approval = { approvalId: "approval-1", runId: "run-1", revision: 1, contextDigest: sourceDigest, status: "pending", expiresAtMs: 2 } as const;
   const grant = { principalKind: "user", principalId: "user-1", action: "factory.author", revision: 1, expiresAtMs: null, revoked: false } as const;
   const credential = { serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read", "chat"] as const, revision: 1, issuedAtMs: 1_999_999_940_000, expiresAtMs: 2_000_000_000_000, revoked: false } as const;
+  const trust = { revision: 1, state: "active" as const, packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "admin-1", approvalGrantRevision: 1 };
   return [
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.summary", resource: draftSummary() },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.details", resource: { ...draftSummary(), source: referenceCodeV1 } },
@@ -86,6 +91,8 @@ function responses(): FactoryApiResponse[] {
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "version.details", resource: { ...version, source: referenceCodeV1 } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "service-credential.issued", resource: credential, token: "ezkfsvc_aaa.bbb.ccc" },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "service-credential.resource", resource: { ...credential, revision: 2, revoked: true } },
+    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.trust.resource", resource: trust },
+    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.control.resource", resource: { enabled: true, enableEpoch: 1 } },
   ];
 }
 
@@ -128,6 +135,13 @@ describe("factory product API schema", () => {
     expect(code(validateFactoryApiRequest({ ...issue, body: { ...issue.body, scopes: ["chat", "read"] } }))).toBe("API_CREDENTIAL_SCOPES");
     expect(code(validateFactoryApiRequest({ ...issue, body: { ...issue.body, expiresAtMs: issue.body.expiresAtMs + 1 } }))).toBe("API_CREDENTIAL_EXPIRY");
     expect(code(validateFactoryApiRequest({ ...issue, preconditions: { ...issue.preconditions, expectedRevision: 1 } }))).toBe("API_EXPECTED_REVISION");
+    const publishTrust = requests()[25] as Extract<FactoryApiRequest, { kind: "release.trust.publish" }>;
+    expect(code(validateFactoryApiRequest({ ...publishTrust, body: { ...publishTrust.body, validatorTrustDigest: `sha256:${"A".repeat(64)}` } }))).toBe("API_RELEASE_TRUST_DIGEST");
+    expect(code(validateFactoryApiRequest({ ...publishTrust, body: { ...publishTrust.body, packageLock: { ...publishTrust.body.packageLock, version: "latest" } } }))).toBe("RUNNER_PIN");
+    expect(code(validateFactoryApiRequest({ ...publishTrust, body: { ...publishTrust.body, packageLock: { ...publishTrust.body.packageLock, configurationDigest: `sha256:${"A".repeat(64)}` } } }))).toBe("RUNNER_MODEL_PIN");
+    expect(code(validateFactoryApiRequest({ ...publishTrust, body: { ...publishTrust.body, candidateDigest: `sha256:${sourceDigest}` } }))).toBe("API_REQUEST_SCHEMA");
+    const control = requests()[27] as Extract<FactoryApiRequest, { kind: "release.control.set" }>;
+    expect(code(validateFactoryApiRequest({ ...control, body: { ...control.body, currentEpoch: 0 } }))).toBe("API_REQUEST_SCHEMA");
   });
 
   test("hashes the canonical mutation payload and rejects changed key reuse", () => {
@@ -218,5 +232,8 @@ describe("factory product API schema", () => {
     expect(validateFactoryApiResponse({ ...credential, token: "ezkfsvc_Az09_-.Az09_-.Az09_-" }).ok).toBe(true);
     expect(code(validateFactoryApiResponse({ ...credential, resource: { ...credential.resource, scopes: ["chat", "read"] } }))).toBe("API_CREDENTIAL_RESOURCE");
     expect(code(validateFactoryApiResponse({ ...credential, resource: { ...credential.resource, expiresAtMs: credential.resource.issuedAtMs } }))).toBe("API_CREDENTIAL_RESOURCE");
+    const trust = responses()[18] as Extract<FactoryApiResponse, { kind: "release.trust.resource" }>;
+    expect(code(validateFactoryApiResponse({ ...trust, resource: { ...trust.resource, packageTrustDigest: `sha256:${"A".repeat(64)}` } }))).toBe("API_RELEASE_TRUST_DIGEST");
+    expect(code(validateFactoryApiResponse({ ...trust, resource: { ...trust.resource, packageLock: { ...trust.resource.packageLock, version: "latest" } } }))).toBe("RUNNER_PIN");
   });
 });

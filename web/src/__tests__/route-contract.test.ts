@@ -756,6 +756,7 @@ describe("registry ⇄ filesystem parity", () => {
     // here, so the whole session-only surface reads one way.
     const SESSION_ONLY = [
       "DELETE /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
+      "DELETE /api/factories/projects/:projectId/release/trust",
       "DELETE /api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials/:credentialId",
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
@@ -783,6 +784,8 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/workflows/delegations",
       "POST /api/workflows/delegations/preview",
       "PUT /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
+      "PUT /api/factories/projects/:projectId/release/control",
+      "PUT /api/factories/projects/:projectId/release/trust",
       "PUT /api/mcp-servers/:id",
       "PUT /api/projects/:id/tool-permission-mode",
     ];

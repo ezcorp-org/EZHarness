@@ -1351,6 +1351,19 @@ Plan review: the Node bootstrap owner and root agreed the versioned private read
 - [x] Record the review and immutable follow-up commit.
 
 Review: The run-grant adapter now snapshots its five used authority fields before any database wait and passes the exact durable service credential into `FactoryGrants`. PGlite and PostgreSQL each pass 12 cases with 70 assertions, including revoked-credential effect denial and a caller-mutation race. Focused LCOV measures all 19 run-grant lines and all seven functions. The SDK build, all four type-check legs, lint, and gate integrity pass. The canonical parent regression remains parent-owned under the shared heavy-validation lock.
+
+## Factory release trust and control HTTP API
+
+- [x] Add strict SDK request and response contracts for trust publication, trust revocation, and release control.
+- [x] Register three session-only routes and expose them through the shared factory handler.
+- [x] Add typed browser-client methods without making the routes API-key controllable.
+- [x] Prove session-only authority, preconditions, idempotency, error mapping, schemas, registry/OpenAPI parity, and source coverage.
+- [x] Run the SDK build before all four type-check legs, lint, factory boundaries, and gate integrity.
+- [x] Record review and an immutable commit for parent integration.
+
+Plan review: Reuse the authority store's durable `FactoryMutations` receipts. `If-Match` is the trust revision or release-control epoch. The HTTP body can supply only the exact package/validator trust lock or the enabled boolean. Candidate, material, completion, claim, and dispatch facts remain private.
+
+Review: Three registered session-only routes now call the real release authority store through the shared factory handler. Strict SDK schemas and validation reject mutable runner pins and caller-supplied protected facts. The browser client sends canonical payload digests, idempotency keys, and exact trust revision or control epoch preconditions. Focused root, SDK, and web suites pass 14/155/21 tests with 81/1,129/route assertions; changed lines are fully covered in `/tmp/factory-c04-api-root-cov-20260913a`, `/tmp/factory-c04-api-sdk-cov-20260913a`, and `/tmp/factory-c04-api-web-cov-20260913a`. Registry, OpenAPI, session-scope, coverage registration, factory boundaries, the production web build, four type-check legs, lint, and gate integrity pass. Parent owns the combined PostgreSQL regression and live boot journey from the integrated base.
 ## Factory durable release authority facts
 
 - [x] Define exact terminal, candidate output, trust, release-control, history, and current-pointer records.
