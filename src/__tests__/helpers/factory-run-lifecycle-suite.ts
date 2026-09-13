@@ -177,7 +177,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("compute admission commits only under the actual current command authority", async () => {
     const run = await start();
-    const { identity, transitions, activities, event, first, admission, authority } = await taskInterpreter(run.runId);
+    const { identity, transitions, activities, event, first, admission, authority } = await committedInterpreter(run.runId);
     await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
     const reference = { ...identity, commandId: admission.id };
     const service = { tenantId, subject: "orchestration" };
