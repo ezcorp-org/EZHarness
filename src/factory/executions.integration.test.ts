@@ -53,7 +53,8 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${definitionDigest}, 'test', 6, 'run-request', '{}')`);
 
-  const journal = new FactoryExecutionJournal(db);
+  const authorizations: string[] = [];
+  const journal = new FactoryExecutionJournal(db, async (_transaction, current) => { authorizations.push(current.attemptId); });
   const attempt = authority();
   expect(await journal.admit({ ...attempt, request: { b: 2, a: 1 } })).toMatchObject({ reused: false });
   expect(await journal.admit({ ...attempt, request: { a: 1, b: 2 } })).toMatchObject({ reused: true });
@@ -63,6 +64,7 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
 
   const first = operation(0);
   await journal.prepare(attempt, first);
+  expect(authorizations).toContain("attempt-1");
   await journal.prepare(attempt, first);
   await expect(journal.prepare(attempt, { ...first, requestDigest: "b".repeat(64) })).rejects.toThrow("conflicts");
   await expect(journal.prepare(attempt, { ...first, operationId: "foreign" })).rejects.toThrow("does not match");
@@ -77,6 +79,8 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: -1 });
   await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
   await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
+  await journal.prepare(attempt, first);
+  expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
   await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
 

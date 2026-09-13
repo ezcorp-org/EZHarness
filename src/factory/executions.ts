@@ -38,6 +38,9 @@ export interface FactoryOperationSettlement {
   workspaceCheckpoint?: unknown;
 }
 
+/** Runs under the journal row locks immediately before an effect can dispatch. */
+export type FactoryAttemptAuthorizer = (database: MigrationDb, authority: FactoryAttemptAuthority) => Promise<void>;
+
 function hashJson(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -57,7 +60,7 @@ function assertOperation(authority: FactoryAttemptAuthority, operation: FactoryJ
 
 /** Durable C02 journal; the gateway authenticates and supplies its authority. */
 export class FactoryExecutionJournal {
-  constructor(private readonly db: TransactionalDb, private readonly now: () => Date = () => new Date()) {}
+  constructor(private readonly db: TransactionalDb, private readonly authorizeInTransaction: FactoryAttemptAuthorizer, private readonly now: () => Date = () => new Date()) {}
 
   async admit(input: FactoryAttemptAdmission): Promise<{ requestHash: string; reused: boolean }> {
     this.assertLiveInput(input);
@@ -89,7 +92,7 @@ export class FactoryExecutionJournal {
       await this.lockLive(database, authority);
       const existing = releaseRows<{ operation_index: number; kind: string; state: string; request_digest: string }>(await database.execute(sql`SELECT operation_index, kind, state, request_digest FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operation.operationId}`))[0];
       if (existing) {
-        if (Number(existing.operation_index) !== operation.operationIndex || existing.kind !== operation.kind || existing.request_digest !== operation.requestDigest || existing.state !== "prepared") throw new Error("Factory operation conflicts with its durable journal entry.");
+        if (Number(existing.operation_index) !== operation.operationIndex || existing.kind !== operation.kind || existing.request_digest !== operation.requestDigest) throw new Error("Factory operation conflicts with its durable journal entry.");
         return;
       }
       const execution = releaseRows<{ operation_initial_index: number | string }>(await database.execute(sql`SELECT operation_initial_index FROM factory_executions WHERE attempt_id=${authority.attemptId} FOR UPDATE`))[0];
@@ -113,7 +116,7 @@ export class FactoryExecutionJournal {
         return { claimed: true };
       }
       const existing = releaseRows<{ state: string }>(await database.execute(sql`SELECT state FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
-      if (existing?.state !== "dispatched") throw new Error("Factory operation is not prepared for dispatch.");
+      if (!existing || !["dispatched", "completed", "failed", "uncertain"].includes(existing.state)) throw new Error("Factory operation is not prepared for dispatch.");
       return { claimed: false };
     });
   }
@@ -200,6 +203,7 @@ export class FactoryExecutionJournal {
 
   private async lockLive(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     await this.lockRunFence(database, authority);
+    await this.authorizeInTransaction(database, authority);
     const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
     if (!locked.length) throw new Error("Factory attempt is stale, cancelled, or expired.");
   }

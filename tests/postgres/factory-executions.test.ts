@@ -43,7 +43,7 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, 'execution-tenant', 1)`);
     await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('execution-tenant', 'execution-project')`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('execution-tenant', 'execution-project', 'execution-run', ${`sha256:${"a".repeat(64)}`}, 'postgres-test', 1, 'request', '{}')`);
-    journal = new FactoryExecutionJournal(db);
+    journal = new FactoryExecutionJournal(db, async () => {});
   });
 
   afterAll(async () => {
