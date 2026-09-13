@@ -4,7 +4,7 @@ import type { JsonValue } from "@ezcorp/factory-sdk";
 import type { KernelCommand } from "@ezcorp/factory-sdk/kernel-types";
 import { sql } from "drizzle-orm";
 import { loadTransitionArtifact } from "../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
-import { MAX_ACTIVITY_PAYLOAD_BYTES, MAX_COMMAND_BATCH_BYTES, MAX_INFLIGHT_COMMANDS, MAX_PAGE_BYTES, MAX_TRANSITION_ARTIFACT_BYTES, MAX_TRANSITION_PAGES, type FactoryIdentity, type FactoryTransitionManifest, type FactoryTransitionPage, type FinalizedTransitionArtifact, type ImmutableObjectReference, type TransitionArtifact, type TransitionArtifactRequest, type TransitionPageReference, type TransitionPageRequest, type TransitionRecord } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
+import { MAX_ACTIVITY_PAYLOAD_BYTES, MAX_COMMAND_BATCH_BYTES, MAX_PAGE_BYTES, MAX_TRANSITION_ARTIFACT_BYTES, MAX_TRANSITION_PAGES, type FactoryIdentity, type FactoryTransitionManifest, type FactoryTransitionPage, type FinalizedTransitionArtifact, type ImmutableObjectReference, type TransitionArtifact, type TransitionArtifactRequest, type TransitionPageReference, type TransitionPageRequest, type TransitionRecord } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import type { MigrationDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestBytes } from "../extensions/v4/blobs";
@@ -28,9 +28,9 @@ function sameReference(left: ImmutableObjectReference, right: ImmutableObjectRef
 function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function reference(value: unknown): value is ImmutableObjectReference { return object(value) && typeof value.objectId === "string" && typeof value.digest === "string" && typeof value.encodedBytes === "number" && Number.isSafeInteger(value.encodedBytes) && value.encodedBytes >= 1; }
 function pageReference(value: unknown): value is TransitionPageReference { return object(value) && reference(value) && typeof value.index === "number" && Number.isSafeInteger(value.index) && value.index >= 0; }
-/** Canonical C08 command limits are rechecked before an audited command is indexed or returned. */
+/** C08 bounds the whole batch by bytes; the workflow separately limits simultaneous activities. */
 function indexedCommands(commands: unknown): readonly IndexedCommand[] {
-  if (!Array.isArray(commands) || commands.length > MAX_INFLIGHT_COMMANDS || artifactJson.canonical(commands).byteLength > MAX_COMMAND_BATCH_BYTES) throw new FactoryArtifactError("factory_transition_commands_invalid");
+  if (!Array.isArray(commands) || artifactJson.canonical(commands).byteLength > MAX_COMMAND_BATCH_BYTES) throw new FactoryArtifactError("factory_transition_commands_invalid");
   const seen = new Set<string>();
   return commands.map(command => {
     if (!object(command) || typeof command.id !== "string" || typeof command.kind !== "string" || command.id.length === 0 || command.id.length > 512 || command.id.includes("\0") || seen.has(command.id)) throw new FactoryArtifactError("factory_transition_commands_invalid");

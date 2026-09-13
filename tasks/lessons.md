@@ -516,3 +516,7 @@
 
 - Do not equate an approval command's creation transition with the interpreter head. Validate the stored command against the latest committed runtime attempt. Unrelated committed progress can advance the head while that approval remains current.
 - Notification visibility and decision authority must use the same current-command reader. A projection-only head equality check can hide a decision that the store still accepts.
+
+## 2026-09-13 — Partition command batches
+
+- Do not use the simultaneous-activity limit as a persisted command-batch limit. A valid partition can emit more commands than it executes at once. Test real published partition transitions through product storage, not only an in-memory Temporal activity fixture.

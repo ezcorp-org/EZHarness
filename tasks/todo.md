@@ -1784,3 +1784,15 @@ Private dispatch validation: PGlite 40/506 assertions; PostgreSQL/S3 40/2,380; r
 - [x] Pass product/database integration, both builds, four type checks, static checks, real Node orchestration, and committed patch/new-file coverage.
 
 Review: source ac656591e passed 124 product tests / 1,171 assertions and 142 PostgreSQL/S3 tests / 3,410 assertions across all 19 registered PostgreSQL files. SDK and orchestrator builds, all four type checks, lint, boundaries, and gate integrity passed. Node passed 77 tests with zero failures in 110,428 ms. Patch/new-file coverage passed against fe7be0bbe. Receipts: /tmp/factory-platform-evidence/root-private-validator-dispatch-merge-combined-integration-results.json and root-private-validator-dispatch-merge-coverage-results.json. These results close this integration batch. The subsequent real partition-start test exposed a command-count defect now being fixed in the root side worktree; full startup, end-to-end journeys, soak, and all platform launch gates remain open.
+## Durable partition command delivery — root
+
+Plan review: send only exact committed partition notifications and invalidations through the existing transactional inbox/outbox. Keep the source event clock stable across retries; accept a completed source only for its still-current compiled edge and terminal generation. The destination can be unstarted. Reuse the shared command authority reader; the Sol control leaf owns that reader extension.
+
+- [ ] Reproduce the missing product notification boundary with published partitioned plans.
+- [ ] Add the bounded effect adapter over current command authority and the existing inbox.
+- [ ] Prove duplicate/harmless-progress delivery, completed-source delivery, repair invalidation, foreign scope, tamper, and rollback.
+- [ ] Pass PGlite, real PostgreSQL/S3, Node transport, changed-source coverage, types, lint, and parent integration.
+
+Partition delivery reproduction exposed a prior integration defect: the product command index rejected a valid published partition start because its batch contained more than 32 commands. C08 limits simultaneous activities to 32 and the whole batch to 512 KiB. The root correction preserves byte limits and unique bounded command identities; validation is pending. The original failed receipt is /tmp/factory-platform-evidence/root-partition-delivery-red.log.
+
+Partition batch correction review: 60 focused product/artifact/private-service tests passed with 744 assertions. PostgreSQL/S3 plus schema passed 49 tests / 2,769 assertions. SDK build, all four type checks, lint, boundaries, and gate integrity passed. Exact source snapshot and receipts are /tmp/factory-platform-evidence/root-partition-batch-correction-source.json and root-partition-batch-correction-integration-results.json. This corrects command persistence only; the original partition effect test is retained separately for the following adapter leaf.

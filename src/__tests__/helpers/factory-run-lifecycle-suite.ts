@@ -1434,4 +1434,35 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await Promise.all(directories.map(directory => rm(directory, { recursive: true, force: true })));
     }
   });
+
+  test("a published partition persists its full bounded command batch above the activity concurrency limit", async () => {
+    const definitionKey = { projectId, factoryId: "partition-delivery-factory" };
+    const prototype = referenceCodeV1.graph.nodes.find(node => node.kind === "task");
+    if (prototype?.kind !== "task") throw new Error("missing task fixture");
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts: {}, outputPorts: {},
+      bounds: { ...referenceCodeV1.bounds, maxExpandedNodes: 512 },
+      graph: { nodes: [
+        { id: "a", kind: "join", mode: "all", predecessors: [] },
+        ...Array.from({ length: 130 }, (_, index) => ({ id: `slow-${String(index).padStart(3, "0")}`, kind: "task" as const, runner: prototype.runner })),
+        { id: "z", kind: "join", mode: "all", predecessors: ["a"] },
+      ], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "partition-delivery-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "partition-delivery-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: {} };
+    const run = await startRun(principal, definitionKey, request, 0, "partition-delivery-start");
+    const current = await committedInterpreter(run.runId, definitionKey, request);
+    const sourcePartition = current.compiled.partitions.find(partition => partition.nodeIds.includes("a"))!;
+    const targetPartition = current.compiled.partitions.find(partition => partition.nodeIds.includes("z"))!;
+    expect(sourcePartition.id).not.toBe(targetPartition.id);
+    const identity = { ...current.identity, interpreterId: sourcePartition.id };
+    const initial = createPartitionKernelState(current.compiled, sourcePartition.id, run.runId, {}, now);
+    const first = advanceKernel(current.compiled, initial, current.event);
+    const command = first.commands.find(value => value.kind === "notify-partition");
+    if (command?.kind !== "notify-partition") throw new Error("missing partition notification");
+    await persistTransition(identity, 1, current.event, first.nextState, first.commands, undefined, current.activities);
+    expect(first.commands.length).toBeGreaterThan(32);
+    const indexed = rows(await fixture.db.execute(sql`SELECT command_id FROM factory_transition_commands WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${sourcePartition.id}`));
+    expect(indexed).toHaveLength(first.commands.length);
+    for (const command of [first.commands[0]!, first.commands.at(-1)!]) expect(await current.transitions.loadStoredCommand({ ...identity, commandId: command.id })).toEqual(command);
+  });
 }
