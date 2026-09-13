@@ -69,7 +69,7 @@ vi.mock("$server/db/queries/sessions", async (importActual) => {
   };
 });
 
-import { signJWT, verifyJWT } from "$server/auth/jwt";
+import { signJWT, verifyJWT, signInstallationToken } from "$server/auth/jwt";
 import { hashToken, rotateSessionToken, lookupSessionByTokenHash } from "$server/db/queries/sessions";
 const { handle, __sessionRefreshConfig } = await import("../hooks.server");
 const { REFRESH_AFTER_SECONDS, NEW_LIFETIME_SECONDS } = __sessionRefreshConfig;
@@ -111,37 +111,18 @@ function makeEvent(opts: { cookie: string; path?: string }) {
   };
 }
 
-// Mint a real, signed JWT with a backdated iat. The signJWT API computes
-// `exp = iat + expiresInSeconds` and uses Date.now() for iat — so to
-// manufacture a stale iat we have to bypass the helper and sign manually.
+// Mint a real, signed JWT with a backdated iat. signJWT always stamps
+// iat = Date.now(), so a stale token is signed through the same
+// installation-bound envelope (iss/aud) that verifyJWT enforces; a token
+// without those claims is rejected as foreign and never reaches the
+// sliding-refresh path this file exercises.
 async function mintBackdatedJWT(iatSecondsAgo: number): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const iat = now - iatSecondsAgo;
-  // Use signJWT with a positive expiresInSeconds so exp is in the future,
-  // then rewrite the iat by re-signing the modified payload manually.
-  // Easier path: just call signJWT with a very long lifetime, decode iat
-  // off the result, and time-travel later. But we need iat to actually
-  // be in the past. Build the JWT inline using the same primitives.
-  const header = { alg: "HS256", typ: "JWT" };
-  const payload = {
-    ...IDENTITY,
-    iat,
-    exp: iat + 30 * 24 * 3600, // still in the future even with backdate
-  };
-  const encoder = new TextEncoder();
-  const b64url = (data: Uint8Array): string => {
-    let bin = "";
-    for (let i = 0; i < data.length; i++) bin += String.fromCharCode(data[i]!);
-    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  };
-  const headerB64 = b64url(encoder.encode(JSON.stringify(header)));
-  const payloadB64 = b64url(encoder.encode(JSON.stringify(payload)));
-  const signingInput = `${headerB64}.${payloadB64}`;
-  const key = await crypto.subtle.importKey(
-    "raw", encoder.encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+  return signInstallationToken(
+    { ...IDENTITY, iat, exp: iat + 30 * 24 * 3600 }, // exp stays in the future despite the backdate
+    SECRET,
   );
-  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(signingInput));
-  return `${signingInput}.${b64url(new Uint8Array(sig))}`;
 }
 
 describe("hooks.server.ts — E2E sliding refresh (real crypto)", () => {
