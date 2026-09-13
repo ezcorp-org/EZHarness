@@ -19,7 +19,7 @@ function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { read
     inputPorts, outputPorts: {}, graph: { nodes: nodes.map(normalize), outputs: {} },
     acceptance: referenceCodeV1.acceptance,
     packages: [{ name: runner.package, version: runner.version, digest }, ...referenceCodeV1.packages],
-    capabilities: [], effects: ["none"], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16 },
+    capabilities: [], effects: [...new Set(["none", ...nodes.flatMap((node) => node.effects ?? [])])], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16 },
   };
   const result = compileFactory(definition);
   if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(", "));
@@ -222,6 +222,44 @@ describe("factory kernel", () => {
     expect(repair.commands).toEqual([]);
     expect(repair.nextState.nodes.map?.candidateGeneration).toBe(0);
     expect(repair.nextState.nodes.map?.map?.completedIndexes).toEqual([0]);
+  });
+
+  test("does not replay an evicted map item after its release effect started", () => {
+    const work = { id: "work", kind: "task" as const, runner };
+    const acceptance = {
+      id: "accept", kind: "acceptance" as const, dependsOn: ["work"], contract: referenceCodeV1.acceptance.id,
+      candidate: { kind: "literal" as const, value: {} }, evidence: { kind: "literal" as const, value: {} },
+      outputPorts: { acceptedCandidate: { type: "object" as const, additionalProperties: true } },
+    };
+    const release = {
+      id: "publish", kind: "release" as const, dependsOn: ["accept"], adapter: runner,
+      acceptedCandidate: { kind: "ref" as const, root: "node" as const, name: "accept", path: ["acceptedCandidate"] },
+      destination: { kind: "literal" as const, value: {} }, effects: ["publish"],
+    };
+    const map = {
+      id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one"] }, itemSchema: { type: "string" as const },
+      body: { nodes: [work, acceptance, release], outputs: {} }, mode: "all" as const, maxItems: 1, maxConcurrency: 1, effects: ["publish"],
+    };
+    const graph = compiled([map, { id: "hold", kind: "task", runner }], {});
+    const started = advanceKernel(graph, createKernelState(graph, "protected-release-map", {}, 0), event("start", { kind: "start" }));
+    const admission = started.commands.find((command) => command.kind === "request-admission" && command.nodeId === "map/items/0/work")!;
+    const admitted = advanceKernel(graph, started.nextState, event("admitted", { kind: "admission-result", nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: admission.candidateGeneration, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const worked = advanceKernel(graph, admitted.nextState, event("worked", { kind: "node-result", nodeId: dispatch.nodeId, commandId: dispatch.id, candidateGeneration: dispatch.candidateGeneration, attempt: dispatch.attempt, output: {} }));
+    const accept = worked.commands.find((command) => command.kind === "request-acceptance")!;
+    const accepted = advanceKernel(graph, worked.nextState, event("accepted", { kind: "node-result", nodeId: accept.nodeId, commandId: accept.id, candidateGeneration: accept.candidateGeneration, attempt: 1, output: { acceptedCandidate: {} } }));
+    const publish = accepted.commands.find((command) => command.kind === "request-release")!;
+    const published = advanceKernel(graph, accepted.nextState, event("published", { kind: "node-result", nodeId: publish.nodeId, commandId: publish.id, candidateGeneration: publish.candidateGeneration, attempt: 1, output: {} }));
+    expect(published.nextState.status).toBe("running");
+    expect(Object.keys(published.nextState.nodes).sort()).toEqual(["hold", "map"]);
+    expect(published.nextState.nodes.map?.map?.protectedEffectStarted).toBe(true);
+    const childRepair = advanceKernel(graph, published.nextState, event("repair-work", { kind: "repair", nodeId: "map/items/0/work", reason: "must not republish" }));
+    expect(childRepair.commands).toEqual([]);
+    expect(childRepair.nextState.nodes.map?.candidateGeneration).toBe(0);
+    const parentRepair = advanceKernel(graph, childRepair.nextState, event("repair-map", { kind: "repair", nodeId: "map", reason: "must not republish" }));
+    expect(parentRepair.commands).toEqual([]);
+    expect(parentRepair.nextState.nodes.map?.candidateGeneration).toBe(0);
+    expect(parentRepair.nextState.nodes.map?.map?.completedIndexes).toEqual([0]);
   });
 
   test("completes 9,999 immediate nested controls without retaining scopes or recursing", () => {

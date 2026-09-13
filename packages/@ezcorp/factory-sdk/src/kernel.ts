@@ -472,7 +472,8 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
     queue.push(...localSuccessors(id));
     for (const childId of Object.keys(state.nodes)) if (childId.startsWith(`${id}/`)) queue.push(childId);
   }
-  const releaseStarted = [...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length);
+  const releaseStarted = [...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)
+    || [event.nodeId, ...aggregateIds].some(id => state.nodes[id]?.map?.protectedEffectStarted);
   const uncertain = [...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain));
   if (!allowProtected && (releaseStarted || uncertain)) return state;
   const priorRepair = state.pendingRepair;
@@ -1000,7 +1001,9 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
     ...parent.map.outcomes,
     [String(item)]: failed ? { error: state.nodes[failed]!.error ?? "MAP_ITEM_FAILED" } : graphValues(parentNode.body, state, prefix),
   };
-  const map = { ...parent.map, outcomes, completedIndexes: failed ? parent.map.completedIndexes : parent.map.completedIndexes.concat(item), failedIndexes: failed ? parent.map.failedIndexes.concat(item) : parent.map.failedIndexes };
+  const protectedEffectStarted = parent.map.protectedEffectStarted
+    || Object.entries(state.nodes).some(([id, runtime]) => id.startsWith(prefix) && nodeFor(factory, id)?.kind === "release" && runtime.attempts.length > 0);
+  const map = { ...parent.map, outcomes, completedIndexes: failed ? parent.map.completedIndexes : parent.map.completedIndexes.concat(item), failedIndexes: failed ? parent.map.failedIndexes.concat(item) : parent.map.failedIndexes, ...(protectedEffectStarted ? { protectedEffectStarted: true } : {}) };
   const nodes = { ...state.nodes };
   for (const id of Object.keys(nodes)) if (id.startsWith(prefix)) delete nodes[id];
   const scopes = { ...state.scopes };
