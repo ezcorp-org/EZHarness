@@ -8,7 +8,7 @@ import { closeTestDb, mockDbConnection, setupTestDb } from "../../__tests__/help
 import { createProject } from "../../db/queries/projects";
 import { createConversation } from "../../db/queries/conversations";
 import type { AgentEvents } from "../../types";
-import { nativeFactoryJournal, runNativeFactoryRunner } from "./native";
+import { factoryRunnerRequestDigest, nativeFactoryJournal, runNativeFactoryRunner } from "./native";
 
 mockDbConnection();
 let conversationId = "";
@@ -33,7 +33,7 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
   const events: string[] = [];
   const model = { id: "model", provider: "broker", api: "pi-messages", contextWindow: 100, maxTokens: 10, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } } as unknown as Model<any>;
   const execution: FactoryExecutionContext = {
-    attempt: { attemptToken: "attempt-token", runId: "run", nodeInstanceId: "node", candidateGeneration: 0, cancellationEpoch: 0, nextOperationIndex: 5 }, model,
+    attempt: { attemptToken: "attempt-token", requestDigest: factoryRunnerRequestDigest(request), runId: "run", nodeInstanceId: "node", candidateGeneration: 0, cancellationEpoch: 0, nextOperationIndex: 5 }, model,
     broker: { stream: async brokerRequest => {
       events.push(`broker:${brokerRequest.operation.operationId}`);
       return { async *[Symbol.asyncIterator]() {}, async result() { return { content: [{ type: "text", text: "done" }], model: "model", provider: "broker", stopReason: "stop", usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }; } } as unknown as AssistantMessageEventStream;
@@ -57,6 +57,7 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
     executor: { executeFactoryAttempt: async () => { throw new Error("must not execute forged request"); } }, journal: { operations: async () => [operation], journalCursor: async () => 5, usage: async () => operation.usage! },
     artifacts: { output: async () => ({ artifactId: "output", digest: pinned, encodedBytes: 4 }), checkpoint: async () => checkpoint },
   })).rejects.toThrow("does not match the signed runner request");
+  await expect(runNativeFactoryRunner({ ...request, input: { kind: "inline", value: { prompt: "forged" } } }, { ...options, executor: { executeFactoryAttempt: async () => { throw new Error("must not execute changed request"); } } })).rejects.toThrow("does not match the signed runner request");
   await expect(runNativeFactoryRunner({}, {} as any)).rejects.toThrow("RUNNER_REQUEST_SCHEMA");
 });
 

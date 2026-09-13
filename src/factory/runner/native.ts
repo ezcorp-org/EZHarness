@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalJson } from "@ezcorp/extension-contract";
 import type { AgentRun } from "../../types";
 import type { FactoryArtifactReference, FactoryCheckpointReference, FactoryRunnerOperationResult, FactoryRunnerRequest, FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
@@ -15,6 +16,12 @@ export interface NativeFactoryJournal {
 export interface NativeFactoryArtifacts {
   output(request: FactoryRunnerRequest, run: AgentRun): Promise<FactoryArtifactReference>;
   checkpoint(request: FactoryRunnerRequest, run: AgentRun): Promise<FactoryCheckpointReference>;
+}
+
+/** Immutable attempt identity: excludes only the short-lived bearer token. */
+export function factoryRunnerRequestDigest(request: FactoryRunnerRequest): string {
+  const { attemptToken: _attemptToken, ...broker } = request.broker;
+  return createHash("sha256").update(canonicalJson({ ...request, broker })).digest("hex");
 }
 
 /** Bind the native entrypoint to the read-only durable C02 journal. */
@@ -64,7 +71,8 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
   requireValid(validateFactoryRunnerRequest(value), "Factory runner request");
   const request = value as FactoryRunnerRequest;
   const execution = options.execution(request);
-  if (execution.attempt.attemptToken !== request.broker.attemptToken
+  if (execution.attempt.requestDigest !== factoryRunnerRequestDigest(request)
+    || execution.attempt.attemptToken !== request.broker.attemptToken
     || execution.attempt.runId !== request.authority.runId
     || execution.attempt.nodeInstanceId !== request.authority.nodeInstanceId
     || execution.attempt.candidateGeneration !== request.authority.candidateGeneration
