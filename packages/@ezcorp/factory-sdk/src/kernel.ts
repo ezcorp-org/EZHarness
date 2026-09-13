@@ -313,8 +313,9 @@ function completePendingRepair(factory: CompiledFactory, state: KernelState, com
   let next = state;
   for (const id of repair.nodeIds) {
     const previous = state.nodes[id]!;
+    const replacedScope = repair.nodeIds.some(parentId => id.startsWith(`${parentId}/`));
     next = withNode(next, id, {
-      ...newCandidate(previous), status: id === repair.rootNodeId ? "ready" : "blocked",
+      ...newCandidate(previous), status: id === repair.rootNodeId ? "ready" : replacedScope ? "cancelled" : "blocked", discarded: replacedScope,
     });
   }
   for (const id of repair.aggregateIds) {
@@ -788,7 +789,7 @@ function instantiateScope(factory: CompiledFactory, state: KernelState, parentNo
   const roots: string[] = [];
   for (const prefix of prefixes) for (const child of graph.nodes) {
     const id = `${prefix}/${child.id}`;
-    nodes[id] = Object.hasOwn(nodes, id) ? { ...nodes[id]!, status: "blocked" } : { status: "blocked", candidateGeneration: 0, nextAttempt: 1, attempts: [] };
+    nodes[id] = Object.hasOwn(nodes, id) ? { ...nodes[id]!, status: "blocked", discarded: false } : { status: "blocked", candidateGeneration: 0, nextAttempt: 1, attempts: [] };
     nodeIds.push(id);
     if ((child.dependsOn?.length ?? 0) === 0) roots.push(id);
   }
