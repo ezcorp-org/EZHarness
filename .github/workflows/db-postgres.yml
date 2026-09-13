@@ -134,6 +134,7 @@ jobs:
           FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000
           --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage
           ./tests/postgres/factory-artifacts.test.ts
+          ./tests/postgres/factory-artifact-access.test.ts
           ./tests/postgres/factory-run-lifecycle-s3.test.ts
           ./tests/postgres/factory-definitions.test.ts
           ./tests/postgres/factory-private-service.test.ts

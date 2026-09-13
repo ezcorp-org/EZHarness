@@ -449,3 +449,5 @@
 - A real PostgreSQL proof must use the shared per-test database helper and `FACTORY_TEST_POSTGRES_URL`. Never point a release test at the shared application `DATABASE_URL`.
 - Candidate authority must originate from an authenticated terminal journal fact and verified stored output bytes. Do not derive it from a caller digest, a latest acceptance row, or an allow-all reader.
 - A candidate artifact slot needs its own node-instance and generation columns. Do not reuse interpreter identity or transition sequence fields for candidate identity.
+
+- In tool orchestration, check each shell exit code before dependent staging or commit calls. A failed conflict-resolution script must stop the sequence.
