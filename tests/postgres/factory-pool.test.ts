@@ -1,10 +1,23 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { SQL } from "bun";
-import { FactoryPoolLedger, setupFactoryPoolLedger, type PoolClock, type PoolLease, type PoolRequest } from "../../src/factory/pool";
+import { PGlite } from "@electric-sql/pglite";
+import { FactoryPoolLedger, setupFactoryPoolLedger, type PoolClock, type PoolLease, type PoolRequest, type PoolSql } from "../../src/factory/pool";
 
 const url = process.env.FACTORY_TEST_POSTGRES_URL;
-if (!url) throw new Error("FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL pool-ledger conformance.");
+const engine = process.env.FACTORY_POOL_ENGINE ?? "postgres";
+if (engine !== "pglite" && !url) throw new Error("FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL pool-ledger conformance.");
+
+function pgliteTransactionSql(transaction: { query(query: string, params?: unknown[]): Promise<unknown> }): PoolSql {
+  return { unsafe: (query, params) => transaction.query(query, params as unknown[] | undefined), begin: async () => { throw new Error("Nested pool transactions are unsupported."); } };
+}
+
+function pgliteSql(database: PGlite): PoolSql {
+  return {
+    unsafe: (query, params) => database.query(query, params as unknown[] | undefined),
+    begin: async <Result>(work: (transaction: PoolSql) => Promise<Result>) => database.transaction(async (transaction) => work(pgliteTransactionSql(transaction))),
+  };
+}
 
 class FixedClock implements PoolClock {
   constructor(private value: Date) {}
@@ -40,11 +53,20 @@ async function admitted(pool: FactoryPoolLedger): Promise<PoolLease> {
 describe("factory C03 pool admission ledger on real PostgreSQL", () => {
   let admin: SQL;
   let client: SQL;
+  let embedded: PGlite | undefined;
+  let poolDatabase: PoolSql;
   let databaseName: string;
   let clock: FixedClock;
   let pool: FactoryPoolLedger;
 
   beforeAll(async () => {
+    if (engine === "pglite") {
+      embedded = new PGlite();
+      await embedded.waitReady;
+      poolDatabase = pgliteSql(embedded);
+      await setupFactoryPoolLedger(poolDatabase);
+      return;
+    }
     admin = new SQL(url!, { max: 1 });
     databaseName = `factory_pool_${randomUUID().replaceAll("-", "")}`;
     await admin.unsafe(`CREATE DATABASE "${databaseName}"`);
@@ -52,18 +74,22 @@ describe("factory C03 pool admission ledger on real PostgreSQL", () => {
     isolated.pathname = `/${databaseName}`;
     client = new SQL(isolated.toString(), { max: 12 });
     await setupFactoryPoolLedger(client);
+    poolDatabase = client;
   });
 
   beforeEach(async () => {
-    await client.unsafe("TRUNCATE factory_pool_round_members, factory_pool_tenant_minima, factory_pool_requests, factory_pool_hosts, factory_pool_tenants, factory_pool_resources");
+    await poolDatabase.unsafe("TRUNCATE factory_pool_round_members, factory_pool_tenant_minima, factory_pool_requests, factory_pool_hosts, factory_pool_tenants, factory_pool_resources");
     clock = new FixedClock(new Date("2026-09-12T12:00:00.000Z"));
-    pool = new FactoryPoolLedger(client, clock);
+    pool = new FactoryPoolLedger(poolDatabase, clock);
   });
 
   afterAll(async () => {
-    await client?.close();
-    if (databaseName) await admin.unsafe(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
-    await admin?.close();
+    if (embedded) await embedded.close();
+    else {
+      await client?.close();
+      if (databaseName) await admin.unsafe(`DROP DATABASE "${databaseName}" WITH (FORCE)`);
+      await admin?.close();
+    }
   });
 
   test("durably queues an opaque request and replays a lost acquire response without a second allocation", async () => {
@@ -122,7 +148,7 @@ describe("factory C03 pool admission ledger on real PostgreSQL", () => {
     await pool.request(request("cpu-tenant-provider", "tenant-cpu", { provider: 1 }, clock));
     await pool.request(request("provider-tenant-provider", "tenant-provider", { provider: 1 }, clock));
     // Begin the next provider round. Existing CPU service must not count as provider service.
-    await client.unsafe("DELETE FROM factory_pool_round_members");
+    await poolDatabase.unsafe("DELETE FROM factory_pool_round_members");
     expect(await pool.schedule()).toMatchObject({ status: "admitted", reservationId: "cpu-tenant-provider" });
   });
 
