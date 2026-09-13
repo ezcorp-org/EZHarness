@@ -2907,3 +2907,20 @@ export const {
   factoryExecutionOperationCursors,
   factoryExecutionOperations,
 } = buildFactorySchema({ projects, users });
+/** Host-issued references for Factory ordinary object storage. */
+export const factoryArtifacts = pgTable("factory_artifacts", {
+  objectId: text("object_id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  projectId: text("project_id").notNull(),
+  runId: text("run_id").notNull(),
+  interpreterId: text("interpreter_id"),
+  kind: text("kind").notNull(),
+  definitionDigest: text("definition_digest"),
+  sourceSequence: bigint("source_sequence", { mode: "number" }),
+  pageIndex: integer("page_index"),
+  digest: text("digest").notNull(),
+  blobDigest: text("blob_digest").notNull(),
+  storageVersion: text("storage_version").notNull(),
+  encodedBytes: integer("encoded_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

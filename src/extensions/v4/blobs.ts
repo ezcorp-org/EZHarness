@@ -197,6 +197,13 @@ export class S3BlobStore implements BlobStore {
     return this.getS3Object(digest, versionId);
   }
 
+  /** The immutable S3 version that was current after a successful put. */
+  async version(digest: string): Promise<string> {
+    const result = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: this.key(digest) }));
+    if (!result.VersionId) throw new LifecycleError("artifact_corrupt", "S3 did not return an immutable object version.");
+    return result.VersionId;
+  }
+
   async checksum(digest: string): Promise<string | undefined> {
     const result = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: this.key(digest), ChecksumMode: "ENABLED" }));
     return result.ChecksumSHA256;

@@ -51,7 +51,7 @@ class MemoryS3 {
       }
       return { Body: { async transformToByteArray() { return result; } }, ContentLength: this.contentLength ?? result.byteLength };
     }
-    if (command instanceof HeadObjectCommand) return { ChecksumSHA256: "checksum" };
+    if (command instanceof HeadObjectCommand) return { ChecksumSHA256: "checksum", VersionId: "v1" };
     throw new Error("Unexpected S3 command");
   }
 }
@@ -72,6 +72,7 @@ test("S3 blobs use a bounded prefix and conditional content address", async () =
   expect(client.objects.get(s3ObjectKey("ordinary/releases", digest))).toEqual(bytes);
   expect(await blobs.get(digest)).toEqual(bytes);
   expect(await blobs.checksum(digest)).toBe("checksum");
+  expect(await blobs.version(digest)).toBe("v1");
 
   client.conflictOnce = true;
   expect(await blobs.put(bytes)).toBe(digest);

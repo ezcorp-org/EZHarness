@@ -73,3 +73,34 @@
   CHECK: FACTORY_TEST_POSTGRES_URL=... bun test ./tests/postgres/factory-executions.test.ts
   EXPECT: pass
   EVIDENCE: pinned Bun real PostgreSQL journal test passed. Its project UPDATE barrier held both cancellation and dispatch until release; both requests then settled without deadlock. Combined journal LCOV was 202/202.
+# Factory artifact storage gates
+
+- [x] A1 Host-issued database references bind every artifact to tenant, project, and logical run; callers cannot authorize a read with a guessed digest.
+  CHECK: bun test --timeout 30000 ./src/factory/artifacts.integration.test.ts
+  EXPECT: pass
+  EVIDENCE: 2026-09-13 focused PGlite test: pass
+
+- [x] A2 Canonical compiled definitions stage as <=32 KiB pages and load through the real Node orchestrator readers.
+  CHECK: bun test --timeout 30000 ./src/factory/artifacts.integration.test.ts
+  EXPECT: pass
+  EVIDENCE: 2026-09-13 focused PGlite test: pass, including a 512-page linked manifest
+
+- [x] A3 Transition finalization verifies identity, canonical bytes, page indexes, totals, and event digest before an audit record can commit.
+  CHECK: bun test --timeout 30000 ./src/factory/artifacts.integration.test.ts
+  EXPECT: pass
+  EVIDENCE: 2026-09-13 focused PGlite test: pass
+
+- [x] A4 PostgreSQL and local ordinary S3 retain the scoped bytes across response loss and reject foreign, changed-byte, and changed-version reads.
+  CHECK: FACTORY_TEST_POSTGRES_URL=... bun test --timeout 120000 ./tests/postgres/factory-artifacts.test.ts
+  EXPECT: pass
+  EVIDENCE: 2026-09-13 real PostgreSQL and local ordinary S3: pass
+
+- [x] A5 Changed artifact source is 100% measured and project typecheck and lint pass.
+  CHECK: bun run typecheck && bun run lint
+  EXPECT: exit 0
+  EVIDENCE: 2026-09-13 focused LCOV: 100% lines for artifacts, definitions, transitions, activities, and migration; scoped TypeScript diagnostics and Biome pass.
+
+- [ ] E1 Envelope encryption and per-tenant key hierarchy are a required follow-up leaf. Shared BlobStore/S3BlobStore has no encryption/key-provider capability, so this leaf uses the existing storage service and makes no encryption claim.
+  CHECK: dedicated C06 key hierarchy implementation and local restore proof
+  EXPECT: pass
+  EVIDENCE: pending ownership from root
