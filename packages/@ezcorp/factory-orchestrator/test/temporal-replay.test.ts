@@ -128,6 +128,15 @@ async function assertClosedReceipt(handle) {
   assert.equal(description.raw.pendingChildren?.length ?? 0, 0);
 }
 
+async function waitForContinuedRun(handle, previousRunId) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const runId = (await handle.describe()).runId;
+    if (runId !== previousRunId) return runId;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`workflow did not continue from run ${previousRunId}`);
+}
+
 async function waitForActivityCancellation(started) {
   started?.();
   const context = Context.current();
@@ -573,7 +582,7 @@ describe("factory Temporal workflow", () => {
     });
   });
 
-  it("persists ordered approval inbox positions across continuation and accepts cancellation after it", async () => {
+  it("persists ordered approval inbox positions across repeated continuations and accepts cancellation after them", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const approval = { id: "approval", kind: "approval", choices: ["approve"], context: { kind: "literal", value: null }, actorScope: "owner", expiresInMs: 60_000, onDenied: "fail", onExpired: "fail" };
     const gatedTask = { ...node, id: "after-approval", dependsOn: ["approval"] };
@@ -608,12 +617,17 @@ describe("factory Temporal workflow", () => {
       });
       const firstRunId = (await handle.describe()).runId;
       const repair = { kind: "repair", id: "repair-before-continuation", atMs: startedAtMs + 1, nodeId: "approval", reason: "ignored while waiting" };
-      const decision = { kind: "approval-decided", id: "approval-during-continuation", atMs: startedAtMs + 2, nodeId: "approval", commandId: approvalCommand.id, choice: "approve" };
       await handle.signal("factoryInbox", { sequence: 1, eventId: repair.id, eventHash: eventHash(repair), event: repair });
-      await handle.signal("factoryInbox", { sequence: 2, eventId: decision.id, eventHash: eventHash(decision), event: decision });
+      const secondRunId = await waitForContinuedRun(handle, firstRunId);
+      for (let sequence = 2; sequence <= 65; sequence += 1) {
+        const ignored = { kind: "repair", id: `repair-before-second-continuation-${sequence}`, atMs: startedAtMs + sequence, nodeId: "approval", reason: "ignored while waiting" };
+        await handle.signal("factoryInbox", { sequence, eventId: ignored.id, eventHash: eventHash(ignored), event: ignored });
+      }
+      const decision = { kind: "approval-decided", id: "approval-during-second-continuation", atMs: startedAtMs + 66, nodeId: "approval", commandId: approvalCommand.id, choice: "approve" };
+      await handle.signal("factoryInbox", { sequence: 66, eventId: decision.id, eventHash: eventHash(decision), event: decision });
       await taskIsRunning;
       const current = environment.client.workflow.getHandle(workflowId);
-      assert.notEqual((await current.describe()).runId, firstRunId);
+      assert.notEqual((await current.describe()).runId, secondRunId);
       const forged = {
         commandId: "forged-decision",
         requestId: "forged-decision",
@@ -623,13 +637,13 @@ describe("factory Temporal workflow", () => {
         workflowId,
         kind: "decision",
         eventId: "forged-at-acknowledged-sequence",
-        eventSequence: 2,
+        eventSequence: 66,
         eventHash: hash("forged-at-acknowledged-sequence"),
         body: { kind: "cancel", id: "forged-at-acknowledged-sequence", atMs: Date.now(), reason: "must not match" },
       };
       assert.equal(await reconcileFactoryCommand(environment.client, forged, { confirmInboxIdentity: async () => false }), "outcome_unknown");
       const cancel = { kind: "cancel", id: "cancel-after-continuation", atMs: Date.now(), reason: "requested" };
-      await current.signal("factoryInbox", { sequence: 3, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
+      await current.signal("factoryInbox", { sequence: 67, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
       const result = await handle.result();
       assert.equal(result.status, "cancelled");
       await assertClosedReceipt(current);
