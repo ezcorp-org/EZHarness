@@ -8,6 +8,7 @@ import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { FactoryAttemptQueue } from "../../factory/attempt-queue";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FactoryGrantError } from "../../factory/grants";
+import type { TrustedFactoryCommandReference } from "../../factory/trusted-command-gateway";
 
 export interface AttemptQueueFixture { readonly db: MigrateDb & TransactionalDb; readonly migrated?: boolean; close(): Promise<void> }
 
@@ -28,6 +29,10 @@ export async function verifyFactoryAttemptQueue(createFixture: () => Promise<Att
     return { ...authority, requestDigest: factoryRunnerRequestDigest(request), request };
   }
 
+  function command(attemptId: string): TrustedFactoryCommandReference {
+    return { tenantId: "attempt-tenant", projectId: "attempt-project", logicalRunId: "attempt-run", interpreterId: "partition-1", commandId: attemptId };
+  }
+
   try {
     if (!fixture.migrated) await migrate(fixture.db);
     await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES ('attempt-project','Attempts','/tmp/attempts')`);
@@ -42,30 +47,37 @@ export async function verifyFactoryAttemptQueue(createFixture: () => Promise<Att
 
     const rollback = admission("rollback-attempt", { immutable: true });
     await expect(fixture.db.transaction(async transaction => {
-      await queue.enqueueInTransaction(transaction, rollback);
+      await queue.enqueueInTransaction(transaction, rollback, command(rollback.attemptId));
       throw new Error("attempt enqueue failed");
     })).rejects.toThrow("attempt enqueue failed");
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${rollback.attemptId}`))).toHaveLength(0);
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE attempt_id=${rollback.attemptId}`))).toHaveLength(0);
     const failedQueueInsert = admission("failed-queue-insert");
-    await expect(new FactoryAttemptQueue(fixture.db, journal, "attempt-tenant", () => -1).enqueue(failedQueueInsert)).rejects.toThrow();
+    await expect(new FactoryAttemptQueue(fixture.db, journal, "attempt-tenant", () => -1).enqueue(failedQueueInsert, command(failedQueueInsert.attemptId))).rejects.toThrow();
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${failedQueueInsert.attemptId}`))).toHaveLength(0);
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE attempt_id=${failedQueueInsert.attemptId}`))).toHaveLength(0);
-    expect((await queue.enqueue(rollback)).state).toBe("queued");
+    expect((await queue.enqueue(rollback, command(rollback.attemptId))).state).toBe("queued");
     const retry = { ...rollback, request: { ...rollback.request, broker: { ...rollback.request.broker, attemptToken: "fresh-token" } } };
-    expect((await queue.enqueue(retry)).id).toBe(rollback.attemptId);
+    expect((await queue.enqueue(retry, command(retry.attemptId))).id).toBe(rollback.attemptId);
     const changedRequest = runnerRequest(rollback, { immutable: false });
-    await expect(queue.enqueue({ ...rollback, request: changedRequest, requestDigest: factoryRunnerRequestDigest(changedRequest) })).rejects.toThrow("conflicts with a different canonical request");
+    await expect(queue.enqueue({ ...rollback, request: changedRequest, requestDigest: factoryRunnerRequestDigest(changedRequest) }, command(rollback.attemptId))).rejects.toThrow("conflicts with a different canonical request");
+    for (const changed of [
+      { tenantId: "other-tenant" }, { projectId: "other-project" }, { logicalRunId: "other-run" }, { commandId: "other-command" },
+    ]) {
+      await expect(queue.enqueue(rollback, { ...command(rollback.attemptId), ...changed })).rejects.toMatchObject({ code: "factory_attempt_binding_invalid" });
+    }
+    await expect(queue.enqueue(rollback, { ...command(rollback.attemptId), interpreterId: "" })).rejects.toMatchObject({ code: "factory_attempt_identity_invalid" });
     const stored = rows<{ reference: string }>(await fixture.db.execute(sql`SELECT reference_json::text AS reference FROM factory_attempt_queue WHERE attempt_id=${rollback.attemptId}`))[0]?.reference ?? "";
     expect(stored).not.toContain("fresh-token");
     expect(stored).not.toContain("immutable");
+    expect(JSON.parse(stored).command).toEqual(command(rollback.attemptId));
     const admitted = await queue.claim();
     expect(admitted?.delivery.id).toBe(rollback.attemptId);
     if (!admitted) throw new Error("Expected the admitted rollback attempt.");
     await queue.settle(admitted, "delivered");
 
     const concurrent = admission("concurrent-attempt", { stable: [2, 1] });
-    await queue.enqueue(concurrent);
+    await queue.enqueue(concurrent, command(concurrent.attemptId));
     const claims = await Promise.all([queue.claim(100), queue.claim(100)]);
     const claim = claims.find(value => value !== null);
     expect(claims.filter(value => value !== null)).toHaveLength(1);
@@ -80,12 +92,24 @@ export async function verifyFactoryAttemptQueue(createFixture: () => Promise<Att
     if (!retried) throw new Error("Expected the known pre-execution retry.");
     expect((await queue.settle(retried, "delivered")).state).toBe("delivered");
 
+    const atomic = admission("atomic-settlement");
+    await queue.enqueue(atomic, command(atomic.attemptId));
+    const atomicClaim = await queue.claim(100);
+    expect(atomicClaim?.delivery.id).toBe(atomic.attemptId);
+    if (!atomicClaim) throw new Error("Expected the transactionally settled attempt.");
+    await expect(fixture.db.transaction(async transaction => {
+      await queue.settleInTransaction(transaction, atomicClaim, "delivered");
+      throw new Error("completion transaction failed");
+    })).rejects.toThrow("completion transaction failed");
+    expect(await queue.read("attempt-project", atomic.attemptId)).toMatchObject({ state: "leased" });
+    expect((await queue.settle(atomicClaim, "delivered")).state).toBe("delivered");
+
     const expired = admission("a-expired-attempt");
     const healthyAfterExpiry = admission("z-healthy-after-expiry");
-    await queue.enqueue(expired);
+    await queue.enqueue(expired, command(expired.attemptId));
     const original = await queue.claim(100);
     expect(original?.delivery.id).toBe(expired.attemptId);
-    await queue.enqueue(healthyAfterExpiry);
+    await queue.enqueue(healthyAfterExpiry, command(healthyAfterExpiry.attemptId));
     now += 101;
     const restarted = new FactoryAttemptQueue(fixture.db, journal, "attempt-tenant", () => now);
     const next = await restarted.claim(100);
@@ -99,7 +123,7 @@ export async function verifyFactoryAttemptQueue(createFixture: () => Promise<Att
     const denied = admission("b-revoked-attempt");
     const cancelled = admission("c-cancelled-attempt");
     const healthy = admission("z-healthy-attempt");
-    for (const input of [corrupt, denied, cancelled, healthy]) await queue.enqueue(input);
+    for (const input of [corrupt, denied, cancelled, healthy]) await queue.enqueue(input, command(input.attemptId));
     await fixture.db.execute(sql`UPDATE factory_attempt_queue SET reference_json='{}'::jsonb WHERE attempt_id=${corrupt.attemptId}`);
     revoked.add(denied.attemptId);
     expect(await journal.cancel(cancelled)).toBe(true);
@@ -112,14 +136,14 @@ export async function verifyFactoryAttemptQueue(createFixture: () => Promise<Att
     await queue.settle(healthyClaim, "delivered");
 
     const unavailable = admission("infrastructure-failure-attempt");
-    await queue.enqueue(unavailable);
+    await queue.enqueue(unavailable, command(unavailable.attemptId));
     infrastructureFailures.add(unavailable.attemptId);
     await expect(queue.claim()).rejects.toThrow("database unavailable");
     expect(await queue.read("attempt-project", unavailable.attemptId)).toMatchObject({ state: "queued", attempts: 0 });
     infrastructureFailures.delete(unavailable.attemptId);
 
     expect(await new FactoryAttemptQueue(fixture.db, journal, "foreign-tenant", () => now).read("attempt-project", rollback.attemptId)).toBeNull();
-    await expect(new FactoryAttemptQueue(fixture.db, journal, "foreign-tenant", () => now).enqueue(admission("foreign-enqueue"))).rejects.toMatchObject({ code: "factory_attempt_scope_mismatch" });
+    await expect(new FactoryAttemptQueue(fixture.db, journal, "foreign-tenant", () => now).enqueue(admission("foreign-enqueue"), command("foreign-enqueue"))).rejects.toMatchObject({ code: "factory_attempt_scope_mismatch" });
     await expect(queue.read("", "attempt")).rejects.toMatchObject({ code: "factory_attempt_identity_invalid" });
   } finally {
     await fixture.close();

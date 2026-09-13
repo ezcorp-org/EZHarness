@@ -145,7 +145,7 @@ export class FactoryTaskExecutionAdmission {
         nodeInstanceId: context.command.nodeId, candidateGeneration: context.command.candidateGeneration, executionEpoch: context.fence.executionEpoch,
       });
       const admitted = durableRequest(context, compute, resolution, nextOperationIndex, timestamp);
-      const delivery = await this.attemptQueue.enqueueDurableInTransaction(transaction, authorityInput(context, admitted.request, admitted.digest));
+      const delivery = await this.attemptQueue.enqueueDurableInTransaction(transaction, authorityInput(context, admitted.request, admitted.digest), reference);
       return Object.freeze({ reservationId, delivery, request: admitted.request });
     });
   }
