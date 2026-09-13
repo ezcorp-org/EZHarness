@@ -7,6 +7,7 @@ import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryPrincipal } from "./grants";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryRunFence, FactoryRunLifecycle } from "./run-lifecycle";
+import { verifyFactoryChildBinding, type FactoryChildBindingRow } from "./child-runs";
 import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
@@ -129,6 +130,7 @@ export class FactoryCommandAuthority {
     // comparison below close the race with a concurrently committed transition.
     const apply = async (transaction: MigrationDb): Promise<Result> => {
       const { fence, compiled, initiator } = await this.lifecycle.readExecutionPlanInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId });
+      await this.assertLiveAncestors(transaction, reference.projectId, reference.logicalRunId, new Set());
       const current = await this.head(transaction, reference);
       if (Number(current.source_sequence) !== Number(head.source_sequence) || current.digest !== head.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
       const state = transition.nextState;
@@ -146,6 +148,23 @@ export class FactoryCommandAuthority {
     const expectedStatus = command.kind === "request-admission" ? "reserved" : command.kind === "dispatch-node" ? "running" : "waiting";
     if (node?.kind !== kind || !runtime || !attempt || !Number.isSafeInteger(generation) || runtime.candidateGeneration !== generation || attempt.candidateGeneration !== generation || attempt.commandId !== command.id || attempt.stopped || attempt.uncertain || attempt.deadlineAtMs !== command.deadlineAtMs || !Number.isSafeInteger(command.deadlineAtMs) || command.deadlineAtMs <= this.now() || command.deadlineAtMs > fence.deadlineAtMs || runtime.status !== expectedStatus || (command.kind === "dispatch-node" && (command.attempt !== attempt.attempt || command.cancellationEpoch !== fence.cancellationEpoch))) throw new FactoryCommandAuthorityError("factory_command_stale");
     return node as Extract<FactoryNode, { kind: Kind }>;
+  }
+
+  /** A child command remains live only while every sealed parent source is still the head. */
+  private async assertLiveAncestors(transaction: MigrationDb, projectId: string, runId: string, visited: Set<string>): Promise<void> {
+    if (visited.size >= 16 || visited.has(runId)) throw new FactoryCommandAuthorityError("factory_command_corrupt");
+    visited.add(runId);
+    const binding = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${runId}`))[0];
+    if (!binding) return;
+    try { verifyFactoryChildBinding(binding); }
+    catch { throw new FactoryCommandAuthorityError("factory_command_corrupt"); }
+    const parent = { tenantId: this.tenantId, projectId, logicalRunId: binding.parent_run_id, interpreterId: binding.parent_interpreter_id, commandId: binding.parent_command_id };
+    const [head, stored] = await Promise.all([
+      this.head(transaction, parent),
+      this.transitions.loadStoredCommandEntry(parent, transaction),
+    ]);
+    if (Number(head.source_sequence) !== Number(binding.parent_source_sequence) || stored.sourceSequence !== Number(binding.parent_source_sequence) || stored.commandDigest !== binding.parent_command_digest || stored.command.kind !== "run-child") throw new FactoryCommandAuthorityError("factory_command_stale");
+    await this.assertLiveAncestors(transaction, projectId, binding.parent_run_id, visited);
   }
 
   private async head(database: MigrationDb, reference: TrustedFactoryCommandReference): Promise<Head> {

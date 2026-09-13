@@ -346,7 +346,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(childAdmission?.kind).toBe("request-admission");
     if (childAdmission?.kind !== "request-admission") throw new Error("missing child admission");
     await persistTransition(childCommitted.identity, 1, childCommitted.event, childCommitted.first.nextState, childCommitted.first.commands, undefined, childCommitted.activities);
-    await expect(childCommitted.authority.withCurrent(service, { ...childCommitted.identity, commandId: childAdmission.id }, async () => "child-work")).resolves.toBe("child-work");
+    const childTaskReference = { ...childCommitted.identity, commandId: childAdmission.id };
+    await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).resolves.toBe("child-work");
+    // The child binding seals the exact parent head. A repaired/superseded parent cannot admit old child work.
+    await persistTransition(identity, 2, { kind: "timer-expired", id: "child-parent-superseded", atMs: now + 1, commandId: "unrelated" }, first.nextState, [], undefined, activities);
+    await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).rejects.toMatchObject({ code: "factory_command_stale" });
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId), 8);
     const childIdentity = { tenantId, projectId, logicalRunId: childRunId, interpreterId: "root" };
     await persistTransition(childIdentity, 2, { id: "child-complete", kind: "cancel", atMs: now, reason: "settlement" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "child-terminal", output: {} }], undefined, activities);
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(childRunId), 8);
