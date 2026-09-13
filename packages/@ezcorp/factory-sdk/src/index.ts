@@ -1,5 +1,5 @@
 export type * from "./types.js";
-export { FACTORY_IR_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_SCHEMA_VERSION } from "./types.js";
+export { FACTORY_IR_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_RUNNER_REQUEST_SCHEMA_VERSION, FACTORY_RUNNER_RESULT_SCHEMA_VERSION, FACTORY_SCHEMA_VERSION } from "./types.js";
 export { compiledFactoryJsonSchema, factoryDefinitionJsonSchema, factoryRunnerRequestJsonSchema, factoryRunnerResultJsonSchema, isCompiledFactory, isFactoryDefinition, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
 export { evaluateExpression, validateExpression } from "./expressions.js";
 export { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";

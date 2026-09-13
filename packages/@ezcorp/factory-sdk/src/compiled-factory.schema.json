@@ -1,4 +1,5 @@
 {
+  "$id": "urn:ezcorp:factory:compiled:v1",
   "$ref": "#/definitions/CompiledFactory",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
