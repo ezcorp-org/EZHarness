@@ -44,3 +44,16 @@ test("PostgreSQL scoped S3 references retain original bytes and reject foreign a
   await expect(artifacts.load(identity, reference, ["execution_manifest"])).rejects.toMatchObject({ code: "artifact_corrupt" });
   client.destroy();
 });
+
+test("twelve concurrent PostgreSQL admissions converge and changed bytes fail", async () => {
+  const { database, client, blobs, identity } = await fixture();
+  const artifacts = new FactoryArtifacts(database, blobs, "artifact-tenant");
+  const content = new TextEncoder().encode("concurrent immutable page");
+  const options = { definitionDigest: `sha256:${"e".repeat(64)}`, pageIndex: 7, interpreterScoped: false };
+  const references = await Promise.all(Array.from({ length: 12 }, () => artifacts.stage(identity, "definition_page", content, options)));
+  expect(new Set(references.map(reference => reference.objectId)).size).toBe(1);
+  await expect(artifacts.stage(identity, "definition_page", new TextEncoder().encode("changed page"), options)).rejects.toMatchObject({ code: "factory_artifact_conflict" });
+  const rows = await database.execute(sql`SELECT object_id FROM factory_artifacts WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} AND kind='definition_page' AND page_index=7`) as unknown as { rows?: unknown[] } | unknown[];
+  expect(Array.isArray(rows) ? rows : rows.rows).toHaveLength(1);
+  client.destroy();
+});

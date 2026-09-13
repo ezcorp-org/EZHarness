@@ -12,4 +12,5 @@ export async function up(database: MigrationDb): Promise<void> {
     FOREIGN KEY (tenant_id, project_id, run_id) REFERENCES factory_runs(tenant_id, project_id, run_id) ON DELETE RESTRICT,
     UNIQUE (tenant_id, project_id, run_id, interpreter_id, kind, source_sequence, page_index)
   )`);
+  await database.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS factory_artifacts_admission_identity ON factory_artifacts (tenant_id, project_id, run_id, COALESCE(interpreter_id, ''), kind, COALESCE(source_sequence, -1), COALESCE(page_index, -1))`);
 }

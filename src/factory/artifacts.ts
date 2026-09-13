@@ -55,8 +55,11 @@ export class FactoryArtifacts {
       if (stored !== rawDigest) throw new FactoryArtifactError("factory_artifact_corrupt");
       const storageVersion = this.blobs instanceof S3BlobStore ? await this.blobs.version(rawDigest) : rawDigest;
       const row: ArtifactRow = { object_id: `factory-artifact-${randomUUID()}`, tenant_id: identityValue.tenantId, project_id: identityValue.projectId, run_id: identityValue.logicalRunId, interpreter_id: interpreterId, kind, definition_digest: options.definitionDigest ?? null, source_sequence: sequence, page_index: index, digest: artifactDigest, blob_digest: rawDigest, storage_version: storageVersion, encoded_bytes: content.byteLength };
-      await transaction.execute(sql`INSERT INTO factory_artifacts(object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes) VALUES (${row.object_id}, ${row.tenant_id}, ${row.project_id}, ${row.run_id}, ${row.interpreter_id}, ${row.kind}, ${row.definition_digest}, ${row.source_sequence}, ${row.page_index}, ${row.digest}, ${row.blob_digest}, ${row.storage_version}, ${row.encoded_bytes})`);
-      return reference(row);
+      await transaction.execute(sql`INSERT INTO factory_artifacts(object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes) VALUES (${row.object_id}, ${row.tenant_id}, ${row.project_id}, ${row.run_id}, ${row.interpreter_id}, ${row.kind}, ${row.definition_digest}, ${row.source_sequence}, ${row.page_index}, ${row.digest}, ${row.blob_digest}, ${row.storage_version}, ${row.encoded_bytes}) ON CONFLICT DO NOTHING`);
+      const admitted = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} AND interpreter_id IS NOT DISTINCT FROM ${interpreterId} AND kind=${kind} AND source_sequence IS NOT DISTINCT FROM ${sequence} AND page_index IS NOT DISTINCT FROM ${index} FOR SHARE`))[0];
+      if (!admitted) throw new FactoryArtifactError("factory_artifact_admission_failed");
+      if (admitted.digest !== artifactDigest || admitted.definition_digest !== (options.definitionDigest ?? null) || Number(admitted.encoded_bytes) !== content.byteLength) throw new FactoryArtifactError("factory_artifact_conflict");
+      return reference(admitted);
     });
   }
 
