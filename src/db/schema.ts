@@ -2909,6 +2909,7 @@ export const {
   factoryDrafts,
   factoryVersions,
   factoryRunLifecycle,
+  factoryChildRuns,
   factoryExecutions,
   factoryAttemptQueue,
   factoryExecutionOperationCursors,
