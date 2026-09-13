@@ -88,6 +88,21 @@ test("forged validator provenance, stale evidence, and corrupt validator locks f
   trusted = { ...trusted, ...candidate, issuedAtMs: now - 1 };
 });
 
+test("two protected validators retain separate evidence rows", async () => {
+  const multiCandidate = { ...candidate, candidateGeneration: 3 };
+  const first = { ...trusted, ...multiCandidate, claims: [{ id: "first", passed: true, decisive: true }] };
+  const second = { ...trusted, ...multiCandidate, validatorId: "second-validator", claims: [{ id: "second", passed: true, decisive: true }] };
+  const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
+    async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) { if (validatorId === first.validatorId) return first; if (validatorId === second.validatorId) return second; throw new Error("unknown validator"); },
+    async resolveCurrentEvidenceInTransaction() { return [first, second]; },
+  };
+  const multi = new FactoryAssurance(fixture.db, tenantId, grants, gateway, new ReleaseFenceReader(), gateway, () => now);
+  await multi.approveContract(admin, { projectId, contractId: "multi", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "first", validatorId: first.validatorId, freshnessMs: 100 }, { id: "second", validatorId: second.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "both", claimIds: ["first", "second"], minimumPasses: 2, requireAllDecisive: true }] });
+  await multi.captureEvidence({ ...multiCandidate, validatorId: first.validatorId });
+  await multi.captureEvidence({ ...multiCandidate, validatorId: second.validatorId });
+  await expect(multi.accept({ ...multiCandidate, contractId: "multi", revision: 1 })).resolves.toMatchObject({ candidateGeneration: 3 });
+});
+
 test("expired or failed evidence never becomes an acceptance decision", async () => {
   trusted = { ...trusted, claims: [{ id: "tests", passed: false, decisive: true }, { id: "review", passed: true, decisive: true }] };
   await expect(assurance.captureEvidence({ ...candidate, validatorId: trusted.validatorId })).rejects.toThrow("factory_assurance_conflict");
