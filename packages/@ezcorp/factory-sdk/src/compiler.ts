@@ -188,6 +188,19 @@ function checkAuthority(node: FactoryNode, context: CompileContext, path: readon
   if (node.kind === "subfactory") for (const grant of node.grants) if (!context.definition.capabilities.includes(grant)) addDiagnostic(context, "AUTHORITY_CHILD", `Child grant widens parent authority: ${grant}.`, [...path, "grants"], node.id);
 }
 
+function checkRepairableInputs(node: FactoryNode, context: CompileContext, path: readonly (string | number)[]): void {
+  const names = node.kind === "task" || node.kind === "subfactory" ? node.repairableInputs : undefined;
+  if (names === undefined) return;
+  const seen = new Set<string>();
+  for (const [index, name] of names.entries()) {
+    const binding = node.bindings?.[name];
+    if (!name || seen.has(name) || !own(node.inputPorts ?? {}, name) || binding?.kind !== "literal") {
+      addDiagnostic(context, "REPAIR_INPUT", "Repairable inputs must be unique existing input ports with literal bindings.", [...path, "repairableInputs", index], node.id);
+    }
+    seen.add(name);
+  }
+}
+
 function containsPublication(graph: FactoryGraph): boolean {
   return graph.nodes.some((node) => node.kind === "release" || node.effects?.includes("publish") || (node.kind === "branch" && (containsPublication(node.then) || containsPublication(node.else))) || ((node.kind === "map" || node.kind === "loop") && containsPublication(node.body)));
 }
@@ -462,6 +475,7 @@ function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly 
 
   graph.nodes.forEach((node, index) => {
     const nodePath = [...path, "nodes", index];
+    checkRepairableInputs(node, context, nodePath);
     checkBindings(node, availableNodes, scopes, context, nodePath);
     if (node.kind === "map") {
       const collection = checkNodeSource(node.collection, node, availableNodes, scopes, context, [...nodePath, "collection"]);

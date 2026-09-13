@@ -179,6 +179,8 @@ export interface TaskNode extends BaseNode {
   readonly kind: "task";
   readonly runner: RunnerReference;
   readonly maxIterations?: number;
+  /** Literal-bound input ports that an authorized repair may replace. */
+  readonly repairableInputs?: readonly string[];
 }
 
 export interface BranchNode extends BaseNode {
@@ -226,6 +228,8 @@ export interface SubfactoryNode extends BaseNode {
   readonly factory: FactoryReference;
   readonly releaseMode: "none" | "authorized";
   readonly grants: readonly string[];
+  /** Literal-bound input ports that an authorized repair or replan may replace. */
+  readonly repairableInputs?: readonly string[];
 }
 
 export interface ApprovalNode extends BaseNode {
@@ -740,7 +744,7 @@ export interface FactoryReleaseContractBody {
   /** @minLength 71 @maxLength 71 */
   readonly validatorLockDigest: string;
   /** @maxItems 1000 */
-  readonly mandatoryClaims: readonly { readonly id: string; readonly validatorId: string; readonly freshnessMs: number }[];
+  readonly mandatoryClaims: readonly { readonly id: string; readonly validatorId: string; readonly freshnessMs: number; /** Defaults to true for stored contracts created before optional claims. */ readonly required?: boolean }[];
   /** @maxItems 1000 */
   readonly claimGroups: readonly { readonly id: string; readonly claimIds: readonly string[]; readonly minimumPasses: number; readonly requireAllDecisive: boolean }[];
 }
@@ -824,8 +828,8 @@ export interface FactoryRunCancelBody {
   readonly reason?: string;
 }
 
-export interface FactoryRunRevisionBody {
-  readonly action: "repair" | "replan";
+export interface FactoryRunRepairBody {
+  readonly action: "repair";
   /** Root of the bounded node subtree to replace. @minLength 1 @maxLength 512 */
   readonly nodeId: string;
   /** @minLength 1 @maxLength 2048 */
@@ -833,6 +837,18 @@ export interface FactoryRunRevisionBody {
   readonly parameters: Readonly<Record<string, FactoryTransportValue>>;
 }
 
+export interface FactoryRunReplanBody {
+  readonly action: "replan";
+  /** Current subfactory node instance to replace. @minLength 1 @maxLength 512 */
+  readonly nodeId: string;
+  /** Exact published child revision. */
+  readonly replacement: FactoryReference;
+  /** @minLength 1 @maxLength 2048 */
+  readonly reason?: string;
+  readonly parameters: Readonly<Record<string, FactoryTransportValue>>;
+}
+
+export type FactoryRunRevisionBody = FactoryRunRepairBody | FactoryRunReplanBody;
 export type FactoryRunControlBody = FactoryRunCancelBody | FactoryRunRevisionBody;
 
 export interface FactoryApprovalDecisionBody {

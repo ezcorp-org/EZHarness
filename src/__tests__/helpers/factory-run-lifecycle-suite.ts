@@ -948,7 +948,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const template = referenceCodeV1.graph.nodes.find(node => node.id === "snapshot-repository");
     if (template?.kind !== "task") throw new Error("task fixture missing");
     const largePort = { type: "string" as const, description: "x".repeat(18_000) };
-    const partitionNodes = [
+    const partitionNodes: FactoryDefinition["graph"]["nodes"] = [
       { ...template, id: "partition-node-000", inputPorts: {}, bindings: {}, outputPorts: { value: largePort }, dependsOn: [] },
       { ...template, id: "partition-hold", inputPorts: {}, bindings: {}, outputPorts: {}, dependsOn: [] },
       { ...template, id: "partition-node-001", inputPorts: {}, bindings: {}, outputPorts: { value: largePort }, dependsOn: ["partition-node-000"] },

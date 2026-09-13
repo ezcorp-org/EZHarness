@@ -1634,6 +1634,13 @@
           ],
           "type": "string"
         },
+        "repairableInputs": {
+          "description": "Literal-bound input ports that an authorized repair or replan may replace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "resources": {
           "$ref": "#/definitions/ResourceBounds"
         },
@@ -1701,6 +1708,13 @@
             "$ref": "#/definitions/PortSchema"
           },
           "type": "object"
+        },
+        "repairableInputs": {
+          "description": "Literal-bound input ports that an authorized repair may replace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "resources": {
           "$ref": "#/definitions/ResourceBounds"

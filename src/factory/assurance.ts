@@ -12,7 +12,7 @@ import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 
 export interface FactoryCandidateKey { readonly projectId: string; readonly runId: string; readonly nodeInstanceId: string; readonly candidateGeneration: number }
-export interface FactoryMandatoryClaim { readonly id: string; readonly validatorId: string; readonly freshnessMs: number }
+export interface FactoryMandatoryClaim { readonly id: string; readonly validatorId: string; readonly freshnessMs: number; readonly required?: boolean }
 export interface FactoryClaimGroup { readonly id: string; readonly claimIds: readonly string[]; readonly minimumPasses: number; readonly requireAllDecisive: boolean }
 export interface FactoryContractRevision { readonly projectId: string; readonly contractId: string; readonly revision: number; readonly contractDigest: string; readonly validatorLockDigest: string; readonly mandatoryClaims: readonly FactoryMandatoryClaim[]; readonly claimGroups: readonly FactoryClaimGroup[] }
 export interface FactoryTrustedEvidence extends FactoryCandidateKey { readonly validatorId: string; readonly validatorLockDigest: string; readonly issuerGrantRevision: number; readonly candidateDigest: string; readonly artifact: FactoryArtifactReference; readonly environmentDigest: string; readonly configurationDigest: string; readonly runnerDigest: string; readonly claims: readonly { id: string; passed: boolean; decisive: boolean }[]; readonly issuedAtMs: number; readonly expiresAtMs: number }
@@ -50,7 +50,7 @@ function key(input: FactoryCandidateKey): void { requiredText(input.projectId, i
 function claims(input: readonly FactoryMandatoryClaim[], groups: readonly FactoryClaimGroup[]): void {
   const ids = new Set<string>();
   if (input.length > 1000 || groups.length > 1000) throw new FactoryAssuranceError("factory_assurance_invalid");
-  for (const claim of input) { requiredText(claim.id, claim.validatorId); if (!Number.isSafeInteger(claim.freshnessMs) || claim.freshnessMs < 1 || ids.has(claim.id)) throw new FactoryAssuranceError("factory_assurance_invalid"); ids.add(claim.id); }
+  for (const claim of input) { requiredText(claim.id, claim.validatorId); if (!Number.isSafeInteger(claim.freshnessMs) || claim.freshnessMs < 1 || ids.has(claim.id) || (claim.required !== undefined && typeof claim.required !== "boolean")) throw new FactoryAssuranceError("factory_assurance_invalid"); ids.add(claim.id); }
   const groupIds = new Set<string>();
   for (const group of groups) { requiredText(group.id); if (typeof group.requireAllDecisive !== "boolean" || group.claimIds.length > 1000 || groupIds.has(group.id) || !Number.isSafeInteger(group.minimumPasses) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || !group.claimIds.every(id => ids.has(id))) throw new FactoryAssuranceError("factory_assurance_invalid"); groupIds.add(group.id); }
 }
