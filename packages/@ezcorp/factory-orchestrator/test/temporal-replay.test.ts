@@ -374,7 +374,7 @@ describe("factory Temporal workflow", () => {
       assert.equal(result.status, "completed");
       assert.deepEqual(dispatched, [{ generation: 0, input: { instruction: "first" } }, { generation: 1, input: { instruction: "second" } }]);
       const state = await handle.query("factoryState");
-      assert.deepEqual(state.nodes.work.priorCandidates, [{ candidateGeneration: 0, status: "running", inputOverride: { instruction: "first" } }]);
+      assert.deepEqual(state.nodes.work.priorCandidates, [{ candidateGeneration: 0, status: "cancelled", inputOverride: { instruction: "first" } }]);
       const history = await handle.fetchHistory();
       await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
     });
