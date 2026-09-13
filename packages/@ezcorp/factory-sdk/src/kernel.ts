@@ -386,7 +386,9 @@ function dispatchRelease(state: KernelState, node: Extract<FactoryNode, { kind: 
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "request-release", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
-  commands.push({ kind: "request-release", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, input: inputFor(state, node, nodeId), deadlineAtMs });
+  const input = { acceptedCandidate: resolveValue(node.acceptedCandidate, state, nodeId), destination: resolveValue(node.destination, state, nodeId) };
+  validateRecord(node.inputPorts ?? {}, input, `node ${nodeId} input`);
+  commands.push({ kind: "request-release", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, input, deadlineAtMs });
   return withNode(command.state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: deadlineAtMs });
 }
 
