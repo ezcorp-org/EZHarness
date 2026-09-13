@@ -106,8 +106,8 @@ export default defineConfig({
 			// shape. The DB-free access-denied + bad-code paths are asserted in
 			// plain preview; the full seeded handoff is Docker-gated.
 			command: browserCoverage
-				? `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`
-				: `PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
+				? `EZCORP_FACTORY_ENABLED=1 EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`
+				: `EZCORP_FACTORY_ENABLED=1 PI_SKIP_INIT=1 bun run build && EZCORP_FACTORY_ENABLED=1 EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
 			url: baseURL,
 			// The command runs a full production `bun run build` before `preview`
 			// can bind the port. On the constrained CI runner that build alone

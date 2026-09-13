@@ -24,7 +24,7 @@ Scope: full platform, all six stages and thirteen contract proofs. Missing real 
   EVIDENCE: pending
 
 - [ ] S5: Console and all three production domain journeys/composition pass with actual remote receipts.
-  EVIDENCE: pending
+  EVIDENCE: The authoring console has focused component, route, and mock Chromium proofs, including wide/light/long-label and narrow/dark/reduced-motion captures. The root-owned live factory boot and production domain journeys remain pending.
 
 - [ ] S6: Hosted/self-hosted deployment, restore/load/soak/fault/alerts and provisioning proofs pass.
   EVIDENCE: pending
@@ -34,4 +34,3 @@ Scope: full platform, all six stages and thirteen contract proofs. Missing real 
 
 - [ ] AUDIT: All F01–F13 evidence is tied to the final revision and independent review finds no unresolved defect.
   EVIDENCE: pending
-

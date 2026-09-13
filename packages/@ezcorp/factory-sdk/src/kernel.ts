@@ -157,6 +157,7 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
       break;
   }
   next = completePendingRepair(factory, next, commands);
+  next = refillWaitingMaps(factory, next, commands);
   next = emitPartitionNotifications(factory, state, next, commands);
   return finish(factory, next, commands);
 }
@@ -439,9 +440,18 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
   if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
+  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release")) return state;
+  if (node && !runtime) {
+    const parentId = mapParent(event.nodeId);
+    const parent = parentId ? state.nodes[parentId] : undefined;
+    const marker = parentId ? `${parentId}/items/` : "";
+    const item = parentId ? Number(event.nodeId.slice(marker.length).split("/")[0]) : Number.NaN;
+    if (parentId && parent?.map && Number.isSafeInteger(item) && (parent.map.completedIndexes.includes(item) || parent.map.failedIndexes.includes(item))) {
+      return applyRepair(factory, state, { ...event, nodeId: parentId }, commands, allowProtected);
+    }
+  }
   if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
   // A repair cannot replay publication or turn remediation into new consent.
-  if (!allowProtected && (node.kind === "approval" || node.kind === "release")) return state;
   const aggregateIds: string[] = [];
   let childId = event.nodeId;
   for (;;) {
@@ -462,7 +472,8 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
     queue.push(...localSuccessors(id));
     for (const childId of Object.keys(state.nodes)) if (childId.startsWith(`${id}/`)) queue.push(childId);
   }
-  const releaseStarted = [...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length);
+  const releaseStarted = [...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)
+    || [event.nodeId, ...aggregateIds].some(id => state.nodes[id]?.map?.protectedEffectStarted);
   const uncertain = [...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain));
   if (!allowProtected && (releaseStarted || uncertain)) return state;
   const priorRepair = state.pendingRepair;
@@ -516,14 +527,19 @@ function completePendingRepair(factory: KernelFactoryPlan, state: KernelState, c
     let map = previous.map;
     if (map) {
       const changed = new Set(repair.nodeIds.filter(child => child.startsWith(`${id}/items/`)).map(child => Number(child.slice(`${id}/items/`.length).split("/")[0])));
-      map = { ...map, completedIndexes: map.completedIndexes.filter(index => !changed.has(index)), failedIndexes: map.failedIndexes.filter(index => !changed.has(index)), outcomes: map.outcomes.map((outcome, index) => changed.has(index) ? undefined : outcome) };
+      const outcomes = { ...map.outcomes };
+      for (const index of changed) delete outcomes[index];
+      map = { ...map, completedIndexes: map.completedIndexes.filter(index => !changed.has(index)), failedIndexes: map.failedIndexes.filter(index => !changed.has(index)), outcomes };
     }
     next = withNode(next, id, { ...newCandidate(previous), status: "waiting", waitingReason: "external_reconciliation", selected: previous.selected, map, loop: previous.loop, timer: previous.timer });
     const definition = nodeFor(factory, id)!;
     if (definition.kind === "loop" && previous.loop && !previous.timer) next = scheduleTimer(next, id, Math.min(state.runDeadlineAtMs, previous.loop.startedAtMs + definition.maxElapsedMs), "deadline", commands);
   }
   const scopes = { ...next.scopes };
-  for (const [id, scope] of Object.entries(scopes)) if (scope.parentNodeId && repair.nodeIds.includes(scope.parentNodeId)) delete scopes[id];
+  const replacedScopes = Object.values(scopes).filter((scope) => scope.nodeIds.some((id) => repair.nodeIds.includes(id))).map((scope) => scope.id);
+  for (const [id, scope] of Object.entries(scopes)) {
+    if (scope.parentNodeId && (repair.nodeIds.includes(scope.parentNodeId) || replacedScopes.some((prefix) => id === prefix || id.startsWith(`${prefix}/`)))) delete scopes[id];
+  }
   next = { ...next, scopes, pendingRepair: undefined, status: "running" };
   return activateReady(factory, next, commands, [repair.rootNodeId]);
 }
@@ -562,17 +578,16 @@ function dispatchReady(factory: KernelFactoryPlan, state: KernelState, node: Fac
   }
   if (node.kind === "join") return settleJoin(factory, state, node, nodeId, commands);
   if (node.kind === "map") {
-    const collection = resolveValue(node.collection, state, nodeId);
+    const itemPrefix = `${nodeId}/items/`;
+    const nodes = Object.fromEntries(Object.entries(state.nodes).filter(([id]) => !id.startsWith(itemPrefix)));
+    const scopes = Object.fromEntries(Object.entries(state.scopes).filter(([id]) => !id.startsWith(itemPrefix)));
+    const cleanState = { ...state, nodes, scopes };
+    const collection = resolveValue(node.collection, cleanState, nodeId);
     if (!Array.isArray(collection)) return failNode(factory, state, node, nodeId, "MAP_COLLECTION_INVALID", "execution", commands);
     if (collection.length > node.maxItems) return failNode(factory, state, node, nodeId, "MAP_ITEM_BOUND", "bound_exhausted", commands);
-    if (collection.length === 0) return completeControl(factory, withNode(state, nodeId, { ...runtime, map: { snapshot: [], itemCount: 0, completedIndexes: [], failedIndexes: [], outcomes: [] } }), nodeId, Object.fromEntries(Object.keys(node.outputPorts ?? {}).map(name => [name, []])), commands);
-    const scopeId = `${nodeId}/items`;
-    const prefixes = collection.map((_, item) => `${scopeId}/${item}`);
-    const expansion = instantiateScope(factory, state, nodeId, scopeId, node.body, prefixes);
-    if (!expansion.ok) return failNode(factory, state, node, nodeId, expansion.error, "bound_exhausted", commands);
-    const roots = expansion.roots.filter(id => Number(id.slice(scopeId.length + 1).split("/")[0]) < node.maxConcurrency);
-    let waiting = activateReady(factory, withNode(expansion.state, nodeId, { ...runtime, status: "waiting", map: { snapshot: snapshotValue(collection) as JsonValue[], itemCount: collection.length, completedIndexes: [], failedIndexes: [], outcomes: Array.from({ length: collection.length }) }, waitingReason: "external_reconciliation" }), commands, roots);
-    if (node.body.nodes.length === 0) for (let item = 0; item < collection.length; item += 1) waiting = progressMap(factory, waiting, `${nodeId}/items/${item}/`, commands);
+    if (collection.length === 0) return completeControl(factory, withNode(cleanState, nodeId, { ...runtime, map: { snapshot: [], itemCount: 0, completedIndexes: [], failedIndexes: [], outcomes: {} } }), nodeId, Object.fromEntries(Object.keys(node.outputPorts ?? {}).map(name => [name, []])), commands);
+    let waiting = withNode(cleanState, nodeId, { ...runtime, status: "waiting", map: { snapshot: snapshotValue(collection) as JsonValue[], itemCount: collection.length, completedIndexes: [], failedIndexes: [], outcomes: {} }, waitingReason: "external_reconciliation" });
+    waiting = fillMapWindow(factory, waiting, node, nodeId, commands);
     return waiting;
   }
   if (node.kind === "loop") {
@@ -975,33 +990,62 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
   const parentNode = nodeFor(factory, parentId);
   const parent = state.nodes[parentId];
   if (parentNode?.kind !== "map" || !parent?.map || !Number.isSafeInteger(item)) return state;
+  if (state.pendingRepair && (state.pendingRepair.nodeIds.includes(parentId) || state.pendingRepair.aggregateIds.includes(parentId))) return state;
   const prefix = `${parentId}/items/${item}/`;
   const members = parentNode.body.nodes.map(child => `${prefix}${child.id}`);
   if (!members.every((id) => terminalStatus(state.nodes[id]!.status)) || Object.entries(state.nodes).some(([id, runtime]) => id.startsWith(prefix) && runtime.attempts.some(attempt => !attempt.stopped || attempt.uncertain))) return state;
   if (parent.map.completedIndexes.includes(item) || parent.map.failedIndexes.includes(item)) return state;
   const failed = members.find((id) => state.nodes[id]?.status !== "succeeded" && (!state.nodes[id]?.failureHandled || !locationHasQualifyingJoin(factory, id)));
   if (failed && parentNode.mode === "all") return failNode(factory, state, parentNode, parentId, "MAP_ITEM_FAILED", "execution", commands);
-  const outcomes = parent.map.outcomes.slice();
-  outcomes[item] = failed ? { error: state.nodes[failed]!.error ?? "MAP_ITEM_FAILED" } : graphValues(parentNode.body, state, prefix);
-  const map = { ...parent.map, outcomes, completedIndexes: failed ? parent.map.completedIndexes : parent.map.completedIndexes.concat(item), failedIndexes: failed ? parent.map.failedIndexes.concat(item) : parent.map.failedIndexes };
-  let next = withNode(state, parentId, { ...parent, map });
+  const outcomes: Record<string, JsonValue> = {
+    ...parent.map.outcomes,
+    [String(item)]: failed ? { error: state.nodes[failed]!.error ?? "MAP_ITEM_FAILED" } : graphValues(parentNode.body, state, prefix),
+  };
+  const protectedEffectStarted = parent.map.protectedEffectStarted
+    || Object.entries(state.nodes).some(([id, runtime]) => id.startsWith(prefix) && nodeFor(factory, id)?.kind === "release" && runtime.attempts.length > 0);
+  const map = { ...parent.map, outcomes, completedIndexes: failed ? parent.map.completedIndexes : parent.map.completedIndexes.concat(item), failedIndexes: failed ? parent.map.failedIndexes.concat(item) : parent.map.failedIndexes, ...(protectedEffectStarted ? { protectedEffectStarted: true } : {}) };
+  const nodes = { ...state.nodes };
+  for (const id of Object.keys(nodes)) if (id.startsWith(prefix)) delete nodes[id];
+  const scopes = { ...state.scopes };
+  const itemScope = `${parentId}/items/${item}`;
+  for (const id of Object.keys(scopes)) if (id === itemScope || id.startsWith(`${itemScope}/`)) delete scopes[id];
+  const next = withNode({ ...state, nodes, scopes }, parentId, { ...parent, map });
   const terminalItems = map.completedIndexes.length + map.failedIndexes.length;
   if (terminalItems === map.itemCount) {
     const output: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
     for (const name of Object.keys(parentNode.outputPorts ?? {})) {
-      output[name] = outcomes.map((outcome, index) => {
+      output[name] = Array.from({ length: map.itemCount }, (_, index) => {
+        const outcome = outcomes[index];
         const value = isRecord(outcome) ? outcome[name] ?? null : null;
         return parentNode.mode === "all" ? value : map.failedIndexes.includes(index) ? { outcome: "failed", error: isRecord(outcome) ? outcome.error ?? "MAP_ITEM_FAILED" : "MAP_ITEM_FAILED" } : { outcome: "succeeded", value };
       });
     }
     return completeControl(factory, next, parentId, output, commands);
   }
-  const activeItems = new Set(Object.keys(next.nodes).filter((id) => id.startsWith(`${parentId}/items/`) && ["reserved", "running", "waiting", "retry_wait"].includes(next.nodes[id]!.status)).map((id) => Number(id.slice(`${parentId}/items/`.length).split("/")[0])));
-  for (let nextItem = 0; nextItem < map.itemCount && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
-    if (map.completedIndexes.includes(nextItem) || map.failedIndexes.includes(nextItem) || activeItems.has(nextItem)) continue;
-    const roots = parentNode.body.nodes.filter((child) => (child.dependsOn?.length ?? 0) === 0).map((child) => `${parentId}/items/${nextItem}/${child.id}`);
-    next = activateReady(factory, next, commands, roots);
-    activeItems.add(nextItem);
+  return next;
+}
+
+function fillMapWindow(factory: KernelFactoryPlan, state: KernelState, parentNode: Extract<FactoryNode, { kind: "map" }>, parentId: string, commands: KernelCommand[]): KernelState {
+  let next = state;
+  const activeItems = new Set(Object.keys(next.nodes).filter((id) => id.startsWith(`${parentId}/items/`) && ["reserved", "running", "waiting", "retry_wait", "stopping"].includes(next.nodes[id]!.status)).map((id) => Number(id.slice(`${parentId}/items/`.length).split("/")[0])));
+  for (let nextItem = 0; next.nodes[parentId]?.status === "waiting" && nextItem < next.nodes[parentId]!.map!.itemCount && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
+    const currentMap = next.nodes[parentId]!.map!;
+    if (currentMap.completedIndexes.includes(nextItem) || currentMap.failedIndexes.includes(nextItem) || activeItems.has(nextItem)) continue;
+    const scopeId = `${parentId}/items/${nextItem}`;
+    const expansion = instantiateScope(factory, next, parentId, scopeId, parentNode.body, [scopeId]);
+    if (!expansion.ok) return failNode(factory, next, parentNode, parentId, expansion.error, "bound_exhausted", commands);
+    next = activateReady(factory, expansion.state, commands, expansion.roots);
+    if (parentNode.body.nodes.length === 0) next = progressMap(factory, next, `${scopeId}/`, commands);
+    if (Object.keys(next.nodes).some((id) => id.startsWith(`${scopeId}/`) && ["reserved", "running", "waiting", "retry_wait", "stopping"].includes(next.nodes[id]!.status))) activeItems.add(nextItem);
+  }
+  return next;
+}
+
+function refillWaitingMaps(factory: KernelFactoryPlan, state: KernelState, commands: KernelCommand[]): KernelState {
+  let next = state;
+  for (const nodeId of Object.keys(next.nodes)) {
+    const node = nodeFor(factory, nodeId);
+    if (node?.kind === "map" && next.nodes[nodeId]?.status === "waiting" && next.nodes[nodeId]?.map) next = fillMapWindow(factory, next, node, nodeId, commands);
   }
   return next;
 }

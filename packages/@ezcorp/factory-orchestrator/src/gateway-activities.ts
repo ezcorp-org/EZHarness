@@ -13,6 +13,8 @@ import {
   type FactoryDefinitionPage,
   type FactoryDefinitionSource,
   type FactoryManifestPage,
+  type FactoryTransitionManifest,
+  type FactoryTransitionPage,
   type ImmutableObjectReference,
   type FinalizedTransitionArtifact,
   type TransitionPageReference,
@@ -206,6 +208,15 @@ export async function createGatewayFactoryActivities(options: GatewayActivitiesO
       const response = await request("POST", "/internal/factory/v1/definitions/partition", value, MAX_PAGE_BYTES);
       assertObjectBytes(response.body, value.partition);
       return parseJson<CompiledPartitionArtifact>(response);
+    },
+    async loadTransitionManifest(value): Promise<FactoryTransitionManifest> {
+      const response = await request("POST", `/internal/factory/v1/transitions/${value.sourceSequence}/manifest`, value, MAX_PAGE_BYTES);
+      assertObjectBytes(response.body, value.manifest);
+      return { ...parseJson<Omit<FactoryTransitionManifest, "self">>(response), self: value.manifest };
+    },
+    async loadTransitionPage(value): Promise<FactoryTransitionPage> {
+      const response = await request("POST", `/internal/factory/v1/transitions/${value.sourceSequence}/page`, value);
+      return parseJson<FactoryTransitionPage>(response);
     },
   };
 }

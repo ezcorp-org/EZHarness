@@ -100,7 +100,22 @@
   EXPECT: exit 0
   EVIDENCE: 2026-09-13 focused LCOV: 100% lines for artifacts, definitions, transitions, activities, and migration; scoped TypeScript diagnostics and Biome pass.
 
-- [ ] E1 Envelope encryption and per-tenant key hierarchy are a required follow-up leaf. Shared BlobStore/S3BlobStore has no encryption/key-provider capability, so this leaf uses the existing storage service and makes no encryption claim.
-  CHECK: dedicated C06 key hierarchy implementation and local restore proof
+- [ ] E1 Installation data-key hierarchy accepts only exact operator/KMS keys, persists versioned wraps, and fails closed for missing, unsafe, or unknown keys.
+  CHECK: bun test --timeout 30000 ./src/factory/encryption.test.ts
   EXPECT: pass
-  EVIDENCE: pending ownership from root
+  EVIDENCE: pending
+
+- [ ] E2 Encrypted BlobStore preserves v4/S3 storage, binds ciphertext to tenant, object, payload, and data-key version, and cannot read tampered or cross-tenant bytes.
+  CHECK: bun test --timeout 30000 ./src/factory/encryption.test.ts
+  EXPECT: pass
+  EVIDENCE: pending
+
+- [ ] E3 Rewrapping retains old versions and never replaces encrypted object bytes; reusable history, archive, snapshot, backup, and Node Temporal codec adapters round-trip with authenticated binding.
+  CHECK: bun test --timeout 30000 ./src/factory/encryption.test.ts && PATH=/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH bun run --cwd packages/@ezcorp/factory-orchestrator test
+  EXPECT: pass
+  EVIDENCE: pending
+
+- [ ] E4 Real local ordinary S3 proves encrypted artifact round-trip, tamper/cross-tenant denial, rotation without object rewrite, and lost-key denial. Owned source reaches 100% coverage and static checks pass.
+  CHECK: FACTORY_TEST_POSTGRES_URL=... bun test --coverage ./tests/postgres/factory-encryption-s3.test.ts && bun run typecheck && bun run lint
+  EXPECT: pass
+  EVIDENCE: pending

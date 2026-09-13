@@ -35,7 +35,7 @@ import {
 import { loadCompiledFactory } from "./definition-pages.ts";
 import { acceptFactoryInbox } from "./inbox.ts";
 import { loadPartitionKernelPlan } from "./partition-plan.ts";
-import { persistTransition } from "./transition-pages.ts";
+import { loadTransitionArtifact, persistTransition } from "./transition-pages.ts";
 import { assertCommandBatchSize, assertContinuationSize, isPartitionSource, validateCompiledFactoryShape, validateInboxEvent, validateWorkflowInput } from "./validation.ts";
 
 const inboxSignal = defineSignal<[FactoryInboxEnvelope]>(FACTORY_INBOX_SIGNAL);
@@ -45,7 +45,7 @@ const audit = proxyActivities<Pick<FactoryActivities, "stageTransitionPage" | "f
   startToCloseTimeout: "30 seconds",
   retry: { maximumAttempts: 3 },
 });
-const reads = proxyActivities<Pick<FactoryActivities, "resolveFactory" | "loadManifestPage" | "loadDefinitionPage" | "loadExecutionManifest" | "loadPartitionArtifact">>({
+const reads = proxyActivities<Pick<FactoryActivities, "resolveFactory" | "loadManifestPage" | "loadDefinitionPage" | "loadExecutionManifest" | "loadPartitionArtifact" | "loadTransitionManifest" | "loadTransitionPage">>({
   startToCloseTimeout: "30 seconds",
   retry: { maximumAttempts: 3 },
 });
@@ -147,12 +147,18 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
   const created = isPartitionSource(input.definition)
     ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs)
     : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs);
-  let state = input.continuation?.state ?? (input.deadlineAtMs === undefined ? created : { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, input.deadlineAtMs) });
+  const restored = input.continuation?.stateArtifact
+    ? await loadTransitionArtifact(workflowIdentity(input), input.continuation.stateArtifact.sourceSequence, input.continuation.stateArtifact.manifest, reads)
+    : undefined;
+  let state = input.continuation?.state ?? restored?.nextState ?? (input.deadlineAtMs === undefined ? created : { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, input.deadlineAtMs) });
+  if (state.definitionDigest !== input.definition.definitionDigest) throw workflowFailure(new Error("continuation definition digest does not match input"), "FACTORY_INPUT_INVALID");
+  if (isPartitionSource(input.definition) && state.partition?.id !== input.definition.partition.partitionId) throw workflowFailure(new Error("continuation partition ID does not match input"), "FACTORY_INPUT_INVALID");
   const inbox = [...(input.continuation?.inbox ?? [{ kind: "start", id: `${input.logicalRunId}:start`, atMs: input.startedAtMs } as KernelEvent])];
   const pendingInbox = new Map((input.continuation?.pendingInbox ?? []).map((delivery) => [delivery.sequence, delivery]));
   let sourceSequence = input.continuation?.sourceSequence ?? 0;
   let handled = input.continuation?.handledSinceContinuation ?? 0;
   let acknowledgedInboxSequence = input.continuation?.acknowledgedInboxSequence ?? 0;
+  let stateArtifact = input.continuation?.stateArtifact;
   let overflow = false;
   let workflowError: Error | undefined;
   let terminalResult: FactoryWorkflowResult | undefined;
@@ -223,7 +229,7 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     validateInboxEvent(event as unknown as JsonValue);
     const advanced = advanceKernel(factory, state, event);
     assertCommandBatchSize(advanced.commands);
-    await persistTransition(
+    const finalized = await persistTransition(
       workflowIdentity(input),
       sourceSequence + 1,
       event,
@@ -234,6 +240,7 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     );
     state = advanced.nextState;
     sourceSequence += 1;
+    stateArtifact = { sourceSequence, manifest: finalized.manifest };
     handled += 1;
     if (selectedDelivery) acknowledgedInboxSequence = selectedDelivery.sequence;
     for (const command of advanced.commands) {
@@ -244,7 +251,7 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     pumpCommands();
     if (terminalResult && activeScopes.size === 0 && pendingCommands.length === 0) return terminalResult;
     if (handled >= CONTINUE_AFTER_EVENTS && inbox.length === 0 && activeScopes.size === 0 && pendingCommands.length === 0) {
-      const continuation = { state, inbox, pendingInbox: [...pendingInbox.values()], sourceSequence, handledSinceContinuation: 0, acknowledgedInboxSequence };
+      const continuation = { stateArtifact: stateArtifact!, inbox, pendingInbox: [...pendingInbox.values()], sourceSequence, handledSinceContinuation: 0, acknowledgedInboxSequence };
       assertContinuationSize(continuation);
       await continueAsNew<typeof factoryWorkflow>({ ...input, continuation });
     }

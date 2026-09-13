@@ -2255,6 +2255,21 @@ describe("check-boundaries: the cases a glob CANNOT distinguish", () => {
   });
 });
 
+describe("check-boundaries: factory graph libraries", () => {
+  test("permits Svelte Flow and ELK only inside the factory web module", () => {
+    expect(checkEdge("web/src/lib/factory/FactoryGraph.svelte", "@xyflow/svelte")).toBeNull();
+    expect(checkEdge("web/src/lib/factory/layout.ts", "elkjs/lib/elk.bundled.js")).toBeNull();
+    expect(checkEdge("web/src/lib/components/chat/GraphCanvas.svelte", "@xyflow/svelte")).toMatchObject({
+      rule: "factory-graph-libraries",
+      target: "@xyflow/svelte",
+    });
+    expect(checkEdge("web/src/routes/(app)/factories/+page.svelte", "elkjs")).toMatchObject({
+      rule: "factory-graph-libraries",
+      target: "elkjs",
+    });
+  });
+});
+
 describe("check-boundaries: packages must not import the app", () => {
   test("production package code importing src/ or web/ is rejected", () => {
     const a = checkEdge("packages/@ezcorp/harness-client/src/index.ts", "../../../../src/api-registry");

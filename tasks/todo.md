@@ -7,7 +7,23 @@
 - [x] Write approval request, decision, and consumption audit facts in their owning transactions.
 - [ ] Prove direct pre-accept and post-approval tampering, plus audit write faults, fail closed on PGlite and PostgreSQL.
 - [ ] Run static checks, coverage, and real PostgreSQL proof; record the review.
+## Factory continuation reader leaf — Terra
 
+- [x] Load scoped transition manifests and pages through immutable artifact references.
+- [x] Validate canonical manifest identity, source sequence, page order, digest, page limits, and aggregate bytes.
+- [x] Prove a Node-saved paged transition restores from PGlite and PostgreSQL/S3, while foreign, replayed, and corrupt references fail.
+- [x] Run focused and full required static validation; record receipts.
+
+Review: PGlite restored the exact 40 KiB Node-produced transition through two bounded pages. The PostgreSQL/S3 proof repeated the same producer-to-reader round trip. Both reject foreign identity, a replayed source sequence, changed references, and corrupt content; the existing failed inbox admission test proves the audit transaction rolls back. Focused coverage reports 100% executable lines for the three owned source files. The post-codec protobuf boundary test uses installed Temporal 1.23 proto encoding at exactly 64 KiB and rejects one byte more.
+
+## Factory C06 encryption leaf — Terra
+
+- [x] Read keys through descriptor-anchored private paths with bounded reads.
+- [x] Make concurrent different-master rotations report persisted versions only.
+- [x] Bind Temporal payloads from SDK serialization context with a bounded digest.
+- [x] Prove local PostgreSQL/S3 behavior and static checks; record receipts.
+
+Review: descriptor tests reject an actual FIFO and a symlinked parent. The real PostgreSQL race persists distinct-master versions before either caller reports success, then restarts with `second-master`. Real local S3 preserves the versioned ciphertext object through rotation. Focused Bun source coverage has 100% lines for `encryption.ts` and `private-files.ts`; the real PostgreSQL producer has 100% lines for `encryption-key-wrap-store.ts`. Four typecheck legs, lint, and the Node 24 Temporal codec contract pass. Production worker wiring remains with the verification leaf.
 
 - [x] Fetch PR and latest main; preserve original worktrees.
 - [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
@@ -1059,19 +1075,22 @@ Grant operations now freeze flat copies of every caller-owned authority and targ
 
 # Factory authoring console — 2026-09-13
 
-- [ ] Pin Svelte Flow and ELK and enforce their factory-only import boundary.
-- [ ] Add one strict SDK-backed browser client for draft list, create, import, export, save, validate, and publish.
-- [ ] Add pure graph projection/editing and deterministic ELK layout wrappers.
-- [ ] Build the responsive `/factories` authoring console and navigation entry.
-- [ ] Cover validation diagnostics, revision conflicts, keyboard editing, and immutable version publication.
-- [ ] Add component, route, manifest, and Playwright evidence tests for wide, narrow, light, dark, reduced-motion, and long-label states.
-- [ ] Inspect captured evidence and fix visible defects.
-- [ ] Run frozen installs, SDK build, typechecks, lint, focused/full tests, browser checks, and 100 percent owned-source coverage.
-- [ ] Record the final review and immutable commit proofs.
+- [x] Pin Svelte Flow and ELK and enforce their factory-only import boundary.
+- [x] Add one strict SDK-backed browser client for draft list, create, import, export, save, validate, and publish.
+- [x] Add pure graph projection/editing and deterministic ELK layout wrappers.
+- [x] Build the responsive `/factories` authoring console and navigation entry.
+- [x] Cover validation diagnostics, revision conflicts, keyboard editing, and immutable version publication.
+- [x] Add component, route, manifest, and Playwright evidence tests for wide, narrow, light, dark, reduced-motion, and long-label states.
+- [x] Inspect captured evidence and fix visible defects.
+- [x] Run frozen installs, SDK build, typechecks, lint, focused tests, browser checks, and 100 percent owned-source coverage.
+- [x] Record the final review and immutable commit proofs.
+- [ ] Parent runs the canonical full regression under the shared heavy-validation lock.
 
 ## Review
 
-Pending.
+The console uses the current membership project and the shared factory SDK contracts. Svelte Flow and ELK load only in the browser boundary. Draft writes use revision and idempotency preconditions. Publication compares the exact requested immutable source and explains that it does not activate a runner or package. Mock browser evidence covers the graph editor and narrow publication review. The real authenticated journey remains pending until the root-owned live factory boot is available.
+
+Frozen root and web installs, the SDK build, all four typecheck legs, and lint pass. The final focused suite passes 20 tests. The registration repair passes 22 tests with 218 assertions; the route, evidence, lane, and boundary gates pass 231 tests with 803 assertions. Chromium passes all five authoring scenarios. The ten new measured sources each have 100 percent line coverage. An earlier full run passed 25,966 tests and found four missing coverage registrations; those exact failures pass after the repair. A second full run was cancelled when the shared heavy-validation lock was found in use, so the parent owns the final canonical regression.
 
 ## Native terminal and canonical service producers
 
@@ -1125,6 +1144,36 @@ Review: integration head `3dffb7418` plus this model fix passes the 21 focused c
 Review: `/tmp/factory-platform-evidence/run-api-results.json` has six successful producers: 167 focused tests, 10 route tests, 13 PostgreSQL lifecycle tests, 13 PostgreSQL/S3 lifecycle tests, all four type checks, and lint. LCOV measures run lifecycle149/149, outbox155/155, application77/77, harness client453/453, shared route142/142, and every new route2/2 lines. Input revision0 now matches creation of a new logical run; stale nonzero start revisions return412. Accepted requests return202 and a real stored command status URL. An unknown dispatch remains visible as unknown and does not become run completion. Repair/replan currently fail unavailable and are not a completed surface. Full-platform gates remain open.
 
 
+## Factory project creation and audit JSON
+
+- [x] Reproduce orphan projects, absent factory owner grants, and encoded audit metadata on real PostgreSQL.
+- [x] Commit project, owner membership, four non-consent grants, and audit in one transaction.
+- [x] Repair only historical encoded audit objects and preserve all fact identities and non-object values.
+- [x] Prove rollback, denied/repeated initialization, flag-off compatibility, and upgrade idempotence on both database engines.
+- [x] Run affected tests, measured coverage, all four type checks and lint; record review.
+
+Plan review: reuse the existing member upsert and grant mutation path. Register factory initialization at application composition. New projects receive author, publish, run and operate only; human consent and trust remain explicit.
+
+Review: `/tmp/factory-platform-evidence/project-creation-results.json` records all four producers at exit0. The focused PGlite/application/regression cases and real PostgreSQL cases pass, including the historical audit upgrade. All four type-check legs and lint pass. Every changed executable line is measured; complete owned files include grants166/166, application79/79, member queries65/65 and the new migration4/4. Existing project queries and audit redaction cases also pass. This closes the project-creation transaction leaf, not factory-enabled production startup or the full platform gates.
+### Follow-up: collision-free partition slots
+
+- [ ] Reproduce PostgreSQL signed-index overflow and a deterministic partition-ID hash collision.
+- [ ] Replace the hash-derived SQL page index with a collision-free scoped partition identity, model the additive schema, and cover migration.
+- [ ] Prove concurrent PostgreSQL staging, foreign scope denial, typecheck, lint, and coverage.
+
+### CI storage producer leaf
+
+- [ ] Provision the ordinary Compose-backed store with generated job-local credentials in `db-postgres.yml`.
+- [ ] Run required factory artifact/lifecycle PostgreSQL producer under its explicit S3 and Postgres references.
+- [ ] Prove workflow syntax and local Compose startup/test command shape.
+
+### CI storage producer leaf review
+
+- [x] Provision the ordinary Compose-backed store with generated job-local credentials in `db-postgres.yml`.
+- [x] Run required factory artifact/lifecycle PostgreSQL producer under its explicit S3 and Postgres references.
+- [x] Prove workflow syntax and local Compose startup/test command shape.
+
+Review: `71700a687` reuses the strict local storage provisioner in the required external PostgreSQL job. It runs explicit artifact and lifecycle test files under coverage and always removes the Compose profile. `actionlint` passes. The lifecycle filename is supplied by root commit `e577b7778`; this CI commit must follow that integration.
 ## Private factory HTTPS transport
 
 - [x] Prove the C02 private Node-to-Bun mTLS request boundary through actual sockets.

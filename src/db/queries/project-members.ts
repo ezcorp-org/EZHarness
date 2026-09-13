@@ -16,7 +16,7 @@
  * rule appearing next to the SQL.
  */
 import { and, eq } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, type DbTransaction } from "../connection";
 import { projectMembers, users } from "../schema";
 import type { ProjectMember, ProjectMemberRole } from "../schema";
 
@@ -95,7 +95,17 @@ export async function upsertProjectMember(
   userId: string,
   role: ProjectMemberRole,
 ): Promise<ProjectMember> {
-  const rows = await getDb()
+  return upsertProjectMemberInTransaction(getDb(), projectId, userId, role);
+}
+
+/** Shares the project creator's transaction without duplicating the membership write. */
+export async function upsertProjectMemberInTransaction(
+  transaction: Pick<DbTransaction, "insert">,
+  projectId: string,
+  userId: string,
+  role: ProjectMemberRole,
+): Promise<ProjectMember> {
+  const rows = await transaction
     .insert(projectMembers)
     .values({ projectId, userId, role })
     .onConflictDoUpdate({

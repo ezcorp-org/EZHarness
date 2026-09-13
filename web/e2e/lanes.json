@@ -288,6 +288,7 @@
       "web/e2e/ez-read-page.spec.ts",
       "web/e2e/ez-search-chat.spec.ts",
       "web/e2e/ez-summarize-chat.spec.ts",
+      "web/e2e/factory-authoring-console.spec.ts",
       "web/e2e/favicon-unread-badge.spec.ts",
       "web/e2e/feature-mention-injection.spec.ts",
       "web/e2e/feature-mention-popover.spec.ts",

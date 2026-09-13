@@ -364,6 +364,14 @@
 
 - After I send a commit SHA to another agent, I must not amend or rewrite that commit.
 - Any correction, generated artifact update, or coverage fix must be a new follow-up commit so active consumers can cherry-pick safely.
+
+## 2026-09-13 — Artifact partition identities
+
+- Never map an unbounded partition identity to a signed database slot with a lossy hash. Prove both numeric range and collision behavior on PostgreSQL before using an identity as a unique key.
+
+## 2026-09-13 — Portable real-service proofs
+
+- A real-service test must obtain endpoint and secret-reference paths from the explicit test environment. Do not hardcode one user's runtime directory or loopback port.
 ## 2026-09-12 — Ambiguous delivery reconciliation
 
 - A high-water inbox sequence cannot prove that a specific event was applied. Reconcile an uncertain delivery only from the exact event ID and hash in the live inbox or an immutable product tombstone; otherwise retain `outcome_unknown`.
@@ -392,3 +400,20 @@
 - Recompute every protected evidence digest from all persisted fields before a claim. A stored digest alone does not prove a mutable row still has its approved facts.
 - Use `Set.has` before `Set.add`; `Set.add` always returns the set and cannot detect duplicates.
 - Snapshot untrusted inputs before the first await and test the exact digest object in both creation and consumption paths.
+
+## 2026-09-13 — Shared heavy validation
+
+- Check the shared heavy-validation lock before starting a broad test or coverage pool. When another producer holds it, run only focused leaf checks and leave the canonical regression run to the queued owner.
+
+## 2026-09-13 — Scoped artifact keys
+
+- Every durable artifact key and foreign key must carry tenant/project scope. An opaque object ID alone is not a sufficient product primary key.
+
+## 2026-09-13 — Drizzle foreign-key parity
+
+- When a raw factory migration defines a scoped foreign key, model the same source columns, target columns, and delete rule in Drizzle. Schema table/primary-key parity alone is incomplete.
+
+## 2026-09-13 — Factory C06 validation correction
+
+- Do not report a factory leaf complete from focused Bun tests and lint. Record all four canonical typechecks, owned-source and patch LCOV producers, real Node runtime proof, and real local-S3 proof.
+- Rebuild `@ezcorp/factory-sdk` before Node orchestrator checks that consume generated `dist` declarations.

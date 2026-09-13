@@ -104,8 +104,12 @@ export class FactoryRecords {
   }
 
   async bindProject(projectId: string): Promise<void> {
+    await this.bindProjectInTransaction(this.database, projectId);
+  }
+
+  async bindProjectInTransaction(transaction: MigrationDb, projectId: string): Promise<boolean> {
     identity(projectId);
-    await this.database.execute(sql`INSERT INTO factory_projects (tenant_id, project_id) VALUES (${this.tenantId}, ${projectId}) ON CONFLICT (tenant_id, project_id) DO NOTHING`);
+    return rows(await transaction.execute(sql`INSERT INTO factory_projects (tenant_id, project_id) VALUES (${this.tenantId}, ${projectId}) ON CONFLICT (tenant_id, project_id) DO NOTHING RETURNING project_id`)).length === 1;
   }
 
   async createRun(input: FactoryRunRequest, enqueue: (transaction: MigrationDb, request: FactoryRunRequest) => Promise<void>): Promise<{ readonly created: boolean }> {

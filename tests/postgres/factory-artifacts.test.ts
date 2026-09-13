@@ -110,6 +110,14 @@ test("PostgreSQL and S3 commit paged Node transitions with exact inbox receipts"
   const references = (Array.isArray(rows) ? rows : rows.rows)!;
   expect(references.filter(reference => reference.kind === "transition_page")).toHaveLength(2);
   expect(references.find(reference => reference.kind === "transition_manifest")!.encoded_bytes).toBeLessThanOrEqual(32 * 1024);
+  const storedAudit = await database.execute(sql`SELECT payload FROM factory_audit_batches WHERE tenant_id=${identity.tenantId} AND run_id=${identity.logicalRunId} AND source_sequence=1`) as unknown as { rows?: Array<{ payload: string }> } | Array<{ payload: string }>;
+  const manifest = JSON.parse((Array.isArray(storedAudit) ? storedAudit : storedAudit.rows)![0]!.payload).artifactManifest;
+  const loadedManifest = await activity.loadTransitionManifest({ ...identity, sourceSequence: 1, manifest });
+  const loadedPages = await Promise.all(loadedManifest.pages.map(page => activity.loadTransitionPage({ ...identity, sourceSequence: 1, page })));
+  expect(JSON.parse(loadedPages.map(page => page.content).join(""))).toMatchObject({ schemaVersion: "factory.transition.v1", sourceSequence: 1, event, nextState: { padding: "x".repeat(40 * 1024) } });
+  await expect(activity.loadTransitionManifest({ ...identity, sourceSequence: 2, manifest })).rejects.toMatchObject({ code: "factory_transition_not_found" });
+  await expect(activity.loadTransitionPage({ ...identity, sourceSequence: 2, page: loadedManifest.pages[0]! })).rejects.toMatchObject({ code: "factory_transition_not_found" });
+  await expect(activity.loadTransitionManifest({ ...identity, projectId: "foreign-project", sourceSequence: 1, manifest })).rejects.toMatchObject({ code: "factory_artifact_not_found" });
 
   const missing: Extract<KernelEvent, { kind: "cancel" }> = { id: "never-enqueued", kind: "cancel", atMs: 2, reason: "x" };
   const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 2, event: missing, nextState: {}, commands: [] }));

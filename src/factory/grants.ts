@@ -3,7 +3,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
-import { assertFactoryIdentity } from "./records";
+import { FactoryRecords, assertFactoryIdentity } from "./records";
 import { FactoryMutations } from "./mutations";
 
 export const FACTORY_ACTIONS = ["factory.author", "factory.publish", "factory.run", "factory.operate", "factory.approve", "factory.release", "factory.trust"] as const;
@@ -69,6 +69,19 @@ export class FactoryGrants {
     const revision = Number(grant.revision);
     if (!Number.isSafeInteger(revision) || revision < 1 || (expectedRevision !== undefined && expectedRevision !== revision)) throw new FactoryGrantError("factory_grant_stale");
     return { revision, expiresAtMs: grant.expires_ms === null ? null : Number(grant.expires_ms) };
+  }
+
+  /** Trusted project creation only: owner rights do not include consent or release. */
+  async initializeProjectInTransaction(transaction: MigrationDb, projectId: string, ownerId: string): Promise<void> {
+    assertFactoryIdentity(projectId, ownerId);
+    const owner: FactoryPrincipal = { kind: "user", id: ownerId, authentication: "api-key" };
+    await this.livePrincipal(transaction, owner, projectId, true);
+    const membership = rows(await transaction.execute(sql`SELECT id FROM project_members WHERE project_id=${projectId} AND user_id=${ownerId} AND role='owner' FOR SHARE`))[0];
+    if (!membership) throw new FactoryGrantError("factory_forbidden");
+    if (!await new FactoryRecords(this.database, this.tenantId).bindProjectInTransaction(transaction, projectId)) throw new FactoryGrantError("factory_project_already_initialized");
+    for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate"] as const) {
+      await this.applyMutation(transaction, owner, { projectId, principal: owner, action, expectedRevision: 0, expiresAtMs: null }, false);
+    }
   }
 
   set(actor: FactoryPrincipal, update: FactoryGrantUpdate, idempotencyKey?: string): Promise<FactoryGrantRevision> {

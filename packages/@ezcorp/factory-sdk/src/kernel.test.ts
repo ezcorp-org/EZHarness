@@ -7,7 +7,7 @@ import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from 
 const digest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const runner = { package: "inert", version: "1", digest, export: "run" } as const;
 
-function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { readonly kind: "ref"; readonly root: "node"; readonly name: string }>): CompiledFactory {
+function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { readonly kind: "ref"; readonly root: "node"; readonly name: string }>, inputPorts: FactoryDefinition["inputPorts"] = {}): CompiledFactory {
   const normalize = (node: FactoryNode): FactoryNode => {
     if (node.kind === "map") return { ...node, outputPorts: node.outputPorts ?? {}, body: { ...node.body, nodes: node.body.nodes.map(normalize), outputs: node.body.outputs } };
     if (node.kind === "loop") return { ...node, outputPorts: node.outputPorts ?? {}, body: { ...node.body, nodes: node.body.nodes.map(normalize), outputs: node.body.outputs } };
@@ -16,10 +16,10 @@ function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { read
   };
   const definition: FactoryDefinition = {
     schemaVersion: "factory.v1", id: "kernel-event-regression", version: "1", interpreterCompatibility: "1",
-    inputPorts: {}, outputPorts: {}, graph: { nodes: nodes.map(normalize), outputs: {} },
+    inputPorts, outputPorts: {}, graph: { nodes: nodes.map(normalize), outputs: {} },
     acceptance: referenceCodeV1.acceptance,
     packages: [{ name: runner.package, version: runner.version, digest }, ...referenceCodeV1.packages],
-    capabilities: [], effects: ["none"], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16 },
+    capabilities: [], effects: [...new Set(["none", ...nodes.flatMap((node) => node.effects ?? [])])], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16 },
   };
   const result = compileFactory(definition);
   if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(", "));
@@ -170,9 +170,114 @@ describe("factory kernel", () => {
     const cancelled = advanceKernel(graph, admitted.nextState, event("cancel", { kind: "cancel", reason: "user" }));
     expect(cancelled.nextState.status).toBe("stopping");
     expect(cancelled.commands.some((command) => command.kind === "cancel-node" && command.nodeId === "map/items/0/item")).toBe(true);
-    expect(cancelled.nextState.nodes["map/items/1/item"]?.status).toBe("cancelled");
-    expect(cancelled.nextState.nodes["map/items/2/item"]?.status).toBe("cancelled");
+    expect(cancelled.nextState.nodes["map/items/1/item"]).toBeUndefined();
+    expect(cancelled.nextState.nodes["map/items/2/item"]).toBeUndefined();
   });
+
+  test("keeps only the active map window and safely reopens an evicted item repair", () => {
+    const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
+    const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two", "three"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 3, maxConcurrency: 1 };
+    const graph = compiled([map], { result: { kind: "ref", root: "node", name: "map" } });
+    const started = advanceKernel(graph, createKernelState(graph, "repair-evicted-map", {}, 0), event("start", { kind: "start" }));
+    expect(Object.keys(started.nextState.nodes)).toEqual(["map", "map/items/0/item"]);
+    const admission = started.commands.find((command) => command.kind === "request-admission")!;
+    const admitted = advanceKernel(graph, started.nextState, event("admit-item-zero", { kind: "admission-result", nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: 0, granted: true }));
+    const attempt = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const completed = advanceKernel(graph, admitted.nextState, event("complete-item-zero", { kind: "node-result", nodeId: attempt.nodeId, commandId: attempt.id, candidateGeneration: 0, attempt: 1, output: {} }));
+    expect(completed.nextState.nodes["map/items/0/item"]).toBeUndefined();
+    expect(completed.nextState.nodes["map/items/1/item"]?.status).toBe("reserved");
+
+    const repaired = advanceKernel(graph, completed.nextState, event("repair-evicted-item", { kind: "repair", nodeId: "map/items/0/item", reason: "replace item" }));
+    const cancel = repaired.commands.find((command) => command.kind === "cancel-node");
+    expect(cancel).toEqual(expect.objectContaining({ nodeId: "map/items/1/item" }));
+    const stopped = advanceKernel(graph, repaired.nextState, event("stop-item-one", { kind: "attempt-stopped", nodeId: cancel!.nodeId, commandId: cancel!.attemptCommandId, candidateGeneration: cancel!.candidateGeneration, attempt: cancel!.attempt }));
+    expect(stopped.nextState.nodes.map?.candidateGeneration).toBe(1);
+    expect(Object.keys(stopped.nextState.nodes)).toEqual(["map", "map/items/0/item"]);
+    expect(stopped.commands).toContainEqual(expect.objectContaining({ kind: "request-admission", nodeId: "map/items/0/item" }));
+  });
+
+  test("repairs an active map item through its aggregate and clears the prior result", () => {
+    const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
+    const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 1, maxConcurrency: 1 };
+    const graph = compiled([map], { result: { kind: "ref", root: "node", name: "map" } });
+    const started = advanceKernel(graph, createKernelState(graph, "repair-active-map", {}, 0), event("start", { kind: "start" }));
+    const repair = advanceKernel(graph, started.nextState, event("repair-active-item", { kind: "repair", nodeId: "map/items/0/item", reason: "replace active item" }));
+    const cancel = repair.commands.find((command) => command.kind === "cancel-node")!;
+    const stopped = advanceKernel(graph, repair.nextState, event("stop-active-item", { kind: "attempt-stopped", nodeId: cancel.nodeId, commandId: cancel.attemptCommandId, candidateGeneration: cancel.candidateGeneration, attempt: cancel.attempt }));
+    expect(stopped.nextState.nodes.map?.map?.outcomes).toEqual({});
+    expect(stopped.nextState.nodes.map?.candidateGeneration).toBe(1);
+    expect(stopped.nextState.nodes["map/items/0/item"]?.candidateGeneration).toBe(1);
+  });
+
+  test("does not replay an approved item after its protected node is evicted", () => {
+    const approval = { id: "approve", kind: "approval" as const, choices: ["approve"], context: { kind: "literal" as const, value: null }, actorScope: "owner", expiresInMs: 60_000, onDenied: "fail" as const, onExpired: "fail" as const };
+    const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two"] }, itemSchema: { type: "string" as const }, body: { nodes: [approval], outputs: {} }, mode: "all" as const, maxItems: 2, maxConcurrency: 1 };
+    const graph = compiled([map], {});
+    const started = advanceKernel(graph, createKernelState(graph, "protected-evicted-map", {}, 0), event("start", { kind: "start" }));
+    const request = started.commands.find((command) => command.kind === "request-approval")!;
+    const approved = advanceKernel(graph, started.nextState, event("approve-item-zero", { kind: "approval-decided", nodeId: request.nodeId, commandId: request.id, choice: "approve" }));
+    expect(approved.nextState.nodes["map/items/0/approve"]).toBeUndefined();
+    expect(approved.nextState.nodes["map/items/1/approve"]?.status).toBe("waiting");
+    const repair = advanceKernel(graph, approved.nextState, event("repair-old-approval", { kind: "repair", nodeId: "map/items/0/approve", reason: "must remain approved" }));
+    expect(repair.commands).toEqual([]);
+    expect(repair.nextState.nodes.map?.candidateGeneration).toBe(0);
+    expect(repair.nextState.nodes.map?.map?.completedIndexes).toEqual([0]);
+  });
+
+  test("does not replay an evicted map item after its release effect started", () => {
+    const work = { id: "work", kind: "task" as const, runner };
+    const acceptance = {
+      id: "accept", kind: "acceptance" as const, dependsOn: ["work"], contract: referenceCodeV1.acceptance.id,
+      candidate: { kind: "literal" as const, value: {} }, evidence: { kind: "literal" as const, value: {} },
+      outputPorts: { acceptedCandidate: { type: "object" as const, additionalProperties: true } },
+    };
+    const release = {
+      id: "publish", kind: "release" as const, dependsOn: ["accept"], adapter: runner,
+      acceptedCandidate: { kind: "ref" as const, root: "node" as const, name: "accept", path: ["acceptedCandidate"] },
+      destination: { kind: "literal" as const, value: {} }, effects: ["publish"],
+    };
+    const map = {
+      id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one"] }, itemSchema: { type: "string" as const },
+      body: { nodes: [work, acceptance, release], outputs: {} }, mode: "all" as const, maxItems: 1, maxConcurrency: 1, effects: ["publish"],
+    };
+    const graph = compiled([map, { id: "hold", kind: "task", runner }], {});
+    const started = advanceKernel(graph, createKernelState(graph, "protected-release-map", {}, 0), event("start", { kind: "start" }));
+    const admission = started.commands.find((command) => command.kind === "request-admission" && command.nodeId === "map/items/0/work")!;
+    const admitted = advanceKernel(graph, started.nextState, event("admitted", { kind: "admission-result", nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: admission.candidateGeneration, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const worked = advanceKernel(graph, admitted.nextState, event("worked", { kind: "node-result", nodeId: dispatch.nodeId, commandId: dispatch.id, candidateGeneration: dispatch.candidateGeneration, attempt: dispatch.attempt, output: {} }));
+    const accept = worked.commands.find((command) => command.kind === "request-acceptance")!;
+    const accepted = advanceKernel(graph, worked.nextState, event("accepted", { kind: "node-result", nodeId: accept.nodeId, commandId: accept.id, candidateGeneration: accept.candidateGeneration, attempt: 1, output: { acceptedCandidate: {} } }));
+    const publish = accepted.commands.find((command) => command.kind === "request-release")!;
+    const published = advanceKernel(graph, accepted.nextState, event("published", { kind: "node-result", nodeId: publish.nodeId, commandId: publish.id, candidateGeneration: publish.candidateGeneration, attempt: 1, output: {} }));
+    expect(published.nextState.status).toBe("running");
+    expect(Object.keys(published.nextState.nodes).sort()).toEqual(["hold", "map"]);
+    expect(published.nextState.nodes.map?.map?.protectedEffectStarted).toBe(true);
+    const childRepair = advanceKernel(graph, published.nextState, event("repair-work", { kind: "repair", nodeId: "map/items/0/work", reason: "must not republish" }));
+    expect(childRepair.commands).toEqual([]);
+    expect(childRepair.nextState.nodes.map?.candidateGeneration).toBe(0);
+    const parentRepair = advanceKernel(graph, childRepair.nextState, event("repair-map", { kind: "repair", nodeId: "map", reason: "must not republish" }));
+    expect(parentRepair.commands).toEqual([]);
+    expect(parentRepair.nextState.nodes.map?.candidateGeneration).toBe(0);
+    expect(parentRepair.nextState.nodes.map?.map?.completedIndexes).toEqual([0]);
+  });
+
+  test("completes 9,999 immediate nested controls without retaining scopes or recursing", () => {
+    const emptyOutput = { nodes: [], outputs: { value: { kind: "literal" as const, value: "" } } };
+    const branch = { id: "choose", kind: "branch" as const, condition: { kind: "literal" as const, value: true }, then: emptyOutput, else: emptyOutput, outputPorts: { value: { type: "string" as const } } };
+    const map = {
+      id: "map", kind: "map" as const, collection: { kind: "ref" as const, root: "input" as const, name: "items", path: [] }, itemSchema: { type: "number" as const },
+      body: { nodes: [branch], outputs: { values: { kind: "ref" as const, root: "node" as const, name: "choose", path: ["value"] } } },
+      outputPorts: { values: { type: "array" as const, items: { type: "string" as const } } }, mode: "all" as const, maxItems: 9_999, maxConcurrency: 1,
+    };
+    const graph = compiled([map], {}, { items: { type: "array", items: { type: "number" }, maxItems: 9_999 } });
+    const started = advanceKernel(graph, createKernelState(graph, "immediate-map", { items: Array.from({ length: 9_999 }, (_, index) => index) }, 0), event("start", { kind: "start" }));
+    expect(started.nextState.status).toBe("completed");
+    expect(Object.keys(started.nextState.nodes)).toEqual(["map"]);
+    expect(Object.keys(started.nextState.scopes)).toEqual(["root"]);
+    expect(started.nextState.scopes.root?.expandedNodeCount).toBe(10_000);
+    expect(started.nextState.nodes.map?.output?.values).toHaveLength(9_999);
+  }, 30_000);
 });
 
 void ({} as JsonValue);

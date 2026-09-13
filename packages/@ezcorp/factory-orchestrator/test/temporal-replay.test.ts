@@ -12,6 +12,8 @@ import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact } from "@ezcorp/factory-sdk";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
+import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
+import type { FactoryWorkflowResult } from "../src/contracts.ts";
 import { deliverFactoryCommand, reconcileFactoryCommand } from "../src/dispatcher.ts";
 
 const server = process.env.FACTORY_TEMPORAL_TEST_SERVER ?? "/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server";
@@ -27,6 +29,13 @@ const packageDigest = hash("inert-package");
 const runner = { package: "inert", version: "1", digest: packageDigest, export: "run" };
 const node = { id: "work", kind: "task", runner, deadlineMs: 600_000 };
 
+function compileDefinition(definition) {
+  const result = compileFactory(definition);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  if (!result.ok) throw new Error("test factory did not compile");
+  return result.factory;
+}
+
 function compiled(nodes, id) {
   const childReferences = nodes.filter((item) => item.kind === "subfactory").map((item) => item.factory);
   const definition = {
@@ -36,10 +45,7 @@ function compiled(nodes, id) {
     packages: [{ name: runner.package, version: runner.version, digest: runner.digest }], factories: childReferences,
     capabilities: [], effects: [...new Set(["none", ...nodes.flatMap((item) => item.effects ?? [])])], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
   };
-  const result = compileFactory(definition);
-  assert.equal(result.ok, true, JSON.stringify(result));
-  if (!result.ok) throw new Error("test factory did not compile");
-  return result.factory;
+  return compileDefinition(definition);
 }
 
 const factory = compiled([node], "test");
@@ -76,6 +82,7 @@ function definitionActivities(...factories) {
   const stored = factories.map(storedDefinition);
   const find = (digest) => stored.find((item) => item.factory.digest === digest);
   const transitionPages = new Map();
+  const transitionManifests = new Map();
   return {
     stageTransitionPage: async (request) => {
       const key = `${request.logicalRunId}:${request.interpreterId}:${request.sourceSequence}:${request.index}`;
@@ -88,7 +95,11 @@ function definitionActivities(...factories) {
       const eventHash = hash(canonicalizeJson(transition.event));
       assert.equal(request.eventId, transition.event.id);
       if (request.expectedEventHash !== undefined) assert.equal(request.expectedEventHash, eventHash);
-      return { manifest: { objectId: `transition-manifest:${request.logicalRunId}:${request.sourceSequence}`, digest: hash(content), encodedBytes: Math.min(Buffer.byteLength(content), 32 * 1024) }, eventHash };
+      const manifestValue = { schemaVersion: "factory.transition-manifest.v1", tenantId: request.tenantId, projectId: request.projectId, logicalRunId: request.logicalRunId, interpreterId: request.interpreterId, sourceSequence: request.sourceSequence, eventId: request.eventId, eventHash, encodedBytes: Buffer.byteLength(content), pages: request.pages };
+      const manifestContent = canonicalizeJson(manifestValue);
+      const manifest = { objectId: `transition-manifest:${request.logicalRunId}:${request.interpreterId}:${request.sourceSequence}`, digest: hash(manifestContent), encodedBytes: Buffer.byteLength(manifestContent) };
+      transitionManifests.set(manifest.objectId, { ...manifestValue, self: manifest });
+      return { manifest, eventHash };
     },
     resolveFactory: async ({ factory: reference }) => {
       const item = find(reference.digest);
@@ -115,6 +126,16 @@ function definitionActivities(...factories) {
       if (!item) throw new Error("unknown partition artifact");
       return createCompiledPartitionArtifact(item.factory, partition.partitionId);
     },
+    loadTransitionManifest: async ({ manifest }) => {
+      const value = transitionManifests.get(manifest.objectId);
+      if (!value) throw new Error("unknown transition manifest");
+      return value;
+    },
+    loadTransitionPage: async ({ logicalRunId, interpreterId, sourceSequence, page }) => {
+      const content = transitionPages.get(`${logicalRunId}:${interpreterId}:${sourceSequence}:${page.index}`);
+      if (content === undefined) throw new Error("unknown transition page");
+      return { ...page, content };
+    },
   };
 }
 
@@ -130,12 +151,19 @@ async function assertClosedReceipt(handle) {
 }
 
 async function waitForContinuedRun(handle, previousRunId) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const runId = (await handle.describe()).runId;
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const runId = (await environment.client.workflow.getHandle(handle.workflowId).describe()).runId;
     if (runId !== previousRunId) return runId;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`workflow did not continue from run ${previousRunId}`);
+}
+
+async function waitForState(handle): Promise<KernelState> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    try { return await environment.client.workflow.getHandle(handle.workflowId).query("factoryState"); } catch { await new Promise((resolve) => setTimeout(resolve, 10)); }
+  }
+  throw new Error(`workflow ${handle.workflowId} did not register its state query`);
 }
 
 async function waitForActivityCancellation(started) {
@@ -188,12 +216,14 @@ describe("factory Temporal workflow", () => {
       },
     };
     const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    let observedStatus: FactoryWorkflowResult["status"] | undefined;
     await worker.runUntil(async () => {
       await deliverFactoryCommand(environment.client, command);
       await deliverFactoryCommand(environment.client, command);
       await assert.rejects(deliverFactoryCommand(environment.client, { ...command, commandId: `${command.commandId}-conflict`, requestId: `${command.commandId}-conflict` }), WorkflowExecutionAlreadyStartedError);
-      assert.equal((await environment.client.workflow.getHandle(workflowId).result()).status, "completed");
+      observedStatus = (await environment.client.workflow.getHandle(workflowId).result()).status;
     });
+    assert.equal(observedStatus, "completed");
   });
 
   it("fails a malformed workflow input before it reads the definition", async () => {
@@ -547,6 +577,7 @@ describe("factory Temporal workflow", () => {
 
   it("cancels an in-flight activity and waits for the fenced stop acknowledgement", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    let cancelledResult: FactoryWorkflowResult | undefined;
     let dispatchStarted = () => undefined;
     const started = new Promise<void>((resolve) => { dispatchStarted = resolve; });
     const activities = {
@@ -576,11 +607,13 @@ describe("factory Temporal workflow", () => {
       });
       const cancel = { kind: "cancel", id: "cancel-event", atMs: startedAtMs + 2, reason: "requested" };
       await handle.signal("factoryInbox", { sequence: 1, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
-      const result = await handle.result();
-      assert.equal(result.status, "cancelled", JSON.stringify(result));
-      assert.equal(result.state.nodes.work.attempts[0].stopped, true);
+      cancelledResult = await handle.result();
+      assert.equal(cancelledResult.status, "cancelled", JSON.stringify(cancelledResult));
+      assert.equal(cancelledResult.state.nodes.work.attempts[0].stopped, true);
       await assertClosedReceipt(handle);
     });
+    assert.equal(cancelledResult?.status, "cancelled");
+    assert.equal(cancelledResult?.state.nodes.work.attempts[0].stopped, true);
   });
 
   it("uses a durable retry timer and succeeds on the second fenced attempt", async () => {
@@ -764,6 +797,136 @@ describe("factory Temporal workflow", () => {
       const result = await handle.result();
       assert.equal(result.status, "cancelled");
       await assertClosedReceipt(current);
+    });
+  });
+
+  it("keeps a 9,999-item nested map bounded across paged transitions and repeated continuations", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const mapFactory = compileDefinition({
+      schemaVersion: "factory.v1", id: "bounded-map", version: "1", interpreterCompatibility: "1",
+      inputPorts: { items: { type: "array", items: { type: "number" }, maxItems: 9_999 } },
+      outputPorts: { choices: { type: "array", items: { type: "string" } } },
+      graph: {
+        nodes: [{
+          id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items", path: [] }, itemSchema: { type: "number" },
+          body: {
+            nodes: [{ id: "approve", kind: "approval", choices: ["approve"], context: { kind: "ref", root: "map", name: "item", path: [] }, actorScope: "owner", expiresInMs: 60_000, onDenied: "fail", onExpired: "fail", outputPorts: { choice: { type: "string" } } }],
+            outputs: { choices: { kind: "ref", root: "node", name: "approve", path: ["choice"] } },
+          },
+          outputPorts: { choices: { type: "array", items: { type: "string" } } },
+          mode: "all", maxItems: 9_999, maxConcurrency: 1,
+        }],
+        outputs: { choices: { kind: "ref", root: "node", name: "map", path: ["choices"] } },
+      },
+      acceptance: { id: "test-acceptance", version: "1", claims: [{ id: "test", validator: runner, required: true, protected: true }], groups: [] },
+      packages: [{ name: runner.package, version: runner.version, digest: runner.digest }],
+      capabilities: [], effects: ["none"], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
+    });
+    const base = definitionActivities(mapFactory);
+    const pageCounts = new Map();
+    const activities = {
+      ...base,
+      stageTransitionPage: async (request) => {
+        pageCounts.set(request.sourceSequence, (pageCounts.get(request.sourceSequence) ?? 0) + 1);
+        return base.stageTransitionPage(request);
+      },
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        if (command.kind === "request-approval") return null;
+        if (command.kind === "cancel-node") return { kind: "attempt-stopped", id: `${command.id}:stopped`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt };
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const workflowId = `tenant/bounded-map-${process.pid}`;
+      const handle = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(mapFactory, { logicalRunId: "bounded-map", startedAtMs, input: { items: Array.from({ length: 9_999 }, () => 0) } })],
+      });
+      for (let attempt = 0; pageCounts.size === 0 && attempt < 100; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.ok(pageCounts.size > 0, "initial transition was not persisted");
+      let initial: KernelState | undefined;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        initial = await waitForState(handle);
+        if (initial.nodes["map/items/0/approve"]) break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.ok(initial);
+      assert.ok(initial.nodes["map/items/0/approve"], "first map item was not opened");
+      assert.deepEqual(Object.keys(initial.nodes).sort(), ["map", "map/items/0/approve"]);
+      assert.equal(initial.scopes.root.expandedNodeCount, 2);
+      assert.ok([...pageCounts.values()].some((count) => count > 1), "large transition did not use bounded pages");
+
+      const firstRunId = (await handle.describe()).runId;
+      for (let sequence = 1; sequence <= 63; sequence += 1) {
+        const repair = { kind: "repair", id: `bounded-map-repair-${sequence}`, atMs: startedAtMs + sequence, nodeId: "map/items/0/approve", reason: "protected approval remains waiting" };
+        await handle.signal("factoryInbox", { sequence, eventId: repair.id, eventHash: eventHash(repair), event: repair });
+      }
+      const secondRunId = await waitForContinuedRun(handle, firstRunId);
+      for (let sequence = 64; sequence <= 127; sequence += 1) {
+        const repair = { kind: "repair", id: `bounded-map-repair-${sequence}`, atMs: startedAtMs + sequence, nodeId: "map/items/0/approve", reason: "protected approval remains waiting" };
+        await handle.signal("factoryInbox", { sequence, eventId: repair.id, eventHash: eventHash(repair), event: repair });
+      }
+      await waitForContinuedRun(handle, secondRunId);
+      const restored = await waitForState(handle);
+      assert.deepEqual(Object.keys(restored.nodes).sort(), ["map", "map/items/0/approve"]);
+      assert.equal(restored.scopes.root.expandedNodeCount, 2);
+      const cancel = { kind: "cancel", id: "bounded-map-cancel", atMs: Date.now(), reason: "test complete" };
+      await handle.signal("factoryInbox", { sequence: 128, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
+      assert.equal((await handle.result()).status, "cancelled");
+      await assertClosedReceipt(handle);
+    });
+  });
+
+  it("persists and restores a completed 9,999-item output through bounded pages", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const emptyOutput = { nodes: [], outputs: { value: { kind: "literal", value: "" } } };
+    const completedMapFactory = compileDefinition({
+      schemaVersion: "factory.v1", id: "completed-bounded-map", version: "1", interpreterCompatibility: "1",
+      inputPorts: { items: { type: "array", items: { type: "number" }, maxItems: 9_999 } },
+      outputPorts: { values: { type: "array", items: { type: "string" } } },
+      graph: {
+        nodes: [{
+          id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items", path: [] }, itemSchema: { type: "number" },
+          body: {
+            nodes: [{ id: "choose", kind: "branch", condition: { kind: "literal", value: true }, then: emptyOutput, else: emptyOutput, outputPorts: { value: { type: "string" } } }],
+            outputs: { values: { kind: "ref", root: "node", name: "choose", path: ["value"] } },
+          },
+          outputPorts: { values: { type: "array", items: { type: "string" } } }, mode: "all", maxItems: 9_999, maxConcurrency: 1,
+        }],
+        outputs: { values: { kind: "ref", root: "node", name: "map", path: ["values"] } },
+      },
+      acceptance: { id: "test-acceptance", version: "1", claims: [{ id: "test", validator: runner, required: true, protected: true }], groups: [] },
+      packages: [{ name: runner.package, version: runner.version, digest: runner.digest }],
+      capabilities: [], effects: ["none"], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
+    });
+    const base = definitionActivities(completedMapFactory);
+    const pageCounts = new Map();
+    const activities = {
+      ...base,
+      stageTransitionPage: async (request) => {
+        pageCounts.set(request.sourceSequence, (pageCounts.get(request.sourceSequence) ?? 0) + 1);
+        return base.stageTransitionPage(request);
+      },
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => { throw new Error(`unexpected ${command.kind}`); },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const logicalRunId = `completed-bounded-map-${process.pid}`;
+      const handle = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: `tenant/${logicalRunId}`, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(completedMapFactory, { logicalRunId, startedAtMs, input: { items: Array.from({ length: 9_999 }, (_, index) => index) } })],
+      });
+      const result = await handle.result();
+      assert.equal(result.status, "completed");
+      assert.deepEqual(Object.keys(result.state.nodes), ["map"]);
+      assert.deepEqual(Object.keys(result.state.scopes), ["root"]);
+      assert.equal(result.state.scopes.root.expandedNodeCount, 10_000);
+      assert.equal(result.state.nodes.map.output.values.length, 9_999);
+      assert.ok([...pageCounts.values()].some((count) => count > 1), "completed output transition did not use bounded pages");
+      await assertClosedReceipt(handle);
     });
   });
 });

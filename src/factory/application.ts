@@ -3,6 +3,7 @@ import type { TransactionalDb } from "../db/migrations/types";
 import type { BlobStore } from "../extensions/v4/types";
 import { assertFactoryIdentity } from "./records";
 import { factoryDefinitionRequirements, FactoryDefinitions, type FactoryDraftMetadata } from "./definitions";
+import { configureProjectCreationParticipant } from "../db/queries/projects";
 import { FactoryGrants } from "./grants";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "./run-lifecycle";
 import { FactoryArtifacts } from "./artifacts";
@@ -81,6 +82,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
 /** Root boot configures this only after every required service probe succeeds. */
 export function configureFactoryApplication(application: FactoryApplication | null): void {
   configuredApplication = application;
+  configureProjectCreationParticipant(application ? (transaction, projectId, ownerId) => application.grants.initializeProjectInTransaction(transaction, projectId, ownerId) : null);
 }
 
 export function getFactoryApplication(): FactoryApplication | null {

@@ -119,6 +119,18 @@ export type Violation = { from: string; spec: string; target: string; rule: stri
  * not resolve to a first-party path at all.
  */
 export function checkEdge(fromFile: string, spec: string): Violation | null {
+  if (
+    (spec === "@xyflow/svelte" || spec.startsWith("@xyflow/svelte/") || spec === "elkjs" || spec.startsWith("elkjs/")) &&
+    !fromFile.startsWith("web/src/lib/factory/")
+  ) {
+    return {
+      from: fromFile,
+      spec,
+      target: spec,
+      rule: "factory-graph-libraries",
+      why: "Svelte Flow and ELK are confined to web/src/lib/factory/",
+    };
+  }
   const target = resolveSpecifier(fromFile, spec);
   if (target === null) return null;
   const t = bare(target);
