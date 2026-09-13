@@ -431,11 +431,21 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
       return this.uncertain(claim.intent);
     }
     const claimed = claim.intent;
-    await this.assertReady(claimed);
-    const token = await this.options.mintAttemptToken(claimed.request);
-    opaque(token, "attempt token");
-    const guestRequest = copy({ ...claimed.request, broker: { ...claimed.request.broker, attemptToken: token } });
-    const start = this.startRequest(claimed, guestRequest);
+    let guestRequest: FactoryRunnerRequest;
+    let start: ReturnType<IsolatedFactoryAttemptRuntime["startRequest"]>;
+    try {
+      await this.assertReady(claimed);
+      const token = await this.options.mintAttemptToken(claimed.request);
+      opaque(token, "attempt token");
+      guestRequest = copy({ ...claimed.request, broker: { ...claimed.request.broker, attemptToken: token } });
+      start = this.startRequest(claimed, guestRequest);
+    } catch (error) {
+      // No token reached a guest and no container exists, so the claim is
+      // released rather than burnt: a transient denial must not strand the
+      // attempt in `launching` forever.
+      await this.options.launches.state(claimed.request.authority.attemptId, "prepared");
+      throw error;
+    }
     try {
       const execution = await this.options.runner.start(start, this.reverse(claimed, start.context));
       this.active.set(claimed.request.authority.attemptId, execution);
@@ -466,7 +476,14 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
 
   private async attached(intent: FactoryAttemptLaunchIntent): Promise<FactoryAttemptOpen> {
     if (!this.options.runner.attach) throw new FactoryAttemptRuntimeError("launch_uncertain", "A live factory worker cannot be reattached.");
-    await this.assertReady(intent);
+    // A surviving guest already holds authority, so a denial here cannot release
+    // anything; it records durable uncertainty for the stop service to reconcile.
+    try {
+      await this.assertReady(intent);
+    } catch (error) {
+      await this.options.launches.state(intent.request.authority.attemptId, "uncertain");
+      throw error;
+    }
     const token = await this.options.mintAttemptToken(intent.request);
     const start = this.startRequest(intent, copy({ ...intent.request, broker: { ...intent.request.broker, attemptToken: token } }));
     const execution = await this.options.runner.attach(start, this.reverse(intent, start.context));

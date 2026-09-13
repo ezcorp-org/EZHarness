@@ -17,15 +17,15 @@ class CountingRunner implements Runner {
   starts = 0;
   attaches = 0;
   invocations = 0;
-  private state: RunnerInspection["state"] = "unknown";
-  constructor(private readonly result: FactoryRunnerResult, private readonly failAfterInvoke = false) {}
+  private readonly states = new Map<string, RunnerInspection["state"]>();
+  constructor(private readonly result: FactoryRunnerResult) {}
   async build(): Promise<never> { throw new Error("build is not part of attempt recovery"); }
   async collectArtifacts(): Promise<never> { throw new Error("artifact collection is not part of attempt recovery"); }
-  async inspect(id: string): Promise<RunnerInspection> { return { id, state: this.state, diagnostics: [] }; }
-  async cancel(id: string): Promise<void> { void id; this.state = "cancelled"; }
+  async inspect(id: string): Promise<RunnerInspection> { return { id, state: this.states.get(id) ?? "unknown", diagnostics: [] }; }
+  async cancel(id: string): Promise<void> { this.states.set(id, "cancelled"); }
   async start(input: StartRequest): Promise<RunnerExecution> {
     this.starts += 1;
-    this.state = "running";
+    this.states.set(input.workerId, "running");
     return this.execution(input.workerId);
   }
   async attach(input: StartRequest): Promise<RunnerExecution> {
@@ -38,7 +38,6 @@ class CountingRunner implements Runner {
       request: async (method) => {
         if (method !== "extension/invoke") throw new Error(`unexpected guest method ${method}`);
         this.invocations += 1;
-        if (this.failAfterInvoke) { this.state = "cancelled"; }
         return this.result;
       },
       close: async () => {},
@@ -81,6 +80,13 @@ async function violatedConstraint(statement: ReturnType<typeof sql>): Promise<st
     return cause?.constraint;
   }
   return undefined;
+}
+
+/** The durable launch state, so a denial that releases its claim is provable. */
+async function launchState(attemptId: string): Promise<string | undefined> {
+  const rows = await fixture.db.execute(sql`SELECT state FROM factory_attempt_launches WHERE attempt_id=${attemptId}`) as unknown as { rows?: { state: string }[] } | { state: string }[];
+  const list = Array.isArray(rows) ? rows : rows.rows ?? [];
+  return list[0]?.state;
 }
 
 test("a fresh gateway reads the same terminal result without a second invocation", async () => {
@@ -238,4 +244,61 @@ test("a guest control frame is answered only when it carries the started worker 
   await expect(reverse!("factory.broker", { context })).rejects.toThrow("has no input");
   await expect(reverse!("factory.broker", [1, 2])).rejects.toThrow("control frame is invalid");
   expect(brokerInputs).toEqual(["invoked"]);
+});
+
+test("two model tuples share one package and export, and revoking one denies only its dispatch", async () => {
+  const tupleA = factoryLaunchRequest({ attemptId: "attempt-tuple-a", model: "model-a" });
+  const tupleB = factoryLaunchRequest({ attemptId: "attempt-tuple-b", model: "model-b", configurationDigest: `sha256:${"9".repeat(64)}` });
+  await fixture.admit(tupleA);
+  await fixture.admit(tupleB);
+  expect(tupleA.runner.package).toBe(tupleB.runner.package);
+  expect(tupleA.runner.export).toBe(tupleB.runner.export);
+
+  const revoked = new Set<string>();
+  const readiness: FactoryRunnerDispatchReadiness = {
+    assertDispatchReady: async (dispatch) => {
+      const reference = canonicalJson((dispatch as { runner: unknown }).runner);
+      if (revoked.has(reference)) throw new Error("factory_package_revoked");
+      return { ...factoryLaunchPackage(tupleA), reference: (dispatch as { runner: FactoryRunnerRequest["runner"] }).runner };
+    },
+  };
+  const completed = factoryLaunchCompletedResult("tuple-a");
+  const runner = new CountingRunner(completed);
+  const openedA = await runtime(runner, { readiness }).open(tupleA, factoryLaunchLease, { ...factoryLaunchPackage(tupleA), reference: tupleA.runner });
+  expect(await openedA.wait()).toEqual(completed);
+
+  revoked.add(canonicalJson(tupleB.runner));
+  await expect(runtime(runner, { readiness }).open(tupleB, factoryLaunchLease, { ...factoryLaunchPackage(tupleB), reference: tupleB.runner })).rejects.toThrow("factory_package_revoked");
+
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  expect(await store.terminalResult(tupleA.authority.attemptId)).toEqual(completed);
+  expect(await store.terminalResult(tupleB.authority.attemptId)).toBeUndefined();
+  expect(runner.starts).toBe(1);
+  expect(runner.invocations).toBe(1);
+
+  expect(await launchState(tupleB.authority.attemptId)).toBe("prepared");
+
+  revoked.clear();
+  const recoveredB = await runtime(runner, { readiness }).open(tupleB, factoryLaunchLease, { ...factoryLaunchPackage(tupleB), reference: tupleB.runner });
+  expect(recoveredB.disposition).toBe("started");
+  expect(recoveredB.invocationId).not.toBe(openedA.invocationId);
+  expect(await recoveredB.wait()).toEqual(completed);
+  expect(runner.starts).toBe(2);
+});
+
+test("a denial while reattaching a live guest records durable uncertainty instead of a fresh token", async () => {
+  const runner = new CountingRunner(factoryLaunchCompletedResult());
+  let ready = true;
+  let minted = 0;
+  const gated = { assertDispatchReady: async () => { if (!ready) throw new Error("factory_package_revoked"); return factoryLaunchPackage(request); } };
+  const started = await runtime(runner, { readiness: gated, onMint: () => { minted += 1; } }).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(started.disposition).toBe("started");
+  expect(minted).toBe(1);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+
+  ready = false;
+  await expect(runtime(runner, { readiness: gated, onMint: () => { minted += 1; } }).open(request, factoryLaunchLease, factoryLaunchPackage(request))).rejects.toThrow("factory_package_revoked");
+  expect(minted).toBe(1);
+  expect(runner.attaches).toBe(0);
+  expect(await launchState(request.authority.attemptId)).toBe("uncertain");
 });

@@ -16,7 +16,7 @@ export const factoryLaunchDigest = `sha256:${raw}`;
 export const factoryLaunchArtifactDigest = raw;
 
 /** One canonical C02 runner request. Every identity field is explicit so a test can vary exactly one. */
-export function factoryLaunchRequest(overrides: { attemptId?: string; candidateGeneration?: number; attemptNumber?: number } = {}): FactoryRunnerRequest {
+export function factoryLaunchRequest(overrides: { attemptId?: string; candidateGeneration?: number; attemptNumber?: number; model?: string; configurationDigest?: string } = {}): FactoryRunnerRequest {
   return {
     schemaVersion: "factory.runner.request.v1",
     authority: {
@@ -26,7 +26,7 @@ export function factoryLaunchRequest(overrides: { attemptId?: string; candidateG
       grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0,
       deadlineAtMs: Date.now() + 600_000, nextOperationIndex: 0,
     },
-    runner: { package: "runner", version: "1", digest: factoryLaunchDigest, export: "run", model: "recovery-model", configurationDigest: factoryLaunchDigest },
+    runner: { package: "runner", version: "1", digest: factoryLaunchDigest, export: "run", model: overrides.model ?? "recovery-model", configurationDigest: overrides.configurationDigest ?? factoryLaunchDigest },
     input: { kind: "inline", value: { prompt: "recovery" } },
     grants: [], resources: {}, tools: [],
     broker: { audience: "gateway", attemptToken: "ephemeral-token" },
