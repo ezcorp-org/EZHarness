@@ -143,6 +143,7 @@ jobs:
           ./tests/postgres/factory-releases.test.ts
           ./tests/postgres/factory-release-authority.test.ts
           ./tests/postgres/factory-executions.test.ts
+          ./tests/postgres/factory-attempt-queue.test.ts
           ./tests/postgres/factory-execution-gateway.test.ts
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts

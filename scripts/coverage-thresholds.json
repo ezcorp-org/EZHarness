@@ -183,6 +183,8 @@
   "src/factory/task-admission.ts": 100,
   "src/factory/executions.ts": 100,
   "src/db/migrations/add-factory-executions.ts": 100,
+  "src/factory/attempt-queue.ts": 100,
+  "src/db/migrations/add-factory-attempt-queue.ts": 100,
   "src/db/migrations/add-factory-transition-commands.ts": 100,
   "src/db/migrations/add-factory-inbox.ts": 100,
   "src/db/migrations/add-factory-budgets.ts": 100,
