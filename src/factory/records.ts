@@ -249,14 +249,36 @@ export class FactoryRecords {
         AND projection.project_id = audit.project_id
         AND projection.run_id = audit.run_id
         AND projection.consumer_id = ${consumerId}
+      LEFT JOIN factory_run_projection_attempts AS attempt
+        ON attempt.tenant_id = audit.tenant_id
+        AND attempt.project_id = audit.project_id
+        AND attempt.run_id = audit.run_id
+        AND attempt.consumer_id = ${consumerId}
       WHERE audit.tenant_id = ${this.tenantId}
         AND audit.sequence > COALESCE(projection.sequence, 0)
       GROUP BY audit.project_id, audit.run_id
-      ORDER BY MIN(audit.sequence), audit.project_id, audit.run_id
+      ORDER BY CASE WHEN MAX(attempt.last_attempted_at) IS NULL THEN 0 ELSE 1 END,
+        MAX(attempt.last_attempted_at), MIN(audit.created_at), audit.project_id, audit.run_id
       LIMIT ${limit}`));
     return pending.map((row) => {
       identity(row.project_id, row.run_id);
       return { projectId: row.project_id, runId: row.run_id };
+    });
+  }
+
+  /** Records a scheduler attempt without advancing or modifying the audit cursor. */
+  async recordProjectionAttempt(key: FactoryRunKey, consumerId: string, errorCode: string | null): Promise<void> {
+    identity(key.projectId, key.runId, consumerId);
+    if (errorCode !== null) identity(errorCode);
+    await this.database.transaction(async transaction => {
+      await this.lockRun(transaction, key);
+      await transaction.execute(sql`INSERT INTO factory_run_projection_attempts
+        (tenant_id, project_id, run_id, consumer_id, attempt_count, last_error_code, last_attempted_at)
+        VALUES (${this.tenantId}, ${key.projectId}, ${key.runId}, ${consumerId}, 1, ${errorCode}, NOW())
+        ON CONFLICT (tenant_id, project_id, run_id, consumer_id) DO UPDATE
+          SET attempt_count = factory_run_projection_attempts.attempt_count + 1,
+            last_error_code = EXCLUDED.last_error_code,
+            last_attempted_at = NOW()`);
     });
   }
 

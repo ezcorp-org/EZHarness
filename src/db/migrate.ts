@@ -3043,6 +3043,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryArtifactPartitionIdentity(db);
   const { up: scopeFactoryArtifactPrimaryKey } = await import("./migrations/scope-factory-artifact-primary-key");
   await scopeFactoryArtifactPrimaryKey(db);
+  const { up: addFactoryProjectionAttempts } = await import("./migrations/add-factory-projection-attempts");
+  await addFactoryProjectionAttempts(db);
   const { up: addFactoryTransitionCommands } = await import("./migrations/add-factory-transition-commands");
   await addFactoryTransitionCommands(db);
   const { up: addFactoryAssurance } = await import("./migrations/add-factory-assurance");

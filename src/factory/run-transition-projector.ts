@@ -102,9 +102,13 @@ export class FactoryRunTransitionProjector {
     const results: FactoryPendingProjectionResult[] = [];
     for (const key of pending) {
       try {
-        results.push({ key, progress: await this.project(key, batchesPerRun) });
+        const progress = await this.project(key, batchesPerRun);
+        await this.records.recordProjectionAttempt(key, CONSUMER_ID, null);
+        results.push({ key, progress });
       } catch (cause) {
-        results.push({ key, errorCode: cause instanceof Error && "code" in cause && typeof cause.code === "string" ? cause.code : "factory_projection_failed" });
+        const errorCode = cause instanceof Error && "code" in cause && typeof cause.code === "string" ? cause.code : "factory_projection_failed";
+        await this.records.recordProjectionAttempt(key, CONSUMER_ID, errorCode);
+        results.push({ key, errorCode });
       }
     }
     return { runs: results };

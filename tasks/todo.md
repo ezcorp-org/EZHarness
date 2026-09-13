@@ -22,6 +22,14 @@ Review: public page-stage/finalize/record/load tests reject uncommitted and fore
 
 Review: A public started run remains `queued` until its verified committed root transition is projected. The projector checks the canonical audit and immutable page bytes before its cursor and lifecycle update commit in one transaction. `lag` is the committed audit maximum sequence minus the durable consumer cursor. `projectPending({ runs, batchesPerRun })` uses the scoped audit and projection indexes, orders by the oldest unprojected sequence, and records a corrupt run error while it continues with later runs. PGlite passes 17 cases/130 assertions at `/tmp/factory-platform-evidence/terra-run-projection-pglite.log`; real PostgreSQL/S3 passes the same suite at `/tmp/factory-platform-evidence/terra-run-projection-postgres-s3.log`. Focused artifact integration passes 12 cases/54 assertions at `/tmp/factory-platform-evidence/terra-run-projection-artifacts.log`. The new projector measures 64/64 executable lines in `/tmp/factory-platform-evidence/terra-run-projection-coverage.lcov`; all four typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-run-projection-final-types-lint.log` (eight existing lint infos).
 
+### Projector fairness follow-up
+
+- [x] Reproduce fixed-page starvation with a corrupt oldest run and `runs: 1`.
+- [x] Persist attempts and select untouched work before least-recently-attempted retries.
+- [x] Prove PGlite and PostgreSQL/S3 recovery, coverage, typechecks, and lint.
+
+Review: `factory_run_projection_attempts` stores each scheduler attempt and its visible error code without changing the audit cursor. The indexed drain selects every never-attempted run before the least-recently-attempted retry. The `runs: 1` test first returns the corrupt oldest run, then projects the healthy later run, and after restart returns the corrupt retry with attempt count two. PGlite passes 20 cases/140 assertions at `/tmp/factory-platform-evidence/terra-projection-fairness-pglite.log`; real PostgreSQL/S3 plus schema parity passes 19 cases/1,388 assertions at `/tmp/factory-platform-evidence/terra-projection-fairness-postgres-schema.log`. Coverage measures the new migration 6/6, Drizzle schema 347/347, and projector 68/68 lines at `/tmp/factory-platform-evidence/terra-projection-fairness-final-coverage.lcov`; all four typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-projection-fairness-final-types-lint.log` with eight existing infos.
+
 ## Factory assurance integrity — 2026-09-13
 
 - [x] Bind every persisted contract field and the approving authority into a canonical protected snapshot.

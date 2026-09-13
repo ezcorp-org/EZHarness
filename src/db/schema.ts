@@ -2897,6 +2897,7 @@ export const {
   factoryTransitionCommands,
   factoryCommandOutbox,
   factoryRunProjections,
+  factoryRunProjectionAttempts,
   factoryInboxCursors,
   factoryInboxEvents,
   factoryGrants,

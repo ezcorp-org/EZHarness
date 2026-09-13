@@ -139,7 +139,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await lifecycle.read(principal, runKey(run.runId))).toMatchObject({ status: "cancelled", error: { code: "FACTORY_RUN_CANCELLED", message: "cancelled" } });
   });
 
-  test("bounded pending projection drains later runs when one committed audit is corrupt", async () => {
+  test("persistent retry ordering prevents a corrupt oldest run from starving later work", async () => {
     const poisoned = await start();
     const healthy = await start();
     const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
@@ -151,13 +151,17 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await persistTransition(identity, 1, { id: `pending-${run.runId}`, kind: "cancel", atMs: now, reason: "test" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: `pending-complete-${run.runId}`, output: { runId: run.runId } }], undefined, activities);
     }
     await fixture.db.execute(sql`UPDATE factory_audit_batches SET payload='{}' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${poisoned.runId}`);
-    const first = await projector.projectPending({ runs: 2, batchesPerRun: 1 });
-    expect(first.runs).toHaveLength(2);
-    expect(first.runs.find((result) => result.key.runId === poisoned.runId)).toMatchObject({ errorCode: "factory_audit_corrupt" });
-    expect(first.runs.find((result) => result.key.runId === healthy.runId)).toMatchObject({ progress: { lag: 0, applied: 1 } });
+    await fixture.db.execute(sql`UPDATE factory_audit_batches SET created_at='2030-01-01T00:00:00.000Z' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${poisoned.runId}`);
+    await fixture.db.execute(sql`UPDATE factory_audit_batches SET created_at='2030-01-02T00:00:00.000Z' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${healthy.runId}`);
+    const attempts = async () => rows<{ attempt_count: string | number; last_error_code: string }>(await fixture.db.execute(sql`SELECT attempt_count, last_error_code FROM factory_run_projection_attempts WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${poisoned.runId}`)).map(row => ({ attemptCount: Number(row.attempt_count), errorCode: row.last_error_code }));
+    expect(await projector.projectPending({ runs: 1, batchesPerRun: 1 })).toMatchObject({ runs: [{ key: runKey(poisoned.runId), errorCode: "factory_audit_corrupt" }] });
+    expect(await attempts()).toEqual([{ attemptCount: 1, errorCode: "factory_audit_corrupt" }]);
+    const second = await projector.projectPending({ runs: 1, batchesPerRun: 1 });
+    expect(second).toMatchObject({ runs: [{ key: runKey(healthy.runId), progress: { lag: 0, applied: 1 } }] });
     expect((await lifecycle.read(principal, runKey(healthy.runId))).status).toBe("succeeded");
     const restarted = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
-    expect(await restarted.projectPending({ runs: 2, batchesPerRun: 1 })).toMatchObject({ runs: [{ key: runKey(poisoned.runId), errorCode: "factory_audit_corrupt" }] });
+    expect(await restarted.projectPending({ runs: 1, batchesPerRun: 1 })).toMatchObject({ runs: [{ key: runKey(poisoned.runId), errorCode: "factory_audit_corrupt" }] });
+    expect(await attempts()).toEqual([{ attemptCount: 2, errorCode: "factory_audit_corrupt" }]);
     await expect(projector.projectPending({ runs: 0 })).rejects.toThrow("page");
   });
 
