@@ -80,6 +80,33 @@ test("configured validator evidence binds exact candidate and human-trusted cont
   await expect(assurance.captureEvidence({ ...candidate, validatorId: "caller-selected-validator" })).rejects.toThrow("configured validator");
 });
 
+test("an optional protected claim may fail when the quorum still passes", async () => {
+  const quorumCandidate = { ...candidate, candidateGeneration: 40 };
+  const evidence = ["first", "second", "third"].map((id): FactoryTrustedEvidence => ({
+    ...trusted, ...quorumCandidate, validatorId: id,
+    artifact: { ...trusted.artifact, artifactId: `quorum-${id}` },
+    claims: [{ id, passed: id !== "third", decisive: true }],
+  }));
+  const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
+    async assertContractInTransaction() {},
+    async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) {
+      const found = evidence.find(item => item.validatorId === validatorId);
+      if (found) return structuredClone(found);
+      throw new Error("validator is not assigned");
+    },
+    async resolveCurrentEvidenceInTransaction(_transaction, _tenant, _key, validatorIds) {
+      return evidence.filter(item => validatorIds.includes(item.validatorId)).map(item => structuredClone(item));
+    },
+  };
+  const quorum = new FactoryAssurance(fixture.db, tenantId, grants, gateway, new ReleaseFenceReader(), gateway, () => now);
+  await quorum.approveContract(admin, {
+    projectId, contractId: "optional-quorum", revision: 1, contractDigest: digest("b"), validatorLockDigest: trusted.validatorLockDigest,
+    mandatoryClaims: ["first", "second", "third"].map(id => ({ id, validatorId: id, freshnessMs: 100, required: false })),
+    claimGroups: [{ id: "two-of-three", claimIds: ["first", "second", "third"], minimumPasses: 2, requireAllDecisive: true }],
+  }, mutationKey("optional-quorum"));
+  await expect(fixture.db.transaction(transaction => quorum.acceptCurrentInTransaction(transaction, quorumCandidate, "optional-quorum"))).resolves.toMatchObject({ candidateGeneration: 40, candidateDigest: trusted.candidateDigest });
+});
+
 test("human contract and approval receipts are stable, conflict-aware, and reauthorize cached reads", async () => {
   const contractInput = { projectId, contractId: "idempotent-contract", revision: 1, contractDigest: digest("a"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "tests", claimIds: ["tests"], minimumPasses: 1, requireAllDecisive: true }] } as const;
   await approveContract(contractInput, "contract-stable");
@@ -112,7 +139,7 @@ test("contract publication advances the sealed current revision with compare-and
   await approveContract({ ...base, revision: 2, contractDigest: digest("b") });
   await fixture.db.execute(sql`UPDATE factory_acceptance_contracts SET validator_lock_digest=${digest("f")} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND contract_id=${base.contractId} AND revision=2`);
   await expect(approveContract({ ...base, revision: 3, contractDigest: digest("c") })).rejects.toMatchObject({ code: "factory_assurance_corrupt" });
-  expect(rows(await fixture.db.execute(sql`SELECT revision FROM factory_acceptance_contracts WHERE tenant_id=${tenantId} AND project_id=${projectId} AND contract_id=${base.contractId} ORDER BY revision`))).toEqual([{ revision: 1 }, { revision: 2 }]);
+  expect(rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_acceptance_contracts WHERE tenant_id=${tenantId} AND project_id=${projectId} AND contract_id=${base.contractId} ORDER BY revision`)).map(row => ({ revision: Number(row.revision) }))).toEqual([{ revision: 1 }, { revision: 2 }]);
 });
 
 test("fresh mandatory claims and exact approval context are consumed once", async () => {

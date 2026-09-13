@@ -24,6 +24,11 @@ export interface FactoryTaskCompletionReceipt {
   readonly event: Extract<KernelEvent, { kind: "node-result" }>;
   readonly terminal: FactoryExecutionTerminalFact;
 }
+export interface FactoryVerifiedTaskCompletion {
+  readonly receipt: FactoryTaskCompletionReceipt;
+  readonly authority: FactoryAttemptAuthority;
+  readonly result: Extract<FactoryRunnerResult, { status: "completed" }>;
+}
 interface ReceiptRow { input_digest: string; receipt_json: string; receipt_digest: string; authority_json: string }
 export class FactoryTaskCompletionError extends Error {
   constructor(readonly code: string) { super(code); this.name = "FactoryTaskCompletionError"; }
@@ -43,12 +48,17 @@ export class FactoryTaskCompletions {
   }
 
   async readInTransaction(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference): Promise<FactoryTaskCompletionReceipt | undefined> {
+    return (await this.readVerifiedInTransaction(transaction, service, value))?.receipt;
+  }
+
+  /** Returns only host-verified immutable completion facts for protected product composition. */
+  async readVerifiedInTransaction(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference): Promise<FactoryVerifiedTaskCompletion | undefined> {
     service = snapshot(service);
     const reference = snapshot(value);
     this.authority.assertService(service);
     assertFactoryIdentity(...Object.values(reference));
     if (reference.tenantId !== this.authority.tenantId) throw new FactoryTaskCompletionError("factory_task_completion_scope");
-    return this.withRun(transaction, reference, () => this.readReceipt(transaction, reference));
+    return this.withRun(transaction, reference, () => this.readVerifiedReceipt(transaction, reference));
   }
 
   async completeInTransaction(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, valueResult: FactoryRunnerResult): Promise<FactoryTaskCompletionReceipt> {
@@ -60,8 +70,8 @@ export class FactoryTaskCompletions {
     if (reference.tenantId !== this.authority.tenantId || !validateFactoryRunnerResult(result).ok || result.status !== "completed") throw new FactoryTaskCompletionError("factory_task_completion_invalid");
     const inputDigest = hash({ reference, result });
     return this.withRun(transaction, reference, async () => {
-      const saved = await this.readReceipt(transaction, reference, inputDigest);
-      if (saved) return saved;
+      const saved = await this.readVerifiedReceipt(transaction, reference, inputDigest);
+      if (saved) return saved.receipt;
       return this.authority.withCurrentInTransaction(transaction, service, reference, async (transaction, context) => {
       if (context.command.kind !== "dispatch-node") throw new FactoryTaskCompletionError("factory_task_completion_invalid");
       const reservationId = factoryTaskReservationId(reference, context);
@@ -95,15 +105,16 @@ export class FactoryTaskCompletions {
     return work();
   }
 
-  private async readReceipt(transaction: MigrationDb, reference: TrustedFactoryCommandReference, inputDigest?: string): Promise<FactoryTaskCompletionReceipt | undefined> {
+  private async readVerifiedReceipt(transaction: MigrationDb, reference: TrustedFactoryCommandReference, inputDigest?: string): Promise<FactoryVerifiedTaskCompletion | undefined> {
     const row = rows<ReceiptRow>(await transaction.execute(sql`SELECT input_digest,authority_json,receipt_json,receipt_digest FROM factory_task_completions WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
     if (!row) return undefined;
     const receipt = JSON.parse(row.receipt_json) as FactoryTaskCompletionReceipt;
     if (row.receipt_digest !== hash({ reference, inputDigest: row.input_digest, authorityJson: row.authority_json, receipt }) || canonicalJson(receipt) !== row.receipt_json) throw new FactoryTaskCompletionError("factory_task_completion_corrupt");
     if (inputDigest !== undefined && row.input_digest !== inputDigest) throw new FactoryTaskCompletionError("factory_task_completion_conflict");
     const raw = JSON.parse(row.authority_json) as Omit<FactoryAttemptAuthority, "deadlineAt"> & { deadlineAt: number };
-    const verified = await this.journal.readCompletedTerminalInTransaction(transaction, { ...raw, deadlineAt: new Date(raw.deadlineAt) }, this.artifacts);
+    const authority = { ...raw, deadlineAt: new Date(raw.deadlineAt) };
+    const verified = await this.journal.readCompletedTerminalInTransaction(transaction, authority, this.artifacts);
     if (hash({ reference, result: verified.result }) !== row.input_digest || canonicalJson(verified.terminal) !== canonicalJson(receipt.terminal)) throw new FactoryTaskCompletionError("factory_task_completion_corrupt");
-    return receipt;
+    return { receipt, authority, result: verified.result };
   }
 }

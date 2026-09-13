@@ -213,12 +213,6 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     return { candidateGeneration: authority.candidateGeneration, candidateDigest: terminal.candidateDigest, pointerRevision };
   }
 
-  /** Reads the sealed active package trust inside an existing product transaction. */
-  async readActiveTrustInTransaction(transaction: MigrationDb, projectId: string): Promise<FactoryReleaseTrustRecord> {
-    assertFactoryIdentity(projectId);
-    return this.requireTrust(transaction, projectId, "update", true);
-  }
-
   async lockCurrentInTransaction(transaction: MigrationDb, tenantId: string, projectId: string, runId: string, nodeInstanceId: string): Promise<FactoryReleaseAuthority> {
     if (tenantId !== this.tenantId) throw new FactoryReleaseAuthorityError("factory_release_authority_scope");
     assertFactoryIdentity(projectId, runId, nodeInstanceId);
@@ -276,7 +270,11 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
 
   private async currentTrustRow(transaction: MigrationDb, projectId: string, lock: "share" | "update"): Promise<TrustRow | undefined> {
     const clause = lock === "update" ? sql`FOR UPDATE` : sql`FOR SHARE`;
-    return rows<TrustRow>(await transaction.execute(sql`SELECT r.revision,r.state,r.package_lock_json,r.package_trust_digest,r.validator_trust_digest,r.approved_by,r.approval_grant_revision,r.protected_digest FROM factory_release_trust_current c JOIN factory_release_trust_revisions r ON r.tenant_id=c.tenant_id AND r.project_id=c.project_id AND r.revision=c.revision WHERE c.tenant_id=${this.tenantId} AND c.project_id=${projectId} ${clause}`))[0];
+    const current = rows<TrustRow>(await transaction.execute(sql`SELECT r.revision,r.state,r.package_lock_json,r.package_trust_digest,r.validator_trust_digest,r.approved_by,r.approval_grant_revision,r.protected_digest FROM factory_release_trust_current c JOIN factory_release_trust_revisions r ON r.tenant_id=c.tenant_id AND r.project_id=c.project_id AND r.revision=c.revision WHERE c.tenant_id=${this.tenantId} AND c.project_id=${projectId} ${clause}`))[0];
+    if (!current) return undefined;
+    const latest = rows<{ revision: number | string }>(await transaction.execute(sql`SELECT MAX(revision) AS revision FROM factory_release_trust_revisions WHERE tenant_id=${this.tenantId} AND project_id=${projectId}`))[0];
+    if (!latest || Number(latest.revision) !== Number(current.revision)) throw new FactoryReleaseAuthorityError("factory_release_trust_corrupt");
+    return current;
   }
 
   private async requireTrust(transaction: MigrationDb, projectId: string, lock: "share" | "update", active: boolean): Promise<FactoryReleaseTrustRecord> {

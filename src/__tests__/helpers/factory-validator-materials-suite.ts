@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { compileFactory, factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
-import { referenceCodeV1, type CompiledFactory, type FactoryArtifactReference, type FactoryRunnerRequest, type FactoryRunnerResult, type RunnerReference } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, referenceFactories, type CompiledFactory, type FactoryArtifactReference, type FactoryRunnerRequest, type FactoryRunnerResult, type RunnerReference } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { BlobStore } from "../../extensions/v4/types";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
@@ -20,7 +20,7 @@ import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime, type Fac
 interface Fixture { readonly db: TransactionalDb; readonly blobs: BlobStore; close(): Promise<void> }
 
 export function factoryValidatorMaterialsConformance(createFixture: () => Promise<Fixture>): void {
-  const tenantId = "validator-tenant", projectId = "validator-project", runId = "validator-run";
+  const tenantId = "validator-tenant", projectId = "validator-project", contractsProjectId = "validator-contracts", runId = "validator-run";
   const now = Date.now(), deadlineAtMs = now + 60_000;
   const admin: FactoryPrincipal = { kind: "user", id: "validator-admin", authentication: "session" };
   let fixture: Fixture, database: TransactionalDb, artifacts: FactoryArtifacts, grants: FactoryGrants, journal: FactoryExecutionJournal;
@@ -84,9 +84,12 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
     runtime = { runner: validatorRunner, resources: { maxComputeMs: 1000 }, brokerAudience: "trusted-validator-gateway", environmentDigest: digest("validator-environment Hers"), configurationDigest: validatorRunner.configurationDigest!, maxEvidenceAgeMs: 10_000 };
     const records = new FactoryRecords(database, tenantId); await records.bindInstallation();
     await database.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Validator','/tmp/validator')`);
+    await database.execute(sql`INSERT INTO projects(id,name,path) VALUES (${contractsProjectId},'Validator contracts','/tmp/validator-contracts')`);
     await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${admin.id},'validator@example.test','x','Validator','admin')`);
     await database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('validator-member',${projectId},${admin.id},'owner')`);
+    await database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('validator-contracts-member',${contractsProjectId},${admin.id},'owner')`);
     await records.bindProject(projectId);
+    await records.bindProject(contractsProjectId);
     await records.createRun({ projectId, runId, definitionDigest: compiled.digest, interpreterBuild: "factory-validator-v1", executionEpoch: 1, input: {}, principalId: admin.id }, async () => {});
     await database.execute(sql`INSERT INTO factory_drafts(tenant_id,project_id,factory_id,revision,source_digest,source_json,required_resources_json,requirements_complete,validation_diagnostic_count) VALUES (${tenantId},${projectId},${compiled.definition.id},1,${digest(compiled.definition)},${canonicalJson(compiled.definition)},'[]',TRUE,0)`);
     await database.execute(sql`INSERT INTO factory_versions(tenant_id,project_id,factory_id,version,draft_revision,definition_digest,compiled_blob_digest,compiled_bytes,lock_json) VALUES (${tenantId},${projectId},${compiled.definition.id},${compiled.definition.version},1,${compiled.digest},${digest(compiled)},${new TextEncoder().encode(canonicalJson(compiled)).byteLength},${canonicalJson(compiled.lock)})`);
@@ -99,7 +102,13 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
       if (authority.executionEpoch !== fence.executionEpoch || authority.cancellationEpoch !== fence.cancellationEpoch || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new Error("validator attempt stale");
     }, () => new Date(now));
     releases = new FactoryReleaseAuthorityStore(database, tenantId, grants, lifecycle, journal, artifacts);
-    validators = new FactoryTrustedValidators(database, tenantId, lifecycle, journal, artifacts, releases, [runtime]);
+    const trustedRuntimes = new Map<string, FactoryTrustedValidatorRuntime>();
+    trustedRuntimes.set(digest(runtime.runner), runtime);
+    for (const definition of referenceFactories) for (const claim of definition.acceptance.claims) {
+      const key = digest(claim.validator);
+      if (!trustedRuntimes.has(key)) trustedRuntimes.set(key, { runner: claim.validator, resources: { maxComputeMs: 1000 }, brokerAudience: `trusted-${key.slice(-12)}`, environmentDigest: digest({ runner: claim.validator, kind: "environment" }), configurationDigest: claim.validator.configurationDigest!, maxEvidenceAgeMs: 86_400_000 });
+    }
+    validators = new FactoryTrustedValidators(database, tenantId, lifecycle, journal, artifacts, releases, trustedRuntimes.values());
     material = await database.transaction(transaction => validators.registerMaterialInTransaction(transaction, projectId, compiled));
     await releases.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: candidateRunner, validatorTrustDigest: material.validatorLockDigest }, "validator-trust");
     assurance = new FactoryAssurance(database, tenantId, grants, validators, new FenceReader(), validators, Date.now);
@@ -125,6 +134,23 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
     await expect(database.transaction(transaction => validators.registerMaterialInTransaction(transaction, projectId, unpublished.factory))).rejects.toMatchObject({ code: "factory_validator_material_unpublished" });
   });
 
+  test("all reference contracts retain protected optional quorum claims", async () => {
+    for (const definition of referenceFactories) {
+      const result = compileFactory(definition);
+      if (!result.ok) throw new Error(`reference ${definition.id} did not compile`);
+      const current = result.factory;
+      await database.execute(sql`INSERT INTO factory_drafts(tenant_id,project_id,factory_id,revision,source_digest,source_json,required_resources_json,requirements_complete,validation_diagnostic_count) VALUES (${tenantId},${contractsProjectId},${current.definition.id},1,${digest(current.definition)},${canonicalJson(current.definition)},'[]',TRUE,0)`);
+      await database.execute(sql`INSERT INTO factory_versions(tenant_id,project_id,factory_id,version,draft_revision,definition_digest,compiled_blob_digest,compiled_bytes,lock_json) VALUES (${tenantId},${contractsProjectId},${current.definition.id},${current.definition.version},1,${current.digest},${digest(current)},${new TextEncoder().encode(canonicalJson(current)).byteLength},${canonicalJson(current.lock)})`);
+      const registered = await database.transaction(transaction => validators.registerMaterialInTransaction(transaction, contractsProjectId, current));
+      const expected = current.definition.acceptance.claims.filter(claim => claim.required || current.definition.acceptance.groups?.some(group => group.claimIds.includes(claim.id)));
+      expect(registered.mandatoryClaims).toEqual(expected.map(claim => ({ id: claim.id, validatorId: claim.id, freshnessMs: claim.freshnessMs ?? 86_400_000, ...(claim.required ? {} : { required: false }) })));
+    }
+    const image = referenceFactories.find(definition => definition.id === "reference.image.v1")!;
+    const result = compileFactory(image); if (!result.ok) throw new Error("image reference did not compile");
+    const registered = await database.transaction(transaction => validators.registerMaterialInTransaction(transaction, contractsProjectId, result.factory));
+    expect(registered.mandatoryClaims.filter(claim => claim.required === false).map(claim => claim.id)).toEqual(["semantic-evaluation-1", "semantic-evaluation-2", "semantic-evaluation-3"]);
+  });
+
   test("an admitted exact candidate and validator attempt produce immutable accepted evidence while release is disabled", async () => {
     candidateAdmission = admission("candidate-attempt", "candidate-node", 0, candidateRunner, { kind: "inline", value: { request: "candidate" } });
     await journal.admit(candidateAdmission);
@@ -143,7 +169,9 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
     expect(first).toMatchObject({ candidateDigest: candidateArtifact.digest, validatorLockDigest: material.validatorLockDigest, runnerDigest: digest(runtime.runner), environmentDigest: runtime.environmentDigest, configurationDigest: runtime.configurationDigest, claims: [{ passed: true, decisive: true }] });
     expect(rows(await database.execute(sql`SELECT enabled FROM factory_release_controls WHERE tenant_id=${tenantId} AND project_id=${projectId}`))).toEqual([]);
     await assurance.captureEvidence({ ...candidate, validatorId: material.mandatoryClaims[0]!.validatorId });
-    await expect(assurance.accept({ ...candidate, contractId: material.contractId, revision: 1 })).resolves.toMatchObject({ candidateDigest: candidateArtifact.digest });
+    const accepted = await assurance.accept({ ...candidate, contractId: material.contractId, revision: 1 });
+    expect(accepted).toMatchObject({ candidateDigest: candidateArtifact.digest });
+    expect(await database.transaction(transaction => assurance.acceptCurrentInTransaction(transaction, candidate, material.contractId))).toEqual(accepted);
   });
 
   test("runner, candidate artifact, and validator result bytes cannot come from caller control", async () => {

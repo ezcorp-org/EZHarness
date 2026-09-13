@@ -552,3 +552,8 @@
 - A concurrent preparation may observe the other worker's completed intent. Verify its facts and receipt, then return the same receipt. Do not reject completion solely because its phase changed.
 - Reused preparation receipts need the same current release/evidence checks as dispatch readiness.
 - Model every migration foreign key, including references to pre-existing v4 tables. Run the canonical PostgreSQL schema proof before calling an integration complete.
+## 2026-09-13: Preserve optional quorum evidence and subfactory provenance
+
+- A claim referenced by a quorum group is protected evidence even when `required` is false. Register and validate every group claim. Apply `required` only as an individual gate; apply the group threshold separately.
+- A subfactory result is not the parent task's terminal result. Bind a sealed alias to the exact current parent attempt, child binding, child acceptance decision, and child artifact. Recheck both parent and child lifecycle fences before reuse.
+- A mutable current pointer must equal the maximum immutable revision in its scope. Validate that invariant while the pointer is locked so a rollback cannot reactivate revoked trust.

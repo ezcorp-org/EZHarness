@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
-import { referenceCodeV1, validateFactoryApiResponse, createKernelState, createPartitionKernelState, advanceKernel, type FactoryDefinition, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, validateFactoryApiResponse, createKernelState, createPartitionKernelState, advanceKernel, factoryRunnerRequestDigest, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
@@ -40,6 +40,10 @@ import { FactoryTransportQueue } from "../../factory/transport-queue";
 import { certificates, nodeHttpsRequest, signedServiceToken, type Certificates } from "./factory-certificates";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
+import { FactoryReleaseAuthorityStore } from "../../factory/release-authority";
+import { FactoryTrustedValidators } from "../../factory/validator-materials";
+import { FactoryAssurance } from "../../factory/assurance";
+import { FactoryProtectedCommandEffects } from "../../factory/protected-command-effects";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
@@ -96,9 +100,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const authority = new FactoryCommandAuthority(fixture.db, tenantId, runLifecycle, transitions, ["orchestration"], () => clock);
     return { identity, transitions, activities, compiled, event, first, admission, authority };
   };
-  const dispatchedTask = async () => {
-    const run = await start();
-    const { identity, transitions, activities, compiled, event, first, admission, authority } = await committedInterpreter(run.runId);
+  const dispatchedTask = async (definitionKey = key, request = body) => {
+    const run = await startRun(principal, definitionKey, request, 0, `task-start-${++sequence}`);
+    const { identity, transitions, activities, compiled, event, first, admission, authority } = await committedInterpreter(run.runId, definitionKey, request);
     await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
     const reference = { ...identity, commandId: admission.id };
     const service = { tenantId, subject: "orchestration" };
@@ -129,8 +133,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const queue = new FactoryAttemptQueue(fixture.db, journal, tenantId, () => now);
     return { run, identity, transitions, activities, compiled, profile, next, dispatch, dispatchReference, authority, admissions, journal, queue, service, reserved, lease };
   };
-  const completedTask = async (customValue?: JsonValue) => {
-    const task = await dispatchedTask();
+  const completedTask = async (customValue?: JsonValue, definitionKey = key, request = body) => {
+    const task = await dispatchedTask(definitionKey, request);
     const taskNode = task.compiled.indexes.nodeById[task.dispatch.nodeId];
     if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");
     const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: taskNode.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: taskNode.capabilities ?? [], tools: [] }], "factory-broker");
@@ -193,6 +197,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await migrateCompletions(fixture.db); await migrateCompletions(fixture.db);
     const { up: migrateOutcomes } = await import("../../db/migrations/add-factory-task-outcomes");
     await migrateOutcomes(fixture.db); await migrateOutcomes(fixture.db);
+    const { up: migrateProtectedEffects } = await import("../../db/migrations/add-factory-protected-command-effects");
+    await migrateProtectedEffects(fixture.db); await migrateProtectedEffects(fixture.db);
     const records = new FactoryRecords(fixture.db, tenantId);
     await records.bindInstallation();
     await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId}, 'Run lifecycle', '/tmp/lifecycle')`);
@@ -200,7 +206,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${principal.id}, 'lifecycle@example.test', 'not-a-login', 'Lifecycle', 'admin')`);
     await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('lifecycle-membership', ${projectId}, ${principal.id}, 'owner')`);
     grants = new FactoryGrants(fixture.db, tenantId, () => now);
-    for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate", "factory.approve", "factory.trust"] as const) await grants.set(principal, { principal, projectId, action, expectedRevision: 0, expiresAtMs: null });
+    for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate", "factory.approve", "factory.trust", "factory.release"] as const) await grants.set(principal, { principal, projectId, action, expectedRevision: 0, expiresAtMs: null });
     objectStore = fixture.blobs ?? blobs;
     definitions = new FactoryDefinitions(fixture.db, tenantId, grants, objectStore);
     const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: key.factoryId };
@@ -404,7 +410,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   });
 
   test("successful task completion commits measured spend and one durable result, with exact recovery", async () => {
-    const { task, completions, result, value } = await completedTask();
+    const { task, completions, authority, result, value } = await completedTask();
     expect(await fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, task.dispatchReference))).toBeUndefined();
     await expect(fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, { ...task.dispatchReference, tenantId: "foreign" }))).rejects.toMatchObject({ code: "factory_task_completion_scope" });
     await expect(fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, { ...task.dispatchReference, logicalRunId: "missing-run" }))).rejects.toMatchObject({ code: "factory_task_completion_scope" });
@@ -422,6 +428,15 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const [completed, raced] = await Promise.all([completions.complete(task.service, task.dispatchReference, result), completions.complete(task.service, task.dispatchReference, result)]);
     expect(raced).toEqual(completed);
     expect(await fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, task.dispatchReference))).toEqual(completed);
+    expect(await fixture.db.transaction(tx => completions.readVerifiedInTransaction(tx, task.service, task.dispatchReference))).toEqual({ receipt: completed, authority, result });
+    const protectedCompletion = rows<{ authority_json: string }>(await fixture.db.execute(sql`SELECT authority_json FROM factory_task_completions WHERE attempt_id=${task.dispatch.id}`))[0]!;
+    await fixture.db.execute(sql`UPDATE factory_task_completions SET authority_json='{}' WHERE attempt_id=${task.dispatch.id}`);
+    try { await expect(fixture.db.transaction(tx => completions.readVerifiedInTransaction(tx, task.service, task.dispatchReference))).rejects.toMatchObject({ code: "factory_task_completion_corrupt" }); }
+    finally { await fixture.db.execute(sql`UPDATE factory_task_completions SET authority_json=${protectedCompletion.authority_json} WHERE attempt_id=${task.dispatch.id}`); }
+    const terminalResult = rows<{ result_digest: string }>(await fixture.db.execute(sql`SELECT result_digest FROM factory_execution_terminals WHERE attempt_id=${task.dispatch.id}`))[0]!;
+    await fixture.db.execute(sql`UPDATE factory_execution_terminals SET result_digest=${"f".repeat(64)} WHERE attempt_id=${task.dispatch.id}`);
+    try { await expect(fixture.db.transaction(tx => completions.readVerifiedInTransaction(tx, task.service, task.dispatchReference))).rejects.toThrow(); }
+    finally { await fixture.db.execute(sql`UPDATE factory_execution_terminals SET result_digest=${terminalResult.result_digest} WHERE attempt_id=${task.dispatch.id}`); }
     expect(completed.event).toMatchObject({ kind: "node-result", commandId: task.dispatch.id, nodeId: task.dispatch.nodeId, candidateGeneration: 0, output: value });
     expect(await lifecycle.budgets.inspect({ projectId, runId: task.run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "0", tokens: "0", computeMs: "0" }, spent: { costMicros: "4", tokens: "3", computeMs: "3" } });
     const advanced = await persistCompletedTask(task, completed);
@@ -436,6 +451,94 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const completionDelivery = await task.queue.read(projectId, task.dispatch.id);
     if (!completionDelivery) throw new Error("completed attempt queue row is missing");
     await fixture.db.transaction(transaction => task.queue.recoverDeliveredInTransaction(transaction, completionDelivery));
+  });
+
+  test("protected acceptance and release use exact completed, trusted, and committed facts", async () => {
+    const candidateRunner = referenceCodeV1.graph.nodes.find(node => node.id === "snapshot-repository");
+    const releaseNode = referenceCodeV1.graph.nodes.find(node => node.id === "github-pr-release");
+    const claim = referenceCodeV1.acceptance.claims[0]!;
+    if (candidateRunner?.kind !== "task" || releaseNode?.kind !== "release") throw new Error("protected fixture runners are missing");
+    const artifactPort = { type: "object" as const, additionalProperties: true };
+    const definitionKey = { projectId, factoryId: `protected-effects-${++sequence}` };
+    const source: FactoryDefinition = {
+      ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts: {}, outputPorts: { receipt: artifactPort },
+      acceptance: { id: `${definitionKey.factoryId}.contract`, version: referenceCodeV1.acceptance.version, claims: [claim] },
+      graph: { nodes: [
+        { id: "candidate", kind: "task", runner: candidateRunner.runner, outputPorts: { candidate: artifactPort }, effects: ["write"] },
+        { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: `${definitionKey.factoryId}.contract`, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: artifactPort } },
+        { id: "release", kind: "release", dependsOn: ["accept"], adapter: releaseNode.adapter, acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: { target: "protected" } }, effects: ["publish"], outputPorts: { receipt: artifactPort } },
+      ], outputs: { receipt: { kind: "ref", root: "node", name: "release", path: ["receipt"] } } },
+    };
+    await definitions.save(principal, definitionKey, 0, `protected-definition-${sequence}`, source);
+    const version = await definitions.publish(principal, definitionKey, 1, `protected-publish-${sequence}`);
+    const request: FactoryRunStartBody = { factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: 1, parameters: {} };
+    const candidate = { digest: `sha256:${"7".repeat(64)}`, mediaType: "application/json", storage: "protected" };
+    const completed = await completedTask({ candidate }, definitionKey, request);
+    const completion = await completed.completions.complete(completed.task.service, completed.task.dispatchReference, completed.result);
+    const completionDelivery = await completed.task.queue.read(projectId, completed.task.dispatch.id);
+    if (!completionDelivery) throw new Error("protected completion delivery is missing");
+    await fixture.db.transaction(transaction => completed.task.queue.recoverDeliveredInTransaction(transaction, completionDelivery));
+    const candidateAdvanced = await persistCompletedTask(completed.task, completion);
+    const acceptanceCommand = candidateAdvanced.commands.find(command => command.kind === "request-acceptance");
+    if (acceptanceCommand?.kind !== "request-acceptance") throw new Error("protected acceptance command is missing");
+    const acceptanceReference = { ...completed.task.identity, commandId: acceptanceCommand.id };
+
+    const releaseAuthority = new FactoryReleaseAuthorityStore(fixture.db, tenantId, grants, lifecycle, completed.task.journal, completed.artifacts);
+    const runtime = { runner: claim.validator, resources: { maxComputeMs: 1_000 }, brokerAudience: "trusted-validator", environmentDigest: `sha256:${"8".repeat(64)}`, configurationDigest: claim.validator.configurationDigest!, maxEvidenceAgeMs: 60_000 };
+    const validators = new FactoryTrustedValidators(fixture.db, tenantId, lifecycle, completed.task.journal, completed.artifacts, releaseAuthority, [runtime]);
+    const material = await fixture.db.transaction(transaction => validators.registerMaterialInTransaction(transaction, projectId, completed.task.compiled));
+    await releaseAuthority.publishTrust(principal, { projectId, expectedRevision: 0, packageLock: candidateRunner.runner, validatorTrustDigest: material.validatorLockDigest }, `protected-trust-${sequence}`);
+    await releaseAuthority.setReleaseEnabled(principal, projectId, true, 0, `protected-enable-${sequence}`);
+    await fixture.db.transaction(transaction => releaseAuthority.completeCurrentCandidateInTransaction(transaction, { authority: completed.authority, result: completed.result, expectedCurrentGeneration: null }));
+
+    const candidateKey = { projectId, runId: completed.task.run.runId, nodeInstanceId: completed.task.dispatch.nodeId, candidateGeneration: 0 };
+    const validatorBase = { attemptId: `protected-validator-${sequence}`, tenantId, projectId, runId: completed.task.run.runId, nodeInstanceId: `protected-validator-node-${sequence}`, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, deadlineAt: new Date(now + 60_000) };
+    const { deadlineAt, ...wire } = validatorBase;
+    const validatorRequest: FactoryRunnerRequest = { schemaVersion: "factory.runner.request.v1", authority: { ...wire, deadlineAtMs: deadlineAt.getTime(), nextOperationIndex: 0 }, runner: runtime.runner, input: { kind: "artifact", artifact: completed.result.output }, grants: [], resources: runtime.resources, tools: [], broker: { attemptToken: "protected-validator-token", audience: runtime.brokerAudience } };
+    const validatorAdmission = { ...validatorBase, request: validatorRequest, requestDigest: factoryRunnerRequestDigest(validatorRequest) };
+    await completed.task.journal.admit(validatorAdmission);
+    await fixture.db.transaction(transaction => validators.bindAttemptInTransaction(transaction, { candidate: candidateKey, validatorId: claim.id, authority: validatorAdmission }));
+    await fixture.db.transaction(async transaction => {
+      const { artifactJson } = await import("../../factory/artifacts");
+      const output = await completed.artifacts.stageCandidateOutputInTransaction(transaction, completed.task.identity, validatorAdmission.nodeInstanceId, 0, artifactJson.canonical({ schemaVersion: "factory.validator-result.v1", claims: [{ id: claim.id, passed: true, decisive: true }] }));
+      const result: Extract<FactoryRunnerResult, { status: "completed" }> = { schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: -1, operations: [], resultDigest: output.digest.slice(7), output, usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" }, workspaceCheckpoint: { ...output, journalCursor: -1 } };
+      await completed.task.journal.recordCompletedTerminalInTransaction(transaction, validatorAdmission, result, completed.artifacts);
+    });
+    const fenceReader = { async readCurrentInTransaction(transaction: import("../../db/migrations/types").MigrationDb, expectedTenant: string, expectedProject: string, runId: string) {
+      if (expectedTenant !== tenantId || expectedProject !== projectId) throw new Error("protected fence scope mismatch");
+      const fence = await lifecycle.authorizeRunInTransaction(transaction, { projectId, runId });
+      return { runId, executionEpoch: fence.executionEpoch, cancellationEpoch: fence.cancellationEpoch, status: fence.status, deadlineMs: fence.deadlineAtMs };
+    } };
+    const assurance = new FactoryAssurance(fixture.db, tenantId, grants, validators, fenceReader, validators, Date.now);
+    await assurance.approveContract(principal, { projectId, contractId: material.contractId, revision: 1, contractDigest: material.contractDigest, validatorLockDigest: material.validatorLockDigest, mandatoryClaims: material.mandatoryClaims, claimGroups: material.claimGroups }, `protected-contract-${sequence}`);
+    const archive = new Map<string, Uint8Array>();
+    const releases = new FactoryReleases(fixture.db, tenantId, grants, assurance, releaseAuthority, releaseAuthority,
+      { async reserveInTransaction() { throw new Error("release dispatch is outside this protected prepare test"); } },
+      { async writeImmutable(_tenant, operationId, name, bytes) { const key = `${operationId}/${name}`; archive.set(key, bytes.slice()); return { key, digest: `sha256:${digestBytes(bytes)}` }; }, async read(reference) { const bytes = archive.get(reference.key); if (!bytes) throw new Error("archive is missing"); return bytes.slice(); } },
+      { async proveStopped() { return false; } }, Date.now);
+    const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [{ adapter: releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: "result" }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } }]);
+    const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
+    expect(await effects.requestAcceptance(completed.task.service, acceptanceReference)).toEqual(accepted);
+    expect(accepted).toMatchObject({ nodeId: "accept", commandId: acceptanceCommand.id, output: { acceptedCandidate: candidate } });
+    const acceptedAdvanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, accepted);
+    await persistTransition(completed.task.identity, 4, accepted, acceptedAdvanced.nextState, acceptedAdvanced.commands, undefined, completed.task.activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId), 8);
+    const releaseCommand = acceptedAdvanced.commands.find(command => command.kind === "request-release");
+    if (releaseCommand?.kind !== "request-release") throw new Error("protected release command is missing");
+    const releaseReference = { ...completed.task.identity, commandId: releaseCommand.id };
+    const noProfile = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, []);
+    await expect(noProfile.requestRelease(completed.task.service, releaseReference)).rejects.toMatchObject({ code: "factory_protected_effect_untrusted" });
+    expect(() => new FactoryProtectedCommandEffects(fixture.db, "foreign-tenant", completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [])).toThrow();
+    const profile = { adapter: releaseNode.adapter, action: "publish", build() { return { destination: { provider: "test", account: "protected", object: "result" }, request: {}, estimatedSpendMicros: 1 }; } };
+    expect(() => new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [profile, profile])).toThrow("factory_protected_effect_invalid");
+    expect(await effects.requestRelease(completed.task.service, releaseReference)).toBeNull();
+    expect(await effects.requestRelease(completed.task.service, releaseReference)).toBeNull();
+    expect(rows<{ estimated_spend_micros: number | string; action: string }>(await fixture.db.execute(sql`SELECT estimated_spend_micros,action FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${completed.task.run.runId}`)).map(row => ({ ...row, estimated_spend_micros: Number(row.estimated_spend_micros) }))).toEqual([{ estimated_spend_micros: 42, action: "publish" }]);
+    expect(rows(await fixture.db.execute(sql`SELECT kind FROM factory_protected_command_effects WHERE run_id=${completed.task.run.runId} ORDER BY kind`))).toEqual([{ kind: "request-acceptance" }, { kind: "request-release" }]);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId));
+    await expect(effects.requestAcceptance({ ...completed.task.service, subject: "foreign-service" }, acceptanceReference)).rejects.toThrow();
+    await fixture.db.execute(sql`UPDATE factory_protected_command_effects SET receipt_digest=${`sha256:${"0".repeat(64)}`} WHERE command_id=${acceptanceCommand.id}`);
+    await expect(effects.requestAcceptance(completed.task.service, acceptanceReference)).rejects.toMatchObject({ code: "factory_protected_effect_corrupt" });
   });
 
   test("attempt dispatcher mints one fresh authority and atomically commits a successful result", async () => {

@@ -204,11 +204,10 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     const rebuilt = compileFactory(compiled.definition);
     if (!structural.ok || !rebuilt.ok || !same(rebuilt.factory, compiled)) throw new FactoryTrustedValidatorError("factory_validator_material_invalid");
     const acceptance = compiled.definition.acceptance;
-    const mandatory = acceptance.claims.filter(claim => claim.required);
-    if (!mandatory.length || mandatory.some(claim => !claim.protected)) throw new FactoryTrustedValidatorError("factory_validator_material_unprotected");
-    const mandatoryIds = new Set(mandatory.map(claim => claim.id));
-    if ((acceptance.groups ?? []).some(group => group.claimIds.some(id => !mandatoryIds.has(id)))) throw new FactoryTrustedValidatorError("factory_validator_material_unprotected");
-    const validators = mandatory.map(claim => {
+    const groupedIds = new Set((acceptance.groups ?? []).flatMap(group => group.claimIds));
+    const protectedClaims = acceptance.claims.filter(claim => claim.required || groupedIds.has(claim.id));
+    if (!protectedClaims.length || protectedClaims.some(claim => !claim.protected) || [...groupedIds].some(id => !protectedClaims.some(claim => claim.id === id))) throw new FactoryTrustedValidatorError("factory_validator_material_unprotected");
+    const validators = protectedClaims.map(claim => {
       const runnerDigest = hash(claim.validator);
       const runtime = this.runtimes.get(runnerDigest);
       if (!runtime || !same(runtime.runner, claim.validator)) throw new FactoryTrustedValidatorError("factory_validator_runtime_untrusted");
@@ -217,7 +216,7 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
       if (freshnessMs > MAX_EVIDENCE_AGE_MS) throw new FactoryTrustedValidatorError("factory_validator_material_invalid");
       return { validatorId: claim.id, runner: runtime.runner, runnerDigest, resources: runtime.resources, ...(runtime.model ? { model: runtime.model } : {}), brokerAudience: runtime.brokerAudience, environmentDigest: runtime.environmentDigest, configurationDigest: runtime.configurationDigest, freshnessMs, maxEvidenceAgeMs: runtime.maxEvidenceAgeMs };
     });
-    const mandatoryClaims = mandatory.map((claim, index) => ({ id: claim.id, validatorId: claim.id, freshnessMs: validators[index]!.freshnessMs }));
+    const mandatoryClaims = protectedClaims.map((claim, index) => ({ id: claim.id, validatorId: claim.id, freshnessMs: validators[index]!.freshnessMs, ...(claim.required ? {} : { required: false as const }) }));
     const claimGroups = (acceptance.groups ?? []).map(group => ({ ...group, claimIds: [...group.claimIds] }));
     const published = rows<{ definition_digest: string; compiled_bytes: number | string; lock_json: string }>(await transaction.execute(sql`SELECT definition_digest,compiled_bytes,lock_json FROM factory_versions WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND factory_id=${compiled.definition.id} AND version=${compiled.definition.version} FOR SHARE`))[0];
     const compiledBytes = new TextEncoder().encode(canonicalJson(compiled)).byteLength;

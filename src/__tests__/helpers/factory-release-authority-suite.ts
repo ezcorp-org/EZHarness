@@ -280,6 +280,9 @@ test("audit faults roll back trust and candidate facts, and revocation disables 
   const revoked = await authorityStore.revokeTrust(admin, projectId, 1, "trust-revoke");
   expect(revoked).toMatchObject({ revision: 2, state: "revoked" });
   await expect(database.transaction(tx => authorityStore.lockCurrentInTransaction(tx, tenantId, projectId, runId, "node-a"))).rejects.toMatchObject({ code: "factory_release_trust_inactive" });
+  await database.execute(sql`UPDATE factory_release_trust_current SET revision=1 WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
+  await expect(database.transaction(tx => authorityStore.lockCurrentInTransaction(tx, tenantId, projectId, runId, "node-a"))).rejects.toMatchObject({ code: "factory_release_trust_corrupt" });
+  await database.execute(sql`UPDATE factory_release_trust_current SET revision=2 WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
   await expect(authorityStore.revokeTrust(admin, projectId, 1, "trust-revoke-stale")).rejects.toMatchObject({ code: "factory_release_trust_conflict" });
 });
 
