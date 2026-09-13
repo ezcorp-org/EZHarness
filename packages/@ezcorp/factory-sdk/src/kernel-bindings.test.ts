@@ -26,6 +26,7 @@ test("nested maps pass real nodes and the innermost item/index values to callbac
   const inner: Extract<FactoryNode, { readonly kind: "map" }> = {
     id: "inner-map", kind: "map", collection: { kind: "literal", value: [{ label: "a" }, { label: "b" }] },
     itemSchema: labelledItem, mode: "all", maxItems: 3, maxConcurrency: 2,
+    outputPorts: { result: { type: "array", items: string } },
     body: {
       nodes: [{
         id: "inner-task", kind: "task", runner,
@@ -39,7 +40,8 @@ test("nested maps pass real nodes and the innermost item/index values to callbac
     id: "outer-map", kind: "map", collection: { kind: "literal", value: [{ label: "outer-a" }, { label: "outer-b" }] },
     itemSchema: labelledItem,
     mode: "all", maxItems: 2, maxConcurrency: 2,
-    body: { nodes: [inner], outputs: {} },
+    outputPorts: { result: { type: "array", items: { type: "array", items: string } } },
+    body: { nodes: [inner], outputs: { result: { kind: "ref", root: "node", name: "inner-map", path: ["result"] } } },
   };
   const calls: JsonValue[] = [];
   const result = simulateFactory(compiled([outer]), "nested-map-bindings", {}, {
@@ -59,12 +61,13 @@ test("nested maps pass real nodes and the innermost item/index values to callbac
     { item: { label: "b" }, index: 1 },
   ]);
   expect(result.state.status).toBe("completed");
-  expect(result.state.nodes["outer-map"]?.output).toEqual([["a:0", "b:1"], ["a:0", "b:1"]]);
+  expect(result.state.nodes["outer-map"]?.output).toEqual({ result: [["a:0", "b:1"], ["a:0", "b:1"]] });
 });
 
 test("a scoped consumer resolves a declared ancestor output path", () => {
   const map: Extract<FactoryNode, { readonly kind: "map" }> = {
     id: "map", kind: "map", collection: { kind: "literal", value: ["one"] }, itemSchema: string, mode: "all", maxItems: 1, maxConcurrency: 1,
+    outputPorts: { result: { type: "array", items: string } },
     body: {
       nodes: [
         { id: "producer", kind: "task", runner, outputPorts: { payload: { type: "object", properties: { name: string }, required: ["name"], additionalProperties: false } } },
@@ -87,13 +90,14 @@ test("a scoped consumer resolves a declared ancestor output path", () => {
 
   expect(seen).toEqual([{ name: "ancestor" }]);
   expect(result.state.status).toBe("completed");
-  expect(result.state.nodes.map?.output).toEqual([{ result: "ancestor" }]);
+  expect(result.state.nodes.map?.output).toEqual({ result: ["ancestor"] });
 });
 
 test("loop bindings receive carried/index values and use the explicit body output record", () => {
   const loop: Extract<FactoryNode, { readonly kind: "loop" }> = {
     id: "loop", kind: "loop", initialInput: { kind: "literal", value: { value: "seed" } }, carriedSchema: { type: "object", properties: { value: string }, required: ["value"], additionalProperties: false },
     resultSchema: { type: "object", properties: { result: string }, required: ["result"], additionalProperties: false },
+    outputPorts: { result: string },
     until: { kind: "literal", value: true }, nextInput: { kind: "literal", value: { value: "seed" } }, maxIterations: 2, maxElapsedMs: 100, onExhausted: "fail",
     body: {
       nodes: [
@@ -118,12 +122,12 @@ test("loop bindings receive carried/index values and use the explicit body outpu
 
 test("branch output is the selected graph output record, including an empty selected graph", () => {
   const selected = (condition: boolean): Extract<FactoryNode, { readonly kind: "branch" }> => ({
-    id: "branch", kind: "branch", condition: { kind: "literal", value: condition },
+    id: "branch", kind: "branch", condition: { kind: "literal", value: condition }, outputPorts: { result: string },
     then: {
       nodes: [{ id: "then-task", kind: "task", runner, outputPorts: { value: string } }],
       outputs: { result: { kind: "ref", root: "node", name: "then-task", path: ["value"] } },
     },
-    else: { nodes: [], outputs: {} },
+    else: { nodes: [], outputs: { result: { kind: "literal", value: "else-output" } } },
   });
   const thenResult = simulateFactory(compiled([selected(true)]), "branch-then", {}, { execute: () => ({ kind: "success", output: { value: "then-output" } }) });
   const elseResult = simulateFactory(compiled([selected(false)]), "branch-else", {}, { execute: () => ({ kind: "success", output: { value: "must-not-run" } }) });
@@ -131,29 +135,32 @@ test("branch output is the selected graph output record, including an empty sele
   expect(thenResult.state.status).toBe("completed");
   expect(thenResult.state.nodes.branch?.output).toEqual({ result: "then-output" });
   expect(elseResult.state.status).toBe("completed");
-  expect(elseResult.state.nodes.branch?.output).toEqual({});
+  expect(elseResult.state.nodes.branch?.output).toEqual({ result: "else-output" });
   expect(elseResult.commands.some((command) => command.kind === "dispatch-node")).toBe(false);
 });
 
 test("empty map and loop bodies progress to their explicit empty output records", () => {
   const map: Extract<FactoryNode, { readonly kind: "map" }> = {
     id: "empty-map", kind: "map", collection: { kind: "literal", value: ["item"] }, itemSchema: string,
-    body: { nodes: [], outputs: {} }, mode: "all", maxItems: 1, maxConcurrency: 1,
+    outputPorts: { result: { type: "array", items: string } },
+    body: { nodes: [], outputs: { result: { kind: "literal", value: "empty-map-result" } } }, mode: "all", maxItems: 1, maxConcurrency: 1,
   };
   const loop: Extract<FactoryNode, { readonly kind: "loop" }> = {
     id: "empty-loop", kind: "loop", initialInput: { kind: "literal", value: { value: "seed" } }, carriedSchema: { type: "object", properties: { value: string }, required: ["value"], additionalProperties: false }, resultSchema: { type: "object", properties: {}, additionalProperties: false },
+    outputPorts: {},
     body: { nodes: [], outputs: {} }, until: { kind: "literal", value: true }, nextInput: { kind: "literal", value: { value: "seed" } }, maxIterations: 1, maxElapsedMs: 100, onExhausted: "fail",
   };
   const result = simulateFactory(compiled([map, loop]), "empty-scopes", {});
 
   expect(result.state.status).toBe("completed");
-  expect(result.state.nodes["empty-map"]?.output).toEqual([{}]);
+  expect(result.state.nodes["empty-map"]?.output).toEqual({ result: ["empty-map-result"] });
   expect(result.state.nodes["empty-loop"]?.output).toEqual({});
 });
 
 test("a selected branch containing a map completes its nested scoped output", () => {
   const map: Extract<FactoryNode, { readonly kind: "map" }> = {
     id: "nested-map", kind: "map", collection: { kind: "literal", value: [{ label: "x" }, { label: "y" }] }, itemSchema: labelledItem, mode: "all", maxItems: 2, maxConcurrency: 2,
+    outputPorts: { result: { type: "array", items: string } },
     body: {
       nodes: [{
         id: "nested-task", kind: "task", runner, inputPorts: { item: labelledItem }, outputPorts: { value: string },
@@ -163,14 +170,14 @@ test("a selected branch containing a map completes its nested scoped output", ()
     },
   };
   const branch: Extract<FactoryNode, { readonly kind: "branch" }> = {
-    id: "branch", kind: "branch", condition: { kind: "literal", value: true },
-    then: { nodes: [map], outputs: {} },
-    else: { nodes: [], outputs: {} },
+    id: "branch", kind: "branch", condition: { kind: "literal", value: true }, outputPorts: { result: { type: "array", items: string } },
+    then: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "nested-map", path: ["result"] } } },
+    else: { nodes: [], outputs: { result: { kind: "literal", value: [] } } },
   };
   const result = simulateFactory(compiled([branch]), "branch-map", {}, {
     execute: (_node, command) => ({ kind: "success", output: { value: (command.input as { readonly item: { readonly label: string } }).item.label } }),
   });
 
   expect(result.state.status).toBe("completed");
-  expect(result.state.nodes.branch?.output).toEqual({});
+  expect(result.state.nodes.branch?.output).toEqual({ result: ["x", "y"] });
 });
