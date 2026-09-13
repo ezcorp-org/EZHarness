@@ -5,6 +5,7 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import { request as httpsRequest } from "node:https";
+import { connect } from "node:tls";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,6 +73,19 @@ async function call(url: string, certificates: Certificates, attempt: FactoryAtt
   });
 }
 
+async function rawTls(url: string, certificates: Certificates, chunks: string[]): Promise<string> {
+  const endpoint = new URL(url);
+  return new Promise((resolve, reject) => {
+    const socket = connect({ host: "127.0.0.1", port: Number(endpoint.port), ca: certificates.ca, cert: certificates.clientCert, key: certificates.clientKey, servername: "localhost", rejectUnauthorized: true });
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.on("data", bytes => { response += bytes; });
+    socket.once("error", reject);
+    socket.once("end", () => resolve(response));
+    socket.once("secureConnect", async () => { for (const chunk of chunks) { socket.write(chunk); await new Promise(resolve => setTimeout(resolve, 1)); } });
+  });
+}
+
 test("native Bun mTLS gateway derives attempt authority from an installation token and tenant certificate", async () => {
   const database = new PGlite({ extensions: { vector, pg_trgm } });
   databases.push(database);
@@ -105,4 +119,9 @@ test("native Bun mTLS gateway derives attempt authority from an installation tok
   expect(await call(server.url, certs, attempt, { method: "GET" })).toMatchObject({ status: 200, body: { status: "admitted", journalCursor: -1 } });
   expect(await call(server.url, certs, authority({ deadlineAt: new Date(Date.now() - 1) }), { method: "POST", path: "/internal/factory/v1/executions/attempt-1/cancel" })).toMatchObject({ status: 202, body: { accepted: true } });
   expect(await call(server.url, certs, attempt, { method: "DELETE" })).toMatchObject({ status: 405, body: { error: "method_not_allowed" } });
+  const rawBody = JSON.stringify({ model: "split" });
+  const rawHeaders = `PUT /internal/factory/v1/executions/raw-split HTTP/1.1\r\nauthorization: Bearer ${await token(authority({ attemptId: "raw-split" }))}\r\nx-ezcorp-factory-version: 1\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(rawBody)}\r\n\r\n`;
+  expect(await rawTls(server.url, certs, [rawHeaders, rawBody.slice(0, 3), rawBody.slice(3)])).toContain("HTTP/1.1 201 Created");
+  const duplicate = `PUT /internal/factory/v1/executions/raw-duplicate HTTP/1.1\r\nauthorization: Bearer ignored\r\nauthorization: Bearer ignored\r\nx-ezcorp-factory-version: 1\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}`;
+  expect(await rawTls(server.url, certs, [duplicate])).toContain("HTTP/1.1 400 Bad Request");
 });
