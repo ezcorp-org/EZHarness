@@ -7,7 +7,7 @@
 	// actions don't attach to components), so the action lives inside
 	// this picker on the chip-row div, not on <ExtensionSearchPicker>
 	// from the parent.
-	import { dndzone } from "svelte-dnd-action";
+	import { dndzone, type Options } from "svelte-dnd-action";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
 	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
@@ -33,6 +33,9 @@
 	// Keep the drag library's full item objects, including its temporary
 	// shadow marker. Only final orders belong in the saved extension IDs.
 	let chipItems = $derived(selected.map((id) => ({ id })));
+	// Typed against the library so a renamed option fails `Typecheck`, which
+	// blocks merge, instead of only the non-blocking real-auth drag spec.
+	const dndOptions = $derived<Options<{ id: string }>>({ items: chipItems, flipDurationMs: 200, type: "ext-chips", useCursorForDetection: true });
 
 	function handleConsider(e: CustomEvent<{ items: Array<{ id: string }> }>) {
 		chipItems = e.detail.items;
@@ -159,7 +162,22 @@
 	data-testid="extension-picker-combobox"
 >
 	{#if selected.length > 0}
-		<!-- Drag-reorderable chip row (UX-04). svelte-dnd-action stamps
+		<!-- Drag-reorderable chip row (UX-04).
+
+		     `useCursorForDetection` puts the drop index under the POINTER.
+		     The library default reads the centre of its drag ghost instead,
+		     which suits a narrow list row and not this one: a chip is as wide as
+		     an extension name, the row wraps, and the ghost morphs to the
+		     placeholder's size mid-drag, so that centre drifts far from the
+		     finger. Measured in Chromium at 1280x720 — chips 315/308/323px on
+		     two lines, pointer held on the first chip at (370, 348) — the ghost
+		     centre came to rest at (469, 362), outside that chip's 338-358 band
+		     and on the edge of the line below. The index then falls out of the
+		     library's nearest-centre fallback rather than out of where the user
+		     is pointing, which is neither what the user means nor something a
+		     spec can aim at.
+
+		     svelte-dnd-action stamps
 		     aria-roledescription="sortable" + the keyboard handlers
 		     (Space-to-grab, arrows-to-move, Enter to drop, Escape to
 		     cancel — WCAG 2.1.1 + 2.5.1 satisfied via keyboard mode,
@@ -169,7 +187,7 @@
 		<div
 			data-testid="selected-extension-chips"
 			class="flex flex-wrap gap-1"
-			use:dndzone={{ items: chipItems, flipDurationMs: 200, type: "ext-chips" }}
+			use:dndzone={dndOptions}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}
 			role="list"

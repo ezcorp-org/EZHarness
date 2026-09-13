@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
-import { extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { activateApprovedRelease, extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import type { InstallationState } from "../../../src/extensions/v4/types";
 
 test("nested workspace → isolated build → exact human approval → activation @evidence", async ({ page, request, baseURL }, testInfo) => {
@@ -35,8 +35,7 @@ test("nested workspace → isolated build → exact human approval → activatio
   await captureEvidence(page, testInfo, "extension-release-mobile", { fullPage: true });
   await page.getByLabel("I reviewed this release and its permissions.").check();
   await approve.click();
-  await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  await activateApprovedRelease(page);
   const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
   expect(active.installation.enabled).toBe(true);
   expect(active.installation.activeReleaseId).toBe(Object.values(state.releases)[0]!.id);

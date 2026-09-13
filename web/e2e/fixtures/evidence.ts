@@ -1,4 +1,5 @@
 import type { Page, TestInfo, Locator } from "@playwright/test";
+import { fontsReady } from "./gestures.js";
 
 /**
  * Capture a deterministic visual-evidence screenshot and attach it to the
@@ -22,7 +23,7 @@ export async function captureEvidence(
 	opts: { fullPage?: boolean; mask?: Locator[] } = {},
 ): Promise<void> {
 	if (process.env.EZCORP_E2E_EVIDENCE !== "1") return; // hard no-op
-	await page.evaluate(() => document.fonts?.ready);
+	await fontsReady(page);
 	await page.waitForLoadState("networkidle").catch(() => {});
 	const body = await page.screenshot({
 		fullPage: opts.fullPage ?? false,

@@ -513,7 +513,11 @@ jobs:
   e2e-real-auth:
     name: E2E (real auth + real DB)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Green runs take ~16 min. The extension round-trip spec may legitimately
+    # wait up to 15 min behind the boot-time bundled builds
+    # (web/e2e/fixtures/extension-v4.ts budget arithmetic); a job kill would
+    # discard the report that names which bound tripped.
+    timeout-minutes: 35
     needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -554,9 +558,10 @@ jobs:
           retention-days: 3
           if-no-files-found: error
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
-      # (the real config uses trace: retain-on-failure).
+      # (the real config uses trace: retain-on-failure). `always()` so a
+      # job-level cancel or timeout still uploads whatever Playwright wrote.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
+        if: always()
         with:
           name: e2e-real-auth-test-results
           path: web/test-results/
@@ -1043,12 +1048,26 @@ jobs:
               bunx playwright install-deps chromium
             fi
           )
-          # The helper splits mock and real-auth evidence. Real-auth uses the
-          # production runner transport, so make it available before capture.
-          if grep -qx '__ALL__' "$SPECS_FILE" || grep -q '^e2e/real-auth/' "$SPECS_FILE"; then
-            source scripts/setup-extension-runner-ci.sh --install
-            export EZCORP_EVIDENCE_RUNNER_READY=1
-          fi
+          # The helper splits mock and real-auth evidence by lanes.json
+          # membership (root-level real-auth journeys included). Real-auth uses
+          # the production runner transport, so make it available before
+          # capture whenever the helper says that tier will run. Exit 1 means
+          # "no real tier"; anything else is an error and must not read as no.
+          set +e
+          bash scripts/visual-evidence/capture.sh --has-real-auth "$SPECS_FILE"
+          NEEDS_REAL_AUTH=$?
+          set -e
+          case "$NEEDS_REAL_AUTH" in
+            0)
+              source scripts/setup-extension-runner-ci.sh --install
+              export EZCORP_EVIDENCE_RUNNER_READY=1
+              ;;
+            1) ;;
+            *)
+              echo "::error::visual-evidence lane query failed (exit $NEEDS_REAL_AUTH)"
+              exit "$NEEDS_REAL_AUTH"
+              ;;
+          esac
           bash scripts/visual-evidence/capture.sh "$SPECS_FILE"
           if ! grep -qx '__ALL__' "$SPECS_FILE"; then
             echo "credited_ok=1" >> "$GITHUB_OUTPUT"
