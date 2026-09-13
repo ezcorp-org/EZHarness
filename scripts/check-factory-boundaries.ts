@@ -309,7 +309,13 @@ export function checkFactoryBoundaries(
   return violations;
 }
 
-function localImportClosure(factoryFiles: readonly SourceInput[], roots: ReadonlySet<string>): Set<string> {
+/**
+ * The validator closure: the roots plus every local module they reach
+ * transitively. Exported so the recursion itself is testable — the whole point
+ * of following imports is that a helper two hops away cannot hide code
+ * generation, and only a multi-hop case proves that.
+ */
+export function localImportClosure(factoryFiles: readonly SourceInput[], roots: ReadonlySet<string>): Set<string> {
   const byPath = new Map(factoryFiles.map((file) => [file.path, file]));
   const closure = new Set(roots);
   const pending = [...roots];

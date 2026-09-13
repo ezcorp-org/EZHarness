@@ -6,6 +6,7 @@ import {
   REQUIRED_SHARED_IMPORTS,
   SHARED_REUSE_MODULES,
   checkFactoryBoundaries,
+  localImportClosure,
   type RequiredImport,
   type SourceInput,
 } from "./check-factory-boundaries.ts";
@@ -182,5 +183,51 @@ describe("C13 boundary checker rejects deliberate violations", () => {
       source: "function insertTransactionalAuditEntry(entry: unknown) {}",
     };
     expect(checkFactoryBoundaries([...safeFactory, distinct], [auditLog], [])).toEqual([]);
+  });
+});
+
+describe("validator local import closure", () => {
+  const root = "packages/@ezcorp/factory-sdk/src/validation.ts";
+
+  test("follows local imports transitively, so a helper two hops away is still in the closure", () => {
+    const files: SourceInput[] = [
+      { path: root, source: 'import { first } from "./first-hop";\nexport const validate = () => first();' },
+      { path: "packages/@ezcorp/factory-sdk/src/first-hop.ts", source: 'import { second } from "./second-hop";\nexport const first = () => second();' },
+      { path: "packages/@ezcorp/factory-sdk/src/second-hop.ts", source: "export const second = () => 1;" },
+      { path: "packages/@ezcorp/factory-sdk/src/unrelated.ts", source: "export const unrelated = () => 2;" },
+    ];
+    expect([...localImportClosure(files, new Set([root]))].sort()).toEqual([
+      "packages/@ezcorp/factory-sdk/src/first-hop.ts",
+      "packages/@ezcorp/factory-sdk/src/second-hop.ts",
+      root,
+    ]);
+  });
+
+  test("a cycle terminates instead of looping, and each module is added once", () => {
+    const files: SourceInput[] = [
+      { path: root, source: 'import { a } from "./a";\nexport const validate = () => a();' },
+      { path: "packages/@ezcorp/factory-sdk/src/a.ts", source: 'import { b } from "./b";\nexport const a = () => b();' },
+      { path: "packages/@ezcorp/factory-sdk/src/b.ts", source: 'import { a } from "./a";\nexport const b = () => a;' },
+    ];
+    const closure = localImportClosure(files, new Set([root]));
+    expect(closure.size).toBe(3);
+    expect(closure.has("packages/@ezcorp/factory-sdk/src/b.ts")).toBe(true);
+  });
+
+  test("bare and absent specifiers are not followed, and a missing root is not invented", () => {
+    const files: SourceInput[] = [
+      { path: root, source: 'import ts from "typescript";\nimport { gone } from "./gone";\nexport const validate = () => gone(ts);' },
+    ];
+    expect([...localImportClosure(files, new Set([root]))]).toEqual([root]);
+    expect([...localImportClosure(files, new Set(["packages/@ezcorp/factory-sdk/src/absent.ts"]))]).toEqual([
+      "packages/@ezcorp/factory-sdk/src/absent.ts",
+    ]);
+  });
+
+  test("the real validator roots resolve to a closure the boundary gate then judges", async () => {
+    const files = await factoryFiles();
+    const closure = localImportClosure(files, new Set(["packages/@ezcorp/factory-sdk/src/validation.ts", "packages/@ezcorp/factory-sdk/src/expressions.ts"]));
+    expect(closure.has("packages/@ezcorp/factory-sdk/src/validation.ts")).toBe(true);
+    expect(closure.has("packages/@ezcorp/factory-sdk/src/expressions.ts")).toBe(true);
   });
 });
