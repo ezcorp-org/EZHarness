@@ -2,6 +2,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { up } from "../../db/migrations/add-factory-grants";
+import { FactoryRunGrants } from "../../factory/run-grants";
+import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
@@ -83,9 +85,15 @@ test("service principals need explicit project grants and current account validi
   await grants.set(admin, { projectId: "grant-project", principal: service, action: "factory.run", expectedRevision: 0, expiresAtMs: now + 100 });
   expect((await grants.authorize(service, "grant-project", "factory.run")).revision).toBe(1);
   expect((await grants.authorize(service, "grant-project", "read")).revision).toBe(0);
+  const serviceRun = { projectId: "grant-project", runId: "grant-service-run", definitionDigest: `sha256:${"a".repeat(64)}`, interpreterBuild: "factory-v1", executionEpoch: 1, input: {}, principalId: service.id, principalKind: "service" as const };
+  await new FactoryRecords(fixture.db, "grant-tenant").createRun(serviceRun, async () => {});
+  const authority: FactoryAttemptAuthority = { tenantId: "grant-tenant", projectId: serviceRun.projectId, runId: serviceRun.runId, nodeInstanceId: "service-node", attemptId: "service-attempt", candidateGeneration: 1, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, deadlineAt: new Date(now + 100) };
+  const runGrants = new FactoryRunGrants(fixture.db, "grant-tenant", () => now);
+  await expect(runGrants.authorize(authority)).resolves.toBeUndefined();
   await expect(grants.set(admin, { projectId: "grant-other", principal: service, action: "factory.run", expectedRevision: 0, expiresAtMs: now + 100 })).rejects.toMatchObject({ code: "factory_forbidden" });
   await expect(grants.authorize(service, "grant-project", "factory.approve")).rejects.toMatchObject({ code: "factory_human_required" });
   await fixture.db.execute(sql`UPDATE service_accounts SET enabled=FALSE WHERE id=${service.id}`);
+  await expect(runGrants.authorize(authority)).rejects.toMatchObject({ code: "factory_forbidden" });
   await expect(grants.authorize(service, "grant-project", "factory.run")).rejects.toMatchObject({ code: "factory_forbidden" });
   await fixture.db.execute(sql`UPDATE service_accounts SET enabled=TRUE, expires_at=${new Date(now)} WHERE id=${service.id}`);
   await expect(grants.authorize(service, "grant-project", "factory.run")).rejects.toMatchObject({ code: "factory_forbidden" });
@@ -99,6 +107,28 @@ test("consent is human-only and trust also requires a current tenant administrat
   expect((await grants.authorize(admin, "grant-project", "factory.trust")).revision).toBe(1);
   await expect(grants.authorize(member, "grant-project", "factory.trust")).rejects.toMatchObject({ code: "factory_forbidden" });
   await expect(grants.set(owner, { projectId: "grant-project", principal: member, action: "factory.trust", expectedRevision: 0, expiresAtMs: null })).rejects.toMatchObject({ code: "factory_forbidden" });
+});
+
+test("journal effect claims recheck the durable initiator's current grant", async () => {
+  const key = { projectId: "grant-project", principal: member, action: "factory.run" as const };
+  await grants.set(admin, { ...key, expectedRevision: 3, expiresAtMs: null });
+  const records = new FactoryRecords(fixture.db, "grant-tenant");
+  const request = { projectId: key.projectId, runId: "grant-run", definitionDigest: `sha256:${"a".repeat(64)}`, interpreterBuild: "factory-v1", executionEpoch: 1, input: {}, principalId: member.id };
+  await records.createRun(request, async () => {});
+  const runGrants = new FactoryRunGrants(fixture.db, "grant-tenant", () => now);
+  const attempt: FactoryAttemptAuthority = { tenantId: "grant-tenant", projectId: key.projectId, runId: request.runId, nodeInstanceId: "node", attemptId: "grant-attempt", candidateGeneration: 1, attemptNumber: 1, grantRevision: 4, reservationGeneration: 1, executionEpoch: 1, deadlineAt: new Date(now + 1_000) };
+  const journal = new FactoryExecutionJournal(fixture.db, runGrants.authorizeInTransaction, () => new Date(now));
+  await runGrants.authorize(attempt);
+  await expect(runGrants.authorize({ ...attempt, tenantId: "foreign" })).rejects.toMatchObject({ code: "factory_forbidden" });
+  await expect(runGrants.authorize({ ...attempt, executionEpoch: 2 })).rejects.toMatchObject({ code: "factory_forbidden" });
+  expect(await journal.admit({ ...attempt, request: {} })).toMatchObject({ reused: false });
+  const operation = { operationId: `${request.runId}:node:1:0`, operationIndex: 0, kind: "tool" as const, requestDigest: "a".repeat(64) };
+  await journal.prepare(attempt, operation);
+  await grants.revoke(admin, { ...key, expectedRevision: 4 });
+  await expect(journal.dispatch(attempt, operation.operationId)).rejects.toMatchObject({ code: "factory_forbidden" });
+  expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_execution_operations WHERE attempt_id=${attempt.attemptId}`))).toEqual([{ state: "prepared" }]);
+  expect(await journal.cancel(attempt)).toBe(true);
+  expect(await journal.confirmStopped(attempt)).toBe(true);
 });
 
 test("a failed transactional audit rolls back the grant and its revision", async () => {
