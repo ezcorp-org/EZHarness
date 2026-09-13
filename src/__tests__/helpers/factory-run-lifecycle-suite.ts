@@ -363,6 +363,51 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await children.resolve(service, reference)).toEqual(staged);
   });
 
+  test("nested child bindings inherit the original root clock without child start outboxes", async () => {
+    const grandchild = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const middleKey = { projectId, factoryId: "durable-child-middle" };
+    const middleSource: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: middleKey.factoryId, factories: [grandchild], outputPorts: {},
+      graph: { nodes: [{ id: "grandchild", kind: "subfactory", factory: grandchild, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, middleKey, 0, "durable-child-middle-create", middleSource);
+    const middleVersion = await definitions.publish(principal, middleKey, 1, "durable-child-middle-publish");
+    const middle = { id: middleKey.factoryId, version: middleVersion.version, digest: middleVersion.definitionDigest };
+    const parentKey = { projectId, factoryId: "durable-child-clock-parent" };
+    const parentSource: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: parentKey.factoryId, factories: [middle], outputPorts: {},
+      graph: { nodes: [{ id: "middle", kind: "subfactory", factory: middle, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, parentKey, 0, "durable-child-clock-parent-create", parentSource);
+    const parentVersion = await definitions.publish(principal, parentKey, 1, "durable-child-clock-parent-publish");
+    const parentBody = { ...body, factoryVersion: parentVersion.version, definitionDigest: parentVersion.definitionDigest };
+    const rootStartedAtMs = now;
+    const parentRun = await startRun(principal, parentKey, parentBody, 0, "durable-child-clock-parent-start");
+    now += 1_000;
+    try {
+      const parent = await committedInterpreter(parentRun.runId, parentKey, parentBody, lifecycle, undefined, rootStartedAtMs);
+      const parentCommand = parent.first.commands.find(command => command.kind === "run-child");
+      expect(parentCommand?.kind).toBe("run-child");
+      if (parentCommand?.kind !== "run-child") throw new Error("missing middle child command");
+      await persistTransition(parent.identity, 1, parent.event, parent.first.nextState, parent.first.commands, undefined, parent.activities);
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, parent.transitions, lifecycle).project(runKey(parentRun.runId), 8);
+      const service = { tenantId, subject: "orchestration" };
+      const middleChildren = new FactoryChildRuns(fixture.db, tenantId, parent.authority, lifecycle, parent.transitions);
+      await middleChildren.resolve(service, { ...parent.identity, commandId: parentCommand.id, factory: parentCommand.factory });
+      const middleRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${parentRun.runId} AND parent_command_id=${parentCommand.id}`))[0]!.child_run_id;
+      const middleStartedAtMs = await fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: middleRunId }));
+      expect(middleStartedAtMs).toBe(rootStartedAtMs);
+      const middleBody = { ...body, factoryVersion: middleVersion.version, definitionDigest: middleVersion.definitionDigest };
+      const middleRun = await committedInterpreter(middleRunId, middleKey, middleBody, lifecycle, undefined, middleStartedAtMs);
+      const middleCommand = middleRun.first.commands.find(command => command.kind === "run-child");
+      expect(middleCommand?.kind).toBe("run-child");
+      if (middleCommand?.kind !== "run-child") throw new Error("missing nested child command");
+      await persistTransition(middleRun.identity, 1, middleRun.event, middleRun.first.nextState, middleRun.first.commands, undefined, middleRun.activities);
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, middleRun.transitions, lifecycle).project(runKey(middleRunId), 8);
+      const grandchildren = new FactoryChildRuns(fixture.db, tenantId, middleRun.authority, lifecycle, middleRun.transitions);
+      await grandchildren.resolve(service, { ...middleRun.identity, commandId: middleCommand.id, factory: middleCommand.factory });
+      const grandchildRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${middleRunId} AND parent_command_id=${middleCommand.id}`))[0]!.child_run_id;
+      expect(await fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: grandchildRunId }))).toBe(rootStartedAtMs);
+      expect(rows(await fixture.db.execute(sql`SELECT logical_run_id FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id IN (${middleRunId}, ${grandchildRunId})`))).toEqual([]);
+    } finally { now = rootStartedAtMs; }
+  });
+
   test("lazy reads authorize the exact pending input and stop when its committed result advances", async () => {
     const sourceRun = await start();
     const sourceIdentity = { tenantId, projectId, logicalRunId: sourceRun.runId };
