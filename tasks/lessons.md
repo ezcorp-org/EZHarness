@@ -567,3 +567,11 @@
 - Read the root package scripts before invoking a focused web test. This repository has no `test:web` script; run `test:component` from `web` and pass paths relative to that working directory.
 - When light checks run in parallel, wait for every producer to close before applying even a small lint fix. Rerun every check whose source snapshot changed.
 - A change to a shared verifier (JWT `iss`/`aud`) must be proven with the canonical web Vitest pool, not only focused factory suites. A legacy test that hand-signs tokens must mint them through the production signer so the test exercises the enforced envelope instead of bypassing it.
+# C02 topology — 2026-09-13
+
+- A native runner function is not an isolated runner. Keep the durable tenant launch intent in the gateway database, run the Bun and Python bridges inside the per-attempt guest, and keep the host to opaque process facts and physical-stop receipts.
+- A physical-stop receipt digest identifies the canonical unsigned facts. Sign those same bytes with the configured RSA host key; do not digest a separate signed wrapper.
+- A physical-stop proof needs the configured host principal as a signed required fact. Provider allocations without a stable host identity cannot use this stop-settlement path.
+- A launch claim must identify its one winner. A `launching` row alone does not grant another caller permission to start or invoke a guest; after a recovery boundary, use a durable result or report uncertainty.
+- Compare a prepared package receipt with the full canonical runner reference, including model and configuration fields. A stopped worker is physically absent only after a terminal runtime observation, never because an inspect call says `unknown`.
+- A restart proof must use a fresh real supervisor, not a fake runner that implements attach. The real adapter must reconstruct a live framed connection and remove a surviving container after restart. GPU devices belong to the held per-attempt allocation; a global host runner device list cannot authorize every attempt on that host.

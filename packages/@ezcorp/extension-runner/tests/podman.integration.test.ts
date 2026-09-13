@@ -3,7 +3,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PodmanRunner, buildLimits, executionLimits, filesDigest, resolveDependencies } from "../src";
 import { manifest, provision, source } from "./helpers";
 import { command } from "../src/core";
@@ -46,6 +46,30 @@ test("real isolated build, typecheck, feature tests, discovery, invocation and r
   try { expect(await worker.request("extension/invoke", { name: "echo", input: { text: "hello" }, context })).toEqual({ text: "hello", broker: "value" }); } finally { await worker.close(); }
   const restarted = new PodmanRunner({ root });
   expect(await restarted.collectArtifacts(artifactDigest)).toEqual(await runner.collectArtifacts(artifactDigest));
+}, 120_000);
+
+test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches and cancels", async () => {
+  const files = source("async input => input");
+  const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+  expect(build.state).toBe("succeeded");
+  await runner.close();
+  const workerId = `recover-${randomUUID()}`;
+  const context = { workerId, invocationId: randomUUID(), releaseId: build.artifactDigest!, principalId: "recovery", scopeId: "recovery", token: "recovery-token", deadline: Date.now() + 60_000 };
+  const childCode = `import {PodmanRunner} from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).pathname)};const [root,workerId,artifact,context]=process.argv.slice(1);const runner=new PodmanRunner({root});await runner.start({workerId,artifactDigest:artifact,context:JSON.parse(context),limits:{memoryBytes:536870912,cpuMillis:1000,pids:64,tmpBytes:67108864,outputBytes:1048576,timeoutMs:60000}},async()=>null);console.log('READY');await new Promise(()=>{});`;
+  const child = Bun.spawn([process.execPath, "-e", childCode, root, workerId, build.artifactDigest!, JSON.stringify(context)], { stdout: "pipe", stderr: "pipe" });
+  try {
+    const first = await child.stdout.getReader().read();
+    const output = new TextDecoder().decode(first.value);
+    if (!output.includes("READY")) throw new Error(`crashed supervisor did not start guest: ${await new Response(child.stderr).text()}`);
+  } finally { child.kill("SIGKILL"); await child.exited; }
+  const fresh = new PodmanRunner({ root });
+  expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
+  const _attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
+  expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
+  await fresh.cancel(workerId);
+  expect(await fresh.inspect(workerId)).toMatchObject({ state: "cancelled" });
+  await expect(command("podman", ["inspect", `ez-v4-${createHash("sha256").update(`${root}:${workerId}`).digest("hex").slice(0, 32)}`])).rejects.toThrow();
+  await fresh.close();
 }, 120_000);
 
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {

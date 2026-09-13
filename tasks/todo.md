@@ -51,6 +51,17 @@ Note (W00 audit 2026-09-13): the three checked items below cite no receipt. Thei
 - [x] Write approval request, decision, and consumption audit facts in their owning transactions.
 - [ ] Prove direct pre-accept and post-approval tampering, plus audit write faults, fail closed on PGlite and PostgreSQL.
 - [ ] Run static checks, coverage, and real PostgreSQL proof; record the review.
+
+## C02 isolated attempt runtime — Terra
+
+- [x] Persist the canonical launch intent and exact held lease before a guest start.
+- [x] Implement inspect-first stable-worker open, recovery, result wait, and physical-stop receipt.
+- [ ] Bind the Python C02 wire bridge into the production guest path alongside Bun.
+- [x] Prove the five-second renewal and lease-revoked stop path.
+- [x] Prove fresh Bun/Python/Podman GPU execution, response-loss recovery, and no duplicate start.
+- [ ] Run PGlite, PostgreSQL/S3, type, lint, coverage, and gates; record review.
+
+Checkpoint review: `attempt-runtime.integration.test.ts` passes five PGlite/real-Podman cases and 24 assertions. It persists a token-free request and prepared receipt before start, reattaches after a lost start response, rejects terminal and uncertain recovery execution, renews every five seconds and physically stops on loss, uses only the provider broker reverse capability, and verifies an RSA-SHA256 host stop proof over canonical unsigned receipt bytes. Focused coverage is 177/177 executable lines in `attempt-runtime.ts` and 9/9 in `add-factory-attempt-launches.ts` at `/tmp/factory-platform-evidence/terra-c02-attempt-runtime-coverage/lcov.info`. Full PostgreSQL schema conformance reaches this migration but currently fails the known pre-import C05 three-FK mismatch for `factory_runner_package_bindings`; root's `310534627` correction resolves that during integration. Python needs its separate pinned guest recipe before this leaf is complete.
 ## Factory continuation reader leaf — Terra
 
 - [x] Load scoped transition manifests and pages through immutable artifact references.
