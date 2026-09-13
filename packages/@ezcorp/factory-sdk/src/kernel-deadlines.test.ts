@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { referenceCodeV1 } from "./references.js";
 import { compileFactory } from "./compiler";
 import { advanceKernel, createKernelState } from "./kernel";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, KernelState } from "./index";
@@ -9,8 +10,8 @@ const runner = { package: "inert", version: "1", digest, export: "run" } as cons
 function compiled(nodes: readonly FactoryNode[]): CompiledFactory {
   const definition: FactoryDefinition = {
     schemaVersion: "factory.v1", id: "deadline-regression", version: "1", interpreterCompatibility: "1",
-    inputPorts: {}, outputPorts: {}, graph: { nodes, outputs: {} }, acceptance: { id: "none", version: "1", claims: [] },
-    packages: [{ name: runner.package, version: runner.version, digest }], capabilities: [], effects: ["none"],
+    inputPorts: {}, outputPorts: {}, graph: { nodes, outputs: {} }, acceptance: referenceCodeV1.acceptance,
+    packages: [{ name: runner.package, version: runner.version, digest }, ...referenceCodeV1.packages], capabilities: [], effects: ["none"],
     bounds: { maxExpandedNodes: 100, maxScopeDepth: 16 },
   };
   const result = compileFactory(definition);

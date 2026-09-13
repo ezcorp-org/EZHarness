@@ -1,5 +1,6 @@
 import type {
   AcceptanceClaim,
+  AcceptanceGroup,
   FactoryDefinition,
   FactoryGraph,
   FactoryNode,
@@ -9,7 +10,7 @@ import type {
   RunnerReference,
   TaskNode,
   ValueReference,
-} from "./types";
+} from "./types.js";
 
 const digest = (hex: string): string => `sha256:${hex.repeat(64)}`;
 const artifactSchema: PortSchema = {
@@ -25,6 +26,12 @@ const artifactSchema: PortSchema = {
 const evidenceSchema: PortSchema = { type: "array", items: artifactSchema };
 const receiptSchema: PortSchema = { type: "object", additionalProperties: true };
 const stringSchema: PortSchema = { type: "string", minLength: 1 };
+const repairResultSchema: PortSchema = {
+  type: "object",
+  properties: { accepted: { type: "boolean" }, candidate: artifactSchema },
+  required: ["accepted", "candidate"],
+  additionalProperties: false,
+};
 
 function runner(packageName: string, exportName: string, hex: string, model?: string): RunnerReference {
   let packageCode = 0;
@@ -56,11 +63,11 @@ function task(id: string, implementation: RunnerReference, dependsOn: readonly s
   return { id, kind: "task", runner: implementation, dependsOn, outputPorts, effects };
 }
 
-function claim(id: string, validator: RunnerReference, freshnessMs?: number): AcceptanceClaim {
-  return { id, validator, required: true, protected: true, ...(freshnessMs === undefined ? {} : { freshnessMs }) };
+function claim(id: string, validator: RunnerReference, freshnessMs?: number, required = true): AcceptanceClaim {
+  return { id, validator, required, protected: true, ...(freshnessMs === undefined ? {} : { freshnessMs }) };
 }
 
-function baseDefinition(id: string, graph: FactoryGraph, inputPorts: Readonly<Record<string, PortSchema>>, outputPorts: Readonly<Record<string, PortSchema>>, claims: readonly AcceptanceClaim[], packages: readonly PackageReference[], factories: readonly FactoryReference[] = []): FactoryDefinition {
+function baseDefinition(id: string, graph: FactoryGraph, inputPorts: Readonly<Record<string, PortSchema>>, outputPorts: Readonly<Record<string, PortSchema>>, claims: readonly AcceptanceClaim[], packages: readonly PackageReference[], factories: readonly FactoryReference[] = [], groups: readonly AcceptanceGroup[] = []): FactoryDefinition {
   return {
     schemaVersion: "factory.v1",
     id,
@@ -69,7 +76,7 @@ function baseDefinition(id: string, graph: FactoryGraph, inputPorts: Readonly<Re
     inputPorts,
     outputPorts,
     graph,
-    acceptance: { id: `${id}.contract`, version: "1.0.0", claims },
+    acceptance: { id: `${id}.contract`, version: "1.0.0", claims, ...(groups.length === 0 ? {} : { groups }) },
     packages,
     factories,
     capabilities: [],
@@ -97,9 +104,9 @@ export const referenceCodeV1: FactoryDefinition = baseDefinition(
         dependsOn: ["generate-private-candidate"],
         initialInput: ref("generate-private-candidate", "candidate"),
         carriedSchema: artifactSchema,
-        resultSchema: { type: "object", additionalProperties: true },
+        resultSchema: repairResultSchema,
         body: {
-          nodes: [task("repair-candidate", codeRepair, [], { result: { type: "object", additionalProperties: true } }, ["write"])],
+          nodes: [{ ...task("repair-candidate", codeRepair, [], { result: repairResultSchema }, ["write"]), inputPorts: { candidate: artifactSchema }, bindings: { candidate: { kind: "ref", root: "loop", name: "carried" } } }],
           outputs: { result: ref("repair-candidate", "result") },
         },
         until: { kind: "ref", root: "loop", name: "result", path: ["accepted"] },
@@ -126,13 +133,29 @@ export const referenceCodeV1: FactoryDefinition = baseDefinition(
     baseBranch: stringSchema,
   },
   { receipt: receiptSchema },
-  [claim("code-protected-checks", codeChecks, 24 * 60 * 60 * 1_000), claim("code-review", runner("@ezcorp/reference-code-validator", "supervisedReview", "e", "claude-haiku-4-5-20251001"), 15 * 60 * 1_000)],
+  [
+    claim("frozen-install", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("build", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("typecheck", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("declared-tests", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("protected-fixtures", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("dependency-advisory", codeChecks, 15 * 60 * 1_000),
+    claim("secret-scan", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("allowed-paths", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("protected-assets-unchanged", codeChecks, 24 * 60 * 60 * 1_000),
+    claim("supervised-review", runner("@ezcorp/reference-code-validator", "supervisedReview", "e", "claude-haiku-4-5-20251001"), 15 * 60 * 1_000),
+  ],
   [codeSnapshot, codeGenerate, codeRepair, codeFreeze, codeChecks, githubRelease].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
 );
 
 const imageGenerate = runner("@ezcorp/reference-image", "generateSdxl", "a");
 const imageNormalize = runner("@ezcorp/reference-image", "normalizePng", "b");
 const imageValidate = runner("@ezcorp/reference-image-validator", "validateImage", "c", "claude-haiku-4-5-20251001");
+const imageFormat = runner("@ezcorp/reference-image-validator", "deterministicPngChecks", "d");
+const imageOcr = runner("@ezcorp/reference-image-validator", "tesseractEnglish", "e");
+const imageVisionOne = runner("@ezcorp/reference-image-validator", "semanticEvaluationOne", "a", "claude-haiku-4-5-20251001");
+const imageVisionTwo = runner("@ezcorp/reference-image-validator", "semanticEvaluationTwo", "b", "claude-haiku-4-5-20251001");
+const imageVisionThree = runner("@ezcorp/reference-image-validator", "semanticEvaluationThree", "c", "claude-haiku-4-5-20251001");
 const imageSelect = runner("@ezcorp/reference-image", "selectFirstAccepted", "d");
 const s3Release = runner("@ezcorp/s3-immutable-publish", "publish", "e");
 
@@ -147,7 +170,7 @@ export const referenceImageV1: FactoryDefinition = baseDefinition(
         dependsOn: ["brief-snapshot"],
         collection: { kind: "literal", value: [11, 23, 37, 53] },
         itemSchema: { type: "integer", enum: [11, 23, 37, 53] },
-        body: { nodes: [task("generate-seed", imageGenerate, [], { image: artifactSchema }, ["write"])], outputs: { image: ref("generate-seed", "image") } },
+        body: { nodes: [{ ...task("generate-seed", imageGenerate, [], { image: artifactSchema }, ["write"]), inputPorts: { seed: { type: "integer" } }, bindings: { seed: { kind: "ref", root: "map", name: "item" } } }], outputs: { image: ref("generate-seed", "image") } },
         mode: "collect",
         maxItems: 4,
         maxConcurrency: 4,
@@ -166,8 +189,19 @@ export const referenceImageV1: FactoryDefinition = baseDefinition(
   },
   { brief: stringSchema, outputName: stringSchema, destination: { type: "object", additionalProperties: true } },
   { receipt: receiptSchema },
-  [claim("image-format-ocr", imageValidate, 24 * 60 * 60 * 1_000), claim("image-semantic-quorum", imageValidate, 15 * 60 * 1_000)],
+  [
+    claim("png-single-frame", imageFormat, 24 * 60 * 60 * 1_000),
+    claim("png-dimensions-color", imageFormat, 24 * 60 * 60 * 1_000),
+    claim("png-size", imageFormat, 24 * 60 * 60 * 1_000),
+    claim("png-no-extra-payload", imageFormat, 24 * 60 * 60 * 1_000),
+    claim("ocr-no-text", imageOcr, 24 * 60 * 60 * 1_000),
+    claim("semantic-evaluation-1", imageVisionOne, 15 * 60 * 1_000, false),
+    claim("semantic-evaluation-2", imageVisionTwo, 15 * 60 * 1_000, false),
+    claim("semantic-evaluation-3", imageVisionThree, 15 * 60 * 1_000, false),
+  ],
   [imageGenerate, imageNormalize, imageValidate, imageSelect, s3Release, runner("@ezcorp/reference-image", "snapshotBrief", "f")].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
+  [],
+  [{ id: "semantic-quorum", claimIds: ["semantic-evaluation-1", "semantic-evaluation-2", "semantic-evaluation-3"], minimumPasses: 2, requireAllDecisive: true }],
 );
 
 const dataParse = runner("@ezcorp/reference-data", "parseCsv", "a");
@@ -181,7 +215,7 @@ export const referenceDataV1: FactoryDefinition = baseDefinition(
     nodes: [
       task("input-snapshot", runner("@ezcorp/reference-data", "snapshotCsv", "e"), [], { snapshot: artifactSchema }),
       task("parse-schema-validation", dataParse, ["input-snapshot"], { partitions: { type: "array", items: artifactSchema, maxItems: 100 } }),
-      { id: "transform-partitions", kind: "map", dependsOn: ["parse-schema-validation"], collection: ref("parse-schema-validation", "partitions"), itemSchema: artifactSchema, body: { nodes: [task("pyarrow-transform", dataTransform, [], { partition: artifactSchema }, ["write"])], outputs: { partition: ref("pyarrow-transform", "partition") } }, mode: "all", maxItems: 100, maxConcurrency: 32, effects: ["write"], outputPorts: { partitions: { type: "array", items: artifactSchema, maxItems: 100 } } },
+      { id: "transform-partitions", kind: "map", dependsOn: ["parse-schema-validation"], collection: ref("parse-schema-validation", "partitions"), itemSchema: artifactSchema, body: { nodes: [{ ...task("pyarrow-transform", dataTransform, [], { partition: artifactSchema }, ["write"]), inputPorts: { partition: artifactSchema }, bindings: { partition: { kind: "ref", root: "map", name: "item" } } }], outputs: { partition: ref("pyarrow-transform", "partition") } }, mode: "all", maxItems: 100, maxConcurrency: 32, effects: ["write"], outputPorts: { partitions: { type: "array", items: artifactSchema, maxItems: 100 } } },
       task("ordered-reduction", dataReduce, ["transform-partitions"], { dataset: artifactSchema, manifest: artifactSchema }, ["write"]),
       task("protected-reconciliation", dataValidate, ["input-snapshot", "ordered-reduction"], { evidence: evidenceSchema }),
       { id: "acceptance", kind: "acceptance", dependsOn: ["ordered-reduction", "protected-reconciliation"], contract: "reference.data.v1.contract", candidate: ref("ordered-reduction", "dataset"), evidence: ref("protected-reconciliation", "evidence"), maxRepairs: 1, outputPorts: { acceptedCandidate: artifactSchema } },
@@ -192,7 +226,14 @@ export const referenceDataV1: FactoryDefinition = baseDefinition(
   },
   { csv: artifactSchema, destination: { type: "object", additionalProperties: true } },
   { receipt: receiptSchema },
-  [claim("data-reconciliation", dataValidate)],
+  [
+    claim("output-schema", dataValidate),
+    claim("row-count-unique-ids", dataValidate),
+    claim("source-row-values", dataValidate),
+    claim("category-and-global-totals", dataValidate),
+    claim("no-null-negative-overflow", dataValidate),
+    claim("partition-sequence-complete", dataValidate),
+  ],
   [dataParse, dataTransform, dataReduce, dataValidate, s3Release, runner("@ezcorp/reference-data", "snapshotCsv", "e")].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
 );
 
@@ -217,7 +258,7 @@ export const referenceCatalogV1: FactoryDefinition = baseDefinition(
   },
   { csv: artifactSchema, brief: stringSchema, repository: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema, githubDestination: { type: "object", additionalProperties: true } },
   { receipt: receiptSchema },
-  [claim("catalog-build-render", catalogValidate)],
+  [claim("catalog-build", catalogValidate), claim("catalog-render", catalogValidate)],
   [packageOf(catalogValidate), packageOf(githubRelease)],
   [dataReference, imageReference, codeReference],
 );

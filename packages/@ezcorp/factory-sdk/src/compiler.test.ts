@@ -61,7 +61,7 @@ describe("factory compiler", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(Object.getPrototypeOf(result.factory.indexes.nodeById)).toBeNull();
-    expect(Object.prototype.hasOwnProperty.call(result.factory.indexes.nodeById, "__proto__")).toBe(true);
+    expect(Object.hasOwn(result.factory.indexes.nodeById, "__proto__")).toBe(true);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
@@ -85,6 +85,12 @@ describe("factory compiler", () => {
     const duplicate = clone();
     (duplicate as { packages: unknown[] }).packages.push(structuredClone(duplicate.packages[0]));
     expect(codes(duplicate)).toContain("REFERENCE_DUPLICATE");
+
+    const identity = clone();
+    (identity as { id: string; version: string; interpreterCompatibility: string }).id = "";
+    (identity as { version: string }).version = "latest";
+    (identity as { interpreterCompatibility: string }).interpreterCompatibility = "";
+    expect(codes(identity)).toContain("FACTORY_IDENTITY");
   });
 
   test("rejects graph cycles, missing dependencies, duplicate IDs, and bad outputs", () => {
@@ -97,6 +103,9 @@ describe("factory compiler", () => {
     const duplicate = clone();
     (duplicate.graph.nodes[1] as { id: string }).id = duplicate.graph.nodes[0]!.id;
     expect(codes(duplicate)).toContain("GRAPH_DUPLICATE_NODE");
+    const ambiguous = clone();
+    (ambiguous.graph.nodes[0] as { id: string }).id = "scope/node";
+    expect(codes(ambiguous)).toContain("GRAPH_NODE_ID");
     const noOutput = clone();
     delete (noOutput.graph.outputs as Record<string, unknown>).receipt;
     expect(codes(noOutput)).toContain("GRAPH_OUTPUT_MISSING");
@@ -113,7 +122,10 @@ describe("factory compiler", () => {
     const target = node(definition, "freeze-complete-git-tree") as { inputPorts: Record<string, unknown>; bindings: Record<string, unknown>; dependsOn: string[] };
     target.inputPorts = { candidate: { type: "string" } };
     target.bindings = { candidate: { kind: "ref", root: "node", name: "snapshot-repository", path: ["snapshot"] }, extra: { kind: "literal", value: true } };
-    expect(codes(definition)).toEqual(expect.arrayContaining(["BINDING_INCOMPATIBLE", "BINDING_REACHABILITY", "BINDING_UNKNOWN"]));
+    expect(codes(definition)).toEqual(expect.arrayContaining(["BINDING_INCOMPATIBLE", "BINDING_UNKNOWN"]));
+    expect(codes(definition)).not.toContain("BINDING_REACHABILITY");
+    target.bindings.candidate = { kind: "ref", root: "node", name: "protected-checks", path: ["evidence"] };
+    expect(codes(definition)).toContain("BINDING_REACHABILITY");
     const absent = clone();
     (node(absent, "freeze-complete-git-tree") as { inputPorts: Record<string, unknown> }).inputPorts = { candidate: { type: "string" } };
     expect(codes(absent)).toContain("BINDING_MISSING");
@@ -146,6 +158,18 @@ describe("factory compiler", () => {
     const map = clone(referenceImageV1);
     (node(map, "generate-four-seeds") as { maxConcurrency: number }).maxConcurrency = 0;
     expect(codes(map)).toContain("BOUND_MAP");
+
+    const resources = clone();
+    (node(resources, "snapshot-repository") as { resources: unknown }).resources = { maxTokens: -1, maxComputeMs: 1.5, memoryBytes: -1, resourceClass: "" };
+    expect(codes(resources)).toEqual(expect.arrayContaining(["BOUND_RESOURCE"]));
+
+    const loopBudget = clone();
+    (node(loopBudget, "bounded-repair") as { budget: unknown }).budget = { maxTokens: -1 };
+    expect(codes(loopBudget)).toContain("BOUND_RESOURCE");
+
+    const unsupportedRetry = clone();
+    (node(unsupportedRetry, "bounded-repair") as { retry: unknown }).retry = { maxAttempts: 1, initialDelayMs: 0, maximumDelayMs: 0 };
+    expect(codes(unsupportedRetry)).toContain("RETRY_UNSUPPORTED");
   });
 
   test("rejects malformed joins, approvals, release authority, and expressions", () => {
@@ -164,6 +188,15 @@ describe("factory compiler", () => {
     const all = clone();
     (all.graph.nodes as FactoryNode[]).splice(1, 0, { id: "join", kind: "join", mode: "all", predecessors: ["snapshot-repository"], quorum: 1, eligibleOutcomes: ["succeeded"] });
     expect(codes(all)).toContain("JOIN_CONFIGURATION");
+
+    const wrongAcceptedPort = clone();
+    (node(wrongAcceptedPort, "github-pr-release") as Extract<FactoryNode, { kind: "release" }>).acceptedCandidate = { kind: "ref", root: "node", name: "acceptance", path: ["other"] };
+    expect(codes(wrongAcceptedPort)).toContain("RELEASE_ACCEPTANCE");
+
+    const wrongContract = clone();
+    (node(wrongContract, "acceptance") as Extract<FactoryNode, { kind: "acceptance" }>).contract = "other";
+    (node(wrongContract, "acceptance") as Extract<FactoryNode, { kind: "acceptance" }>).maxRepairs = -1;
+    expect(codes(wrongContract)).toEqual(expect.arrayContaining(["ACCEPTANCE_CONTRACT", "BOUND_REPAIR"]));
   });
 
   test("rejects speculative publication, unlocked dependencies, and validator authority overlap", () => {
@@ -176,6 +209,169 @@ describe("factory compiler", () => {
     const overlap = clone();
     (overlap.acceptance.claims[0] as { validator: unknown }).validator = structuredClone((node(overlap, "generate-private-candidate") as { runner: unknown }).runner);
     expect(codes(overlap)).toContain("ACCEPTANCE_AUTHORITY");
+
+    const self = clone(referenceCatalogV1);
+    (node(self, "accepted-data") as Extract<FactoryNode, { kind: "subfactory" }>).factory = { id: self.id, version: "1.0.0", digest: `sha256:${"a".repeat(64)}` };
+    (self.factories as FactoryDefinition["factories"] as FactoryReference[]).push((node(self, "accepted-data") as Extract<FactoryNode, { kind: "subfactory" }>).factory);
+    expect(codes(self)).toContain("REFERENCE_CYCLE");
+
+    const claims = clone();
+    (claims.acceptance.claims[0] as { id: string }).id = "";
+    expect(codes(claims)).toContain("ACCEPTANCE_CLAIM");
+
+    const runner = clone();
+    (node(runner, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner.export = "";
+    (node(runner, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner.configurationDigest = "bad";
+    expect(codes(runner)).toEqual(expect.arrayContaining(["REFERENCE_EXPORT", "REFERENCE_CONFIGURATION"]));
+  });
+
+  test("uses the largest speculative branch for expansion bounds", () => {
+    const definition = clone();
+    const implementation = structuredClone((node(definition, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner);
+    const arm = (id: string): FactoryNode => ({ id, kind: "task", runner: implementation, effects: ["read"] });
+    definition.bounds.maxExpandedNodes = 3;
+    definition.graph = {
+      nodes: [{ id: "choice", kind: "branch", condition: { kind: "literal", value: true }, then: { nodes: [arm("then-a"), arm("then-b")], outputs: {} }, else: { nodes: [arm("else-a"), arm("else-b")], outputs: {} } }],
+      outputs: { receipt: { kind: "literal", value: {} } },
+    };
+    expect(codes(definition)).toEqual([]);
+  });
+
+  test("validates typed paths, scope references, nested outputs, and control sources", () => {
+    const path = clone();
+    const target = node(path, "freeze-complete-git-tree") as { inputPorts: Record<string, unknown>; bindings: Record<string, unknown> };
+    target.inputPorts = { candidate: { type: "string" } };
+    target.bindings = { candidate: { kind: "ref", root: "node", name: "snapshot-repository", path: ["snapshot", "missing"] } };
+    expect(codes(path)).toContain("BINDING_PATH");
+    target.bindings.candidate = { kind: "ref", root: "map", name: "item" };
+    expect(codes(path)).toContain("BINDING_SCOPE");
+
+    const nestedOutput = clone(referenceImageV1);
+    ((node(nestedOutput, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).body.outputs as Record<string, unknown>).image = { kind: "ref", root: "node", name: "missing", path: ["image"] };
+    expect(codes(nestedOutput)).toContain("BINDING_NODE");
+
+    const badMap = clone(referenceImageV1);
+    (node(badMap, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).itemSchema = { type: "string" };
+    expect(codes(badMap)).toContain("MAP_COLLECTION_TYPE");
+    const badLoop = clone();
+    (node(badLoop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>).initialInput = { kind: "literal", value: "wrong" };
+    expect(codes(badLoop)).toContain("LOOP_INPUT_TYPE");
+
+    const missingPort = clone();
+    (missingPort.graph.outputs as Record<string, unknown>).receipt = { kind: "ref", root: "node", name: "github-pr-release", path: ["missing"] };
+    expect(codes(missingPort)).toContain("BINDING_PORT");
+
+    const literals = clone();
+    const literalTarget = node(literals, "snapshot-repository") as { inputPorts: Record<string, unknown>; bindings: Record<string, unknown> };
+    literalTarget.inputPorts = {
+      nil: { type: "null" }, empty: { type: "array", maxItems: 0 }, record: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"], additionalProperties: false }, flag: { type: "boolean" },
+    };
+    literalTarget.bindings = {
+      nil: { kind: "literal", value: null }, empty: { kind: "literal", value: [] }, record: { kind: "literal", value: { ok: true } }, flag: { kind: "literal", value: true },
+    };
+    expect(codes(literals)).toEqual([]);
+
+    const referenced = clone();
+    (referenced.inputPorts as Record<string, unknown>).nested = {
+      $defs: { rows: { type: "array", items: { type: "object", properties: { value: { type: "string" } }, required: ["value"], additionalProperties: false } } },
+      $ref: "#/$defs/rows",
+    };
+    const referencedTarget = node(referenced, "snapshot-repository") as { inputPorts: Record<string, unknown>; bindings: Record<string, unknown> };
+    referencedTarget.inputPorts = { value: { type: "string" } };
+    referencedTarget.bindings = { value: { kind: "ref", root: "input", name: "nested", path: [0, "value"] } };
+    expect(codes(referenced)).toEqual([]);
+
+    const missingItems = clone(referenced);
+    (missingItems.inputPorts as Record<string, unknown>).nested = { type: "string" };
+    expect(codes(missingItems)).toContain("BINDING_PATH");
+
+    const badReference = clone(referenced);
+    (badReference.inputPorts as Record<string, unknown>).nested = { $ref: "remote" };
+    expect(codes(badReference)).toEqual(expect.arrayContaining(["SCHEMA_REF_INVALID"]));
+    const cyclicReference = clone(referenced);
+    (cyclicReference.inputPorts as Record<string, unknown>).nested = { $defs: { a: { $ref: "#/$defs/b" }, b: { $ref: "#/$defs/a" } }, $ref: "#/$defs/a" };
+    expect(codes(cyclicReference)).toEqual(expect.arrayContaining(["SCHEMA_RECURSIVE"]));
+
+    const finalReference = clone(referenced);
+    const finalTarget = node(finalReference, "snapshot-repository") as { inputPorts: Record<string, unknown>; bindings: Record<string, unknown> };
+    finalTarget.inputPorts = { rows: { type: "array", items: { type: "object", additionalProperties: true } } };
+    finalTarget.bindings = { rows: { kind: "ref", root: "input", name: "nested" } };
+    expect(codes(finalReference)).toEqual([]);
+  });
+
+  test("type-checks expression references and rejects unsafe expansion or retries", () => {
+    const branch = clone();
+    (branch.graph.nodes as FactoryNode[]).splice(1, 0, { id: "typed-branch", kind: "branch", dependsOn: ["snapshot-repository"], condition: { kind: "ref", root: "node", name: "snapshot-repository", path: ["snapshot"] }, then: { nodes: [], outputs: {} }, else: { nodes: [], outputs: {} } });
+    expect(codes(branch)).toContain("EXPRESSION_TYPE");
+    const loop = clone();
+    (node(loop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>).nextInput = { kind: "literal", value: "wrong" };
+    expect(codes(loop)).toContain("EXPRESSION_TYPE");
+    const retry = clone();
+    (node(retry, "snapshot-repository") as { retry: unknown }).retry = { maxAttempts: 4, initialDelayMs: 0, maximumDelayMs: 0 };
+    expect(codes(retry)).toContain("BOUND_RETRY");
+    const iterations = clone();
+    (node(iterations, "generate-private-candidate") as { maxIterations: number }).maxIterations = 0;
+    expect(codes(iterations)).toContain("BOUND_AGENT_ITERATIONS");
+    const expansion = clone(referenceImageV1);
+    (node(expansion, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).maxItems = 10_000;
+    expect(codes(expansion)).toContain("BOUND_EXPANDED_NODES");
+
+    const operators = clone();
+    (operators.graph.nodes as FactoryNode[]).splice(1, 0, {
+      id: "operator-branch", kind: "branch", dependsOn: ["snapshot-repository"],
+      condition: {
+        kind: "and",
+        values: [
+          { kind: "not", value: { kind: "literal", value: false } },
+          { kind: "exists", value: { kind: "ref", root: "input", name: "request" } },
+          { kind: "eq", left: { kind: "literal", value: 1 }, right: { kind: "literal", value: 1 } },
+          { kind: "in", value: { kind: "literal", value: "a" }, collection: { kind: "literal", value: ["a"] } },
+          { kind: "gt", left: { kind: "length", value: { kind: "ref", root: "input", name: "request" } }, right: { kind: "literal", value: 0 } },
+        ],
+      },
+      then: { nodes: [], outputs: {} }, else: { nodes: [], outputs: {} },
+    });
+    expect(codes(operators)).toEqual([]);
+    ((node(operators, "operator-branch") as Extract<FactoryNode, { kind: "branch" }>).condition as { values: unknown[] }).values = [{ kind: "literal", value: 1 }];
+    expect(codes(operators)).toContain("EXPRESSION_TYPE");
+    const nullable = clone();
+    (nullable.inputPorts as Record<string, unknown>).maybe = { type: ["boolean", "null"] };
+    (nullable.graph.nodes as FactoryNode[]).splice(1, 0, { id: "nullable-branch", kind: "branch", condition: { kind: "ref", root: "input", name: "maybe" }, then: { nodes: [], outputs: {} }, else: { nodes: [], outputs: {} } });
+    expect(codes(nullable)).toContain("EXPRESSION_TYPE");
+  });
+
+  test("rejects oversize definition and page payloads before execution", () => {
+    const page = clone();
+    (node(page, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner = {
+      ...(node(page, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner,
+      export: "x".repeat(33 * 1024),
+    };
+    (page.packages[0] as { digest: string }).digest = (node(page, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner.digest;
+    expect(codes(page)).toContain("PAYLOAD_NODE");
+
+    const definition = clone();
+    (definition.inputPorts.request as { description?: string }).description = "x".repeat(16 * 1024 * 1024);
+    expect(codes(definition)).toContain("BOUND_DEFINITION_BYTES");
+  });
+
+  test("partitions the maximum 10,000-node static graph without recursion", () => {
+    const definition = clone();
+    const implementation = structuredClone((node(definition, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner);
+    const outputSchema = structuredClone(definition.outputPorts.receipt!);
+    const nodes = Array.from({ length: 10_000 }, (_, index): FactoryNode => ({
+      id: index === 9_997 ? "constructor" : index === 9_998 ? "toString" : index === 9_999 ? "last" : `node-${index}`,
+      kind: "task",
+      runner: implementation,
+      outputPorts: { receipt: outputSchema },
+      effects: ["read"],
+    }));
+    definition.graph = { nodes, outputs: { receipt: { kind: "ref", root: "node", name: "last", path: ["receipt"] } } };
+    const result = compileFactory(definition);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(Object.keys(result.factory.indexes.nodeById)).toHaveLength(10_000);
+    expect(result.factory.partitions).toHaveLength(79);
+    expect(result.factory.pages.every((page) => page.encodedBytes <= 32 * 1024)).toBe(true);
   });
 
   test("authoring returns the canonical definition or located diagnostics", () => {

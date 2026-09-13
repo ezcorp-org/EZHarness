@@ -1,5 +1,5 @@
-import { compileFactory } from "./compiler";
-import type { FactoryDefinition } from "./types";
+import { compileFactory } from "./compiler.js";
+import type { FactoryDefinition } from "./types.js";
 
 export class FactoryAuthoringError extends Error {
   readonly diagnostics;

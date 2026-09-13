@@ -25,6 +25,9 @@ describe("canonical I-JSON", () => {
     cyclic.self = cyclic;
     expect(validateIJson(cyclic).ok).toBe(false);
     expect(() => canonicalizeJson(cyclic as never)).toThrow("cycles");
+    let deep: unknown = null;
+    for (let index = 0; index < 65; index += 1) deep = [deep];
+    expect(validateIJson(deep).ok).toBe(false);
   });
 
   test("validates canonical unsigned decimals without regex", () => {

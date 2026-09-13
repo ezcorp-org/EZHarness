@@ -1,12 +1,13 @@
-import factoryDefinitionJsonSchema from "./factory-definition.schema.json";
-import { validateIJson } from "./canonical";
+import factoryDefinitionJsonSchema from "./factory-definition.schema.json" with { type: "json" };
+import { jsonEqual, validateIJson } from "./canonical.js";
+import type { JsonValue } from "./types.js";
 
 export { factoryDefinitionJsonSchema };
 
 type SchemaObject = Readonly<Record<string, unknown>>;
 
 function own(object: object, key: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(object, key);
+  return  Object.hasOwn(object, key);
 }
 
 function resolveReference(root: SchemaObject, reference: string): SchemaObject | undefined {
@@ -16,16 +17,6 @@ function resolveReference(root: SchemaObject, reference: string): SchemaObject |
   if (!definitions || typeof definitions !== "object" || Array.isArray(definitions) || !own(definitions, name)) return undefined;
   const target = (definitions as Record<string, unknown>)[name];
   return target && typeof target === "object" && !Array.isArray(target) ? (target as SchemaObject) : undefined;
-}
-
-function equal(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
-  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => equal(item, right[index]));
-  const leftObject = left as Record<string, unknown>;
-  const rightObject = right as Record<string, unknown>;
-  const keys = Object.keys(leftObject);
-  return keys.length === Object.keys(rightObject).length && keys.every((key) => own(rightObject, key) && equal(leftObject[key], rightObject[key]));
 }
 
 function typeMatches(type: string, value: unknown): boolean {
@@ -43,8 +34,8 @@ function validate(schema: SchemaObject, root: SchemaObject, value: unknown): boo
   }
   if (Array.isArray(schema.anyOf) && !schema.anyOf.some((candidate) => candidate && typeof candidate === "object" && validate(candidate as SchemaObject, root, value))) return false;
   if (typeof schema.type === "string" && !typeMatches(schema.type, value)) return false;
-  if (schema.const !== undefined && !equal(schema.const, value)) return false;
-  if (Array.isArray(schema.enum) && !schema.enum.some((candidate) => equal(candidate, value))) return false;
+  if (schema.const !== undefined && !jsonEqual(schema.const as JsonValue, value as JsonValue)) return false;
+  if (Array.isArray(schema.enum) && !schema.enum.some((candidate) => jsonEqual(candidate as JsonValue, value as JsonValue))) return false;
   if (Array.isArray(value)) {
     if (typeof schema.minItems === "number" && value.length < schema.minItems) return false;
     if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return false;

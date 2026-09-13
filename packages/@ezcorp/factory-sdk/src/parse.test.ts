@@ -4,8 +4,8 @@ import { referenceCodeV1 } from "./references";
 
 describe("safe authoring parsers", () => {
   test("parses JSON grammar into prototype-safe own properties", () => {
-    const value = parseIJson('{"__proto__":{"polluted":true},"constructor":1,"toString":2,"escapes":"\\b\\f\\n\\r\\t\\/\\\"\\\\\\u0041","numbers":[-1,0,1.5,2e2],"values":[true,false,null]}') as Record<string, unknown>;
-    expect(Object.prototype.hasOwnProperty.call(value, "__proto__")).toBe(true);
+    const value = parseIJson('{"__proto__":{"polluted":true},"constructor":1,"toString":2,"escapes":"\\b\\f\\n\\r\\t\\/\\"\\\\\\u0041","numbers":[-1,0,1.5,2e2],"values":[true,false,null]}') as Record<string, unknown>;
+    expect(Object.hasOwn(value, "__proto__")).toBe(true);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     expect(value.escapes).toBe('\b\f\n\r\t/"\\A');
     expect(value.numbers).toEqual([-1, 0, 1.5, 200]);
@@ -18,6 +18,7 @@ describe("safe authoring parsers", () => {
       'true false', String.raw`"\ud800"`, '9007199254740992', '-x', '',
     ];
     for (const source of invalid) expect(() => parseIJson(source)).toThrow(FactoryParseError);
+    expect(() => parseIJson(`${"[".repeat(65)}null${"]".repeat(65)}`)).toThrow("nesting limit");
   });
 
   test("parses YAML and rejects aliases, duplicates, and custom tags", () => {
@@ -26,6 +27,12 @@ describe("safe authoring parsers", () => {
     expect(() => parseIYaml("a: &value 1\nb: *value\n")).toThrow("aliases");
     expect(() => parseIYaml("a: !unsafe value\n")).toThrow(FactoryParseError);
     expect(() => parseIYaml("a: 9007199254740992\n")).toThrow(FactoryParseError);
+    expect(() => parseIYaml("1: value\n")).toThrow("mapping keys must be strings");
+    const hostile = parseIYaml("__proto__: safe\nconstructor: owned\ntoString: value\n") as Record<string, unknown>;
+    expect(Object.hasOwn(hostile, "__proto__")).toBe(true);
+    expect(hostile.constructor).toBe("owned");
+    expect(hostile.toString).toBe("value");
+    expect(({} as Record<string, unknown>).safe).toBeUndefined();
   });
 
   test("definition JSON and YAML use the same canonical schema", () => {

@@ -16,6 +16,7 @@ describe("bounded expressions", () => {
       [{ kind: "ref", root: "input", name: "constructor", path: ["nested", 1] }, "b"],
       [{ kind: "exists", value: { kind: "ref", root: "input", name: "missing" } }, false],
       [{ kind: "eq", left: literal({ a: 1 } as never), right: literal({ a: 1 } as never) }, true],
+      [{ kind: "eq", left: literal([1, 2] as never), right: literal([1, 2] as never) }, true],
       [{ kind: "lt", left: literal(1 as never), right: literal(2 as never) }, true],
       [{ kind: "lte", left: literal("a" as never), right: literal("a" as never) }, true],
       [{ kind: "gt", left: literal(2 as never), right: literal(1 as never) }, true],
@@ -23,7 +24,10 @@ describe("bounded expressions", () => {
       [{ kind: "not", value: literal(false as never) }, true],
       [{ kind: "and", values: [literal(true as never), literal(false as never), { kind: "ref", root: "input", name: "missing" }] }, false],
       [{ kind: "or", values: [literal(true as never), { kind: "ref", root: "input", name: "missing" }] }, true],
+      [{ kind: "and", values: [] }, true],
+      [{ kind: "or", values: [] }, false],
       [{ kind: "in", value: literal("b" as never), collection: literal(["a", "b"] as never) }, true],
+      [{ kind: "in", value: literal("z" as never), collection: literal(["x"] as never) }, false],
       [{ kind: "length", value: { kind: "ref", root: "loop", name: "result" } }, 2],
       [{ kind: "length", value: literal("🌳" as never) }, 1],
     ];

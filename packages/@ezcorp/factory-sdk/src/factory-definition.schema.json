@@ -38,6 +38,12 @@
           },
           "type": "array"
         },
+        "groups": {
+          "items": {
+            "$ref": "#/definitions/AcceptanceGroup"
+          },
+          "type": "array"
+        },
         "id": {
           "type": "string"
         },
@@ -49,6 +55,33 @@
         "id",
         "version",
         "claims"
+      ],
+      "type": "object"
+    },
+    "AcceptanceGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "claimIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "minimumPasses": {
+          "type": "number"
+        },
+        "requireAllDecisive": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "claimIds",
+        "minimumPasses",
+        "requireAllDecisive"
       ],
       "type": "object"
     },

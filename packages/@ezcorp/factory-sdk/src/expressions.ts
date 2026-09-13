@@ -1,11 +1,11 @@
-import { unicodeLength, validateIJson } from "./canonical";
-import { FACTORY_LIMITS, type BinaryExpression, type Expression, type ExpressionContext, type ExpressionResult, type JsonValue, type ValidationResult, type ValueReference } from "./types";
+import { unicodeLength, validateIJson } from "./canonical.js";
+import { FACTORY_LIMITS, type BinaryExpression, type Expression, type ExpressionContext, type ExpressionResult, type JsonValue, type ValidationResult, type ValueReference } from "./types.js";
 
 const MISSING = Symbol("missing");
 type ExpressionFailure = Extract<ExpressionResult, { readonly ok: false }>;
 
 function own(object: object, key: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(object, key);
+  return  Object.hasOwn(object, key);
 }
 
 function fail(code: string, message: string): ExpressionFailure {

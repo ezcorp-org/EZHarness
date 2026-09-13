@@ -24,6 +24,11 @@
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
     },
+    "./expressions": {
+      "bun": "./src/expressions.ts",
+      "types": "./dist/expressions.d.ts",
+      "import": "./dist/expressions.js"
+    },
     "./kernel": {
       "bun": "./src/kernel.ts",
       "types": "./dist/kernel.d.ts",
@@ -38,7 +43,7 @@
   "scripts": {
     "build": "bunx tsc -b tsconfig.build.json",
     "test": "bun test ./src",
-    "schema:generate": "ts-json-schema-generator --path src/types.ts --type FactoryDefinition --tsconfig tsconfig.build.json --no-type-check --out src/factory-definition.schema.json"
+    "schema:generate": "bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryDefinition --tsconfig tsconfig.build.json --no-type-check --out src/factory-definition.schema.json"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

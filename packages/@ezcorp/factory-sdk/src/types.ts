@@ -12,6 +12,7 @@ export const FACTORY_LIMITS = Object.freeze({
   maxExpressionNodes: 256,
   maxExpressionDepth: 16,
   maxExpressionSteps: 1_024,
+  maxJsonDepth: 64,
   defaultRunDeadlineMs: 7 * 24 * 60 * 60 * 1_000,
   maximumRunDeadlineMs: 30 * 24 * 60 * 60 * 1_000,
   defaultNodeDeadlineMs: 30 * 60 * 1_000,
@@ -258,10 +259,18 @@ export interface AcceptanceClaim {
   readonly protected: boolean;
 }
 
+export interface AcceptanceGroup {
+  readonly id: string;
+  readonly claimIds: readonly string[];
+  readonly minimumPasses: number;
+  readonly requireAllDecisive: boolean;
+}
+
 export interface AcceptanceContract {
   readonly id: string;
   readonly version: string;
   readonly claims: readonly AcceptanceClaim[];
+  readonly groups?: readonly AcceptanceGroup[];
 }
 
 export interface FactoryBounds {

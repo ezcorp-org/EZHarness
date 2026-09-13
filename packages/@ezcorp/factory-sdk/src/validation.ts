@@ -1,5 +1,5 @@
-import { jsonEqual, unicodeLength, validateIJson } from "./canonical";
-import type { JsonValue, PortSchema, ValidationIssue, ValidationResult } from "./types";
+import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
+import type { JsonValue, PortSchema, ValidationIssue, ValidationResult } from "./types.js";
 
 const PORT_SCHEMA_KEYS = new Set([
   "$defs", "$ref", "additionalProperties", "const", "description", "enum", "items",
@@ -9,7 +9,7 @@ const PORT_SCHEMA_KEYS = new Set([
 const TYPES = new Set(["array", "boolean", "integer", "null", "number", "object", "string"]);
 
 function own(object: object, key: PropertyKey): boolean {
-  return Object.prototype.hasOwnProperty.call(object, key);
+  return  Object.hasOwn(object, key);
 }
 
 function issue(code: string, message: string, path: readonly (string | number)[]): ValidationResult {
@@ -48,6 +48,10 @@ function resolveLocalReference(root: PortSchema, reference: string): PortSchema 
     value = value[token];
   }
   return isRecord(value) ? (value as PortSchema) : undefined;
+}
+
+export function resolveSchemaReference(root: PortSchema, reference: string): PortSchema | undefined {
+  return resolveLocalReference(root, reference);
 }
 
 function checkOptionalInteger(record: Record<string, unknown>, key: string, path: readonly (string | number)[]): ValidationResult {

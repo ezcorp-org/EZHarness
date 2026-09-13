@@ -1,7 +1,8 @@
-import { isAlias, parseDocument, visit } from "yaml";
-import { validateIJson } from "./canonical";
-import { isFactoryDefinition } from "./schema";
-import type { FactoryDefinition, JsonValue } from "./types";
+import { isAlias, isMap, isScalar, parseDocument, visit } from "yaml";
+import { validateIJson } from "./canonical.js";
+import { isFactoryDefinition } from "./schema.js";
+import type { FactoryDefinition, JsonValue } from "./types.js";
+import { FACTORY_LIMITS } from "./types.js";
 
 export class FactoryParseError extends Error {
   readonly code: string;
@@ -22,7 +23,7 @@ class JsonParser {
 
   parse(): JsonValue {
     this.whitespace();
-    const value = this.value();
+    const value = this.value(1);
     this.whitespace();
     if (this.offset !== this.source.length) this.error("JSON_TRAILING", "Unexpected content after the JSON value.");
     return value;
@@ -46,11 +47,12 @@ class JsonParser {
     return value;
   }
 
-  private value(): JsonValue {
+  private value(depth: number): JsonValue {
+    if (depth > FACTORY_LIMITS.maxJsonDepth) this.error("IJSON_DEPTH", "JSON value exceeds the nesting limit.");
     const character = this.source[this.offset];
     if (character === '"') return this.string();
-    if (character === "{") return this.object();
-    if (character === "[") return this.array();
+    if (character === "{") return this.object(depth);
+    if (character === "[") return this.array(depth);
     if (character === "t") return this.consume("true", true);
     if (character === "f") return this.consume("false", false);
     if (character === "n") return this.consume("null", null);
@@ -70,15 +72,15 @@ class JsonParser {
         value += character;
         continue;
       }
-      const escape = this.source[this.offset] as string;
+      const escapedCharacter = this.source[this.offset] as string;
       this.offset += 1;
-      if (escape === '"' || escape === "\\" || escape === "/") value += escape;
-      else if (escape === "b") value += "\b";
-      else if (escape === "f") value += "\f";
-      else if (escape === "n") value += "\n";
-      else if (escape === "r") value += "\r";
-      else if (escape === "t") value += "\t";
-      else if (escape === "u") {
+      if (escapedCharacter === '"' || escapedCharacter === "\\" || escapedCharacter === "/") value += escapedCharacter;
+      else if (escapedCharacter === "b") value += "\b";
+      else if (escapedCharacter === "f") value += "\f";
+      else if (escapedCharacter === "n") value += "\n";
+      else if (escapedCharacter === "r") value += "\r";
+      else if (escapedCharacter === "t") value += "\t";
+      else if (escapedCharacter === "u") {
         const hex = this.source.slice(this.offset, this.offset + 4);
         if (hex.length !== 4 || [...hex].some((digit) => !((digit >= "0" && digit <= "9") || (digit >= "A" && digit <= "F") || (digit >= "a" && digit <= "f")))) this.error("JSON_ESCAPE", "Unicode escapes require four hexadecimal digits.");
         value += String.fromCharCode(Number.parseInt(hex, 16));
@@ -115,7 +117,7 @@ class JsonParser {
     return value;
   }
 
-  private array(): JsonValue[] {
+  private array(depth: number): JsonValue[] {
     this.offset += 1;
     const values: JsonValue[] = [];
     this.whitespace();
@@ -124,7 +126,7 @@ class JsonParser {
       return values;
     }
     while (true) {
-      values.push(this.value());
+      values.push(this.value(depth + 1));
       this.whitespace();
       const character = this.source[this.offset];
       this.offset += 1;
@@ -134,7 +136,7 @@ class JsonParser {
     }
   }
 
-  private object(): { [key: string]: JsonValue } {
+  private object(depth: number): { [key: string]: JsonValue } {
     this.offset += 1;
     const value: { [key: string]: JsonValue } = Object.create(null) as { [key: string]: JsonValue };
     this.whitespace();
@@ -145,12 +147,12 @@ class JsonParser {
     while (true) {
       if (this.source[this.offset] !== '"') this.error("JSON_OBJECT", "Object keys must be strings.");
       const key = this.string();
-      if (Object.prototype.hasOwnProperty.call(value, key)) this.error("IJSON_DUPLICATE_KEY", `Duplicate object key: ${key}.`);
+      if (Object.hasOwn(value, key)) this.error("IJSON_DUPLICATE_KEY", `Duplicate object key: ${key}.`);
       this.whitespace();
       if (this.source[this.offset] !== ":") this.error("JSON_OBJECT", "Expected a colon after an object key.");
       this.offset += 1;
       this.whitespace();
-      Object.defineProperty(value, key, { value: this.value(), enumerable: true, configurable: true, writable: true });
+      Object.defineProperty(value, key, { value: this.value(depth + 1), enumerable: true, configurable: true, writable: true });
       this.whitespace();
       const character = this.source[this.offset];
       this.offset += 1;
@@ -178,6 +180,7 @@ export function parseIYaml(source: string): JsonValue {
   let unsupported: string | undefined;
   visit(document, (_key, node) => {
     if (isAlias(node)) unsupported = "YAML aliases are not supported.";
+    else if (isMap(node) && node.items.some((pair) => !isScalar(pair.key) || typeof pair.key.value !== "string")) unsupported = "YAML mapping keys must be strings.";
     else if (node && typeof node === "object" && "tag" in node && typeof node.tag === "string" && !node.tag.startsWith("tag:yaml.org,2002:")) unsupported = "Custom YAML tags are not supported.";
   });
   if (unsupported) throw new FactoryParseError("YAML_UNSUPPORTED", unsupported);
