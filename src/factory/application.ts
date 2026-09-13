@@ -8,6 +8,9 @@ import { configureProjectCreationParticipant } from "../db/queries/projects";
 import { FactoryGrants } from "./grants";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "./run-lifecycle";
 import { FactoryArtifacts } from "./artifacts";
+import { FactoryArtifactAccess } from "./artifact-access";
+import { FactoryInputArtifacts } from "./input-artifacts";
+import { FactoryRunInputs } from "./run-inputs";
 import { FactoryDefinitionArtifacts } from "./definition-artifacts";
 import { FactoryServiceCredentials } from "./service-credentials";
 import { FactoryExecutionJournal } from "./executions";
@@ -36,7 +39,7 @@ export interface FactoryApplicationOptions {
   readonly database: TransactionalDb;
   readonly tenantId: string;
   readonly blobs: BlobStore | BoundBlobStore;
-  readonly runOptions: Omit<FactoryRunLifecycleOptions, "definitions" | "grants" | "stageDefinitionInTransaction">;
+  readonly runOptions: Omit<FactoryRunLifecycleOptions, "definitions" | "grants" | "stageDefinitionInTransaction" | "resolveParameters"> & Partial<Pick<FactoryRunLifecycleOptions, "resolveParameters">>;
   readonly grants?: FactoryGrants;
   readonly availableResourceClasses: Iterable<string>;
   readonly createReleaseOperations?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority">>) => FactoryReleaseApplication;
@@ -79,8 +82,10 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   const credentials = new FactoryServiceCredentials(options.database, options.tenantId, grants);
   const artifacts = new FactoryArtifacts(options.database, options.blobs, options.tenantId);
   const definitionArtifacts = new FactoryDefinitionArtifacts(artifacts);
+  const inputs = new FactoryRunInputs(grants, new FactoryInputArtifacts(artifacts, new FactoryArtifactAccess(options.database, options.tenantId, grants, artifacts)));
   const runs = new FactoryRunLifecycle(options.database, options.tenantId, {
     ...options.runOptions, definitions, grants,
+    resolveParameters: options.runOptions.resolveParameters ?? inputs.resolveInTransaction,
     stageDefinitionInTransaction: (transaction, compiled, identity) => definitionArtifacts.stageDefinitionInTransaction(transaction, compiled, identity),
   });
   const journal = new FactoryExecutionJournal(options.database, runs.authorizeAttemptInTransaction);
