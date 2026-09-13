@@ -220,7 +220,8 @@ jobs:
       # invocation.
       - shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-gate" \
             bash scripts/collect-browser-route-coverage-lane.sh mock-gate
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -263,7 +264,8 @@ jobs:
       - name: Run every non-smoke mock browser journey
         shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-full" \
             bash scripts/collect-browser-route-coverage-lane.sh mock-full
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -306,7 +308,8 @@ jobs:
         env:
           EZCORP_E2E_EVIDENCE: "1"
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/evidence" \
             bash scripts/collect-browser-route-coverage-lane.sh evidence
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -326,40 +329,72 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
-  # This is the production-image counterpart to the mock File Organizer
-  # coverage above. It is intentionally a separate job so the mock lane starts
-  # in parallel. The aggregate retaining the protected E2E context below makes
-  # this result a branch-protection dependency.
-  production-image-file-organizer:
-    name: Production image extension lifecycle
+  # Build one candidate. Every production proof consumes this same archive;
+  # rebuilding on each runner would change image identity and repeat work.
+  production-candidate-image:
+    name: Production candidate image
     runs-on: ubuntu-latest
-    # R1 waits through one real build-lease expiry (~7 minutes). The remaining
-    # candidate-image replays, historical upgrade, and artifact upload need
-    # their own bounded time, so this is deliberately not a smoke-test limit.
-    timeout-minutes: 180
+    timeout-minutes: 20
+    outputs:
+      image_id: ${{ steps.candidate.outputs.image_id }}
+      matrix: ${{ steps.candidate.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Build exact candidate image
+        run: docker build --load --build-arg "VERSION=ci-${GITHUB_SHA::12}" --build-arg "REVISION=${GITHUB_SHA}" --build-arg "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t ezcorp:ci-production .
+      - name: Attest and compress the candidate image
+        id: candidate
+        shell: bash
+        run: |
+          image_id="$(bun scripts/production-image-artifact.ts pack ezcorp:ci-production "$GITHUB_SHA" .cache/production-candidate)"
+          printf 'image_id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
+          printf 'matrix=%s\n' "$(bun scripts/production-proof-plan.ts matrix)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-candidate-image
+          path: .cache/production-candidate/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  # Proofs within each group stay serial. Separate runners avoid fixed-port
+  # collisions and keep R4 resource measurements clear of other proof work.
+  # Stage2 also owns a separate runner because it changes host network state.
+  production-proof-shard:
+    name: Production proof (${{ matrix.shard }})
+    needs: [production-candidate-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix: ${{ fromJSON(needs.production-candidate-image.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
         with:
-          web: "true"
-          playwright: "true"
+          web: ${{ matrix.web }}
+          playwright: ${{ matrix.web }}
       - run: bash scripts/setup-extension-runner-ci.sh --install
-      - name: Build exact candidate image
-        run: docker build --load --build-arg VERSION=ci-${GITHUB_SHA::12} --build-arg REVISION=${GITHUB_SHA} --build-arg CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ) -t ezcorp:ci-production .
-      - name: Load candidate image into the extension runner store
-        run: docker save ezcorp:ci-production | podman load
-      - name: Verify Stage 2 kernel journal access
-        run: journalctl -k --no-pager -n 1 -o json | jq -e '.__CURSOR | strings | length > 0'
-      - name: Run Stage 2 real namespace proof against the candidate image
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-candidate-image
+          path: .cache/production-candidate
+      - name: Verify and load the exact candidate in both engines
         env:
-          EZCORP_STAGE2_PROOF: "1"
-          EZCORP_STAGE2_PROOF_IMAGE: ezcorp:ci-production
-        run: bun test ./src/__tests__/mcp-netns-raw-socket-blocked.test.ts ./src/__tests__/mcp-stage2-ipv6-disabled.test.ts ./src/__tests__/mcp-stage2-conntrack-soak.test.ts
+          EXPECTED_IMAGE_ID: ${{ needs.production-candidate-image.outputs.image_id }}
+        run: bun scripts/production-image-artifact.ts load .cache/production-candidate "$GITHUB_SHA" "$EXPECTED_IMAGE_ID"
       - name: Verify Docker engine builder for local archival bases
+        if: matrix.shard == 'recovery' || matrix.shard == 'content'
         run: docker buildx inspect default | awk '/Driver:/ { found = ($2 == "docker") } END { exit !found }'
-
-      - name: Run all required candidate-image production proofs
+      - name: Run the assigned production proofs
         shell: bash
+        env:
+          EZ_SHIPPING_SHARD: ${{ matrix.shard }}
+          EZ_SHIPPING_EXPECTED_IMAGE_ID: ${{ needs.production-candidate-image.outputs.image_id }}
         run: |
           BUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \
             EZ_SHIPPING_RECEIPT_ROOT=.cache/production-lifecycle \
@@ -370,10 +405,47 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
+          name: production-proof-${{ matrix.shard }}
+          path: .cache/production-lifecycle/
+          retention-days: 3
+          if-no-files-found: error
+
+  # Retain the protected production result. Job success and complete matching
+  # proof receipts are both required; a missing/cancelled shard cannot pass.
+  production-image-file-organizer:
+    name: Production image extension lifecycle
+    needs: [production-candidate-image, production-proof-shard]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require the candidate and every proof runner
+        env:
+          CANDIDATE_RESULT: ${{ needs.production-candidate-image.result }}
+          PROOFS_RESULT: ${{ needs.production-proof-shard.result }}
+        run: |
+          if [[ "$CANDIDATE_RESULT" != success || "$PROOFS_RESULT" != success ]]; then
+            echo "::error::Candidate image or production proof runners did not all succeed."
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: production-proof-*
+          path: .cache/production-proof-inputs
+      - name: Verify complete production evidence
+        env:
+          EXPECTED_IMAGE_ID: ${{ needs.production-candidate-image.outputs.image_id }}
+        run: bun scripts/verify-shipping-production-results.ts .cache/production-proof-inputs "$GITHUB_SHA" "$EXPECTED_IMAGE_ID" .cache/production-lifecycle
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
           name: production-image-lifecycle
           path: .cache/production-lifecycle/
           retention-days: 3
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   # Existing protected context. It stays green only if every automatic browser
   # lane and the candidate-image lifecycle proof succeed.
@@ -461,13 +533,15 @@ jobs:
       - name: Verify fresh real-auth setup without committed storage state
         shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/fresh-setup" \
             bash scripts/collect-browser-route-coverage-lane.sh fresh-setup
       - name: Run real-auth journeys with browser coverage
         shell: bash
         run: |
-          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/real-auth" \
             bash scripts/collect-browser-route-coverage-lane.sh real-auth
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
