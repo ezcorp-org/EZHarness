@@ -188,7 +188,7 @@ export interface FactoryActivities {
   finalizeTransitionArtifact(request: TransitionArtifactRequest): Promise<FinalizedTransitionArtifact>;
   recordTransition(record: TransitionRecord): Promise<void>;
   executeCommand(execution: CommandExecution): Promise<KernelEvent | null>;
-  resolveFactory(request: FactoryIdentity & { readonly factory: Extract<KernelCommand, { readonly kind: "run-child" }>["factory"] }): Promise<FactoryDefinitionSource>;
+  resolveFactory(request: FactoryIdentity & { readonly commandId: string; readonly factory: Extract<KernelCommand, { readonly kind: "run-child" }>["factory"] }): Promise<FactoryDefinitionSource>;
   loadManifestPage(request: FactoryIdentity & { readonly definition: FactoryDefinitionSource; readonly page: ImmutableObjectReference }): Promise<FactoryManifestPage>;
   loadDefinitionPage(request: FactoryIdentity & { readonly definitionDigest: string; readonly page: FactoryDefinitionPageReference }): Promise<FactoryDefinitionPage>;
   loadExecutionManifest(request: FactoryIdentity & { readonly definitionDigest: string; readonly manifest: ImmutableObjectReference }): Promise<CompiledExecutionManifest>;

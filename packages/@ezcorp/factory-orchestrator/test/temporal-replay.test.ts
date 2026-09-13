@@ -692,8 +692,8 @@ describe("factory Temporal workflow", () => {
       ...definitionActivities(parentFactory, childFactory),
       recordTransition: async () => undefined,
       executeCommand: async ({ logicalRunId, command }) => {
-        if (logicalRunId.startsWith("cancel-parent/child/") && command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
-        if (logicalRunId.startsWith("cancel-parent/child/") && command.kind === "dispatch-node") {
+        if (logicalRunId !== "cancel-parent" && command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (logicalRunId !== "cancel-parent" && command.kind === "dispatch-node") {
           await waitForActivityCancellation(childStarted);
         }
         if (logicalRunId === "cancel-parent" && command.kind === "cancel-node") return { kind: "attempt-stopped", id: `${command.id}:stopped`, atMs: startedAtMs + 3, nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt };

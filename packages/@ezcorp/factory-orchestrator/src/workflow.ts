@@ -1,4 +1,4 @@
-import type { JsonValue } from "@ezcorp/factory-sdk";
+import { factoryChildRunId, type JsonValue } from "@ezcorp/factory-sdk";
 import type { KernelCommand, KernelEvent, KernelFactoryPlan, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { advanceKernel, createKernelState, createPartitionKernelState } from "@ezcorp/factory-sdk/kernel";
 import {
@@ -77,7 +77,7 @@ function childInput(parent: FactoryWorkflowInput, command: Extract<KernelCommand
   return {
     tenantId: parent.tenantId,
     projectId: parent.projectId,
-    logicalRunId: `${parent.logicalRunId}/${command.nodeId}/${command.candidateGeneration}/${command.id}`,
+    logicalRunId: factoryChildRunId(parent.logicalRunId, command),
     interpreterId: parent.interpreterId,
     startedAtMs: parent.startedAtMs,
     deadlineAtMs: command.deadlineAtMs,
@@ -101,7 +101,7 @@ async function runCommand(
   if (command.kind === "run-child") {
     try {
       return await scope.run(async () => {
-        const definition = await reads.resolveFactory({ ...workflowIdentity(input), factory: command.factory });
+        const definition = await reads.resolveFactory({ ...workflowIdentity(input), commandId: command.id, factory: command.factory });
         const result = await executeChild<typeof factoryWorkflow>(FACTORY_WORKFLOW_TYPE, {
           workflowId: `${input.tenantId}/${command.id}`,
           args: [childInput(input, command, definition)],

@@ -1,3 +1,4 @@
+import { canonicalizeJson, sha256Hex } from "./canonical.js";
 import type { JsonValue } from "./types.js";
 
 /** A command is also a Temporal signal or start payload, so it keeps the C08 wire bound. */
@@ -27,6 +28,11 @@ export interface FactoryOrchestrationReadinessOptions {
   readonly taskQueue: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
+}
+
+/** Stable bounded child identity shared by the workflow and trusted host admission. */
+export function factoryChildRunId(parentLogicalRunId: string, command: { readonly id: string; readonly nodeId: string; readonly candidateGeneration: number }): string {
+  return `child-${sha256Hex(canonicalizeJson({ parentLogicalRunId, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, commandId: command.id }))}`;
 }
 
 /** Pure durable command contract shared by Bun producers and the Node dispatcher. */
