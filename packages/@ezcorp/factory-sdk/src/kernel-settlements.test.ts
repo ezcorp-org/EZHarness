@@ -44,9 +44,12 @@ function settle(graph: CompiledFactory, state: KernelState, nodeId: string, id: 
 }
 
 function singleIterationLoop(id: string, body: readonly FactoryNode[], budget?: string): Extract<FactoryNode, { readonly kind: "loop" }> {
+  const resultNode = body.at(-1);
+  if (!resultNode) throw new Error("loop test bodies require an explicit result node");
   return {
     id, kind: "loop", initialInput: { kind: "literal", value: "seed" },
-    carriedSchema: { type: "string" }, resultSchema: { type: "string" }, body: { nodes: body, outputs: {} },
+    carriedSchema: { type: "string" }, resultSchema: { type: "object", properties: { result: { type: "string" } }, required: ["result"], additionalProperties: false },
+    outputPorts: { result: { type: "string" } }, body: { nodes: body, outputs: { result: { kind: "ref", root: "node", name: resultNode.id, path: ["result"] } } },
     until: { kind: "literal", value: true }, nextInput: { kind: "literal", value: "seed" },
     maxIterations: 4, maxElapsedMs: 1_000, onExhausted: "fail",
     ...(budget === undefined ? {} : { budget: { maxCostMicros: budget } }),
@@ -72,7 +75,7 @@ test("forged __proto__ and toString node identities cannot settle an actual oper
 });
 
 test("a nested-loop operation charges each enclosing loop once", () => {
-  const inner = singleIterationLoop("inner", [{ id: "leaf", kind: "task", runner }]);
+  const inner = singleIterationLoop("inner", [{ id: "leaf", kind: "task", runner, outputPorts: { result: { type: "string" } } }]);
   const outer = singleIterationLoop("outer", [inner]);
   const graph = factory([outer]);
   let state = start(graph, "nested");
@@ -89,7 +92,7 @@ test("a nested-loop operation charges each enclosing loop once", () => {
 });
 
 test("an unrelated root task cost does not consume a loop budget", () => {
-  const loop = singleIterationLoop("loop", [{ id: "inside", kind: "task", runner }], "1");
+  const loop = singleIterationLoop("loop", [{ id: "inside", kind: "task", runner, outputPorts: { result: { type: "string" } } }], "1");
   const graph = factory([{ id: "outside", kind: "task", runner }, loop]);
   let state = start(graph, "unrelated");
   state = admit(graph, state, "outside", "admit-outside");
@@ -102,8 +105,8 @@ test("an unrelated root task cost does not consume a loop budget", () => {
 
 test("each new loop iteration has a zero local ledger while the loop aggregate persists", () => {
   const loop: Extract<FactoryNode, { readonly kind: "loop" }> = {
-    ...singleIterationLoop("loop", [{ id: "inside", kind: "task", runner }]),
-    until: { kind: "eq", left: { kind: "ref", root: "loop", name: "result" }, right: { kind: "literal", value: "done" } },
+    ...singleIterationLoop("loop", [{ id: "inside", kind: "task", runner, outputPorts: { result: { type: "string" } } }]),
+    until: { kind: "eq", left: { kind: "ref", root: "loop", name: "result", path: ["result"] }, right: { kind: "literal", value: "done" } },
   };
   const graph = factory([loop]);
   let state = start(graph, "iteration-ledger");
@@ -113,7 +116,7 @@ test("each new loop iteration has a zero local ledger while the loop aggregate p
   const firstAttempt = state.nodes[first]!.attempts.at(-1)!;
   state = advanceKernel(graph, state, {
     kind: "node-result", id: "first-result", atMs: 2, nodeId: first, commandId: firstAttempt.commandId,
-    candidateGeneration: firstAttempt.candidateGeneration, attempt: firstAttempt.attempt, output: "again",
+    candidateGeneration: firstAttempt.candidateGeneration, attempt: firstAttempt.attempt, output: { result: "again" },
   }).nextState;
 
   expect(state.scopes["loop/items/0"]?.spentCostMicros).toBe("5");

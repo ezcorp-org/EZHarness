@@ -43,8 +43,8 @@ test("simulator exposes a retry as two product attempts", () => {
 });
 
 test("map snapshots duplicate values, admits a rolling window, and collects by index", () => {
-  const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
-  const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["same", "same", "last"] }, itemSchema: { type: "string" as const }, body, mode: "collect" as const, maxItems: 3, maxConcurrency: 2 };
+  const body = { nodes: [{ id: "item", kind: "task" as const, runner, outputPorts: { result: { type: "string" as const } } }], outputs: { result: { kind: "ref" as const, root: "node" as const, name: "item", path: ["result"] } } };
+  const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["same", "same", "last"] }, itemSchema: { type: "string" as const }, body, outputPorts: { result: { type: "array" as const, items: { type: "object" as const, additionalProperties: true } } }, mode: "collect" as const, maxItems: 3, maxConcurrency: 2 };
   const factory: CompiledFactory = {
     ...oneTask,
     definition: { ...oneTask.definition, graph: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "map" } } } },
@@ -52,22 +52,22 @@ test("map snapshots duplicate values, admits a rolling window, and collects by i
   };
   const dispatched: string[] = [];
   const result = simulateFactory(factory, "map-run", {}, {
-    execute: (_node, command) => { dispatched.push(command.nodeId); return { kind: "success", output: command.nodeId.includes("/0/") ? "first" : command.nodeId.includes("/1/") ? "second" : "third" }; },
+    execute: (_node, command) => { dispatched.push(command.nodeId); return { kind: "success", output: { result: command.nodeId.includes("/0/") ? "first" : command.nodeId.includes("/1/") ? "second" : "third" } }; },
   });
   expect(dispatched).toEqual(["map/items/0/item", "map/items/1/item", "map/items/2/item"]);
-  expect(result.state.nodes.map?.output).toEqual(["first", "second", "third"]);
+  expect(result.state.nodes.map?.output).toEqual({ result: [{ outcome: "succeeded", value: "first" }, { outcome: "succeeded", value: "second" }, { outcome: "succeeded", value: "third" }] });
   expect(result.state.status).toBe("completed");
 });
 
 test("collect records one failed index and continues the other indexed items", () => {
-  const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
-  const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["first", "second", "third"] }, itemSchema: { type: "string" as const }, body, mode: "collect" as const, maxItems: 3, maxConcurrency: 2 };
+  const body = { nodes: [{ id: "item", kind: "task" as const, runner, outputPorts: { result: { type: "string" as const } } }], outputs: { result: { kind: "ref" as const, root: "node" as const, name: "item", path: ["result"] } } };
+  const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["first", "second", "third"] }, itemSchema: { type: "string" as const }, body, outputPorts: { result: { type: "array" as const, items: { type: "object" as const, additionalProperties: true } } }, mode: "collect" as const, maxItems: 3, maxConcurrency: 2 };
   const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "map" } } } }, indexes: { nodeById: { map }, successors: { map: [] }, dependencyCounts: { map: 0 } } };
   const result = simulateFactory(factory, "collect-failure", {}, {
-    execute: (_node, command) => command.nodeId.includes("/0/") ? { kind: "failure", error: "first failed" } : { kind: "success", output: command.nodeId.includes("/1/") ? "second" : "third" },
+    execute: (_node, command) => command.nodeId.includes("/0/") ? { kind: "failure", error: "first failed" } : { kind: "success", output: { result: command.nodeId.includes("/1/") ? "second" : "third" } },
   });
   expect(result.state.status).toBe("completed");
-  expect(result.state.nodes.map?.output).toEqual([{ error: "first failed" }, "second", "third"]);
+  expect(result.state.nodes.map?.output).toEqual({ result: [{ outcome: "failed", error: "first failed" }, { outcome: "succeeded", value: "second" }, { outcome: "succeeded", value: "third" }] });
   expect(result.commands.filter((command) => command.kind === "dispatch-node").map((command) => command.nodeId)).toEqual(["map/items/0/item", "map/items/1/item", "map/items/2/item"]);
 });
 
@@ -97,40 +97,40 @@ test("an item keeps its map concurrency slot until its whole multi-node body com
 });
 
 test("loop executes a scoped body then returns its typed result when until is true", () => {
-  const body = { nodes: [{ id: "work", kind: "task" as const, runner, outputPorts: {} }], outputs: {} };
-  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "string" as const }, body, until: { kind: "literal" as const, value: true }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
+  const body = { nodes: [{ id: "work", kind: "task" as const, runner, outputPorts: { result: { type: "string" as const } } }], outputs: { result: { kind: "ref" as const, root: "node" as const, name: "work", path: ["result"] } } };
+  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "object" as const, properties: { result: { type: "string" as const } }, required: ["result"], additionalProperties: false }, outputPorts: { result: { type: "string" as const } }, body, until: { kind: "literal" as const, value: true }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
   const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [loop], outputs: { result: { kind: "ref", root: "node", name: "loop" } } } }, indexes: { nodeById: { loop }, successors: { loop: [] }, dependencyCounts: { loop: 0 } } };
-  const result = simulateFactory(factory, "loop-run", {}, { execute: () => ({ kind: "success", output: "done" }) });
+  const result = simulateFactory(factory, "loop-run", {}, { execute: () => ({ kind: "success", output: { result: "done" } }) });
   expect(result.state.status).toBe("completed");
-  expect(result.state.nodes.loop?.output).toBe("done");
+  expect(result.state.nodes.loop?.output).toEqual({ result: "done" });
   expect(result.commands.filter((command) => command.kind === "dispatch-node").map((command) => command.nodeId)).toEqual(["loop/items/0/work"]);
 });
 
 test("loop fails at its iteration bound after a false until result", () => {
-  const body = { nodes: [{ id: "work", kind: "task" as const, runner }], outputs: {} };
-  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "string" as const }, body, until: { kind: "literal" as const, value: false }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 1, maxElapsedMs: 1_000, onExhausted: "fail" as const };
+  const body = { nodes: [{ id: "work", kind: "task" as const, runner, outputPorts: { result: { type: "string" as const } } }], outputs: { result: { kind: "ref" as const, root: "node" as const, name: "work", path: ["result"] } } };
+  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "object" as const, properties: { result: { type: "string" as const } }, required: ["result"], additionalProperties: false }, outputPorts: { result: { type: "string" as const } }, body, until: { kind: "literal" as const, value: false }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 1, maxElapsedMs: 1_000, onExhausted: "fail" as const };
   const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [loop], outputs: { result: { kind: "ref", root: "node", name: "loop" } } } }, indexes: { nodeById: { loop }, successors: { loop: [] }, dependencyCounts: { loop: 0 } } };
-  const result = simulateFactory(factory, "loop-bound", {}, { execute: () => ({ kind: "success", output: "done" }) });
+  const result = simulateFactory(factory, "loop-bound", {}, { execute: () => ({ kind: "success", output: { result: "done" } }) });
   expect(result.state.status).toBe("failed");
   expect(result.state.nodes.loop?.error).toBe("LOOP_BOUND_EXHAUSTED");
 });
 
 test("loop starts a second scoped iteration after false until and returns the later result", () => {
-  const body = { nodes: [{ id: "work", kind: "task" as const, runner }], outputs: {} };
-  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "string" as const }, body, until: { kind: "eq" as const, left: { kind: "ref" as const, root: "loop" as const, name: "result" }, right: { kind: "literal" as const, value: "done" } }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
+  const body = { nodes: [{ id: "work", kind: "task" as const, runner, outputPorts: { result: { type: "string" as const } } }], outputs: { result: { kind: "ref" as const, root: "node" as const, name: "work", path: ["result"] } } };
+  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "object" as const, properties: { result: { type: "string" as const } }, required: ["result"], additionalProperties: false }, outputPorts: { result: { type: "string" as const } }, body, until: { kind: "eq" as const, left: { kind: "ref" as const, root: "loop" as const, name: "result", path: ["result"] }, right: { kind: "literal" as const, value: "done" } }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
   const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [loop], outputs: { result: { kind: "ref", root: "node", name: "loop" } } } }, indexes: { nodeById: { loop }, successors: { loop: [] }, dependencyCounts: { loop: 0 } } };
   const ids: string[] = [];
-  const result = simulateFactory(factory, "loop-two", {}, { execute: (_node, command) => { ids.push(command.nodeId); return { kind: "success", output: command.nodeId.includes("/0/") ? "again" : "done" }; } });
+  const result = simulateFactory(factory, "loop-two", {}, { execute: (_node, command) => { ids.push(command.nodeId); return { kind: "success", output: { result: command.nodeId.includes("/0/") ? "again" : "done" } }; } });
   expect(ids).toEqual(["loop/items/0/work", "loop/items/1/work"]);
   expect(result.state.status).toBe("completed");
-  expect(result.state.nodes.loop?.output).toBe("done");
+  expect(result.state.nodes.loop?.output).toEqual({ result: "done" });
 });
 
 test("loop rejects a non-boolean until result", () => {
-  const body = { nodes: [{ id: "work", kind: "task" as const, runner }], outputs: {} };
-  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "string" as const }, body, until: { kind: "literal" as const, value: "not boolean" }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
+  const body = { nodes: [{ id: "work", kind: "task" as const, runner, outputPorts: { result: { type: "string" as const } } }], outputs: { result: { kind: "ref" as const, root: "node" as const, name: "work", path: ["result"] } } };
+  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "object" as const, properties: { result: { type: "string" as const } }, required: ["result"], additionalProperties: false }, outputPorts: { result: { type: "string" as const } }, body, until: { kind: "literal" as const, value: "not boolean" }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
   const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [loop], outputs: { result: { kind: "ref", root: "node", name: "loop" } } } }, indexes: { nodeById: { loop }, successors: { loop: [] }, dependencyCounts: { loop: 0 } } };
-  const result = simulateFactory(factory, "loop-bad-until", {}, { execute: () => ({ kind: "success", output: "done" }) });
+  const result = simulateFactory(factory, "loop-bad-until", {}, { execute: () => ({ kind: "success", output: { result: "done" } }) });
   expect(result.state.status).toBe("failed");
   expect(result.state.nodes.loop?.error).toBe("LOOP_UNTIL_INVALID");
 });
