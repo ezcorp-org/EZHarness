@@ -3034,6 +3034,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryServiceCredentials(db);
   const { up: addFactoryBudgets } = await import("./migrations/add-factory-budgets");
   await addFactoryBudgets(db);
+  const { up: addFactoryComputeAdmissions } = await import("./migrations/add-factory-compute-admissions");
+  await addFactoryComputeAdmissions(db);
   const { up: addFactoryDefinitions } = await import("./migrations/add-factory-definitions");
   await addFactoryDefinitions(db);
   const { up: addFactoryRunLifecycle } = await import("./migrations/add-factory-run-lifecycle");

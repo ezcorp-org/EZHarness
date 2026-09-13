@@ -2,11 +2,12 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryBudgetAmount, FactoryBudgets } from "./budgets";
 import { FactoryCommandAuthorityError, type FactoryAuthorizedCommand, type FactoryCommandAuthority } from "./command-authority";
+import type { FactoryComputeAdmissions } from "./compute-admissions";
 import { FactoryCommandOutbox, type FactoryCommandDelivery } from "./outbox";
 import { normalizePoolResourceVector, type PoolResourceVector } from "./pool/ledger";
 import type { PoolAdmissionRequest } from "./pool/service";
 import { encodeFactoryPayload } from "./records";
-import type { FactoryRunFence } from "./run-lifecycle";
+import { factoryExecutionFence, type FactoryExecutionFence } from "./run-lifecycle";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 export interface FactoryTaskResourceProfile {
@@ -19,7 +20,7 @@ export interface FactoryTaskResourceProfile {
 export interface FactoryComputeAdmissionRequest {
   readonly schemaVersion: "factory.compute-admission.v1";
   readonly reference: TrustedFactoryCommandReference;
-  readonly fence: FactoryRunFence;
+  readonly fence: FactoryExecutionFence;
   readonly budget: FactoryBudgetAmount;
   readonly memoryBytes: number;
   readonly request: PoolAdmissionRequest;
@@ -40,7 +41,7 @@ export function factoryTaskReservationId(reference: TrustedFactoryCommandReferen
 export class FactoryTaskAdmission {
   private readonly profiles: Readonly<Record<string, FactoryTaskResourceProfile>>;
 
-  constructor(private readonly database: TransactionalDb, private readonly authority: FactoryCommandAuthority, private readonly budgets: FactoryBudgets, profiles: Readonly<Record<string, FactoryTaskResourceProfile>>, private readonly now: () => number = Date.now) {
+  constructor(private readonly database: TransactionalDb, private readonly authority: FactoryCommandAuthority, private readonly budgets: FactoryBudgets, profiles: Readonly<Record<string, FactoryTaskResourceProfile>>, private readonly admissions: Pick<FactoryComputeAdmissions, "enlistInTransaction">, private readonly now: () => number = Date.now) {
     const snapshot = JSON.parse(encodeFactoryPayload(profiles)) as Record<string, FactoryTaskResourceProfile>;
     this.profiles = Object.fromEntries(Object.entries(snapshot).map(([name, profile]) => [name, { ...profile, resources: normalizePoolResourceVector(profile.resources) }]));
   }
@@ -62,13 +63,16 @@ export class FactoryTaskAdmission {
       };
       const reservationId = factoryTaskReservationId(reference, context);
       const computeRequest: FactoryComputeAdmissionRequest = {
-        schemaVersion: "factory.compute-admission.v1", reference, fence: context.fence, budget: amount, memoryBytes: profile.memoryBytes,
+        schemaVersion: "factory.compute-admission.v1", reference, fence: factoryExecutionFence(context.fence), budget: amount, memoryBytes: profile.memoryBytes,
         request: { reservationId, grantRevision: context.fence.grantRevision, grantScope: `${context.fence.tenantId}:factory`, resources: profile.resources, admissionDeadline: new Date(context.command.deadlineAtMs).toISOString() },
       };
       const outbox = new FactoryCommandOutbox(this.database, this.authority.tenantId, reference.projectId, this.now, "pool");
       const command = { kind: "compute_admission" as const, projectId: reference.projectId, logicalRunId: reference.logicalRunId, reservationId, body: computeRequest };
       let created: FactoryCommandDelivery | undefined;
-      const enqueue = (tx: MigrationDb) => outbox.enqueueInTransaction(tx, command);
+      const enqueue = async (tx: MigrationDb) => {
+        await this.admissions.enlistInTransaction(tx, computeRequest);
+        return outbox.enqueueInTransaction(tx, command);
+      };
       await this.budgets.reserveInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, envelopeId: "root", reservationId, amount, computeRequest }, async tx => { created = await enqueue(tx); });
       // Exact retries return the existing delivery; they never create a second budget hold.
       const delivery = created ?? await enqueue(transaction);

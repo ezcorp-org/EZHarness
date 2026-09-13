@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { canonicalJson } from "@ezcorp/extension-contract";
+import { createKernelState, referenceCodeV1, type FactoryDefinition } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,6 +9,9 @@ import { setupTestDb } from "../__tests__/helpers/test-pglite";
 import { digestObject, FileBlobStore } from "../extensions/v4/blobs";
 import { FactoryArtifactAccess } from "./artifact-access";
 import { FactoryArtifacts } from "./artifacts";
+import { FactoryDefinitionArtifacts } from "./definition-artifacts";
+import { FactoryDefinitions } from "./definitions";
+import { FactoryRunLifecycle } from "./run-lifecycle";
 import { FactoryGrants, type FactoryPrincipal } from "./grants";
 import { FACTORY_LAZY_INPUT_PAGE_BYTES, FactoryLazyInputReader } from "./lazy-input";
 
@@ -39,7 +43,7 @@ beforeAll(async () => {
     await fixture.db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES (${tenantId}, ${projectId})`);
     await fixture.db.execute(sql`INSERT INTO project_members(id, project_id, user_id, role) VALUES (${`lazy-member-${projectId}`}, ${projectId}, ${actor.id}, 'owner')`);
   }
-  await fixture.db.execute(sql`INSERT INTO factory_grants(tenant_id, project_id, principal_kind, principal_id, action, issuer_id, revision) VALUES (${tenantId}, ${sourceProjectId}, 'user', ${actor.id}, 'factory.operate', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.run', ${actor.id}, 1)`);
+  await fixture.db.execute(sql`INSERT INTO factory_grants(tenant_id, project_id, principal_kind, principal_id, action, issuer_id, revision) VALUES (${tenantId}, ${sourceProjectId}, 'user', ${actor.id}, 'factory.operate', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.run', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.author', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.publish', ${actor.id}, 1)`);
   await insertRun(sourceProjectId, sourceRunId, {});
   const root = await mkdtemp(join(tmpdir(), "factory-lazy-input-")); directories.push(root);
   artifacts = new FactoryArtifacts(fixture.db, new FileBlobStore(root), tenantId);
@@ -87,4 +91,38 @@ test("lazy input requires the exact durable parameter reference and live source-
   await fixture.db.execute(sql`UPDATE factory_grants SET revoked_at=NULL WHERE tenant_id=${tenantId} AND project_id=${targetProjectId} AND principal_kind='user' AND principal_id=${actor.id} AND action='factory.run'`);
   await access.revoke(actor, { sourceProjectId, targetProjectId, artifact }, "lazy-revoke");
   await expect(reader.readPage({ ...value(), cursor: 0, maxItems: 1 })).rejects.toMatchObject({ code: "factory_lazy_input_unavailable" });
+});
+
+
+test("published lifecycle preserves a required large artifact as durable workflow input", async () => {
+  const bytes = new TextEncoder().encode(canonicalJson({ required: "authoritative", padding: "x".repeat(70_000) }));
+  const stored = await artifacts.stage({ tenantId, projectId: sourceProjectId, logicalRunId: sourceRunId, interpreterId: "durable-source" }, "candidate_output", bytes, { interpreterScoped: false, candidateNodeInstanceId: "durable-node", candidateGeneration: 1 });
+  const durableArtifact = { artifactId: stored.objectId, digest: stored.digest, encodedBytes: stored.encodedBytes };
+  const source: FactoryDefinition = {
+    ...structuredClone(referenceCodeV1),
+    id: "durable-required-artifact",
+    version: "1",
+    inputPorts: { payload: { type: "object", properties: { required: { type: "string", const: "authoritative" } }, required: ["required"] } },
+    outputPorts: {},
+    graph: { nodes: [], outputs: {} },
+  };
+  const grants = new FactoryGrants(fixture.db, tenantId, () => 1_000);
+  const definitions = new FactoryDefinitions(fixture.db, tenantId, grants, new FileBlobStore(directories[0]!));
+  const key = { projectId: targetProjectId, factoryId: source.id };
+  await definitions.save(actor, key, 0, "durable-definition-save", source);
+  const version = await definitions.publish(actor, key, 1, "durable-definition-publish");
+  const lifecycle = new FactoryRunLifecycle(fixture.db, tenantId, {
+    definitions, grants, interpreterBuild: "durable-build", interpreterCompatibility: source.interpreterCompatibility,
+    limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 },
+    stageDefinitionInTransaction: (transaction, compiled, identity) => new FactoryDefinitionArtifacts(artifacts).stageDefinitionInTransaction(transaction, compiled, identity),
+    resolveParameters: async () => ({ kind: "factory.run-resolved-parameters", input: {} }),
+  }, () => 1_000);
+  const body = { factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: 1, parameters: { payload: { kind: "artifact" as const, artifact: durableArtifact } } };
+  const started = await lifecycle.start(actor, key, body, 0, "durable-start");
+  const outbox = (await fixture.db.execute(sql`SELECT payload FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${targetProjectId} AND logical_run_id=${started.run.runId}`)).rows[0] as { payload: string };
+  const workflow = JSON.parse(outbox.payload).command.body as { input: import("@ezcorp/factory-sdk").JsonValue; durableInput: unknown; startedAtMs: number };
+  expect(workflow.input).toEqual({});
+  expect(workflow.durableInput).toEqual({ schemaVersion: "factory.lazy-input.v1", parameters: body.parameters });
+  const { compiled } = await definitions.readVersion(actor, key, version.version);
+  expect(() => createKernelState(compiled, started.run.runId, workflow.input, workflow.startedAtMs, workflow.durableInput as never)).not.toThrow();
 });

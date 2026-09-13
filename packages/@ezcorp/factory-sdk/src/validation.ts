@@ -20,6 +20,7 @@ import {
   type FactoryRunnerRequest,
   type FactoryRunnerResult,
   type FactoryTransportValue,
+  type FactoryDurableInput,
   type FactoryUsage,
   type JsonValue,
   type PortSchema,
@@ -689,6 +690,27 @@ function validateApiPath(request: FactoryApiRequest): ValidationResult {
   for (const [key, value] of Object.entries(request.path)) {
     if ((key.endsWith("Id") || key === "version") && (!boundedText(value as string, FACTORY_LIMITS.maxApiIdentifierLength) || (value as string).includes("\0"))) return issue("API_PATH_IDENTITY", "Path identity must be nonempty, bounded, and free of control characters.", ["path", key]);
   }
+  return { ok: true };
+}
+
+/** Validates durable artifact descriptors without materializing artifact bytes into kernel state. */
+export function validateDurableInputPorts(ports: Readonly<Record<string, PortSchema>>, input: JsonValue, durable: FactoryDurableInput): ValidationResult {
+  if (!isRecord(input) || !validateIJson(input).ok || encodedBytes(input) > FACTORY_LIMITS.maxInlineValueBytes) return issue("DURABLE_INPUT", "Durable input placeholders must be bounded I-JSON objects.", ["input"]);
+  if (!isRecord(durable) || durable.schemaVersion !== "factory.lazy-input.v1" || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
+  for (const name of Object.keys(input)) if (!own(ports, name)) return issue("DURABLE_INPUT", "Durable input contains an undeclared port.", ["input", name]);
+  for (const [name, transport] of Object.entries(durable.parameters)) {
+    if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength) || !own(ports, name) || !isRecord(transport)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter is invalid.", ["durableInput", "parameters", name]);
+    const schema = ports[name]!;
+    if (transport.kind === "inline") {
+      if (!own(transport, "value") || !validateIJson(transport.value).ok || !own(input, name) || !jsonEqual(input[name]!, transport.value as JsonValue) || !validateValue(schema, transport.value as JsonValue).ok) return issue("DURABLE_INLINE", "Inline durable input must match its port schema and placeholder.", ["durableInput", "parameters", name]);
+      continue;
+    }
+    if (transport.kind !== "artifact" || !own(transport, "artifact") || !isRecord(transport.artifact)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter kind is invalid.", ["durableInput", "parameters", name]);
+    const reference = transport.artifact as FactoryArtifactReference;
+    const artifact = validateArtifactReference(reference, ["durableInput", "parameters", name, "artifact"]);
+    if (!artifact.ok || reference.encodedBytes < 1 || reference.encodedBytes > FACTORY_LIMITS.maxDefinitionBytes) return artifact.ok ? issue("DURABLE_ARTIFACT", "Durable artifact byte count is invalid.", ["durableInput", "parameters", name, "artifact", "encodedBytes"]) : artifact;
+  }
+  for (const name of Object.keys(ports)) if (!own(durable.parameters, name)) return issue("DURABLE_DESCRIPTOR", "Durable input misses a declared port.", ["durableInput", "parameters", name]);
   return { ok: true };
 }
 

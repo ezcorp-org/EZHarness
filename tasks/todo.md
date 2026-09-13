@@ -1575,6 +1575,7 @@ Plan review: a private command ID is the only request authority; the reader vali
 - [ ] Verify PGlite/PostgreSQL, coverage and static checks.
 
 Plan review: request authority comes from the committed interpreter. A later human decision separately requires current explicit factory.approve and the declared actor scope; its store writes the correlated event through the existing inbox in the same transaction.
+
 # Factory assurance command dispatch (2026-09-13)
 
 - [x] Inspect committed kernel command shapes, current C04 stores, transition indexing, run lifecycle, and root command authority.
@@ -1590,3 +1591,92 @@ Plan review: request authority comes from the committed interpreter. A later hum
 
 - The first bounded leaf uses `FactoryCommandAuthority.withCurrentApproval` and the dormant C13 API contract. The store accepts only the trusted service and stored command reference. It locks current run authority before the approval row, stores the exact choices and review context, and writes the decision plus the existing interpreter inbox event in one transaction.
 - A generic workflow approval is separate from C04 release consent. Acceptance and release commands remain later leaves because their committed command shapes do not yet identify an exact producer candidate and prepared release operation.
+
+## Atomic terminal budget receipts — root
+
+- [x] Prove settlement and envelope closure roll back with their enclosing receipt transaction.
+- [x] Reuse the existing budget settlement and closure logic through transaction-scoped entry points.
+- [x] Snapshot caller scope and usage before asynchronous transaction admission.
+- [x] Verify PGlite/PostgreSQL, exact coverage and static checks.
+
+Plan review: terminal journal and child completion must commit measured usage, release the hold and publish the completion receipt together. These entry points preserve existing trusted-receipt and unknown-hold rules.
+
+Review: settlement and envelope closure now accept the caller transaction, while public calls reuse those same implementations and capture caller-owned scope/usage before awaiting. A failed terminal receipt rolls both settlement and child-to-parent spent transfer back; exact retry settles once after revocation, and unresolved usage retains its hold. PGlite and PostgreSQL each pass 11 tests / 64 assertions. Budget coverage is 178/178 lines and 54/54 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-terminal-budget-source.json` and `root-terminal-budget-integration-results.json`.
+## Factory product compute-admission dispatcher
+
+- [x] Add canonical, scoped compute-admission persistence and migration/schema parity.
+- [x] Enlist the exact request inside the task budget transaction through a stable public seam.
+- [x] Claim fair due work without holding product locks during pool HTTPS calls.
+- [x] Recover queued and lost responses only by replaying the exact original pool request.
+- [x] Commit a confirmed allocation, running budget, stable admission event, and inbox delivery atomically.
+- [x] Cancel remote allocations after authority loss while retaining the product budget hold.
+- [x] Prove terminal receipt replay, competing polls, corruption fences, and foreign service denial.
+- [x] Run actual PostgreSQL and pool HTTPS recovery tests, coverage, schema parity, builds, types, lint, boundaries, and gate integrity.
+- [x] Record review and create an immutable checkpoint.
+
+Plan review: the product row is enlisted with the held budget before the pool command becomes visible. A short committed poll lease protects fair selection, but every HTTP call runs without a database lock. Only an exact request replay can recover an admitted token. The first admitted commit uses command authority, then locks budget, compute state, and inbox in that order. A stored terminal receipt needs only the trusted installation service check because the kernel is expected to advance after admission.
+
+Review: `FactoryComputeAdmissions` now records one canonical request beside the held product budget, drains the installation pool outbox into a fair durable poll queue, and replays only that exact request to recover a token-bearing lease. The admitted commit rechecks the current command, marks the budget running, stores stable response/event bytes, and enqueues the inbox decision in one transaction. Authority loss cancels known remote allocations while retaining the hold; uncertain cancellation remains recoverable. The transaction-bound admitted reader locks budget before compute state and verifies the stored token and generation before runner admission. The final producer passes 33 tests with 231 assertions across focused PGlite, isolated PostgreSQL, actual Bun mTLS, and actual command authority. Owned coverage is 306/306 lines; the dispatcher also measures 68/68 functions. PostgreSQL schema parity passes two tests with 1,638 assertions. All four typecheck legs, lint, boundaries, gate integrity, and registration tests pass. Coverage is at `/tmp/factory-compute-admissions-final/lcov.info`.
+
+## Task-to-compute transaction wiring — root
+
+- [ ] Prove task admission can be dispatched without a separate manual enlist transaction.
+- [ ] Require the concrete compute admission store in task admission and enlist before outbox enqueue.
+- [ ] Prove outbox/enlist failures roll back the budget and all compute facts.
+- [ ] Validate the combined approval, attempt queue, compute, notification and repaired Node changes.
+
+Plan review: there must be no configuration path that creates a held task budget and pool outbox entry without its recoverable compute row.
+
+## C07 authoritative lazy command execution — Terra
+
+- [x] Validate durable artifact descriptors and inline values separately, so required artifact ports do not need placeholder JSON in lifecycle or kernel state.
+- [x] Define the authority callback contract and match a stored lazy command to the current committed pending state.
+- [x] Add a DB-transactional `lazy-commands.ts` adapter that maps only verified reader output to bounded kernel events.
+- [x] Prove PGlite, PostgreSQL/S3, and private HTTPS generic-command behavior including stale, cancelled, substituted, version, and oversized denials.
+- [ ] Run owned coverage, SDK build, all canonical typechecks, lint, and integrity checks.
+
+Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.
+
+## Terminal invalid-input startup — root
+
+- [ ] Turn initial kernel input validation failure into a non-retryable workflow failure.
+- [ ] Prove undeclared durable input creates no transition or effect through actual Temporal.
+- [ ] Re-run the full canonical Node coverage lane, web checks and static checks.
+
+Review in progress: current-root canonical Node run exposed a lazy-parent fixture with an undeclared data port. Kernel initialization threw outside the workflow error boundary, so Temporal retried workflow tasks indefinitely. The original logs and verified producer interruption are retained under `/tmp/factory-platform-evidence/root-compute-lazy-approval-fixed-node-*`. The fixture now declares its port and production startup converts invalid kernel input to `FACTORY_INPUT_INVALID`.
+
+## Production factory pool process
+
+- [x] Define the strict reference-only process configuration and startup contract.
+- [x] Validate private database, TLS, token, identity, and static resource configuration before bind.
+- [x] Bind the configured installation and pool to the durable database and reject unsafe restart changes.
+- [x] Publish honest atomic readiness and stop on database, listener, or shutdown failure.
+- [x] Reuse the existing Bun mTLS pool server and normalized Bun PostgreSQL adapter.
+- [x] Prove fresh subprocess startup, exact request recovery, restart fences, bad material, bad tokens, and shutdown against PostgreSQL.
+- [x] Document the exact launch and private file requirements.
+- [x] Run focused coverage, schema/static gates, and create an immutable checkpoint.
+
+Plan review: use one strict private config that contains only identities, static resources, and file references. Verify every referenced secret and the exact PostgreSQL database and role before the listener binds. Persist the installation and pool identity in the pool database, retain all durable allocations on restart, and reject resource removal. Publish readiness only after schema setup, resource checks, and the real mTLS listener succeed.
+
+Review: the Bun pool process reads one strict private config, verifies the exact PostgreSQL database and role, validates its TLS and RSA trust material, binds the database to one installation and pool, applies the existing pool schema and explicit resource inventory, and then starts the existing mTLS handler. Restart preserves durable allocations and rejects resource or host removal. An atomic readiness file becomes ready only after the database, schema and listener are live; heartbeat, listener-close and database-close failures degrade and exit nonzero. The canonical pool producer passes 65 tests with 430 assertions across PGlite, isolated PostgreSQL, Bun mTLS, Node mTLS and the fresh subprocess. All ten pool source records are at 100% line coverage in `/tmp/factory-pool-process-final/lcov.info`. Frozen installs, builds, all four type checks, lint, boundaries, registration, required-check tests and gate integrity pass.
+
+## Host input resolution for application boot — root
+
+- [x] Prove the application can start a run with required large artifact input through its concrete default resolver.
+- [x] Share the immutable input loader between admission and later lazy reads.
+- [x] Validate real artifact bytes against the published port schema while keeping only descriptors in workflow input.
+- [x] Reject foreign, revoked, corrupt and noncanonical inputs before any run or budget is committed.
+- [x] Verify PGlite, PostgreSQL/S3, measured coverage, all four type checks and static gates.
+
+Plan review: the application must construct a real input resolver from its scoped artifact and grant stores. The host checks full immutable bytes once at admission; the workflow receives bounded inline values and exact artifact descriptors. Existing low-level lifecycle resolver seams remain available for controlled store tests.
+
+Review: application composition now provides a concrete host input resolver. Admission and later lazy reads share one exact local/shared immutable artifact loader. Actual canonical I-JSON bytes satisfy the published port schema; only inline values and descriptors enter the durable start. Foreign or revoked shares, altered digest/storage, wrong ports and malformed JSON fail before a run is committed. PGlite integration passes 47 tests / 317 assertions; PostgreSQL and real ordinary S3 pass 39 tests / 262 assertions. Input loader coverage is 39/39 lines and 7/7 functions; run resolver is 25/25 and 4/4; shared lazy reader is 122/122 and 25/25. Application composition is 99/99 lines and 24/25 functions. SDK build, all four types, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-run-inputs-source.json` and `root-run-inputs-integration-results.json`. Full production startup remains open.
+
+## Parent integration proof — input resolver and task admission
+
+- [x] Verify current merged source `106371c8ce53651e398614e1bcd11d7aa1d865cc` with focused PGlite and all 18 canonical factory PostgreSQL/S3 files.
+- [x] Verify SDK build, all four typechecks, lint, gate integrity, boundaries, and actionlint.
+- [x] Verify 33 focused web cases, the real Chromium release-inbox interaction, and inspect its captured image.
+- [x] Run the full canonical backend suite.
+
+Review: focused PGlite 41 passed / 369 assertions; PostgreSQL/S3 120 passed / 2,587 assertions. Static checks passed. Chromium passed 1 case after selecting unused port 19873; the first attempt failed because port 4173 was occupied. The preserved PNG is `/tmp/factory-platform-evidence/root-release-inbox-authorized.png`. Backend passed 26,231 tests with zero failures across 1,727 files. Receipts: `root-input-execution-combined-integration-results.json` and `root-input-execution-remainder-integration-results.json` under `/tmp/factory-platform-evidence`. These proofs close this integration batch, not the full feature or its open launch gates. The new successful task-completion leaf is still under test in the side worktree.

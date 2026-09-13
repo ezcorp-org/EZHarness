@@ -1,9 +1,6 @@
-import { constants } from "node:fs";
-import { open, rename, unlink, type FileHandle } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { basename, resolve } from "node:path";
 import type { FactoryOrchestrationReadiness, FactoryOrchestrationReadinessOptions } from "./orchestration-readiness.ts";
-import { privateDirectory } from "./private-files.ts";
+import { writePrivateBoundedAtomic } from "./private-files.ts";
 
 const MAX_READINESS_BYTES = 4_096;
 const ERROR_CODE = /^[a-z0-9_]{1,128}$/;
@@ -59,30 +56,7 @@ export function createFactoryOrchestrationReadinessWriter(
       };
       const bytes = Buffer.from(JSON.stringify(value));
       if (bytes.byteLength > MAX_READINESS_BYTES) throw new Error("factory orchestration readiness state is too large");
-      const directory = await privateDirectory(dirname(path), { createLeaf: true, repairOwnedLeaf: true });
-      const temporary = `.${leaf}.${process.pid}.${randomUUID()}.tmp`;
-      const temporaryPath = `/proc/self/fd/${directory.fd}/${temporary}`;
-      const finalPath = `/proc/self/fd/${directory.fd}/${leaf}`;
-      let handle: FileHandle | undefined;
-      let failure: unknown;
-      try {
-        handle = await open(temporaryPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-        await handle.writeFile(bytes);
-        await handle.sync();
-        await handle.close();
-        handle = undefined;
-        await rename(temporaryPath, finalPath);
-        await directory.sync();
-      } catch (error) {
-        failure = error;
-      }
-      try { await handle?.close(); }
-      catch (error) { failure ??= error; }
-      try { await unlink(temporaryPath); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") failure ??= error; }
-      try { await directory.close(); }
-      catch (error) { failure ??= error; }
-      if (failure !== undefined) throw failure;
+      await writePrivateBoundedAtomic(path, bytes, MAX_READINESS_BYTES);
       return value;
     },
   };

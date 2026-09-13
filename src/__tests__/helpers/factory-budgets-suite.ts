@@ -25,6 +25,12 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
   const reserve = (reservationId: string, value: number, envelopeId = "root"): FactoryBudgetRequest => ({ ...key(envelopeId), reservationId, amount: amount(value), computeRequest: { cpu: 1 } });
   const open = (envelopeId = "root", value = 10, parentId?: string) => budgets.openEnvelope({ ...key(envelopeId), limits: bounds(value), deadlineAtMs: now + 100, ...(parentId === undefined ? {} : { parentId }) });
   const enqueue = (transaction: MigrationDb, request: FactoryBudgetRequest) => new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").enqueueInTransaction(transaction, { kind: "compute_admission", projectId, logicalRunId: request.runId, reservationId: request.reservationId, body: request.computeRequest }).then(() => undefined);
+  const delayedTransactions = () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const delayed = Object.create(fixture.db, { transaction: { value: async <Result>(work: (transaction: MigrationDb) => Promise<Result>) => { await gate; return fixture.db.transaction(work); } } }) as TransactionalDb;
+    return { release, captured: new FactoryBudgets(delayed, tenantId, async () => { if (!authorized) throw new Error("grant revoked"); }, () => now) };
+  };
 
   beforeAll(async () => {
     fixture = await createFixture();
@@ -76,6 +82,30 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
     expect(await budgets.reserve(reserve("audit-error", 5), enqueue)).toEqual({ created: true });
   });
 
+  test("measured settlement and child envelope closure commit with their terminal receipt", async () => {
+    await open();
+    await open("child", 7, "root");
+    const request = reserve("child-terminal", 5, "child");
+    await budgets.reserve(request, enqueue);
+    await budgets.markUncertain(request, "runner-stopped-usage-pending");
+    await expect(fixture.db.transaction(async transaction => {
+      await budgets.settleInTransaction(transaction, request, amount(3), receipt);
+      await budgets.closeEnvelopeInTransaction(transaction, key("child"));
+      throw new Error("terminal receipt failed");
+    })).rejects.toThrow("terminal receipt failed");
+    expect(await budgets.inspect(key("child"))).toMatchObject({ state: "open", allocated: { costMicros: "5" }, spent: { costMicros: "0" } });
+    expect(await budgets.inspect(key())).toMatchObject({ allocated: { costMicros: "7" }, spent: { costMicros: "0" } });
+    await expect(budgets.closeEnvelope(key("child"))).rejects.toMatchObject({ code: "factory_budget_pending" });
+    authorized = false;
+    for (let replay = 0; replay < 2; replay++) await fixture.db.transaction(async transaction => {
+      await budgets.settleInTransaction(transaction, request, amount(3), receipt);
+      await budgets.closeEnvelopeInTransaction(transaction, key("child"));
+    });
+    expect(await budgets.inspect(key("child"))).toMatchObject({ state: "closed", allocated: { costMicros: "0" }, spent: { costMicros: "3" } });
+    expect(await budgets.inspect(key())).toMatchObject({ allocated: { costMicros: "0" }, spent: { costMicros: "3" } });
+    await expect(budgets.settle(request, amount(2), receipt)).rejects.toMatchObject({ code: "factory_budget_conflict" });
+  });
+
   test("compute allocation and its admission event share one rollback boundary", async () => {
     await open();
     const request = reserve("atomic-allocation", 5);
@@ -96,10 +126,7 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
     const second = reserve("snapshot-second", 2);
     await budgets.reserve(first, enqueue);
     await budgets.reserve(second, enqueue);
-    let release!: () => void;
-    const gate = new Promise<void>(resolve => { release = resolve; });
-    const delayed = Object.create(fixture.db, { transaction: { value: async <Result>(work: (transaction: MigrationDb) => Promise<Result>) => { await gate; return fixture.db.transaction(work); } } }) as TransactionalDb;
-    const captured = new FactoryBudgets(delayed, tenantId, async () => { if (!authorized) throw new Error("grant revoked"); }, () => now);
+    const { captured, release } = delayedTransactions();
     const mutable = { projectId, runId, reservationId: first.reservationId };
     const allocation = { allocationToken: "snapshot-allocation", reservationGeneration: 1 };
     const pending = captured.markRunning(mutable, allocation);
@@ -108,6 +135,34 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
     await pending;
     await expect(budgets.markRunning(first, { ...allocation, allocationToken: "changed" })).rejects.toMatchObject({ code: "factory_budget_conflict" });
     await budgets.markRunning(second, { ...allocation, allocationToken: "second-allocation" });
+  });
+
+  test("terminal settlement and closure capture their caller-owned scope before waiting", async () => {
+    await open();
+    await open("first", 4, "root");
+    await open("second", 4, "root");
+    const first = reserve("settle-first", 2, "first");
+    const second = reserve("settle-second", 2, "second");
+    await budgets.reserve(first, enqueue);
+    await budgets.reserve(second, enqueue);
+    const settlement = delayedTransactions();
+    const mutable = { projectId, runId, reservationId: first.reservationId };
+    const usage = amount(1);
+    const pending = settlement.captured.settle(mutable, usage, receipt);
+    mutable.reservationId = second.reservationId;
+    usage.costMicros = "2"; usage.tokens = 2; usage.computeMs = 2;
+    settlement.release();
+    await pending;
+    expect(await budgets.inspect(key("first"))).toMatchObject({ allocated: { tokens: "0" }, spent: { tokens: "1" } });
+    expect(await budgets.inspect(key("second"))).toMatchObject({ allocated: { tokens: "2" }, spent: { tokens: "0" } });
+    const closure = delayedTransactions();
+    const mutableEnvelope = key("first");
+    const closing = closure.captured.closeEnvelope(mutableEnvelope);
+    mutableEnvelope.envelopeId = "second";
+    closure.release();
+    await closing;
+    expect(await budgets.inspect(key("first"))).toMatchObject({ state: "closed" });
+    expect(await budgets.inspect(key("second"))).toMatchObject({ state: "open" });
   });
 
   test("unknown usage keeps its full hold across restart, deadline and revocation", async () => {

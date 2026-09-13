@@ -265,6 +265,36 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     check("factory_budget_reservations_state_check", sql`${table.state} IN ('held', 'running', 'uncertain', 'settled')`),
   ]);
 
+  const factoryComputeAdmissions = pgTable("factory_compute_admissions", {
+    ...tenantProjectRunColumns(),
+    reservationId: text("reservation_id").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    requestJson: text("request_json").notNull(),
+    state: text("state").notNull(),
+    nextPollAt: bigint("next_poll_at", { mode: "number" }).notNull(),
+    remoteAttempted: boolean("remote_attempted").notNull().default(false),
+    pollLeaseUntil: bigint("poll_lease_until", { mode: "number" }).notNull().default(0),
+    pollLeaseToken: text("poll_lease_token"),
+    responseDigest: text("response_digest"),
+    responseJson: text("response_json"),
+    eventDigest: text("event_digest"),
+    eventJson: text("event_json"),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId] }),
+    index("idx_factory_compute_admissions_poll").on(table.tenantId, table.nextPollAt, table.createdAt, table.reservationId).where(sql`${table.state} IN ('pending', 'queued', 'cancelling')`),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
+    check("factory_compute_admissions_request_digest_check", sql`${table.requestDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+    check("factory_compute_admissions_state_check", sql`${table.state} IN ('pending', 'queued', 'admitted', 'rejected', 'cancelling', 'cancelled')`),
+    check("factory_compute_admissions_next_poll_at_check", sql`${table.nextPollAt} >= 0`),
+    check("factory_compute_admissions_poll_lease_until_check", sql`${table.pollLeaseUntil} >= 0`),
+    check("factory_compute_admissions_poll_lease_check", sql`(${table.pollLeaseToken} IS NULL) = (${table.pollLeaseUntil} = 0)`),
+    check("factory_compute_admissions_response_check", sql`(${table.responseDigest} IS NULL) = (${table.responseJson} IS NULL)`),
+    check("factory_compute_admissions_event_check", sql`(${table.eventDigest} IS NULL) = (${table.eventJson} IS NULL)`),
+    check("factory_compute_admissions_terminal_event_check", sql`(${table.state} IN ('admitted', 'rejected')) = (${table.eventJson} IS NOT NULL)`),
+  ]);
+
   const factoryMutationReceipts = pgTable("factory_mutation_receipts", {
     ...tenantProjectColumns(),
     principalKind: text("principal_kind").notNull(),
@@ -448,6 +478,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     factoryServiceCredentials,
     factoryBudgetEnvelopes,
     factoryBudgetReservations,
+    factoryComputeAdmissions,
     factoryMutationReceipts,
     factoryDrafts,
     factoryVersions,
