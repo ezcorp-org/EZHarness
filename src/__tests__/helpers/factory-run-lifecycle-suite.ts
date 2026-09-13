@@ -47,7 +47,7 @@ import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { FactoryReleaseAuthorityStore } from "../../factory/release-authority";
 import { FactoryTrustedValidators } from "../../factory/validator-materials";
 import { FactoryAssurance } from "../../factory/assurance";
-import { FactoryProtectedCommandEffects } from "../../factory/protected-command-effects";
+import { factorySynchronousReleaseProfile, FactoryProtectedCommandEffects } from "../../factory/protected-command-effects";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
@@ -520,7 +520,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       { async reserveInTransaction() { throw new Error("release dispatch is outside this protected prepare test"); } },
       { async writeImmutable(_tenant, operationId, name, bytes) { const key = `${operationId}/${name}`; archive.set(key, bytes.slice()); return { key, digest: `sha256:${digestBytes(bytes)}` }; }, async read(reference) { const bytes = archive.get(reference.key); if (!bytes) throw new Error("archive is missing"); return bytes.slice(); } },
       { async proveStopped() { return false; } }, Date.now);
-    const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [{ adapter: releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: "result" }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } }]);
+    const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [factorySynchronousReleaseProfile({ adapter: releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: "result" }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } })]);
     const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
     expect(await effects.requestAcceptance(completed.task.service, acceptanceReference)).toEqual(accepted);
     expect(accepted).toMatchObject({ nodeId: "accept", commandId: acceptanceCommand.id, output: { acceptedCandidate: candidate } });
@@ -533,7 +533,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const noProfile = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, []);
     await expect(noProfile.requestRelease(completed.task.service, releaseReference)).rejects.toMatchObject({ code: "factory_protected_effect_untrusted" });
     expect(() => new FactoryProtectedCommandEffects(fixture.db, "foreign-tenant", completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [])).toThrow();
-    const profile = { adapter: releaseNode.adapter, action: "publish", build() { return { destination: { provider: "test", account: "protected", object: "result" }, request: {}, estimatedSpendMicros: 1 }; } };
+    const profile = factorySynchronousReleaseProfile({ adapter: releaseNode.adapter, action: "publish", build() { return { destination: { provider: "test", account: "protected", object: "result" }, request: {}, estimatedSpendMicros: 1 }; } });
     expect(() => new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [profile, profile])).toThrow("factory_protected_effect_invalid");
     expect(await effects.requestRelease(completed.task.service, releaseReference)).toBeNull();
     expect(await effects.requestRelease(completed.task.service, releaseReference)).toBeNull();

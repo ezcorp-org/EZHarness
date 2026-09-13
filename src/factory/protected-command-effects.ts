@@ -9,6 +9,7 @@ import type { FactoryAcceptanceDecision, FactoryAcceptedRelease } from "./assura
 import type { FactoryAssurance } from "./assurance";
 import type { FactoryCommandAuthority, FactoryAuthorizedAcceptanceCommand, FactoryAuthorizedReleaseCommand } from "./command-authority";
 import { resolveFactoryProtectedNodeSource, resolveFactoryProtectedTaskSource, type FactoryProtectedTaskSource } from "./protected-command-provenance";
+import { FactoryReleaseProfileError, sealFactoryReleaseProfileResult, type FactoryAsyncReleaseProfile } from "./release-profile";
 import type { FactoryReleaseAuthorityStore } from "./release-authority";
 import type { FactoryReleaseDestination, FactoryReleaseMaterial, FactoryReleaseOperation, FactoryReleaseRequest, FactoryReleases } from "./releases";
 import { assertFactoryIdentity } from "./records";
@@ -30,11 +31,41 @@ export interface FactoryReleaseCommandProfileResult {
   readonly estimatedSpendMicros: number;
 }
 
-/** A trusted adapter profile owns the protected action and cost calculation. */
-export interface FactoryReleaseCommandProfile {
-  readonly adapter: RunnerReference;
-  readonly action: string;
+/**
+ * A trusted adapter profile owns the protected action and cost calculation.
+ *
+ * `resolve` is the asynchronous form: it runs outside every transaction, under a deadline and an
+ * abort signal, and is what W07 and W08 implement. `build` is the synchronous form the release
+ * path still calls; it stays until those adapters land.
+ *
+ * @deprecated on `build` only — implement `resolve`.
+ */
+export interface FactoryReleaseCommandProfile extends FactoryAsyncReleaseProfile {
+  /** @deprecated Superseded by `resolve`, which may do bounded I/O outside a transaction. */
   build(input: FactoryReleaseCommandProfileInput): FactoryReleaseCommandProfileResult;
+}
+
+/**
+ * Lifts a synchronous profile onto the asynchronous surface.
+ *
+ * One adapter, so no caller writes a second `build`-to-`resolve` bridge. W07 and W08 replace the
+ * bodies with real resolvers; until then a profile that only knows how to `build` still satisfies
+ * the frozen interface, and it still refuses to run once its signal has aborted.
+ */
+export function factorySynchronousReleaseProfile(
+  profile: { readonly adapter: RunnerReference; readonly action: string; build(input: FactoryReleaseCommandProfileInput): FactoryReleaseCommandProfileResult },
+  now: () => number = Date.now,
+): FactoryReleaseCommandProfile {
+  const build = profile.build.bind(profile);
+  return {
+    adapter: profile.adapter,
+    action: profile.action,
+    build,
+    resolve: async (input, signal) => {
+      if (signal.aborted) throw new FactoryReleaseProfileError("factory_release_profile_aborted");
+      return sealFactoryReleaseProfileResult(input, build({ acceptedCandidate: input.acceptedManifest, destination: input.requestedDestination, decision: input.decision, material: input.material }), now());
+    },
+  };
 }
 
 interface AcceptanceReceipt {
@@ -100,7 +131,7 @@ export class FactoryProtectedCommandEffects {
       const captured = snapshot({ adapter: profile.adapter, action: profile.action });
       assertFactoryIdentity(captured.action);
       const key = profileKey(captured.adapter);
-      if (this.profiles.has(key) || typeof profile.build !== "function") throw new FactoryProtectedCommandEffectError("factory_protected_effect_invalid");
+      if (this.profiles.has(key) || typeof profile.build !== "function" || typeof profile.resolve !== "function") throw new FactoryProtectedCommandEffectError("factory_protected_effect_invalid");
       this.profiles.set(key, Object.freeze({ ...captured, build: profile.build.bind(profile) }));
     }
   }
