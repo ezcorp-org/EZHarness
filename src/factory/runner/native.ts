@@ -33,7 +33,11 @@ export function nativeFactoryJournal(journal: FactoryExecutionJournal): NativeFa
     deadlineAt: new Date(request.authority.deadlineAtMs),
   });
   return {
-    async operations(request) { return (await journal.operations(authority(request))) as FactoryRunnerOperationResult[]; },
+    async operations(request) {
+      const operations = (await journal.operations(authority(request))) as FactoryRunnerOperationResult[];
+      requireValid(validateFactoryRunnerResult({ schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: -1, operations }), "Durable runner operations");
+      return operations;
+    },
     async journalCursor(request) { return (await journal.status(authority(request))).journalCursor; },
     async usage(request) { return operationUsage(await journal.operations(authority(request))); },
   };
@@ -70,10 +74,11 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
   const run = await options.executor.executeFactoryAttempt({ ...options.conversation(request), execution });
   const [journalCursor, operations, usage] = await Promise.all([options.journal.journalCursor(request), options.journal.operations(request), options.journal.usage(request)]);
   if (run.status === "cancelled") {
-    const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor, operations: [...operations] };
+    const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor, operations: [...operations], usage };
     requireValid(validateFactoryRunnerResult(result), "Factory runner result");
     return result;
   }
+  if (usage.kind !== "measured") throw new Error("A completed native runner needs durable measured usage.");
   if (run.status !== "success") {
     const error = typeof run.result?.error === "string" ? run.result.error : run.result?.error?.message ?? "Factory agent did not complete.";
     const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "failed", journalCursor, operations: [...operations], resultDigest: digest({ error }), error: { code: "FACTORY_AGENT_FAILED", message: error, retryable: false }, usage };
