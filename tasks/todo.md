@@ -1302,3 +1302,13 @@ Review: `root-private-integration-results.json` records the SDK build, 48 Postgr
 Plan review: The parent accepted the dedicated `ezkfsvc_` contract. The signed claims and durable row bind the installation, project, service account, credential, revision, flat HTTP scopes, issue time, and expiry. The SvelteKit hook uses its exact route id and never creates a user. Factory grant authorization reloads credential authority in the same transaction as reads and mutation receipt checks. The parent owns the unrelated harness-client clean-install fix and the canonical full regression.
 
 Review: Root and web frozen installs, the SDK build, the production web build, all four type-check legs, lint, and gate integrity pass. Focused coverage passes 55 backend tests, 49 bearer tests, 17 route/client tests, 29 route-contract tests, and all 143 SDK tests. New runtime files have complete line coverage: token 80/80, route policy 23/23, credential store 138/138, migration 8/8, bearer router 92/92, shared handler 161/161, client 58/58, each route 1/1, run lifecycle 149/149, preview token 63/63, and SDK validation 668/668. Real PostgreSQL passes five credential cases, fourteen lifecycle cases, and two schema cases with 958 schema/credential assertions and 109 lifecycle assertions. The strict session verifier intentionally exposes the old C02 gateway fixture as unauthorized because that fixture adds attempt claims to a user session; the parent owns its agreed migration to the distinct factory-attempt codec. The parent also owns the final live-boot HTTP journey and full regression pool.
+
+## C02 attempt token purpose
+
+- [ ] Reproduce a user-shaped token being accepted through the real mTLS execution gateway.
+- [ ] Sign and verify exact attempt claims with the shared installation HMAC envelope and a separate token purpose.
+- [ ] Reject user, public service, preview, malformed, foreign, expired and path-mismatched credentials before admission.
+- [ ] Preserve deadline-fenced effects and authenticated status/cancel after an attempt deadline.
+- [ ] Verify the actual Node client, measured gateway/token coverage, existing authentication regressions, all four type checks and lint.
+
+Plan review: the accepted C02 HTTPS operations are the test boundary. The token binds every existing journal authority coordinate and canonical request digest. It carries no user role or email. A short-lived control token may inspect or cancel an expired attempt; the journal continues to deny new effects and terminal advancement. Reuse the C01 HMAC envelope and the existing Node HTTPS fixture.
