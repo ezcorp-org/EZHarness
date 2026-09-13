@@ -110,6 +110,22 @@ describe("factory C03 pool admission ledger on real PostgreSQL", () => {
     expect(allocations.filter(tenantId => tenantId === "tenant-heavy")).toHaveLength(2);
   });
 
+  test("uses weighted service for each resource class instead of summing CPU and provider units", async () => {
+    await pool.configureCapacity("cpu", 10);
+    await pool.configureCapacity("provider", 2);
+    await pool.setTenantPolicy({ tenantId: "tenant-cpu", weight: 1 });
+    await pool.setTenantPolicy({ tenantId: "tenant-provider", weight: 2 });
+    await pool.request(request("cpu-work", "tenant-cpu", { cpu: 10 }, clock));
+    await admitted(pool);
+    await pool.request(request("provider-work", "tenant-provider", { provider: 1 }, clock));
+    await admitted(pool);
+    await pool.request(request("cpu-tenant-provider", "tenant-cpu", { provider: 1 }, clock));
+    await pool.request(request("provider-tenant-provider", "tenant-provider", { provider: 1 }, clock));
+    // Begin the next provider round. Existing CPU service must not count as provider service.
+    await client.unsafe("DELETE FROM factory_pool_round_members");
+    expect(await pool.schedule()).toMatchObject({ status: "admitted", reservationId: "cpu-tenant-provider" });
+  });
+
   test("opportunistically admits a feasible younger request while a non-aged complete vector is blocked", async () => {
     await pool.configureCapacity("cpu", 1);
     await pool.configureCapacity("provider", 1);

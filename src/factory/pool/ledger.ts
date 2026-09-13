@@ -160,10 +160,6 @@ function activeResources(row: RequestRow): Record<PoolResourceClass, number> {
   return vector;
 }
 
-function total(vector: PoolResourceVector): number {
-  return POOL_RESOURCE_CLASSES.reduce((sum, resource) => sum + (vector[resource] ?? 0), 0);
-}
-
 interface ResourceRow { resource_class: PoolResourceClass; total_units: number | string; allocated_units: number | string }
 interface RequestRow {
   reservation_id: string; tenant_id: string; grant_revision: number | string; resources_json: unknown;
@@ -575,11 +571,16 @@ export class FactoryPoolLedger {
     }
     const weights = new Map(rows<{ tenant_id: string; weight: number | string }>(await transaction.unsafe("SELECT tenant_id, weight FROM factory_pool_tenants FOR SHARE")).map(row => [row.tenant_id, Number(row.weight)]));
     const active = rows<RequestRow>(await transaction.unsafe("SELECT * FROM factory_pool_requests WHERE state IN ('held','running','revoking','uncertain') FOR SHARE"));
-    const service = new Map<string, number>();
-    for (const row of active) service.set(row.tenant_id, (service.get(row.tenant_id) ?? 0) + total(activeResources(row)));
+    const service = new Map<string, Record<PoolResourceClass, number>>();
+    for (const row of active) {
+      const tenantService = service.get(row.tenant_id) ?? Object.create(null) as Record<PoolResourceClass, number>;
+      const vector = activeResources(row);
+      for (const resourceClass of POOL_RESOURCE_CLASSES) tenantService[resourceClass] = (tenantService[resourceClass] ?? 0) + (vector[resourceClass] ?? 0);
+      service.set(row.tenant_id, tenantService);
+    }
     const ordered = [...top.values()].sort((left, right) => {
-      const leftScore = (service.get(left.tenant_id) ?? 0) / (weights.get(left.tenant_id) ?? 1);
-      const rightScore = (service.get(right.tenant_id) ?? 0) / (weights.get(right.tenant_id) ?? 1);
+      const leftScore = this.dominantServiceScore(left, service, weights);
+      const rightScore = this.dominantServiceScore(right, service, weights);
       return leftScore - rightScore || compareCodeUnits(left.tenant_id, right.tenant_id) || Number(right.priority) - Number(left.priority) || Number(left.ready_sequence) - Number(right.ready_sequence) || compareCodeUnits(left.node_id, right.node_id);
     });
     const allowed = [] as RequestRow[];
@@ -595,6 +596,24 @@ export class FactoryPoolLedger {
     // Start the next deterministic round; this does not free or invent capacity.
     await transaction.unsafe("DELETE FROM factory_pool_round_members");
     return allowed[0];
+  }
+
+  /**
+   * CPU, provider permits, and whole GPU hosts have unrelated units. Compare a
+   * request only with its tenant's service in the classes it consumes. The
+   * largest weighted class is the max-min (dominant) score for a multi-class
+   * request, so a large CPU allocation cannot make its first provider turn
+   * lose to a tenant that has already consumed provider capacity.
+   */
+  private dominantServiceScore(candidate: RequestRow, service: ReadonlyMap<string, Record<PoolResourceClass, number>>, weights: ReadonlyMap<string, number>): number {
+    const vector = decodeVector(candidate.resources_json);
+    const consumed = service.get(candidate.tenant_id);
+    const weight = weights.get(candidate.tenant_id) ?? 1;
+    let score = 0;
+    for (const resourceClass of POOL_RESOURCE_CLASSES) {
+      if (vector[resourceClass] !== undefined) score = Math.max(score, (consumed?.[resourceClass] ?? 0) / weight);
+    }
+    return score;
   }
 
 
