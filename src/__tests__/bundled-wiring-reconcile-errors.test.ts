@@ -13,24 +13,17 @@
  * and both helpers must still resolve — returning 0 rows wired, having
  * logged one warning per name. No DB is involved; the throw happens
  * before the first query.
+ *
+ * The warnings are read off the REAL logger's stderr stream rather than
+ * from a mocked `../logger`. A logger mock cannot work here: the module
+ * binds `logger.child("auto-wire-bundled")` once at evaluation, and
+ * `mock-cleanup`'s preload snapshot imports the module before any test
+ * file runs, so the child logger is already captured. Spying on the
+ * sink also makes the assertion stronger — it proves what an operator
+ * would actually see in the log.
  */
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-
-const warnings: { msg: string; fields: Record<string, unknown> }[] = [];
-
-mock.module("../logger", () => {
-  const child = () => ({
-    error() {},
-    warn(msg: string, fields: Record<string, unknown>) {
-      warnings.push({ msg, fields });
-    },
-    info() {},
-    debug() {},
-    child,
-  });
-  return { logger: child(), extensionLogger: child };
-});
 
 const lookups: string[] = [];
 mock.module("../db/queries/extensions", () => ({
@@ -46,9 +39,27 @@ const {
   reconcileBundledConversationWiring,
 } = await import("../extensions/auto-wire-bundled");
 
+let stderrWrite: ReturnType<typeof spyOn<typeof process.stderr, "write">>;
+let emitted: string[];
+
+/** Warn lines this module emitted, decoded from the logger's JSON. */
+function warnings(): Record<string, unknown>[] {
+  return emitted
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry.subsystem === "auto-wire-bundled" && entry.level === "warn");
+}
+
 beforeEach(() => {
-  warnings.length = 0;
   lookups.length = 0;
+  emitted = [];
+  stderrWrite = spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+    emitted.push(String(chunk));
+    return true;
+  });
+});
+
+afterEach(() => {
+  stderrWrite.mockRestore();
 });
 
 afterAll(() => {
@@ -62,12 +73,14 @@ describe("auto-wire failures are logged and swallowed", () => {
     // Every name is still attempted — one broken extension must not
     // stop the reconcile reaching its siblings.
     expect(lookups).toEqual([...AUTO_WIRE_BUNDLED_EXTENSION_NAMES]);
-    expect(warnings).toHaveLength(AUTO_WIRE_BUNDLED_EXTENSION_NAMES.length);
-    for (const warning of warnings) {
-      expect(warning.msg).toBe("reconcile failed for bundled extension");
-      expect(warning.fields.error).toBe("registry unavailable");
+
+    const logged = warnings();
+    expect(logged).toHaveLength(AUTO_WIRE_BUNDLED_EXTENSION_NAMES.length);
+    for (const entry of logged) {
+      expect(entry.msg).toBe("reconcile failed for bundled extension");
+      expect(entry.error).toBe("registry unavailable");
     }
-    expect(warnings.map((w) => w.fields.extensionName)).toEqual([
+    expect(logged.map((entry) => entry.extensionName)).toEqual([
       ...AUTO_WIRE_BUNDLED_EXTENSION_NAMES,
     ]);
   });
@@ -76,12 +89,14 @@ describe("auto-wire failures are logged and swallowed", () => {
     expect(await autoWireBundledExtensions("conv-under-test")).toBe(0);
 
     expect(lookups).toEqual([...AUTO_WIRE_BUNDLED_EXTENSION_NAMES]);
-    expect(warnings).toHaveLength(AUTO_WIRE_BUNDLED_EXTENSION_NAMES.length);
-    for (const warning of warnings) {
-      expect(warning.msg).toBe("auto-wire failed for bundled extension");
+
+    const logged = warnings();
+    expect(logged).toHaveLength(AUTO_WIRE_BUNDLED_EXTENSION_NAMES.length);
+    for (const entry of logged) {
+      expect(entry.msg).toBe("auto-wire failed for bundled extension");
       // The conversation id is what makes the warning actionable.
-      expect(warning.fields.conversationId).toBe("conv-under-test");
-      expect(warning.fields.error).toBe("registry unavailable");
+      expect(entry.conversationId).toBe("conv-under-test");
+      expect(entry.error).toBe("registry unavailable");
     }
   });
 });
