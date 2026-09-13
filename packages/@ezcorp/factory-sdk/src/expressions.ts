@@ -1,13 +1,14 @@
-import { validateIJson } from "./canonical";
-import { FACTORY_LIMITS, type BinaryExpression, type Expression, type ExpressionContext, type ExpressionResult, type JsonValue, type ValueReference } from "./types";
+import { unicodeLength, validateIJson } from "./canonical";
+import { FACTORY_LIMITS, type BinaryExpression, type Expression, type ExpressionContext, type ExpressionResult, type JsonValue, type ValidationResult, type ValueReference } from "./types";
 
 const MISSING = Symbol("missing");
+type ExpressionFailure = Extract<ExpressionResult, { readonly ok: false }>;
 
 function own(object: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
-function fail(code: string, message: string): ExpressionResult {
+function fail(code: string, message: string): ExpressionFailure {
   return { ok: false, code, message };
 }
 
@@ -48,7 +49,7 @@ function exactKeys(record: Record<string, unknown>, required: readonly string[],
   return required.every((key) => own(record, key)) && Object.keys(record).every((key) => required.includes(key) || optional.includes(key));
 }
 
-function inspect(expression: unknown, budget: EvaluationBudget, depth: number): ExpressionResult | undefined {
+function inspect(expression: unknown, budget: EvaluationBudget, depth: number): ExpressionFailure | undefined {
   budget.nodes += 1;
   if (budget.nodes > FACTORY_LIMITS.maxExpressionNodes) return fail("EXPRESSION_NODE_LIMIT", "Expression exceeds the AST node limit.");
   if (depth > FACTORY_LIMITS.maxExpressionDepth) return fail("EXPRESSION_DEPTH_LIMIT", "Expression exceeds the depth limit.");
@@ -139,9 +140,11 @@ function evaluate(expression: Expression, context: ExpressionContext, budget: Ev
   if (expression.kind === "length") {
     const value = evaluate(expression.value, context, budget, depth + 1);
     if (!value.ok) return value;
-    return typeof value.value === "string" || Array.isArray(value.value)
-      ? { ok: true, value: value.value.length }
-      : fail("EXPRESSION_LENGTH_TYPE", "length requires a string or array.");
+    if (Array.isArray(value.value)) return { ok: true, value: value.value.length };
+    if (typeof value.value !== "string") return fail("EXPRESSION_LENGTH_TYPE", "length requires a string or array.");
+    const length = unicodeLength(value.value);
+    for (let index = 0; index < length; index += 1) if (!spend(budget)) return fail("EXPRESSION_STEP_LIMIT", "Expression exceeds the evaluation step limit.");
+    return { ok: true, value: length };
   }
 
   const binary = expression as BinaryExpression;
@@ -177,10 +180,16 @@ function evaluate(expression: Expression, context: ExpressionContext, budget: Ev
 }
 
 export function evaluateExpression(expression: Expression, context: ExpressionContext): ExpressionResult {
-  const json = validateIJson(expression);
-  if (!json.ok) return fail("EXPRESSION_IJSON", json.issues[0]?.message ?? "Expression must be I-JSON.");
+  const validation = validateExpression(expression);
+  if (!validation.ok) return fail(validation.issues[0]?.code ?? "EXPRESSION_INVALID", validation.issues[0]?.message ?? "Expression is invalid.");
   const inspectionBudget = { nodes: 0, steps: 0 };
-  const inspection = inspect(expression, inspectionBudget, 1);
-  if (inspection) return inspection;
+  inspect(expression, inspectionBudget, 1);
   return evaluate(expression, context, { nodes: inspectionBudget.nodes, steps: 0 }, 1);
+}
+
+export function validateExpression(expression: Expression): ValidationResult {
+  const json = validateIJson(expression);
+  if (!json.ok) return { ok: false, issues: [{ code: "EXPRESSION_IJSON", message: json.issues[0]?.message ?? "Expression must be I-JSON.", path: json.issues[0]?.path ?? [] }] };
+  const inspection = inspect(expression, { nodes: 0, steps: 0 }, 1);
+  return inspection ? { ok: false, issues: [{ code: inspection.code, message: inspection.message, path: [] }] } : { ok: true };
 }

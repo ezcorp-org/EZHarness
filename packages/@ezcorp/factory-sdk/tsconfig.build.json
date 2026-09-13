@@ -13,7 +13,7 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": false,
     "verbatimModuleSyntax": false,
-    "types": []
+    "types": ["node"]
   },
   "include": ["src/**/*.ts", "src/**/*.json"],
   "exclude": ["dist", "node_modules", "src/**/*.test.ts"]

@@ -1,4 +1,5 @@
 import factoryDefinitionJsonSchema from "./factory-definition.schema.json";
+import { validateIJson } from "./canonical";
 
 export { factoryDefinitionJsonSchema };
 
@@ -74,5 +75,5 @@ function validate(schema: SchemaObject, root: SchemaObject, value: unknown): boo
 }
 
 export function isFactoryDefinition(value: unknown): boolean {
-  return validate(factoryDefinitionJsonSchema as SchemaObject, factoryDefinitionJsonSchema as SchemaObject, value);
+  return validateIJson(value).ok && validate(factoryDefinitionJsonSchema as SchemaObject, factoryDefinitionJsonSchema as SchemaObject, value);
 }

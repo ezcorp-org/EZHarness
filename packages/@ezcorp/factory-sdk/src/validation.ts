@@ -196,7 +196,14 @@ export function validateValue(schema: PortSchema, value: JsonValue): ValidationR
 }
 
 function dereference(schema: PortSchema, root: PortSchema): PortSchema | undefined {
-  return schema.$ref ? resolveLocalReference(root, schema.$ref) : schema;
+  let current: PortSchema | undefined = schema;
+  const seen = new Set<PortSchema>();
+  while (current?.$ref) {
+    if (seen.has(current)) return undefined;
+    seen.add(current);
+    current = resolveLocalReference(root, current.$ref);
+  }
+  return current;
 }
 function typeSet(schema: PortSchema): ReadonlySet<string> {
   return new Set(Array.isArray(schema.type) ? schema.type : [schema.type as string]);
@@ -224,6 +231,9 @@ function contained(producerInput: PortSchema, consumerInput: PortSchema, produce
   for (const [key, property] of Object.entries(producer.properties ?? {})) {
     const target = consumer.properties && own(consumer.properties, key) ? consumer.properties[key] : undefined;
     if (target ? !contained(property, target, producerRoot, consumerRoot) : consumer.additionalProperties === false) return false;
+  }
+  if (producer.additionalProperties !== false) {
+    for (const key of Object.keys(consumer.properties ?? {})) if (!producer.properties || !own(producer.properties, key)) return false;
   }
   return !(producer.additionalProperties !== false && consumer.additionalProperties === false);
 }
