@@ -19,7 +19,7 @@ function sdk(kind: "request" | "result", value: unknown) {
 
 async function python(kind: "request" | "result", value: unknown) {
   const child = Bun.spawn({
-    cmd: ["python3", join(import.meta.dir, "python/c02_runner.py"), "--request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-request.schema.json"), "--result-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-result.schema.json"), "--sdk-bridge", join(import.meta.dir, "canonical-validator.mjs")],
+    cmd: ["nix", "shell", "nixpkgs#uv", "-c", "uv", "run", "--frozen", "--project", join(import.meta.dir, "python"), "python", join(import.meta.dir, "python/c02_runner.py"), "--request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-request.schema.json"), "--result-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-result.schema.json"), "--sdk-bridge", join(import.meta.dir, "canonical-validator.mjs")],
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
   child.stdin.write(JSON.stringify({ kind, value }));
