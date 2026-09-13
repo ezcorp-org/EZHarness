@@ -1,5 +1,6 @@
 import { validateValue } from "./validation";
 import { evaluateExpression } from "./expressions";
+import { isUnsignedDecimal } from "./canonical";
 import type {
   AdvanceResult,
   KernelCommand,
@@ -44,6 +45,7 @@ export function createKernelState(
     eventSequence: 0,
     spentCostMicros: "0",
     unknownCostMicros: "0",
+    usageSettlements: {},
     nodes,
     scopes: { root: { id: "root", depth: 0, expandedNodeCount: factory.definition.graph.nodes.length, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: factory.definition.graph.nodes.map((node) => node.id), roots: factory.definition.graph.nodes.filter((node) => (node.dependsOn?.length ?? 0) === 0).map((node) => node.id) } },
     appliedEventIds: [],
@@ -60,6 +62,11 @@ export function advanceKernel(factory: CompiledFactory, state: KernelState, even
   // applies its fence/cancellation semantics; logical time never moves back.
   let next = rememberEvent({ ...state, nowMs: Math.max(state.nowMs, event.atMs), eventSequence: state.eventSequence + 1 }, event.id);
   const commands: KernelCommand[] = [];
+
+  if (event.kind === "usage-settled") {
+    next = applyUsage(factory, next, event, commands);
+    return { nextState: next, commands };
+  }
 
   if (next.status !== "created" && next.status !== "running" && next.status !== "waiting" && next.status !== "stopping") {
     return { nextState: next, commands };
@@ -97,9 +104,6 @@ export function advanceKernel(factory: CompiledFactory, state: KernelState, even
     case "attempt-stopped":
       next = applyStopped(factory, next, event, commands);
       break;
-    case "usage-settled":
-      next = applyUsage(factory, next, event, commands);
-      break;
     case "approval-decided":
       next = applyApproval(factory, next, event, commands);
       break;
@@ -114,18 +118,42 @@ export function advanceKernel(factory: CompiledFactory, state: KernelState, even
 }
 
 function applyUsage(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "usage-settled" }>, commands: KernelCommand[]): KernelState {
+  const node = Object.hasOwn(state.nodes, event.nodeId) ? state.nodes[event.nodeId] : undefined;
+  const attempt = node?.attempts.find((candidate) => candidate.commandId === event.commandId && candidate.attempt === event.attempt && candidate.candidateGeneration === event.candidateGeneration);
+  if (!attempt) return state;
+  if (!Number.isSafeInteger(event.revision) || event.revision < 1) throw new FactoryKernelError("usage revision must be a positive safe integer");
   const known = parseMicros(event.knownCostMicros);
   const unknown = parseMicros(event.unknownCostMicros ?? "0");
   if (known === undefined || unknown === undefined) throw new FactoryKernelError("usage cost must be a non-negative decimal integer");
-  let next = { ...state, spentCostMicros: (BigInt(state.spentCostMicros) + known).toString(), unknownCostMicros: (BigInt(state.unknownCostMicros) + unknown).toString() };
-  const loopId = loopAncestor(factory, event.nodeId);
-  const loop = loopId ? nodeFor(factory, loopId) : undefined;
-  const runtime = loopId ? next.nodes[loopId] : undefined;
-  if (!loopId || loop?.kind !== "loop" || !runtime?.loop) return next;
-  const updated = { ...runtime, loop: { ...runtime.loop, spentCostMicros: next.spentCostMicros, unknownCostMicros: next.unknownCostMicros } };
-  next = withNode(next, loopId, updated);
-  const limit = loop.budget?.maxCostMicros;
-  if (limit !== undefined && BigInt(next.spentCostMicros) + BigInt(next.unknownCostMicros) > BigInt(limit)) return beginStopping(next, "LOOP_BUDGET_EXHAUSTED", commands, false);
+  const previous = Object.hasOwn(state.usageSettlements, event.commandId) ? state.usageSettlements[event.commandId] : undefined;
+  if (previous && event.revision < previous.revision) return state;
+  if (previous && event.revision === previous.revision) {
+    if (previous.knownCostMicros !== known.toString() || previous.unknownCostMicros !== unknown.toString()) throw new FactoryKernelError("usage settlement conflicts with its recorded revision");
+    return state;
+  }
+  if (event.revision !== (previous?.revision ?? 0) + 1) throw new FactoryKernelError("usage settlement revision has a gap");
+  const knownDelta = known - BigInt(previous?.knownCostMicros ?? "0");
+  const unknownDelta = unknown - BigInt(previous?.unknownCostMicros ?? "0");
+  if (knownDelta < 0n) throw new FactoryKernelError("known usage cannot decrease");
+  let next: KernelState = { ...state, spentCostMicros: (BigInt(state.spentCostMicros) + knownDelta).toString(), unknownCostMicros: (BigInt(state.unknownCostMicros) + unknownDelta).toString(), usageSettlements: { ...state.usageSettlements, [event.commandId]: { nodeId: event.nodeId, revision: event.revision, knownCostMicros: known.toString(), unknownCostMicros: unknown.toString() } } };
+  const scopes = { ...next.scopes };
+  for (const [scopeId, scope] of Object.entries(scopes)) {
+    if (scopeId === "root" || scope.nodeIds.some((id) => event.nodeId === id || event.nodeId.startsWith(`${id}/`))) {
+      scopes[scopeId] = { ...scope, spentCostMicros: (BigInt(scope.spentCostMicros) + knownDelta).toString(), unknownCostMicros: (BigInt(scope.unknownCostMicros) + unknownDelta).toString() };
+    }
+  }
+  next = { ...next, scopes };
+  for (const loopId of loopAncestors(factory, event.nodeId)) {
+    const loop = nodeFor(factory, loopId);
+    const runtime = next.nodes[loopId];
+    if (loop?.kind !== "loop" || !runtime?.loop) continue;
+    const spent = BigInt(runtime.loop.spentCostMicros) + knownDelta;
+    const unknownSpent = BigInt(runtime.loop.unknownCostMicros) + unknownDelta;
+    next = withNode(next, loopId, { ...runtime, loop: { ...runtime.loop, spentCostMicros: spent.toString(), unknownCostMicros: unknownSpent.toString() } });
+    if (loop.budget?.maxCostMicros !== undefined && spent + unknownSpent > BigInt(loop.budget.maxCostMicros) && (next.status === "running" || next.status === "waiting")) {
+      next = failNode(factory, next, loop, loopId, "LOOP_BUDGET_EXHAUSTED", "bound_exhausted", commands);
+    }
+  }
   return next;
 }
 
@@ -237,7 +265,7 @@ function applyRepair(factory: CompiledFactory, state: KernelState, event: Extrac
   if (!node || !runtime || runtime.status === "running" || runtime.status === "reserved" || runtime.status === "waiting") return state;
   if (runtime.attempts.some((attempt) => !attempt.stopped || attempt.uncertain)) return state;
   const repaired = withNode(state, event.nodeId, {
-    status: "ready", candidateGeneration: runtime.candidateGeneration + 1, nextAttempt: 1, attempts: [], error: undefined,
+    status: "ready", candidateGeneration: runtime.candidateGeneration + 1, nextAttempt: 1, attempts: runtime.attempts, error: undefined,
   });
   return dispatchReady(factory, repaired, node, event.nodeId, commands);
 }
@@ -274,7 +302,7 @@ function dispatchReady(factory: CompiledFactory, state: KernelState, node: Facto
       childNodes[childId] = { status: "blocked", candidateGeneration: 0, nextAttempt: 1, attempts: [] };
       if ((child.dependsOn?.length ?? 0) === 0) roots.push(childId);
     }
-    const scoped = { ...state, nodes: childNodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, selectedBranch: selected as "then" | "else", expandedNodeCount: expanded, spentCostMicros: rootScope.spentCostMicros, unknownCostMicros: rootScope.unknownCostMicros, nodeIds: graph.nodes.map((child) => `${scopeId}/${child.id}`), roots } } };
+    const scoped = { ...state, nodes: childNodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, selectedBranch: selected as "then" | "else", expandedNodeCount: expanded, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: graph.nodes.map((child) => `${scopeId}/${child.id}`), roots } } };
     return activateReady(factory, withNode(scoped, nodeId, { ...runtime, status: "waiting", selected, output: undefined, waitingReason: "external_reconciliation" }), commands, roots);
   }
   if (node.kind === "join") return settleJoin(factory, state, node, nodeId, commands);
@@ -583,7 +611,7 @@ function startLoopIteration(factory: CompiledFactory, state: KernelState, node: 
   }
   const scopeId = `${nodeId}/items/${iteration}`;
   const loop = { iteration, carried, startedAtMs: runtime.loop?.startedAtMs ?? state.nowMs, spentCostMicros: runtime.loop?.spentCostMicros ?? "0", unknownCostMicros: runtime.loop?.unknownCostMicros ?? "0" };
-  const next = { ...state, nodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, expandedNodeCount: node.body.nodes.length, spentCostMicros: loop.spentCostMicros, unknownCostMicros: loop.unknownCostMicros, nodeIds: node.body.nodes.map((child) => `${prefix}/${child.id}`), roots } } };
+  const next = { ...state, nodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, expandedNodeCount: node.body.nodes.length, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: node.body.nodes.map((child) => `${prefix}/${child.id}`), roots } } };
   return activateReady(factory, withNode(next, nodeId, { ...runtime, status: "waiting", loop, waitingReason: "external_reconciliation" }), commands, roots);
 }
 
@@ -601,7 +629,7 @@ function progressLoop(factory: CompiledFactory, state: KernelState, nodeId: stri
   const until = evaluateExpression(parentNode.until, context);
   if (!until.ok || typeof until.value !== "boolean") return failNode(factory, state, parentNode, parentId, "LOOP_UNTIL_INVALID", "execution", commands);
   if (until.value) return activateReady(factory, withNode(state, parentId, { ...parent, status: "succeeded", output: result }), commands, successorsFor(factory, parentId));
-  if (parentNode.budget?.maxCostMicros !== undefined && BigInt(state.spentCostMicros) + BigInt(state.unknownCostMicros) >= BigInt(parentNode.budget.maxCostMicros)) return failNode(factory, state, parentNode, parentId, "LOOP_BUDGET_EXHAUSTED", "bound_exhausted", commands);
+  if (parentNode.budget?.maxCostMicros !== undefined && BigInt(parent.loop.spentCostMicros) + BigInt(parent.loop.unknownCostMicros) >= BigInt(parentNode.budget.maxCostMicros)) return failNode(factory, state, parentNode, parentId, "LOOP_BUDGET_EXHAUSTED", "bound_exhausted", commands);
   const next = evaluateExpression(parentNode.nextInput, context);
   if (!next.ok || !validateValue(parentNode.carriedSchema, next.value).ok) return failNode(factory, state, parentNode, parentId, "LOOP_NEXT_INPUT_INVALID", "execution", commands);
   return startLoopIteration(factory, state, parentNode, parentId, parent, next.value, parent.loop.iteration + 1, commands);
@@ -619,13 +647,17 @@ function isCollectMapChild(factory: CompiledFactory, nodeId: string): boolean {
   return parent?.kind === "map" && parent.mode === "collect";
 }
 
-function loopAncestor(factory: CompiledFactory, nodeId: string): string | undefined {
-  const parentId = mapParent(nodeId);
-  return parentId && nodeFor(factory, parentId)?.kind === "loop" ? parentId : undefined;
+function loopAncestors(factory: CompiledFactory, nodeId: string): readonly string[] {
+  const ancestors: string[] = [];
+  for (let index = nodeId.indexOf("/items/"); index >= 0; index = nodeId.indexOf("/items/", index + 1)) {
+    const parent = nodeId.slice(0, index);
+    if (nodeFor(factory, parent)?.kind === "loop") ancestors.push(parent);
+  }
+  return ancestors;
 }
 
 function parseMicros(value: string): bigint | undefined {
-  return /^(?:0|[1-9][0-9]*)$/.test(value) ? BigInt(value) : undefined;
+  return typeof value === "string" && value.length <= 64 * 1024 && isUnsignedDecimal(value) ? BigInt(value) : undefined;
 }
 
 function nodeFor(factory: CompiledFactory, nodeId: string): FactoryNode | undefined {

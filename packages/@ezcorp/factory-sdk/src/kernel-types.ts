@@ -97,6 +97,7 @@ export interface KernelState {
   readonly eventSequence: number;
   readonly spentCostMicros: string;
   readonly unknownCostMicros: string;
+  readonly usageSettlements: Readonly<Record<string, { readonly nodeId: string; readonly revision: number; readonly knownCostMicros: string; readonly unknownCostMicros: string }>>;
   readonly nodes: Readonly<Record<string, KernelNodeState>>;
   readonly scopes: Readonly<Record<string, KernelScopeState>>;
   readonly appliedEventIds: readonly string[];
@@ -145,6 +146,10 @@ export type KernelEvent =
   | (KernelEventBase & {
       readonly kind: "usage-settled";
       readonly nodeId: string;
+      readonly commandId: string;
+      readonly candidateGeneration: number;
+      readonly attempt: number;
+      readonly revision: number;
       readonly knownCostMicros: string;
       readonly unknownCostMicros?: string;
     })
