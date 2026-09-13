@@ -44,7 +44,7 @@ const temporal = {
     await control.close();
     const tenantToken = await token(tenantId, [`admin:${namespace}`]);
     const tokenPath = join(secretDirectory, "temporal-token");
-    try { await writeFile(tokenPath, `${tenantToken}\n`, { mode: 0o600, flag: "wx" }); } catch { /* recovery retains its original bundle */ }
+    await writeFile(tokenPath, `${tenantToken}\n`, { mode: 0o600 });
     await chmod(tokenPath, 0o600);
     await writeFile(join(secretDirectory, "temporal.json"), `${JSON.stringify({ namespace, certificatePath: join(authDir, `${tenantId}.crt`), privateKeyPath: join(authDir, `${tenantId}.key`), tokenPath })}\n`, { mode: 0o600 });
   },
@@ -59,6 +59,15 @@ if (first.some((installation, index) => installation.installationId !== replay[i
 const control = new SQL(controlUrl.toString(), { max: 1 });
 const rows = await control`SELECT tenant_id, product_database, product_role, temporal_namespace, state, secret_bundle_path FROM factory_installations ORDER BY tenant_id`;
 if (rows.length !== 10 || rows.some(row => row.state !== "ready")) throw new Error("Control plane did not record ten ready installations.");
+for (const [index, row] of rows.entries()) {
+  const manifest = JSON.parse(await readFile(join(row.secret_bundle_path, "installation.json"), "utf8"));
+  const credentials = JSON.parse(await readFile(manifest.product.credentialsPath, "utf8"));
+  const tenantUrl = new URL(productAdminUrl); tenantUrl.pathname = `/${row.product_database}`; tenantUrl.username = row.product_role; tenantUrl.password = credentials.password;
+  const tenantDatabase = new SQL(tenantUrl.toString(), { max: 1 }); await tenantDatabase`SELECT current_database()`; await tenantDatabase.close();
+  const foreignUrl = new URL(tenantUrl); foreignUrl.pathname = `/${rows[(index + 1) % rows.length].product_database}`;
+  const foreignDatabase = new SQL(foreignUrl.toString(), { max: 1 }); try { await foreignDatabase`SELECT 1`; throw new Error("Tenant database isolation failed."); } catch (error) { if ((error).message === "Tenant database isolation failed.") throw error; } finally { await foreignDatabase.close(); }
+  const tenantTemporal = await connection(row.tenant_id, [`admin:${row.temporal_namespace}`]); await tenantTemporal.workflowService.describeNamespace({ namespace: row.temporal_namespace }); await tenantTemporal.close();
+}
 await control.close(); await provisioner.close();
-console.log(`provisioned ${rows.length} isolated installations with replay-safe control state`);
+console.log(`provisioned ${rows.length} isolated installations with replay-safe control state and tenant database/Temporal login proof`);
 console.log(`secret bundle root reference: ${basename(proofRoot)}/installations`);
