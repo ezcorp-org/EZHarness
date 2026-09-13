@@ -16,7 +16,7 @@ import type { FactoryPreparedPackageReceipt } from "../package-preparation";
 import type { PoolLease } from "../pool/ledger";
 import { migrate } from "../../db/migrate";
 import * as schema from "../../db/schema";
-import { FactoryDatabaseAttemptLaunchStore, IsolatedFactoryAttemptRuntime, IsolatedFactoryTrustedRunner, signFactoryPhysicalStopReceipt, type FactoryAttemptLaunchIntent, type FactoryAttemptLaunchState, type FactoryAttemptLaunchStore, type FactoryAttemptLease, type FactoryAttemptRuntime, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-runtime";
+import { FactoryDatabaseAttemptLaunchStore, IsolatedFactoryAttemptRuntime, IsolatedFactoryTrustedRunner, factoryAttemptDeviceGrant, factoryAttemptInvocationId, factoryAttemptWorkerId, signFactoryPhysicalStopReceipt, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLaunchIntent, type FactoryAttemptLaunchState, type FactoryAttemptLaunchStore, type FactoryAttemptLease, type FactoryAttemptRuntime, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-runtime";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 
 const raw = "a".repeat(64);
@@ -49,8 +49,8 @@ class ResponseLossRunner implements Runner {
 class MemoryLaunchStore implements FactoryAttemptLaunchStore {
   private intent: FactoryAttemptLaunchIntent | undefined;
   constructor(private readonly initialState: FactoryAttemptLaunchState = "prepared") {}
-  async prepare(value: typeof request, held: FactoryAttemptLease, receipt: FactoryPreparedPackageReceipt): Promise<FactoryAttemptLaunchIntent> {
-    this.intent ??= { request: value, requestDigest: factoryRunnerRequestDigest(value), lease: held, preparedPackage: receipt, workerId: `factory_${createHash("sha256").update(value.authority.attemptId).digest("hex").slice(0, 48)}`, state: this.initialState };
+  async prepare(value: typeof request, held: FactoryAttemptLease, receipt: FactoryPreparedPackageReceipt, devices?: FactoryAttemptDeviceAuthorization): Promise<FactoryAttemptLaunchIntent> {
+    this.intent ??= { schemaVersion: "factory.attempt-launch.v1", request: value, requestDigest: factoryRunnerRequestDigest(value), lease: held, preparedPackage: receipt, workerId: factoryAttemptWorkerId(value.authority.attemptId), invocationId: factoryAttemptInvocationId(value.authority.attemptId, value.authority.candidateGeneration, value.authority.attemptNumber), devices: factoryAttemptDeviceGrant(value.authority.attemptId, held, devices), state: this.initialState };
     return this.intent;
   }
   async claimStart(): Promise<{ readonly intent: FactoryAttemptLaunchIntent; readonly claimed: boolean }> { if (!this.intent) throw new Error("launch is missing"); if (this.intent.state !== "prepared") return { intent: this.intent, claimed: false }; this.intent = { ...this.intent, state: "launching" }; return { intent: this.intent, claimed: true }; }
@@ -155,7 +155,7 @@ test("concurrent open calls have one durable start winner and the other caller o
 test("the trusted runner checks current package readiness before the isolated runtime opens", async () => {
   const canonical = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: 0, operations: [] } as const;
   const calls: string[] = [];
-  const runtime: FactoryAttemptRuntime = { open: async () => ({ disposition: "started", workerId: "factory-test", wait: async () => canonical, stop: async () => { throw new Error("stop is not part of this dispatch test"); } }) };
+  const runtime: FactoryAttemptRuntime = { open: async () => ({ disposition: "started", workerId: "factory-test", invocationId: "invocation-test", wait: async () => canonical, stop: async () => { throw new Error("stop is not part of this dispatch test"); } }) };
   const trusted = new IsolatedFactoryTrustedRunner(runtime, {
     lease: async () => { calls.push("lease"); return lease; },
     preparedPackage: async () => { calls.push("package"); return prepared; },

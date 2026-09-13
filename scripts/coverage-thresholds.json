@@ -273,6 +273,8 @@
   "src/factory/trusted-command-gateway.ts": 100,
   "src/factory/runner/supervisor.ts": 100,
   "src/factory/runner/native.ts": 100,
+  "src/factory/runner/attempt-runtime.ts": 100,
+  "src/db/migrations/add-factory-attempt-launches.ts": 100,
   "src/db/migrations/add-factory-grants.ts": 100,
   "src/factory/orchestration-process.ts": 100,
   "src/factory/orchestration-readiness-writer.ts": 100,

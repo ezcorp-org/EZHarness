@@ -58,6 +58,8 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/executions.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/executions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/runner/attempt-runtime.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
+  { factoryPath: "src/factory/runner/supervisor.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
 ];
 
 function parse(input: SourceInput): ts.SourceFile {
@@ -194,7 +196,16 @@ function declaredClasses(input: SourceInput, exportedOnly: boolean): ClassSignat
   return classes;
 }
 
+// A workspace package is imported by name, so its bare specifier must resolve
+// to the package entry point before a required-import rule can name it.
+const WORKSPACE_PACKAGE_ENTRIES: Readonly<Record<string, string>> = {
+  "@ezcorp/extension-runner": "packages/@ezcorp/extension-runner/src/index.ts",
+  "@ezcorp/extension-contract": "packages/@ezcorp/extension-contract/src/index.ts",
+};
+
 function normalizedImportPath(factoryPath: string, specifier: string): string {
+  const workspaceEntry = WORKSPACE_PACKAGE_ENTRIES[specifier];
+  if (workspaceEntry) return workspaceEntry;
   const absolute = resolve(REPO_ROOT, factoryPath, "..", specifier);
   const withExtension = absolute.endsWith(".ts") ? absolute : `${absolute}.ts`;
   return relative(REPO_ROOT, withExtension).replaceAll("\\", "/");
