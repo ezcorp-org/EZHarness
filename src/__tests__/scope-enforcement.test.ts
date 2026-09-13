@@ -149,6 +149,12 @@ describe("scope enforcement coverage", () => {
         // logic. Accepting the wrapper keeps this textual scan accurate without
         // forcing a redundant inline `requireScope` into every route.
         !content.includes("authGithubRoute") &&
+        // handleFactoryApi is the factory routes' complete boundary. It
+        // rejects a disabled feature before lookup, resolves the authenticated
+        // principal, applies the route's exact read/write/session scope, and
+        // only then dispatches an SDK-validated request. Keep the import and
+        // call checks together so mentioning the wrapper in prose is not enough.
+        !(relative.startsWith("/factories/") && content.includes('_shared"') && (content.includes("handleFactoryApi(event,") || content.includes("handleFactorySessionApi(event,"))) &&
         !(content.includes('from "$lib/server/extensions/mcp-request"') && content.includes("mcpControlRequest(locals,")) &&
         // `verifyWebhookAuth` (src/extensions/webhook-auth.ts) is the public
         // webhook-ingress route's gate: constant-time per-hook bearer-secret
@@ -164,5 +170,8 @@ describe("scope enforcement coverage", () => {
     }
 
     expect(missing).toEqual([]);
+    const factoryGate = await Bun.file(`${apiDir}/factories/_shared.ts`).text();
+    expect(factoryGate).toContain("requireScope(event.locals, options.scope)");
+    expect(factoryGate).toContain("requireSessionAuth(event.locals)");
   });
 });
