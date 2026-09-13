@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { checkFactoryBoundaries, type RequiredImport, type SourceInput } from "./check-factory-boundaries.ts";
+import {
+  checkFactoryBoundaries,
+  inspectRepositoryBoundaries,
+  runBoundaryCheck,
+  type RequiredImport,
+  type SourceInput,
+} from "./check-factory-boundaries.ts";
 
 const validationPath = "packages/@ezcorp/factory-sdk/src/validation.ts";
 const expressionsPath = "packages/@ezcorp/factory-sdk/src/expressions.ts";
@@ -28,6 +34,7 @@ describe("factory static boundaries", () => {
     ["performance.now()", "performance.now"],
     ["Math.random()", "Math.random"],
     ["globalThis.eval('1')", "globalThis"],
+    ["globalThis['eval']('1')", "computed access"],
     ["const Unsafe = (() => {}).constructor; new Unsafe('return 1')", "constructor"],
     ["Reflect.get(globalThis, 'Function')", "Reflect"],
     ["Bun.spawn(['true'])", "Bun.spawn"],
@@ -94,5 +101,22 @@ describe("factory static boundaries", () => {
   test("F13 fails when a declared factory module is absent", () => {
     expect(checkFactoryBoundaries(safeFactory, shared, [{ factoryPath: "src/factory/release.ts", sharedModule: "src/extensions/v4/blobs.ts" }]))
       .toContainEqual(expect.objectContaining({ rule: "f13-required-import", message: "factory module is missing" }));
+  });
+
+  test("inspects the real factory module graph and reports through the CLI seam", async () => {
+    await expect(inspectRepositoryBoundaries()).resolves.toEqual([]);
+    const output: string[] = [];
+    expect(await runBoundaryCheck({ log: { log: (value) => output.push(String(value)), error: (value) => output.push(String(value)) } })).toBe(0);
+    expect(output).toEqual(["Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse)."]);
+  });
+
+  test("the CLI seam returns failure and prints every violation", async () => {
+    const output: string[] = [];
+    const violation = { path: "src/factory/duplicate.ts", line: 7, rule: "f13-duplicate" as const, message: "duplicate" };
+    expect(await runBoundaryCheck({
+      inspect: async () => [violation],
+      log: { log: (value) => output.push(String(value)), error: (value) => output.push(String(value)) },
+    })).toBe(1);
+    expect(output).toEqual(["src/factory/duplicate.ts:7 [f13-duplicate] duplicate"]);
   });
 });

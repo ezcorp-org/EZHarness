@@ -76,8 +76,11 @@ export async function inspectRequiredChecks(options: {
   fetchImpl?: typeof fetch;
 }): Promise<RequiredChecksInspection> {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const [owner, repositoryName, extra] = options.repository.split("/");
+  if (!owner || !repositoryName || extra) throw new Error(`Invalid GitHub repository '${options.repository}'; expected owner/name`);
+  const apiUrl = process.env.GITHUB_API_URL ?? "https://api.github.com";
   const response = await fetchImpl(
-    `https://api.github.com/repos/${encodeURIComponent(options.repository.split("/")[0] ?? "")}/${encodeURIComponent(options.repository.split("/")[1] ?? "")}/branches/${encodeURIComponent(options.branch)}/protection/required_status_checks`,
+    `${apiUrl}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repositoryName)}/branches/${encodeURIComponent(options.branch)}/protection/required_status_checks`,
     {
       headers: {
         Accept: "application/vnd.github+json",
@@ -109,12 +112,20 @@ export function formatInspection(inspection: RequiredChecksInspection): string {
   return lines.join("\n");
 }
 
-if (import.meta.main) {
-  const repository = process.env.GITHUB_REPOSITORY ?? "ezcorp-org/EZHarness";
-  const branch = process.env.REQUIRED_CHECKS_BRANCH ?? "main";
-  const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+export async function runRequiredCheck(options: {
+  env?: Record<string, string | undefined>;
+  inspect?: typeof inspectRequiredChecks;
+  log?: Pick<Console, "log">;
+} = {}): Promise<number> {
+  const env = options.env ?? process.env;
+  const repository = env.GITHUB_REPOSITORY ?? "ezcorp-org/EZHarness";
+  const branch = env.REQUIRED_CHECKS_BRANCH ?? "main";
+  const token = env.GITHUB_TOKEN ?? env.GH_TOKEN;
   if (!token) throw new Error("GITHUB_TOKEN or GH_TOKEN is required for read-only branch-protection inspection");
-  const inspection = await inspectRequiredChecks({ repository, branch, token });
-  console.log(formatInspection(inspection));
-  if (!inspectionPassed(inspection)) process.exit(1);
+  const inspection = await (options.inspect ?? inspectRequiredChecks)({ repository, branch, token });
+  (options.log ?? console).log(formatInspection(inspection));
+  return inspectionPassed(inspection) ? 0 : 1;
 }
+
+export const REQUIRED_CHECKS_MAIN_RESULT = import.meta.main ? await runRequiredCheck() : undefined;
+if (REQUIRED_CHECKS_MAIN_RESULT !== undefined) process.exitCode = REQUIRED_CHECKS_MAIN_RESULT;

@@ -301,11 +301,20 @@ export async function inspectRepositoryBoundaries(): Promise<BoundaryViolation[]
   );
 }
 
-if (import.meta.main) {
-  const violations = await inspectRepositoryBoundaries();
+export async function runBoundaryCheck(options: {
+  inspect?: () => Promise<BoundaryViolation[]>;
+  log?: Pick<Console, "log" | "error">;
+} = {}): Promise<number> {
+  const inspect = options.inspect ?? inspectRepositoryBoundaries;
+  const log = options.log ?? console;
+  const violations = await inspect();
   if (violations.length > 0) {
-    for (const violation of violations) console.error(`${violation.path}:${violation.line} [${violation.rule}] ${violation.message}`);
-    process.exit(1);
+    for (const violation of violations) log.error(`${violation.path}:${violation.line} [${violation.rule}] ${violation.message}`);
+    return 1;
   }
-  console.log("Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).");
+  log.log("Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).");
+  return 0;
 }
+
+export const FACTORY_BOUNDARY_MAIN_RESULT = import.meta.main ? await runBoundaryCheck() : undefined;
+if (FACTORY_BOUNDARY_MAIN_RESULT !== undefined) process.exitCode = FACTORY_BOUNDARY_MAIN_RESULT;

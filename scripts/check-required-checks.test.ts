@@ -5,6 +5,7 @@ import {
   formatInspection,
   inspectRequiredChecks,
   inspectionPassed,
+  runRequiredCheck,
 } from "./check-required-checks.ts";
 
 function fakeFetch(impl: (url: string | URL | Request, init?: RequestInit) => Promise<Response>): typeof fetch {
@@ -59,5 +60,23 @@ describe("required-check inspection", () => {
 
     const fetchMalformed = fakeFetch(async () => Response.json({ contexts: [] }));
     await expect(inspectRequiredChecks({ repository: "owner/repo", branch: "main", token: "x", fetchImpl: fetchMalformed })).rejects.toThrow("strict");
+  });
+
+  test("rejects malformed repository coordinates before a request", async () => {
+    await expect(inspectRequiredChecks({ repository: "missing-owner", branch: "main", token: "x", fetchImpl: fakeFetch(async () => Response.json({})) })).rejects.toThrow("owner/name");
+  });
+
+  test("CLI seam reports exact and drifted configurations", async () => {
+    const output: string[] = [];
+    const exact = compareRequiredChecks("owner/repo", "main", true, ["A"], ["A"]);
+    const drifted = compareRequiredChecks("owner/repo", "main", true, [], ["A"]);
+    expect(await runRequiredCheck({
+      env: { GITHUB_TOKEN: "token", GITHUB_REPOSITORY: "owner/repo", REQUIRED_CHECKS_BRANCH: "main" },
+      inspect: async () => exact,
+      log: { log: (value) => output.push(String(value)) },
+    })).toBe(0);
+    expect(output.at(-1)).toContain("missing (0): none");
+    expect(await runRequiredCheck({ env: { GH_TOKEN: "token" }, inspect: async () => drifted, log: { log() {} } })).toBe(1);
+    await expect(runRequiredCheck({ env: {} })).rejects.toThrow("GITHUB_TOKEN");
   });
 });
