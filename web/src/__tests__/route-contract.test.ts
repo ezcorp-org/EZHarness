@@ -792,6 +792,7 @@ describe("registry ⇄ filesystem parity", () => {
       "PUT /api/factories/projects/:projectId/release/control",
       "PUT /api/factories/projects/:projectId/release/policies/:policyId",
       "PUT /api/factories/projects/:projectId/release/trust",
+      "PUT /api/factories/projects/:projectId/runs/:runId/approvals/:approvalId",
       "PUT /api/mcp-servers/:id",
       "PUT /api/projects/:id/tool-permission-mode",
     ];
