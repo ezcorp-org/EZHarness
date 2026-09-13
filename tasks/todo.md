@@ -1123,3 +1123,16 @@ Review: integration head `3dffb7418` plus this model fix passes the 21 focused c
 - [ ] Complete factory-enabled application boot, service-principal HTTP authentication, and real browser/run execution.
 
 Review: `/tmp/factory-platform-evidence/run-api-results.json` has six successful producers: 167 focused tests, 10 route tests, 13 PostgreSQL lifecycle tests, 13 PostgreSQL/S3 lifecycle tests, all four type checks, and lint. LCOV measures run lifecycle149/149, outbox155/155, application77/77, harness client453/453, shared route142/142, and every new route2/2 lines. Input revision0 now matches creation of a new logical run; stale nonzero start revisions return412. Accepted requests return202 and a real stored command status URL. An unknown dispatch remains visible as unknown and does not become run completion. Repair/replan currently fail unavailable and are not a completed surface. Full-platform gates remain open.
+
+
+## Factory project creation and audit JSON
+
+- [x] Reproduce orphan projects, absent factory owner grants, and encoded audit metadata on real PostgreSQL.
+- [x] Commit project, owner membership, four non-consent grants, and audit in one transaction.
+- [x] Repair only historical encoded audit objects and preserve all fact identities and non-object values.
+- [x] Prove rollback, denied/repeated initialization, flag-off compatibility, and upgrade idempotence on both database engines.
+- [x] Run affected tests, measured coverage, all four type checks and lint; record review.
+
+Plan review: reuse the existing member upsert and grant mutation path. Register factory initialization at application composition. New projects receive author, publish, run and operate only; human consent and trust remain explicit.
+
+Review: `/tmp/factory-platform-evidence/project-creation-results.json` records all four producers at exit0. The focused PGlite/application/regression cases and real PostgreSQL cases pass, including the historical audit upgrade. All four type-check legs and lint pass. Every changed executable line is measured; complete owned files include grants166/166, application79/79, member queries65/65 and the new migration4/4. Existing project queries and audit redaction cases also pass. This closes the project-creation transaction leaf, not factory-enabled production startup or the full platform gates.

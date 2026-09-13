@@ -1,11 +1,20 @@
 import { eq, sql } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, type DbTransaction } from "../connection";
 import { projects } from "../schema";
-import { upsertProjectMember } from "./project-members";
+import { upsertProjectMemberInTransaction } from "./project-members";
+import type { MigrationDb } from "../migrations/types";
 import { SELF_PROJECT_ID } from "../seed-self-project";
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = { name: string; path: string; icon?: string | null; variables?: Record<string, unknown> };
+
+export type ProjectCreationParticipant = (transaction: MigrationDb, projectId: string, ownerId: string) => Promise<void>;
+let projectCreationParticipant: ProjectCreationParticipant | null = null;
+
+/** The application composition root registers its transaction participant at boot. */
+export function configureProjectCreationParticipant(participant: ProjectCreationParticipant | null): void {
+  projectCreationParticipant = participant;
+}
 
 export async function listProjects(): Promise<Project[]> {
   // The seeded self project (dev-mode dogfooding workspace) is pinned first
@@ -39,11 +48,8 @@ export async function getProject(id: string): Promise<Project | undefined> {
  * ownerless backfill attributes it to the first admin on the next boot. The
  * one path that matters, `POST /api/projects`, always passes it.
  *
- * The membership insert is not wrapped in a transaction with the project
- * insert, because the two drivers (PGlite / Bun.sql) expose different
- * transaction handles and every other multi-write path in this layer is
- * written the same way. The failure mode is a project with no members, which
- * is precisely the state the backfill already repairs.
+ * The project, owner membership, and configured factory owner grants share
+ * one transaction. A failed membership or audit write leaves no project.
  */
 export async function createProject(
   data: NewProject,
@@ -59,9 +65,15 @@ export async function createProject(
     createdAt: now,
     updatedAt: now,
   };
-  await getDb().insert(projects).values(row);
-  if (ownerUserId) await upsertProjectMember(row.id, ownerUserId, "owner");
-  return row;
+  const participant = projectCreationParticipant;
+  return getDb().transaction(async (transaction: DbTransaction) => {
+    await transaction.insert(projects).values(row);
+    if (ownerUserId) {
+      await upsertProjectMemberInTransaction(transaction, row.id, ownerUserId, "owner");
+      await participant?.(transaction, row.id, ownerUserId);
+    }
+    return row;
+  });
 }
 
 export async function updateProject(id: string, data: Partial<NewProject>): Promise<Project | undefined> {
