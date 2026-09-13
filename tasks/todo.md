@@ -1370,6 +1370,15 @@ Review: the release authority store now derives a per-node current candidate onl
 - [x] Run coverage, typechecks, and lint; record review.
 
 Review: `FactoryArtifactAccess` grants only a human session's exact source artifact to one target project. The protected fact seals digest, byte count, kind, media type, storage version and issuer grant revision. Reads lock and compare the host row, call `FactoryArtifacts.loadInTransaction`, and return only opaque denials. `FactoryArtifacts.load` snapshots public authority before its transaction starts. `/tmp/factory-platform-evidence/terra-artifact-access-coverage.log` records 31 passing PGlite cases and 123 assertions, with artifact access 98/98, migration 6/6 and artifacts 99/99 measured lines. `/tmp/factory-platform-evidence/terra-artifact-access-postgres-s3.log` records the isolated PostgreSQL/S3 case passing. `/tmp/factory-platform-evidence/terra-artifact-access-types-lint.log` records root/web frozen installs, SDK build, all canonical typecheck legs and lint passing (eight pre-existing infos). The remaining large-input work needs a bounded lazy activity contract; this access leaf does not expand an artifact into a run request or Temporal history.
+## Factory release and assurance idempotency
+
+- [x] Route public human release and assurance mutations through shared durable receipts.
+- [x] Reject reused keys with different canonical payloads before product mutation.
+- [x] Reauthorize cached retries and return the original stable resource without duplicate facts or notifications.
+- [x] Prove PGlite/PostgreSQL behavior, rollback, coverage, types, lint, boundaries, and gate integrity.
+
+Review: required bounded idempotency keys now protect release preparation, approval requests, policy creation and revocation, reconciliation, assurance contract approval, and approval decisions. Preparation stores a stable locator in the shared receipt before archive publication, so a failed archive can resume without changing operation identity. Reconciliation runs its provider proof, immutable archive, product transition, audit, and cached response under one receipt transaction. Cached responses recheck current grants and do not repeat notifications, archives, provider absence checks, or product facts. PGlite and isolated PostgreSQL each pass 26 cases with 115 assertions. Focused LCOV measures releases 305/305, assurance 151/151, and shared mutations 39/39 executable lines. SDK and transport builds, all four typechecks, lint, factory boundaries, and gate integrity pass. The gate ledger is `tasks/factory/release-idempotency-GATES.md`.
+
 ## Combined projection and backend review
 
 - [x] Verify the combined SDK expansion, repair and projection changes.

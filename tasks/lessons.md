@@ -453,3 +453,8 @@
 - In tool orchestration, check each shell exit code before dependent staging or commit calls. A failed conflict-resolution script must stop the sequence.
 - Validate the current protected row before advancing any authority revision or epoch. A correct expected counter must never launder a damaged prior seal.
 - A successful terminal fact must close the attempt's effect journal. Preserve exact terminal replay through its own verified path, and reject every later prepare or dispatch.
+
+## 2026-09-13 — Release mutation receipts
+
+- For a mutation with post-commit immutable archive work, cache a stable product locator first. On retry, reauthorize, resolve the current product row, and resume only the missing archive phase.
+- Put reconciliation proof, archive publication, product state, audit, and the cached response under one receipt transaction. This prevents a cached retry from repeating external proof or creating another reconciliation fact.
