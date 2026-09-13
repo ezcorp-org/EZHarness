@@ -1,4 +1,4 @@
-import type { CompiledExecutionManifest, CompiledPartitionArtifact, JsonValue } from "@ezcorp/factory-sdk";
+import type { CompiledExecutionManifest, CompiledPartitionArtifact, FactoryDurableInput, JsonValue } from "@ezcorp/factory-sdk";
 import type { KernelCommand, KernelEvent, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { FACTORY_PAGE_BYTES_LIMIT } from "@ezcorp/factory-sdk/page-bytes";
 export { MAX_TRANSPORT_ENVELOPE_BYTES } from "@ezcorp/factory-sdk/transport-types";
@@ -83,6 +83,8 @@ export interface FactoryWorkflowInput {
   readonly deadlineAtMs?: number;
   readonly definition: FactoryPlanSource;
   readonly input: JsonValue;
+  /** Optional tagged descriptor. Legacy JSON inputs remain JSON even if they contain a schemaVersion key. */
+  readonly durableInput?: FactoryDurableInput;
   readonly continuation?: FactoryContinuation;
 }
 
