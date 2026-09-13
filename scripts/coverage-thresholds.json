@@ -184,6 +184,7 @@
   "src/factory/task-execution-admission.ts": 100,
   "src/factory/native-runner-policy.ts": 100,
   "src/factory/private-commands.ts": 100,
+  "src/factory/partition-commands.ts": 100,
   "src/factory/task-completions.ts": 100,
   "src/db/migrations/add-factory-task-completions.ts": 100,
   "src/factory/task-outcomes.ts": 100,

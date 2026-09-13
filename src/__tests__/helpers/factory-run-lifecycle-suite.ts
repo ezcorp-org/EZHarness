@@ -37,7 +37,7 @@ import { FactoryLazyInputReader } from "../../factory/lazy-input";
 import { FactoryArtifactAccess } from "../../factory/artifact-access";
 import { startFactoryPrivateService } from "../../factory/private-service";
 import { FactoryTransportQueue } from "../../factory/transport-queue";
-import { certificates, nodeHttpsRequest, signedServiceToken } from "./factory-certificates";
+import { certificates, nodeHttpsRequest, signedServiceToken, type Certificates } from "./factory-certificates";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
@@ -66,12 +66,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   const cancelRun = async (...args: Parameters<FactoryRunLifecycle["cancel"]>) => (await lifecycle.cancel(...args)).run;
   const dispatchReady = { async assertDispatchReady() { return Object.freeze({ ready: true }); } };
   const dispatchReadinessDisposition = (error: unknown): "retry" | "deny" => error instanceof Error && error.message === "package denied" ? "deny" : "retry";
-  const privateCommands = (authority: FactoryCommandAuthority, transitions: FactoryTransitionArtifacts, stores: Partial<Pick<FactoryPrivateCommandStores, "tasks" | "execution" | "inputs" | "children" | "approvals">>) => {
+  const privateCommands = (authority: FactoryCommandAuthority, transitions: FactoryTransitionArtifacts, stores: Partial<Pick<FactoryPrivateCommandStores, "tasks" | "execution" | "inputs" | "children" | "approvals">>, effects: Partial<FactoryPrivateCommandStores["effects"]> = {}) => {
     const unused = async (): Promise<never> => { throw new Error("Unexpected product command in this fixture."); };
     return new FactoryPrivateCommands({
       service: { tenantId, subject: "orchestration" }, authority, transitions,
       tasks: { request: unused }, execution: { admit: unused }, inputs: { execute: unused }, children: { resolve: unused }, approvals: { tenantId, execute: unused },
-      effects: { "cancel-node": unused, "request-acceptance": unused, "request-release": unused, "invalidate-partition": unused, "notify-partition": unused }, ...stores,
+      effects: { "cancel-node": unused, "request-acceptance": unused, "request-release": unused, "invalidate-partition": unused, "notify-partition": unused, ...effects }, ...stores,
     });
   };
   const start = () => startRun(principal, key, body, 0, `start-${++sequence}`);
@@ -1453,12 +1453,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await expect(fixture.db.transaction(tx => lifecycle.authorizeAdmissionInTransaction(tx, runKey(deadline.runId)))).rejects.toMatchObject({ code: "factory_run_stopped" });
   });
 
-  test("the real private Node connection admits only the committed task and exact durable request", async () => {
-    const task = await dispatchedTask();
-    const node = task.compiled.indexes.nodeById[task.dispatch.nodeId];
-    if (node?.kind !== "task") throw new Error("missing task node");
-    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: node.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: [], tools: [] }], "factory-broker");
-    const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
+  const withPrivateConnection = async (current: Pick<Awaited<ReturnType<typeof committedInterpreter>>, "activities">, commands: FactoryPrivateCommands, work: (connection: { url: string; certs: Certificates; token: string }) => Promise<void>) => {
     const directories: string[] = [];
     let server: ReturnType<typeof startFactoryPrivateService> | undefined;
     try {
@@ -1471,9 +1466,23 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
         tenantId, certificateIdentity: "orchestration", tls: { ca: certs.ca, cert: certs.serverCert, key: certs.serverKey },
         tokens: async () => ({ issuer, audience, publicKeys: { test: keys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
         queue: new FactoryTransportQueue(new FactoryCommandOutbox(fixture.db, tenantId, projectId), new FactoryInbox(fixture.db, tenantId)),
-        artifacts: task.activities, commands: privateCommands(task.authority, task.transitions, { execution }),
+        artifacts: current.activities, commands,
       });
-      const url = `${server.url}/internal/factory/v1/executions/${encodeURIComponent(task.dispatch.id)}`;
+      await work({ url: server.url, certs, token });
+    } finally {
+      server?.stop();
+      await Promise.all(directories.map(directory => rm(directory, { recursive: true, force: true })));
+    }
+  };
+
+  test("the real private Node connection admits only the committed task and exact durable request", async () => {
+    const task = await dispatchedTask();
+    const node = task.compiled.indexes.nodeById[task.dispatch.nodeId];
+    if (node?.kind !== "task") throw new Error("missing task node");
+    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: node.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: [], tools: [] }], "factory-broker");
+    const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
+    await withPrivateConnection(task, privateCommands(task.authority, task.transitions, { execution }), async ({ url: baseUrl, certs, token }) => {
+      const url = `${baseUrl}/internal/factory/v1/executions/${encodeURIComponent(task.dispatch.id)}`;
       const body = { ...task.identity, command: { ...task.dispatch, input: { forged: true }, runner: { package: "untrusted" }, grants: ["admin"], resources: { memoryBytes: 999999 } } };
       expect((await nodeHttpsRequest(url, certs, { method: "PUT", token: "invalid", body })).status).toBe(401);
       expect(await fixture.db.transaction(tx => task.queue.readStoredInTransaction(tx, projectId, task.dispatch.id))).toBeNull();
@@ -1482,40 +1491,178 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       expect(stored?.request).toMatchObject({ runner: node.runner, input: { kind: "inline", value: task.dispatch.input }, grants: [], resources: { memoryBytes: 128 }, authority: { attemptId: task.dispatch.id, tenantId, projectId, runId: task.run.runId } });
       expect((await nodeHttpsRequest(url, certs, { method: "PUT", token, body: { ...body, tenantId: "foreign" } })).status).toBe(403);
       expect(await fixture.db.transaction(tx => task.queue.readStoredInTransaction(tx, projectId, task.dispatch.id))).toEqual(stored);
-    } finally {
-      server?.stop();
-      await Promise.all(directories.map(directory => rm(directory, { recursive: true, force: true })));
-    }
+    });
   });
 
-  test("a published partition persists its full bounded command batch above the activity concurrency limit", async () => {
-    const definitionKey = { projectId, factoryId: "partition-delivery-factory" };
+  const partitionFixture = async (suffix: string, active = true, failed = false) => {
+    const definitionKey = { projectId, factoryId: `partition-${suffix}-factory` };
     const prototype = referenceCodeV1.graph.nodes.find(node => node.kind === "task");
     if (prototype?.kind !== "task") throw new Error("missing task fixture");
     const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts: {}, outputPorts: {},
       bounds: { ...referenceCodeV1.bounds, maxExpandedNodes: 512 },
       graph: { nodes: [
-        { id: "a", kind: "join", mode: "all", predecessors: [] },
-        ...Array.from({ length: 130 }, (_, index) => ({ id: `slow-${String(index).padStart(3, "0")}`, kind: "task" as const, runner: prototype.runner })),
+        failed ? { id: "a", kind: "task", runner: prototype.runner, retry: { maxAttempts: 1, initialDelayMs: 1, maximumDelayMs: 1 } } : { id: "a", kind: "join", mode: "all", predecessors: [] },
+        ...Array.from({ length: 130 }, (_, index) => (active ? { id: `slow-${String(index).padStart(3, "0")}`, kind: "task" as const, runner: prototype.runner } : { id: `slow-${String(index).padStart(3, "0")}`, kind: "join" as const, mode: "all" as const, predecessors: [] })),
         { id: "z", kind: "join", mode: "all", predecessors: ["a"] },
       ], outputs: {} } };
-    await definitions.save(principal, definitionKey, 0, "partition-delivery-create", source);
-    const version = await definitions.publish(principal, definitionKey, 1, "partition-delivery-publish");
+    await definitions.save(principal, definitionKey, 0, `${suffix}-partition-create`, source);
+    const version = await definitions.publish(principal, definitionKey, 1, `${suffix}-partition-publish`);
     const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: {} };
-    const run = await startRun(principal, definitionKey, request, 0, "partition-delivery-start");
+    const run = await startRun(principal, definitionKey, request, 0, `${suffix}-partition-start`);
     const current = await committedInterpreter(run.runId, definitionKey, request);
     const sourcePartition = current.compiled.partitions.find(partition => partition.nodeIds.includes("a"))!;
     const targetPartition = current.compiled.partitions.find(partition => partition.nodeIds.includes("z"))!;
     expect(sourcePartition.id).not.toBe(targetPartition.id);
     const identity = { ...current.identity, interpreterId: sourcePartition.id };
     const initial = createPartitionKernelState(current.compiled, sourcePartition.id, run.runId, {}, now);
-    const first = advanceKernel(current.compiled, initial, current.event);
+    let first = advanceKernel(current.compiled, initial, current.event);
+    await persistTransition(identity, 1, current.event, first.nextState, first.commands, undefined, current.activities);
+    if (failed) {
+      const admission = first.commands.find(value => value.kind === "request-admission" && value.nodeId === "a");
+      if (admission?.kind !== "request-admission") throw new Error("missing source admission");
+      const admitted = { kind: "admission-result" as const, id: `${admission.id}:admitted`, atMs: now + 1, nodeId: "a", commandId: admission.id, candidateGeneration: 0, granted: true };
+      first = advanceKernel(current.compiled, first.nextState, admitted);
+      await persistTransition(identity, 2, admitted, first.nextState, first.commands, undefined, current.activities);
+      const dispatch = first.commands.find(value => value.kind === "dispatch-node" && value.nodeId === "a");
+      if (dispatch?.kind !== "dispatch-node") throw new Error("missing source dispatch");
+      const failure = { kind: "node-failed" as const, id: `${dispatch.id}:failed`, atMs: now + 2, nodeId: "a", commandId: dispatch.id, candidateGeneration: 0, attempt: dispatch.attempt, error: "source failed", failureKind: "execution" as const };
+      first = advanceKernel(current.compiled, first.nextState, failure);
+      await persistTransition(identity, 3, failure, first.nextState, first.commands, undefined, current.activities);
+      const stopped = { kind: "attempt-stopped" as const, id: `${dispatch.id}:stopped`, atMs: now + 3, nodeId: "a", commandId: dispatch.id, candidateGeneration: 0, attempt: dispatch.attempt, uncertain: false };
+      first = advanceKernel(current.compiled, first.nextState, stopped);
+      await persistTransition(identity, 4, stopped, first.nextState, first.commands, undefined, current.activities);
+    }
     const command = first.commands.find(value => value.kind === "notify-partition");
     if (command?.kind !== "notify-partition") throw new Error("missing partition notification");
-    await persistTransition(identity, 1, current.event, first.nextState, first.commands, undefined, current.activities);
+    return { current, identity, first, sourcePartition, targetPartition, run, command };
+  };
+  test("a published partition persists its full bounded command batch above the activity concurrency limit", async () => {
+    const { first, run, sourcePartition, current, identity } = await partitionFixture("batch");
     expect(first.commands.length).toBeGreaterThan(32);
     const indexed = rows(await fixture.db.execute(sql`SELECT command_id FROM factory_transition_commands WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${sourcePartition.id}`));
     expect(indexed).toHaveLength(first.commands.length);
     for (const command of [first.commands[0]!, first.commands.at(-1)!]) expect(await current.transitions.loadStoredCommand({ ...identity, commandId: command.id })).toEqual(command);
+  });
+  test("partition commands persist one notification for an unstarted successor across harmless source progress", async () => {
+    const { current, identity, first, targetPartition, run, command } = await partitionFixture("delivery");
+    const { FactoryPartitionCommands } = await import("../../factory/partition-commands");
+    const deliveries = new FactoryPartitionCommands(current.authority, new FactoryInbox(fixture.db, tenantId, () => now));
+    const service = { tenantId, subject: "orchestration" };
+    const reference = { ...identity, commandId: command.id };
+    const commands = privateCommands(current.authority, current.transitions, {}, { "notify-partition": deliveries.execute.bind(deliveries), "invalidate-partition": deliveries.execute.bind(deliveries) });
+    expect(await commands.execute(service, reference)).toBeNull();
+    const saved = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${targetPartition.id}`));
+    expect(saved).toHaveLength(1);
+    const notification = JSON.parse(saved[0]!.payload);
+    expect(notification).toEqual({ ...command, id: `${command.id}:result`, kind: "partition-node-completed", atMs: now });
+    expect(rows(await fixture.db.execute(sql`SELECT source_sequence FROM factory_audit_batches WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${targetPartition.id}`))).toHaveLength(0);
+    const event = { kind: "timer-expired" as const, id: "partition-harmless-progress", commandId: "unknown-timer", atMs: now + 1 };
+    const next = advanceKernel(current.compiled, first.nextState, event);
+    await persistTransition(identity, 2, event, next.nextState, next.commands, undefined, current.activities);
+    expect(await deliveries.execute(service, reference)).toBeNull();
+    expect(rows(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${targetPartition.id}`))).toEqual(saved);
+    const target = advanceKernel(current.compiled, createPartitionKernelState(current.compiled, targetPartition.id, run.runId, {}, now), current.event);
+    expect(target.nextState.nodes.z?.status).toBe("ready");
+    expect(advanceKernel(current.compiled, target.nextState, notification).nextState.nodes.z?.status).toBe("succeeded");
+    await expect(deliveries.execute({ ...service, tenantId: "foreign" }, reference)).rejects.toMatchObject({ code: "factory_command_forbidden" });
+  });
+
+  test("a completed source delivers only after the destination inbox and outbox commit together", async () => {
+    const { current, identity, first, targetPartition, run, command } = await partitionFixture("rollback", false);
+    expect(first.nextState.status).toBe("completed");
+    const { FactoryPartitionCommands } = await import("../../factory/partition-commands");
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    expect(() => new FactoryPartitionCommands(current.authority, { ...inbox, tenantId: "foreign" } as FactoryInbox)).toThrow("factory_partition_commands_invalid");
+    const deliveries = new FactoryPartitionCommands(current.authority, inbox);
+    const service = { tenantId, subject: "orchestration" };
+    const reference = { ...identity, commandId: command.id };
+    const enqueue = inbox.enqueueInTransaction.bind(inbox);
+    const fault = spyOn(inbox, "enqueueInTransaction").mockImplementationOnce(async (...args) => { await enqueue(...args); throw new Error("partition inbox commit fault"); });
+    try { await expect(deliveries.execute(service, reference)).rejects.toThrow("partition inbox commit fault"); }
+    finally { fault.mockRestore(); }
+    expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId}`))).toHaveLength(0);
+    expect(rows(await fixture.db.execute(sql`SELECT id FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id=${run.runId} AND payload::jsonb->'command'->>'kind'='partition_notification'`))).toHaveLength(0);
+    const mutable = { ...reference };
+    const pending = deliveries.execute(service, mutable);
+    mutable.logicalRunId = "foreign";
+    expect(await pending).toBeNull();
+    const stored = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${targetPartition.id}`));
+    expect(stored).toHaveLength(1);
+    expect(JSON.parse(stored[0]!.payload)).toMatchObject({ id: `${command.id}:result`, atMs: now, outcome: "succeeded" });
+    await fixture.db.execute(sql`UPDATE factory_transition_commands SET command_digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${identity.interpreterId} AND command_id=${command.id}`);
+    await expect(deliveries.execute(service, reference)).rejects.toMatchObject({ code: "factory_transition_command_corrupt" });
+    expect(rows(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${targetPartition.id}`))).toEqual(stored);
+  });
+
+  test("repair invalidation rejects old source output and delivers the new candidate by the same durable route", async () => {
+    const { current, identity, first, targetPartition, run, command } = await partitionFixture("repair");
+    const { FactoryPartitionCommands } = await import("../../factory/partition-commands");
+    const deliveries = new FactoryPartitionCommands(current.authority, new FactoryInbox(fixture.db, tenantId, () => now));
+    const service = { tenantId, subject: "orchestration" };
+    const reference = { ...identity, commandId: command.id };
+    expect(await deliveries.execute(service, reference)).toBeNull();
+    const repair = { kind: "repair" as const, id: "partition-delivery-repair", atMs: now + 1, nodeId: "a", reason: "replace source" };
+    const repaired = advanceKernel(current.compiled, first.nextState, repair);
+    await persistTransition(identity, 2, repair, repaired.nextState, repaired.commands, undefined, current.activities);
+    await expect(deliveries.execute(service, reference)).rejects.toMatchObject({ code: "factory_command_stale" });
+    const invalidation = repaired.commands.find(value => value.kind === "invalidate-partition")!;
+    const notification = repaired.commands.find(value => value.kind === "notify-partition")!;
+    expect(invalidation).toBeDefined(); expect(notification).toBeDefined();
+    for (const effect of [invalidation, notification]) expect(await deliveries.execute(service, { ...identity, commandId: effect.id })).toBeNull();
+    const events = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${targetPartition.id} ORDER BY sequence`)).map(row => JSON.parse(row.payload));
+    expect(events.map(value => value.kind)).toEqual(["partition-node-completed", "partition-source-invalidated", "partition-node-completed"]);
+    let target = advanceKernel(current.compiled, createPartitionKernelState(current.compiled, targetPartition.id, run.runId, {}, now), current.event).nextState;
+    target = advanceKernel(current.compiled, target, events[0]).nextState;
+    expect(target.nodes.z?.status).toBe("succeeded");
+    target = advanceKernel(current.compiled, target, events[1]).nextState;
+    expect(target.nodes.z?.status).not.toBe("succeeded");
+    target = advanceKernel(current.compiled, target, { ...events[0], id: "stale-generation-replay" }).nextState;
+    expect(target.nodes.z?.status).not.toBe("succeeded");
+    target = advanceKernel(current.compiled, target, events[2]).nextState;
+    expect(target.nodes.z).toMatchObject({ status: "succeeded", candidateGeneration: 1 });
+  });
+
+  test("a failed partition source delivers its terminal outcome to the successor", async () => {
+    const { current, identity, first, targetPartition, run, command } = await partitionFixture("failed", false, true);
+    expect(command.outcome).toBe("failed");
+    expect(first.nextState.status).toBe("failed");
+    const { FactoryPartitionCommands } = await import("../../factory/partition-commands");
+    const deliveries = new FactoryPartitionCommands(current.authority, new FactoryInbox(fixture.db, tenantId, () => now));
+    expect(await deliveries.execute({ tenantId, subject: "orchestration" }, { ...identity, commandId: command.id })).toBeNull();
+    const records = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND interpreter_id=${targetPartition.id}`));
+    expect(records).toHaveLength(1);
+    expect(JSON.parse(records[0]!.payload)).toMatchObject({ kind: "partition-node-completed", outcome: "failed", error: command.error });
+  });
+
+  test("the private Node connection delivers committed partition data and confirms only the consumed successor event", async () => {
+    const { current, identity, targetPartition, run, command } = await partitionFixture("node-delivery");
+    const { FactoryPartitionCommands } = await import("../../factory/partition-commands");
+    const deliveries = new FactoryPartitionCommands(current.authority, new FactoryInbox(fixture.db, tenantId, () => now));
+    const commands = privateCommands(current.authority, current.transitions, {}, { "notify-partition": deliveries.execute.bind(deliveries), "invalidate-partition": deliveries.execute.bind(deliveries) });
+    await withPrivateConnection(current, commands, async ({ url, certs, token }) => {
+      const request = { ...identity, command: { ...command, output: { forged: true }, targetPartitionId: "foreign-partition", candidateGeneration: 999 } };
+      const path = `${url}/internal/factory/v1/commands/${encodeURIComponent(command.id)}`;
+      expect((await nodeHttpsRequest(path, certs, { token: "invalid", body: request })).status).toBe(401);
+      for (let retry = 0; retry < 2; retry++) expect((await nodeHttpsRequest(path, certs, { token, body: request })).status).toBe(204);
+      const stored = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id=${run.runId} AND payload::jsonb->'command'->>'kind'='partition_notification'`));
+      expect(stored).toHaveLength(1);
+      const delivery = JSON.parse(stored[0]!.payload).command;
+      expect(delivery).toMatchObject({ interpreterId: targetPartition.id, eventId: `${command.id}:result`, body: { candidateGeneration: 0, targetPartitionId: targetPartition.id, outcome: "succeeded" } });
+      expect(delivery.body.output).toEqual(command.output);
+      const confirm = async () => {
+        const response = await nodeHttpsRequest(`${url}/internal/factory/v1/outbox/confirm-inbox`, certs, { token, body: { command: delivery } });
+        expect(response.status).toBe(200);
+        return JSON.parse(response.body.toString());
+      };
+      expect(await confirm()).toBe(false);
+      const targetIdentity = { ...identity, interpreterId: targetPartition.id };
+      const initial = advanceKernel(current.compiled, createPartitionKernelState(current.compiled, targetPartition.id, run.runId, {}, now), current.event);
+      await persistTransition(targetIdentity, 1, current.event, initial.nextState, initial.commands, undefined, current.activities);
+      const consumed = advanceKernel(current.compiled, initial.nextState, delivery.body);
+      expect(consumed.nextState.nodes.z?.status).toBe("succeeded");
+      await persistTransition(targetIdentity, 2, delivery.body, consumed.nextState, consumed.commands, { sequence: delivery.eventSequence, eventId: delivery.eventId, eventHash: delivery.eventHash }, current.activities);
+      expect(await confirm()).toBe(true);
+      expect((await nodeHttpsRequest(path, certs, { token, body: { ...request, tenantId: "foreign" } })).status).toBe(403);
+    });
   });
 }
