@@ -881,7 +881,15 @@ jobs:
 
   # Required check (branch protection): merges every shard + extras lcov and
   # enforces scripts/coverage-thresholds.json + the diff-scoped new-file/patch
-  # gates. No `bun install` — the gate scripts use only bun + node: builtins.
+  # gates.
+  #
+  # This job used to run without `bun install`, because every gate script here
+  # imported only `bun` and `node:` builtins. `scripts/crap-score.ts` broke that
+  # property: it reads the TypeScript AST for McCabe complexity, so it imports
+  # the real `typescript` package. Bun does not fail that import when the
+  # package is absent — it hands back an object whose members are all
+  # `undefined`, so the step died on `ts.ScriptTarget.Latest` rather than on a
+  # missing module. Install before running the gates.
   coverage:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
@@ -907,6 +915,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version # single pin source; see note at top
+      # Root only: `scripts/crap-score.ts` needs `typescript`, and no gate
+      # script in this job reaches into `web/`.
+      - run: bun install --frozen-lockfile
       - run: git fetch --no-tags origin main
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
