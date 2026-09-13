@@ -109,6 +109,19 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     return current;
   }
 
+  /** Cancel work that has not been leased. Leased work needs an owned settlement. */
+  async cancel(store: DurableDeliveryStore<Record>, scope: string, id: string, failureCode?: string): Promise<Record> {
+    const current = await store.findById(scope, id);
+    if (!current) throw this.error("not_found", "Delivery not found.");
+    if (current.state === "cancelled") return current;
+    if (current.state !== "queued") throw this.error("delivery_already_dispatched", "Only queued delivery work can be cancelled.");
+    current.state = "cancelled";
+    current.leaseUntil = 0;
+    if (failureCode) current.failureCode = /^[a-zA-Z0-9_-]{1,128}$/.test(failureCode) ? failureCode : "delivery_cancelled";
+    await store.write(current);
+    return current;
+  }
+
   async inspect(store: DurableDeliveryStore<Record>, scope: string, id: string): Promise<Record | null> {
     return store.inspect(scope, id);
   }

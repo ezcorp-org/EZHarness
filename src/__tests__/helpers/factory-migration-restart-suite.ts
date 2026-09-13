@@ -3,14 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
-import { migrate } from "../../db/migrate";
 import type { MigrateDb, TransactionalDb } from "../../db/migrations/types";
 import { up as scopePrimaryKey } from "../../db/migrations/scope-factory-artifact-primary-key";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { FileBlobStore } from "../../extensions/v4/blobs";
 import { FactoryArtifacts } from "../../factory/artifacts";
 
-interface Fixture { db: MigrateDb & TransactionalDb; close(): Promise<void> }
+interface Fixture { db: MigrateDb & TransactionalDb; migrate(): Promise<void>; close(): Promise<void> }
 
 export function factoryMigrationRestartConformance(createFixture: () => Promise<Fixture>): void {
   let fixture: Fixture;
@@ -36,7 +35,7 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     const constraints = async () => rows<{ oid: number; definition: string }>(await db.execute(sql`SELECT oid,pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid IN ('factory_artifacts'::regclass,'factory_execution_terminals'::regclass,'factory_release_candidate_history'::regclass) AND contype IN ('p','f') ORDER BY oid`));
     const before = await constraints();
     for (let boot = 0; boot < 2; boot++) {
-      await migrate(db);
+      await fixture.migrate();
       expect(await constraints()).toEqual(before);
       for (const candidate of candidates) expect((await artifacts.load(scope, { objectId: candidate.artifactId, digest: candidate.digest, encodedBytes: candidate.encodedBytes }, ["candidate_output"])).content).toEqual(content);
       for (const partition of partitions) expect((await artifacts.load(scope, partition, ["partition"])).reference).toEqual(partition);

@@ -119,8 +119,10 @@ export function factoryPrivateServiceConformance(create: () => Promise<{ db: Tra
   test("encrypted stored definitions and transitions cross the real Node connection as exact immutable bytes", async () => {
     const source = await definitions.stageDefinition(compiled, identity);
     const factory = { id: compiled.definition.id, version: compiled.definition.version, digest: compiled.digest };
-    expect(JSON.parse((await call("/definitions/resolve", { body: { ...identity, factory } })).body.toString())).toEqual(source);
-    expect((await call("/definitions/resolve", { body: { ...identity, factory: { ...factory, digest: `sha256:${"0".repeat(64)}` } } })).status).toBe(404);
+    expect((await call("/definitions/resolve", { body: { ...identity, factory } })).status).toBe(400);
+    expect((await call("/definitions/resolve", { body: { ...identity, commandId: "", factory } })).status).toBe(400);
+    expect(JSON.parse((await call("/definitions/resolve", { body: { ...identity, commandId: "resolve-command", factory } })).body.toString())).toEqual(source);
+    expect((await call("/definitions/resolve", { body: { ...identity, commandId: "resolve-command", factory: { ...factory, digest: `sha256:${"0".repeat(64)}` } } })).status).toBe(404);
     const manifestResponse = await call("/definitions/manifest", { body: { ...identity, definition: source, page: source.manifest } });
     expect(manifestResponse.status).toBe(200);
     expect(`sha256:${createHash("sha256").update(manifestResponse.body).digest("hex")}`).toBe(source.manifest.digest);

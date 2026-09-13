@@ -39,6 +39,7 @@
 - A fixed oldest-first pending page can starve healthy work when a corrupt row remains pending. Persist each failed attempt and order unattempted work before the least-recently-attempted retry; prove the `runs: 1` case across repeated drains.
 - A resolver that expands a large immutable artifact into JSON can exceed durable request and workflow-history limits. Keep oversized inputs as verified opaque references through the start and activity contracts, and bind media type plus storage version with the digest and byte count.
 - Snapshot every public artifact-load identity, reference, and allowed-kind list before the transaction starts. A caller can mutate values while the database waits for a transaction.
+- A lazy artifact reader must derive its reference from the durable run parameter by name and compare the caller value exactly. A valid project artifact alone must not become an input substitution capability.
 - When a focused coverage command uses `set -u` in a login shell, the system logout hook can replace a successful test exit. Avoid the login shell or capture and return the command status outside that hook.
 - Check an agent’s live state before assigning the next check. A message to a completed agent does not restart work; use a follow-up task and verify that it is running.
 - Run the pinned secret scan after final evidence edits. Name commit-hash fields explicitly; an ambiguous API field can trigger a false positive. Correct the metadata instead of adding a scanner exception.
@@ -458,10 +459,17 @@
 - Validate the current protected row before advancing any authority revision or epoch. A correct expected counter must never launder a damaged prior seal.
 - A successful terminal fact must close the attempt's effect journal. Preserve exact terminal replay through its own verified path, and reject every later prepare or dispatch.
 
+- A PostgreSQL restart test must call the production migration adapter and lock, not a raw Drizzle connection whose execute result has a different shape. Reuse one fixture migration function for setup and restart.
+
 ## 2026-09-13 — Release mutation receipts
 
 - For a mutation with post-commit immutable archive work, cache a stable product locator first. On retry, reauthorize, resolve the current product row, and resume only the missing archive phase.
 - Put reconciliation proof, archive publication, product state, audit, and the cached response under one receipt transaction. This prevents a cached retry from repeating external proof or creating another reconciliation fact.
 - Map each factory release route to the C01 authentication table before declaring a shared session gate. Release preparation and reads can use scoped service principals; reconciliation uses write routing while its store still requires a human session. Contract, approval, policy, and trust remain session-only.
+## 2026-09-13 — Pool admission retries
+
+- Validate and snapshot the full pool request before writing its grant binding. An invalid resource vector must not reserve an id.
+- Converge concurrent identical first requests with conflict-safe insertion and an exact durable reread. A select followed by a plain insert is not retry-safe.
 - Authorize a reconciliation operator before loading protected operation details or resolving a provider. Keep the store's transactional authorization as the final current-authority fence.
 - Deep-snapshot public request bodies before the first await. A response or provider call must never observe mutations to the caller's nested objects while durable work is pending.
+- Live Temporal workflows use shared server/task-queue state. Acquire `/tmp/ezcorp-validation-heavy.lock` before every Temporal producer, write START only after acquisition, and await fixture teardown before another launch. SDK builds must run before any workflow bundle that imports a changed runtime SDK export.

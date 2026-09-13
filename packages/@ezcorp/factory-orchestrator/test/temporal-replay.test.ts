@@ -29,6 +29,7 @@ const eventHash = (event) => hash(canonicalizeJson(event));
 const packageDigest = hash("inert-package");
 const runner = { package: "inert", version: "1", digest: packageDigest, export: "run" };
 const node = { id: "work", kind: "task", runner, deadlineMs: 600_000 };
+const lazyDataInput = { data: { type: "object", properties: { label: { type: "string" } }, required: ["label"] } };
 
 function compileDefinition(definition) {
   const result = compileFactory(definition);
@@ -37,11 +38,11 @@ function compileDefinition(definition) {
   return result.factory;
 }
 
-function compiled(nodes, id) {
+function compiled(nodes, id, inputPorts = {}) {
   const childReferences = nodes.filter((item) => item.kind === "subfactory").map((item) => item.factory);
   const definition = {
     schemaVersion: "factory.v1", id, version: "1", interpreterCompatibility: "1",
-    inputPorts: {}, outputPorts: {}, graph: { nodes, outputs: {} },
+    inputPorts, outputPorts: {}, graph: { nodes, outputs: {} },
     acceptance: { id: "test-acceptance", version: "1", claims: [{ id: "test", validator: runner, required: true, protected: true }], groups: [] },
     packages: [{ name: runner.package, version: runner.version, digest: runner.digest }], factories: childReferences,
     capabilities: [], effects: [...new Set(["none", ...nodes.flatMap((item) => item.effects ?? [])])], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
@@ -176,6 +177,22 @@ async function waitForActivityCancellation(started) {
     await new Promise((resolve, reject) => context.cancellationSignal.addEventListener("abort", () => reject(context.cancellationSignal.reason), { once: true }));
   } finally {
     clearInterval(heartbeat);
+  }
+}
+
+async function waitForReleaseOrCancellation(released) {
+  const context = Context.current();
+  context.cancellationSignal.throwIfAborted();
+  let cancel = () => undefined;
+  const cancellation = new Promise((_, reject) => {
+    cancel = () => reject(context.cancellationSignal.reason);
+    context.cancellationSignal.addEventListener("abort", cancel, { once: true });
+  });
+  const heartbeat = setInterval(() => context.heartbeat(), 10);
+  try { await Promise.race([released, cancellation]); }
+  finally {
+    clearInterval(heartbeat);
+    context.cancellationSignal.removeEventListener("abort", cancel);
   }
 }
 
@@ -412,7 +429,7 @@ describe("factory Temporal workflow", () => {
             return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
           }
           if (command.kind === "dispatch-node") {
-            if (command.nodeId === "slow-0000") await slow;
+            if (command.nodeId === "slow-0000") await waitForReleaseOrCancellation(slow);
             if (command.nodeId === "z") {
               assert.deepEqual(command.input, { fromA: 7 });
               zAdvancedBeforeSlow = !slowReleased;
@@ -510,9 +527,9 @@ describe("factory Temporal workflow", () => {
       executeCommand: async ({ command }) => {
         if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
         if (command.kind === "dispatch-node") {
-          if (command.nodeId === sourceHoldId) await sourceHold;
-          if (command.nodeId === middleHoldId) await middleHold;
-          if (command.nodeId === "a" && command.candidateGeneration === 1) await replacementGate;
+          if (command.nodeId === sourceHoldId) await waitForReleaseOrCancellation(sourceHold);
+          if (command.nodeId === middleHoldId) await waitForReleaseOrCancellation(middleHold);
+          if (command.nodeId === "a" && command.candidateGeneration === 1) await waitForReleaseOrCancellation(replacementGate);
           if (command.nodeId === "zz-publish-repaired") publishCount += 1;
           return { kind: "node-result", id: `${command.id}:result`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: command.nodeId === "a" || command.nodeId === "m" ? { value: command.candidateGeneration + 1 } : {} };
         }
@@ -647,6 +664,83 @@ describe("factory Temporal workflow", () => {
     assert.equal(dispatches, 2);
   });
 
+  it("resolves a durable artifact field through the recorded command activity", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const lazyFactory = compiled([
+      { ...node, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } },
+    ], "lazy-field", lazyDataInput);
+    const artifact = { artifactId: "lazy-field", digest: packageDigest, encodedBytes: 70_000 };
+    const observed = [];
+    const activities = {
+      ...definitionActivities(lazyFactory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        observed.push(command.kind);
+        if (command.kind === "read-input-value") {
+          assert.deepEqual(command, { ...command, name: "data", artifact, path: ["label"], maxBytes: 32 * 1024 });
+          return { kind: "input-value-read", id: `${command.id}:value`, atMs: startedAtMs + 1, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact: command.artifact, path: command.path, storageVersion: "storage-v1", mediaType: "application/json", value: "loaded" };
+        }
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 2, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") {
+          assert.deepEqual(command.input, { value: "loaded" });
+          return { kind: "node-result", id: `${command.id}:result`, atMs: startedAtMs + 3, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: { value: "loaded" } };
+        }
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const result = await environment.client.workflow.execute("factoryWorkflow", {
+        workflowId: `tenant/lazy-field-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(lazyFactory, { logicalRunId: "lazy-field", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+      });
+      assert.equal(result.status, "completed");
+      assert.deepEqual(result.state.durableInput, { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } });
+      assert.equal(result.state.lazyInput?.versions[`${artifact.artifactId}\u0000${artifact.digest}\u0000${artifact.encodedBytes}`], "storage-v1");
+    });
+    assert.deepEqual(observed, ["read-input-value", "request-admission", "dispatch-node"]);
+  });
+
+  it("passes the tagged descriptor and command correlation into a child workflow", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const childFactory = compiled([
+      { ...node, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } },
+    ], "lazy-child", lazyDataInput);
+    const parentFactory = compiled([{ id: "child", kind: "subfactory", factory: { id: "lazy-child", version: "1", digest: childFactory.digest }, releaseMode: "none", grants: [] }], "lazy-parent");
+    const artifact = { artifactId: "lazy-child", digest: packageDigest, encodedBytes: 70_000 };
+    let resolvedCommandId: string | undefined;
+    let childLogicalRunId: string | undefined;
+    const baseActivities = definitionActivities(parentFactory, childFactory);
+    const activities = {
+      ...baseActivities,
+      resolveFactory: async (request) => {
+        resolvedCommandId = request.commandId;
+        return baseActivities.resolveFactory(request);
+      },
+      recordTransition: async () => undefined,
+      executeCommand: async ({ logicalRunId, command }) => {
+        if (command.kind === "read-input-value") {
+          childLogicalRunId = logicalRunId;
+          assert.deepEqual(command.artifact, artifact);
+          return { kind: "input-value-read", id: `${command.id}:value`, atMs: startedAtMs + 1, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact: command.artifact, path: command.path, storageVersion: "storage-v1", mediaType: "application/json", value: "child" };
+        }
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 2, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") return { kind: "node-result", id: `${command.id}:result`, atMs: startedAtMs + 3, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: { value: "child" } };
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const result = await environment.client.workflow.execute("factoryWorkflow", {
+        workflowId: `tenant/lazy-parent-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(parentFactory, { logicalRunId: "lazy-parent", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+      });
+      assert.equal(result.status, "completed");
+    });
+    assert.ok(resolvedCommandId);
+    assert.match(childLogicalRunId ?? "", /^child-[a-f0-9]{64}$/);
+  });
+
   it("runs a pinned subfactory as a child workflow", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const childFactory = compiled([], "child");
@@ -676,8 +770,8 @@ describe("factory Temporal workflow", () => {
       ...definitionActivities(parentFactory, childFactory),
       recordTransition: async () => undefined,
       executeCommand: async ({ logicalRunId, command }) => {
-        if (logicalRunId.startsWith("cancel-parent/child/") && command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
-        if (logicalRunId.startsWith("cancel-parent/child/") && command.kind === "dispatch-node") {
+        if (logicalRunId !== "cancel-parent" && command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (logicalRunId !== "cancel-parent" && command.kind === "dispatch-node") {
           await waitForActivityCancellation(childStarted);
         }
         if (logicalRunId === "cancel-parent" && command.kind === "cancel-node") return { kind: "attempt-stopped", id: `${command.id}:stopped`, atMs: startedAtMs + 3, nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt };
@@ -732,6 +826,36 @@ describe("factory Temporal workflow", () => {
       });
       assert.equal((await handle.result()).status, "failed");
     });
+  });
+
+  it("rejects a continuation that substitutes its durable descriptor", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const artifact = { artifactId: "persisted", digest: packageDigest, encodedBytes: 70_000 };
+    const replacement = { artifactId: "replacement", digest: packageDigest, encodedBytes: 70_000 };
+    const state = createKernelState(factory, "durable-continuation", {}, startedAtMs, {
+      schemaVersion: "factory.lazy-input.v1",
+      parameters: { data: { kind: "artifact", artifact } },
+    });
+    let effects = 0;
+    const activities = {
+      ...definitionActivities(factory),
+      recordTransition: async () => { effects += 1; },
+      executeCommand: async () => { effects += 1; throw new Error("mismatched continuation must not execute"); },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: `tenant/durable-continuation-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(factory, {
+          logicalRunId: "durable-continuation",
+          startedAtMs,
+          durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: replacement } } },
+          continuation: { state, inbox: [], pendingInbox: [], sourceSequence: 0, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 },
+        })],
+      });
+      await assert.rejects(handle.result(), (error) => (error as { cause?: { message?: unknown } }).cause?.message === "continuation durable input does not match workflow input");
+    });
+    assert.equal(effects, 0);
   });
 
   it("persists ordered approval inbox positions across repeated continuations and accepts cancellation after them", async () => {

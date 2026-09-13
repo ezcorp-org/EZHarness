@@ -2909,6 +2909,7 @@ export const {
   factoryVersions,
   factoryRunLifecycle,
   factoryExecutions,
+  factoryAttemptQueue,
   factoryExecutionOperationCursors,
   factoryExecutionOperations,
 } = buildFactorySchema({ projects, users, serviceAccounts });

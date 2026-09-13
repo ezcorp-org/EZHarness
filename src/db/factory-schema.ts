@@ -365,9 +365,39 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     createdAt: createdAtColumn(),
     updatedAt: updatedAtColumn(),
   }, (table) => [
+    uniqueIndex("factory_executions_scope_attempt_key").on(table.attemptId, table.tenantId, table.projectId, table.runId),
     index("idx_factory_executions_run").on(table.tenantId, table.projectId, table.runId, table.createdAt),
     foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
     check("factory_executions_status_check", sql`${table.status} IN ('admitted', 'running', 'cancel_accepted', 'stopped', 'failed')`),
+  ]);
+
+  const factoryAttemptQueue = pgTable("factory_attempt_queue", {
+    ...tenantProjectRunColumns(),
+    attemptId: text("attempt_id").notNull(),
+    deduplicationId: text("deduplication_id").notNull(),
+    inputHash: text("input_hash").notNull(),
+    state: text("state").notNull(),
+    attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+    maxAttempts: bigint("max_attempts", { mode: "number" }).notNull(),
+    availableAt: bigint("available_at", { mode: "number" }).notNull(),
+    leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0),
+    leaseToken: text("lease_token"),
+    failureCode: text("failure_code"),
+    referenceJson: jsonb("reference_json").notNull(),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.attemptId] }),
+    uniqueIndex("factory_attempt_queue_scope_deduplication_key").on(table.tenantId, table.projectId, table.deduplicationId),
+    index("idx_factory_attempt_queue_ready").on(table.tenantId, table.state, table.availableAt, table.leaseUntil, table.projectId, table.attemptId),
+    foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    check("factory_attempt_queue_input_hash_check", sql`${table.inputHash} ~ '^sha256:[0-9a-f]{64}$'`),
+    check("factory_attempt_queue_state_check", sql`${table.state} IN ('queued','leased','delivered','cancelled','dead_letter','outcome_unknown')`),
+    check("factory_attempt_queue_attempts_check", sql`${table.attempts} >= 0`),
+    check("factory_attempt_queue_max_attempts_check", sql`${table.maxAttempts} >= 1 AND ${table.maxAttempts} <= 10`),
+    check("factory_attempt_queue_available_at_check", sql`${table.availableAt} >= 0`),
+    check("factory_attempt_queue_lease_until_check", sql`${table.leaseUntil} >= 0`),
   ]);
 
   const factoryExecutionOperationCursors = pgTable("factory_execution_operation_cursors", {
@@ -423,6 +453,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     factoryVersions,
     factoryRunLifecycle,
     factoryExecutions,
+    factoryAttemptQueue,
     factoryExecutionOperationCursors,
     factoryExecutionOperations,
   };

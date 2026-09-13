@@ -2,8 +2,8 @@ import { sql } from "drizzle-orm";
 import { lockFactoryScope } from "./locks";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
-import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
-import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
+import type { FactoryRunnerRequest, FactoryRunnerRequestIdentity } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
@@ -31,6 +31,15 @@ export interface FactoryAttemptAuthority {
 
 export interface FactoryAttemptAdmission extends FactoryAttemptAuthority {
   request: FactoryRunnerRequest;
+}
+
+/** Exact durable runner request. A fresh short-lived broker token is added only at dispatch. */
+export type FactoryDurableRunnerRequest = FactoryRunnerRequestIdentity;
+
+interface FactoryAttemptAdmissionSnapshot {
+  readonly authority: FactoryAttemptAuthority;
+  readonly requestHash: string;
+  readonly requestJson: string;
 }
 
 export interface FactoryJournalOperation {
@@ -112,37 +121,58 @@ function snapshotSettlement(value: FactoryOperationSettlement): FactoryOperation
   return Object.freeze({ ...(value.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: value.providerReceiptDigest }), ...(value.resultDigest === undefined ? {} : { resultDigest: value.resultDigest }), ...(value.result === undefined ? {} : { result: copy(value.result) }), ...(value.usage === undefined ? {} : { usage: copy(value.usage) }), ...(value.workspaceCheckpoint === undefined ? {} : { workspaceCheckpoint: copy(value.workspaceCheckpoint) }) });
 }
 
+function snapshotAdmission(value: FactoryAttemptAdmission): FactoryAttemptAdmissionSnapshot {
+  const authority = snapshotAuthority(value);
+  const callerRequest = value.request;
+  const request = factoryRunnerRequestIdentity(callerRequest);
+  const requestHash = digestObject(request);
+  if (requestHash !== authority.requestDigest) throw new Error("Factory signed attempt does not match the canonical runner request.");
+  if (request.authority.attemptId !== authority.attemptId || request.authority.tenantId !== authority.tenantId || request.authority.projectId !== authority.projectId || request.authority.runId !== authority.runId || request.authority.nodeInstanceId !== authority.nodeInstanceId || request.authority.candidateGeneration !== authority.candidateGeneration || request.authority.attemptNumber !== authority.attemptNumber || request.authority.grantRevision !== authority.grantRevision || request.authority.reservationGeneration !== authority.reservationGeneration || request.authority.executionEpoch !== authority.executionEpoch || request.authority.cancellationEpoch !== authority.cancellationEpoch || request.authority.deadlineAtMs !== authority.deadlineAt.getTime()) throw new Error("Factory signed attempt does not match the canonical runner request.");
+  return Object.freeze({ authority, requestHash, requestJson: canonicalJson(request) });
+}
+
+function durableRunnerRequest(value: unknown, requestHash: string): FactoryDurableRunnerRequest {
+  try {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid durable request");
+    const broker = (value as { broker?: unknown }).broker;
+    if (!broker || typeof broker !== "object" || Array.isArray(broker) || Object.hasOwn(broker, "attemptToken")) throw new Error("invalid durable broker");
+    const request = factoryRunnerRequestIdentity({ ...(value as FactoryDurableRunnerRequest), broker: { ...(broker as FactoryDurableRunnerRequest["broker"]), attemptToken: "durable-request-validation" } });
+    if (digestObject(request) !== requestHash || canonicalJson(request) !== canonicalJson(value)) throw new Error("durable request digest mismatch");
+    return request;
+  } catch {
+    throw new Error("Factory durable runner request is corrupt.");
+  }
+}
+
 /** Durable C02 journal; the gateway authenticates and supplies its authority. */
 export class FactoryExecutionJournal {
   constructor(private readonly db: TransactionalDb, private readonly authorizeInTransaction: FactoryAttemptAuthorizer, private readonly now: () => Date = () => new Date()) {}
   get database(): TransactionalDb { return this.db; }
 
   async admit(input: FactoryAttemptAdmission): Promise<{ requestHash: string; reused: boolean }> {
-    const authority = snapshotAuthority(input);
+    const snapshot = snapshotAdmission(input);
+    return this.db.transaction(database => this.admitSnapshotInTransaction(database, snapshot));
+  }
+
+  /** Admit inside the caller's product transaction, so an attempt and its queue row commit together. */
+  async admitInTransaction(database: MigrationDb, input: FactoryAttemptAdmission): Promise<{ requestHash: string; reused: boolean }> {
+    return this.admitSnapshotInTransaction(database, snapshotAdmission(input));
+  }
+
+  /** Load the exact committed request identity after current authority and lifecycle checks. */
+  async request(authority: FactoryAttemptAuthority): Promise<FactoryDurableRunnerRequest> {
+    authority = snapshotAuthority(authority);
+    return this.db.transaction(database => this.requestInTransaction(database, authority));
+  }
+
+  /** Transactional form used by restart and retry queues before they mint a new broker token. */
+  async requestInTransaction(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<FactoryDurableRunnerRequest> {
+    authority = snapshotAuthority(authority);
     this.assertLiveInput(authority);
-    const requestIdentity = factoryRunnerRequestIdentity(input.request);
-    const requestHash = factoryRunnerRequestDigest(input.request);
-    if (requestHash !== authority.requestDigest) throw new Error("Factory signed attempt does not match the canonical runner request.");
-    if (requestIdentity.authority.attemptId !== authority.attemptId || requestIdentity.authority.tenantId !== authority.tenantId || requestIdentity.authority.projectId !== authority.projectId || requestIdentity.authority.runId !== authority.runId || requestIdentity.authority.nodeInstanceId !== authority.nodeInstanceId || requestIdentity.authority.candidateGeneration !== authority.candidateGeneration || requestIdentity.authority.attemptNumber !== authority.attemptNumber || requestIdentity.authority.grantRevision !== authority.grantRevision || requestIdentity.authority.reservationGeneration !== authority.reservationGeneration || requestIdentity.authority.executionEpoch !== authority.executionEpoch || requestIdentity.authority.cancellationEpoch !== authority.cancellationEpoch || requestIdentity.authority.deadlineAtMs !== authority.deadlineAt.getTime()) throw new Error("Factory signed attempt does not match the canonical runner request.");
-    const requestJson = canonicalJson(requestIdentity);
-    return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
-      await this.authorizeInTransaction(database, authority);
-      const prior = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0];
-      if (prior) {
-        if (prior.request_hash !== requestHash) throw new Error("Factory attempt id conflicts with a different canonical request.");
-        return { requestHash, reused: true };
-      }
-      await database.execute(sql`INSERT INTO factory_execution_operation_cursors(tenant_id, project_id, run_id, node_instance_id, candidate_generation) VALUES (${authority.tenantId}, ${authority.projectId}, ${authority.runId}, ${authority.nodeInstanceId}, ${authority.candidateGeneration}) ON CONFLICT DO NOTHING`);
-      const cursor = releaseRows<{ next_operation_index: number | string }>(await database.execute(sql`SELECT next_operation_index FROM factory_execution_operation_cursors WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} FOR UPDATE`))[0];
-      const initialIndex = Number(cursor?.next_operation_index);
-      if (!Number.isSafeInteger(initialIndex) || initialIndex < 0) throw new Error("Factory operation cursor is invalid.");
-      const inserted = releaseRows(await database.execute(sql`INSERT INTO factory_executions(attempt_id, tenant_id, project_id, run_id, node_instance_id, candidate_generation, attempt_number, grant_revision, reservation_generation, execution_epoch, cancellation_epoch, deadline_at, request_hash, request_json, operation_initial_index, status) VALUES (${authority.attemptId}, ${authority.tenantId}, ${authority.projectId}, ${authority.runId}, ${authority.nodeInstanceId}, ${authority.candidateGeneration}, ${authority.attemptNumber}, ${authority.grantRevision}, ${authority.reservationGeneration}, ${authority.executionEpoch}, ${authority.cancellationEpoch}, ${authority.deadlineAt}, ${requestHash}, ${requestJson}::jsonb, ${initialIndex}, 'admitted') ON CONFLICT (attempt_id) DO NOTHING RETURNING attempt_id`));
-      if (inserted.length) return { requestHash, reused: false };
-      const raced = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0];
-      if (raced?.request_hash === requestHash) return { requestHash, reused: true };
-      throw new Error("Factory attempt admission did not persist.");
-    });
+    await this.lockLive(database, authority);
+    const stored = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0];
+    if (stored?.request_hash !== authority.requestDigest) throw new Error("Factory durable runner request is corrupt.");
+    return durableRunnerRequest(this.storedJson(stored.request_json), stored.request_hash);
   }
 
   async prepare(authority: FactoryAttemptAuthority, operation: FactoryJournalOperation): Promise<void> {
@@ -305,6 +335,27 @@ export class FactoryExecutionJournal {
         ...(terminal ? { workspaceCheckpoint: this.storedJson(terminal.workspace_checkpoint), terminalResult: this.storedJson(terminal.result_json) as JsonValue } : {}),
       };
     });
+  }
+
+  private async admitSnapshotInTransaction(database: MigrationDb, snapshot: FactoryAttemptAdmissionSnapshot): Promise<{ requestHash: string; reused: boolean }> {
+    const { authority, requestHash, requestJson } = snapshot;
+    this.assertLiveInput(authority);
+    await this.lockRunFence(database, authority);
+    await this.authorizeInTransaction(database, authority);
+    const prior = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId} FOR UPDATE`))[0];
+    if (prior) {
+      if (prior.request_hash !== requestHash || this.canonicalStoredJson(prior.request_json) !== requestJson) throw new Error("Factory attempt id conflicts with a different canonical request.");
+      return { requestHash, reused: true };
+    }
+    await database.execute(sql`INSERT INTO factory_execution_operation_cursors(tenant_id, project_id, run_id, node_instance_id, candidate_generation) VALUES (${authority.tenantId}, ${authority.projectId}, ${authority.runId}, ${authority.nodeInstanceId}, ${authority.candidateGeneration}) ON CONFLICT DO NOTHING`);
+    const cursor = releaseRows<{ next_operation_index: number | string }>(await database.execute(sql`SELECT next_operation_index FROM factory_execution_operation_cursors WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} FOR UPDATE`))[0];
+    const initialIndex = Number(cursor?.next_operation_index);
+    if (!Number.isSafeInteger(initialIndex) || initialIndex < 0) throw new Error("Factory operation cursor is invalid.");
+    const inserted = releaseRows(await database.execute(sql`INSERT INTO factory_executions(attempt_id, tenant_id, project_id, run_id, node_instance_id, candidate_generation, attempt_number, grant_revision, reservation_generation, execution_epoch, cancellation_epoch, deadline_at, request_hash, request_json, operation_initial_index, status) VALUES (${authority.attemptId}, ${authority.tenantId}, ${authority.projectId}, ${authority.runId}, ${authority.nodeInstanceId}, ${authority.candidateGeneration}, ${authority.attemptNumber}, ${authority.grantRevision}, ${authority.reservationGeneration}, ${authority.executionEpoch}, ${authority.cancellationEpoch}, ${authority.deadlineAt}, ${requestHash}, ${requestJson}::jsonb, ${initialIndex}, 'admitted') ON CONFLICT (attempt_id) DO NOTHING RETURNING attempt_id`));
+    if (inserted.length) return { requestHash, reused: false };
+    const raced = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId} FOR UPDATE`))[0];
+    if (raced?.request_hash === requestHash && this.canonicalStoredJson(raced.request_json) === requestJson) return { requestHash, reused: true };
+    throw new Error("Factory attempt admission did not persist.");
   }
 
   private sameEvidence(stored: { state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }, state: FactoryOperationState, result: FactoryOperationSettlement): boolean {

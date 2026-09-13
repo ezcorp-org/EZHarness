@@ -76,6 +76,40 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
     expect(await budgets.reserve(reserve("audit-error", 5), enqueue)).toEqual({ created: true });
   });
 
+  test("compute allocation and its admission event share one rollback boundary", async () => {
+    await open();
+    const request = reserve("atomic-allocation", 5);
+    await budgets.reserve(request, enqueue);
+    const allocation = { allocationToken: "first-allocation", reservationGeneration: 1 };
+    await expect(fixture.db.transaction(async transaction => {
+      await budgets.markRunningInTransaction(transaction, request, allocation);
+      throw new Error("admission event unavailable");
+    })).rejects.toThrow("admission event unavailable");
+    await budgets.markRunning(request, { ...allocation, allocationToken: "replacement-allocation" });
+    await expect(budgets.markRunning(request, allocation)).rejects.toMatchObject({ code: "factory_budget_conflict" });
+    expect((await budgets.inspect(key())).allocated.tokens).toBe("5");
+  });
+
+  test("an allocation keeps its requested reservation while the transaction waits", async () => {
+    await open();
+    const first = reserve("snapshot-first", 2);
+    const second = reserve("snapshot-second", 2);
+    await budgets.reserve(first, enqueue);
+    await budgets.reserve(second, enqueue);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const delayed = Object.create(fixture.db, { transaction: { value: async <Result>(work: (transaction: MigrationDb) => Promise<Result>) => { await gate; return fixture.db.transaction(work); } } }) as TransactionalDb;
+    const captured = new FactoryBudgets(delayed, tenantId, async () => { if (!authorized) throw new Error("grant revoked"); }, () => now);
+    const mutable = { projectId, runId, reservationId: first.reservationId };
+    const allocation = { allocationToken: "snapshot-allocation", reservationGeneration: 1 };
+    const pending = captured.markRunning(mutable, allocation);
+    mutable.reservationId = second.reservationId;
+    release();
+    await pending;
+    await expect(budgets.markRunning(first, { ...allocation, allocationToken: "changed" })).rejects.toMatchObject({ code: "factory_budget_conflict" });
+    await budgets.markRunning(second, { ...allocation, allocationToken: "second-allocation" });
+  });
+
   test("unknown usage keeps its full hold across restart, deadline and revocation", async () => {
     await open();
     const request = reserve("unknown", 10);

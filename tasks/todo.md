@@ -1417,12 +1417,53 @@ Review: `root-authority-integration-results.json` passes SDK build, 155 SDK test
 - [x] Reproduce private HTTP transport accepting a caller-supplied absolute URL.
 - [x] Extract the existing TLS client into one Temporal-free transport package; preserve worker exports.
 - [x] Bind requests to one configured origin, snapshot configuration, and bound deadlines and bytes.
-- [ ] Add the Bun pool client against real PostgreSQL and mTLS, including foreign credentials and cancellation.
+- [x] Add the Bun pool client against real PostgreSQL and mTLS, including foreign credentials and cancellation.
 - [x] Register shared-source coverage and prove actual Node and Bun consumers, builds, types and lint.
 
 Plan review: reuse the existing worker transport and pool service routes. The new package owns HTTP only and cannot import the Temporal SDK. The root owns this extraction and pool client; the Node bootstrap owner keeps its stable gateway imports. `transport-path-red.log` records the real Node client accepting an absolute URL before the correction. No private credentials leave the local test server.
 
 Shared client review: `shared-transport-final-integration-results.json` records ten passing producers against the source manifest `shared-transport-source-manifest.json`: root/web frozen installs, shared transport/orchestrator builds, actual Node gateway tests, actual Bun mTLS client, PostgreSQL/S3 private service, all four type checks, lint, gate integrity and factory boundaries. The real PostgreSQL/private Node queue proof passes five cases (74 assertions); the Bun client passes one case (11 assertions). Direct Node coverage measures the shared transport completely at 121/121 lines. A request cannot replace the configured origin; options and body are captured before credential reads; credentials reload on each request; a slowly streaming response cannot extend the total network deadline. This closes transport extraction; the pool client and concrete product command policy remain open.
+
+## Factory bounded lazy input — Terra
+
+- [x] Trace FactoryTransportValue, ValueSource, expressions/map, durable run/start and activity seams.
+- [x] Propose bounded reference/page protocol and ownership.
+- [x] Implement host authorization, immutable paging and conformance tests.
+- [x] Validate coverage, types and lint.
+
+### Review — host lazy input closed
+- PostgreSQL/S3 conformance: `tests/postgres/factory-lazy-input.test.ts` passed 3/3, including shared and same-project immutable reads plus live credential/grant revocation.
+- Static gate: SDK build, four typecheck legs, lint (8 existing infos), and integrity gate passed in `/tmp/factory-platform-evidence/terra-lazy-input-types-lint-gate.log`.
+- Owned source LCOV: `src/factory/lazy-input.ts` 144/144 lines in `/tmp/factory-platform-evidence/terra-lazy-input-owned-coverage.log`.
+
+
+Restart fixture review: the combined 12-file PostgreSQL producer at `49a6ad119` passed 88 cases and failed the new repeated-migration case because it supplied raw Bun SQL rows to a migration that uses the production normalized adapter. The fixture now repeats the same locked migration entrypoint used on startup; PGlite retains its own native adapter. Actual logs and the failed receipt remain under `root-restart-integration-*`. Regression is still open.
+
+## Integrated regression receipt
+
+The current platform regression passes at `7ea6e4bd9171460a7ef5a3de9d46203faf2049a8`: canonical `bun run test` reports **26,152 pass, 0 fail, 1,714 files**. All four type checks, lint, gate integrity, factory boundaries and actionlint pass. `/tmp/factory-platform-evidence/root-authority-static-backend-integration-results.json` records exact commands and exits. At the preceding `176f6871f`, the corrected combined PostgreSQL/S3 lane passes **89 tests / 2,231 assertions** across its 12 CI files; the PGlite restart lane and actual Node gateway transport pass. The remaining overall platform gates stay open; later source changes need their affected checks.
+
+## Current committed command authority — root
+
+- [x] Prove a committed kernel admission command resolves only against the live run and exact published definition.
+- [x] Reuse kernel expanded-node resolution and reject stale generations, commands and run fences.
+- [x] Bind immutable transition reads to the same locked database head before product admission.
+- [x] Prove PostgreSQL/S3, revocation, cancellation and mutable input cases; run static checks and coverage.
+
+Plan review: the next private command policy uses product records, exact stored transition artifacts and current grants. The transport supplies only a scoped command reference. The shared run-lifecycle conformance suite is the approved test boundary; no user authority is supplied by the Node worker.
+
+Review: `FactoryCommandAuthority` loads an indexed immutable task command, the latest verified interpreter transition and the exact published plan. It then locks the live run, rechecks grants and epochs, compares the same audit head, and admits only the current task attempt. The shared conformance suite proves delayed-command rejection, concurrent transition rejection, configuration scope, caller input snapshots, expiry and cancellation. PGlite and actual PostgreSQL/S3 each pass 19 tests with 147 assertions. Measured coverage is command authority 39/39 lines and 8/8 functions, plus lifecycle 172/172 lines and 46/46 functions. SDK build, all four type checks, lint, boundaries and gate integrity pass. Exact source hashes are in `/tmp/factory-platform-evidence/root-command-authority-complete-source.json`; producer commands/exits are in `root-command-authority-complete-integration-results.json`. This is the task authorization step; pool reservation/dispatch, child creation and lazy read dispatch remain pending.
+
+## Atomic compute allocation recording — root
+
+- [x] Prove budget allocation and a following admission event roll back together.
+- [x] Snapshot public allocation scope before waiting for a transaction.
+- [x] Reuse one transaction method for direct and dispatcher callers.
+- [x] Verify PGlite/PostgreSQL conformance and static checks before integrating the pool dispatcher.
+
+Plan review: retain the existing budget store, run locks and audit helper. The pool dispatcher must commit the verified compute allocation and its inbox event together. A lost or failed event write cannot leave work marked running. Tests use the existing database-backed budget conformance seam.
+
+Review: both rollback and caller-mutation failures were reproduced before the correction. Direct allocation and dispatcher composition now share `markRunningInTransaction`; the allocation and its event can commit or roll back together. PGlite and actual PostgreSQL each pass nine cases with 53 assertions. Focused LCOV measures budgets at 174/174 lines and 52/52 functions. SDK build, all four type checks, lint, gate integrity and factory boundaries pass. Exact source hashes and command exits are in `/tmp/factory-platform-evidence/root-budget-allocation-source.json` and `root-budget-allocation-integration-results.json`.
 # C04 release and assurance session API (2026-09-13)
 
 - [x] Seal the public endpoint, request, response, and application composition contract.
@@ -1438,6 +1479,76 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 
 - The public API exposes assurance contracts, release preparation and reads, approval requests and decisions, automatic policies, and human reconciliation through the real stores. C01 scopes are exact: prepare/read use chat, reconciliation uses write plus a store-level human-session check, and contract/approval/policy mutations remain session-only. Every mutation uses canonical idempotency and exact generation/revision preconditions. Public resources omit raw requests, evidence, archive coordinates, sender tokens, and dispatch controls; provider selection uses only the persisted operation through a snapshotted resolver.
 - Focused backend coverage passes 38 tests with 206 assertions, and the final S3 adapter passes 3 tests with 26 assertions. SDK validation covers every added executable line. Final web coverage passes 27 tests with the shared handler at 214/214, browser client at 80/80, and each new route at 100%. Route, OpenAPI, and scope suites pass 50 tests with 115 assertions. SDK, harness-client, and transport builds, all four typechecks, the production web build, lint, factory boundaries, gate integrity, and diff checks pass. Proof paths are recorded in `tasks/factory/release-api-GATES.md`.
+## Factory pool admission HTTP boundary
+
+- [x] Extract one bounded authenticated pool route handler shared by Node and Bun TLS wrappers.
+- [x] Preserve the Node HTTPS entry point and add the Bun private-HTTPS entry point.
+- [x] Add a strict tenant pool client over the shared factory transport without automatic mutation retries.
+- [x] Correct unknown status responses, canonical reservation paths, lease Date conversion, and response correlation.
+- [x] Prove request recovery, status, start, renew, cancel, stale fences, malformed replies, and foreign credentials.
+- [x] Run an actual Bun mTLS client/server journey against an isolated PostgreSQL pool service.
+- [x] Register full source coverage and pass builds, types, lint, boundary, and gate checks.
+- [x] Record review and create an immutable checkpoint.
+
+Plan review: One transport call owns each client operation. A status response contains no allocation token, so only a repeated byte-equivalent admission request can recover a lost token-bearing lease response. Both TLS servers adapt into one handler that derives tenant authority from the certificate and signed token.
+
+Review: the shared handler drives both Node and Bun TLS entry points, and the client exposes only the five fixed tenant operations. Request validation runs before durable grant writes; concurrent identical requests converge through conflict-safe insertion and exact reread. The final producer passes 53 tests and 238 assertions across PGlite, isolated PostgreSQL, Bun mTLS, and Node mTLS. All eight pool source records are at 100% line coverage in `/tmp/factory-pool-http-final6-cov-20260913/lcov.info`. The transport and SDK builds, all four type-check legs, lint, factory boundary CLI plus 24 tests, and the three factory CI registration tests pass. Full backend regression remains owned by the parent integration branch.
+
+## Production orchestration integration
+
+Review: the production process is integrated at `8d83911c23e64007a9a50c76e10dac34c0f231a2`. Frozen root/web installs, SDK/orchestrator builds, all four type checks, lint, gate integrity, boundaries, coverage registration/converter tests and the canonical Node coverage producer pass. The runtime producer reports 73 tests, zero failures and 107.943 seconds; exact commands/exits are in `/tmp/factory-platform-evidence/root-production-orchestrator-integration-results.json`. The real tenant-01 proof also reached ready with both authenticated worker polling and a live dispatcher. Full platform boot remains pending.
+
+## Factory database and service startup phases — root
+
+- [x] Reproduce the startup dependency loop through real PostgreSQL and a fresh process.
+- [x] Keep installation, database and isolated-secret checks before opening the database.
+- [x] Keep factory service readiness closed until actual post-database probes pass.
+- [x] Verify feature-off startup and flag-on PGlite rejection remain correct.
+
+Plan review: database initialization is a prerequisite of the private gateway and worker. Split configuration checks from service readiness. The application must remain unready during that interval; callers cannot open factory admission with a configuration check alone.
+
+Review: a fresh flag-on Bun process against isolated PostgreSQL reproduced the premature service-readiness failure. Configuration checks now run before driver startup; database initialization leaves factory readiness at `booting / factory-services-pending`. Full service readiness still requires all seven probes. The focused boot/real-init/PostgreSQL-adapter suite passes 34 tests with 85 assertions; actual PostgreSQL startup/restart passes three tests with 21 assertions. Boot source coverage is 77/77 lines and 7/7 functions. SDK build, all four types, lint, gate integrity and boundaries pass. Proof commands/exits and exact source hashes are in `/tmp/factory-platform-evidence/root-boot-phases-integration-results.json` and `root-boot-phases-source.json`. The actual post-database service composition remains a separate open platform gate.
+
+## Committed task budget and compute request — root
+
+- [x] Derive a stable reservation from the current committed task attempt.
+- [x] Apply configured resource profiles and task limits before reserving money, tokens and compute.
+- [x] Write the exact pool request in the existing compute outbox within the budget transaction.
+- [x] Prove duplicate calls, stale authority, bounded requests and transaction rollback through the lifecycle conformance suite.
+
+Plan review: the private worker supplies only the committed command reference. The host chooses a configured resource profile; node limits can reduce its budget. Pool delivery and later capacity polling remain separate. An acknowledged queued request does not admit runner execution.
+
+Review: current task admission derives one reservation identity shared by admission and dispatch, snapshots configured resource profiles, applies task budget/memory limits, and commits its budget hold with the exact existing compute outbox request. Repeated calls reuse the hold and delivery; missing outbox storage rolls everything back. An identity-only service guard supports recovery of an already committed receipt without re-admitting a superseded command. The combined focused run passes 25 tests with 187 assertions; all 15 current factory PostgreSQL/S3 CI files pass 102 tests with 2,322 assertions. Task admission coverage is 41/41 lines and 9/9 functions; authority is 43/43 and 9/9. Frozen installs, SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source hashes and exits are in `/tmp/factory-platform-evidence/root-task-admission-complete-source.json` and `root-task-admission-complete-integration-results.json`. A prior gate failure detected an imported assertion helper without a visible wrapper assertion; its PostgreSQL test now explicitly asserts successful completion of the real conformance helper. Durable pool polling and execution dispatch remain separate open work.
+## C07 deterministic SDK/kernel lazy input — Terra
+- [x] Preserve legacy inline workflow input and add an explicit durable artifact descriptor.
+- [x] Add deterministic read-value/read-page commands, bounded caches, stale-result denial, and artifact path/map handling.
+- [x] Wire orchestration activity contracts and workflow correlation, including command ID child resolution.
+- [x] Preserve descriptor at lifecycle start and prove field, paged map, replay, child, and corrupt-result cases.
+- [x] Run PostgreSQL/S3 conformance, owned coverage, SDK build, all types, lint, and integrity checks.
+
+Review: `FactoryWorkflowInput.durableInput` is an explicit `factory.lazy-input.v1` descriptor, separate from legacy `input` JSON. The kernel records only selected `(name,path)` values and a current map page. It emits `read-input-value` and `read-input-page` commands through the existing generic command activity, matches returned events to command/node/generation/cancellation/ref/path/page fences, pins storage version, and rejects substituted or stale values. Lazy maps keep their current window with absolute indices, then request the next cursor and terminate on an empty final page. Child descriptors use `factoryChildRunId` and pass the parent `run-child` command ID to the authoritative child resolver. A continuation must carry the exact same descriptor.
+
+Validation: locked Node Temporal replay passes 18/18 at `/tmp/factory-platform-evidence/terra-lazy-temporal-replay-passing.log`; it includes field hydration through recorded generic commands, a tagged child workflow, descriptor substitution denial, and existing replay/continuation cases. SDK source coverage passes 159/159 with `kernel.ts` 1151/1151 lines at `/tmp/factory-platform-evidence/terra-lazy-sdk-coverage-final.log`. The real PostgreSQL/S3 private-service conformance passes 5/5 at `/tmp/factory-platform-evidence/terra-lazy-private-resolve-postgres-s3.log`; it rejects missing/invalid resolve `commandId`. Its PGlite coverage has `private-service.ts` 97/97 lines at `/tmp/factory-platform-evidence/terra-lazy-private-resolve-coverage.log`. Root and web frozen installs complete, then SDK build, all canonical typecheck legs, and lint pass at `/tmp/factory-platform-evidence/terra-lazy-final-types-lint.log` (eight existing lint infos).
+
+## Committed subfactory command authority — root
+
+- [x] Prove only the current committed run-child command resolves a child definition.
+- [x] Share run/head/fence validation with task admission and compare the exact compiled child reference.
+- [x] Reject stale, cancelled, wrong-kind and caller-mutated child requests.
+- [x] Verify shared PGlite/PostgreSQL tests, coverage and static checks.
+
+Plan review: the child resolver receives an opaque command ID. It must authorize the committed parent attempt before it creates a separate child run and budget delegation. This leaf establishes that authority; durable child creation follows it.
+
+Review: only the current committed run-child attempt can resolve its exact compiled child factory id, version and digest. Task and child checks share the run/head/fence transaction. Real published parent/child definitions prove valid resolution, caller mutation capture, wrong command kind, substituted factory digest, deadline expiry and cancelled parent denial. PGlite and PostgreSQL/S3 each pass 21 tests / 174 assertions. Authority coverage is 59/59 lines and 16/16 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and check receipts are `/tmp/factory-platform-evidence/root-child-authority-source.json` and `root-child-authority-integration-results.json`. Durable child creation and budget delegation remain open.
+
+## Committed lazy-input authority — root
+
+- [ ] Test an actual published lazy input command through the current run and immutable transition store.
+- [ ] Share the committed-state transaction and compare every pending input coordinate.
+- [ ] Reject stale, cancelled, foreign, wrong-kind and substituted pending reads.
+- [ ] Verify PGlite, PostgreSQL/S3, coverage and all static checks before integration.
+
+Plan review: a private command ID is the only request authority; the reader validates the durable artifact binding within the same run transaction.
 
 # Factory release notification delivery (2026-09-13)
 
@@ -1455,3 +1566,12 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - Factory approval, uncertain-release, and settled-release notifications now use the existing durable release queue as the in-app inbox. Delivery is one atomic queued-to-delivered transaction. Reads authorize the current session user and load a bounded current-state projection in one transaction. Pending and uncertain items disappear when they stop being actionable; settled items remain completion receipts for principals with `factory.release`.
 - The factory page shows the inbox and sends approval decisions through the existing assurance API. It exposes no archive, sender, provider-evidence, or pinned-material details. Restart delivery and browser merging retain one item per durable notification identity.
 - PGlite passes 19 cases with 120 assertions, and isolated PostgreSQL passes 14 cases with 92 assertions. Focused SDK, web, OpenAPI, route, browser evidence, coverage, builds, all four type checks, lint, boundaries, patch coverage, and gate integrity pass. Proof paths and exact measured-line counts are in `tasks/factory/release-notification-delivery-GATES.md`.
+
+## Committed human approval authority — root
+
+- [ ] Prove exact current approval scope, choices, attempt, deadline and durable initiator through published lifecycle records.
+- [ ] Provide the same current check inside the caller's decision transaction.
+- [ ] Expose the verified compiled plan and durable initiator for runner policy without a second lookup.
+- [ ] Verify PGlite/PostgreSQL, coverage and static checks.
+
+Plan review: request authority comes from the committed interpreter. A later human decision separately requires current explicit factory.approve and the declared actor scope; its store writes the correlated event through the existing inbox in the same transaction.

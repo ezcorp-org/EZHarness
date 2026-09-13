@@ -15,6 +15,10 @@ export async function setupFactoryPostgres() {
   isolatedUrl.pathname = `/${databaseName}`;
   const client = new SQL(isolatedUrl.toString(), { max: 4 });
   const db = drizzle(client, { schema });
+  const migrateDatabase = async () => {
+    __test.setState(db, null);
+    await __test.withPostgresMigrateLock((migrationDb) => migrate(migrationDb));
+  };
   const close = async () => {
     await client.close();
     try { await admin.unsafe(`DROP DATABASE "${databaseName}" WITH (FORCE)`); }
@@ -22,9 +26,8 @@ export async function setupFactoryPostgres() {
   };
   try {
     await __test.applyBunSqlJsonbFix();
-    __test.setState(db, null);
-    await __test.withPostgresMigrateLock((migrationDb) => migrate(migrationDb));
+    await migrateDatabase();
   }
   catch (error) { await close(); throw error; }
-  return { db, close };
+  return { db, close, migrate: migrateDatabase, databaseUrl: isolatedUrl.toString() };
 }

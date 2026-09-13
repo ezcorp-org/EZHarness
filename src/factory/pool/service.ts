@@ -1,5 +1,5 @@
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "./service-token";
-import { FactoryPoolLedger, type PoolDecision, type PoolLease, type PoolLeaseStatus, type PoolRequest, type PoolResourceVector, type PoolSql, setupFactoryPoolLedger } from "./ledger";
+import { FactoryPoolLedger, type PoolDecision, type PoolLease, type PoolLeaseStatus, type PoolResourceVector, type PoolSql, setupFactoryPoolLedger } from "./ledger";
 
 export interface PoolTenantCertificate { tenantId: string; tokenSubject: string }
 export interface PoolSupervisorCertificate { supervisorId: string; tokenSubject: string; hostIds: readonly string[] }
@@ -40,11 +40,12 @@ export class PoolAdmissionService {
   async setup(): Promise<void> { await setupFactoryPoolLedger(this.database); await this.database.unsafe("CREATE TABLE IF NOT EXISTS factory_pool_admission_grants (reservation_id text PRIMARY KEY, tenant_id text NOT NULL, grant_revision integer NOT NULL, grant_scope text NOT NULL, admission_deadline timestamptz NOT NULL)"); }
   async request(principal: PoolPrincipal, input: PoolAdmissionRequest): Promise<PoolDecision> {
     const identity = tenant(principal); opaque(input.reservationId, "reservation id"); opaque(input.grantScope, "grant scope"); counter(input.grantRevision, "grant revision", 1);
-    const expectedScope = `pool:grant:${input.grantScope}`; if (!input.grantScope.startsWith(`${identity.tenantId}:`)) throw new Error("Pool grant scope is not owned by the tenant."); scope(identity, expectedScope);
-    const request: PoolRequest = { reservationId: input.reservationId, tenantId: identity.tenantId, grantRevision: input.grantRevision, resources: input.resources, priority: input.priority, readySequence: input.readySequence, nodeId: input.nodeId, admissionDeadline: deadline(input.admissionDeadline) };
-    const existing = (await this.database.unsafe("SELECT tenant_id, grant_revision, grant_scope, admission_deadline FROM factory_pool_admission_grants WHERE reservation_id = $1", [input.reservationId])) as Array<{ tenant_id: string; grant_revision: number | string; grant_scope: string; admission_deadline: string }>;
-    if (existing[0] && (existing[0].tenant_id !== identity.tenantId || Number(existing[0].grant_revision) !== input.grantRevision || existing[0].grant_scope !== input.grantScope || new Date(existing[0].admission_deadline).getTime() !== request.admissionDeadline.getTime())) throw new Error("Pool reservation conflicts with a different authenticated grant.");
-    if (!existing[0]) await this.database.unsafe("INSERT INTO factory_pool_admission_grants(reservation_id, tenant_id, grant_revision, grant_scope, admission_deadline) VALUES ($1,$2,$3,$4,$5)", [input.reservationId, identity.tenantId, input.grantRevision, input.grantScope, request.admissionDeadline.toISOString()]);
+    const grantScope = input.grantScope;
+    const expectedScope = `pool:grant:${grantScope}`; if (!grantScope.startsWith(`${identity.tenantId}:`)) throw new Error("Pool grant scope is not owned by the tenant."); scope(identity, expectedScope);
+    const request = this.ledger.validateRequest({ reservationId: input.reservationId, tenantId: identity.tenantId, grantRevision: input.grantRevision, resources: input.resources, priority: input.priority, readySequence: input.readySequence, nodeId: input.nodeId, admissionDeadline: deadline(input.admissionDeadline) });
+    await this.database.unsafe("INSERT INTO factory_pool_admission_grants(reservation_id, tenant_id, grant_revision, grant_scope, admission_deadline) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (reservation_id) DO NOTHING", [request.reservationId, request.tenantId, request.grantRevision, grantScope, request.admissionDeadline.toISOString()]);
+    const existing = (await this.database.unsafe("SELECT tenant_id, grant_revision, grant_scope, admission_deadline FROM factory_pool_admission_grants WHERE reservation_id = $1", [request.reservationId])) as Array<{ tenant_id: string; grant_revision: number | string; grant_scope: string; admission_deadline: string }>;
+    if (!existing[0] || existing[0].tenant_id !== request.tenantId || Number(existing[0].grant_revision) !== request.grantRevision || existing[0].grant_scope !== grantScope || new Date(existing[0].admission_deadline).getTime() !== request.admissionDeadline.getTime()) throw new Error("Pool reservation conflicts with a different authenticated grant.");
     const result = await this.ledger.request(request); await this.ledger.schedule(); return result;
   }
   async status(principal: PoolPrincipal, reservationId: string): Promise<PoolLeaseStatus | undefined> { const identity = tenant(principal); const value = await this.ledger.status(reservationId); if (value && value.tenantId !== identity.tenantId) throw new Error("Pool reservation is not owned by this tenant."); return value; }

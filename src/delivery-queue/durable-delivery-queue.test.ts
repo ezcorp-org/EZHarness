@@ -41,4 +41,23 @@ describe("shared durable delivery queue concurrency", () => {
     await expect(enqueue({ ...record, value: "changed" })).rejects.toMatchObject({ code: "delivery_conflict" });
     await expect(enqueue(null)).rejects.toMatchObject({ code: "delivery_conflict" });
   });
+
+  test("cancels only queued work and keeps cancellation idempotent", async () => {
+    let current = { ...record };
+    const store: DurableDeliveryStore<Record> = {
+      findDuplicate: async () => null,
+      insert: async () => false,
+      claimCandidate: async () => null,
+      findById: async () => current,
+      write: async value => { current = { ...value }; },
+      inspect: async () => current,
+    };
+    expect(await queue.cancel(store, "scope", current.id, "authority_revoked")).toMatchObject({ state: "cancelled", failureCode: "authority_revoked" });
+    expect(await queue.cancel(store, "scope", current.id)).toEqual(current);
+    current = { ...record, state: "leased", leaseToken: "owner" };
+    await expect(queue.cancel(store, "scope", current.id)).rejects.toMatchObject({ code: "delivery_already_dispatched" });
+    current = { ...record };
+    expect(await queue.cancel(store, "scope", current.id, "not valid!")).toMatchObject({ failureCode: "delivery_cancelled" });
+    await expect(queue.cancel({ ...store, findById: async () => null }, "scope", "missing")).rejects.toMatchObject({ code: "not_found" });
+  });
 });
