@@ -68,7 +68,8 @@ test("native Bun mTLS gateway derives attempt authority from an installation tok
   await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'request', '{}')`);
   const certs = await certificates(directories);
-  const journal = new FactoryExecutionJournal(db, async () => {});
+  let journalNow = Date.now();
+  const journal = new FactoryExecutionJournal(db, async () => {}, () => new Date(journalNow));
   const authorized: FactoryAttemptAuthority[] = [];
   const server = startFactoryExecutionGateway({ journal, authorizeAttempt: async value => { authorized.push(value); }, jwtSecret: "test-secret", installationId: "installation-a", tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca } });
   servers.push(server);
@@ -120,9 +121,17 @@ test("native Bun mTLS gateway derives attempt authority from an installation tok
   expect(await call(server.url, certs, attempt)).toMatchObject({ status: 201, body: { attemptId: "attempt-1", reused: false } });
   expect(authorized).toHaveLength(1);
   expect(await call(server.url, certs, attempt)).toMatchObject({ status: 200, body: { attemptId: "attempt-1", reused: true } });
+  const conflictingRequest = runnerRequest(attempt, { prompt: "signed replacement" });
+  const conflictingAttempt = { ...attempt, requestDigest: factoryRunnerRequestDigest(conflictingRequest) };
+  expect(await call(server.url, certs, conflictingAttempt, { body: conflictingRequest })).toMatchObject({ status: 409, body: { error: "invalid_request" } });
+
   expect(await call(server.url, certs, attempt, { body: runnerRequest(attempt, { prompt: "other" }) })).toMatchObject({ status: 400, body: { error: "invalid_request" } });
   expect(await call(server.url, certs, attempt, { method: "GET" })).toMatchObject({ status: 200, body: { status: "admitted", journalCursor: -1 } });
-  expect(await call(server.url, certs, { ...attempt, deadlineAt: new Date(Date.now() - 1) }, { method: "POST", path: "/internal/factory/v1/executions/attempt-1/cancel" })).toMatchObject({ status: 202, body: { accepted: true } });
+  journalNow = attempt.deadlineAt.getTime() + 1;
+  expect(await call(server.url, certs, attempt)).toMatchObject({ status: 400, body: { error: "invalid_request" } });
+  expect(await call(server.url, certs, attempt, { method: "GET" })).toMatchObject({ status: 200, body: { status: "admitted" } });
+  expect(await call(server.url, certs, attempt, { method: "POST", path: "/internal/factory/v1/executions/attempt-1/cancel" })).toMatchObject({ status: 202, body: { accepted: true } });
+  journalNow = Date.now();
   expect(await call(server.url, certs, attempt, { method: "DELETE" })).toMatchObject({ status: 405, body: { error: "method_not_allowed" } });
   const rawAttempt = signedAuthority({ attemptId: "raw-split" });
   const rawBody = JSON.stringify(runnerRequest(rawAttempt));
