@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { FactoryAuthoringError, defineFactory } from "./authoring";
 import { compileFactory } from "./compiler";
 import { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references";
+import { FACTORY_LIMITS } from "./types";
 import type { FactoryDefinition, FactoryGraph, FactoryNode, FactoryReference } from "./types";
 
 function clone(definition: FactoryDefinition = referenceCodeV1): FactoryDefinition {
@@ -38,6 +39,7 @@ describe("factory compiler", () => {
       expect(first.factory.lock.packages).toEqual([...first.factory.lock.packages].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
       expect(first.factory.pages.every((page) => page.encodedBytes <= 32 * 1024)).toBe(true);
       expect(first.factory.partitions.every((partition) => partition.nodeIds.length <= 128)).toBe(true);
+      expect(first.factory.partitions.flatMap((partition) => partition.nodeIds)).toEqual(definition.graph.nodes.map((node) => node.id));
       expect(Object.isFrozen(first.factory)).toBe(true);
       expect(Object.isFrozen(first.factory.definition.graph.nodes)).toBe(true);
     }
@@ -178,7 +180,7 @@ describe("factory compiler", () => {
     (node(loop, "bounded-repair") as { budget: unknown }).budget = { maxCostMicros: "-1" };
     expect(codes(loop)).toEqual(expect.arrayContaining(["BOUND_LOOP", "BOUND_COST"]));
     const map = clone(referenceImageV1);
-    (node(map, "generate-four-seeds") as { maxConcurrency: number }).maxConcurrency = 0;
+    (node(map, "generate-four-seeds") as { maxConcurrency: number }).maxConcurrency = FACTORY_LIMITS.maxConcurrentActivities + 1;
     expect(codes(map)).toContain("BOUND_MAP");
 
     const resources = clone();
@@ -404,7 +406,11 @@ describe("factory compiler", () => {
       export: "x".repeat(33 * 1024),
     };
     (page.packages[0] as { digest: string }).digest = (node(page, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner.digest;
-    expect(codes(page)).toContain("PAYLOAD_NODE");
+    expect(codes(page)).toEqual(expect.arrayContaining(["PAYLOAD_NODE", "PAYLOAD_PARTITION"]));
+
+    const manifest = clone();
+    (manifest.inputPorts.request as { description?: string }).description = "x".repeat(33 * 1024);
+    expect(codes(manifest)).toContain("PAYLOAD_EXECUTION_MANIFEST");
 
     const definition = clone();
     (definition.inputPorts.request as { description?: string }).description = "x".repeat(16 * 1024 * 1024);
@@ -427,8 +433,30 @@ describe("factory compiler", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(Object.keys(result.factory.indexes.nodeById)).toHaveLength(10_000);
-    expect(result.factory.partitions).toHaveLength(79);
+    expect(result.factory.partitions.length).toBeGreaterThan(79);
+    expect(result.factory.partitions.every((partition) => partition.encodedBytes <= FACTORY_LIMITS.maxRecordedPageBytes)).toBe(true);
+    expect(result.factory.partitions.every((partition) => partition.inbound.length === 0 && partition.outbound.length === 0)).toBe(true);
     expect(result.factory.pages.every((page) => page.encodedBytes <= 32 * 1024)).toBe(true);
+  });
+
+  test("splits edge-dense partitions to keep recorded artifacts bounded", () => {
+    const definition = clone();
+    const template = node(definition, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>;
+    const sourceIds = Array.from({ length: 32 }, (_, index) => `source-${index.toString().padStart(2, "0")}`);
+    const targetIds = Array.from({ length: 16 }, (_, index) => `target-${index.toString().padStart(2, "0")}`);
+    definition.graph = {
+      nodes: [
+        ...sourceIds.map((id) => ({ ...template, id, dependsOn: [] })),
+        ...targetIds.map((id) => ({ ...template, id, dependsOn: sourceIds })),
+      ],
+      outputs: { receipt: { kind: "ref", root: "node", name: targetIds.at(-1)!, path: ["snapshot"] } },
+    };
+    definition.outputPorts = { receipt: template.outputPorts!.snapshot! };
+    const result = compileFactory(definition);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.factory.partitions.every((partition) => partition.encodedBytes <= FACTORY_LIMITS.maxRecordedPageBytes)).toBe(true);
+    expect(result.factory.partitions.some((partition) => partition.outbound.length > 0)).toBe(true);
   });
 
   test("authoring returns the canonical definition or located diagnostics", () => {

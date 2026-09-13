@@ -5,12 +5,16 @@ export const FACTORY_SCHEMA_VERSION = "factory.v1" as const;
 export const FACTORY_IR_SCHEMA_VERSION = "factory.ir.v1" as const;
 export const FACTORY_RUNNER_REQUEST_SCHEMA_VERSION = "factory.runner.request.v1" as const;
 export const FACTORY_RUNNER_RESULT_SCHEMA_VERSION = "factory.runner.result.v1" as const;
+export const FACTORY_PARTITION_SCHEMA_VERSION = "factory.partition.v1" as const;
+export const FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION = "factory.execution-manifest.v1" as const;
 export const FACTORY_LIMITS = Object.freeze({
   maxDefinitionBytes: 16 * 1024 * 1024,
   maxInlineValueBytes: 64 * 1024,
   maxExpandedNodes: 10_000,
   maxScopeDepth: 16,
   maxPartitionNodes: 128,
+  maxRecordedPageBytes: 32 * 1024,
+  maxConcurrentActivities: 32,
   maxExpressionNodes: 256,
   maxExpressionDepth: 16,
   maxExpressionSteps: 1_024,
@@ -315,12 +319,64 @@ export interface CompiledPartition {
   readonly id: string;
   readonly nodeIds: readonly string[];
   readonly dependsOn: readonly string[];
+  readonly inbound: readonly CompiledPartitionInboundEdge[];
+  readonly outbound: readonly CompiledPartitionOutboundEdge[];
+  /** Canonical bytes of the partition manifest and its full node records. */
+  readonly encodedBytes: number;
+  readonly digest: string;
+}
+
+export interface CompiledPartitionInboundEdge {
+  /** Node in this partition whose local dependency counter is released. */
+  readonly nodeId: string;
+  readonly fromNodeId: string;
+  readonly fromPartitionId: string;
+}
+
+export interface CompiledPartitionOutboundEdge {
+  /** Node in this partition whose fenced completion is sent immediately. */
+  readonly nodeId: string;
+  readonly toNodeId: string;
+  readonly toPartitionId: string;
 }
 
 export interface CompiledPage {
   readonly id: string;
   readonly partitionId: string;
   readonly nodeIds: readonly string[];
+  readonly encodedBytes: number;
+  readonly digest: string;
+}
+
+/** Exact recorded payload loaded for one interpreter partition. */
+export interface CompiledPartitionArtifact {
+  readonly schemaVersion: "factory.partition.v1";
+  readonly factoryDigest: string;
+  readonly id: string;
+  readonly nodeIds: readonly string[];
+  readonly dependsOn: readonly string[];
+  readonly inbound: readonly CompiledPartitionInboundEdge[];
+  readonly outbound: readonly CompiledPartitionOutboundEdge[];
+  readonly nodes: readonly FactoryNode[];
+}
+
+export interface CompiledExecutionBounds {
+  readonly runDeadlineMs: number;
+  readonly maxExpandedNodes: number;
+  readonly maxScopeDepth: number;
+}
+
+/** Bounded root metadata loaded separately from a partition's node page. */
+export interface CompiledExecutionManifest {
+  readonly schemaVersion: "factory.execution-manifest.v1";
+  readonly factoryDigest: string;
+  readonly inputPorts: Readonly<Record<string, PortSchema>>;
+  readonly outputPorts: Readonly<Record<string, PortSchema>>;
+  readonly bounds: CompiledExecutionBounds;
+  readonly outputs: Readonly<Record<string, ValueSource>>;
+}
+
+export interface CompiledArtifactDescriptor {
   readonly encodedBytes: number;
   readonly digest: string;
 }
@@ -332,6 +388,7 @@ export interface CompiledFactory {
   readonly definition: FactoryDefinition;
   readonly lock: DependencyLock;
   readonly indexes: CompiledIndexes;
+  readonly executionManifest: CompiledArtifactDescriptor;
   readonly partitions: readonly CompiledPartition[];
   readonly pages: readonly CompiledPage[];
 }

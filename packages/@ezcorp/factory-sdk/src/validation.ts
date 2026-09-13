@@ -1,10 +1,18 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
-import { isCompiledFactory, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
+import { validateExpression } from "./expressions.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
 import {
   FACTORY_LIMITS,
+  type CompiledExecutionManifest,
+  type CompiledArtifactDescriptor,
   type CompiledFactory,
+  type CompiledPartition,
+  type CompiledPartitionArtifact,
+  type CompiledPartitionInboundEdge,
+  type CompiledPartitionOutboundEdge,
   type FactoryArtifactReference,
   type FactoryGraph,
+  type FactoryNode,
   type FactoryRunnerOperationResult,
   type FactoryRunnerRequest,
   type FactoryRunnerResult,
@@ -294,26 +302,148 @@ function isSortedUnique(values: readonly string[]): boolean {
   return true;
 }
 
+function compareInbound(left: CompiledPartitionInboundEdge, right: CompiledPartitionInboundEdge): number {
+  return compareText(left.nodeId, right.nodeId) || compareText(left.fromNodeId, right.fromNodeId) || compareText(left.fromPartitionId, right.fromPartitionId);
+}
+
+function compareOutbound(left: CompiledPartitionOutboundEdge, right: CompiledPartitionOutboundEdge): number {
+  return compareText(left.nodeId, right.nodeId) || compareText(left.toNodeId, right.toNodeId) || compareText(left.toPartitionId, right.toPartitionId);
+}
+
 function encodedBytes(value: JsonValue): number {
   return new TextEncoder().encode(canonicalizeJson(value)).byteLength;
 }
 
-function graphNodes(root: FactoryGraph): readonly { readonly id: string; readonly value: JsonValue }[] {
-  const result: { id: string; value: JsonValue }[] = [];
-  const pending: FactoryGraph[] = [root];
+function partitionPayload(partition: CompiledPartition, factory: CompiledFactory): CompiledPartitionArtifact {
+  const { encodedBytes: _encodedBytes, digest: _digest, ...manifest } = partition;
+  return {
+    schemaVersion: "factory.partition.v1",
+    factoryDigest: factory.digest,
+    ...manifest,
+    nodes: partition.nodeIds.map((id) => factory.indexes.nodeById[id]!),
+  };
+}
+
+function executionManifest(factory: CompiledFactory): CompiledExecutionManifest {
+  return {
+    schemaVersion: "factory.execution-manifest.v1",
+    factoryDigest: factory.digest,
+    inputPorts: factory.definition.inputPorts,
+    outputPorts: factory.definition.outputPorts,
+    bounds: {
+      runDeadlineMs: factory.definition.bounds.runDeadlineMs!,
+      maxExpandedNodes: factory.definition.bounds.maxExpandedNodes,
+      maxScopeDepth: factory.definition.bounds.maxScopeDepth,
+    },
+    outputs: factory.definition.graph.outputs,
+  };
+}
+
+function graphNodes(root: FactoryGraph): readonly { readonly id: string; readonly node: FactoryNode; readonly value: JsonValue; readonly depth: number }[] {
+  const result: { id: string; node: FactoryNode; value: JsonValue; depth: number }[] = [];
+  const pending: { graph: FactoryGraph; depth: number }[] = [{ graph: root, depth: 1 }];
   while (pending.length > 0) {
-    const graph = pending.pop() as FactoryGraph;
+    const { graph, depth } = pending.pop()!;
     for (let index = graph.nodes.length - 1; index >= 0; index -= 1) {
       const node = graph.nodes[index]!;
-      result.push({ id: node.id, value: node as unknown as JsonValue });
+      result.push({ id: node.id, node, value: node as unknown as JsonValue, depth });
       if (node.kind === "branch") {
-        pending.push(node.else, node.then);
+        pending.push({ graph: node.else, depth: depth + 1 }, { graph: node.then, depth: depth + 1 });
       } else if (node.kind === "map" || node.kind === "loop") {
-        pending.push(node.body);
+        pending.push({ graph: node.body, depth: depth + 1 });
       }
     }
   }
   return result;
+}
+
+function expandedNodeCount(graph: FactoryGraph, limit: number): number {
+  let count = 0;
+  for (const node of graph.nodes) {
+    count += 1;
+    if (node.kind === "branch") count += Math.max(expandedNodeCount(node.then, limit), expandedNodeCount(node.else, limit));
+    else if (node.kind === "map") count += node.maxItems * expandedNodeCount(node.body, limit);
+    else if (node.kind === "loop") count += node.maxIterations * expandedNodeCount(node.body, limit);
+    if (!Number.isSafeInteger(count) || count > limit) return limit + 1;
+  }
+  return count;
+}
+
+function validateSchemaRecord(record: Readonly<Record<string, PortSchema>>, path: readonly (string | number)[]): ValidationResult {
+  for (const [name, schema] of Object.entries(record)) {
+    const checked = validatePortSchema(schema);
+    if (!checked.ok) return issue("COMPILED_PORT_SCHEMA", "Compiled port schema is outside the supported subset.", [...path, name]);
+  }
+  return { ok: true };
+}
+
+function sameKeys(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean {
+  const leftKeys = Object.keys(left).sort(compareText);
+  const rightKeys = Object.keys(right).sort(compareText);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index]);
+}
+
+function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, depth: number): ValidationResult {
+  if (depth > factory.definition.bounds.maxScopeDepth || depth > FACTORY_LIMITS.maxScopeDepth) return issue("COMPILED_SCOPE_DEPTH", "Compiled graph exceeds its scope-depth bound.", ["definition", "graph"]);
+  const inputs = validateSchemaRecord(node.inputPorts ?? {}, ["indexes", "nodeById", node.id, "inputPorts"]);
+  if (!inputs.ok) return inputs;
+  const outputs = validateSchemaRecord(node.outputPorts ?? {}, ["indexes", "nodeById", node.id, "outputPorts"]);
+  if (!outputs.ok) return outputs;
+  if (node.deadlineMs !== undefined && (!safeCounter(node.deadlineMs, 1) || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs || node.deadlineMs > factory.definition.bounds.runDeadlineMs!)) return issue("COMPILED_NODE_DEADLINE", "Node deadline exceeds launch or run bounds.", ["indexes", "nodeById", node.id, "deadlineMs"]);
+  if (node.retry !== undefined && (node.kind !== "task" || !safeCounter(node.retry.maxAttempts, 1) || node.retry.maxAttempts > 3 || !safeCounter(node.retry.initialDelayMs) || !safeCounter(node.retry.maximumDelayMs) || node.retry.maximumDelayMs < node.retry.initialDelayMs)) return issue("COMPILED_RETRY", "Compiled retry policy is invalid.", ["indexes", "nodeById", node.id, "retry"]);
+  if (node.kind === "task" && node.maxIterations !== undefined && !safeCounter(node.maxIterations, 1)) return issue("COMPILED_TASK_BOUND", "Task iteration bound must be positive.", ["indexes", "nodeById", node.id, "maxIterations"]);
+  if (node.kind === "branch") {
+    if (!validateExpression(node.condition).ok || !sameKeys(node.then.outputs, node.outputPorts ?? {}) || !sameKeys(node.else.outputs, node.outputPorts ?? {})) return issue("COMPILED_BRANCH", "Branch expression and explicit outputs must be valid.", ["indexes", "nodeById", node.id]);
+  } else if (node.kind === "map") {
+    if (!safeCounter(node.maxItems) || node.maxItems > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxConcurrency, 1) || node.maxConcurrency > FACTORY_LIMITS.maxConcurrentActivities || !validatePortSchema(node.itemSchema).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_MAP", "Map bounds, item schema, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
+  } else if (node.kind === "loop") {
+    if (!safeCounter(node.maxIterations, 1) || node.maxIterations > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxElapsedMs, 1) || node.maxElapsedMs > factory.definition.bounds.runDeadlineMs! || !validatePortSchema(node.carriedSchema).ok || !validatePortSchema(node.resultSchema).ok || !validateExpression(node.until).ok || !validateExpression(node.nextInput).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_LOOP", "Loop bounds, schemas, expressions, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
+  } else if (node.kind === "join") {
+    if (node.predecessors.length === 0 || new Set(node.predecessors).size !== node.predecessors.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners) return issue("COMPILED_JOIN", "Join predecessors and winners output are invalid.", ["indexes", "nodeById", node.id]);
+  } else if (node.kind === "approval") {
+    if (!safeCounter(node.expiresInMs, 1) || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice) return issue("COMPILED_APPROVAL", "Approval bounds, choices, or choice output are invalid.", ["indexes", "nodeById", node.id]);
+  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs >= factory.definition.bounds.maxExpandedNodes)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
+  return { ok: true };
+}
+
+export function validateCompiledExecutionManifest(value: unknown, expectedFactoryDigest?: string, descriptor?: CompiledArtifactDescriptor): ValidationResult {
+  if (!isCompiledExecutionManifest(value)) return issue("EXECUTION_MANIFEST_SCHEMA", "Value does not match the generated execution manifest schema.", []);
+  const manifest = value as CompiledExecutionManifest;
+  const bytes = encodedBytes(manifest as unknown as JsonValue);
+  if (bytes > FACTORY_LIMITS.maxRecordedPageBytes || (descriptor !== undefined && descriptor.encodedBytes !== bytes)) return issue("EXECUTION_MANIFEST_BYTES", "Execution manifest bytes exceed or differ from its descriptor.", []);
+  if (!validDigest(manifest.factoryDigest, true) || (expectedFactoryDigest !== undefined && manifest.factoryDigest !== expectedFactoryDigest) || (descriptor !== undefined && !validDigest(descriptor.digest, true))) return issue("EXECUTION_MANIFEST_DIGEST", "Execution manifest digests are invalid or refer to another factory.", ["factoryDigest"]);
+  const inputs = validateSchemaRecord(manifest.inputPorts, ["inputPorts"]);
+  if (!inputs.ok) return inputs;
+  const outputs = validateSchemaRecord(manifest.outputPorts, ["outputPorts"]);
+  if (!outputs.ok) return outputs;
+  if (!safeCounter(manifest.bounds.runDeadlineMs, 1) || manifest.bounds.runDeadlineMs > FACTORY_LIMITS.maximumRunDeadlineMs || !safeCounter(manifest.bounds.maxExpandedNodes, 1) || manifest.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes || !safeCounter(manifest.bounds.maxScopeDepth, 1) || manifest.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth || !sameKeys(manifest.outputPorts, manifest.outputs)) return issue("EXECUTION_MANIFEST_BOUND", "Execution manifest bounds and output bindings must match launch limits.", ["bounds"]);
+  return { ok: true };
+}
+
+export function validateCompiledPartitionArtifact(value: unknown, expectedFactoryDigest?: string, partition?: CompiledPartition): ValidationResult {
+  if (!isCompiledPartitionArtifact(value)) return issue("PARTITION_ARTIFACT_SCHEMA", "Value does not match the generated partition artifact schema.", []);
+  const artifact = value as CompiledPartitionArtifact;
+  const bytes = encodedBytes(artifact as unknown as JsonValue);
+  if (bytes > FACTORY_LIMITS.maxRecordedPageBytes || (partition !== undefined && partition.encodedBytes !== bytes)) return issue("PARTITION_ARTIFACT_BYTES", "Partition artifact bytes exceed or differ from its manifest.", []);
+  if (!validDigest(artifact.factoryDigest, true) || (expectedFactoryDigest !== undefined && artifact.factoryDigest !== expectedFactoryDigest) || (partition !== undefined && !validDigest(partition.digest, true))) return issue("PARTITION_ARTIFACT_DIGEST", "Partition digests are invalid or refer to another factory.", ["factoryDigest"]);
+  if (!boundedText(artifact.id) || artifact.nodeIds.length === 0 || artifact.nodeIds.length > FACTORY_LIMITS.maxPartitionNodes || artifact.nodes.length !== artifact.nodeIds.length || !isSortedUnique(artifact.dependsOn)) return issue("PARTITION_ARTIFACT_MANIFEST", "Partition identity, node count, or dependencies are invalid.", []);
+  const nodeIds = new Set<string>();
+  for (let index = 0; index < artifact.nodes.length; index += 1) {
+    const id = artifact.nodeIds[index]!;
+    if (!boundedText(id) || id.includes("/") || nodeIds.has(id) || artifact.nodes[index]!.id !== id) return issue("PARTITION_ARTIFACT_NODE", "Partition nodes must exactly match unique bounded node IDs.", ["nodes", index]);
+    nodeIds.add(id);
+  }
+  const sortedInbound = [...artifact.inbound].sort(compareInbound);
+  const sortedOutbound = [...artifact.outbound].sort(compareOutbound);
+  const invalidInbound = artifact.inbound.some((edge, index) => !nodeIds.has(edge.nodeId) || nodeIds.has(edge.fromNodeId) || !artifact.dependsOn.includes(edge.fromPartitionId) || !boundedText(edge.fromNodeId) || !boundedText(edge.fromPartitionId) || (index > 0 && compareInbound(artifact.inbound[index - 1]!, edge) >= 0));
+  const invalidOutbound = artifact.outbound.some((edge, index) => !nodeIds.has(edge.nodeId) || nodeIds.has(edge.toNodeId) || edge.toPartitionId === artifact.id || !boundedText(edge.toNodeId) || !boundedText(edge.toPartitionId) || (index > 0 && compareOutbound(artifact.outbound[index - 1]!, edge) >= 0));
+  if (!jsonEqual(artifact.inbound as unknown as JsonValue, sortedInbound as unknown as JsonValue) || !jsonEqual(artifact.outbound as unknown as JsonValue, sortedOutbound as unknown as JsonValue) || invalidInbound || invalidOutbound) return issue("PARTITION_ARTIFACT_EDGES", "Partition boundary edges must be canonical and anchored to local nodes.", ["inbound"]);
+  if (partition !== undefined) {
+    const { encodedBytes: _encodedBytes, digest: _digest, ...expected } = partition;
+    const { schemaVersion: _schemaVersion, factoryDigest: _factoryDigest, nodes: _nodes, ...actual } = artifact;
+    if (!jsonEqual(actual as unknown as JsonValue, expected as unknown as JsonValue)) return issue("PARTITION_ARTIFACT_MANIFEST", "Partition artifact differs from its compiled manifest.", []);
+  }
+  return { ok: true };
 }
 
 /**
@@ -324,8 +454,8 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
   if (!isCompiledFactory(value)) return issue("COMPILED_SCHEMA", "Value does not match the generated CompiledFactory schema.", []);
   const factory = value as CompiledFactory;
   if (!validDigest(factory.digest, true) || (factory.presentationDigest !== undefined && !validDigest(factory.presentationDigest, true))) return issue("COMPILED_DIGEST", "Compiled digests must be lowercase sha256 values.", ["digest"]);
-  if (encodedBytes({ definition: factory.definition, lock: factory.lock } as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("COMPILED_BYTES", "Compiled definition and lock exceed 16 MiB.", []);
-  if (!safeCounter(factory.definition.bounds.maxExpandedNodes, 1) || factory.definition.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes || !safeCounter(factory.definition.bounds.maxScopeDepth, 1) || factory.definition.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth) return issue("COMPILED_BOUND", "Compiled definition bounds exceed launch limits.", ["definition", "bounds"]);
+  if (encodedBytes(factory as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("COMPILED_BYTES", "Compiled IR exceeds 16 MiB.", []);
+  if (!safeCounter(factory.definition.bounds.maxExpandedNodes, 1) || factory.definition.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes || !safeCounter(factory.definition.bounds.maxScopeDepth, 1) || factory.definition.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth || !safeCounter(factory.definition.bounds.runDeadlineMs!, 1) || factory.definition.bounds.runDeadlineMs! > FACTORY_LIMITS.maximumRunDeadlineMs) return issue("COMPILED_BOUND", "Compiled definition bounds exceed launch limits.", ["definition", "bounds"]);
   if ((factory.definition.presentation === undefined) !== (factory.presentationDigest === undefined)) return issue("COMPILED_PRESENTATION", "Presentation content and digest must be present together.", ["presentationDigest"]);
 
   const expectedLock = {
@@ -336,30 +466,46 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
   if (!jsonEqual(factory.lock as unknown as JsonValue, expectedLock)) return issue("COMPILED_LOCK", "Dependency lock does not match the embedded definition.", ["lock"]);
 
   const nodes = graphNodes(factory.definition.graph);
-  if (nodes.length > FACTORY_LIMITS.maxExpandedNodes) return issue("COMPILED_NODES", "Compiled node count exceeds launch limits.", ["indexes", "nodeById"]);
+  if (nodes.length > FACTORY_LIMITS.maxExpandedNodes || expandedNodeCount(factory.definition.graph, factory.definition.bounds.maxExpandedNodes) > factory.definition.bounds.maxExpandedNodes) return issue("COMPILED_NODES", "Compiled node expansion exceeds launch limits.", ["indexes", "nodeById"]);
+  const inputSchemas = validateSchemaRecord(factory.definition.inputPorts, ["definition", "inputPorts"]);
+  if (!inputSchemas.ok) return inputSchemas;
+  const outputSchemas = validateSchemaRecord(factory.definition.outputPorts, ["definition", "outputPorts"]);
+  if (!outputSchemas.ok) return outputSchemas;
   const nodeIds = new Set<string>();
   for (const node of nodes) {
-    if (!boundedText(node.id) || nodeIds.has(node.id)) return issue("COMPILED_NODE_ID", "Compiled node IDs must be bounded and unique.", ["indexes", "nodeById", node.id]);
+    if (!boundedText(node.id) || node.id.includes("/") || nodeIds.has(node.id)) return issue("COMPILED_NODE_ID", "Compiled node IDs must be bounded unique instance-path segments.", ["indexes", "nodeById", node.id]);
     nodeIds.add(node.id);
     if (!own(factory.indexes.nodeById, node.id) || !jsonEqual(factory.indexes.nodeById[node.id] as unknown as JsonValue, node.value)) return issue("COMPILED_NODE_INDEX", "Node index differs from the embedded graph.", ["indexes", "nodeById", node.id]);
+    const semantics = validateNodeSemantics(factory, node.node, node.depth);
+    if (!semantics.ok) return semantics;
   }
   const indexKeys = Object.keys(factory.indexes.nodeById);
   const successorKeys = Object.keys(factory.indexes.successors);
   const dependencyKeys = Object.keys(factory.indexes.dependencyCounts);
   if (indexKeys.length !== nodeIds.size || successorKeys.length !== nodeIds.size || dependencyKeys.length !== nodeIds.size || [...indexKeys, ...successorKeys, ...dependencyKeys].some((id) => !nodeIds.has(id))) return issue("COMPILED_INDEX_KEYS", "Every compiled index must contain exactly the graph node IDs.", ["indexes"]);
-  const inbound = new Map<string, number>([...nodeIds].map((id) => [id, 0]));
+  const expectedSuccessors = new Map<string, string[]>([...nodeIds].map((id) => [id, []]));
+  const dependencies = new Map<string, readonly string[]>();
+  for (const { node } of nodes) {
+    const declared = [...(node.dependsOn ?? []), ...(node.kind === "join" ? node.predecessors : [])];
+    if (new Set(declared).size !== declared.length || declared.some((id) => id === node.id || !nodeIds.has(id))) return issue("COMPILED_DEPENDENCIES", "Declared dependencies must be unique existing nodes.", ["indexes", "dependencyCounts", node.id]);
+    dependencies.set(node.id, declared);
+    for (const dependency of declared) expectedSuccessors.get(dependency)!.push(node.id);
+  }
   for (const id of nodeIds) {
     const successors = factory.indexes.successors[id] as readonly string[];
-    if (!isSortedUnique(successors) || successors.some((successor) => !nodeIds.has(successor))) return issue("COMPILED_SUCCESSORS", "Successor indexes must be sorted, unique, and local.", ["indexes", "successors", id]);
-    for (const successor of successors) inbound.set(successor, (inbound.get(successor) ?? 0) + 1);
+    const expected = expectedSuccessors.get(id)!.sort(compareText);
+    if (!isSortedUnique(successors) || successors.length !== expected.length || successors.some((successor, index) => successor !== expected[index])) return issue("COMPILED_SUCCESSORS", "Successor indexes must exactly match declared graph edges.", ["indexes", "successors", id]);
   }
-  for (const id of nodeIds) if (!safeCounter(factory.indexes.dependencyCounts[id] as number) || factory.indexes.dependencyCounts[id] !== inbound.get(id)) return issue("COMPILED_DEPENDENCIES", "Dependency counts do not match successor indexes.", ["indexes", "dependencyCounts", id]);
+  for (const id of nodeIds) if (!safeCounter(factory.indexes.dependencyCounts[id] as number) || factory.indexes.dependencyCounts[id] !== dependencies.get(id)!.length) return issue("COMPILED_DEPENDENCIES", "Dependency counts do not match declared graph edges.", ["indexes", "dependencyCounts", id]);
+  const checkedManifest = validateCompiledExecutionManifest(executionManifest(factory), factory.digest, factory.executionManifest);
+  if (!checkedManifest.ok) return issue("COMPILED_EXECUTION_MANIFEST", "Compiled execution manifest is invalid.", ["executionManifest"]);
 
+  const partitionNodeIds = new Set(factory.definition.graph.nodes.map((node) => node.id));
   const partitionByNode = new Map<string, string>();
   const partitionIds = new Set<string>();
   for (let index = 0; index < factory.partitions.length; index += 1) {
     const partition = factory.partitions[index]!;
-    if (partition.id !== `partition-${index}` || partitionIds.has(partition.id) || partition.nodeIds.length === 0 || partition.nodeIds.length > FACTORY_LIMITS.maxPartitionNodes) return issue("COMPILED_PARTITION", "Partitions need canonical IDs and bounded nonempty node lists.", ["partitions", index]);
+    if (partition.id !== `partition-${index}` || partitionIds.has(partition.id) || partition.nodeIds.length === 0 || partition.nodeIds.length > FACTORY_LIMITS.maxPartitionNodes || !safeCounter(partition.encodedBytes, 2) || partition.encodedBytes > FACTORY_LIMITS.maxRecordedPageBytes || !validDigest(partition.digest, true)) return issue("COMPILED_PARTITION", "Partitions need canonical IDs, bytes, digests, and bounded nonempty node lists.", ["partitions", index]);
     partitionIds.add(partition.id);
     if (!isSortedUnique(partition.dependsOn)) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must be sorted and unique.", ["partitions", index, "dependsOn"]);
     for (const dependency of partition.dependsOn) {
@@ -367,17 +513,40 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
       if (dependencyIndex < 0 || dependencyIndex >= index) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must point to an earlier partition.", ["partitions", index, "dependsOn"]);
     }
     for (const id of partition.nodeIds) {
-      if (!nodeIds.has(id) || partitionByNode.has(id)) return issue("COMPILED_PARTITION_NODE", "Each compiled node must occur in one partition.", ["partitions", index, "nodeIds"]);
+      if (!partitionNodeIds.has(id) || partitionByNode.has(id)) return issue("COMPILED_PARTITION_NODE", "Each top-level compiled node must occur in one partition.", ["partitions", index, "nodeIds"]);
       partitionByNode.set(id, partition.id);
     }
   }
-  if (partitionByNode.size !== nodeIds.size) return issue("COMPILED_PARTITION_COVERAGE", "Partitions must cover every compiled node.", ["partitions"]);
+  if (partitionByNode.size !== partitionNodeIds.size) return issue("COMPILED_PARTITION_COVERAGE", "Partitions must cover every top-level compiled node.", ["partitions"]);
+  const inboundByPartition = new Map<string, CompiledPartitionInboundEdge[]>(factory.partitions.map(({ id }) => [id, []]));
+  const outboundByPartition = new Map<string, CompiledPartitionOutboundEdge[]>(factory.partitions.map(({ id }) => [id, []]));
+  for (let index = 0; index < factory.partitions.length; index += 1) {
+    const partition = factory.partitions[index]!;
+    const expected = new Set<string>();
+    for (const nodeId of partition.nodeIds) for (const dependency of dependencies.get(nodeId) ?? []) {
+      const dependencyPartition = partitionByNode.get(dependency)!;
+      if (dependencyPartition !== partition.id) {
+        expected.add(dependencyPartition);
+        inboundByPartition.get(partition.id)!.push({ nodeId, fromNodeId: dependency, fromPartitionId: dependencyPartition });
+        outboundByPartition.get(dependencyPartition)!.push({ nodeId: dependency, toNodeId: nodeId, toPartitionId: partition.id });
+      }
+    }
+    const expectedIds = [...expected].sort(compareText);
+    if (partition.dependsOn.length !== expectedIds.length || partition.dependsOn.some((id, dependencyIndex) => id !== expectedIds[dependencyIndex])) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must exactly match cross-partition graph edges.", ["partitions", index, "dependsOn"]);
+  }
+  for (let index = 0; index < factory.partitions.length; index += 1) {
+    const partition = factory.partitions[index]!;
+    const inbound = inboundByPartition.get(partition.id)!.sort(compareInbound);
+    const outbound = outboundByPartition.get(partition.id)!.sort(compareOutbound);
+    if (!jsonEqual(partition.inbound as unknown as JsonValue, inbound as unknown as JsonValue) || !jsonEqual(partition.outbound as unknown as JsonValue, outbound as unknown as JsonValue)) return issue("COMPILED_PARTITION_EDGES", "Partition edge manifests must exactly match cross-partition graph edges.", ["partitions", index]);
+    if (partition.encodedBytes !== encodedBytes(partitionPayload(partition, factory) as unknown as JsonValue)) return issue("COMPILED_PARTITION_BYTES", "Partition bytes must exactly match its canonical manifest and node records.", ["partitions", index, "encodedBytes"]);
+  }
 
   const pagedNodes = new Map<string, string[]>();
   const pageIds = new Set<string>();
   for (let index = 0; index < factory.pages.length; index += 1) {
     const page = factory.pages[index]!;
-    if (page.id !== `page-${index}` || pageIds.has(page.id) || !partitionIds.has(page.partitionId) || page.nodeIds.length === 0 || !safeCounter(page.encodedBytes, 2) || page.encodedBytes > 32 * 1024 || !validDigest(page.digest, true)) return issue("COMPILED_PAGE", "Pages need canonical IDs, bounded bytes, valid digests, and a partition.", ["pages", index]);
+    if (page.id !== `page-${index}` || pageIds.has(page.id) || !partitionIds.has(page.partitionId) || page.nodeIds.length === 0 || !safeCounter(page.encodedBytes, 2) || page.encodedBytes > FACTORY_LIMITS.maxRecordedPageBytes || !validDigest(page.digest, true)) return issue("COMPILED_PAGE", "Pages need canonical IDs, bounded bytes, valid digests, and a partition.", ["pages", index]);
     pageIds.add(page.id);
     const list = pagedNodes.get(page.partitionId) ?? [];
     for (const id of page.nodeIds) {
@@ -408,7 +577,7 @@ function validateOperation(operation: FactoryRunnerOperationResult, path: readon
   const resultDigestInvalid = operation.state === "uncertain"
     ? operation.resultDigest !== undefined && !validDigest(operation.resultDigest, false)
     : !validDigest(operation.resultDigest, false);
-  if (!boundedText(operation.operationId, 1_024) || !safeCounter(operation.operationIndex) || !validDigest(operation.requestDigest, false) || resultDigestInvalid || operation.providerReceiptDigest !== undefined && !validDigest(operation.providerReceiptDigest, false)) return issue("RUNNER_OPERATION", "Runner operation identity or digest is invalid.", path);
+  if (!boundedText(operation.operationId, 1_024) || !operation.operationId.endsWith(`:${operation.operationIndex}`) || !safeCounter(operation.operationIndex) || !validDigest(operation.requestDigest, false) || resultDigestInvalid || operation.providerReceiptDigest !== undefined && !validDigest(operation.providerReceiptDigest, false)) return issue("RUNNER_OPERATION", "Runner operation identity or digest is invalid.", path);
   if (operation.usage !== undefined) {
     const usage = validateUsage(operation.usage, [...path, "usage"]);
     if (!usage.ok) return usage;
@@ -444,6 +613,8 @@ export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
     const checkpoint = validateArtifactReference(request.checkpoint, ["checkpoint"]);
     if (!checkpoint.ok || !safeCounter(request.checkpoint.journalCursor, -1)) return checkpoint.ok ? issue("RUNNER_CURSOR", "Checkpoint cursor must be a safe integer.", ["checkpoint", "journalCursor"]) : checkpoint;
   }
+  const expectedOperationIndex = (request.checkpoint?.journalCursor ?? -1) + 1;
+  if (request.authority.nextOperationIndex !== expectedOperationIndex) return issue("RUNNER_CURSOR", "Next operation index must continue the supplied checkpoint.", ["authority", "nextOperationIndex"]);
   const toolNames = new Set<string>();
   for (let index = 0; index < request.tools.length; index += 1) {
     const tool = request.tools[index]!;
@@ -469,6 +640,8 @@ export function validateFactoryRunnerResult(value: unknown): ValidationResult {
     previousIndex = operation.operationIndex;
     const operationResult = validateOperation(operation, ["operations", index]);
     if (!operationResult.ok) return operationResult;
+    if (operation.state === "uncertain" ? operation.operationIndex <= result.journalCursor : operation.operationIndex > result.journalCursor) return issue("RUNNER_OPERATION_CURSOR", "Settled operations cannot exceed the cursor and uncertain operations cannot advance it.", ["operations", index, "operationIndex"]);
+    if (operation.state === "completed" && operation.workspaceCheckpoint.journalCursor !== operation.operationIndex) return issue("RUNNER_OPERATION_CURSOR", "Completed operation checkpoint must equal its operation index.", ["operations", index, "workspaceCheckpoint", "journalCursor"]);
   }
   if (result.usage !== undefined) {
     const usage = validateUsage(result.usage, ["usage"]);

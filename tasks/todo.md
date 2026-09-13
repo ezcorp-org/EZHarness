@@ -933,16 +933,17 @@ The public route now stores `Idempotency-Key` as a bounded `factory:` key. The e
 
 ## Factory SDK artifact and runner wire validation
 
-- [ ] Add generated JSON Schemas for `CompiledFactory`, `FactoryRunnerRequest`, and `FactoryRunnerResult` from the SDK type source.
-- [ ] Add a Temporal-safe structural compiled-artifact validator with I-JSON, limit, index, partition, and page manifest checks.
-- [ ] Add a Node compiler verifier that recompiles the embedded definition and compares every canonical IR field and fetched page bytes.
-- [ ] Add canonical C02 request/result types and pure validators for identities, fences, deadlines, pins, refs, usage, and 64 KiB wire bounds.
-- [ ] Export pure and Node entry points without pulling compiler crypto/YAML into the validation subpath.
-- [ ] Add adversarial tests and prove 100% source and changed-line coverage, build, typecheck, lint, and native Node imports.
+- [x] Add generated JSON Schemas for `CompiledFactory`, partition artifacts, execution manifests, `FactoryRunnerRequest`, and `FactoryRunnerResult` from the SDK type source.
+- [x] Add Temporal-safe structural validators with I-JSON, limit, index, partition, page, and exact cross-partition edge checks.
+- [x] Add a Node compiler verifier that recompiles the embedded definition and compares every canonical IR field and fetched page bytes.
+- [x] Add canonical C02 request/result types and pure validators for identities, fences, deadlines, pins, refs, usage, and 64 KiB wire bounds.
+- [x] Export pure and Node entry points without pulling compiler crypto/YAML into the validation subpath.
+- [x] Add adversarial tests and prove 100% owned-source coverage, build, typecheck, lint, and native Node imports.
 
 ### Review
 
-Pending implementation and measured verification.
+The compiler now emits immutable root-node partitions with exact node-level inbound and outbound edges. It splits partitions by the 128-node cap and the canonical 32 KiB artifact size, rejects an unsplittable node with a located diagnostic, and keeps nested control bodies only inside their owning node. A separate bounded execution manifest carries the root ports, bounds, and output bindings needed by a partition-local kernel. Both payloads have generated schemas, byte and digest descriptors, pure validators, and Node construction helpers. The C02 runner types and validators enforce stable cursor, operation, authority, resource, usage, and terminal evidence rules. The final SDK run passed 87 tests and all compiler-owned measured lines.
+
 ## Factory Stage2c durable execution gateway
 
 - [x] Define idempotent attempt admission, operation journal, checkpoints, status, and cancellation records with tenant/project/run keys.

@@ -1,91 +1,8 @@
 {
-  "$id": "urn:ezcorp:factory:compiled:v1",
-  "$ref": "#/definitions/CompiledFactory",
+  "$id": "urn:ezcorp:factory:partition:v1",
+  "$ref": "#/definitions/CompiledPartitionArtifact",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
-    "AcceptanceClaim": {
-      "additionalProperties": false,
-      "properties": {
-        "freshnessMs": {
-          "type": "number"
-        },
-        "id": {
-          "type": "string"
-        },
-        "protected": {
-          "type": "boolean"
-        },
-        "required": {
-          "type": "boolean"
-        },
-        "validator": {
-          "$ref": "#/definitions/RunnerReference"
-        }
-      },
-      "required": [
-        "id",
-        "validator",
-        "required",
-        "protected"
-      ],
-      "type": "object"
-    },
-    "AcceptanceContract": {
-      "additionalProperties": false,
-      "properties": {
-        "claims": {
-          "items": {
-            "$ref": "#/definitions/AcceptanceClaim"
-          },
-          "type": "array"
-        },
-        "groups": {
-          "items": {
-            "$ref": "#/definitions/AcceptanceGroup"
-          },
-          "type": "array"
-        },
-        "id": {
-          "type": "string"
-        },
-        "version": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "version",
-        "claims"
-      ],
-      "type": "object"
-    },
-    "AcceptanceGroup": {
-      "additionalProperties": false,
-      "properties": {
-        "claimIds": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "id": {
-          "type": "string"
-        },
-        "minimumPasses": {
-          "type": "number"
-        },
-        "requireAllDecisive": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "id",
-        "claimIds",
-        "minimumPasses",
-        "requireAllDecisive"
-      ],
-      "type": "object"
-    },
     "AcceptanceNode": {
       "additionalProperties": false,
       "properties": {
@@ -399,137 +316,9 @@
       },
       "type": "object"
     },
-    "CompiledArtifactDescriptor": {
+    "CompiledPartitionArtifact": {
       "additionalProperties": false,
-      "properties": {
-        "digest": {
-          "type": "string"
-        },
-        "encodedBytes": {
-          "type": "number"
-        }
-      },
-      "required": [
-        "encodedBytes",
-        "digest"
-      ],
-      "type": "object"
-    },
-    "CompiledFactory": {
-      "additionalProperties": false,
-      "properties": {
-        "definition": {
-          "$ref": "#/definitions/FactoryDefinition"
-        },
-        "digest": {
-          "type": "string"
-        },
-        "executionManifest": {
-          "$ref": "#/definitions/CompiledArtifactDescriptor"
-        },
-        "indexes": {
-          "$ref": "#/definitions/CompiledIndexes"
-        },
-        "lock": {
-          "$ref": "#/definitions/DependencyLock"
-        },
-        "pages": {
-          "items": {
-            "$ref": "#/definitions/CompiledPage"
-          },
-          "type": "array"
-        },
-        "partitions": {
-          "items": {
-            "$ref": "#/definitions/CompiledPartition"
-          },
-          "type": "array"
-        },
-        "presentationDigest": {
-          "type": "string"
-        },
-        "schemaVersion": {
-          "const": "factory.ir.v1",
-          "type": "string"
-        }
-      },
-      "required": [
-        "schemaVersion",
-        "digest",
-        "definition",
-        "lock",
-        "indexes",
-        "executionManifest",
-        "partitions",
-        "pages"
-      ],
-      "type": "object"
-    },
-    "CompiledIndexes": {
-      "additionalProperties": false,
-      "properties": {
-        "dependencyCounts": {
-          "additionalProperties": {
-            "type": "number"
-          },
-          "type": "object"
-        },
-        "nodeById": {
-          "additionalProperties": {
-            "$ref": "#/definitions/FactoryNode"
-          },
-          "type": "object"
-        },
-        "successors": {
-          "additionalProperties": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "type": "object"
-        }
-      },
-      "required": [
-        "nodeById",
-        "successors",
-        "dependencyCounts"
-      ],
-      "type": "object"
-    },
-    "CompiledPage": {
-      "additionalProperties": false,
-      "properties": {
-        "digest": {
-          "type": "string"
-        },
-        "encodedBytes": {
-          "type": "number"
-        },
-        "id": {
-          "type": "string"
-        },
-        "nodeIds": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "partitionId": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "partitionId",
-        "nodeIds",
-        "encodedBytes",
-        "digest"
-      ],
-      "type": "object"
-    },
-    "CompiledPartition": {
-      "additionalProperties": false,
+      "description": "Exact recorded payload loaded for one interpreter partition.",
       "properties": {
         "dependsOn": {
           "items": {
@@ -537,12 +326,8 @@
           },
           "type": "array"
         },
-        "digest": {
+        "factoryDigest": {
           "type": "string"
-        },
-        "encodedBytes": {
-          "description": "Canonical bytes of the partition manifest and its full node records.",
-          "type": "number"
         },
         "id": {
           "type": "string"
@@ -559,21 +344,32 @@
           },
           "type": "array"
         },
+        "nodes": {
+          "items": {
+            "$ref": "#/definitions/FactoryNode"
+          },
+          "type": "array"
+        },
         "outbound": {
           "items": {
             "$ref": "#/definitions/CompiledPartitionOutboundEdge"
           },
           "type": "array"
+        },
+        "schemaVersion": {
+          "const": "factory.partition.v1",
+          "type": "string"
         }
       },
       "required": [
+        "schemaVersion",
+        "factoryDigest",
         "id",
         "nodeIds",
         "dependsOn",
         "inbound",
         "outbound",
-        "encodedBytes",
-        "digest"
+        "nodes"
       ],
       "type": "object"
     },
@@ -616,32 +412,6 @@
         "nodeId",
         "toNodeId",
         "toPartitionId"
-      ],
-      "type": "object"
-    },
-    "DependencyLock": {
-      "additionalProperties": false,
-      "properties": {
-        "factories": {
-          "items": {
-            "$ref": "#/definitions/FactoryReference"
-          },
-          "type": "array"
-        },
-        "interpreter": {
-          "type": "string"
-        },
-        "packages": {
-          "items": {
-            "$ref": "#/definitions/PackageReference"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "packages",
-        "factories",
-        "interpreter"
       ],
       "type": "object"
     },
@@ -698,109 +468,6 @@
           "$ref": "#/definitions/LengthExpression"
         }
       ]
-    },
-    "FactoryBounds": {
-      "additionalProperties": false,
-      "properties": {
-        "maxExpandedNodes": {
-          "type": "number"
-        },
-        "maxScopeDepth": {
-          "type": "number"
-        },
-        "runDeadlineMs": {
-          "type": "number"
-        }
-      },
-      "required": [
-        "maxExpandedNodes",
-        "maxScopeDepth"
-      ],
-      "type": "object"
-    },
-    "FactoryDefinition": {
-      "additionalProperties": false,
-      "properties": {
-        "acceptance": {
-          "$ref": "#/definitions/AcceptanceContract"
-        },
-        "bounds": {
-          "$ref": "#/definitions/FactoryBounds"
-        },
-        "capabilities": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "effects": {
-          "items": {
-            "$ref": "#/definitions/Effect"
-          },
-          "type": "array"
-        },
-        "factories": {
-          "items": {
-            "$ref": "#/definitions/FactoryReference"
-          },
-          "type": "array"
-        },
-        "graph": {
-          "$ref": "#/definitions/FactoryGraph"
-        },
-        "id": {
-          "type": "string"
-        },
-        "inputPorts": {
-          "additionalProperties": {
-            "$ref": "#/definitions/PortSchema"
-          },
-          "type": "object"
-        },
-        "interpreterCompatibility": {
-          "type": "string"
-        },
-        "outputPorts": {
-          "additionalProperties": {
-            "$ref": "#/definitions/PortSchema"
-          },
-          "type": "object"
-        },
-        "packages": {
-          "items": {
-            "$ref": "#/definitions/PackageReference"
-          },
-          "type": "array"
-        },
-        "presentation": {
-          "additionalProperties": {
-            "$ref": "#/definitions/JsonValue"
-          },
-          "type": "object"
-        },
-        "schemaVersion": {
-          "const": "factory.v1",
-          "type": "string"
-        },
-        "version": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "schemaVersion",
-        "id",
-        "version",
-        "interpreterCompatibility",
-        "inputPorts",
-        "outputPorts",
-        "graph",
-        "acceptance",
-        "packages",
-        "capabilities",
-        "effects",
-        "bounds"
-      ],
-      "type": "object"
     },
     "FactoryGraph": {
       "additionalProperties": false,
@@ -1279,26 +946,6 @@
       "required": [
         "kind",
         "value"
-      ],
-      "type": "object"
-    },
-    "PackageReference": {
-      "additionalProperties": false,
-      "properties": {
-        "digest": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "version": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "version",
-        "digest"
       ],
       "type": "object"
     },

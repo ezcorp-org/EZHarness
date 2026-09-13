@@ -1,14 +1,13 @@
 # Gates: compiler
 
-- [ ] G1: Canonical I-JSON/JSON/YAML/SDK parsing rejects all unsupported forms.
-  EVIDENCE: pending
+- [x] G1: Canonical I-JSON/JSON/YAML/SDK parsing rejects all unsupported forms.
+  EVIDENCE: `bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-sdk-partition-cov-20260912e ./src` passed 87 tests and 632 assertions, including duplicate-key, alias, tag, surrogate, unsafe-number, prototype-key, schema-subset, and expression-bound negatives.
 
-- [ ] G2: One schema/type source, conservative port containment and immutable pinned compilation satisfy C07.
-  EVIDENCE: pending
+- [x] G2: One schema/type source, conservative port containment and immutable pinned compilation satisfy C07.
+  EVIDENCE: the same SDK run regenerated and compared all six checked-in schemas with `ts-json-schema-generator`; compiler, schema, validation, and type sources measured 668/668, 74/74, 547/547, and 25/25 lines. Pure validator sources contain no Node import, ambient time, network call, regular expression, or dynamic code generation.
 
-- [ ] G3: Exact C10 golden graph signatures compile; invalid graph/authority cases fail.
-  EVIDENCE: pending
+- [x] G3: Exact C10 golden graph signatures compile; invalid graph/authority cases fail.
+  EVIDENCE: four reference definitions compile twice to identical immutable digests; reference execution and negative release legs pass in the 87-test SDK run. Root-only partition artifacts preserve nested control bodies, carry exact per-node boundary edges, and split under the 32 KiB C08 byte limit.
 
-- [ ] G4: Every owned executable line has measured coverage and focused tests/build pass.
-  EVIDENCE: pending
-
+- [x] G4: Every owned executable line has measured coverage and focused tests/build pass.
+  EVIDENCE: `/tmp/factory-sdk-partition-cov-20260912e/lcov.info` records 100% lines and functions for compiler (668/668, 89/89), schema (74/74, 15/15), and types (25/25, 1/1), plus 547/547 validation lines. SDK build, root typecheck, root lint, schema regeneration, and native Node imports all exited 0.

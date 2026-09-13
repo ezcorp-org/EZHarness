@@ -3,13 +3,19 @@ import { canonicalizeJson, isUnsignedDecimal } from "./canonical.js";
 import { isFactoryDefinition } from "./schema.js";
 import { validateExpression } from "./expressions.js";
 import {
+  FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION,
   FACTORY_IR_SCHEMA_VERSION,
   FACTORY_LIMITS,
+  FACTORY_PARTITION_SCHEMA_VERSION,
   type CompileResult,
+  type CompiledExecutionManifest,
   type CompiledFactory,
   type CompiledIndexes,
   type CompiledPage,
   type CompiledPartition,
+  type CompiledPartitionArtifact,
+  type CompiledPartitionInboundEdge,
+  type CompiledPartitionOutboundEdge,
   type CompilerDiagnostic,
   type FactoryDefinition,
   type FactoryGraph,
@@ -380,7 +386,7 @@ function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly 
     if (node.kind === "release") { validateRunner(node.adapter, context, [...nodePath, "adapter"]); checkRunnerLock(node.adapter, context, [...nodePath, "adapter"]); }
     if (node.kind === "subfactory") { validatePin(node.factory.id, node.factory.version, node.factory.digest, context, [...nodePath, "factory"]); checkFactoryLock(node.factory, context, [...nodePath, "factory"]); }
     if (node.kind === "subfactory" && node.factory.id === context.definition.id) addDiagnostic(context, "REFERENCE_CYCLE", "A factory cannot reference itself.", [...nodePath, "factory"], node.id);
-    if (node.kind === "map" && (!Number.isSafeInteger(node.maxItems) || node.maxItems < 0 || node.maxItems > context.definition.bounds.maxExpandedNodes || !Number.isSafeInteger(node.maxConcurrency) || node.maxConcurrency < 1)) addDiagnostic(context, "BOUND_MAP", "Map bounds are invalid.", nodePath, node.id);
+    if (node.kind === "map" && (!Number.isSafeInteger(node.maxItems) || node.maxItems < 0 || node.maxItems > context.definition.bounds.maxExpandedNodes || !Number.isSafeInteger(node.maxConcurrency) || node.maxConcurrency < 1 || node.maxConcurrency > FACTORY_LIMITS.maxConcurrentActivities)) addDiagnostic(context, "BOUND_MAP", "Map bounds are invalid.", nodePath, node.id);
     if (node.kind === "loop" && (!Number.isSafeInteger(node.maxIterations) || node.maxIterations < 1 || node.maxIterations > context.definition.bounds.maxExpandedNodes || !Number.isSafeInteger(node.maxElapsedMs) || node.maxElapsedMs < 1)) addDiagnostic(context, "BOUND_LOOP", "Loop requires positive iteration and elapsed-time bounds.", nodePath, node.id);
     if (node.kind === "loop") validateBudget(node.budget, context, [...nodePath, "budget"], node.id);
     if (node.kind === "approval" && (!Number.isSafeInteger(node.expiresInMs) || node.expiresInMs < 1 || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length)) addDiagnostic(context, "BOUND_APPROVAL", "Approval choices or expiry are invalid.", nodePath, node.id);
@@ -525,19 +531,83 @@ function expandedGraphCount(graph: FactoryGraph, limit: number): number {
   return count;
 }
 
-function buildPartitions(order: readonly string[], context: CompileContext): CompiledPartition[] {
-  const partitions: CompiledPartition[] = [];
+type PartitionChunk = { readonly nodeIds: readonly string[] };
+
+function partitionPayload(partition: Omit<CompiledPartition, "encodedBytes" | "digest">, context: CompileContext, factoryDigest: string): CompiledPartitionArtifact {
+  return {
+    schemaVersion: FACTORY_PARTITION_SCHEMA_VERSION,
+    factoryDigest,
+    ...partition,
+    nodes: partition.nodeIds.map((id) => context.nodes.get(id) as FactoryNode),
+  };
+}
+
+function encodedJsonBytes(value: JsonValue): number {
+  return new TextEncoder().encode(canonicalizeJson(value)).byteLength;
+}
+
+function materializePartitions(chunks: readonly PartitionChunk[], context: CompileContext, factoryDigest: string): CompiledPartition[] {
   const nodePartition = new Map<string, string>();
-  for (let offset = 0; offset < order.length; offset += FACTORY_LIMITS.maxPartitionNodes) {
-    const nodeIds = order.slice(offset, offset + FACTORY_LIMITS.maxPartitionNodes);
-    const id = `partition-${partitions.length}`;
-    const dependsOn = new Set<string>();
-    for (const nodeId of nodeIds) for (const dependency of context.dependencies.get(nodeId) ?? []) {
-      const partition = nodePartition.get(dependency);
-      if (partition && partition !== id) dependsOn.add(partition);
-    }
+  for (let index = 0; index < chunks.length; index += 1) {
+    const id = `partition-${index}`;
+    const nodeIds = chunks[index]!.nodeIds;
     for (const nodeId of nodeIds) nodePartition.set(nodeId, id);
-    partitions.push({ id, nodeIds, dependsOn: [...dependsOn].sort(compareText) });
+  }
+  const inboundByPartition = new Map<string, CompiledPartitionInboundEdge[]>(chunks.map((_, index) => [`partition-${index}`, []]));
+  const outboundByPartition = new Map<string, CompiledPartitionOutboundEdge[]>(chunks.map((_, index) => [`partition-${index}`, []]));
+  for (let index = 0; index < chunks.length; index += 1) for (const nodeId of chunks[index]!.nodeIds) for (const fromNodeId of context.dependencies.get(nodeId) ?? []) {
+    const id = `partition-${index}`;
+    const fromPartitionId = nodePartition.get(fromNodeId);
+    if (!fromPartitionId || fromPartitionId === id) continue;
+    inboundByPartition.get(id)!.push({ nodeId, fromNodeId, fromPartitionId });
+    outboundByPartition.get(fromPartitionId)!.push({ nodeId: fromNodeId, toNodeId: nodeId, toPartitionId: id });
+  }
+  const compareInbound = (left: CompiledPartitionInboundEdge, right: CompiledPartitionInboundEdge): number => compareText(left.nodeId, right.nodeId) || compareText(left.fromNodeId, right.fromNodeId) || compareText(left.fromPartitionId, right.fromPartitionId);
+  const compareOutbound = (left: CompiledPartitionOutboundEdge, right: CompiledPartitionOutboundEdge): number => compareText(left.nodeId, right.nodeId) || compareText(left.toNodeId, right.toNodeId) || compareText(left.toPartitionId, right.toPartitionId);
+  return chunks.map(({ nodeIds }, index) => {
+    const id = `partition-${index}`;
+    const inbound = inboundByPartition.get(id)!.sort(compareInbound);
+    const outbound = outboundByPartition.get(id)!.sort(compareOutbound);
+    const manifest = { id, nodeIds, dependsOn: [...new Set(inbound.map((edge) => edge.fromPartitionId))].sort(compareText), inbound, outbound };
+    const encoded = canonicalizeJson(partitionPayload(manifest, context, factoryDigest) as unknown as JsonValue);
+    return { ...manifest, encodedBytes: new TextEncoder().encode(encoded).byteLength, digest: sha256(encoded) };
+  });
+}
+
+function initialPartitionChunks(order: readonly string[], context: CompileContext, factoryDigest: string): PartitionChunk[] {
+  const chunks: PartitionChunk[] = [];
+  let nodeIds: string[] = [];
+  let bytes = encodedJsonBytes(partitionPayload({ id: "partition-0", nodeIds: [], dependsOn: [], inbound: [], outbound: [] }, context, factoryDigest) as unknown as JsonValue);
+  for (const nodeId of order) {
+    const separatorBytes = nodeIds.length === 0 ? 0 : 2;
+    const additionalBytes = encodedJsonBytes(nodeId) + encodedJsonBytes(context.nodes.get(nodeId) as unknown as JsonValue) + separatorBytes;
+    if (nodeIds.length >= FACTORY_LIMITS.maxPartitionNodes || (nodeIds.length > 0 && bytes + additionalBytes > FACTORY_LIMITS.maxRecordedPageBytes)) {
+      chunks.push({ nodeIds });
+      nodeIds = [nodeId];
+      bytes = encodedJsonBytes(partitionPayload({ id: `partition-${chunks.length}`, nodeIds: [], dependsOn: [], inbound: [], outbound: [] }, context, factoryDigest) as unknown as JsonValue) + additionalBytes - separatorBytes;
+    } else {
+      nodeIds.push(nodeId);
+      bytes += additionalBytes;
+    }
+  }
+  if (nodeIds.length > 0) chunks.push({ nodeIds });
+  return chunks;
+}
+
+function buildPartitions(order: readonly string[], context: CompileContext, factoryDigest: string): CompiledPartition[] {
+  const chunks = initialPartitionChunks(order, context, factoryDigest);
+  let partitions = materializePartitions(chunks, context, factoryDigest);
+  let oversizedIndex = partitions.findIndex((partition) => partition.encodedBytes > FACTORY_LIMITS.maxRecordedPageBytes);
+  while (oversizedIndex >= 0) {
+    const oversized = chunks[oversizedIndex]!;
+    if (oversized.nodeIds.length === 1) {
+      addDiagnostic(context, "PAYLOAD_PARTITION", `Node ${oversized.nodeIds[0]} and its partition boundary metadata exceed 32 KiB.`, ["graph"], oversized.nodeIds[0]);
+      return partitions;
+    }
+    const middle = Math.ceil(oversized.nodeIds.length / 2);
+    chunks.splice(oversizedIndex, 1, { nodeIds: oversized.nodeIds.slice(0, middle) }, { nodeIds: oversized.nodeIds.slice(middle) });
+    partitions = materializePartitions(chunks, context, factoryDigest);
+    oversizedIndex = partitions.findIndex((partition) => partition.encodedBytes > FACTORY_LIMITS.maxRecordedPageBytes);
   }
   return partitions;
 }
@@ -556,17 +626,32 @@ function buildPages(partitions: readonly CompiledPartition[], context: CompileCo
     };
     for (const id of partition.nodeIds) {
       const encoded = new TextEncoder().encode(canonicalizeJson(context.nodes.get(id) as unknown as JsonValue)).byteLength + 1;
-      if (encoded > 32 * 1024) {
+      if (encoded > FACTORY_LIMITS.maxRecordedPageBytes) {
         addDiagnostic(context, "PAYLOAD_NODE", `Node ${id} exceeds the 32 KiB page limit.`, ["graph"], id);
         continue;
       }
-      if (bytes + encoded > 32 * 1024) flush();
+      if (bytes + encoded > FACTORY_LIMITS.maxRecordedPageBytes) flush();
       nodeIds.push(id);
       bytes += encoded;
     }
     flush();
   }
   return pages;
+}
+
+function executionManifest(definition: FactoryDefinition, factoryDigest: string): CompiledExecutionManifest {
+  return {
+    schemaVersion: FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION,
+    factoryDigest,
+    inputPorts: definition.inputPorts,
+    outputPorts: definition.outputPorts,
+    bounds: {
+      runDeadlineMs: definition.bounds.runDeadlineMs!,
+      maxExpandedNodes: definition.bounds.maxExpandedNodes,
+      maxScopeDepth: definition.bounds.maxScopeDepth,
+    },
+    outputs: definition.graph.outputs,
+  };
 }
 
 export function compileFactory(input: unknown): CompileResult {
@@ -636,10 +721,6 @@ export function compileFactory(input: unknown): CompileResult {
   }
   for (const name of Object.keys(definition.graph.outputs)) if (!own(definition.outputPorts, name)) addDiagnostic(context, "GRAPH_OUTPUT_UNKNOWN", `Graph declares unknown factory output: ${name}.`, ["graph", "outputs", name]);
 
-  const order = topologicalOrder(context);
-  const partitions = buildPartitions(order, context);
-  const pages = buildPages(partitions, context);
-  if (diagnostics.length > 0) return { ok: false, diagnostics };
   const lock = {
     packages: [...definition.packages].sort((left, right) => compareText(left.name, right.name)),
     factories: [...(definition.factories ?? [])].sort((left, right) => compareText(left.id, right.id)),
@@ -648,6 +729,15 @@ export function compileFactory(input: unknown): CompileResult {
   const { presentation: _presentation, ...executionFields } = definition;
   const executionDefinition = executionFields as unknown as JsonValue;
   const digest = sha256(canonicalizeJson({ definition: executionDefinition, lock } as unknown as JsonValue));
+  const manifest = executionManifest(definition, digest);
+  const encodedManifest = canonicalizeJson(manifest as unknown as JsonValue);
+  const executionManifestDescriptor = { encodedBytes: new TextEncoder().encode(encodedManifest).byteLength, digest: sha256(encodedManifest) };
+  if (executionManifestDescriptor.encodedBytes > FACTORY_LIMITS.maxRecordedPageBytes) diagnostics.push(diagnostic("PAYLOAD_EXECUTION_MANIFEST", "Execution manifest exceeds 32 KiB.", ["inputPorts"]));
+  const order = topologicalOrder(context);
+  const rootNodeIds = new Set(definition.graph.nodes.map((node) => node.id));
+  const partitions = buildPartitions(order.filter((id) => rootNodeIds.has(id)), context, digest);
+  const pages = buildPages(partitions, context);
+  if (diagnostics.length > 0) return { ok: false, diagnostics };
   const nodeById = Object.create(null) as Record<string, FactoryNode>;
   const successors = Object.create(null) as Record<string, readonly string[]>;
   const dependencyCounts = Object.create(null) as Record<string, number>;
@@ -664,10 +754,27 @@ export function compileFactory(input: unknown): CompileResult {
     definition,
     lock,
     indexes,
+    executionManifest: executionManifestDescriptor,
     partitions,
     pages,
   };
   return { ok: true, factory: deepFreeze(factory) };
+}
+
+export function createCompiledExecutionManifest(factory: CompiledFactory): CompiledExecutionManifest {
+  return executionManifest(factory.definition, factory.digest);
+}
+
+export function createCompiledPartitionArtifact(factory: CompiledFactory, partitionId: string): CompiledPartitionArtifact {
+  const partition = factory.partitions.find((candidate) => candidate.id === partitionId);
+  if (!partition) throw new Error(`Unknown compiled partition: ${partitionId}`);
+  const { encodedBytes: _encodedBytes, digest: _digest, ...fields } = partition;
+  return {
+    schemaVersion: FACTORY_PARTITION_SCHEMA_VERSION,
+    factoryDigest: factory.digest,
+    ...fields,
+    nodes: partition.nodeIds.map((id) => factory.indexes.nodeById[id]!),
+  };
 }
 
 export type CompiledFactoryPageBytes = Readonly<Record<string, Uint8Array>>;

@@ -1,12 +1,16 @@
 import factoryDefinitionJsonSchema from "./factory-definition.schema.json" with { type: "json" };
 import compiledFactoryJsonSchema from "./compiled-factory.schema.json" with { type: "json" };
+import compiledExecutionManifestJsonSchema from "./compiled-execution-manifest.schema.json" with { type: "json" };
+import compiledPartitionArtifactJsonSchema from "./compiled-partition-artifact.schema.json" with { type: "json" };
 import factoryRunnerRequestJsonSchema from "./factory-runner-request.schema.json" with { type: "json" };
 import factoryRunnerResultJsonSchema from "./factory-runner-result.schema.json" with { type: "json" };
 import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
-import type { CompiledFactory, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "./types.js";
+import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "./types.js";
 
 export {
   compiledFactoryJsonSchema,
+  compiledExecutionManifestJsonSchema,
+  compiledPartitionArtifactJsonSchema,
   factoryDefinitionJsonSchema,
   factoryRunnerRequestJsonSchema,
   factoryRunnerResultJsonSchema,
@@ -84,6 +88,14 @@ function matchesGeneratedSchema(schema: SchemaObject, value: unknown): boolean {
 
 export function isCompiledFactory(value: unknown): value is CompiledFactory {
   return matchesGeneratedSchema(compiledFactoryJsonSchema as SchemaObject, value);
+}
+
+export function isCompiledExecutionManifest(value: unknown): value is CompiledExecutionManifest {
+  return matchesGeneratedSchema(compiledExecutionManifestJsonSchema as SchemaObject, value);
+}
+
+export function isCompiledPartitionArtifact(value: unknown): value is CompiledPartitionArtifact {
+  return matchesGeneratedSchema(compiledPartitionArtifactJsonSchema as SchemaObject, value);
 }
 
 export function isFactoryRunnerRequest(value: unknown): value is FactoryRunnerRequest {

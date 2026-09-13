@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { createGenerator } from "ts-json-schema-generator";
 import {
+  compiledExecutionManifestJsonSchema,
   compiledFactoryJsonSchema,
+  compiledPartitionArtifactJsonSchema,
   factoryDefinitionJsonSchema,
   factoryRunnerRequestJsonSchema,
   factoryRunnerResultJsonSchema,
@@ -15,6 +17,8 @@ describe("generated definition schema", () => {
     const schemas = [
       ["FactoryDefinition", "urn:ezcorp:factory:definition:v1", factoryDefinitionJsonSchema],
       ["CompiledFactory", "urn:ezcorp:factory:compiled:v1", compiledFactoryJsonSchema],
+      ["CompiledExecutionManifest", "urn:ezcorp:factory:execution-manifest:v1", compiledExecutionManifestJsonSchema],
+      ["CompiledPartitionArtifact", "urn:ezcorp:factory:partition:v1", compiledPartitionArtifactJsonSchema],
       ["FactoryRunnerRequest", "urn:ezcorp:factory:runner-request:v1", factoryRunnerRequestJsonSchema],
       ["FactoryRunnerResult", "urn:ezcorp:factory:runner-result:v1", factoryRunnerResultJsonSchema],
     ] as const;

@@ -356,3 +356,7 @@
 
 - When the user identifies a local GPU, inspect DRM, KFD, PCI and container device access. A missing NVIDIA tool or device does not prove that the host has no GPU.
 - Check local Compose services before asking for remote test infrastructure. Use the user's current test scale and report its limits separately from launch capacity claims.
+# Announced commits are immutable
+
+- After I send a commit SHA to another agent, I must not amend or rewrite that commit.
+- Any correction, generated artifact update, or coverage fix must be a new follow-up commit so active consumers can cherry-pick safely.
