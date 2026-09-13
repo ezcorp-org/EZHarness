@@ -18,6 +18,8 @@
 ## Review
 
 - PGlite focused coverage: 44 tests, 707 assertions, exit 0. `task-outcomes.ts` is 118/118 lines and 17/17 functions. Its migration is 4/4 lines and 2/2 functions.
+
+Note (W00 audit 2026-09-13): this review cites no receipt path. Add the log and LCOV paths or treat the counts as unverified.
 - Real PostgreSQL and S3: 45 tests, 2,832 assertions, exit 0.
 - Backend source and backend-test type checks, lint, boundaries, registration failure injection, and gate integrity: exit 0.
 - The combined type script reached an unrelated baseline web API type mismatch; backend, backend-test, and web-e2e legs pass. Parent integration owns the newer web contract fixes.

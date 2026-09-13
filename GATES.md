@@ -119,3 +119,7 @@
   CHECK: FACTORY_TEST_POSTGRES_URL=... bun test --coverage ./tests/postgres/factory-encryption-s3.test.ts && bun run typecheck && bun run lint
   EXPECT: pass
   EVIDENCE: pending
+
+## Audit note (W00 audit 2026-09-13)
+
+The checked items above use a rerun-on-demand CHECK/EXPECT convention and cite no persisted receipts. One CHECK was re-run live and still holds; the others were not re-run in this audit. Persist command output for each before treating them as final evidence. The factory-assurance worktree carries an uncommitted change marking E4 as done while its own evidence line records "2 fail"; that change is preserved as /tmp/factory-platform-evidence/w00/assurance-dirty-GATES.patch and must not be merged as written.

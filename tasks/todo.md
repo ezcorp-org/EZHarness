@@ -44,6 +44,8 @@ Review: `factory_run_projection_attempts` stores each scheduler attempt and its 
 
 ## Factory assurance integrity — 2026-09-13
 
+Note (W00 audit 2026-09-13): the three checked items below cite no receipt. Their proof items remain unchecked. Do not rely on the checkbox state without a receipt.
+
 - [x] Bind every persisted contract field and the approving authority into a canonical protected snapshot.
 - [x] Revalidate that snapshot and current gateway evidence at acceptance and release consumption.
 - [x] Write approval request, decision, and consumption audit facts in their owning transactions.
@@ -84,6 +86,8 @@ Review: `src/factory/file-key-wraps.ts` reads only private descriptor-anchored f
 - [x] Run focused tests, required static checks, and changed-source coverage.
 
 Review: full affected test files pass independently: 3 event-subscription cases, 7 grant-reconciliation cases, and 3 real-Python C02 conformance cases. The focused canonical Bun coverage receipt at `/tmp/factory-platform-evidence/terra-backend-regression-coverage.log` covers the changed lifecycle lines (310–311) and approval-context limit (32). The four canonical typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-backend-regression-types-lint.log`; lint reports zero errors and eight existing infos.
+
+Note (W00 audit 2026-09-13): terra-backend-regression-coverage.log contains no Python conformance run; the three real-Python cases have no located receipt. W02 must produce one.
 
 - [x] Fetch PR and latest main; preserve original worktrees.
 - [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
@@ -1234,6 +1238,8 @@ Review: `/tmp/factory-platform-evidence/project-creation-results.json` records a
 - [x] Prove workflow syntax and local Compose startup/test command shape.
 
 Review: `71700a687` reuses the strict local storage provisioner in the required external PostgreSQL job. It runs explicit artifact and lifecycle test files under coverage and always removes the Compose profile. `actionlint` passes. The lifecycle filename is supplied by root commit `e577b7778`; this CI commit must follow that integration.
+
+Note (W00 audit 2026-09-13): commit 71700a687 is not an ancestor of the integration branch (it lives on feat/factory-artifacts). The integrated db-postgres.yml diverged from it. Treat this item as integrated only through the current workflow file, which W00's staging PostgreSQL/S3 producer exercised (w00-staging-postgres.log, exit 0).
 ## Private factory HTTPS transport
 
 - [x] Prove the C02 private Node-to-Bun mTLS request boundary through actual sockets.
@@ -1963,3 +1969,34 @@ Review: eleven existing/new broker transport tests pass with 71 assertions. The 
 
 - The stored source transition remains part of the protected approval seal. Inbox visibility now validates the exact command against the latest committed waiting attempt, so unrelated head progress does not hide it.
 - PGlite lifecycle conformance passes 26 tests and 249 assertions. All four TypeScript lanes and repository lint pass.
+
+# Factory completion plan execution — coordinator (2026-09-13)
+
+Team: coordinator (this session), Opus implementation workers, Sonnet validators. Every worker runs in its own `.worktrees/<pkg>` worktree branched from `integ/w00`; the coordinator integrates into `feat/composable-factory-platform`.
+
+## W00 — Reconcile the integration baseline
+
+- [x] Preserve worktrees, branch heads, dirty diffs, and stashes: ten factory stashes pinned to `preserve/stash-*` branches; no active producer in any factory worktree.
+- [x] Baseline checks on `33cab8657`: GitHub transport tests, SDK build, typecheck, lint, boundaries, gate integrity all exit 0 (`/tmp/factory-platform-evidence/w00/baseline-results.jsonl`).
+- [x] Integrate `a83f91556`, `3a84d4867`, then `b6cfa4798` (Sol run controls) into `integ/w00` as `bd2cedcc9`; task notes union-merged.
+- [x] Commit Terra's exact dirty recovery fix on `feat/factory-lazy-input` as `28bc2bfc3`; retest: 11 pass / 1 fail (fresh-runner artifact directory regression, W01 owns). Staging baseline Podman suite: 11/11.
+- [ ] Combined controls checks and coverage-gap recheck on `bd2cedcc9` (`w00-staging-*` receipts).
+- [ ] Requirement/evidence index for C01–C13, F01–F13, and eleven gates (`docs/validation/factory/w00/requirement-index.md`).
+- [ ] Shared interface freeze with single writers (`docs/plans/2026-09-13-composable-factory-platform-interfaces.md`).
+- [ ] Redacted evidence summaries and checksums copied into `docs/validation/factory/w00/`.
+- [ ] Correct overstated task notes with appended notes, without deleting history.
+- [ ] Fast-forward `feat/composable-factory-platform` to the finished `integ/w00`.
+
+## Wave 1 — W01, W04, W18 (parallel) then W04a
+
+- [ ] W01 durable execution and recovery (Opus worker, `.worktrees/w01-runtime`, branch `wp/w01-durable-runtime`).
+- [ ] W04 artifact materials and checkpoints (Opus worker, `.worktrees/w04-artifacts`, branch `wp/w04-artifact-materials`).
+- [ ] W18 coverage/CI framework and registration (Opus worker, `.worktrees/w18-ci`, branch `wp/w18-ci-coverage`); final seven-lane gate follows W13–W17.
+- [ ] W04a independent archive writer (after W04).
+- [ ] Sonnet validation of each package before integration; coordinator combined-integration run on the merged result.
+
+## Later waves
+
+- [ ] Wave 2: W02, W03, W05, W06, W07, W08, W09.
+- [ ] Wave 3: W10–W12, W13, W14, W15–W17.
+- [ ] Wave 4: W19 campaign on a frozen build, W20 audit.

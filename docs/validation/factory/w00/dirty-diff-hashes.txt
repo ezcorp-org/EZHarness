@@ -1,0 +1,6 @@
+739b2425675e376a635ca458056bb27133d9f263475fc14fccc9ab759b6541e5  /tmp/factory-platform-evidence/w00/assurance-dirty-GATES.patch
+9f1def47c2ed310a7658c15d8ec363ead055ef398e703d3b8d0f26f4e08f3779  /tmp/factory-platform-evidence/w00/task-execution-admission-dirty.patch
+30433bed726e9661fdee413cb0deb486aab007ef20c22f16160ef98993e05175  /tmp/factory-platform-evidence/w00/terra-recovery-dirty.patch
+0f839f86199e33609213e8b3caf857f8c4aef22d60bb3c66dc818d252eff62bb  /tmp/factory-platform-evidence/w00/validator-binding-dirty.patch
+a52696d4dec84c98511579be0f3001c1cd4a999f0e7cb357740d0013aef97fff  /tmp/factory-platform-evidence/w00/allow-factory-validator-multiclaim.test.ts
+84367a0bfb1817f8e797a30de87ede5a404877fffa8d45b28e6fbf3e0a60cea6  /tmp/factory-platform-evidence/w00/allow-factory-validator-multiclaim.ts

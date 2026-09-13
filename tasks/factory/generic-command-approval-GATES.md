@@ -20,6 +20,7 @@ Merged focused LCOV: `/tmp/factory-command-approval-coverage-merge/lcov.info`.
 - `src/factory/assurance-commands.ts`: 151/151 lines.
 - `src/db/migrations/add-factory-command-approvals.ts`: 6/6 lines.
 - `src/factory/releases.ts`: 402/402 lines.
+- Note (W00 audit 2026-09-13): releases.ts changed after this measurement in f150e8566 and 1ba2b6763; the 402/402 figure and the digest below describe superseded content. Re-measure against the current head before citing.
 - `web/src/lib/factory/FactoryReleaseInbox.svelte`: 74/74 lines.
 - `web/src/lib/factory/client.ts`: 84/84 lines.
 - Generic approval route: 1/1 line.
