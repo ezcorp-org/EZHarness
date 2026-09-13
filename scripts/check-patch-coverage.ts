@@ -19,7 +19,7 @@
  * coverage-config.ts (DRY). Pure helper exported for unit testing.
  */
 import { resolve } from "node:path";
-import { isExcluded, isSourceFile, parseHitLines, parseLcov, REPO_ROOT } from "./coverage-config.ts";
+import { isDeclarationOnlyTypeScript, isExcluded, isSourceFile, parseHitLines, parseLcov, REPO_ROOT } from "./coverage-config.ts";
 import { gitOutput } from "./git-output.ts";
 import { parseUnifiedDiff } from "./unified-diff.ts";
 
@@ -49,8 +49,8 @@ export function uncoveredAddedLines(
  * hunks. EXCLUDES is the reviewed allowlist and is applied by the caller
  * before this predicate.
  */
-export function shouldFailOnLcovAbsence(file: string, addedLineCount: number): boolean {
-  return addedLineCount > 0 && !file.endsWith(".svelte");
+export function shouldFailOnLcovAbsence(file: string, addedLineCount: number, source?: string): boolean {
+  return addedLineCount > 0 && !file.endsWith(".svelte") && !(file.endsWith(".ts") && source !== undefined && isDeclarationOnlyTypeScript(source));
 }
 
 /**
@@ -111,7 +111,8 @@ async function main(): Promise<void> {
     if (!fileCov) {
       // Wave 3: absence from lcov FAILS for changed .ts sources — see
       // shouldFailOnLcovAbsence. (EXCLUDES already `continue`d above.)
-      if (shouldFailOnLcovAbsence(file, info.addedLines.size)) {
+      const source = file.endsWith(".ts") ? await Bun.file(resolve(REPO_ROOT, file)).text().catch(() => undefined) : undefined;
+      if (shouldFailOnLcovAbsence(file, info.addedLines.size, source)) {
         violations.push(
           `${file}: changed source file has NO lcov data — no test loads it under coverage. ` +
             `Add/extend a test that exercises it (or, if it genuinely can't be measured, ` +

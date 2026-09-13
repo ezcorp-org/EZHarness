@@ -562,3 +562,7 @@
 
 - A structurally matching operator-supplied receipt is not proof of an external effect. Resolve the configured provider and verify the exact immutable version before success or archival settlement.
 - Use the same bounded, abortable proof boundary for receipt attachment and absence reconciliation. Timeouts preserve uncertainty.
+## Repository test commands
+
+- Read the root package scripts before invoking a focused web test. This repository has no `test:web` script; run `test:component` from `web` and pass paths relative to that working directory.
+- When light checks run in parallel, wait for every producer to close before applying even a small lint fix. Rerun every check whose source snapshot changed.

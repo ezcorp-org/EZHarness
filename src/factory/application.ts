@@ -17,6 +17,9 @@ import { FactoryExecutionJournal } from "./executions";
 import { FactoryReleaseAuthorityStore } from "./release-authority";
 import type { FactoryReleaseApplication } from "./release-application";
 import type { FactoryAssuranceCommands } from "./assurance-commands";
+import { FactoryTransitionArtifacts } from "./transition-artifacts";
+import { FactoryTransitionAuthority } from "./transition-authority";
+import type { FactoryRunControls } from "./run-controls";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -34,6 +37,7 @@ export interface FactoryApplication {
   readonly releaseAuthority: FactoryReleaseAuthorityStore;
   readonly releaseOperations?: FactoryReleaseApplication;
   readonly commandApprovals?: FactoryAssuranceCommands;
+  readonly runControls?: FactoryRunControls;
   readonly availableResourceClasses: ReadonlySet<string>;
 }
 
@@ -46,6 +50,7 @@ export interface FactoryApplicationOptions {
   readonly availableResourceClasses: Iterable<string>;
   readonly createReleaseOperations?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority">>) => FactoryReleaseApplication;
   readonly createCommandApprovals?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority" | "releaseOperations">>) => FactoryAssuranceCommands;
+  readonly createRunControls?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "definitions" | "grants" | "runs" | "artifacts"> & { readonly inputs: FactoryRunInputs; readonly transitions: FactoryTransitionArtifacts; readonly authority: FactoryTransitionAuthority }>) => FactoryRunControls;
 }
 
 let configuredApplication: FactoryApplication | null = null;
@@ -85,6 +90,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   const credentials = new FactoryServiceCredentials(options.database, options.tenantId, grants);
   const artifacts = new FactoryArtifacts(options.database, options.blobs, options.tenantId);
   const definitionArtifacts = new FactoryDefinitionArtifacts(artifacts);
+  const transitions = new FactoryTransitionArtifacts(artifacts);
   const inputs = new FactoryRunInputs(grants, new FactoryInputArtifacts(artifacts, new FactoryArtifactAccess(options.database, options.tenantId, grants, artifacts)));
   const runs = new FactoryRunLifecycle(options.database, options.tenantId, {
     ...options.runOptions, definitions, grants,
@@ -93,6 +99,10 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   });
   const journal = new FactoryExecutionJournal(options.database, runs.authorizeAttemptInTransaction);
   const releaseAuthority = new FactoryReleaseAuthorityStore(options.database, options.tenantId, grants, runs, journal, artifacts);
+  const transitionAuthority = new FactoryTransitionAuthority(options.tenantId, runs, transitions);
+  const runControls = options.createRunControls?.(Object.freeze({ tenantId: options.tenantId, definitions, grants, runs, artifacts, inputs, transitions, authority: transitionAuthority }));
+  if (runControls && runControls.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
+  if (runControls) Object.freeze(runControls);
   const releaseOperations = options.createReleaseOperations?.(Object.freeze({ tenantId: options.tenantId, grants, runs, artifacts, journal, releaseAuthority }));
   if (releaseOperations && releaseOperations.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
   if (releaseOperations) Object.freeze(releaseOperations);
@@ -108,6 +118,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
     artifacts,
     journal,
     releaseAuthority,
+    ...(runControls ? { runControls } : {}),
     ...(releaseOperations ? { releaseOperations } : {}),
     ...(commandApprovals ? { commandApprovals } : {}),
     availableResourceClasses: immutableSet(resources),

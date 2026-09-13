@@ -5,6 +5,7 @@ import type { BlobStore } from "../extensions/v4/types";
 import { FactoryGrants } from "./grants";
 import { configureFactoryApplication, createFactoryApplication, definitionAvailability, draftAvailability, getFactoryApplication } from "./application";
 import type { FactoryReleaseApplication } from "./release-application";
+import type { FactoryRunControls } from "./run-controls";
 
 const database = {} as TransactionalDb;
 const blobs = {} as BlobStore;
@@ -67,6 +68,16 @@ describe("factory application composition", () => {
     expect(Object.isFrozen(captured)).toBe(true);
     expect(captured).toMatchObject({ tenantId: "tenant-1", releaseAuthority: application.releaseAuthority, grants: application.grants });
     expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [], createReleaseOperations: () => ({ tenantId: "foreign" }) as FactoryReleaseApplication })).toThrow("factory_scope_mismatch");
+  });
+
+  test("supplies verified transition stores to the optional run-control composition", () => {
+    const controls = { tenantId: "tenant-1" } as FactoryRunControls;
+    let captured: object | undefined;
+    const application = createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [], createRunControls: context => { captured = context; return controls; } });
+    expect(application.runControls).toBe(controls);
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(captured).toMatchObject({ tenantId: "tenant-1", definitions: application.definitions, grants: application.grants, runs: application.runs, artifacts: application.artifacts });
+    expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [], createRunControls: () => ({ tenantId: "foreign" }) as FactoryRunControls })).toThrow("factory_scope_mismatch");
   });
 
   test("finds deep resource requirements and fails closed on invalid semantics", () => {

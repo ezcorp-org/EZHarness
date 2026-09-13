@@ -8,7 +8,7 @@ import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
 import { digestBytes, digestObject } from "../../extensions/v4/blobs";
 import { createFactoryApplication } from "../../factory/application";
-import { FactoryArtifacts } from "../../factory/artifacts";
+import { artifactJson, FactoryArtifacts } from "../../factory/artifacts";
 import { createFactoryArtifactActivities } from "../../factory/artifact-activities";
 import { FactoryDefinitionArtifacts } from "../../factory/definition-artifacts";
 import { FactoryDefinitions } from "../../factory/definitions";
@@ -35,6 +35,10 @@ import { FactoryPrivateCommands, type FactoryPrivateCommandStores } from "../../
 import { FactoryLazyCommands } from "../../factory/lazy-commands";
 import { FactoryLazyInputReader } from "../../factory/lazy-input";
 import { FactoryArtifactAccess } from "../../factory/artifact-access";
+import { FactoryInputArtifacts } from "../../factory/input-artifacts";
+import { FactoryRunInputs } from "../../factory/run-inputs";
+import { FactoryRunControls } from "../../factory/run-controls";
+import { FactoryTransitionAuthority } from "../../factory/transition-authority";
 import { startFactoryPrivateService } from "../../factory/private-service";
 import { FactoryTransportQueue } from "../../factory/transport-queue";
 import { certificates, nodeHttpsRequest, signedServiceToken, type Certificates } from "./factory-certificates";
@@ -1099,6 +1103,71 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     }
   });
 
+  test("acceptance authority opens the public wrapper only for the exact current protected command", async () => {
+    const definitionKey = { projectId, factoryId: "acceptance-command-authority" };
+    const source: FactoryDefinition = {
+      ...structuredClone(referenceCodeV1),
+      id: definitionKey.factoryId,
+      inputPorts: {},
+      outputPorts: {},
+      graph: {
+        nodes: [{
+          id: "accept",
+          kind: "acceptance",
+          contract: referenceCodeV1.acceptance.id,
+          candidate: { kind: "literal", value: "candidate" },
+          evidence: { kind: "literal", value: "evidence" },
+          outputPorts: { acceptedCandidate: { type: "string" } },
+        }, {
+          id: "publish",
+          kind: "release",
+          dependsOn: ["accept"],
+          adapter: structuredClone(referenceCodeV1.graph.nodes.find(node => node.kind === "release") as Extract<FactoryDefinition["graph"]["nodes"][number], { kind: "release" }>).adapter,
+          acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] },
+          destination: { kind: "literal", value: "destination" },
+          outputPorts: {},
+        }],
+        outputs: {},
+      },
+    };
+    await definitions.save(principal, definitionKey, 0, "acceptance-authority-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "acceptance-authority-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: {} };
+    const run = await startRun(principal, definitionKey, request, 0, "acceptance-authority-start");
+    const current = await committedInterpreter(run.runId, definitionKey, request);
+    const command = current.first.commands.find(value => value.kind === "request-acceptance");
+    if (command?.kind !== "request-acceptance") throw new Error("missing acceptance command");
+    await persistTransition(current.identity, 1, current.event, current.first.nextState, current.first.commands, undefined, current.activities);
+    const reference = { ...current.identity, commandId: command.id };
+    const service = { tenantId, subject: "orchestration" };
+
+    const accepted = await current.authority.withCurrentAcceptance(service, reference, async (_transaction, context) => ({
+      command: context.command,
+      node: context.node.id,
+      attempt: context.attempt,
+    }));
+    expect(accepted).toMatchObject({ command, node: "accept", attempt: { commandId: command.id, candidateGeneration: 0, attempt: 1 } });
+    expect(await fixture.db.transaction(transaction => current.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, async (actual, context) => {
+      expect(actual).toBe(transaction);
+      return context.command;
+    }))).toEqual(command);
+
+    const acceptedEvent = { kind: "node-result", id: "acceptance-authority-result", atMs: now, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: { acceptedCandidate: "candidate" } } as const;
+    const next = advanceKernel(current.compiled, current.first.nextState, acceptedEvent);
+    const release = next.commands.find(value => value.kind === "request-release");
+    if (release?.kind !== "request-release") throw new Error("missing release command");
+    await persistTransition(current.identity, 2, acceptedEvent, next.nextState, next.commands, undefined, current.activities);
+    const releaseReference = { ...current.identity, commandId: release.id };
+    expect(await current.authority.withCurrentRelease(service, releaseReference, async (_transaction, context) => context.command)).toEqual(release);
+    expect(await fixture.db.transaction(transaction => current.authority.withCurrentReleaseInTransaction(transaction, service, releaseReference, async (actual, context) => {
+      expect(actual).toBe(transaction);
+      return context.command;
+    }))).toEqual(release);
+    await cancelRun(principal, runKey(run.runId), run.revision, "acceptance-authority-cancel");
+    await expect(current.authority.withCurrentAcceptance(service, reference, async () => "stale")).rejects.toMatchObject({ code: "factory_run_stopped" });
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, current.transitions, lifecycle).project(runKey(run.runId));
+  });
+
   test("partition notifications retain exact source authority across progress and repairs", async () => {
     const definitionKey = { projectId, factoryId: "partition-command-authority" };
     const template = referenceCodeV1.graph.nodes.find(node => node.id === "snapshot-repository");
@@ -1163,6 +1232,104 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await expect(authority.withCurrentPartition(service, invalidationReference, async () => "stale")).rejects.toMatchObject({ code: "factory_command_stale" });
     expect(await authority.withCurrentPartition(service, { ...identity, commandId: nextInvalidation.id }, async (_transaction, context) => context.command)).toEqual(nextInvalidation);
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+  });
+
+  test("repair and replan controls seal current input and published child authority in the run inbox", async () => {
+    const stringPort = { type: "string" as const };
+    const runner = structuredClone(referenceCodeV1.graph.nodes.find(node => node.kind === "task") as Extract<FactoryDefinition["graph"]["nodes"][number], { kind: "task" }>).runner;
+    const publish = async (source: FactoryDefinition, suffix: string) => {
+      const definitionKey = { projectId, factoryId: source.id };
+      await definitions.save(principal, definitionKey, 0, `${suffix}-create`, source);
+      return definitions.publish(principal, definitionKey, 1, `${suffix}-publish`);
+    };
+    const controlStores = () => {
+      const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+      const transitions = new FactoryTransitionArtifacts(artifacts);
+      const authority = new FactoryTransitionAuthority(tenantId, lifecycle, transitions);
+      const access = new FactoryArtifactAccess(fixture.db, tenantId, grants, artifacts);
+      const inputs = new FactoryRunInputs(grants, new FactoryInputArtifacts(artifacts, access));
+      return { artifacts, inputs, transitions, controls: new FactoryRunControls(fixture.db, tenantId, grants, lifecycle, authority, definitions, inputs, () => now) };
+    };
+
+    const repairSource: FactoryDefinition = {
+      ...structuredClone(referenceCodeV1), id: "repair-control-factory", version: "1.0.0", inputPorts: { source: stringPort }, outputPorts: {},
+      graph: { nodes: [{ id: "candidate", kind: "task", runner, inputPorts: { source: stringPort, instruction: stringPort }, bindings: { source: { kind: "ref", root: "input", name: "source" }, instruction: { kind: "literal", value: "first" } }, repairableInputs: ["instruction"], outputPorts: {} }], outputs: {} },
+    };
+    const repairVersion = await publish(repairSource, "repair-control");
+    const repairRequest = { ...body, factoryVersion: repairVersion.version, definitionDigest: repairVersion.definitionDigest, parameters: { source: { kind: "inline" as const, value: "protected" } } };
+    const repairRun = await startRun(principal, { projectId, factoryId: repairSource.id }, repairRequest, 0, "repair-control-start");
+    const repairInterpreter = await committedInterpreter(repairRun.runId, { projectId, factoryId: repairSource.id }, repairRequest);
+    await persistTransition(repairInterpreter.identity, 1, repairInterpreter.event, repairInterpreter.first.nextState, repairInterpreter.first.commands, undefined, repairInterpreter.activities);
+    const repairStores = controlStores();
+    expect(await fixture.db.transaction(transaction => repairStores.inputs.resolveInTransaction(transaction, principal, { projectId, factoryId: repairSource.id }, repairRequest.parameters, repairInterpreter.compiled))).toEqual({ kind: "factory.run-resolved-parameters", input: { source: "protected" } });
+    const instructionArtifact = await fixture.db.transaction(transaction => repairStores.artifacts.stageCandidateOutputInTransaction(transaction, repairInterpreter.identity, "repair-instruction", 0, artifactJson.canonical("second")));
+    const repairBody = { action: "repair" as const, nodeId: "candidate", reason: "Correct the opted-in instruction", parameters: { source: { kind: "inline" as const, value: "protected" }, instruction: { kind: "artifact" as const, artifact: instructionArtifact } } };
+    await expect(fixture.db.transaction(transaction => repairStores.inputs.resolveNodeInTransaction(transaction, projectId, { ...repairBody.parameters, instruction: { kind: "artifact", artifact: { ...instructionArtifact, artifactId: "missing-artifact" } } }, repairSource.graph.nodes[0]!.inputPorts!))).rejects.toMatchObject({ code: "factory_input_invalid" });
+    const viewer: FactoryPrincipal = { kind: "user", id: "repair-control-viewer", authentication: "session" };
+    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${viewer.id}, 'repair-control-viewer@example.test', 'not-a-login', 'Repair viewer', 'member')`);
+    await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('repair-control-viewer-membership', ${projectId}, ${viewer.id}, 'member')`);
+    await expect(repairStores.controls.request(viewer, runKey(repairRun.runId), repairBody, 1, "repair-viewer-denied")).rejects.toMatchObject({ code: "factory_forbidden" });
+    await expect(repairStores.controls.request(principal, runKey(repairRun.runId), repairBody, 2, "repair-stale")).rejects.toMatchObject({ code: "factory_control_stale" });
+    await expect(repairStores.controls.request(principal, runKey(repairRun.runId), { ...repairBody, nodeId: "foreign-node" }, 1, "repair-foreign-node")).rejects.toMatchObject({ code: "factory_control_invalid" });
+    await expect(repairStores.controls.request(principal, runKey(repairRun.runId), repairBody, Number.MAX_SAFE_INTEGER, "repair-overflow")).rejects.toMatchObject({ code: "factory_control_invalid" });
+    await fixture.db.execute(sql`ALTER TABLE factory_inbox_events ADD CONSTRAINT repair_control_rollback CHECK (event_id NOT LIKE 'factory-control:%') NOT VALID`);
+    try { await expect(repairStores.controls.request(principal, runKey(repairRun.runId), repairBody, 1, "repair-rollback")).rejects.toThrow(); }
+    finally { await fixture.db.execute(sql`ALTER TABLE factory_inbox_events DROP CONSTRAINT repair_control_rollback`); }
+    expect((await lifecycle.read(principal, runKey(repairRun.runId))).revision).toBe(1);
+    expect(rows(await fixture.db.execute(sql`SELECT idempotency_key FROM factory_mutation_receipts WHERE idempotency_key='repair-rollback'`))).toHaveLength(0);
+    const [repaired, racedRepair] = await Promise.all([
+      repairStores.controls.request(principal, runKey(repairRun.runId), repairBody, 1, "repair-control"),
+      repairStores.controls.request(principal, runKey(repairRun.runId), repairBody, 1, "repair-control"),
+    ]);
+    expect(racedRepair).toEqual(repaired);
+    expect(repaired.run).toMatchObject({ runId: repairRun.runId, revision: 2 });
+    expect(await repairStores.controls.request(principal, runKey(repairRun.runId), repairBody, 1, "repair-control")).toEqual(repaired);
+    await expect(repairStores.controls.request(principal, runKey(repairRun.runId), { ...repairBody, reason: "Changed payload" }, 1, "repair-control")).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(repairStores.controls.request(principal, runKey(repairRun.runId), { ...repairBody, parameters: { source: { kind: "inline", value: "changed" }, instruction: { kind: "inline", value: "second" } } }, 2, "repair-protected-input")).rejects.toMatchObject({ code: "factory_control_invalid" });
+    const repairEvents = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${repairRun.runId} ORDER BY sequence`));
+    expect(repairEvents).toHaveLength(1);
+    expect(JSON.parse(repairEvents[0]!.payload)).toMatchObject({ kind: "repair", nodeId: "candidate", inputOverride: { source: "protected", instruction: "second" } });
+    await cancelRun(principal, runKey(repairRun.runId), 2, "repair-control-cancel");
+    await expect(repairStores.controls.request(principal, runKey(repairRun.runId), repairBody, 1, "repair-control")).rejects.toMatchObject({ code: "factory_run_stopped" });
+
+    const childBase: FactoryDefinition = {
+      ...structuredClone(referenceCodeV1), id: "replan-child-factory", version: "1.0.0", inputPorts: { source: stringPort }, outputPorts: {},
+      graph: { nodes: [{ id: "work", kind: "task", runner, inputPorts: { source: stringPort }, bindings: { source: { kind: "ref", root: "input", name: "source" } }, outputPorts: {} }], outputs: {} },
+    };
+    const childOne = await publish(childBase, "replan-child-one");
+    const childTwoSource = { ...structuredClone(childBase), version: "2.0.0" };
+    await definitions.save(principal, { projectId, factoryId: childBase.id }, 1, "replan-child-two-save", childTwoSource);
+    const childTwo = await definitions.publish(principal, { projectId, factoryId: childBase.id }, 2, "replan-child-two-publish");
+    const childThreeSource = { ...structuredClone(childBase), version: "3.0.0", capabilities: ["llm"] };
+    await definitions.save(principal, { projectId, factoryId: childBase.id }, 2, "replan-child-three-save", childThreeSource);
+    const childThree = await definitions.publish(principal, { projectId, factoryId: childBase.id }, 3, "replan-child-three-publish");
+    const childOneReference = { id: childBase.id, version: childOne.version, digest: childOne.definitionDigest };
+    const childTwoReference = { id: childBase.id, version: childTwo.version, digest: childTwo.definitionDigest };
+    const parentSource: FactoryDefinition = {
+      ...structuredClone(referenceCodeV1), id: "replan-parent-factory", version: "1.0.0", factories: [childOneReference], inputPorts: { source: stringPort }, outputPorts: {},
+      graph: { nodes: [{ id: "child", kind: "subfactory", factory: childOneReference, releaseMode: "none", grants: [], inputPorts: { source: stringPort }, bindings: { source: { kind: "ref", root: "input", name: "source" } }, outputPorts: {} }], outputs: {} },
+    };
+    const parentVersion = await publish(parentSource, "replan-parent");
+    const parentRequest = { ...body, factoryVersion: parentVersion.version, definitionDigest: parentVersion.definitionDigest, parameters: { source: { kind: "inline" as const, value: "protected" } } };
+    const parentRun = await startRun(principal, { projectId, factoryId: parentSource.id }, parentRequest, 0, "replan-parent-start");
+    const parentInterpreter = await committedInterpreter(parentRun.runId, { projectId, factoryId: parentSource.id }, parentRequest);
+    await persistTransition(parentInterpreter.identity, 1, parentInterpreter.event, parentInterpreter.first.nextState, parentInterpreter.first.commands, undefined, parentInterpreter.activities);
+    const replanStores = controlStores();
+    const replanBody = { action: "replan" as const, nodeId: "child", reason: "Replace the defective child", replacement: childTwoReference, parameters: {} };
+    const parentAudit = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_audit_batches WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${parentRun.runId} AND interpreter_id='root' AND source_sequence=1`))[0]!;
+    await fixture.db.execute(sql`UPDATE factory_audit_batches SET payload='{}' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${parentRun.runId} AND interpreter_id='root' AND source_sequence=1`);
+    await expect(replanStores.controls.request(principal, runKey(parentRun.runId), replanBody, 1, "tampered-replan")).rejects.toMatchObject({ code: "factory_control_corrupt" });
+    await fixture.db.execute(sql`UPDATE factory_audit_batches SET payload=${parentAudit.payload} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${parentRun.runId} AND interpreter_id='root' AND source_sequence=1`);
+    const replanned = await replanStores.controls.request(principal, runKey(parentRun.runId), replanBody, 1, "replan-control");
+    expect(replanned.run.revision).toBe(2);
+    const replanEvents = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${parentRun.runId} ORDER BY sequence`));
+    expect(replanEvents).toHaveLength(1);
+    expect(JSON.parse(replanEvents[0]!.payload)).toMatchObject({ kind: "replan", nodeId: "child", replacement: childTwoReference });
+    await expect(replanStores.controls.request(principal, runKey(parentRun.runId), { ...replanBody, replacement: { ...childTwoReference, id: "foreign-child" } }, 2, "foreign-replan")).rejects.toMatchObject({ code: "factory_control_widening" });
+    await expect(replanStores.controls.request(principal, runKey(parentRun.runId), { ...replanBody, replacement: { id: childBase.id, version: childThree.version, digest: childThree.definitionDigest } }, 2, "widened-replan")).rejects.toMatchObject({ code: "factory_control_widening" });
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, replanStores.transitions, lifecycle);
+    await projector.project(runKey(repairRun.runId));
+    await projector.project(runKey(parentRun.runId));
   });
 
   test("generic approval command persists one human request and one exact inbox decision", async () => {

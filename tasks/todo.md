@@ -1926,3 +1926,40 @@ Receipt verification review: the original reconciliation test resolved a fabrica
 - [ ] Pass committed patch/new-file coverage and merged parent tests.
 
 Review: eleven existing/new broker transport tests pass with 71 assertions. The shared transport measures 18/18 lines and 5/5 functions; its explicit floor is 100. Test evidence: /tmp/factory-platform-evidence/root-github-transport-red.log, root-github-transport-green.log, root-github-transport-coverage/lcov.info, and root-github-transport-final-combined-integration-results.json. The GitHub immutable branch/PR provider, async manifest resolver, and real publication proof remain the next leaf.
+
+
+# Authorized run repair and replan controls (2026-09-13)
+
+- [x] Reproduce the current repair request returning 503 through the shared session HTTP handler.
+- [x] Inspect C07/C09, public run-control types, kernel events, lifecycle locks, mutation receipts, transition state, inbox, and outbox.
+- [x] Send the exact authority, revision, event identity, and transaction proposal before source edits.
+- [x] Resolve the missing parameterized-repair and validated-replan kernel contracts without fabricating behavior.
+- [x] Add one strict current-node authority reader over committed transition artifacts.
+- [x] Commit an authorized control request, lifecycle revision, audit entry, inbox event, and durable command receipt atomically.
+- [x] Expose repair and replan through the existing API and browser client without new privileged tools.
+- [x] Prove current authority, idempotent replay, revision races, cancellation, revocation, protected effects, foreign nodes, bounds, tampering, and rollback in PGlite and PostgreSQL.
+- [x] Pass SDK build, all four type checks, lint, boundaries, focused and patch coverage, route contracts, and browser evidence.
+- [x] Record final proof and create an immutable checkpoint.
+
+## Plan review
+
+- A run control is an ordered kernel event, not a direct product-state transition. The product transaction rechecks both the pinned run initiator and the current requester, pins the latest committed node state, advances the human-visible lifecycle revision, and enqueues the exact event through `FactoryInbox`.
+- The current SDK can apply only a parameterless `repair` event. It has no `replan` event or validated replacement-plan reference. The implementation must first close these SDK contracts; it must not discard public parameters or encode replan as repair.
+
+## Review
+
+- Repair resolves and seals the exact full node input. Only published `repairableInputs` can differ. Parameterless repair remains valid.
+- Replan is limited to a published revision of the same child factory. It preserves interpreter compatibility, the protected acceptance contract, port schemas, effects, capabilities, deadline, expansion, and depth bounds.
+- The product transaction locks current run and transition authority, rechecks both the durable initiator and requester, advances one lifecycle revision, writes one audit entry, and enqueues one stable inbox event. Cached receipts reauthorize before reuse.
+- PGlite passed 44 lifecycle tests and 644 assertions. The earlier unchanged product slice passed 43 PostgreSQL/S3 tests and 635 assertions. SDK control tests passed 4/17, web route and client tests passed 30, the production web build passed, all four type checks passed, and lint passed with eight existing information findings. Exact receipts are in `tasks/factory/run-controls-GATES.md`.
+# Generic approval progress regression (2026-09-13)
+
+- [x] Reproduce a delivered approval disappearing after harmless committed interpreter progress.
+- [x] Reuse the current approval command authority in the notification read transaction.
+- [x] Keep lifecycle, attempt, session grant, scope, expiry, and protected seal checks.
+- [x] Prove PGlite lifecycle behavior, typecheck, lint, and diff hygiene.
+
+## Review
+
+- The stored source transition remains part of the protected approval seal. Inbox visibility now validates the exact command against the latest committed waiting attempt, so unrelated head progress does not hide it.
+- PGlite lifecycle conformance passes 26 tests and 249 assertions. All four TypeScript lanes and repository lint pass.

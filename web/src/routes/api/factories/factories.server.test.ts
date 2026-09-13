@@ -11,6 +11,7 @@ import { FactoryReleaseAuthorityError } from "$server/factory/release-authority"
 import { FactoryReleaseError } from "$server/factory/releases";
 import { FactoryAssuranceError } from "$server/factory/assurance";
 import { FactoryAssuranceCommandError } from "$server/factory/assurance-commands";
+import { FactoryRunControlError } from "$server/factory/run-controls";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 
@@ -39,6 +40,7 @@ const credentials = { issue: vi.fn(), revoke: vi.fn(), authenticate: vi.fn() };
 const releaseAuthority = { publishTrust: vi.fn(), revokeTrust: vi.fn(), setReleaseEnabled: vi.fn() };
 const releaseOperations = { putContract: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), requestApproval: vi.fn(), decideApproval: vi.fn(), listNotifications: vi.fn(), putPolicy: vi.fn(), deletePolicy: vi.fn(), reconcile: vi.fn() };
 const commandApprovals = { decide: vi.fn() };
+const runControls = { request: vi.fn() };
 
 const sourceDigest = createHash("sha256").update(canonicalizeJson(referenceCodeV1 as unknown as Parameters<typeof canonicalizeJson>[0])).digest("hex");
 const compiledResult = compileFactory(referenceCodeV1);
@@ -133,6 +135,7 @@ beforeEach(() => {
   releaseOperations.deletePolicy.mockResolvedValue({ policyId: "policy-1", revision: 2, revoked: true });
   releaseOperations.reconcile.mockResolvedValue({ ...operation, state: "uncertain", outcomeCode: "operator_kept_uncertain" });
   commandApprovals.decide.mockResolvedValue({ approvalId: "command-approval-1", runId: "run-1", commandId: "command-1", nodeInstanceId: "review", revision: 1, contextDigest: sourceDigest, status: "answered", choices: ["ship", "hold"], context: { subject: "deploy" }, actorScope: "operator", expiresAtMs: 2_000_000_000_000, choice: "ship", decidedBy: "member-1", decidedAtMs: 1 });
+  runControls.request.mockResolvedValue({ run: { ...run, revision: 2, parameters: {} }, receipt });
 });
 
 function event(method: string, pathname: string, options: { body?: unknown; revision?: number; key?: string; auth?: "session" | "api-key" | "internal"; anonymous?: boolean; scopes?: string[]; params?: Record<string, string> } = {}) {
@@ -185,6 +188,17 @@ describe("factory run request routes", () => {
     expect(runs.cancel).toHaveBeenCalledWith(expect.anything(), path, 1, "cancel-key", "Stop");
     const unavailable = await runControl.POST(event("POST", "/api/factories/projects/project-1/runs/run-1/control", { params: path, body: { action: "repair", nodeId: "candidate", parameters: {} }, revision: 1, key: "repair-key" }));
     expect(unavailable.status).toBe(503); expect(runs.cancel).toHaveBeenCalledTimes(1);
+    state.application = { ...(state.application as FactoryApplication), runControls };
+    const body = { action: "repair", nodeId: "candidate", parameters: {} } as const;
+    const repair = await runControl.POST(event("POST", "/api/factories/projects/project-1/runs/run-1/control", { auth: "api-key", scopes: ["chat"], params: path, body, revision: 1, key: "repair-key" }));
+    expect(repair.status).toBe(202); expect(await json(repair)).toMatchObject({ kind: "mutation.accepted", receipt });
+    expect(runControls.request).toHaveBeenCalledWith({ kind: "user", id: "key-owner", authentication: "api-key" }, path, body, 1, "repair-key");
+    expect((await runControl.POST(event("POST", "/api/factories/projects/project-1/runs/run-1/control", { auth: "api-key", scopes: ["write"], params: path, body, revision: 1, key: "repair-key" }))).status).toBe(403);
+    for (const [code, status] of [["factory_control_stale", 412], ["factory_control_widening", 403], ["factory_control_invalid", 422], ["factory_control_corrupt", 500]] as const) {
+      runControls.request.mockRejectedValueOnce(new FactoryRunControlError(code));
+      const failed = await runControl.POST(event("POST", "/api/factories/projects/project-1/runs/run-1/control", { params: path, body, revision: 1, key: `repair-${code}` }));
+      expect(failed.status).toBe(status); expect(await json(failed)).toMatchObject({ kind: "error", error: { code } });
+    }
   });
   test("maps run preconditions, authority, availability, and storage failures", async () => {
     for (const [code, status] of [["factory_revision_conflict", 412], ["factory_revision_invalid", 412], ["factory_run_not_found", 404], ["factory_command_not_found", 404], ["factory_run_terminal", 409], ["factory_run_stopped", 409], ["factory_definition_conflict", 409], ["factory_input_invalid", 400], ["factory_page_invalid", 400], ["factory_interpreter_unavailable", 503], ["factory_run_corrupt", 500]] as const) {

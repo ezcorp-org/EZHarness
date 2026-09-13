@@ -1,7 +1,7 @@
 import { lockFactoryScope } from "./locks";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
 import { validateDurableInputPorts, validateValue } from "@ezcorp/factory-sdk/validation";
-import type { BudgetBounds, CompiledFactory, FactoryReference, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableInput, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue } from "@ezcorp/factory-sdk";
+import type { BudgetBounds, CompiledFactory, FactoryReference, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableInput, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue, KernelEvent } from "@ezcorp/factory-sdk";
 import type { FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -198,6 +198,22 @@ export class FactoryRunLifecycle {
       await insertTransactionalAuditEntry(transaction, eventId, principal.kind === "user" ? principal.id : null, "factory.run.cancel.requested", key.runId, { tenantId: this.tenantId, projectId: key.projectId, cancellationEpoch: epoch, reason, principalId: principal.id, principalKind: principal.kind });
       return this.requestResult(transaction, key, await this.row(transaction, key), "decision", eventId);
     }, transaction => this.authorizeCancellation(transaction, principal, key));
+  }
+
+  /** Commits a prevalidated repair or replan event and its public receipt under the locked run revision. */
+  async commitRevisionControlInTransaction(transaction: MigrationDb, principalValue: FactoryPrincipal, keyValue: FactoryRunKey, interpreterId: string, expectedRevision: number, eventValue: Extract<KernelEvent, { kind: "repair" | "replan" }>, source: { readonly sequence: number; readonly digest: string }): Promise<FactoryRunRequest> {
+    const snapshot = JSON.parse(encodeFactoryPayload({ principal: principalValue, key: keyValue, interpreterId, event: eventValue, source })) as { principal: FactoryPrincipal; key: FactoryRunKey; interpreterId: string; event: Extract<KernelEvent, { kind: "repair" | "replan" }>; source: { sequence: number; digest: string } };
+    const { principal, key, event } = snapshot;
+    assertFactoryIdentity(key.projectId, key.runId, snapshot.interpreterId, event.id, event.nodeId);
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision >= Number.MAX_SAFE_INTEGER || !Number.isSafeInteger(snapshot.source.sequence) || snapshot.source.sequence < 1 || !/^[a-f0-9]{64}$/.test(snapshot.source.digest)) throw new FactoryRunLifecycleError("factory_revision_invalid");
+    const row = await this.row(transaction, key, true);
+    if (Number(row.revision) !== expectedRevision) throw new FactoryRunLifecycleError("factory_revision_conflict");
+    if (!["queued", "running", "waiting"].includes(row.status)) throw new FactoryRunLifecycleError("factory_run_stopped");
+    const changed = rows(await transaction.execute(sql`UPDATE factory_run_lifecycle SET revision=${expectedRevision + 1},updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND revision=${expectedRevision} RETURNING run_id`));
+    if (changed.length !== 1) throw new FactoryRunLifecycleError("factory_revision_conflict");
+    await this.inbox.enqueueInTransaction(transaction, { ...key, interpreterId: snapshot.interpreterId }, event);
+    await insertTransactionalAuditEntry(transaction, event.id, principal.kind === "user" ? principal.id : null, `factory.run.${event.kind}.requested`, key.runId, { tenantId: this.tenantId, projectId: key.projectId, nodeId: event.nodeId, interpreterId: snapshot.interpreterId, sourceSequence: snapshot.source.sequence, sourceDigest: snapshot.source.digest, revision: expectedRevision + 1, principalId: principal.id, principalKind: principal.kind });
+    return this.requestResult(transaction, key, await this.row(transaction, key), "decision", event.id);
   }
 
   async read(principal: FactoryPrincipal, key: FactoryRunKey): Promise<FactoryRunDetails> {

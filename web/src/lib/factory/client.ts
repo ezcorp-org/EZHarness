@@ -20,6 +20,8 @@ import type {
 	FactoryReleasePolicyResource,
 	FactoryReleaseReconciliationBody,
 	FactoryApprovalResource,
+	FactoryDurableReceipt,
+	FactoryRunRevisionBody,
 	RunnerReference,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
@@ -250,6 +252,11 @@ export class FactoryApiClient {
 		return expectKind(await this.read(path, this.mutationInit("decide-command-approval:" + approvalId, 0, { contextDigest, choice }, "PUT")), "approval.resource").resource;
 	}
 
+	async controlRun(projectId: string, runId: string, revision: number, body: FactoryRunRevisionBody): Promise<FactoryDurableReceipt> {
+		const path = "/api/factories/projects/" + encoded(projectId) + "/runs/" + encoded(runId) + "/control";
+		return expectKind(await this.read(path, this.mutationInit("control-run:" + runId + ":" + body.action + ":" + body.nodeId, revision, body)), "mutation.accepted").receipt;
+	}
+
 	async listReleaseNotifications(projectId: string, query: { readonly limit?: number; readonly cursor?: string } = {}): Promise<{ readonly items: readonly FactoryReleaseNotificationResource[]; readonly nextCursor: string | null }> {
 		const response = expectKind(await this.read(this.release(projectId) + "/notifications" + queryString(query)), "release.notification.page");
 		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
@@ -282,6 +289,8 @@ export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
 >;
 
 export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval" | "decideCommandApproval">;
+
+export type FactoryRunControlApi = Pick<FactoryApiClient, "controlRun">;
 
 export function blankFactory(factoryId: string): FactoryDefinition {
 	return {

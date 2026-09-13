@@ -33,6 +33,7 @@ const releaseApproval = { approvalId: "approval/one", operationId: releaseOperat
 const commandApproval = { approvalId: "command/one", runId: "run/one", commandId: "command/one", nodeInstanceId: "review", revision: 1 as const, contextDigest: digest, status: "answered" as const, choices: ["ship", "hold"], context: { subject: "candidate" }, actorScope: "operator" as const, expiresAtMs: releaseBody.deadlineMs, choice: "ship", decidedBy: "user-1", decidedAtMs: 1 };
 const releaseNotification = { notificationId: "notification/one", operationId: releaseOperation.operationId, createdAtMs: 1, kind: "approval_requested" as const, approvalId: releaseApproval.approvalId, contextDigest: digest, expiresAtMs: releaseBody.deadlineMs };
 const releasePolicy = { policyId: "policy/one", revision: 1 as const, revoked: false as const, principalKind: "service" as const, principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "releases/", contractDigest: "sha256:" + digest, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: releaseBody.deadlineMs };
+const controlReceipt = { resourceId: "run/one", commandId: "repair/one", statusUrl: "/api/factories/projects/project%2Fone/runs/run%2Fone/commands/repair%2Fone" };
 
 function api(value: FactoryApiResponse, status = 200): Response {
 	return Response.json(value, { status });
@@ -76,6 +77,8 @@ function response(kind: FactoryApiResponse["kind"]): FactoryApiResponse {
 			return { schemaVersion: "factory.api.response.v1", kind, page: { items: [releaseNotification], nextCursor: "notification/next" } };
 		case "release.policy.resource":
 			return { schemaVersion: "factory.api.response.v1", kind, resource: releasePolicy };
+		case "mutation.accepted":
+			return { schemaVersion: "factory.api.response.v1", kind, receipt: controlReceipt };
 		default:
 			throw new Error("unsupported fixture");
 	}
@@ -94,6 +97,7 @@ describe("FactoryApiClient", () => {
 			if (path.includes("/release/notifications")) return api(response("release.notification.page"));
 			if (path.includes("/release/approvals/")) return api(response("release.approval.resource"));
 			if (path.includes("/runs/") && path.includes("/approvals/")) return api(response("approval.resource"));
+			if (path.endsWith("/control") && path.includes("/runs/")) return api(response("mutation.accepted"));
 			if (path.includes("/release/policies/")) return api(response("release.policy.resource"));
 			if (path.endsWith("/approvals")) return api(response("release.approval.resource"));
 			if (path.endsWith("/reconciliations")) return api(response("release.operation.resource"));
@@ -111,6 +115,16 @@ describe("FactoryApiClient", () => {
 			if (path.includes("/definitions/")) return api(init?.method === "PUT" || init?.method === "DELETE" ? response("draft.summary") : response("draft.details"));
 			return api(init?.method === "POST" ? response("draft.summary") : response("draft.page"));
 		});
+	});
+
+	test("routes an exact repair through the run control receipt", async () => {
+		const client = new FactoryApiClient({ fetch: fetcher as unknown as typeof fetch, idempotencyKey: operation => "key:" + operation });
+		const body = { action: "repair", nodeId: "task/one", reason: "Correct input", parameters: { instruction: { kind: "inline", value: "second" } } } as const;
+		expect(await client.controlRun("project/one", "run/one", 4, body)).toEqual(controlReceipt);
+		expect(calls[0]!.path).toBe("/api/factories/projects/project%2Fone/runs/run%2Fone/control");
+		expect(new Headers(calls[0]!.init?.headers).get("If-Match")).toBe("4");
+		expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe("key:control-run:run/one:repair:task/one");
+		expect(calls[0]!.init?.body).toBe(JSON.stringify(body));
 	});
 
 	test("routes public release operations with exact preconditions and encoded identities", async () => {

@@ -10,6 +10,7 @@ import { FactoryReleaseAuthorityError, type FactoryReleaseControl, type FactoryR
 import { FactoryAssuranceError } from "$server/factory/assurance";
 import { FactoryReleaseError, type FactoryReleaseOperation } from "$server/factory/releases";
 import { FactoryAssuranceCommandError } from "$server/factory/assurance-commands";
+import { FactoryRunControlError } from "$server/factory/run-controls";
 import type { FactoryReleaseApplication } from "$server/factory/release-application";
 import { signFactoryServiceToken } from "$server/auth/factory-service-token";
 import { getJwtSecret } from "$server/auth/jwt";
@@ -244,8 +245,11 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "run.page", page: apiPage(page.items, page.nextCursor) };
     }
     case "run.control": {
-      if (request.body.action !== "cancel") throw new FactoryRunLifecycleError("factory_control_unavailable");
-      const result = await application.runs.cancel(principal, request.path, request.preconditions.expectedRevision, request.preconditions.idempotencyKey, request.body.reason);
+      const result = request.body.action === "cancel"
+        ? await application.runs.cancel(principal, request.path, request.preconditions.expectedRevision, request.preconditions.idempotencyKey, request.body.reason)
+        : application.runControls
+          ? await application.runControls.request(principal, request.path, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey)
+          : (() => { throw new FactoryRunLifecycleError("factory_control_unavailable"); })();
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "mutation.accepted", receipt: result.receipt };
     }
     case "command.get":
@@ -487,6 +491,12 @@ function mappedError(error: unknown): Response {
     if (error.code === "factory_input_invalid" || error.code === "factory_page_invalid") return errorResponse(400, error.code, "The factory run request is invalid.");
     if (error.code === "factory_interpreter_unavailable" || error.code === "factory_control_unavailable") return errorResponse(503, error.code, "The required factory execution service is unavailable.", true);
     return errorResponse(500, error.code, "Factory run storage is unavailable.", true);
+  }
+  if (error instanceof FactoryRunControlError) {
+    if (error.code === "factory_control_stale") return errorResponse(412, error.code, "The factory run control precondition is stale.");
+    if (error.code === "factory_control_widening") return errorResponse(403, error.code, "The replacement factory widens the current run authority.");
+    if (error.code === "factory_control_invalid") return errorResponse(422, error.code, "The factory run control cannot apply to the current node.");
+    if (error.code === "factory_control_corrupt") return errorResponse(500, error.code, "Factory run control authority is corrupt.", true);
   }
   if (error instanceof FactoryDefinitionError) {
     if (error.code === "factory_revision_conflict" || error.code === "factory_revision_invalid") return errorResponse(412, error.code, "The factory definition revision is stale.");
