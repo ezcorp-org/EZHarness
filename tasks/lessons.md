@@ -587,3 +587,12 @@
 - Pick one uniqueness mechanism per column. An inline `UNIQUE` on the fresh path plus a `CREATE UNIQUE INDEX` on the upgrade path leaves the two databases structurally different.
 - Do not keep a TypeScript guard for a state a database CHECK already forbids. It is unreachable, it cannot be covered, and asserting the constraint name from the driver error proves the schema instead of the code.
 - Before blaming a change for a container failure, check the per-user systemd manager. `crun: sd-bus call: Access denied ... requires interactive authentication` means `user@1001.service` is dead, not that the code regressed; `podman ps` can still report a container `Up` for hours after its processes were killed with that manager, so verify the recorded PID exists and the port answers.
+
+## 2026-09-13 — W01 real-container corrections
+
+- Never run a kernel probe on a recovery attach. It creates a container and costs seconds, and a guest whose control pipe died with its supervisor does not survive that window; the attach then fails with `worker_not_running` and the recovery it was performing is lost. Attach creates no sandbox, and the running guest already carries the namespaces, seccomp profile, and cgroup limits fixed when it was created, so the probe protects nothing there.
+- Once execution is detached, the orphan sweep belongs only to explicit daemon startup. A container legitimately outlives the process that started it, so a fresh supervisor calling `build()` or `start()` must not sweep, or it destroys another attempt's surviving guest.
+- Release a test-held exclusive lease in a `finally`. An assertion that fails before the release leaks the store lock and every later test in the file fails with an unrelated `runner_store_busy`, which hides the one real failure behind seven false ones.
+- A readiness stub must answer with the exact receipt the dispatch carries. Returning a base fixture while the test dispatches a freshly built artifact makes a correct drift check look like a product failure.
+- Model a jsonb column default as SQL, never as a JavaScript object. Real PostgreSQL schema parity stringifies a non-SQL default, so an object default compares as `[object Object]` against the engine's normalized JSON literal.
+- A blocked producer is not a passing producer. Keep its receipt, label it blocked, and rerun it from the final source once the host recovers; two real defects in my own fix appeared only in that rerun.
