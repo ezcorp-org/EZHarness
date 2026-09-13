@@ -106,7 +106,6 @@ test("published lifecycle preserves a required large artifact as durable workflo
     outputPorts: {},
     graph: { nodes: [], outputs: {} },
   };
-  await fixture.db.execute(sql`INSERT INTO factory_grants(tenant_id, project_id, principal_kind, principal_id, action, issuer_id, revision) VALUES (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.author', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.publish', ${actor.id}, 1)`);
   const grants = new FactoryGrants(fixture.db, tenantId, () => 1_000);
   const definitions = new FactoryDefinitions(fixture.db, tenantId, grants, new FileBlobStore(directories[0]!));
   const key = { projectId: targetProjectId, factoryId: source.id };
