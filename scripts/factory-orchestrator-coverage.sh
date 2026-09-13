@@ -21,6 +21,7 @@ FACTORY_BUNDLE_MAP_PATH="$TEMP_ROOT/workflow-bundle.map.json" \
 timeout --signal=TERM --kill-after=30s 600s \
   node --test --experimental-strip-types --experimental-test-coverage \
   --test-coverage-include='packages/@ezcorp/factory-orchestrator/src/**/*.ts' \
+  --test-coverage-include='src/factory/file-key-wraps.ts' \
   --test-reporter=lcov "${FACTORY_ORCHESTRATOR_TESTS[@]}" > "$TEMP_ROOT/direct.lcov"
 
 node scripts/factory-orchestrator-v8-to-lcov.mjs \

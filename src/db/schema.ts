@@ -2894,6 +2894,7 @@ export const {
   factoryProjects,
   factoryRuns,
   factoryAuditBatches,
+  factoryTransitionCommands,
   factoryCommandOutbox,
   factoryRunProjections,
   factoryInboxCursors,

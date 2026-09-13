@@ -91,6 +91,20 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     check("factory_audit_batches_sequence_check", sql`${table.sequence} > 0`),
   ]);
 
+  /** Bounded lookup only; the referenced audit batch remains the authority. */
+  const factoryTransitionCommands = pgTable("factory_transition_commands", {
+    ...tenantProjectRunColumns(),
+    interpreterId: text("interpreter_id").notNull(),
+    commandId: text("command_id").notNull(),
+    sourceSequence: bigint("source_sequence", { mode: "number" }).notNull(),
+    commandDigest: text("command_digest").notNull(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.sourceSequence], foreignColumns: [factoryAuditBatches.tenantId, factoryAuditBatches.projectId, factoryAuditBatches.runId, factoryAuditBatches.interpreterId, factoryAuditBatches.sourceSequence] }).onDelete("restrict"),
+    check("factory_transition_commands_source_sequence_check", sql`${table.sourceSequence} > 0`),
+    check("factory_transition_commands_digest_check", sql`${table.commandDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  ]);
+
   const factoryCommandOutbox = pgTable("factory_command_outbox", {
     id: text("id").notNull(),
     ...tenantProjectColumns(),
@@ -356,6 +370,7 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     factoryProjects,
     factoryRuns,
     factoryAuditBatches,
+    factoryTransitionCommands,
     factoryCommandOutbox,
     factoryRunProjections,
     factoryInboxCursors,

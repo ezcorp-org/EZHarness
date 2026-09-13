@@ -143,6 +143,11 @@
 
 ## Extension activation regression
 
+## 2026-09-13 — Factory merged SDK validation
+
+- After merging Factory SDK sources, rebuild the pinned root and web dependencies and run the Factory SDK build before interpreting TypeScript export errors. A stale package `dist` can look like a missing source export.
+- A live `flock` wrapper with an empty test log is queued, not a hung producer. Mark the log only after lock acquisition and inspect the child PID before terminating a check.
+
 - A healthy server and sign-in page do not prove extension activation. After a deployment or container change, open an existing persisted installation and verify its immutable source and release files are readable through the real review/enable journey.
 
 - Verify a fresh dev image through Vite: Bun source exports alone do not satisfy the standard import exports. Build the trusted workspace packages in the image, then test a container replacement with persisted extension records.
@@ -417,3 +422,12 @@
 
 - Do not report a factory leaf complete from focused Bun tests and lint. Record all four canonical typechecks, owned-source and patch LCOV producers, real Node runtime proof, and real local-S3 proof.
 - Rebuild `@ezcorp/factory-sdk` before Node orchestrator checks that consume generated `dist` declarations.
+
+- After changing kernel state retention or control expansion, run every SDK test file, including expansion and recovery. Focused kernel, partition and simulator proofs do not cover all repair behavior.
+
+- Run each production client against its real server across process boundaries. A raw HTTP client and a separate mock-server client suite can both pass while they disagree on empty responses or receipt shapes.
+
+## 2026-09-13 — Stored command lookup review
+
+- Snapshot every trusted command-reference coordinate before its first await, then use only that snapshot for lookup and verification.
+- A stable command ID with identical canonical bytes may recur in a later transition. Retain its first committed audit pointer; reject only a digest change.

@@ -127,12 +127,24 @@ jobs:
           echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
           echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
 
-      # The lifecycle test is supplied by the factory composition leaf. Keep
-      # its explicit filename here so removing its producer makes this required
-      # external-service lane fail instead of silently narrowing its proof.
-      - name: Run factory artifacts and lifecycle on Postgres and S3
+      # Explicit files preserve each real storage and private-service proof.
+      - name: Run factory storage and private services on Postgres and S3
         shell: bash
-        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --coverage ./tests/postgres/factory-artifacts.test.ts ./tests/postgres/factory-run-lifecycle-s3.test.ts
+        run: >-
+          FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000
+          --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage
+          ./tests/postgres/factory-artifacts.test.ts
+          ./tests/postgres/factory-run-lifecycle-s3.test.ts
+          ./tests/postgres/factory-definitions.test.ts
+          ./tests/postgres/factory-private-service.test.ts
+          ./tests/postgres/factory-releases.test.ts
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-storage
+          path: coverage-factory-storage/lcov.info
+          retention-days: 3
+          if-no-files-found: error
 
       - name: Stop factory object storage
         if: always()

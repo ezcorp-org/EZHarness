@@ -119,6 +119,81 @@ test("transition pages finalize before the existing compact Factory audit stream
   await expect(artifacts.load(identity, { objectId: "guessed", digest: `sha256:${"a".repeat(64)}`, encodedBytes: 1 }, ["transition_manifest"], true)).rejects.toMatchObject({ code: "factory_artifact_not_found" });
 });
 
+function storedCommand(id = "stored-command", generation = 0) {
+  return { kind: "request-admission", id, nodeId: "node-a", candidateGeneration: generation, deadlineAtMs: 2_000_000_000_000 } as const;
+}
+
+test("stored commands resolve only after their exact transition audit commits and retries converge", async () => {
+  const { db, definitions, transitions, identity } = await fixture();
+  const activity = createFactoryArtifactActivities(definitions, transitions);
+  const command = storedCommand();
+  const event: Extract<KernelEvent, { kind: "cancel" }> = { id: "stored-command-event", kind: "cancel", atMs: 1, reason: "test" };
+  const inbox = new FactoryInbox(db, identity.tenantId);
+  const key = { projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId };
+  const delivery = await inbox.enqueue(key, event);
+  const receipt = delivery.command as { eventSequence: number; eventHash: string };
+  const finalized = await persistTransition(identity, 1, event, {} as never, [command], { sequence: receipt.eventSequence, eventId: event.id, eventHash: receipt.eventHash }, activity);
+  const reference = { ...identity, commandId: command.id };
+  expect(await transitions.loadStoredCommand(reference)).toEqual(command);
+  const mutableReference = { ...reference };
+  const pending = transitions.loadStoredCommand(mutableReference);
+  mutableReference.projectId = "foreign-project";
+  expect(await pending).toEqual(command);
+  expect(await inbox.confirmApplied(key, { inboxSequence: receipt.eventSequence, eventId: event.id, eventHash: receipt.eventHash })).toBe(true);
+  await expect(transitions.loadStoredCommand({ ...reference, commandId: "missing" })).rejects.toMatchObject({ code: "factory_transition_command_not_found" });
+  await expect(transitions.loadStoredCommand({ ...reference, projectId: "foreign-project" })).rejects.toMatchObject({ code: "factory_transition_command_not_found" });
+  const record = { ...identity, sourceSequence: 1, eventId: event.id, eventHash: finalized.eventHash, inboxSequence: receipt.eventSequence, artifactManifest: finalized.manifest };
+  await Promise.all([transitions.recordTransition(record), transitions.recordTransition(record)]);
+  await persistTransition(identity, 2, { id: "stored-command-repeat", kind: "node-succeeded", atMs: 2 } as never, {} as never, [command], undefined, activity);
+  const index = await db.execute(sql`SELECT source_sequence FROM factory_transition_commands WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} AND command_id=${command.id}`) as unknown as { rows?: Array<{ source_sequence: number }> } | Array<{ source_sequence: number }>;
+  expect((Array.isArray(index) ? index : index.rows)![0]!.source_sequence).toBe(1);
+  await expect(persistTransition(identity, 3, { id: "stored-command-next", kind: "node-succeeded", atMs: 3 } as never, {} as never, [storedCommand(command.id, 1)], undefined, activity)).rejects.toMatchObject({ code: "factory_transition_command_conflict" });
+  const rows = await db.execute(sql`SELECT source_sequence FROM factory_audit_batches WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId}`) as unknown as { rows?: unknown[] } | unknown[];
+  expect(Array.isArray(rows) ? rows : rows.rows).toHaveLength(2);
+});
+
+test("stored command lookup rejects uncommitted, malformed, and tampered transition authority", async () => {
+  const { db, transitions, identity } = await fixture();
+  const command = storedCommand("tampered-command");
+  const event: Extract<KernelEvent, { kind: "cancel" }> = { id: "tampered-command-event", kind: "cancel", atMs: 1, reason: "test" };
+  const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 1, event, nextState: {}, commands: [command] }));
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 1, index: 0, contentBase64: encodeFactoryPageBase64(artifactJson.bytes(content)), encodedBytes: artifactJson.bytes(content).byteLength });
+  const finalized = await transitions.finalizeTransitionArtifact({ ...identity, sourceSequence: 1, encodedBytes: page.encodedBytes, eventId: event.id, pages: [page] });
+  const reference = { ...identity, commandId: command.id };
+  await expect(transitions.loadStoredCommand(reference)).rejects.toMatchObject({ code: "factory_transition_command_not_found" });
+  await transitions.recordTransition({ ...identity, sourceSequence: 1, eventId: event.id, eventHash: finalized.eventHash, artifactManifest: finalized.manifest });
+  await db.execute(sql`UPDATE factory_transition_commands SET command_digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND command_id=${command.id}`);
+  await expect(transitions.loadStoredCommand(reference)).rejects.toMatchObject({ code: "factory_transition_command_corrupt" });
+  await db.execute(sql`UPDATE factory_transition_commands SET command_digest=${`sha256:${"1".repeat(64)}`} WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND command_id=${command.id}`);
+  await expect(transitions.loadStoredCommand(reference)).rejects.toMatchObject({ code: "factory_transition_command_corrupt" });
+  await db.execute(sql`UPDATE factory_audit_batches SET payload='{}' WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId}`);
+  await expect(transitions.loadStoredCommand(reference)).rejects.toMatchObject({ code: "factory_transition_command_corrupt" });
+  await expect(transitions.recordTransition({ ...identity, sourceSequence: 1, eventId: event.id, eventHash: finalized.eventHash, artifactManifest: finalized.manifest })).rejects.toMatchObject({ code: "factory_audit_corrupt" });
+});
+
+test("stored command lookup rejects a changed immutable transition page", async () => {
+  const { db, definitions, transitions, identity } = await fixture();
+  const activity = createFactoryArtifactActivities(definitions, transitions);
+  const command = storedCommand("blob-command");
+  await persistTransition(identity, 1, { id: "blob-command-event", kind: "node-succeeded", atMs: 1 } as never, {} as never, [command], undefined, activity);
+  const page = await db.execute(sql`SELECT object_id FROM factory_artifacts WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} AND kind='transition_page'`) as unknown as { rows?: Array<{ object_id: string }> } | Array<{ object_id: string }>;
+  const row = (Array.isArray(page) ? page : page.rows)![0]!;
+  await db.execute(sql`UPDATE factory_artifacts SET digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND object_id=${row.object_id}`);
+  await expect(transitions.loadStoredCommand({ ...identity, commandId: command.id })).rejects.toMatchObject({ code: "factory_transition_command_corrupt" });
+});
+
+test("stored command indexing rejects duplicate malformed IDs before audit admission", async () => {
+  const { db, transitions, identity } = await fixture();
+  const event: Extract<KernelEvent, { kind: "cancel" }> = { id: "duplicate-command-event", kind: "cancel", atMs: 1, reason: "test" };
+  const command = storedCommand("duplicate-command");
+  const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 1, event, nextState: {}, commands: [command, command] }));
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 1, index: 0, contentBase64: encodeFactoryPageBase64(artifactJson.bytes(content)), encodedBytes: artifactJson.bytes(content).byteLength });
+  const finalized = await transitions.finalizeTransitionArtifact({ ...identity, sourceSequence: 1, encodedBytes: page.encodedBytes, eventId: event.id, pages: [page] });
+  await expect(transitions.recordTransition({ ...identity, sourceSequence: 1, eventId: event.id, eventHash: finalized.eventHash, artifactManifest: finalized.manifest })).rejects.toMatchObject({ code: "factory_transition_commands_invalid" });
+  const rows = await db.execute(sql`SELECT command_id FROM factory_transition_commands WHERE tenant_id=${identity.tenantId}`) as unknown as { rows?: unknown[] } | unknown[];
+  expect(Array.isArray(rows) ? rows : rows.rows).toEqual([]);
+});
+
 test("the Node transition activity keeps large transitions paged and rejects corrupt receipts", async () => {
   const { artifacts, db, definitions, transitions, identity } = await fixture();
   const activity = createFactoryArtifactActivities(definitions, transitions);

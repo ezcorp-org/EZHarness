@@ -1,5 +1,16 @@
 # Extension v4 independent validation
 
+## Trusted factory command lookup — Terra
+
+- [x] Reproduce rejection for an uncommitted or foreign command reference.
+- [x] Add a scoped command index with its audit foreign key and migration parity.
+- [x] Commit command indexing with transition audit and inbox receipt.
+- [x] Verify index, audit, manifest, pages, and command digest before return.
+- [x] Prove PGlite and PostgreSQL/S3 retries, rollback, and corruption denials.
+- [x] Run coverage, four typecheck legs, and lint; record review.
+
+Review: public page-stage/finalize/record/load tests reject uncommitted and foreign references, duplicate IDs, changed IDs, tampered indexes, audit payloads, and page blobs. They also prove retry convergence and one transaction for audit, index, and inbox receipt. Focused Bun coverage reports 125/125 executable lines for `transition-artifacts.ts`, 334/334 for `factory-schema.ts`, and 4/4 for the new migration at `/tmp/factory-platform-evidence/terra-c02-command-coverage.lcov`. The real PostgreSQL/S3 proof passes seven cases at `/tmp/factory-platform-evidence/terra-c02-command-postgres-s3.log`. Four typecheck legs and lint pass with zero errors and eight existing infos at `/tmp/factory-platform-evidence/terra-c02-command-types-lint.log`.
+
 ## Factory assurance integrity — 2026-09-13
 
 - [x] Bind every persisted contract field and the approving authority into a canonical protected snapshot.
@@ -24,6 +35,24 @@ Review: PGlite restored the exact 40 KiB Node-produced transition through two bo
 - [x] Prove local PostgreSQL/S3 behavior and static checks; record receipts.
 
 Review: descriptor tests reject an actual FIFO and a symlinked parent. The real PostgreSQL race persists distinct-master versions before either caller reports success, then restarts with `second-master`. Real local S3 preserves the versioned ciphertext object through rotation. Focused Bun source coverage has 100% lines for `encryption.ts` and `private-files.ts`; the real PostgreSQL producer has 100% lines for `encryption-key-wrap-store.ts`. Four typecheck legs, lint, and the Node 24 Temporal codec contract pass. Production worker wiring remains with the verification leaf.
+
+## Factory C06 readonly Node key loader — Terra
+
+- [x] Add strict descriptor-read wrapped-key file schema and readonly store.
+- [x] Load an existing installation key without DB, key creation, or rotation.
+- [x] Prove Node 24 Temporal codec success and all key-file readiness denials.
+- [x] Recheck encrypted definition/application composition and required validation.
+
+Review: `src/factory/file-key-wraps.ts` reads only private descriptor-anchored files, accepts only `factory.key-wraps.v1`, has no data-key creation or rotation path, and returns only the Node-compatible history codec. The Node 24 test covers the workflow context round trip plus missing, empty, foreign, malformed, corrupt, wrong-master, mode, and grantable-root denials. Canonical Node coverage records 101/101 lines for this source at `/tmp/factory-platform-evidence/terra-c06-node-coverage/lcov.info`. The real PostgreSQL and local S3 proof publishes and reads an encrypted definition through `createFactoryApplication` at `/tmp/factory-platform-evidence/terra-c06-definitions-postgres-s3.log`. Four type legs and lint complete at `/tmp/factory-platform-evidence/terra-c06-types-lint.log`; lint has zero errors and eight existing infos.
+
+## Backend regression repairs — Terra
+
+- [x] Preserve the terminal human-review error after a rejection.
+- [x] Permit bounded canonical bundled host-API grant records through approval.
+- [x] Align the C02 request fixture cursor with the checkpoint protocol.
+- [x] Run focused tests, required static checks, and changed-source coverage.
+
+Review: full affected test files pass independently: 3 event-subscription cases, 7 grant-reconciliation cases, and 3 real-Python C02 conformance cases. The focused canonical Bun coverage receipt at `/tmp/factory-platform-evidence/terra-backend-regression-coverage.log` covers the changed lifecycle lines (310–311) and approval-context limit (32). The four canonical typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-backend-regression-types-lint.log`; lint reports zero errors and eight existing infos.
 
 - [x] Fetch PR and latest main; preserve original worktrees.
 - [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
@@ -1186,6 +1215,55 @@ Plan review: the accepted C02 contract specifies the private HTTPS boundary unde
 
 Transport review: seven socket tests and 70 assertions pass, including a real Node client, mTLS denial, exact 64 KiB response bytes, fragmented framing, extra-request termination and bounded failures. Shared transport and attempt gateway measure 70/70 and36/36 executable lines. All four type checks and lint pass after installing both root and web locked dependencies. Receipts are `/tmp/factory-platform-evidence/private-https-final-focused.log`, `private-https-final-coverage/lcov.info`, `private-https-types-with-web.log`, and `private-https-lint-corrected.log`. Purpose-scoped orchestration routes and full production startup remain open.
 
+
+## Assembled factory component validation
+
+- [x] Integrate protected map release facts, encrypted versioned artifacts, Node continuation readers, controlled release protocol and shared private HTTPS.
+- [x] Preserve all scoped database foreign keys and the approval generation index across integration.
+- [x] Run gate integrity, SDK build, real PostgreSQL/S3, canonical Node coverage, four type checks and lint together on frozen source.
+- [ ] Run full application regression and complete production service composition.
+
+Review: `/tmp/factory-platform-evidence/assembled-platform-results.json` records seven successful producers at8a21a81d9. The combined component suite passes50 cases/274 assertions. Actual PostgreSQL/S3 passes23 cases/1,349 assertions including exact schema references and complete run-lifecycle storage composition. The canonical Node producer passes and all11 registered orchestrator sources have complete measured lines. These receipts remain component proofs, not production startup, full regression, independent archive durability or a10-tenant soak.
+
+
+## Full backend regression after component integration
+
+- [x] Run the canonical backend suite at `3eeee3259`.
+- [ ] Fix five SDK expansion/repair regressions and verify every SDK test file.
+- [ ] Fix two bundled grant review failures and the Bun/Node/Python golden fixture failure.
+- [ ] Repeat the canonical backend suite on the integrated corrections.
+
+Review: `/tmp/factory-platform-evidence/assembled-backend-3eeee3259.log` reports 26,078 passing tests and eight failures across five files. Focused component receipts did not cover those failures. Sol owns SDK corrections; Terra owns the bundled-review and Python corrections. Full regression remains open.
+
+
+## Trusted factory command lookup
+
+- [ ] Reproduce command execution without a committed transition and reject it through the stored-command boundary.
+- [ ] Add a scoped immutable index from command ID to its committed canonical transition audit.
+- [ ] Commit index and audit together, preserve duplicate identities, and reject conflicting command bytes.
+- [ ] Resolve and verify exact stored transition bytes before using a command to construct runner authority.
+- [ ] Prove rollback, retries, corrupted index/artifact denial and tenant/project/interpreter separation on PGlite and PostgreSQL/S3.
+
+Plan review: C02 accepts only authenticated command references from the Node worker. Product code must resolve the command from committed canonical audit. The new table is a bounded lookup index over that audit, with scoped foreign keys. It supplies no independent release authority and cannot accept a caller's runner, input, or grants. Existing journal admission, run fences and budget admission remain the effect gates.
+
+
+## Encrypted definition and private key integration review
+
+- [x] Integrate immutable C06 definition, private-file and readonly Node key-wrap changes.
+- [x] Run root and web frozen installs and rebuild the factory SDK.
+- [x] Re-run real PostgreSQL/S3 definition and provisioning proofs plus Node key-file coverage.
+- [x] Run all four typecheck legs and lint on the integrated source.
+
+Review: `/tmp/factory-platform-evidence/root-c06-results.json` records five successful producers at `c82b1b05b`. PostgreSQL/S3 and provisioning pass 16 cases/110 assertions. The actual Node key-file producer measures 101/101 lines. Root and web frozen installs, SDK build, all four typecheck legs and lint pass. These are component integration proofs; full application startup and recovery remain open.
+
+## Backend correction integration review
+
+- [x] Integrate `433c1469c` as `cc9bb59ff`.
+- [x] Independently rerun both bundled review files and the complete Bun/Node/Python golden fixture file.
+- [ ] Integrate and verify the five SDK expansion/repair corrections.
+- [ ] Rerun the complete canonical backend suite.
+
+Review: `/tmp/factory-platform-evidence/root-backend-corrections.log` records all three complete focused files passing. A rejected review preserves its terminal human decision. Canonical bundled host-API grants retain the existing aggregate JSON size bound. An initial runner request starts its operation cursor at zero when no checkpoint exists.
 
 ## Private service integration review
 

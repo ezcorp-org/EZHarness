@@ -1,4 +1,5 @@
 import { assertJson } from "@ezcorp/extension-contract";
+import { MAX_FRAME_BYTES } from "@ezcorp/extension-contract/json";
 import { digestObject } from "./blobs";
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "consumed" | "revoked";
@@ -28,7 +29,7 @@ export function canonicalApprovalContext(context: ApprovalContext): ApprovalCont
   if (!Number.isSafeInteger(context.expectedGeneration) || context.expectedGeneration < 0 || (context.expiresAtMs !== undefined && (!Number.isSafeInteger(context.expiresAtMs) || context.expiresAtMs < 0))) throw new ApprovalContextError("approval_context_invalid");
   const grants: readonly string[] = context.grants;
   try { assertJson([...grants]); } catch { throw new ApprovalContextError("approval_context_invalid"); }
-  if (grants.length > 1_000 || grants.some(grant => typeof grant !== "string" || grant.length === 0 || grant.length > 1_024)) throw new ApprovalContextError("approval_context_invalid");
+  if (grants.length > 1_000 || grants.some(grant => typeof grant !== "string" || grant.length === 0 || grant.length > MAX_FRAME_BYTES)) throw new ApprovalContextError("approval_context_invalid");
   return { ...context, grants: [...new Set(grants)].sort() };
 }
 

@@ -3041,6 +3041,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryArtifactPartitionIdentity(db);
   const { up: scopeFactoryArtifactPrimaryKey } = await import("./migrations/scope-factory-artifact-primary-key");
   await scopeFactoryArtifactPrimaryKey(db);
+  const { up: addFactoryTransitionCommands } = await import("./migrations/add-factory-transition-commands");
+  await addFactoryTransitionCommands(db);
   const { up: addFactoryAssurance } = await import("./migrations/add-factory-assurance");
   await addFactoryAssurance(db);
   const { up: strengthenFactoryAssurance } = await import("./migrations/strengthen-factory-assurance");

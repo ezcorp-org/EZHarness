@@ -182,7 +182,7 @@ Keep active run records, dependencies, interpreter/worker versions, journals, ar
 
 Archive canonical audit batches and referenced snapshots before allowing their primary records to expire. Archival failure stops cleanup. Configure Temporal history archival for diagnostic replay during the product audit period; it does not become a second live execution engine. Encrypted payload codecs and key version retention apply to history, archives, snapshots, and backups. Store credential handles, not raw provider tokens, in history or audit.
 
-**Key hierarchy.** Each installation has a data key that encrypts payload codecs, archives, snapshots, and backups. Hosted operation wraps the data key with a cloud KMS key; the self-hosted profile wraps it with an operator-supplied master key stored outside every grantable root, or with an external KMS. Rotation re-wraps the data key and retains prior key versions for the audit period; it never re-encrypts stored objects in place. The current master key is a file generated on first boot with no rotation surface; factory-enabled deployments require the explicit key and fail readiness without it.
+**Key hierarchy.** Each installation has a data key that encrypts payload codecs, archives, snapshots, and backups. Hosted operation wraps the data key with a cloud KMS key; the self-hosted profile wraps it with an operator-supplied master key stored outside every grantable root, or with an external KMS. The wrapped data-key file is a separate Node orchestration-process secret; the Node process receives that file and its master-key file, never database, S3, provider, or raw data-key credentials. Rotation re-wraps the data key and retains prior key versions for the audit period; it never re-encrypts stored objects in place. The current master key is a file generated on first boot with no rotation surface; factory-enabled deployments require the explicit key and fail readiness without it.
 
 **Object storage prerequisites.** No S3 client or configuration exists in the repository, but a content-addressed `BlobStore` interface with a digest-verifying local implementation does (`src/extensions/v4/types.ts`, `src/extensions/v4/blobs.ts`). Stage 2b adds an S3 implementation of that interface with conditional create, version reads, checksum verification, multipart upload, and prefix-scoped credentials; every store passes the object-store conformance suite, run in the `Factory Temporal integration` lane, before use. The MinIO AIStor Free license and configuration are a deployment-operator prerequisite named in the C12 installation checklist and verified by readiness.
 
@@ -461,8 +461,8 @@ The control plane is a separate trusted service for hosted operation, and nothin
 1. PostgreSQL database and role with a generated password.
 2. Object-store prefix with prefix-scoped credentials, and a separately credentialed archive prefix in the other failure domain.
 3. Temporal namespace with namespace-scoped mutual-TLS credentials.
-4. Generated `EZCORP_JWT_SECRET`, `EZCORP_ENCRYPTION_SECRET`, and wrapped data key.
-5. Harness, orchestration process, and gateway deployments with those values delivered as secrets, and `EZCORP_SECRETS_DIR` outside every grantable root.
+4. Generated `EZCORP_JWT_SECRET`, `EZCORP_ENCRYPTION_SECRET`, and wrapped data key. The operator master key remains outside every grantable root.
+5. Harness, orchestration process, and gateway deployments with those values delivered as secrets. Deliver the wrapped data key and operator master key only to the orchestration process as private Node secrets, and keep `EZCORP_SECRETS_DIR` outside every grantable root.
 6. Ingress hostname bound to the installation ID.
 7. First-administrator invitation; the first human login is the consent authority under C01.
 
