@@ -1174,3 +1174,14 @@ Review: `/tmp/factory-platform-evidence/project-creation-results.json` records a
 - [x] Prove workflow syntax and local Compose startup/test command shape.
 
 Review: `71700a687` reuses the strict local storage provisioner in the required external PostgreSQL job. It runs explicit artifact and lifecycle test files under coverage and always removes the Compose profile. `actionlint` passes. The lifecycle filename is supplied by root commit `e577b7778`; this CI commit must follow that integration.
+## Private factory HTTPS transport
+
+- [x] Prove the C02 private Node-to-Bun mTLS request boundary through actual sockets.
+- [ ] Reuse bounded framing for the attempt gateway and orchestration service, with exact response bytes and peer identity.
+- [x] Reject malformed, oversized, duplicate, unauthenticated and stalled requests; drain/close owned sockets.
+- [ ] Add purpose-scoped service authentication, queue and stored artifact routes.
+- [ ] Verify real Node/PostgreSQL/S3 composition, coverage, types, lint and production boot.
+
+Plan review: the accepted C02 contract specifies the private HTTPS boundary under test. Existing runner-attempt authorization remains in its handler. The shared transport supplies only the verified certificate and bounded bytes, and cannot derive authority from a request body.
+
+Transport review: seven socket tests and 70 assertions pass, including a real Node client, mTLS denial, exact 64 KiB response bytes, fragmented framing, extra-request termination and bounded failures. Shared transport and attempt gateway measure 70/70 and36/36 executable lines. All four type checks and lint pass after installing both root and web locked dependencies. Receipts are `/tmp/factory-platform-evidence/private-https-final-focused.log`, `private-https-final-coverage/lcov.info`, `private-https-types-with-web.log`, and `private-https-lint-corrected.log`. Purpose-scoped orchestration routes and full production startup remain open.
