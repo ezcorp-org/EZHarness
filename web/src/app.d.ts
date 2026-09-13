@@ -43,7 +43,15 @@ declare global {
 			 */
 			onboardedAt?: Date | null;
 		}
-		// interface PageData {}
+		interface PageData {
+			/**
+			 * Optional trailing crumb for the Command Deck breadcrumb strip,
+			 * e.g. the extension name on the author page. Pages set it in
+			 * their load data; the `(app)` layout renders it after the
+			 * section label.
+			 */
+			breadcrumbTail?: string | null;
+		}
 		// interface PageState {}
 		interface Platform {
 			server?: {
