@@ -44,7 +44,7 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
           expect(params).toMatchObject({ context: input.context });
           order.push("runner");
           if ((params as { name: string }).name === "reject") return reverse("host.denied", { context: input.context, input: {} });
-          const effect = await reverse("factory.tool", { context: input.context, input: { bytes: "new workspace" } });
+          const effect = await reverse("factory.tool", { context: input.context, input: { path: "output.txt" } });
           return { effect };
         },
       };
@@ -53,10 +53,10 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
   const journal = new FactoryExecutionJournal(db, async () => {});
   const supervisor = new FactoryRunnerSupervisor({ runner, journal, authorizeAttempt: async () => { order.push("authorize"); }, invokeTool: async value => { order.push("effect"); return { stored: value }; } });
   const request = { authority: authority(), artifactDigest: "a".repeat(64), operationIndex: 0, toolName: "write", toolInput: { path: "output.txt" }, workspace: { checkpoint: async () => { order.push("checkpoint"); return { revision: "snapshot-1" }; } } } as const;
-  expect(await supervisor.invoke(request)).toEqual({ claimed: true, result: { effect: { stored: { bytes: "new workspace" } } } });
+  expect(await supervisor.invoke(request)).toEqual({ claimed: true, result: { effect: { stored: { path: "output.txt" } } } });
   expect(order).toEqual(["authorize", "runner", "authorize", "effect", "checkpoint", "close"]);
   expect(await new FactoryExecutionJournal(db, async () => {}).status(request.authority)).toMatchObject({ status: "running", journalCursor: 0 });
-  expect(await supervisor.invoke(request)).toEqual({ claimed: false, result: { effect: { stored: { bytes: "new workspace" } } } });
+  expect(await supervisor.invoke(request)).toEqual({ claimed: false, result: { effect: { stored: { path: "output.txt" } } } });
   expect(starts).toBe(1);
   const uncertainAuthority = { ...request.authority, attemptId: "attempt-uncertain", attemptNumber: 4 };
   const requestDigest = createHash("sha256").update(canonicalJson({ artifactDigest: request.artifactDigest, toolName: request.toolName, toolInput: request.toolInput })).digest("hex");
@@ -84,10 +84,10 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
     start: async () => { recoveryStarts++; throw new Error("recovery must attach a surviving worker"); },
     attach: async (input, reverse) => {
       recoveryAttaches++;
-      return { workerId: input.workerId, close: async () => {}, onNotification: () => () => {}, request: async () => ({ recovered: await reverse("factory.tool", { context: input.context, input: { bytes: "survived" } }) }) };
+      return { workerId: input.workerId, close: async () => {}, onNotification: () => () => {}, request: async () => ({ recovered: await reverse("factory.tool", { context: input.context, input: { path: "output.txt" } }) }) };
     },
   };
   const recovered = new FactoryRunnerSupervisor({ runner: recoveredRunner, journal, authorizeAttempt: async () => {}, invokeTool: async value => ({ persisted: value }) });
-  expect(await recovered.invoke({ ...request, authority: { ...request.authority, attemptId: "attempt-recovered", attemptNumber: 7 }, operationIndex: 4 })).toEqual({ claimed: true, result: { recovered: { persisted: { bytes: "survived" } } } });
+  expect(await recovered.invoke({ ...request, authority: { ...request.authority, attemptId: "attempt-recovered", attemptNumber: 7 }, operationIndex: 4 })).toEqual({ claimed: true, result: { recovered: { persisted: { path: "output.txt" } } } });
   expect({ recoveryStarts, recoveryAttaches }).toEqual({ recoveryStarts: 0, recoveryAttaches: 1 });
 });

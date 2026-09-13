@@ -8,7 +8,8 @@ export interface FactoryWorkspaceCheckpoint {
   checkpoint(input: { operationId: string; result: JsonValue }): Promise<JsonValue>;
 }
 
-export interface FactoryRunnerRequest {
+/** Internal single-tool adapter. The C02 runner wire is FactoryRunnerRequest in factory-sdk. */
+export interface FactoryToolInvocation {
   authority: FactoryAttemptAuthority;
   artifactDigest: string;
   operationIndex: number;
@@ -29,12 +30,12 @@ function digest(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
 }
 
-function operation(input: FactoryRunnerRequest): FactoryJournalOperation {
+function operation(input: FactoryToolInvocation): FactoryJournalOperation {
   const { authority } = input;
   return { operationId: `${authority.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:${input.operationIndex}`, operationIndex: input.operationIndex, kind: "tool", requestDigest: digest({ artifactDigest: input.artifactDigest, toolName: input.toolName, toolInput: input.toolInput }) };
 }
 
-function context(input: FactoryRunnerRequest) {
+function context(input: FactoryToolInvocation) {
   const workerId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}`).slice(0, 48)}`;
   const invocationId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}:invocation`).slice(0, 48)}`;
   return { workerId, invocationId, releaseId: input.artifactDigest, principalId: input.authority.tenantId, scopeId: input.authority.projectId, token: `factory-runner:${input.authority.attemptId}`, deadline: input.authority.deadlineAt.getTime() };
@@ -57,7 +58,7 @@ export class FactoryRunnerSupervisor {
 
   constructor(private readonly options: FactoryRunnerSupervisorOptions) {}
 
-  async invoke(input: FactoryRunnerRequest): Promise<{ claimed: boolean; result?: JsonValue }> {
+  async invoke(input: FactoryToolInvocation): Promise<{ claimed: boolean; result?: JsonValue }> {
     if (!Number.isSafeInteger(input.operationIndex) || input.operationIndex < 0 || !input.toolName) throw new Error("Factory runner request is malformed.");
     await this.options.authorizeAttempt(input.authority);
     const operationEntry = operation(input);
@@ -84,7 +85,7 @@ export class FactoryRunnerSupervisor {
     }
   }
 
-  private async worker(input: FactoryRunnerRequest, invocation: ReturnType<typeof context>, reverse: (method: string, raw: unknown) => Promise<unknown>): Promise<RunnerExecution> {
+  private async worker(input: FactoryToolInvocation, invocation: ReturnType<typeof context>, reverse: (method: string, raw: unknown) => Promise<unknown>): Promise<RunnerExecution> {
     const inspection = await this.options.runner.inspect(invocation.workerId);
     if (inspection.state === "running") {
       if (!this.options.runner.attach) throw new Error("Factory runner cannot reattach to a surviving worker.");
@@ -94,9 +95,11 @@ export class FactoryRunnerSupervisor {
     return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, reverse);
   }
 
-  private reverse(input: FactoryRunnerRequest, invocation: ReturnType<typeof context>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {
+  private reverse(input: FactoryToolInvocation, invocation: ReturnType<typeof context>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {
     return async (method, raw) => {
       if (method !== "factory.tool") throw new Error("Factory runner capability is denied.");
+      const authorizedInput = reverseEnvelope(raw, invocation);
+      if (canonicalJson(authorizedInput) !== canonicalJson(input.toolInput)) throw new Error("Factory runner tool input does not match its prepared operation.");
       await this.options.authorizeAttempt(input.authority);
       const claim = await this.options.journal.dispatch(input.authority, operationEntry.operationId);
       if (!claim.claimed) {
@@ -106,7 +109,7 @@ export class FactoryRunnerSupervisor {
       }
       onClaim();
       try {
-        const result = await this.options.invokeTool(reverseEnvelope(raw, invocation));
+        const result = await this.options.invokeTool(authorizedInput);
         return result;
       } catch (error) {
         const result = { code: "factory_tool_failed", message: error instanceof Error ? error.message.slice(0, 4096) : "Factory tool failed." } as const;
