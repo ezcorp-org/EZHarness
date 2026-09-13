@@ -22,8 +22,9 @@ export class FactoryReleaseApplication {
   }
 
   async putContract(actor: FactoryPrincipal, projectId: string, contractId: string, body: FactoryReleaseContractBody, expectedRevision: number, idempotencyKey: string) {
-    await this.assurance.approveContract(actor, { projectId, contractId, revision: expectedRevision + 1, ...body }, idempotencyKey);
-    return { contractId, revision: expectedRevision + 1, ...body };
+    const snapshot = structuredClone(body);
+    await this.assurance.approveContract(actor, { projectId, contractId, revision: expectedRevision + 1, ...snapshot }, idempotencyKey);
+    return { contractId, revision: expectedRevision + 1, ...snapshot };
   }
 
   prepare(actor: FactoryPrincipal, projectId: string, body: FactoryReleasePrepareBody, idempotencyKey: string) {
@@ -36,8 +37,9 @@ export class FactoryReleaseApplication {
   }
 
   async requestApproval(actor: FactoryPrincipal, projectId: string, operationId: string, body: { readonly expiresAtMs: number }, expectedGeneration: number, idempotencyKey: string) {
-    const result = await this.releases.requestApproval(actor, projectId, operationId, body.expiresAtMs, expectedGeneration, idempotencyKey);
-    return { operationId, expiresAtMs: body.expiresAtMs, status: "pending" as const, ...result };
+    const snapshot = structuredClone(body);
+    const result = await this.releases.requestApproval(actor, projectId, operationId, snapshot.expiresAtMs, expectedGeneration, idempotencyKey);
+    return { operationId, expiresAtMs: snapshot.expiresAtMs, status: "pending" as const, ...result };
   }
 
   async decideApproval(actor: FactoryPrincipal, projectId: string, approvalId: string, body: FactoryReleaseApprovalDecisionBody, expectedRevision: number, idempotencyKey: string) {
@@ -48,8 +50,9 @@ export class FactoryReleaseApplication {
 
   async putPolicy(actor: FactoryPrincipal, projectId: string, policyId: string, body: FactoryReleasePolicyBody, expectedRevision: number, idempotencyKey: string) {
     if (expectedRevision !== 0) throw new FactoryReleaseError("factory_release_precondition");
-    await this.releases.createPolicy(actor, { projectId, policyId, principal: body.principalKind === "user" ? { kind: "user", id: body.principalId, authentication: "session" } : { kind: "service", id: body.principalId, authentication: "service" }, action: body.action, destinationProvider: body.destinationProvider, destinationAccount: body.destinationAccount, destinationPrefix: body.destinationPrefix, contractDigest: body.contractDigest, revision: 1, maxOperations: body.maxOperations, maxSpendMicros: body.maxSpendMicros, expiresAtMs: body.expiresAtMs }, idempotencyKey);
-    return { policyId, revision: 1 as const, revoked: false as const, ...body };
+    const snapshot = structuredClone(body);
+    await this.releases.createPolicy(actor, { projectId, policyId, principal: snapshot.principalKind === "user" ? { kind: "user", id: snapshot.principalId, authentication: "session" } : { kind: "service", id: snapshot.principalId, authentication: "service" }, action: snapshot.action, destinationProvider: snapshot.destinationProvider, destinationAccount: snapshot.destinationAccount, destinationPrefix: snapshot.destinationPrefix, contractDigest: snapshot.contractDigest, revision: 1, maxOperations: snapshot.maxOperations, maxSpendMicros: snapshot.maxSpendMicros, expiresAtMs: snapshot.expiresAtMs }, idempotencyKey);
+    return { policyId, revision: 1 as const, revoked: false as const, ...snapshot };
   }
 
   async deletePolicy(actor: FactoryPrincipal, projectId: string, policyId: string, expectedRevision: number, idempotencyKey: string) {
@@ -59,9 +62,11 @@ export class FactoryReleaseApplication {
 
   async reconcile(actor: FactoryPrincipal, projectId: string, operationId: string, body: FactoryReleaseReconciliationBody, expectedGeneration: number, idempotencyKey: string) {
     if (actor.kind !== "user" || actor.authentication !== "session") throw new FactoryReleaseError("factory_release_human_required");
+    const snapshot = structuredClone(body);
+    await this.grants.authorize(actor, projectId, "factory.operate");
     const operation = await this.releases.inspect(projectId, operationId);
     if (!operation) throw new FactoryReleaseError("factory_release_not_found");
     const provider = await this.providers.resolve(operation);
-    return this.releases.reconcile(actor, { projectId, operationId, ...body }, expectedGeneration, provider, idempotencyKey);
+    return this.releases.reconcile(actor, { projectId, operationId, ...snapshot }, expectedGeneration, provider, idempotencyKey);
   }
 }

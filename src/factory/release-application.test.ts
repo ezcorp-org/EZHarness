@@ -42,10 +42,47 @@ test("release application authorizes reads and resolves reconciliation providers
   expect(f.grants.authorize).toHaveBeenCalledWith(actor, projectId, "factory.release");
   const body = { action: "keep_uncertain" as const, reason: "Provider is still unknown", providerEvidence: { lookup: true } };
   expect(await f.application.reconcile(actor, projectId, operation.operationId, body, 1, "reconcile-key")).toBe(operation);
+  expect(f.grants.authorize).toHaveBeenCalledWith(actor, projectId, "factory.operate");
   expect(f.providers.resolve).toHaveBeenCalledWith(operation);
   expect(f.releases.reconcile).toHaveBeenCalledWith(actor, { projectId, operationId: operation.operationId, ...body }, 1, f.provider, "reconcile-key");
   await expect(f.application.reconcile({ kind: "user", id: actor.id, authentication: "api-key" }, projectId, operation.operationId, body, 1, "api-key")).rejects.toMatchObject({ code: "factory_release_human_required" });
   expect(f.providers.resolve).toHaveBeenCalledTimes(1);
+});
+
+test("release application authorizes reconciliation before provider lookup", async () => {
+  const f = fixture();
+  f.grants.authorize.mockRejectedValueOnce(new Error("factory_forbidden"));
+  const body = { action: "keep_uncertain" as const, reason: "Provider is still unknown", providerEvidence: { lookup: true } };
+  await expect(f.application.reconcile(actor, projectId, operation.operationId, body, 1, "reconcile-denied")).rejects.toThrow("factory_forbidden");
+  expect(f.releases.inspect).not.toHaveBeenCalled();
+  expect(f.providers.resolve).not.toHaveBeenCalled();
+});
+
+test("release application snapshots mutable public bodies before awaiting stores", async () => {
+  const f = fixture();
+  let finishContract!: () => void;
+  f.assurance.approveContract.mockImplementationOnce(() => new Promise<void>(resolve => { finishContract = resolve; }));
+  const contract = { contractDigest: digest("a"), validatorLockDigest: digest("b"), mandatoryClaims: [{ id: "tests", validatorId: "validator-1", freshnessMs: 60_000 }], claimGroups: [] };
+  const contractPromise = f.application.putContract(actor, projectId, "contract-1", contract, 0, "contract-snapshot");
+  contract.mandatoryClaims[0]!.id = "mutated";
+  finishContract();
+  expect((await contractPromise).mandatoryClaims[0]?.id).toBe("tests");
+
+  let finishApproval!: () => void;
+  f.releases.requestApproval.mockImplementationOnce(() => new Promise(resolve => { finishApproval = () => resolve({ approvalId: "approval-1", contextDigest: "a".repeat(64) }); }));
+  const approvalBody = { expiresAtMs: operation.deadlineMs };
+  const approvalPromise = f.application.requestApproval(actor, projectId, operation.operationId, approvalBody, 0, "approval-snapshot");
+  approvalBody.expiresAtMs = 1;
+  finishApproval();
+  expect((await approvalPromise).expiresAtMs).toBe(operation.deadlineMs);
+
+  let finishPolicy!: () => void;
+  f.releases.createPolicy.mockImplementationOnce(() => new Promise<void>(resolve => { finishPolicy = resolve; }));
+  const policy = { principalKind: "service" as const, principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "account-1", destinationPrefix: "releases/", contractDigest: digest("a"), maxOperations: 1, maxSpendMicros: 1, expiresAtMs: operation.deadlineMs };
+  const policyPromise = f.application.putPolicy(actor, projectId, "policy-1", policy, 0, "policy-snapshot");
+  policy.destinationPrefix = "mutated/";
+  finishPolicy();
+  expect((await policyPromise).destinationPrefix).toBe("releases/");
 });
 
 test("release application rejects mixed tenant stores", () => {

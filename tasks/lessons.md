@@ -463,3 +463,5 @@
 - For a mutation with post-commit immutable archive work, cache a stable product locator first. On retry, reauthorize, resolve the current product row, and resume only the missing archive phase.
 - Put reconciliation proof, archive publication, product state, audit, and the cached response under one receipt transaction. This prevents a cached retry from repeating external proof or creating another reconciliation fact.
 - Map each factory release route to the C01 authentication table before declaring a shared session gate. Release preparation and reads can use scoped service principals; reconciliation uses write routing while its store still requires a human session. Contract, approval, policy, and trust remain session-only.
+- Authorize a reconciliation operator before loading protected operation details or resolving a provider. Keep the store's transactional authorization as the final current-authority fence.
+- Deep-snapshot public request bodies before the first await. A response or provider call must never observe mutations to the caller's nested objects while durable work is pending.
