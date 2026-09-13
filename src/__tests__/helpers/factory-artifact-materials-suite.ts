@@ -144,8 +144,8 @@ test("a version must be exactly one past the previous version of the same object
   expect(second.version).toBe(2);
 });
 
-test("plan, chunk, media type, and name limits reject at the boundary and one past it", async () => {
-  const { materials, identity } = await setup();
+test("plan, chunk, media type, and name limits are accepted at the boundary and rejected one past it", async () => {
+  const { materials, identity, db } = await setup();
   const limits = FACTORY_MATERIAL_LIMITS;
   await expect(materials.begin(identity, "application/json", limits.maxTotalBytes + 1, limits.maxChunks)).rejects.toMatchObject({ code: "factory_material_bytes_invalid" });
   await expect(materials.begin(identity, "application/json", 0, 1)).rejects.toMatchObject({ code: "factory_material_bytes_invalid" });
@@ -156,8 +156,30 @@ test("plan, chunk, media type, and name limits reject at the boundary and one pa
   await expect(materials.begin(identity, "application/json", 4, 5)).rejects.toMatchObject({ code: "factory_material_chunk_count_invalid" });
   await expect(materials.begin(identity, "text/PLAIN", 8, 1)).rejects.toMatchObject({ code: "factory_material_media_type_invalid" });
   await expect(materials.begin({ ...identity, objectName: "../escape" }, "application/json", 8, 1)).rejects.toMatchObject({ code: "factory_material_name_invalid" });
-  // The exact boundary plan is accepted.
+  // Every limit is accepted at its exact boundary, not only rejected one past it.
+  // These stay plan-level: a committed row costs nothing, and no bytes are uploaded.
   expect((await materials.begin(identity, "application/json", limits.maxChunkBytes, 1)).chunkCount).toBe(1);
+
+  const wholeExport = await materials.begin({ ...identity, objectName: "data/whole-export.bin" }, "application/octet-stream", limits.maxTotalBytes, limits.maxChunks);
+  expect(wholeExport).toMatchObject({ totalBytes: limits.maxTotalBytes, chunkCount: limits.maxChunks, sealed: false });
+  expect(wholeExport.totalBytes).toBe(256 * 1024 * 1024);
+
+  // Exactly the maximum chunk count, with the smallest plan that can carry it.
+  const everyChunk = await materials.begin({ ...identity, objectName: "data/every-chunk.bin" }, "application/octet-stream", limits.maxChunks, limits.maxChunks);
+  expect(everyChunk).toMatchObject({ totalBytes: limits.maxChunks, chunkCount: limits.maxChunks });
+  expect(everyChunk.chunkCount).toBe(64);
+
+  // The longest accepted name and the last object the operation admits.
+  const longestName = `data/${"n".repeat(limits.maxNameLength - "data/".length)}`;
+  expect(longestName).toHaveLength(limits.maxNameLength);
+  expect((await materials.begin({ ...identity, objectName: longestName }, "application/json", 8, 1)).objectName).toBe(longestName);
+
+  // The stored rows carry the boundary values, so the database CHECKs admit them too.
+  const stored = rows<{ object_name: string; total_bytes: number | string; chunk_count: number }>(await db.execute(sql`SELECT object_name, total_bytes, chunk_count FROM factory_artifact_materials WHERE attempt_id=${identity.attemptId} AND object_name IN ('data/whole-export.bin', 'data/every-chunk.bin') ORDER BY object_name`));
+  expect(stored.map(row => ({ ...row, total_bytes: Number(row.total_bytes) }))).toEqual([
+    { object_name: "data/every-chunk.bin", total_bytes: limits.maxChunks, chunk_count: limits.maxChunks },
+    { object_name: "data/whole-export.bin", total_bytes: limits.maxTotalBytes, chunk_count: limits.maxChunks },
+  ]);
 });
 
 test("a chunk whose bytes do not match its declared digest, index, or length is rejected", async () => {

@@ -55,8 +55,9 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `migration-restart-pglite`.
 - [x] G3: The material service stores, recovers, and refuses, over the encrypted blob store.
       CHECK: `bun test --timeout 120000 ./src/factory/artifact-materials.integration.test.ts`
-      EXPECT: 18 pass, 0 fail.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `materials-pglite`.
+      EXPECT: 21 pass, 0 fail, 121 assertions. Every limit is asserted on both sides: accepted at
+      its exact boundary and rejected one past it.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `fix-materials-pglite`.
 - [x] G4: The gateway serves the attempt-authenticated routes over mutual TLS.
       CHECK: `bun test --timeout 120000 ./src/factory/material-gateway.integration.test.ts`
       EXPECT: 6 pass, 0 fail, including a whole 8 MiB chunk and both byte bounds.
@@ -81,17 +82,20 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       producing files, then `bun scripts/merge-lcov.ts`, then
       `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
       `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
-      EXPECT: 100 pass, 0 fail, 996 assertions, then exit 0 from each gate. Every changed file
-      measures every one of its lines.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `quiet-coverage-*`,
-      `quiet-new-file-gate`, and `quiet-patch-gate`.
+      EXPECT: 103 pass, 0 fail, 1022 assertions, then exit 0 from each gate. Every changed file
+      measures every one of its lines; `artifact-materials.ts` is 435 of 435.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `fix-coverage-combined`,
+      `fix-new-file-gate`, and `fix-patch-gate`.
 - [x] G9: A real guest stores material, restarts, and consumes the same verified bytes from
       PostgreSQL and S3.
       CHECK: `bun test --timeout 240000 ./tests/postgres/factory-artifact-materials.test.ts` with
       `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set, under the shared
       heavy lock.
-      EXPECT: 26 pass, 0 fail, 205 assertions against PostgreSQL 16.14 and the local S3 service.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `postgres-materials`.
+      EXPECT: 29 pass, 0 fail, 231 assertions against PostgreSQL 16.14 and the local S3 service.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `fix-postgres-materials`,
+      produced at this package's final commit. Earlier `postgres-materials` records measured the
+      same suite before the workspace checkpoint and boundary cases existed and are retained as
+      history, not as this gate's evidence.
       NOTE: this gate failed twice before it passed, and both failures are stated rather than
       hidden.
 
@@ -124,9 +128,10 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       CHECK: the `factory-artifacts`, `factory-artifact-access`, `factory-lazy-input`,
       `factory-executions`, `factory-execution-gateway`, `factory-run-inputs`, `factory-records`,
       and `factory-migration-restart` PostgreSQL suites.
-      EXPECT: 11, 25, and 3 pass with 0 fail across the three invocations.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `postgres-artifacts`,
-      `postgres-executions`, `postgres-migration-restart`.
+      EXPECT: 36 pass, 0 fail, 294 assertions for the seven neighbouring suites, and 5 pass with
+      2576 assertions for schema parity and migration restart together.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records
+      `quiet-postgres-neighbours` and `quiet-postgres-schema`.
 
 - [x] G12: C02.11 copy-on-write workspace checkpoints have a production implementer, and its
       cursor is the one the SDK validator demands.
@@ -136,8 +141,10 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       accepts a completed result carrying it and rejects a mismatched cursor, a replay returns the
       identical handle, changed bytes for the same operation are refused, and a checkpoint after
       the deadline is refused by the same journal fence.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `materials-pglite` and
-      its PostgreSQL counterpart `postgres-materials`.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `fix-materials-pglite`
+      and its PostgreSQL counterpart `fix-postgres-materials`, both produced at this package's
+      final commit. The checkpoint cases exist only from `66fba803c`, so no earlier receipt
+      evidences this gate.
       NOTE: `FactoryWorkspaceCheckpoints` satisfies W01's seam structurally and imports nothing
       from `src/factory/runner/**`, which W01 owns and this package must not modify. W01 widened
       that seam to pass `operationIndex` and the verified `FactoryAttemptAuthority` in
