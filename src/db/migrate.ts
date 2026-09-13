@@ -3099,4 +3099,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryTaskStops(db);
   const { up: addFactoryUsageSettlements } = await import("./migrations/add-factory-usage-settlements");
   await addFactoryUsageSettlements(db);
+  const { up: addFactoryAdmissionOrigin } = await import("./migrations/add-factory-admission-origin");
+  await addFactoryAdmissionOrigin(db);
 }
