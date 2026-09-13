@@ -43,7 +43,8 @@ authorization, and they close the credential-separation half of C06.14 only.
 | `4c5fc573c` | `docs(factory): stamp the W04a gate commit table` |
 | `8f5f8e633` | `test(factory): prove two concurrent preparations archive one member set` |
 | `db01ad2b3` | `test(factory): prove the receipt precedes the orchestration notification` |
-| `<final>` | `docs(factory): point the W04a gates at the clean final receipts` (a file cannot carry its own hash) |
+| `58810bfc3` | `docs(factory): point the W04a gates at the clean final receipts` |
+| `<stamp>` | `docs(factory): stamp the final W04a gate row` (a file cannot carry its own hash) |
 
 Every gate below was re-run at `db01ad2b3` against a clean tree; those receipts are named
 `final-*`. Earlier receipts at `213b6f076` are kept for the two neighbouring-producer runs.
