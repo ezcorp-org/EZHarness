@@ -1,0 +1,71 @@
+static_resources:
+  listeners:
+    - name: temporal_mtls_gateway
+      address: { socket_address: { address: 0.0.0.0, port_value: 7233 } }
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              require_client_certificate: true
+              common_tls_context:
+                alpn_protocols: ["h2"]
+                tls_certificates: [{ certificate_chain: { filename: /factory-temporal-auth/server.crt }, private_key: { filename: /factory-temporal-auth/server.key } }]
+                validation_context: { trusted_ca: { filename: /factory-temporal-auth/ca.crt } }
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: temporal_gateway
+                codec_type: AUTO
+                forward_client_cert_details: SANITIZE_SET
+                set_current_client_cert_details: { subject: true }
+                route_config:
+                  name: temporal
+                  virtual_hosts: [{ name: temporal, domains: ["*"], routes: [{ match: { prefix: "/" }, route: { cluster: temporal } }] }]
+                http_filters:
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                      providers:
+                        factory:
+                          remote_jwks: { http_uri: { uri: http://factory-temporal-jwks/jwks.json, cluster: jwks, timeout: 2s }, cache_duration: 300s }
+                          forward: true
+                      rules: [{ match: { prefix: "/" }, requires: { provider_name: factory } }]
+                  - name: envoy.filters.http.ext_authz
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                      http_service:
+                        server_uri: { uri: http://factory-temporal-authorizer:17445/authorize, cluster: authorizer, timeout: 2s }
+                        authorization_request: { allowed_headers: { patterns: [{ exact: authorization }, { exact: x-forwarded-client-cert }] } }
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: jwks
+      type: STRICT_DNS
+      connect_timeout: 2s
+      load_assignment:
+        cluster_name: jwks
+        endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: factory-temporal-jwks, port_value: 80 } } } }] }]
+    - name: authorizer
+      type: STRICT_DNS
+      connect_timeout: 2s
+      load_assignment:
+        cluster_name: authorizer
+        endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: factory-temporal-authorizer, port_value: 17445 } } } }] }]
+    - name: temporal
+      type: STRICT_DNS
+      connect_timeout: 2s
+      http2_protocol_options: {}
+      load_assignment:
+        cluster_name: temporal
+        endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: factory-temporal, port_value: 7233 } } } }] }]
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: temporal.local
+          common_tls_context:
+            tls_certificates: [{ certificate_chain: { filename: /factory-temporal-auth/server.crt }, private_key: { filename: /factory-temporal-auth/server.key } }]
+            validation_context: { trusted_ca: { filename: /factory-temporal-auth/ca.crt } }

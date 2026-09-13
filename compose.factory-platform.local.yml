@@ -1,0 +1,62 @@
+# Local C12 proof services only. Every port binds loopback; this is not hosted deployment proof.
+services:
+  factory-temporal-db:
+    image: docker.io/postgres@sha256:2c72031ac25606bf94fd2fece7c35efdf263a48b08446950034f0725653f4efc
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: ${EZCORP_FACTORY_TEMPORAL_DB_PASSWORD:?set by setup script}
+      POSTGRES_DB: temporal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes: ["factory-temporal-data:/var/lib/postgresql/data"]
+  factory-temporal:
+    image: docker.io/temporalio/auto-setup@sha256:813fc7d875d4fd38ae3a7ebf982018e657a3c8bb4f6ac0bdf44b7ce42ce0af24
+    depends_on:
+      factory-temporal-db: { condition: service_healthy }
+      factory-temporal-jwks: { condition: service_started }
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: factory-temporal-db
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${EZCORP_FACTORY_TEMPORAL_DB_PASSWORD:?set by setup script}
+      TEMPORAL_TLS_REQUIRE_CLIENT_AUTH: "true"
+      TEMPORAL_TLS_SERVER_CERT: /factory-temporal-auth/server.crt
+      TEMPORAL_TLS_SERVER_KEY: /factory-temporal-auth/server.key
+      TEMPORAL_TLS_SERVER_CA_CERT: /factory-temporal-auth/ca.crt
+      TEMPORAL_TLS_FRONTEND_CERT: /factory-temporal-auth/server.crt
+      TEMPORAL_TLS_FRONTEND_KEY: /factory-temporal-auth/server.key
+      TEMPORAL_TLS_CLIENT1_CA_CERT: /factory-temporal-auth/ca.crt
+      TEMPORAL_TLS_FRONTEND_SERVER_NAME: temporal.local
+      TEMPORAL_TLS_INTERNODE_SERVER_NAME: temporal.local
+      TEMPORAL_AUTH_AUTHORIZER: default
+      TEMPORAL_AUTH_CLAIM_MAPPER: default
+      TEMPORAL_JWT_KEY_SOURCE1: http://factory-temporal-jwks/jwks.json
+      TEMPORAL_JWT_PERMISSIONS_REGEX: '^(?P<role>admin|write|read|worker):(?P<namespace>[^:]+)$'
+      USE_INTERNAL_FRONTEND: "true"
+      SERVICES: frontend:history:matching:worker:internal-frontend
+    volumes:
+      - ${EZCORP_FACTORY_TEMPORAL_AUTH_DIR:?set by setup script}/server:/factory-temporal-auth:ro
+  factory-temporal-jwks:
+    image: docker.io/library/nginx@sha256:2f4e10193b0c4f61472245e9d26cea78e7df7af266c7e7cf5e67353ee2731b51
+    volumes:
+      - ${EZCORP_FACTORY_TEMPORAL_AUTH_DIR:?set by setup script}/server/jwks.json:/usr/share/nginx/html/jwks.json:ro
+  factory-temporal-authorizer:
+    image: docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+    command: ["bun", "/factory/factory-temporal-authorizer.mjs"]
+    volumes: ["./scripts:/factory:ro"]
+  factory-temporal-gateway:
+    image: docker.io/envoyproxy/envoy@sha256:6c8227d51b0082250b782a5e676c2d78c6f729bebcab6ac13f4eec17d993c35a
+    depends_on:
+      factory-temporal: { condition: service_started }
+      factory-temporal-authorizer: { condition: service_started }
+    command: ["envoy", "-c", "/factory/factory-temporal-gateway.yaml"]
+    ports: ["127.0.0.1:${EZCORP_FACTORY_TEMPORAL_PORT:-17233}:7233"]
+    volumes:
+      - ./config/factory-temporal-gateway.yaml:/factory/factory-temporal-gateway.yaml:ro
+      - ${EZCORP_FACTORY_TEMPORAL_AUTH_DIR:?set by setup script}/server:/factory-temporal-auth:ro
+volumes:
+  factory-temporal-data:
