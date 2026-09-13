@@ -663,6 +663,83 @@ describe("factory Temporal workflow", () => {
     assert.equal(dispatches, 2);
   });
 
+  it("resolves a durable artifact field through the recorded command activity", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const lazyFactory = compiled([
+      { ...node, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } },
+    ], "lazy-field");
+    const artifact = { artifactId: "lazy-field", digest: packageDigest, encodedBytes: 70_000 };
+    const observed = [];
+    const activities = {
+      ...definitionActivities(lazyFactory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        observed.push(command.kind);
+        if (command.kind === "read-input-value") {
+          assert.deepEqual(command, { ...command, name: "data", artifact, path: ["label"], maxBytes: 32 * 1024 });
+          return { kind: "input-value-read", id: `${command.id}:value`, atMs: startedAtMs + 1, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact: command.artifact, path: command.path, storageVersion: "storage-v1", mediaType: "application/json", value: "loaded" };
+        }
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 2, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") {
+          assert.deepEqual(command.input, { value: "loaded" });
+          return { kind: "node-result", id: `${command.id}:result`, atMs: startedAtMs + 3, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: { value: "loaded" } };
+        }
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const result = await environment.client.workflow.execute("factoryWorkflow", {
+        workflowId: `tenant/lazy-field-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(lazyFactory, { logicalRunId: "lazy-field", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+      });
+      assert.equal(result.status, "completed");
+      assert.deepEqual(result.state.durableInput, { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } });
+      assert.equal(result.state.lazyInput?.versions[`${artifact.artifactId}\u0000${artifact.digest}\u0000${artifact.encodedBytes}`], "storage-v1");
+    });
+    assert.deepEqual(observed, ["read-input-value", "request-admission", "dispatch-node"]);
+  });
+
+  it("passes the tagged descriptor and command correlation into a child workflow", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const childFactory = compiled([
+      { ...node, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } },
+    ], "lazy-child");
+    const parentFactory = compiled([{ id: "child", kind: "subfactory", factory: { id: "lazy-child", version: "1", digest: childFactory.digest }, releaseMode: "none", grants: [] }], "lazy-parent");
+    const artifact = { artifactId: "lazy-child", digest: packageDigest, encodedBytes: 70_000 };
+    let resolvedCommandId: string | undefined;
+    let childLogicalRunId: string | undefined;
+    const baseActivities = definitionActivities(parentFactory, childFactory);
+    const activities = {
+      ...baseActivities,
+      resolveFactory: async (request) => {
+        resolvedCommandId = request.commandId;
+        return baseActivities.resolveFactory(request);
+      },
+      recordTransition: async () => undefined,
+      executeCommand: async ({ logicalRunId, command }) => {
+        if (command.kind === "read-input-value") {
+          childLogicalRunId = logicalRunId;
+          assert.deepEqual(command.artifact, artifact);
+          return { kind: "input-value-read", id: `${command.id}:value`, atMs: startedAtMs + 1, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact: command.artifact, path: command.path, storageVersion: "storage-v1", mediaType: "application/json", value: "child" };
+        }
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 2, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") return { kind: "node-result", id: `${command.id}:result`, atMs: startedAtMs + 3, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: { value: "child" } };
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const result = await environment.client.workflow.execute("factoryWorkflow", {
+        workflowId: `tenant/lazy-parent-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(parentFactory, { logicalRunId: "lazy-parent", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+      });
+      assert.equal(result.status, "completed");
+    });
+    assert.ok(resolvedCommandId);
+    assert.match(childLogicalRunId ?? "", /^child-[a-f0-9]{64}$/);
+  });
+
   it("runs a pinned subfactory as a child workflow", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const childFactory = compiled([], "child");
