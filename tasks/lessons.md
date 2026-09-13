@@ -443,6 +443,10 @@
 
 - Persist the complete public service credential identity with a durable request. Reconstructing only the service account ID loses the credential revision and revocation fence during later authorization.
 - Audit every adapter that reconstructs a principal from that durable request. Lifecycle and journal authorization must both carry the credential fence into the current grant check.
+
+### 2026-09-13 — Verify nested route imports
+
+- Count a SvelteKit route's directory levels from its actual file and run the focused server test before treating a shared-handler import as correct.
 ## 2026-09-13 — Release authority fact scope
 
 - A current-candidate reader must include the exact node instance. A run can contain several candidate-producing nodes, so run scope alone cannot select release authority.

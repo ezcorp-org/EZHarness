@@ -7,6 +7,7 @@ import { FactoryGrantError } from "$server/factory/grants";
 import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
 import { FactoryServiceCredentialError } from "$server/factory/service-credentials";
+import { FactoryReleaseAuthorityError } from "$server/factory/release-authority";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 
@@ -32,6 +33,7 @@ const definitions = {
 const runs = { start: vi.fn(), read: vi.fn(), list: vi.fn(), cancel: vi.fn(), readCommand: vi.fn() };
 const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn() };
 const credentials = { issue: vi.fn(), revoke: vi.fn(), authenticate: vi.fn() };
+const releaseAuthority = { publishTrust: vi.fn(), revokeTrust: vi.fn(), setReleaseEnabled: vi.fn() };
 
 const sourceDigest = createHash("sha256").update(canonicalizeJson(referenceCodeV1 as unknown as Parameters<typeof canonicalizeJson>[0])).digest("hex");
 const compiledResult = compileFactory(referenceCodeV1);
@@ -60,6 +62,8 @@ const runControl = await import("./projects/[projectId]/runs/[runId]/control/+se
 const runCommand = await import("./projects/[projectId]/runs/[runId]/commands/[commandId]/+server");
 const credentialIssue = await import("./projects/[projectId]/service-accounts/[serviceAccountId]/credentials/+server");
 const credentialRevoke = await import("./projects/[projectId]/service-accounts/[serviceAccountId]/credentials/[credentialId]/+server");
+const releaseTrust = await import("./projects/[projectId]/release/trust/+server");
+const releaseControl = await import("./projects/[projectId]/release/control/+server");
 const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "queued", createdAtMs: 1, updatedAtMs: 1 };
 const receipt = { resourceId: run.runId, commandId: "command-1", statusUrl: "/api/factories/projects/project-1/runs/run-1/commands/command-1" };
 const shared = await import("./_shared");
@@ -71,6 +75,7 @@ beforeEach(() => {
     definitions,
     grants,
     credentials,
+    releaseAuthority,
     runs,
     availableResourceClasses: new Set(["cpu"]),
   } as unknown as FactoryApplication;
@@ -96,6 +101,10 @@ beforeEach(() => {
   const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
   credentials.issue.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 1, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: false });
   credentials.revoke.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 2, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: true });
+  const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: `sha256:${sourceDigest}`, export: "release" };
+  releaseAuthority.publishTrust.mockResolvedValue({ projectId: "project-1", revision: 1, state: "active", packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "member-1", approvalGrantRevision: 1 });
+  releaseAuthority.revokeTrust.mockResolvedValue({ projectId: "project-1", revision: 2, state: "revoked", packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "member-1", approvalGrantRevision: 1 });
+  releaseAuthority.setReleaseEnabled.mockResolvedValue({ projectId: "project-1", enabled: true, enableEpoch: 1 });
 });
 
 function event(method: string, pathname: string, options: { body?: unknown; revision?: number; key?: string; auth?: "session" | "api-key" | "internal"; anonymous?: boolean; scopes?: string[]; params?: Record<string, string> } = {}) {
@@ -313,5 +322,59 @@ describe("factory definition and grant routes", () => {
       scope: "write",
       build: () => ({ kind: "approval.get", path: { projectId: "project-1", runId: "run-1", approvalId: "approval-1" } }),
     })).rejects.toThrow("not handled");
+  });
+});
+
+describe("factory release authority routes", () => {
+  const path = { projectId: "project-1" };
+  const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: `sha256:${sourceDigest}`, export: "release" };
+
+  test("checks the feature and application before authentication or body parsing", async () => {
+    state.enabled = false;
+    const disabled = await releaseTrust.PUT(event("PUT", "/api/factories/projects/project-1/release/trust", { params: path, body: "{" }));
+    expect(disabled.status).toBe(404);
+    expect(await json(disabled)).toMatchObject({ kind: "error", error: { code: "factory_disabled" } });
+    state.enabled = true;
+    state.application = null;
+    const unavailable = await releaseControl.PUT(event("PUT", "/api/factories/projects/project-1/release/control", { params: path, body: "{", anonymous: true }));
+    expect(unavailable.status).toBe(503);
+    expect(await json(unavailable)).toMatchObject({ kind: "error", error: { code: "factory_application_unavailable" } });
+  });
+
+  test("publishes and revokes trust and changes the release epoch through a human session", async () => {
+    const published = await releaseTrust.PUT(event("PUT", "/api/factories/projects/project-1/release/trust", { params: path, body: { packageLock, validatorTrustDigest: `sha256:${sourceDigest}` }, revision: 0, key: "trust-publish" }));
+    expect(published.status).toBe(200);
+    expect(await json(published)).toMatchObject({ kind: "release.trust.resource", resource: { revision: 1, state: "active", packageLock } });
+    expect(releaseAuthority.publishTrust).toHaveBeenCalledWith({ kind: "user", id: "member-1", authentication: "session" }, { ...path, packageLock, validatorTrustDigest: `sha256:${sourceDigest}`, expectedRevision: 0 }, "trust-publish");
+
+    const revoked = await releaseTrust.DELETE(event("DELETE", "/api/factories/projects/project-1/release/trust", { params: path, revision: 1, key: "trust-revoke" }));
+    expect(await json(revoked)).toMatchObject({ kind: "release.trust.resource", resource: { revision: 2, state: "revoked" } });
+    expect(releaseAuthority.revokeTrust).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), path.projectId, 1, "trust-revoke");
+
+    const controlled = await releaseControl.PUT(event("PUT", "/api/factories/projects/project-1/release/control", { params: path, body: { enabled: true }, revision: 0, key: "release-enable" }));
+    expect(await json(controlled)).toEqual({ schemaVersion: "factory.api.response.v1", kind: "release.control.resource", resource: { enabled: true, enableEpoch: 1 } });
+    expect(releaseAuthority.setReleaseEnabled).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), path.projectId, true, 0, "release-enable");
+  });
+
+  test("rejects API keys, internal callers, service credentials, and missing preconditions", async () => {
+    const body = { packageLock, validatorTrustDigest: `sha256:${sourceDigest}` };
+    expect((await releaseTrust.PUT(event("PUT", "/api/factories/projects/project-1/release/trust", { params: path, body, revision: 0, key: "api-key", auth: "api-key", scopes: ["write"] }))).status).toBe(403);
+    expect((await releaseTrust.PUT(event("PUT", "/api/factories/projects/project-1/release/trust", { params: path, body, revision: 0, key: "internal", auth: "internal" }))).status).toBe(403);
+    const service = event("PUT", "/api/factories/projects/project-1/release/trust", { params: path, body, revision: 0, key: "service", anonymous: true }) as { locals: App.Locals };
+    service.locals.factoryServicePrincipal = { tokenUse: "factory-service", serviceAccountId: "service-1", projectId: path.projectId, credentialId: "credential-1", revision: 1, scopes: ["write"], issuedAtMs: 1_000, expiresAtMs: 2_000 };
+    expect((await releaseTrust.PUT(service as never)).status).toBe(401);
+    const missing = await releaseControl.PUT(event("PUT", "/api/factories/projects/project-1/release/control", { params: path, body: { enabled: true } }));
+    expect(missing.status).toBe(412);
+    expect(releaseAuthority.publishTrust).not.toHaveBeenCalled();
+    expect(releaseAuthority.setReleaseEnabled).not.toHaveBeenCalled();
+  });
+
+  test("maps release authority conflicts, absence, scope, input, and storage failures", async () => {
+    for (const [code, status] of [["factory_release_trust_conflict", 412], ["factory_release_control_conflict", 412], ["factory_release_trust_missing", 404], ["factory_release_authority_human_required", 403], ["factory_release_authority_scope", 403], ["factory_release_authority_invalid", 400], ["factory_release_trust_corrupt", 500]] as const) {
+      releaseAuthority.revokeTrust.mockRejectedValueOnce(new FactoryReleaseAuthorityError(code));
+      const response = await releaseTrust.DELETE(event("DELETE", "/api/factories/projects/project-1/release/trust", { params: path, revision: 1, key: `release-${code}` }));
+      expect(response.status).toBe(status);
+      expect(await json(response)).toMatchObject({ kind: "error", error: { code } });
+    }
   });
 });

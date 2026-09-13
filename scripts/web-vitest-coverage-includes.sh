@@ -5,6 +5,8 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/**"
     "--coverage.include=src/routes/(app)/factories/+page.server.ts"
     "--coverage.include=src/routes/(app)/factories/+page.svelte"
+    "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/trust/+server.ts"
+    "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/control/+server.ts"
     "--coverage.include=src/lib/server/security/bounded-json.ts"
     "--coverage.include=src/lib/server/security/payload.ts"
     "--coverage.include=src/lib/server/task-helpers.ts"

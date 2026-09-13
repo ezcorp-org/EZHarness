@@ -572,6 +572,15 @@ function validateArtifactReference(reference: FactoryArtifactReference, path: re
   return safeCounter(reference.encodedBytes) ? { ok: true } : issue("RUNNER_ARTIFACT_BYTES", "Artifact bytes must be a nonnegative safe integer.", [...path, "encodedBytes"]);
 }
 
+function validateRunnerReference(reference: FactoryRunnerRequest["runner"], path: readonly (string | number)[]): ValidationResult {
+  if (!boundedText(reference.package) || !boundedText(reference.export) || !boundedText(reference.version) || reference.version === "latest" || reference.version.includes("*") || !validDigest(reference.digest, true)) {
+    return issue("RUNNER_PIN", "Runner package, exact version, export, and digest are required.", path);
+  }
+  if (reference.model !== undefined && !boundedText(reference.model)) return issue("RUNNER_MODEL_PIN", "Runner model must be a bounded identity.", [...path, "model"]);
+  if (reference.configurationDigest !== undefined && !validDigest(reference.configurationDigest, true)) return issue("RUNNER_MODEL_PIN", "Runner configuration digest must be a prefixed lowercase sha256 value.", [...path, "configurationDigest"]);
+  return { ok: true };
+}
+
 function validateUsage(usage: FactoryUsage, path: readonly (string | number)[]): ValidationResult {
   if (usage.kind === "unknown") return boundedText(usage.reason, 1_024) && isUnsignedDecimal(usage.heldCostMicros) ? { ok: true } : issue("RUNNER_USAGE", "Unknown usage needs a reason and unsigned held cost.", path);
   return safeCounter(usage.inputTokens) && safeCounter(usage.outputTokens) && safeCounter(usage.computeMs) && isUnsignedDecimal(usage.costMicros) ? { ok: true } : issue("RUNNER_USAGE", "Measured usage counters and cost must be nonnegative integers.", path);
@@ -605,7 +614,8 @@ export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
     if (typeof field === "string" ? !boundedText(field, 1_024) : !safeCounter(field)) return issue("RUNNER_AUTHORITY", "Runner authority fields must be bounded identities and nonnegative safe counters.", ["authority", key]);
   }
   if (authority.deadlineAtMs < 1) return issue("RUNNER_DEADLINE", "Runner deadline must be a positive epoch millisecond.", ["authority", "deadlineAtMs"]);
-  if (!boundedText(request.runner.package) || !boundedText(request.runner.export) || !boundedText(request.runner.version) || request.runner.version === "latest" || request.runner.version.includes("*") || !validDigest(request.runner.digest, true)) return issue("RUNNER_PIN", "Runner package, exact version, export, and digest are required.", ["runner"]);
+  const runner = validateRunnerReference(request.runner, ["runner"]);
+  if (!runner.ok) return runner;
   if (request.model !== undefined && (!boundedText(request.model.provider) || !boundedText(request.model.model) || !validDigest(request.model.configurationDigest, true) || !validDigest(request.model.policyDigest, true) || request.runner.model !== undefined && request.runner.model !== request.model.model || request.runner.configurationDigest !== undefined && request.runner.configurationDigest !== request.model.configurationDigest)) return issue("RUNNER_MODEL_PIN", "Model and policy pins must match the runner reference.", ["model"]);
   if (!boundedText(request.broker.attemptToken, 4_096) || !boundedText(request.broker.audience) || request.grants.some((grant) => !boundedText(grant)) || new Set(request.grants).size !== request.grants.length) return issue("RUNNER_GRANT", "Broker authority and grants must be bounded and unique.", ["grants"]);
   if (request.resources.maxCostMicros !== undefined && !isUnsignedDecimal(request.resources.maxCostMicros) || request.resources.resourceClass !== undefined && !boundedText(request.resources.resourceClass) || [request.resources.maxTokens, request.resources.maxComputeMs, request.resources.memoryBytes].some((bound) => bound !== undefined && !safeCounter(bound))) return issue("RUNNER_RESOURCES", "Runner resource bounds must use safe counters and unsigned decimal cost.", ["resources"]);
@@ -669,7 +679,7 @@ function validateApiPreconditions(request: Extract<FactoryApiRequest, { precondi
   const { idempotencyKey, expectedRevision } = request.preconditions;
   if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
   if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
-  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "service-credential.issue";
+  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "service-credential.issue" || request.kind === "release.trust.publish" || request.kind === "release.control.set";
   if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
   if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation requires revision 0.", ["preconditions", "expectedRevision"]);
   return { ok: true };
@@ -736,6 +746,11 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
       || request.body.scopes.some((scope, index) => canonical[index] !== scope)) {
       return issue("API_CREDENTIAL_SCOPES", "Credential scopes must be unique and in canonical order.", ["body", "scopes"]);
     }
+  }
+  if (request.kind === "release.trust.publish") {
+    const runner = validateRunnerReference(request.body.packageLock, ["body", "packageLock"]);
+    if (!runner.ok) return runner;
+    if (!validDigest(request.body.validatorTrustDigest, true)) return issue("API_RELEASE_TRUST_DIGEST", "Release trust needs a prefixed lowercase sha256 validator digest.", ["body", "validatorTrustDigest"]);
   }
   const payloadDigest = "preconditions" in request ? validateFactoryApiPayloadDigest(request) : { ok: true } as const;
   if (!payloadDigest.ok) return payloadDigest;
@@ -805,6 +820,11 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
     if (response.kind === "service-credential.issued" && !validServiceCredentialToken(response.token)) {
       return issue("API_CREDENTIAL_TOKEN", "Issued service credential token is invalid.", ["token"]);
     }
+  }
+  if (response.kind === "release.trust.resource") {
+    const runner = validateRunnerReference(response.resource.packageLock, ["resource", "packageLock"]);
+    if (!runner.ok) return runner;
+    if (!validDigest(response.resource.packageTrustDigest, true) || !validDigest(response.resource.validatorTrustDigest, true)) return issue("API_RELEASE_TRUST_DIGEST", "Release trust resource digests must be prefixed lowercase sha256 values.", ["resource"]);
   }
   if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
   if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);

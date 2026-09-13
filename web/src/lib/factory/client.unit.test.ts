@@ -23,6 +23,9 @@ const version = {
 	publishedAtMs: 2,
 };
 const credential = { serviceAccountId: "service one", credentialId: "credential/one", scopes: ["read"] as const, revision: 1, issuedAtMs: 1_000, expiresAtMs: 61_000, revoked: false };
+const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: "sha256:" + digest, export: "release" } as const;
+const trust = { revision: 1, state: "active" as const, packageLock, packageTrustDigest: "sha256:" + compiledDigest, validatorTrustDigest: "sha256:" + digest, approvedBy: "admin-1", approvalGrantRevision: 1 };
+const control = { enabled: true, enableEpoch: 1 };
 
 function api(value: FactoryApiResponse, status = 200): Response {
 	return Response.json(value, { status });
@@ -50,6 +53,10 @@ function response(kind: FactoryApiResponse["kind"]): FactoryApiResponse {
 			return { schemaVersion: "factory.api.response.v1", kind, resource: credential, token: "ezkfsvc_aaa.bbb.ccc" };
 		case "service-credential.resource":
 			return { schemaVersion: "factory.api.response.v1", kind, resource: { ...credential, revision: 2, revoked: true } };
+		case "release.trust.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: trust };
+		case "release.control.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: control };
 		default:
 			throw new Error("unsupported fixture");
 	}
@@ -64,6 +71,8 @@ describe("FactoryApiClient", () => {
 		fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 			const path = String(input);
 			calls.push({ path, init });
+			if (path.endsWith("/release/trust")) return api(response("release.trust.resource"));
+			if (path.endsWith("/release/control")) return api(response("release.control.resource"));
 			if (path.includes("/service-accounts/") && init?.method === "DELETE") return api(response("service-credential.resource"));
 			if (path.includes("/service-accounts/")) return api(response("service-credential.issued"));
 			if (path.includes("/export")) return api(response("draft.export"));
@@ -92,6 +101,9 @@ describe("FactoryApiClient", () => {
 		expect(await client.publishVersion("project/one", source.id, 1, source.version)).toEqual(version);
 		expect(await client.issueServiceCredential("project/one", "service one", ["read"], 61_000)).toMatchObject({ resource: credential, token: expect.stringMatching(/^ezkfsvc_/) });
 		expect(await client.revokeServiceCredential("project/one", "service one", "credential/one", 1)).toMatchObject({ revision: 2, revoked: true });
+		expect(await client.publishReleaseTrust("project/one", 0, packageLock, "sha256:" + digest)).toEqual(trust);
+		expect(await client.revokeReleaseTrust("project/one", 1)).toEqual(trust);
+		expect(await client.setReleaseEnabled("project/one", true, 0)).toEqual(control);
 
 		const listed = new URL(calls[0]!.path, "http://localhost");
 		expect(listed.pathname).toContain("project%2Fone/definitions");
@@ -109,6 +121,13 @@ describe("FactoryApiClient", () => {
 		expect(calls[11]?.init?.body).toBe(JSON.stringify({ scopes: ["read"], expiresAtMs: 61_000 }));
 		expect(calls[12]?.path).toContain("credential%2Fone");
 		expect(calls[12]?.init?.method).toBe("DELETE");
+		expect(calls[13]?.path).toContain("project%2Fone/release/trust");
+		expect(calls[13]?.init?.method).toBe("PUT");
+		expect(calls[13]?.init?.body).toBe(JSON.stringify({ packageLock, validatorTrustDigest: "sha256:" + digest }));
+		expect(calls[14]?.init?.method).toBe("DELETE");
+		expect(calls[14]?.init?.body).toBeUndefined();
+		expect(calls[15]?.path).toContain("project%2Fone/release/control");
+		expect(calls[15]?.init?.body).toBe(JSON.stringify({ enabled: true }));
 	});
 
 	test("uses the platform fetch and bounded random key defaults", async () => {

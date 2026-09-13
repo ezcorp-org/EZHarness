@@ -697,6 +697,17 @@ export interface FactoryPublishBody {
   readonly version: string;
 }
 
+export interface FactoryReleaseTrustPublishBody {
+  /** Immutable runner package and optional model configuration approved for release. */
+  readonly packageLock: RunnerReference;
+  /** Protected validator lock digest. @minLength 71 @maxLength 71 */
+  readonly validatorTrustDigest: string;
+}
+
+export interface FactoryReleaseControlBody {
+  readonly enabled: boolean;
+}
+
 /** Parameters are named factory input ports. Large values use artifact handles. */
 export interface FactoryRunStartBody {
   /** @minLength 1 @maxLength 512 */
@@ -776,7 +787,10 @@ export type FactoryApiRequest =
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.set"; readonly path: FactoryGrantPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryGrantSetBody }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.revoke"; readonly path: FactoryGrantPath; readonly preconditions: FactoryMutationPreconditions }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "service-credential.issue"; readonly path: FactoryServiceAccountPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryServiceCredentialIssueBody }
-  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "service-credential.revoke"; readonly path: FactoryServiceCredentialPath; readonly preconditions: FactoryMutationPreconditions };
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "service-credential.revoke"; readonly path: FactoryServiceCredentialPath; readonly preconditions: FactoryMutationPreconditions }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.trust.publish"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseTrustPublishBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.trust.revoke"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.control.set"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseControlBody };
 
 export interface FactoryDraftSummary {
   /** @minLength 1 @maxLength 512 */
@@ -898,6 +912,27 @@ export interface FactoryServiceCredentialResource {
   readonly revoked: boolean;
 }
 
+export interface FactoryReleaseTrustResource {
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly revision: number;
+  readonly state: "active" | "revoked";
+  readonly packageLock: RunnerReference;
+  /** @minLength 71 @maxLength 71 */
+  readonly packageTrustDigest: string;
+  /** @minLength 71 @maxLength 71 */
+  readonly validatorTrustDigest: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly approvedBy: string;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly approvalGrantRevision: number;
+}
+
+export interface FactoryReleaseControlResource {
+  readonly enabled: boolean;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly enableEpoch: number;
+}
+
 /** Durable transport state; delivery does not mean the run completed. */
 export interface FactoryCommandResource {
   /** @minLength 1 @maxLength 512 */
@@ -971,6 +1006,8 @@ export type FactoryApiResponse =
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "grant.page"; readonly page: FactoryApiPage<FactoryGrantResource> }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "service-credential.issued"; readonly resource: FactoryServiceCredentialResource; /** @minLength 32 @maxLength 4096 */ readonly token: string }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "service-credential.resource"; readonly resource: FactoryServiceCredentialResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.trust.resource"; readonly resource: FactoryReleaseTrustResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.control.resource"; readonly resource: FactoryReleaseControlResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "command.resource"; readonly resource: FactoryCommandResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "mutation.accepted"; readonly receipt: FactoryDurableReceipt }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "error"; readonly error: FactoryApiError };
