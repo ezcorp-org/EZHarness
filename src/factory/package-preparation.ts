@@ -205,7 +205,7 @@ export class FactoryPackagePreparations implements FactoryRunnerDispatchReadines
     return binding;
   }
 
-  private async intentInTransaction(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<{ binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string }> {
+  private async intentInTransaction(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<{ binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string; evidenceDigest: string }> {
     const receipt = await this.assertPreparedInTransaction(transaction, projectId, reference).catch(error => {
       if (!(error instanceof FactoryPackagePreparationError) || error.code !== "factory_package_not_prepared") throw error;
       return undefined;
@@ -214,10 +214,10 @@ export class FactoryPackagePreparations implements FactoryRunnerDispatchReadines
     const trust = await this.currentTrust(transaction, projectId, reference);
     const release = await this.catalog.loadInTransaction(transaction, binding);
     const entrypoint = (release.manifest.entrypoint ?? "extension.ts").replace(/^\.\//, "");
-    return { binding, trust, buildIdentity: receipt?.buildIdentity ?? `factory-package:${digestObject({ tenantId: this.tenantId, projectId, reference, releaseDigest: binding.releaseDigest, trustRevision: trust.revision })}`, entrypoint };
+    return { binding, trust, buildIdentity: receipt?.buildIdentity ?? `factory-package-${digestObject({ tenantId: this.tenantId, projectId, reference, releaseDigest: binding.releaseDigest, trustRevision: trust.revision })}`, entrypoint, evidenceDigest: digestObject(release.evidence) };
   }
 
-  private async hydrate(intent: { binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string }): Promise<WorkspaceFiles> {
+  private async hydrate(intent: { binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string; evidenceDigest: string }): Promise<WorkspaceFiles> {
     try {
       const cached = await this.runnerClient.collectArtifacts(intent.binding.artifactDigest);
       this.verifyArtifacts(intent.binding, cached);
@@ -225,14 +225,14 @@ export class FactoryPackagePreparations implements FactoryRunnerDispatchReadines
     } catch {
       const source = await this.catalog.loadSource(intent.binding);
       const result = await this.runnerClient.build({ operationId: intent.buildIdentity, sourceDigest: intent.binding.sourceDigest, files: source, entrypoint: intent.entrypoint, limits: this.buildLimits });
-      if (result.state !== "succeeded" || result.operationId !== intent.buildIdentity || result.sourceDigest !== intent.binding.sourceDigest || result.artifactDigest !== intent.binding.artifactDigest || result.imageDigest !== intent.binding.imageDigest || !result.manifest || digestObject(result.manifest) !== intent.binding.manifestDigest || result.manifest.name !== intent.binding.reference.package || result.manifest.version !== intent.binding.reference.version || !result.manifest.tools?.some(tool => tool.name === intent.binding.reference.export) || !result.evidence.tests.length || result.evidence.tests.some(test => !test.passed)) throw new FactoryPackagePreparationError("factory_package_build_mismatch");
+      if (result.state !== "succeeded" || result.operationId !== intent.buildIdentity || result.sourceDigest !== intent.binding.sourceDigest || result.artifactDigest !== intent.binding.artifactDigest || result.imageDigest !== intent.binding.imageDigest || !result.manifest || digestObject(result.manifest) !== intent.binding.manifestDigest || result.manifest.name !== intent.binding.reference.package || result.manifest.version !== intent.binding.reference.version || !result.manifest.tools?.some(tool => tool.name === intent.binding.reference.export) || digestObject(result.evidence) !== intent.evidenceDigest || !result.evidence.tests.length || result.evidence.tests.some(test => !test.passed)) throw new FactoryPackagePreparationError("factory_package_build_mismatch");
       const artifacts = await this.runnerClient.collectArtifacts(intent.binding.artifactDigest);
       this.verifyArtifacts(intent.binding, artifacts);
       return artifacts;
     }
   }
 
-  private async commitInTransaction(transaction: MigrationDb, intent: { binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string }, artifacts: WorkspaceFiles): Promise<FactoryPreparedPackageReceipt> {
+  private async commitInTransaction(transaction: MigrationDb, intent: { binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string; evidenceDigest: string }, artifacts: WorkspaceFiles): Promise<FactoryPreparedPackageReceipt> {
     if (!await lockFactoryScope(transaction, this.tenantId, intent.binding.projectId)) throw new FactoryPackagePreparationError("factory_package_scope");
     const binding = await this.readBinding(transaction, intent.binding.projectId, intent.binding.reference);
     if (!same(binding, intent.binding)) throw new FactoryPackagePreparationError("factory_package_binding_stale");

@@ -509,3 +509,12 @@
 
 - A sealed child binding pins the parent command and its attempt, not the parent audit head. Recheck that exact command against the latest verified parent state; unrelated timers, sibling results, and approvals may advance the head while the child remains valid.
 - Idempotent settlement must reread the binding after budget locks. A concurrent winner can change open to settled while the loser waits; return its same durable receipt instead of reporting a conflict.
+
+## 2026-09-13 — Runner boundary scope
+
+- `FactoryRunnerSupervisor.invoke` is a single-tool journal adapter. Never present it as a complete `TrustedFactoryRunner.run` implementation or use it to prove full C02 request execution.
+- Package preparation may prove exact v4 build and artifact hydration. The durable dispatcher remains responsible for claim, token minting, and complete request execution.
+
+## 2026-09-13 — Schema migration parity
+
+- For every migration default, model the same default in `schema.ts`. Run the canonical schema parity test; focused feature tests do not detect a missing ORM default.

@@ -155,8 +155,8 @@
   "packages/@ezcorp/factory-sdk/src/index.ts": 100,
   "packages/@ezcorp/factory-sdk/src/kernel-types.ts": 100,
   "packages/@ezcorp/factory-sdk/src/kernel.ts": 100,
-    "packages/@ezcorp/factory-sdk/src/parse.ts": 100,
-    "packages/@ezcorp/factory-sdk/src/page-bytes.ts": 100,
+  "packages/@ezcorp/factory-sdk/src/parse.ts": 100,
+  "packages/@ezcorp/factory-sdk/src/page-bytes.ts": 100,
   "packages/@ezcorp/factory-sdk/src/references.ts": 100,
   "packages/@ezcorp/factory-sdk/src/schema.ts": 100,
   "packages/@ezcorp/factory-sdk/src/simulator.ts": 100,
@@ -965,5 +965,7 @@
   "src/factory/private-service.ts": 100,
   "src/factory/private-https.ts": 100,
   "src/db/migrations/add-factory-release-authority.ts": 100,
-  "src/db/migrations/factory-artifact-admission-index.ts": 100
+  "src/db/migrations/factory-artifact-admission-index.ts": 100,
+  "src/factory/package-preparation.ts": 100,
+  "src/db/migrations/add-factory-package-preparations.ts": 100
 }
