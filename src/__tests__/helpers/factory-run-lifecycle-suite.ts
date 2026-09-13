@@ -18,6 +18,9 @@ import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { FactoryCommandAuthority, type FactoryAuthorizedApprovalCommand } from "../../factory/command-authority";
 import { FactoryTaskAdmission, factoryTaskReservationId, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
+import { FactoryExecutionJournal } from "../../factory/executions";
+import { FactoryAttemptQueue } from "../../factory/attempt-queue";
+import { FactoryTaskExecutionAdmission, type FactoryTaskRunnerPolicy } from "../../factory/task-execution-admission";
 import { FactoryInbox } from "../../factory/inbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
@@ -186,7 +189,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("compute admission commits only under the actual current command authority", async () => {
     const run = await start();
-    const { identity, transitions, activities, event, first, admission, authority } = await committedInterpreter(run.runId);
+    const { identity, transitions, activities, compiled, event, first, admission, authority } = await committedInterpreter(run.runId);
     await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
     const reference = { ...identity, commandId: admission.id };
     const service = { tenantId, subject: "orchestration" };
@@ -200,11 +203,51 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     let requests = 0;
     const pool = { async request() { requests++; return { status: "admitted" as const, reservationId: reserved.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
-    expect(await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId })).toMatchObject({ status: "admitted", receipt: { lease: { allocationToken: lease.allocationToken }, event: { commandId: admission.id, granted: true } } });
+    const admitted = await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId });
+    expect(admitted).toMatchObject({ status: "admitted", receipt: { lease: { allocationToken: lease.allocationToken }, event: { commandId: admission.id, granted: true } } });
     expect(requests).toBe(1);
     expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_budget_reservations WHERE reservation_id=${reserved.reservationId}`))).toEqual([{ state: "running" }]);
     expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${run.runId}`))).toHaveLength(1);
     expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
+    if (admitted.status !== "admitted") throw new Error("fixture compute admission failed");
+    const next = advanceKernel(compiled, first.nextState, admitted.receipt.event);
+    const dispatch = next.commands.find(command => command.kind === "dispatch-node");
+    if (!dispatch) throw new Error("fixture dispatch command is missing");
+    await persistTransition(identity, 2, admitted.receipt.event, next.nextState, next.commands, undefined, activities);
+    const dispatchReference = { ...identity, commandId: dispatch.id };
+    const journal = new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction);
+    const queue = new FactoryAttemptQueue(fixture.db, journal, tenantId, () => now);
+    const resolutions: Array<{ initiator: FactoryPrincipal; allocationToken: string }> = [];
+    let audience = "factory-broker";
+    const policy: FactoryTaskRunnerPolicy = { async resolveInTransaction(_transaction, input) {
+      resolutions.push({ initiator: input.initiator, allocationToken: input.compute.receipt.lease.allocationToken });
+      return { grants: input.context.node.capabilities ?? [], tools: [], brokerAudience: audience };
+    } };
+    const execution = new FactoryTaskExecutionAdmission(authority, admissions, journal, queue, policy, () => now);
+    await fixture.db.execute(sql`ALTER TABLE factory_attempt_queue ADD CONSTRAINT task_execution_forced_rollback CHECK (FALSE) NOT VALID`);
+    try { await expect(execution.admit(service, dispatchReference)).rejects.toThrow(); }
+    finally { await fixture.db.execute(sql`ALTER TABLE factory_attempt_queue DROP CONSTRAINT task_execution_forced_rollback`); }
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${dispatch.id}`))).toHaveLength(0);
+    const [result, concurrent] = await Promise.all([execution.admit(service, dispatchReference), execution.admit(service, dispatchReference)]);
+    expect(result).toMatchObject({ reservationId: reserved.reservationId, delivery: { state: "queued", reference: { attemptId: dispatch.id, reservationGeneration: 1 } }, request: { authority: { attemptId: dispatch.id, nextOperationIndex: 0, deadlineAtMs: lease.deadlineAt.getTime() }, broker: { audience: "factory-broker" } } });
+    expect(concurrent.request).toEqual(result.request);
+    expect("attemptToken" in result.request.broker).toBe(false);
+    expect(resolutions.at(-1)).toEqual({ initiator: { kind: "user", id: principal.id, authentication: "api-key" }, allocationToken: lease.allocationToken });
+    await fixture.db.execute(sql`UPDATE factory_execution_operation_cursors SET next_operation_index=7 WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId} AND node_instance_id=${dispatch.nodeId} AND candidate_generation=${dispatch.candidateGeneration}`);
+    const replayed = await execution.admit(service, dispatchReference);
+    expect(replayed.request).toEqual(result.request);
+    expect(replayed.delivery.reference).toEqual(result.delivery.reference);
+    expect(replayed.reservationId).toBe(result.reservationId);
+    audience = "changed-broker";
+    await expect(execution.admit(service, dispatchReference)).rejects.toMatchObject({ code: "factory_task_execution_conflict" });
+    await expect(execution.admit(service, { ...dispatchReference, projectId: "foreign-project" })).rejects.toThrow("factory_transition_command_not_found");
+    now = lease.deadlineAt.getTime();
+    audience = "factory-broker";
+    await expect(execution.admit(service, dispatchReference)).rejects.toMatchObject({ code: "factory_run_fence_changed" });
+    now -= 1;
+    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 2, lag: 0 });
+    await cancelRun(principal, runKey(run.runId), run.revision, `execution-cancel-${run.runId}`);
+    await expect(execution.admit(service, dispatchReference)).rejects.toMatchObject({ code: "factory_run_stopped" });
   });
 
   test("task limits can reduce a host budget and cannot exceed its memory profile", async () => {

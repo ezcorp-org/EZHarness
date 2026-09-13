@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { DELIVERY_STATES, DurableDeliveryQueue, durableInputHash, type DurableDeliveryRecord, type DurableDeliveryState, type DurableDeliveryStore } from "../delivery-queue/durable-delivery-queue";
 import { FactoryGrantError } from "./grants";
 import { FactoryRecordError } from "./records";
-import type { FactoryExecutionJournal, FactoryAttemptAdmission, FactoryAttemptAuthority, FactoryDurableRunnerRequest } from "./executions";
+import type { FactoryExecutionJournal, FactoryAttemptAdmission, FactoryAttemptAuthority, FactoryDurableAttemptAdmission, FactoryDurableRunnerRequest } from "./executions";
 
 const MAX_ATTEMPTS = 3;
 const CLAIM_SCAN_LIMIT = 32;
@@ -38,6 +37,11 @@ export interface FactoryAttemptDelivery extends DurableDeliveryRecord {
 }
 
 export interface ClaimedFactoryAttempt {
+  readonly delivery: FactoryAttemptDelivery;
+  readonly request: FactoryDurableRunnerRequest;
+}
+
+export interface StoredFactoryAttempt {
   readonly delivery: FactoryAttemptDelivery;
   readonly request: FactoryDurableRunnerRequest;
 }
@@ -88,10 +92,10 @@ function authorityFor(reference: FactoryAttemptReference): FactoryAttemptAuthori
   return { ...reference, deadlineAt: new Date(reference.deadlineAtMs) };
 }
 
-function snapshotAdmission(input: FactoryAttemptAdmission): FactoryAttemptAdmission {
+function snapshotAdmission<Input extends FactoryAttemptAdmission | FactoryDurableAttemptAdmission>(input: Input): Input {
   const reference = referenceFor(input);
-  const request = JSON.parse(canonicalJson(input.request)) as FactoryRunnerRequest;
-  return Object.freeze({ ...authorityFor(reference), request });
+  const request = JSON.parse(canonicalJson(input.request)) as Input["request"];
+  return Object.freeze({ ...authorityFor(reference), request }) as Input;
 }
 
 function scope(tenantId: string, projectId: string): string {
@@ -199,7 +203,12 @@ export class FactoryAttemptQueue {
   }
 
   async enqueueInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission): Promise<FactoryAttemptDelivery> {
-    return this.enqueueSnapshotInTransaction(transaction, snapshotAdmission(input), this.now());
+    return this.enqueueSnapshotInTransaction(transaction, snapshotAdmission(input), this.now(), false);
+  }
+
+  /** Enqueue an identity that never contained an ephemeral bearer token. */
+  async enqueueDurableInTransaction(transaction: MigrationDb, input: FactoryDurableAttemptAdmission): Promise<FactoryAttemptDelivery> {
+    return this.enqueueSnapshotInTransaction(transaction, snapshotAdmission(input), this.now(), true);
   }
 
   async claim(leaseMs = 60_000): Promise<ClaimedFactoryAttempt | null> {
@@ -246,14 +255,28 @@ export class FactoryAttemptQueue {
   }
 
   async read(projectId: string, attemptId: string): Promise<FactoryAttemptDelivery | null> {
-    identity(projectId, attemptId);
-    return stateMachine.inspect(new FactoryAttemptStore(this.database, this.tenantId, projectId), scope(this.tenantId, projectId), attemptId);
+    return this.readInTransaction(this.database, projectId, attemptId);
   }
 
-  private async enqueueSnapshotInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission, now: number): Promise<FactoryAttemptDelivery> {
+  async readInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<FactoryAttemptDelivery | null> {
+    identity(projectId, attemptId);
+    return stateMachine.inspect(new FactoryAttemptStore(transaction, this.tenantId, projectId), scope(this.tenantId, projectId), attemptId);
+  }
+
+  /** Recover the exact journal request and its queue reference in one transaction. */
+  async readStoredInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<StoredFactoryAttempt | null> {
+    const delivery = await this.readInTransaction(transaction, projectId, attemptId);
+    if (!delivery) return null;
+    const request = await this.journal.requestInTransaction(transaction, authorityFor(delivery.reference));
+    return Object.freeze({ delivery, request });
+  }
+
+  private async enqueueSnapshotInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission | FactoryDurableAttemptAdmission, now: number, durable = false): Promise<FactoryAttemptDelivery> {
     if (input.tenantId !== this.tenantId) throw new FactoryAttemptQueueError("factory_attempt_scope_mismatch");
     const reference = referenceFor(input);
-    const admitted = await this.journal.admitInTransaction(transaction, input);
+    const admitted = durable
+      ? await this.journal.admitDurableInTransaction(transaction, input as FactoryDurableAttemptAdmission)
+      : await this.journal.admitInTransaction(transaction, input as FactoryAttemptAdmission);
     if (admitted.requestHash !== reference.requestDigest) throw new FactoryAttemptQueueError("factory_attempt_corrupt");
     const inputHash = durableInputHash(reference);
     const queueScope = scope(reference.tenantId, reference.projectId);

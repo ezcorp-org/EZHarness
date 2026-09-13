@@ -485,3 +485,9 @@
 
 ## 2026-09-13 — Async partition test liveness
 - For a cross-partition Temporal assertion, wait for the recorded delivery activity to finish before querying the target state. Polling a target before the source effect is scheduled tests host timing, not invalidation behavior.
+
+
+## 2026-09-13 — Compute admission execution fences
+
+- Persist and compare only execution authority fields in a compute admission fence. Public projection revisions and status can advance from queued to running without changing execution authority.
+- Test canonical zero-based candidate generations at every writer and reader boundary. A terminal reader must accept generation zero when the kernel defines it as the first generation.

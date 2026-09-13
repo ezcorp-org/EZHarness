@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
-import { mkdir, open, type FileHandle } from "node:fs/promises";
-import { basename, resolve } from "node:path";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, rename, unlink, type FileHandle } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 
 function owner(): number {
   const uid = process.getuid?.();
@@ -73,4 +74,30 @@ export async function readPrivateBounded(directory: FileHandle, name: string, ma
   } finally {
     await handle.close();
   }
+}
+
+/** Atomically replaces one bounded file in an owned private directory. */
+export async function writePrivateBoundedAtomic(path: string, bytes: Uint8Array, maximumLength: number): Promise<void> {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || !Number.isSafeInteger(maximumLength) || maximumLength < 1 || bytes.byteLength > maximumLength) throw privateError("Private file output is invalid.");
+  const absolute = resolve(path);
+  const leaf = basename(absolute);
+  if (!leaf || leaf === "." || leaf === "..") throw privateError("Private file leaf is invalid.");
+  const directory = await privateDirectory(dirname(absolute), { createLeaf: true, repairOwnedLeaf: true });
+  const temporary = `.${leaf}.${process.pid}.${randomUUID()}.tmp`;
+  const temporaryPath = `/proc/self/fd/${directory.fd}/${temporary}`;
+  const finalPath = `/proc/self/fd/${directory.fd}/${leaf}`;
+  let handle: FileHandle | undefined;
+  let failure: unknown;
+  try {
+    handle = await open(temporaryPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.close(); handle = undefined;
+    await rename(temporaryPath, finalPath);
+    await directory.sync();
+  } catch (error) { failure = error; }
+  try { await handle?.close(); } catch (error) { failure ??= error; }
+  try { await unlink(temporaryPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") failure ??= error; }
+  try { await directory.close(); } catch (error) { failure ??= error; }
+  if (failure !== undefined) throw failure;
 }
