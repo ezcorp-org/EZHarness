@@ -912,7 +912,10 @@ Pending implementation and measured verification.
 
 ### Local factory test campaign (user update)
 
-- [ ] Run local S3 services in Docker Compose and prove storage conformance.
-- [ ] Prove actual AMD GPU computation and isolated runner access.
+- [x] Run local S3 services in Docker Compose and prove storage conformance for all 10 tenant identities.
+- [x] Prove actual AMD GPU computation: 10 seeded GPU matrix workloads pass; the same workload without devices fails with GPU_REQUIRED.
+- [ ] Prove strict single-device isolation. ROCm initializes only when both host render devices are mapped; ROCR_VISIBLE_DEVICES selects the RX7900XTX but is not an isolation boundary.
 - [ ] Provision 10 tenant installations and run integration/load tests at that scale.
 - [ ] Record exact scale, duration, hardware and remaining launch evidence.
+
+Local test review: SeaweedFS ordinary and archive services run with separate file mounts and volumes, loopback-only ports, bounded resources, and 10 credential identities each. All 20 identity round trips and cross-tenant read/write/delete denials pass, as do conditional single/multipart races, version reads and restart persistence. Initial 20-volume capacity failed on the fourth tenant; the corrected 100-volume profile passes. GPU: RX7900XTX, 25,753,026,560 bytes VRAM, ROCm7.14.60850/PyTorch2.12.0. GPU workloads are trusted local fixtures, not ten provisioned tenant installations or the F05 package-isolation proof.
