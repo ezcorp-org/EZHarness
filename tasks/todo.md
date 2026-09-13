@@ -1417,7 +1417,7 @@ Review: `root-authority-integration-results.json` passes SDK build, 155 SDK test
 - [x] Reproduce private HTTP transport accepting a caller-supplied absolute URL.
 - [x] Extract the existing TLS client into one Temporal-free transport package; preserve worker exports.
 - [x] Bind requests to one configured origin, snapshot configuration, and bound deadlines and bytes.
-- [ ] Add the Bun pool client against real PostgreSQL and mTLS, including foreign credentials and cancellation.
+- [x] Add the Bun pool client against real PostgreSQL and mTLS, including foreign credentials and cancellation.
 - [x] Register shared-source coverage and prove actual Node and Bun consumers, builds, types and lint.
 
 Plan review: reuse the existing worker transport and pool service routes. The new package owns HTTP only and cannot import the Temporal SDK. The root owns this extraction and pool client; the Node bootstrap owner keeps its stable gateway imports. `transport-path-red.log` records the real Node client accepting an absolute URL before the correction. No private credentials leave the local test server.
@@ -1479,3 +1479,17 @@ Review: both rollback and caller-mutation failures were reproduced before the co
 
 - The public API exposes assurance contracts, release preparation and reads, approval requests and decisions, automatic policies, and human reconciliation through the real stores. C01 scopes are exact: prepare/read use chat, reconciliation uses write plus a store-level human-session check, and contract/approval/policy mutations remain session-only. Every mutation uses canonical idempotency and exact generation/revision preconditions. Public resources omit raw requests, evidence, archive coordinates, sender tokens, and dispatch controls; provider selection uses only the persisted operation through a snapshotted resolver.
 - Focused backend coverage passes 38 tests with 206 assertions, and the final S3 adapter passes 3 tests with 26 assertions. SDK validation covers every added executable line. Final web coverage passes 27 tests with the shared handler at 214/214, browser client at 80/80, and each new route at 100%. Route, OpenAPI, and scope suites pass 50 tests with 115 assertions. SDK, harness-client, and transport builds, all four typechecks, the production web build, lint, factory boundaries, gate integrity, and diff checks pass. Proof paths are recorded in `tasks/factory/release-api-GATES.md`.
+## Factory pool admission HTTP boundary
+
+- [x] Extract one bounded authenticated pool route handler shared by Node and Bun TLS wrappers.
+- [x] Preserve the Node HTTPS entry point and add the Bun private-HTTPS entry point.
+- [x] Add a strict tenant pool client over the shared factory transport without automatic mutation retries.
+- [x] Correct unknown status responses, canonical reservation paths, lease Date conversion, and response correlation.
+- [x] Prove request recovery, status, start, renew, cancel, stale fences, malformed replies, and foreign credentials.
+- [x] Run an actual Bun mTLS client/server journey against an isolated PostgreSQL pool service.
+- [x] Register full source coverage and pass builds, types, lint, boundary, and gate checks.
+- [x] Record review and create an immutable checkpoint.
+
+Plan review: One transport call owns each client operation. A status response contains no allocation token, so only a repeated byte-equivalent admission request can recover a lost token-bearing lease response. Both TLS servers adapt into one handler that derives tenant authority from the certificate and signed token.
+
+Review: the shared handler drives both Node and Bun TLS entry points, and the client exposes only the five fixed tenant operations. Request validation runs before durable grant writes; concurrent identical requests converge through conflict-safe insertion and exact reread. The final producer passes 53 tests and 238 assertions across PGlite, isolated PostgreSQL, Bun mTLS, and Node mTLS. All eight pool source records are at 100% line coverage in `/tmp/factory-pool-http-final6-cov-20260913/lcov.info`. The transport and SDK builds, all four type-check legs, lint, factory boundary CLI plus 24 tests, and the three factory CI registration tests pass. Full backend regression remains owned by the parent integration branch.
