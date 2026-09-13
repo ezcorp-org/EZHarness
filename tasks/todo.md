@@ -1370,3 +1370,15 @@ Review: the release authority store now derives a per-node current candidate onl
 - [ ] Verify the new authority and credential fixes on PostgreSQL/S3, then repeat full regression.
 
 Review: `root-projection-integration-results.json` records 155 SDK tests (1,101 assertions) and 20 PostgreSQL/S3 lifecycle/schema tests (1,431 assertions) passing at `55232b905`. It stopped on a readonly fixture type error. At corrected `618560260`, `root-projection-regression-results.json` records all four type checks, lint and gate integrity passing; the full backend pool reported 26,127 passes and one failure across 1,708 files. The actual module-graph CLI found a forbidden regular expression in service credential validation. `root-validator-boundary-green.log` records the replacement passing all 29 boundary and API schema cases, including malformed segments and non-base64url characters. Receipts are under `/tmp/factory-platform-evidence`. Full regression remains open until a complete passing run.
+
+## Shared private client and pool admission
+
+- [x] Reproduce private HTTP transport accepting a caller-supplied absolute URL.
+- [x] Extract the existing TLS client into one Temporal-free transport package; preserve worker exports.
+- [x] Bind requests to one configured origin, snapshot configuration, and bound deadlines and bytes.
+- [ ] Add the Bun pool client against real PostgreSQL and mTLS, including foreign credentials and cancellation.
+- [x] Register shared-source coverage and prove actual Node and Bun consumers, builds, types and lint.
+
+Plan review: reuse the existing worker transport and pool service routes. The new package owns HTTP only and cannot import the Temporal SDK. The root owns this extraction and pool client; the Node bootstrap owner keeps its stable gateway imports. `transport-path-red.log` records the real Node client accepting an absolute URL before the correction. No private credentials leave the local test server.
+
+Shared client review: `shared-transport-final-integration-results.json` records ten passing producers against the source manifest `shared-transport-source-manifest.json`: root/web frozen installs, shared transport/orchestrator builds, actual Node gateway tests, actual Bun mTLS client, PostgreSQL/S3 private service, all four type checks, lint, gate integrity and factory boundaries. The real PostgreSQL/private Node queue proof passes five cases (74 assertions); the Bun client passes one case (11 assertions). Direct Node coverage measures the shared transport completely at 121/121 lines. A request cannot replace the configured origin; options and body are captured before credential reads; credentials reload on each request; a slowly streaming response cannot extend the total network deadline. This closes transport extraction; the pool client and concrete product command policy remain open.

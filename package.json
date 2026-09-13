@@ -14,7 +14,7 @@
     "sharp": "0.35.4"
   },
   "scripts": {
-    "postinstall": "bun run --cwd packages/@ezcorp/sdk build && bun run --cwd packages/@ezcorp/factory-sdk build && bash scripts/setup-git-hooks.sh",
+    "postinstall": "bun run --cwd packages/@ezcorp/sdk build && bun run --cwd packages/@ezcorp/factory-sdk build && bun run --cwd packages/@ezcorp/factory-transport build && bash scripts/setup-git-hooks.sh",
     "start": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun run index.ts",
     "dev": "cd web && bun run dev",
     "dev:stack": "DATABASE_URL=${DATABASE_URL:-postgres://ezcorp:ezcorp@127.0.0.1:5432/ezcorp} bun run dev",
@@ -70,6 +70,7 @@
     "file-type": "^22.0.2",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "@ezcorp/factory-transport": "workspace:*"
   }
 }

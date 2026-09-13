@@ -8,8 +8,9 @@ import { join } from "node:path";
 import type { TLSSocket } from "node:tls";
 import { after, before, describe, it } from "node:test";
 import { MockActivityEnvironment } from "@temporalio/testing";
-import { createGatewayFactoryActivities, type GatewayTlsSecretPaths } from "../src/gateway-activities.ts";
+import { createGatewayFactoryActivities, createGatewayTransport, type GatewayTlsSecretPaths } from "../src/gateway-activities.ts";
 import { createGatewayFactoryCommandQueue } from "../src/queue-client.ts";
+import { createGatewayTransport as createSharedTransport } from "../../factory-transport/src/index.ts";
 
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 let directory = "";
@@ -83,6 +84,12 @@ before(async () => {
     const body = await readRequest(request);
     calls.push({ method: request.method, path: request.url, authorization: request.headers.authorization, version: request.headers["x-ezcorp-factory-version"], body });
     if (mode === "hang") return;
+    if (mode === "drip") {
+      response.writeHead(200);
+      const interval = setInterval(() => response.write("x"), 5);
+      response.once("close", () => clearInterval(interval));
+      return;
+    }
     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
@@ -125,6 +132,71 @@ const transition = { ...identity, sourceSequence: 1, eventId: "start", eventHash
 const activity = (environment, fn, value) => environment.run(fn, value);
 
 describe("authenticated factory gateway activities", () => {
+  it("shares a bounded credential-reloading HTTP transport without Temporal imports", async () => {
+    mode = "normal";
+    const options = { baseUrl: origin, tls: { ...paths }, requestTimeoutMs: 1000 };
+    const opening = createSharedTransport(options);
+    options.baseUrl = "https://untrusted.invalid";
+    options.tls.serviceTokenPath = "missing";
+    const transport = await opening;
+    const body = { pinned: "original" };
+    const sending = transport.request("POST", "/internal/factory/v1/commands/test", body);
+    body.pinned = "changed";
+    assert.equal((await sending).statusCode, 200);
+    assert.deepEqual(JSON.parse(calls.at(-1).body), { pinned: "original" });
+    assert.equal((await transport.request("GET", "/internal/factory/v1/outbox/claim")).statusCode, 204);
+    for (const path of [`${origin}/x`, "//localhost/x", "/\\\\localhost/x", "/x#fragment", "/x y", "/x\r\nheader", "relative"]) {
+      await assert.rejects(transport.request("GET", path), /path/);
+    }
+    for (const limit of [0, -1, 0.5, NaN, Infinity, 16 * 1024 * 1024 + 1]) {
+      await assert.rejects(transport.request("GET", "/x", undefined, limit), /byte limit/);
+    }
+    await assert.rejects(transport.request("POST", "/x", { value: "large" }, 1), /request exceeds/);
+    mode = "large";
+    await assert.rejects(transport.request("GET", "/x", undefined, 10), /response exceeds/);
+    mode = "http-error";
+    await assert.rejects(transport.request("GET", "/x"), /HTTP 503/);
+    mode = "normal";
+    await assert.rejects(transport.request("GET", "/x", undefined, undefined, AbortSignal.abort(new Error("cancelled"))), /cancelled/);
+    const short = await createSharedTransport({ baseUrl: origin, tls: paths, requestTimeoutMs: 30 });
+    mode = "drip";
+    await assert.rejects(short.request("GET", "/x"), /timed out/);
+    mode = "hang";
+    const controller = new AbortController();
+    const pending = transport.request("GET", "/x", undefined, undefined, controller.signal);
+    const abort = setTimeout(() => controller.abort(), 20);
+    await assert.rejects(pending, /aborted/);
+    clearTimeout(abort);
+    mode = "normal";
+    for (const baseUrl of ["http://localhost", `${origin}/path`, `${origin}?x=1`, `${origin}#x`, "https://user:pass@localhost"]) {
+      await assert.rejects(createSharedTransport({ baseUrl, tls: paths }), /origin/);
+    }
+    for (const requestTimeoutMs of [0, -1, 0.5, NaN, Infinity, 300001]) {
+      await assert.rejects(createSharedTransport({ baseUrl: origin, tls: paths, requestTimeoutMs }), /timeout/);
+    }
+    await assert.rejects(createSharedTransport({ baseUrl: origin, tls: { ...paths, serviceTokenPath: join(directory, "empty-token") } }), /empty/);
+    try {
+      await writeFile(paths.serviceTokenPath, "gateway-token-rotated\n", { mode: 0o600 });
+      expectedToken = "gateway-token-rotated";
+      assert.equal((await transport.request("GET", "/x")).statusCode, 200);
+      await writeFile(paths.serviceTokenPath, "\n", { mode: 0o600 });
+      await assert.rejects(transport.request("GET", "/x"), /empty/);
+    } finally {
+      expectedToken = "gateway-token";
+      await writeFile(paths.serviceTokenPath, "gateway-token\n", { mode: 0o600 });
+    }
+    const defaults = await createSharedTransport({ baseUrl: origin, tls: paths, serverName: "localhost" });
+    assert.equal((await defaults.request("GET", "/x")).statusCode, 200);
+  });
+
+  it("rejects caller URLs before sending private credentials", async () => {
+    mode = "normal";
+    const transport = await createGatewayTransport({ baseUrl: origin, tls: paths });
+    const before = calls.length;
+    await assert.rejects(transport.request("GET", `${origin}/internal/factory/v1/commands/x`), /path/);
+    assert.equal(calls.length, before);
+  });
+
   it("uses verified mutual TLS, scoped routes, and immutable page digests", async () => {
     mode = "normal";
     expectedClientCn = "factory-orchestrator";
