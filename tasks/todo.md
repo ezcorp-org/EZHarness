@@ -1214,3 +1214,14 @@ Review: `/tmp/factory-platform-evidence/assembled-platform-results.json` records
 - [ ] Repeat the canonical backend suite on the integrated corrections.
 
 Review: `/tmp/factory-platform-evidence/assembled-backend-3eeee3259.log` reports 26,078 passing tests and eight failures across five files. Focused component receipts did not cover those failures. Sol owns SDK corrections; Terra owns the bundled-review and Python corrections. Full regression remains open.
+
+
+## Trusted factory command lookup
+
+- [ ] Reproduce command execution without a committed transition and reject it through the stored-command boundary.
+- [ ] Add a scoped immutable index from command ID to its committed canonical transition audit.
+- [ ] Commit index and audit together, preserve duplicate identities, and reject conflicting command bytes.
+- [ ] Resolve and verify exact stored transition bytes before using a command to construct runner authority.
+- [ ] Prove rollback, retries, corrupted index/artifact denial and tenant/project/interpreter separation on PGlite and PostgreSQL/S3.
+
+Plan review: C02 accepts only authenticated command references from the Node worker. Product code must resolve the command from committed canonical audit. The new table is a bounded lookup index over that audit, with scoped foreign keys. It supplies no independent release authority and cannot accept a caller's runner, input, or grants. Existing journal admission, run fences and budget admission remain the effect gates.
