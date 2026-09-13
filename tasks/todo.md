@@ -2013,3 +2013,32 @@ Review (W00): the integration revision is clean and every imported change has a 
 - [ ] Wave 2: W02, W03, W05, W06, W07, W08, W09.
 - [ ] Wave 3: W10–W12, W13, W14, W15–W17.
 - [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
+
+## W01 — Durable Bun execution and recovery (Terra runtime, `wp/w01-durable-runtime`)
+
+Gates and receipts: `tasks/factory/w01-GATES.md`, `/tmp/factory-platform-evidence/w01/`.
+
+Step 0:
+- [x] Merge `feat/factory-lazy-input` (`28bc2bfc3`) as `0df2f128d`; `tasks/lessons.md` and `tasks/todo.md` resolved by union.
+- [x] Reproduce the fresh-runner regression exactly: 11 pass / 1 fail, `ENOENT ... rename 'artifact-<uuid>' -> 'artifacts/<digest>'` (`logs/step0-repro-podman.json`).
+- [x] Root cause: `6c500113a` changed `PodmanRunner.build()` from `initialize()` to `acquireLease()`, dropping store preparation (the `artifacts/` directory and the ownership check) and the fail-closed kernel isolation probe on every build.
+- [x] Fix at the source in `da7505a79`: `prepare(cleanupOrphans)` is the one readiness seam; `build()` and `startExecution()` take the cold start, `attach()` prepares and probes but keeps orphaned guests. Adds a fresh-runner build regression and asserts the sweep mode on both paths.
+- [ ] Prove 12/12 under `flock`. BLOCKED: `user@1001.service` failed with SIGKILL at 13:40 EDT, so rootless Podman has no cgroup manager and every `podman run` fails. `sudo systemctl restart user@1001.service` was refused by the permission system.
+- [ ] Verify `tests/postgres/factory-schema.test.ts` on the merged tree. BLOCKED: the proof PostgreSQL container's processes died with the same fault.
+
+Type checkpoint (`ea1bd94de`, reported to the coordinator):
+- [x] `FactoryAttemptDeviceGrant`, `factoryAttemptDeviceGrant`, `FactoryGuestControlFrame`, `FactoryHostLaunchProtocol`, `invocationId` on `FactoryAttemptOpen`, optional `StartRequest.devices`.
+- [x] `factoryAttemptInvocationId`, durable and reproducible, replacing the ephemeral `${workerId}:run`.
+- [x] Migration columns and the freeze's `package_receipt_json` `SET NOT NULL` correction; `factoryMigrationRestartConformance` case; freeze correction 9.
+
+Behavior:
+- [x] Launch intent committed before the guest starts; one concurrent claimant launches one physical attempt.
+- [x] The intent binds request digest, identity tuple, worker and invocation IDs, lease fence, and the full package receipt; readiness is revalidated after the claim and immediately before the token mint.
+- [x] Terminal results are durable before acknowledgement; a fresh gateway reads the same result with no second `extension/invoke`.
+- [x] Every guest control frame is bound to worker, invocation, and attempt; a mismatched frame is denied, and the single-tool adapter shares the same policy.
+- [x] A denial before any physical start releases its claim; a denial while reattaching a live guest records durable uncertainty.
+- [x] Two model and configuration tuples sharing one package and export, revoking only one.
+- [ ] Losing the controlling attachment, fresh attach without orphan cleanup, the guest and supervisor half of the crash matrix, both recovery topologies, the real subprocess SIGKILL test, and one real operation through Node to an isolated guest. All BLOCKED on the host Podman fault; code and tests exist on the branch.
+- [ ] C05 PostgreSQL, schema, and foreign-key parity. BLOCKED on the dead proof container.
+
+Review (W01): the recorded C02 gap is closed. `wait()` after a recovery boundary no longer refuses: one canonical terminal result is digest-sealed into the launch row before the runtime acknowledges it, and `open()` replays it without touching the runner, so a fresh gateway returns the identical result after exactly one start and one invocation. Three further defects surfaced while doing it and were fixed rather than routed. First, the merged branch had silently removed the kernel isolation probe from every build, which is a C05 control, not only the ENOENT symptom that made it visible. Second, the isolated runtime accepted any reverse envelope with an `input` key, so a broker frame was bound to nothing even though the v4 guest already sends the exact invocation context; the frame policy now lives in one module that both adapters use. Third, a readiness denial after the durable claim stranded the attempt in `launching` forever, so a transient trust failure permanently blocked an attempt that had never started a guest. Deviation from the freeze to review: the durable terminal result lives in two new columns on `factory_attempt_launches` rather than in `factory_execution_terminals`, because that table requires verified candidate output bytes and measured usage and so cannot hold a failed, cancelled, or uncertain runner result. Six of fifteen gates stay open, all on the same host fault; none is closed by a substitute.
