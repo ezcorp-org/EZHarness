@@ -34,6 +34,15 @@ export async function buildWorkspace(client: HarnessClient, created: CreatedWork
 const BUILD_BUDGET_MS = 240_000;
 const RUNNER_WAIT_BUDGET_MS = 600_000;
 const INSPECT_WAIT_MS = 1_000;
+/**
+ * Activation is one server call that verifies the candidate, prepares
+ * migrations and publishes the release to the runtime before the page's
+ * refresh reports `enabled` (src/extensions/v4/lifecycle.ts `activate`,
+ * extension-lifecycle-service.ts `publish`). Playwright's 5s default assumed
+ * an idle host; on CI run 34755508391 the button was still disabled at 5s
+ * while the boot-time bundled builds were still loading the runtime.
+ */
+const ACTIVATION_BUDGET_MS = 120_000;
 
 function parkedBehindBusyRunner(operation: LifecycleOperation): boolean {
   return operation.state === "queued" && operation.diagnostics.some((diagnostic) => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
@@ -83,7 +92,7 @@ async function approveAndActivateWorkspace(page: Page, client: HarnessClient, cr
   await page.getByLabel("I reviewed this release and its permissions.").check();
   await approve.click();
   await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled({ timeout: ACTIVATION_BUDGET_MS });
   const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
   expect(active.installation.activeReleaseId).toBe(releaseId);
   expect(active.installation.enabled).toBe(true);
