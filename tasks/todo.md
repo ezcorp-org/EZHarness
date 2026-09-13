@@ -888,3 +888,24 @@ Review target: reduce production wall time from 58m35s to below 30 minutes on ho
 Implementation review: five isolated proof groups share one attested image; the protected result validates all nine proof records, all eleven launcher cleanup records, exact candidate identity, and all four namespace cases. Local sequential callers keep the original eight proofs. Parent's real 4.4 GB image transfer produced a 1.496 GB archive in 30.69s, loaded both engines in 18.33s, and peaked at 129,392 KiB child RSS. No Dockerfile, coverage floor, recovery lease, or retry policy change.
 
 Local review: 25,660 backend tests, 3,624 orphan web tests, 7,379 Node tests and 2,170 Chromium cases pass. Full coverage reports 26,466 passes, zero failures and all 1,625 source floors satisfied. All 39 focused infrastructure tests pass with 431 assertions. Terra reviewed six fresh UI screenshots and independently audited the raw logs. The first browser attempt correctly refused another project's occupied port; a fresh complete run on a private port passed. Terra caught a readonly matcher type error; the final annotation passes full typecheck and preserves identical emitted JavaScript. Hosted CI must run all gates on the final PR source and establish the measured performance result.
+
+
+## Composable factory platform — 2026-09-12
+
+Plan: `tasks/factory/PLAN.md`. Acceptance ledger: `tasks/factory/GATES.md`.
+
+- [ ] S1: Kernel/compiler/simulator and golden domain definitions satisfy F07/F10/F13; SDK build and coverage registered.
+- [ ] S2a: Base hardening and token/flag/toolchain proofs pass.
+- [ ] S2b: Real Temporal, durable storage, outbox, projections and continuation proofs pass.
+- [ ] S2c: Real native/Python bridge, recovery and isolation proofs pass.
+- [ ] S2d: Tenant installations, scoped reads, budgets/fencing, pool fairness and GPU allocation proofs pass.
+- [ ] S3: Assurance, release authority/reconciliation and delivered notification proofs pass.
+- [ ] S4: All package preparation/execution/revocation CPU/GPU isolation proofs pass.
+- [ ] S5: Console and all three production domain journeys/composition pass with actual remote receipts.
+- [ ] S6: Hosted/self-hosted deployment, restore/load/soak/fault/alerts and provisioning proofs pass.
+- [ ] REG: Full application build, lint, types, backend/web/browser regressions and measured coverage pass.
+- [ ] AUDIT: All F01–F13 evidence is tied to the final revision and independent review finds no unresolved defect.
+
+### Review
+
+Pending implementation and measured verification.
