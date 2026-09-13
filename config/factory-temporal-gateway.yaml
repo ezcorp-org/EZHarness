@@ -29,6 +29,8 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
                       providers:
                         factory:
+                          issuer: ezcorp-factory-local
+                          audiences: [ezcorp-temporal]
                           remote_jwks: { http_uri: { uri: http://factory-temporal-jwks/jwks.json, cluster: jwks, timeout: 2s }, cache_duration: 300s }
                           forward: true
                       rules: [{ match: { prefix: "/" }, requires: { provider_name: factory } }]
