@@ -282,6 +282,98 @@ describe("partition-local factory kernel", () => {
     expect(target.partition?.completedEdges).toEqual({});
   });
 
+  test("propagates a source invalidation through an intermediate partition immediately", () => {
+    const sourcePadding: FactoryNode[] = Array.from({ length: 256 }, (_, index) => ({
+      id: `before-middle-${index.toString().padStart(3, "0")}`,
+      kind: "task",
+      runner,
+    }));
+    const targetPadding: FactoryNode[] = Array.from({ length: 256 }, (_, index) => ({
+      id: `next-middle-${index.toString().padStart(3, "0")}`,
+      kind: "task",
+      runner,
+    }));
+    const factory = partitionedFactory([
+      ...sourcePadding,
+      { id: "m", kind: "task", runner, dependsOn: ["a"], outputPorts: { value: { type: "number" } } },
+      ...targetPadding,
+      {
+        id: "z",
+        kind: "approval",
+        dependsOn: ["m"],
+        choices: ["approve"],
+        context: { kind: "literal", value: null },
+        actorScope: "owner",
+        expiresInMs: 60_000,
+        onDenied: "fail",
+        onExpired: "fail",
+      },
+    ]);
+    const sourcePartition = factory.partitions.find((partition) => partition.nodeIds.includes("a"))!;
+    const middlePartition = factory.partitions.find((partition) => partition.nodeIds.includes("m"))!;
+    const targetPartition = factory.partitions.find((partition) => partition.nodeIds.includes("z"))!;
+    expect(new Set([sourcePartition.id, middlePartition.id, targetPartition.id]).size).toBe(3);
+
+    const sourceDone = completeTask(factory, start(factory, sourcePartition.id, "repair-transitive").nextState, "a", { value: 1 });
+    const sourceCompletion = command(sourceDone.commands, "notify-partition", "m");
+    const middleStarted = advanceKernel(factory, start(factory, middlePartition.id, "repair-transitive").nextState, completionEvent(sourceCompletion));
+    const middleDone = completeTask(factory, middleStarted.nextState, "m", { value: 1 });
+    const middleCompletion = command(middleDone.commands, "notify-partition", "z");
+    const targetStarted = advanceKernel(factory, start(factory, targetPartition.id, "repair-transitive").nextState, completionEvent(middleCompletion));
+    expect(command(targetStarted.commands, "request-approval", "z")).toBeDefined();
+
+    const sourceRepair = advanceKernel(factory, sourceDone.nextState, { kind: "repair", id: "repair-transitive-source", atMs: 5, nodeId: "a", reason: "replace input" });
+    const sourceInvalidation = command(sourceRepair.commands, "invalidate-partition", "m");
+    const middleInvalidated = advanceKernel(factory, middleDone.nextState, invalidationEvent(sourceInvalidation));
+    const transitiveInvalidation = command(middleInvalidated.commands, "invalidate-partition", "z");
+    const targetInvalidated = advanceKernel(factory, targetStarted.nextState, invalidationEvent(transitiveInvalidation));
+    expect(targetInvalidated.nextState.nodes.z).toEqual(expect.objectContaining({ status: "stopping" }));
+    expect(targetInvalidated.nextState.partition?.externalOutputs.m).toBeUndefined();
+  });
+
+  test("retains a second incoming edge fence while the first invalidation is stopping the target", () => {
+    const factory = partitionedFactory({
+      id: "z",
+      kind: "approval",
+      dependsOn: ["a", "slow-000"],
+      choices: ["approve"],
+      context: { kind: "literal", value: null },
+      actorScope: "owner",
+      expiresInMs: 60_000,
+      onDenied: "fail",
+      onExpired: "fail",
+    });
+    const sourcePartition = factory.partitions.find((partition) => partition.nodeIds.includes("a"))!;
+    const targetPartition = factory.partitions.find((partition) => partition.nodeIds.includes("z"))!;
+    let source = start(factory, sourcePartition.id, "repair-two-inputs").nextState;
+    const firstDone = completeTask(factory, source, "a", { value: 1 });
+    source = firstDone.nextState;
+    const secondDone = completeTask(factory, source, "slow-000", {});
+    const completions = [...firstDone.commands, ...secondDone.commands].filter((candidate): candidate is Extract<KernelCommand, { kind: "notify-partition" }> => candidate.kind === "notify-partition" && candidate.nodeId === "z");
+    let target = start(factory, targetPartition.id, "repair-two-inputs").nextState;
+    for (const completion of completions) target = advanceKernel(factory, target, completionEvent(completion)).nextState;
+    const approval = target.nodes.z?.attempts.at(-1);
+    expect(approval).toBeDefined();
+
+    const firstEdge = targetPartition.inbound.find((edge) => edge.fromNodeId === "a")!;
+    const secondEdge = targetPartition.inbound.find((edge) => edge.fromNodeId === "slow-000")!;
+    const invalidation = (edge: typeof firstEdge, id: string) => ({
+      kind: "partition-source-invalidated" as const,
+      id,
+      atMs: 5,
+      sourcePartitionId: edge.fromPartitionId,
+      targetPartitionId: targetPartition.id,
+      sourceNodeId: edge.fromNodeId,
+      nodeId: edge.nodeId,
+      candidateGeneration: 1,
+    });
+    target = advanceKernel(factory, target, invalidation(firstEdge, "invalidate-a")).nextState;
+    expect(target.pendingRepair).toBeDefined();
+    target = advanceKernel(factory, target, invalidation(secondEdge, "invalidate-slow")).nextState;
+    expect(Object.keys(target.partition?.invalidatedEdges ?? {})).toHaveLength(2);
+    expect(target.pendingRepair?.nodeIds).toContain("z");
+  });
+
   test("fails closed instead of replaying a release after source invalidation", () => {
     const artifact = { digest, mediaType: "application/json", storage: "immutable" };
     const releaseTemplate = referenceCodeV1.graph.nodes.find((node) => node.kind === "release")!;

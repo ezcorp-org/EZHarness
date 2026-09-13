@@ -436,7 +436,7 @@ function scheduleTimer(state: KernelState, nodeId: string, deadlineAtMs: number,
 }
 
 function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "repair" }>, commands: KernelCommand[], allowProtected = false): KernelState {
-  if (state.pendingRepair || state.status === "stopping") return state;
+  if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
   if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
@@ -462,14 +462,23 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
     queue.push(...localSuccessors(id));
     for (const childId of Object.keys(state.nodes)) if (childId.startsWith(`${id}/`)) queue.push(childId);
   }
-  if ([...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)) {
-    return allowProtected ? beginStopping(state, "PARTITION_SOURCE_INVALIDATED_AFTER_RELEASE", commands, false) : state;
-  }
-  if ([...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain))) return state;
-  let next: KernelState = { ...state, pendingRepair: { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason, ...(allowProtected ? { awaitDependencies: true } : {}) } };
-  if (state.partition && !allowProtected) {
+  const releaseStarted = [...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length);
+  const uncertain = [...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain));
+  if (!allowProtected && (releaseStarted || uncertain)) return state;
+  const priorRepair = state.pendingRepair;
+  const newlyAffected = new Set([...affected].filter((id) => !priorRepair?.nodeIds.includes(id)));
+  let next: KernelState = {
+    ...state,
+    pendingRepair: priorRepair ? {
+      ...priorRepair,
+      nodeIds: [...new Set([...priorRepair.nodeIds, ...affected])],
+      aggregateIds: [...new Set([...priorRepair.aggregateIds, ...aggregateIds])],
+      awaitDependencies: true,
+    } : { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason, ...(allowProtected ? { awaitDependencies: true } : {}) },
+  };
+  if (state.partition) {
     const partition = partitionFor(factory, state.partition.id);
-    for (const edge of partition?.outbound.filter((candidate) => affected.has(candidate.nodeId)) ?? []) {
+    for (const edge of partition?.outbound.filter((candidate) => newlyAffected.has(candidate.nodeId)) ?? []) {
       const generation = state.nodes[edge.nodeId]!.candidateGeneration + 1;
       if (!Number.isSafeInteger(generation)) throw new FactoryKernelError("candidate generation exhausted");
       const command = commandFor(next, "invalidate-partition", edge.nodeId);
@@ -485,6 +494,8 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
       });
     }
   }
+  if (releaseStarted) return beginStopping(next, "PARTITION_SOURCE_INVALIDATED_AFTER_RELEASE", commands, false);
+  if (uncertain) return beginStopping(next, "PARTITION_SOURCE_INVALIDATED_WITH_UNCERTAIN_ATTEMPT", commands, false);
   for (const id of affected) next = cancelScope(next, id, commands, true);
   return completePendingRepair(factory, next, commands);
 }

@@ -4,6 +4,7 @@ import { FACTORY_TASK_QUEUE, type FactoryActivities } from "./contracts.ts";
 
 export interface FactoryWorkerOptions {
   readonly connection: NativeConnection;
+  readonly namespace: string;
   readonly activities: FactoryActivities;
 }
 
@@ -12,6 +13,7 @@ export async function createFactoryWorker(options: FactoryWorkerOptions): Promis
   const workflowBundle = await bundleWorkflowCode({ workflowsPath: new URL(`./workflow.${extension}`, import.meta.url).pathname });
   return Worker.create({
     connection: options.connection,
+    namespace: options.namespace,
     taskQueue: FACTORY_TASK_QUEUE,
     workflowBundle,
     activities: options.activities,
