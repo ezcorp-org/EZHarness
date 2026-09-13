@@ -15,9 +15,8 @@ test("creates scoped runner bindings and versioned preparation receipts", async 
     await database.execute(sql`CREATE TABLE users (id TEXT PRIMARY KEY)`);
     await database.execute(sql`CREATE TABLE factory_projects (tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, PRIMARY KEY (tenant_id, project_id))`);
     await database.execute(sql`CREATE TABLE extension_release_installations (id TEXT PRIMARY KEY)`);
-    await database.execute(sql`CREATE TABLE factory_release_trust_revisions (tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, revision BIGINT NOT NULL, PRIMARY KEY (tenant_id, project_id, revision))`);
     await up(database);
-    const tables = await database.execute(sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('factory_runner_package_bindings', 'factory_runner_preparation_receipts') ORDER BY tablename`);
-    expect(tables.rows).toEqual([{ tablename: "factory_runner_package_bindings" }, { tablename: "factory_runner_preparation_receipts" }]);
+    const tables = await database.execute(sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('factory_runner_package_bindings', 'factory_runner_package_trust_current', 'factory_runner_package_trust_revisions', 'factory_runner_preparation_intents', 'factory_runner_preparation_receipts') ORDER BY tablename`);
+    expect(tables.rows).toEqual([{ tablename: "factory_runner_package_bindings" }, { tablename: "factory_runner_package_trust_current" }, { tablename: "factory_runner_package_trust_revisions" }, { tablename: "factory_runner_preparation_intents" }, { tablename: "factory_runner_preparation_receipts" }]);
   } finally { await client.close(); }
 });

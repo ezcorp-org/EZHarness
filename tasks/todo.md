@@ -1734,6 +1734,9 @@ Review checkpoint: combined source `965deee9e` failed because the completion fix
 - PGlite and isolated PostgreSQL each pass 26 lifecycle cases with 248 assertions. Focused SDK, migration, release, API, web, Chromium, coverage, build, all typecheck legs, lint, boundaries, patch coverage, and gate integrity pass. Exact commands, logs, measured lines, and source hashes are in `tasks/factory/generic-command-approval-GATES.md`.
 ## C05 factory v4 package preparation — Terra
 
+- [x] Replace C04 release trust and local readiness with tuple-scoped runner trust and durable receipt facts.
+- [x] Seal durable build intents before external work; recover the same build identity after restart.
+- [x] Prove independent runner-tuple revocation and all required storage/runner gates.
 - [ ] Define the scoped immutable v4 release mapping and sealed receipt schema.
 - [ ] Add a production catalog adapter that reads the existing v4 repository and blob store without copying release storage.
 - [ ] Create a two-phase preparation flow: durable intent, out-of-transaction RunnerClient build/collect, then revalidated receipt commit.
@@ -1741,6 +1744,8 @@ Review checkpoint: combined source `965deee9e` failed because the completion fix
 - [ ] Prove PGlite, PostgreSQL/S3, real Podman preparation/recovery, revocation, coverage, SDK build, type checks, and lint.
 
 Plan review: v4 source and artifacts remain in the established immutable repository. Factory state records only the scoped source mapping, the exact trust revision, and the verified local build receipt. No runner build or blob read occurs under a product transaction.
+
+Correction review: `FactoryPackageTrusts` stores a sealed revision and current pointer for each complete runner tuple. It uses the existing factory mutation, audit, human tenant-administrator, and `factory.trust` grant rules; C04 release trust remains unchanged. A receipt is now the only readiness fact. Before any external build, preparation commits one sealed intent containing the exact binding authority plus release, source, artifact, image, manifest, evidence, trust, entrypoint, and build facts. A restart uses that same build identity; receipt insertion and intent completion are one transaction. The focused PGlite migration/flow proof passes 3 cases and 27 assertions, PostgreSQL plus ordinary S3 passes 2 cases and 26 assertions, and real Podman passes 1 case. The PGlite proof simulates a process crash after intent persistence, checks restart identity, prepares two tuple exports concurrently, and revokes only the first while the second remains ready. Focused coverage is 84/84 package-preparation and 14/14 migration executable lines at `/tmp/factory-platform-evidence/terra-c05-package-trust-coverage/lcov.info`. All four typecheck legs, lint, factory boundaries, and gate integrity pass; lint reports eight existing infos.
 
 ## C02 fresh Bun/Python launcher — Terra
 

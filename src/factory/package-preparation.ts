@@ -10,288 +10,107 @@ import { lockFactoryScope } from "./locks";
 import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
-import type { FactoryReleaseTrustRecord } from "./release-authority";
 
 const MAX_BUILD_ID_BYTES = 512;
+type BindingRow = { installation_id: string; release_id: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; manifest_digest: string; issuer_id: string; issuer_grant_revision: number | string; protected_digest: string };
+type TrustRow = { revision: number | string; state: "active" | "revoked"; package_trust_digest: string; approved_by: string; approval_grant_revision: number | string; protected_digest: string };
+type IntentRow = { trust_revision: number | string; package_trust_digest: string; installation_id: string; release_id: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; manifest_digest: string; issuer_id: string; issuer_grant_revision: number | string; binding_protected_digest: string; evidence_digest: string; entrypoint: string; build_identity: string; state: "prepared" | "completed"; intent_digest: string };
+type ReceiptRow = { trust_revision: number | string; package_trust_digest: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; manifest_digest: string; evidence_digest: string; build_identity: string; receipt_digest: string };
 
-type BindingRow = {
-  package_name: string; package_version: string; package_digest: string; export_name: string;
-  installation_id: string; release_id: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; manifest_digest: string;
-  issuer_id: string; issuer_grant_revision: number | string; protected_digest: string;
-};
-type ReceiptRow = {
-  trust_revision: number | string; package_trust_digest: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; build_identity: string; receipt_digest: string;
-};
+export interface FactoryV4PackageBindingInput { readonly projectId: string; readonly reference: RunnerReference; readonly installationId: string; readonly releaseId: string; }
+export interface FactoryV4PackageBinding extends FactoryV4PackageBindingInput { readonly releaseDigest: string; readonly sourceDigest: string; readonly artifactDigest: string; readonly imageDigest: string; readonly manifestDigest: string; readonly issuerId: string; readonly issuerGrantRevision: number; readonly protectedDigest: string; }
+export interface FactoryRunnerPackageTrustPublication { readonly projectId: string; readonly reference: RunnerReference; readonly expectedRevision: number; }
+/** Trust is per complete runner tuple. C04 release trust remains separate. */
+export interface FactoryRunnerPackageTrustRecord { readonly projectId: string; readonly reference: RunnerReference; readonly revision: number; readonly state: "active" | "revoked"; readonly packageTrustDigest: string; readonly approvedBy: string; readonly approvalGrantRevision: number; readonly protectedDigest: string; }
+/** Dispatcher calls this after durable claim and before it mints a runner token. */
+export interface FactoryRunnerDispatchReadiness { assertDispatchReady(request: Pick<FactoryRunnerRequest, "authority" | "runner">): Promise<FactoryPreparedPackageReceipt>; }
+/** The receipt is the only durable readiness fact. */
+export interface FactoryPreparedPackageReceipt { readonly projectId: string; readonly reference: RunnerReference; readonly trustRevision: number; readonly packageTrustDigest: string; readonly releaseDigest: string; readonly sourceDigest: string; readonly artifactDigest: string; readonly imageDigest: string; readonly manifestDigest: string; readonly evidenceDigest: string; readonly buildIdentity: string; readonly receiptDigest: string; }
+type FactoryPackagePreparationIntent = { readonly projectId: string; readonly reference: RunnerReference; readonly trustRevision: number; readonly packageTrustDigest: string; readonly binding: FactoryV4PackageBinding; readonly evidenceDigest: string; readonly entrypoint: string; readonly buildIdentity: string; readonly state: "prepared" | "completed"; readonly intentDigest: string; };
 
-export interface FactoryPackageTrustReader {
-  readonly tenantId: string;
-  readActiveTrustInTransaction(transaction: MigrationDb, projectId: string): Promise<FactoryReleaseTrustRecord>;
-}
-
-export interface FactoryV4PackageBindingInput {
-  readonly projectId: string;
-  readonly reference: RunnerReference;
-  readonly installationId: string;
-  readonly releaseId: string;
-}
-
-export interface FactoryV4PackageBinding extends FactoryV4PackageBindingInput {
-  readonly releaseDigest: string;
-  readonly sourceDigest: string;
-  readonly artifactDigest: string;
-  readonly imageDigest: string;
-  readonly manifestDigest: string;
-  readonly issuerId: string;
-  readonly issuerGrantRevision: number;
-  readonly protectedDigest: string;
-}
-
-/** Dispatcher calls this after durable claim, before token minting and runner invocation. */
-export interface FactoryRunnerDispatchReadiness {
-  assertDispatchReady(request: Pick<FactoryRunnerRequest, "authority" | "runner">): Promise<FactoryPreparedPackageReceipt>;
-}
-
-export interface FactoryPreparedPackageReceipt {
-  readonly projectId: string;
-  readonly reference: RunnerReference;
-  readonly trustRevision: number;
-  readonly packageTrustDigest: string;
-  readonly releaseDigest: string;
-  readonly sourceDigest: string;
-  readonly artifactDigest: string;
-  readonly imageDigest: string;
-  readonly buildIdentity: string;
-  readonly receiptDigest: string;
-}
-
-export class FactoryPackagePreparationError extends Error {
-  constructor(readonly code: string) { super(code); this.name = "FactoryPackagePreparationError"; }
-}
-
-/** Only an absent current receipt is retryable at dispatcher pre-execution readiness. */
-export function factoryPackageDispatchDisposition(error: unknown): "retry" | "deny" {
-  if (error instanceof FactoryPackagePreparationError) return error.code === "factory_package_not_prepared" ? "retry" : "deny";
-  return "retry";
-}
+export class FactoryPackagePreparationError extends Error { constructor(readonly code: string) { super(code); this.name = "FactoryPackagePreparationError"; } }
+export function factoryPackageDispatchDisposition(error: unknown): "retry" | "deny" { return error instanceof FactoryPackagePreparationError && error.code !== "factory_package_not_prepared" ? "deny" : "retry"; }
 
 function snapshot<T>(value: T): T { return JSON.parse(encodeFactoryPayload(value)) as T; }
 function sha(value: unknown): string { return `sha256:${digestObject(value)}`; }
 function rawDigest(value: unknown): value is string { return typeof value === "string" && /^[a-f0-9]{64}$/.test(value); }
 function runner(reference: RunnerReference): RunnerReference {
-  const value = snapshot(reference);
-  const keys = Object.keys(value);
-  if (!keys.every(key => ["package", "version", "digest", "export", "model", "configurationDigest"].includes(key))
-    || [value.package, value.version, value.digest, value.export].some(part => typeof part !== "string" || part.length < 1 || part.length > 512 || part.includes("\0"))
-    || value.version === "latest" || value.version.includes("*") || !/^sha256:[a-f0-9]{64}$/.test(value.digest)
-    || value.model !== undefined && (typeof value.model !== "string" || value.model.length < 1 || value.model.length > 512)
-    || value.configurationDigest !== undefined && !/^sha256:[a-f0-9]{64}$/.test(value.configurationDigest)) throw new FactoryPackagePreparationError("factory_package_reference_invalid");
-  assertFactoryIdentity(value.package, value.version, value.export);
-  return Object.freeze(value);
+  const value = snapshot(reference), keys = Object.keys(value);
+  if (!keys.every(key => ["package", "version", "digest", "export", "model", "configurationDigest"].includes(key)) || [value.package, value.version, value.digest, value.export].some(part => typeof part !== "string" || part.length < 1 || part.length > 512 || part.includes("\0")) || value.version === "latest" || value.version.includes("*") || !/^sha256:[a-f0-9]{64}$/.test(value.digest) || value.model !== undefined && (typeof value.model !== "string" || value.model.length < 1 || value.model.length > 512) || value.configurationDigest !== undefined && !/^sha256:[a-f0-9]{64}$/.test(value.configurationDigest)) throw new FactoryPackagePreparationError("factory_package_reference_invalid");
+  assertFactoryIdentity(value.package, value.version, value.export); return Object.freeze(value);
 }
 function same(left: unknown, right: unknown): boolean { return canonicalJson(left) === canonicalJson(right); }
-function key(reference: RunnerReference): [string, string, string, string] { return [reference.package, reference.version, reference.digest, reference.export]; }
-function bindingSeal(tenantId: string, input: Omit<FactoryV4PackageBinding, "protectedDigest">): string {
-  return sha({ tenantId, projectId: input.projectId, reference: input.reference, installationId: input.installationId, releaseId: input.releaseId, releaseDigest: input.releaseDigest, sourceDigest: input.sourceDigest, artifactDigest: input.artifactDigest, imageDigest: input.imageDigest, manifestDigest: input.manifestDigest, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision });
-}
-function receiptSeal(tenantId: string, value: Omit<FactoryPreparedPackageReceipt, "receiptDigest">): string {
-  return sha({ tenantId, projectId: value.projectId, reference: value.reference, trustRevision: value.trustRevision, packageTrustDigest: value.packageTrustDigest, releaseDigest: value.releaseDigest, sourceDigest: value.sourceDigest, artifactDigest: value.artifactDigest, imageDigest: value.imageDigest, buildIdentity: value.buildIdentity });
-}
-function releaseFacts(binding: FactoryV4PackageBinding, release: ReleaseRecord): void {
-  if (release.id !== binding.releaseId || release.installationId !== binding.installationId || release.releaseDigest !== binding.releaseDigest || release.sourceDigest !== binding.sourceDigest || release.artifactDigest !== binding.artifactDigest || release.imageDigest !== binding.imageDigest || digestObject(release.manifest) !== binding.manifestDigest || release.manifest.name !== binding.reference.package || release.manifest.version !== binding.reference.version || !release.manifest.tools?.some(tool => tool.name === binding.reference.export)) throw new FactoryPackagePreparationError("factory_package_release_stale");
+function sameBindingFacts(left: FactoryV4PackageBinding, right: FactoryV4PackageBinding): boolean { return left.projectId === right.projectId && same(left.reference, right.reference) && left.installationId === right.installationId && left.releaseId === right.releaseId && left.releaseDigest === right.releaseDigest && left.sourceDigest === right.sourceDigest && left.artifactDigest === right.artifactDigest && left.imageDigest === right.imageDigest && left.manifestDigest === right.manifestDigest; }
+function tuple(reference: RunnerReference): [string, string, string, string] { return [reference.package, reference.version, reference.digest, reference.export]; }
+function bindingSeal(tenantId: string, input: Omit<FactoryV4PackageBinding, "protectedDigest">): string { return sha({ tenantId, projectId: input.projectId, reference: input.reference, installationId: input.installationId, releaseId: input.releaseId, releaseDigest: input.releaseDigest, sourceDigest: input.sourceDigest, artifactDigest: input.artifactDigest, imageDigest: input.imageDigest, manifestDigest: input.manifestDigest, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision }); }
+function trustSeal(tenantId: string, value: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, revision: value.revision, state: value.state, packageTrustDigest: value.packageTrustDigest, approvedBy: value.approvedBy, approvalGrantRevision: value.approvalGrantRevision }); }
+function intentSeal(tenantId: string, value: Omit<FactoryPackagePreparationIntent, "intentDigest" | "state">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, trustRevision: value.trustRevision, packageTrustDigest: value.packageTrustDigest, binding: value.binding, evidenceDigest: value.evidenceDigest, entrypoint: value.entrypoint, buildIdentity: value.buildIdentity }); }
+function receiptSeal(tenantId: string, value: Omit<FactoryPreparedPackageReceipt, "receiptDigest">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, trustRevision: value.trustRevision, packageTrustDigest: value.packageTrustDigest, releaseDigest: value.releaseDigest, sourceDigest: value.sourceDigest, artifactDigest: value.artifactDigest, imageDigest: value.imageDigest, manifestDigest: value.manifestDigest, evidenceDigest: value.evidenceDigest, buildIdentity: value.buildIdentity }); }
+function releaseFacts(binding: FactoryV4PackageBinding, release: ReleaseRecord): void { if (release.id !== binding.releaseId || release.installationId !== binding.installationId || release.releaseDigest !== binding.releaseDigest || release.sourceDigest !== binding.sourceDigest || release.artifactDigest !== binding.artifactDigest || release.imageDigest !== binding.imageDigest || digestObject(release.manifest) !== binding.manifestDigest || release.manifest.name !== binding.reference.package || release.manifest.version !== binding.reference.version || !release.manifest.tools?.some(tool => tool.name === binding.reference.export)) throw new FactoryPackagePreparationError("factory_package_release_stale"); }
+function entrypoint(release: ReleaseRecord): string { const value = (release.manifest.entrypoint ?? "extension.ts").replace(/^\.\//, ""); if (!value || value.length > 512 || value.includes("\0") || value.startsWith("/") || value.split("/").includes("..")) throw new FactoryPackagePreparationError("factory_package_release_stale"); return value; }
+
+/** Versioned human trust for one runner tuple. It deliberately does not reuse C04 release trust. */
+export class FactoryPackageTrusts {
+  private readonly mutations: FactoryMutations;
+  constructor(database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants) { assertFactoryIdentity(tenantId); if (grants.tenantId !== tenantId) throw new FactoryPackagePreparationError("factory_package_scope"); this.mutations = new FactoryMutations(database, tenantId, grants); }
+  async publish(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, false); }
+  async revoke(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, true); }
+  private async change(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string, revoked: boolean): Promise<FactoryRunnerPackageTrustRecord> {
+    const principal = snapshot(actor), value = { projectId: input.projectId, reference: runner(input.reference), expectedRevision: input.expectedRevision };
+    if (principal.kind !== "user" || principal.authentication !== "session" || !Number.isSafeInteger(value.expectedRevision) || value.expectedRevision < (revoked ? 1 : 0)) throw new FactoryPackagePreparationError("factory_package_trust_invalid");
+    assertFactoryIdentity(value.projectId);
+    return this.mutations.execute({ principal, projectId: value.projectId, action: "factory.trust", idempotencyKey, input: { kind: revoked ? "factory.package.trust.revoke" : "factory.package.trust.publish", ...value } }, async transaction => {
+      if (!await lockFactoryScope(transaction, this.tenantId, value.projectId, "write")) throw new FactoryPackagePreparationError("factory_package_scope");
+      const current = await this.current(transaction, value.projectId, value.reference, "update");
+      const previous = current ? await this.require(transaction, value.projectId, value.reference, "update", false) : undefined;
+      if (Number(previous?.revision ?? 0) !== value.expectedRevision || revoked && previous?.state !== "active") throw new FactoryPackagePreparationError("factory_package_trust_conflict");
+      const authority = await this.grants.authorizeInTransaction(transaction, principal, value.projectId, "factory.trust"), revision = value.expectedRevision + 1;
+      const unsigned: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest"> = { projectId: value.projectId, reference: value.reference, revision, state: revoked ? "revoked" : "active", packageTrustDigest: previous?.packageTrustDigest ?? sha(value.reference), approvedBy: principal.id, approvalGrantRevision: authority.revision };
+      const record: FactoryRunnerPackageTrustRecord = { ...unsigned, protectedDigest: trustSeal(this.tenantId, unsigned) };
+      await transaction.execute(sql`INSERT INTO factory_runner_package_trust_revisions (tenant_id,project_id,package_name,package_version,package_digest,export_name,revision,state,package_trust_digest,approved_by,approval_grant_revision,protected_digest) VALUES (${this.tenantId},${record.projectId},${record.reference.package},${record.reference.version},${record.reference.digest},${record.reference.export},${record.revision},${record.state},${record.packageTrustDigest},${record.approvedBy},${record.approvalGrantRevision},${record.protectedDigest})`);
+      if (current) { const changed = rows(await transaction.execute(sql`UPDATE factory_runner_package_trust_current SET revision=${record.revision},updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${record.projectId} AND package_name=${record.reference.package} AND package_version=${record.reference.version} AND package_digest=${record.reference.digest} AND export_name=${record.reference.export} AND revision=${value.expectedRevision} RETURNING revision`)); if (changed.length !== 1) throw new FactoryPackagePreparationError("factory_package_trust_conflict"); }
+      else await transaction.execute(sql`INSERT INTO factory_runner_package_trust_current (tenant_id,project_id,package_name,package_version,package_digest,export_name,revision) VALUES (${this.tenantId},${record.projectId},${record.reference.package},${record.reference.version},${record.reference.digest},${record.reference.export},${record.revision})`);
+      await insertTransactionalAuditEntry(transaction, `factory-package-trust:${this.tenantId}:${record.projectId}:${record.reference.digest}:${record.reference.export}:${record.revision}`, principal.id, revoked ? "factory.package.trust.revoked" : "factory.package.trust.published", record.projectId, { tenantId: this.tenantId, projectId: record.projectId, reference: record.reference, revision: record.revision, ...(revoked ? { priorRevision: value.expectedRevision } : { packageTrustDigest: record.packageTrustDigest }), approvalGrantRevision: record.approvalGrantRevision });
+      return record;
+    });
+  }
+  async readActiveInTransaction(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<FactoryRunnerPackageTrustRecord> { return this.require(transaction, projectId, runner(reference), "share", true); }
+  private async current(transaction: MigrationDb, projectId: string, reference: RunnerReference, lock: "share" | "update"): Promise<TrustRow | undefined> { const [name, version, digest, exported] = tuple(reference), clause = lock === "update" ? sql`FOR UPDATE` : sql`FOR SHARE`; return rows<TrustRow>(await transaction.execute(sql`SELECT r.revision,r.state,r.package_trust_digest,r.approved_by,r.approval_grant_revision,r.protected_digest FROM factory_runner_package_trust_current c JOIN factory_runner_package_trust_revisions r ON r.tenant_id=c.tenant_id AND r.project_id=c.project_id AND r.package_name=c.package_name AND r.package_version=c.package_version AND r.package_digest=c.package_digest AND r.export_name=c.export_name AND r.revision=c.revision WHERE c.tenant_id=${this.tenantId} AND c.project_id=${projectId} AND c.package_name=${name} AND c.package_version=${version} AND c.package_digest=${digest} AND c.export_name=${exported} ${clause}`))[0]; }
+  private async require(transaction: MigrationDb, projectId: string, reference: RunnerReference, lock: "share" | "update", active: boolean): Promise<FactoryRunnerPackageTrustRecord> {
+    const row = await this.current(transaction, projectId, reference, lock); if (!row) throw new FactoryPackagePreparationError("factory_package_trust_missing"); const revision = Number(row.revision), approvalGrantRevision = Number(row.approval_grant_revision);
+    if (!Number.isSafeInteger(revision) || revision < 1 || !Number.isSafeInteger(approvalGrantRevision) || approvalGrantRevision < 1 || !/^sha256:[a-f0-9]{64}$/.test(row.package_trust_digest)) throw new FactoryPackagePreparationError("factory_package_trust_corrupt");
+    const unsigned: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest"> = { projectId, reference, revision, state: row.state, packageTrustDigest: row.package_trust_digest, approvedBy: row.approved_by, approvalGrantRevision };
+    if (row.protected_digest !== trustSeal(this.tenantId, unsigned) || row.package_trust_digest !== sha(reference)) throw new FactoryPackagePreparationError("factory_package_trust_corrupt"); const trust: FactoryRunnerPackageTrustRecord = { ...unsigned, protectedDigest: row.protected_digest };
+    if (active && trust.state !== "active") throw new FactoryPackagePreparationError("factory_package_revoked"); if (active) await this.grants.authorizeInTransaction(transaction, { kind: "user", id: trust.approvedBy, authentication: "session" }, projectId, "factory.trust", trust.approvalGrantRevision); return trust;
+  }
 }
 
-/** Concrete, scoped reader over the existing immutable v4 release repository and blobs. */
+/** Concrete scoped reader over immutable v4 release records and blobs. */
 export class FactoryV4PackageCatalog {
   constructor(private readonly repository: DatabaseLifecycleRepository, private readonly blobs: BlobStore) {}
-
-  async loadForBindingInTransaction(transaction: MigrationDb, installationId: string, releaseId: string): Promise<ReleaseRecord> {
-    const state = await this.repository.read(installationId, transaction);
-    const release = state?.releases[releaseId];
-    if (!state || !release || !state.installation.enabled || state.installation.uninstalled || state.installation.activeReleaseId !== releaseId || release.id !== releaseId || release.installationId !== installationId) throw new FactoryPackagePreparationError("factory_package_release_unavailable");
-    return snapshot(release);
-  }
-
-  async loadInTransaction(transaction: MigrationDb, binding: FactoryV4PackageBinding): Promise<ReleaseRecord> {
-    const release = await this.loadForBindingInTransaction(transaction, binding.installationId, binding.releaseId);
-    releaseFacts(binding, release);
-    return release;
-  }
-
-  async loadSource(binding: FactoryV4PackageBinding): Promise<WorkspaceFiles> {
-    return getFiles(this.blobs, binding.sourceDigest, "workspace");
-  }
+  async loadForBindingInTransaction(transaction: MigrationDb, installationId: string, releaseId: string): Promise<ReleaseRecord> { const state = await this.repository.read(installationId, transaction), release = state?.releases[releaseId]; if (!state || !release || !state.installation.enabled || state.installation.uninstalled || state.installation.activeReleaseId !== releaseId || release.id !== releaseId || release.installationId !== installationId) throw new FactoryPackagePreparationError("factory_package_release_unavailable"); return snapshot(release); }
+  async loadInTransaction(transaction: MigrationDb, binding: FactoryV4PackageBinding): Promise<ReleaseRecord> { const release = await this.loadForBindingInTransaction(transaction, binding.installationId, binding.releaseId); releaseFacts(binding, release); return release; }
+  async loadSource(binding: FactoryV4PackageBinding): Promise<WorkspaceFiles> { return getFiles(this.blobs, binding.sourceDigest, "workspace"); }
 }
 
-/** Maps one factory runner tuple to one immutable release; it never copies v4 release bytes. */
+/** Sealed intent before external build; receipt plus completion state commit in one transaction. */
 export class FactoryPackagePreparations implements FactoryRunnerDispatchReadiness {
   private readonly mutations: FactoryMutations;
-  private readonly local = new Map<string, FactoryPreparedPackageReceipt>();
-
-  constructor(
-    private readonly database: TransactionalDb,
-    readonly tenantId: string,
-    private readonly grants: FactoryGrants,
-    private readonly trust: FactoryPackageTrustReader,
-    private readonly catalog: FactoryV4PackageCatalog,
-    private readonly runnerClient: Pick<Runner, "build" | "collectArtifacts">,
-    private readonly buildLimits: Parameters<Runner["build"]>[0]["limits"],
-  ) {
-    assertFactoryIdentity(tenantId);
-    if (grants.tenantId !== tenantId || trust.tenantId !== tenantId) throw new FactoryPackagePreparationError("factory_package_scope");
-    this.mutations = new FactoryMutations(database, tenantId, grants);
-  }
-
-  async bind(actor: FactoryPrincipal, input: FactoryV4PackageBindingInput, idempotencyKey: string): Promise<FactoryV4PackageBinding> {
-    const principal = snapshot(actor);
-    const captured = { projectId: input.projectId, reference: runner(input.reference), installationId: input.installationId, releaseId: input.releaseId };
-    assertFactoryIdentity(captured.projectId, captured.installationId, captured.releaseId);
-    if (principal.kind !== "user" || principal.authentication !== "session") throw new FactoryPackagePreparationError("factory_package_human_required");
-    return this.mutations.execute({ principal, projectId: captured.projectId, action: "factory.trust", idempotencyKey, input: { kind: "factory.package.bind", ...captured } }, transaction => this.bindInTransaction(transaction, principal, captured));
-  }
-
-  /** Creates intent under locks, builds outside product transactions, then commits only a revalidated receipt. */
-  async prepare(projectId: string, rawReference: RunnerReference): Promise<FactoryPreparedPackageReceipt> {
-    const reference = runner(rawReference);
-    assertFactoryIdentity(projectId);
-    const intent = await this.database.transaction(transaction => this.intentInTransaction(transaction, projectId, reference));
-    const artifacts = await this.hydrate(intent);
-    return this.database.transaction(transaction => this.commitInTransaction(transaction, intent, artifacts));
-  }
-
-  /** Call before the dispatcher claims a delivery. It does no build and checks the current revocable trust. */
-  async assertDispatchReady(request: Pick<FactoryRunnerRequest, "authority" | "runner">): Promise<FactoryPreparedPackageReceipt> {
-    const captured = snapshot(request);
-    if (captured.authority.tenantId !== this.tenantId) throw new FactoryPackagePreparationError("factory_package_scope");
-    return this.database.transaction(transaction => this.assertPreparedInTransaction(transaction, captured.authority.projectId, captured.runner));
-  }
-
-  async assertPreparedInTransaction(transaction: MigrationDb, projectId: string, rawReference: RunnerReference): Promise<FactoryPreparedPackageReceipt> {
-    const reference = runner(rawReference);
-    if (!await lockFactoryScope(transaction, this.tenantId, projectId)) throw new FactoryPackagePreparationError("factory_package_scope");
-    const binding = await this.readBinding(transaction, projectId, reference);
-    const trust = await this.currentTrust(transaction, projectId, reference);
-    await this.catalog.loadInTransaction(transaction, binding);
-    const receipt = await this.readReceipt(transaction, projectId, reference, trust.revision);
-    if (!receipt || receipt.packageTrustDigest !== trust.packageTrustDigest || receipt.releaseDigest !== binding.releaseDigest || receipt.sourceDigest !== binding.sourceDigest || receipt.artifactDigest !== binding.artifactDigest || receipt.imageDigest !== binding.imageDigest) throw new FactoryPackagePreparationError("factory_package_not_prepared");
-    return receipt;
-  }
-
-  /** Rejects run dispatch unless this process completed a verified prepare for the exact tuple. It never builds. */
-  assertLocal(request: Pick<FactoryRunnerRequest, "authority" | "runner">): FactoryPreparedPackageReceipt {
-    const captured = snapshot(request);
-    if (captured.authority.tenantId !== this.tenantId) throw new FactoryPackagePreparationError("factory_package_scope");
-    const receipt = this.local.get(this.localKey(captured.authority.projectId, runner(captured.runner)));
-    if (!receipt) throw new FactoryPackagePreparationError("factory_package_not_ready");
-    return receipt;
-  }
-
-  private async bindInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, input: FactoryV4PackageBindingInput): Promise<FactoryV4PackageBinding> {
-    if (!await lockFactoryScope(transaction, this.tenantId, input.projectId, "write")) throw new FactoryPackagePreparationError("factory_package_scope");
-    const trust = await this.currentTrust(transaction, input.projectId, input.reference);
-    const state = await this.catalog.loadForBindingInTransaction(transaction, input.installationId, input.releaseId);
-    // Derive a one-time trusted binding from immutable repository state.
-    if (state.id !== input.releaseId || state.installationId !== input.installationId || state.manifest.name !== input.reference.package || state.manifest.version !== input.reference.version || !state.manifest.tools?.some(tool => tool.name === input.reference.export)) throw new FactoryPackagePreparationError("factory_package_release_unavailable");
-    const authorization = await this.grants.authorizeInTransaction(transaction, actor, input.projectId, "factory.trust");
-    const value: Omit<FactoryV4PackageBinding, "protectedDigest"> = { ...input, reference: input.reference, releaseDigest: state.releaseDigest, sourceDigest: state.sourceDigest, artifactDigest: state.artifactDigest, imageDigest: state.imageDigest, manifestDigest: digestObject(state.manifest), issuerId: actor.id, issuerGrantRevision: authorization.revision };
-    const binding: FactoryV4PackageBinding = { ...value, protectedDigest: bindingSeal(this.tenantId, value) };
-    const existing = rows<BindingRow>(await transaction.execute(sql`SELECT package_name,package_version,package_digest,export_name,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,protected_digest FROM factory_runner_package_bindings WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND package_name=${input.reference.package} AND package_version=${input.reference.version} AND package_digest=${input.reference.digest} AND export_name=${input.reference.export} FOR UPDATE`))[0];
-    if (existing) {
-      const present = this.binding(input.projectId, input.reference, existing);
-      if (!same(present, binding)) throw new FactoryPackagePreparationError("factory_package_binding_conflict");
-      return present;
-    }
-    await transaction.execute(sql`INSERT INTO factory_runner_package_bindings (tenant_id,project_id,package_name,package_version,package_digest,export_name,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,protected_digest) VALUES (${this.tenantId},${input.projectId},${input.reference.package},${input.reference.version},${input.reference.digest},${input.reference.export},${input.installationId},${input.releaseId},${binding.releaseDigest},${binding.sourceDigest},${binding.artifactDigest},${binding.imageDigest},${binding.manifestDigest},${actor.id},${authorization.revision},${binding.protectedDigest})`);
-    await insertTransactionalAuditEntry(transaction, `factory-package-binding:${binding.protectedDigest}`, actor.id, "factory.package.bound", input.projectId, { tenantId: this.tenantId, projectId: input.projectId, reference: input.reference, installationId: input.installationId, releaseId: input.releaseId, trustRevision: trust.revision });
-    return binding;
-  }
-
-  private async intentInTransaction(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<{ binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string; evidenceDigest: string }> {
-    const receipt = await this.assertPreparedInTransaction(transaction, projectId, reference).catch(error => {
-      if (!(error instanceof FactoryPackagePreparationError) || error.code !== "factory_package_not_prepared") throw error;
-      return undefined;
-    });
-    const binding = await this.readBinding(transaction, projectId, reference);
-    const trust = await this.currentTrust(transaction, projectId, reference);
-    const release = await this.catalog.loadInTransaction(transaction, binding);
-    const entrypoint = (release.manifest.entrypoint ?? "extension.ts").replace(/^\.\//, "");
-    return { binding, trust, buildIdentity: receipt?.buildIdentity ?? `factory-package-${digestObject({ tenantId: this.tenantId, projectId, reference, releaseDigest: binding.releaseDigest, trustRevision: trust.revision })}`, entrypoint, evidenceDigest: digestObject(release.evidence) };
-  }
-
-  private async hydrate(intent: { binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string; evidenceDigest: string }): Promise<WorkspaceFiles> {
-    try {
-      const cached = await this.runnerClient.collectArtifacts(intent.binding.artifactDigest);
-      this.verifyArtifacts(intent.binding, cached);
-      return cached;
-    } catch {
-      const source = await this.catalog.loadSource(intent.binding);
-      const result = await this.runnerClient.build({ operationId: intent.buildIdentity, sourceDigest: intent.binding.sourceDigest, files: source, entrypoint: intent.entrypoint, limits: this.buildLimits });
-      if (result.state !== "succeeded" || result.operationId !== intent.buildIdentity || result.sourceDigest !== intent.binding.sourceDigest || result.artifactDigest !== intent.binding.artifactDigest || result.imageDigest !== intent.binding.imageDigest || !result.manifest || digestObject(result.manifest) !== intent.binding.manifestDigest || result.manifest.name !== intent.binding.reference.package || result.manifest.version !== intent.binding.reference.version || !result.manifest.tools?.some(tool => tool.name === intent.binding.reference.export) || digestObject(result.evidence) !== intent.evidenceDigest || !result.evidence.tests.length || result.evidence.tests.some(test => !test.passed)) throw new FactoryPackagePreparationError("factory_package_build_mismatch");
-      const artifacts = await this.runnerClient.collectArtifacts(intent.binding.artifactDigest);
-      this.verifyArtifacts(intent.binding, artifacts);
-      return artifacts;
-    }
-  }
-
-  private async commitInTransaction(transaction: MigrationDb, intent: { binding: FactoryV4PackageBinding; trust: FactoryReleaseTrustRecord; buildIdentity: string; entrypoint: string; evidenceDigest: string }, artifacts: WorkspaceFiles): Promise<FactoryPreparedPackageReceipt> {
-    if (!await lockFactoryScope(transaction, this.tenantId, intent.binding.projectId)) throw new FactoryPackagePreparationError("factory_package_scope");
-    const binding = await this.readBinding(transaction, intent.binding.projectId, intent.binding.reference);
-    if (!same(binding, intent.binding)) throw new FactoryPackagePreparationError("factory_package_binding_stale");
-    const trust = await this.currentTrust(transaction, binding.projectId, binding.reference);
-    if (trust.revision !== intent.trust.revision || trust.packageTrustDigest !== intent.trust.packageTrustDigest) throw new FactoryPackagePreparationError("factory_package_trust_stale");
-    await this.catalog.loadInTransaction(transaction, binding);
-    this.verifyArtifacts(binding, artifacts);
-    const existing = await this.readReceipt(transaction, binding.projectId, binding.reference, trust.revision);
-    if (existing) {
-      if (existing.packageTrustDigest !== trust.packageTrustDigest || existing.releaseDigest !== binding.releaseDigest || existing.sourceDigest !== binding.sourceDigest || existing.artifactDigest !== binding.artifactDigest || existing.imageDigest !== binding.imageDigest) throw new FactoryPackagePreparationError("factory_package_receipt_corrupt");
-      this.local.set(this.localKey(binding.projectId, binding.reference), existing);
-      return existing;
-    }
-    const unsigned: Omit<FactoryPreparedPackageReceipt, "receiptDigest"> = { projectId: binding.projectId, reference: binding.reference, trustRevision: trust.revision, packageTrustDigest: trust.packageTrustDigest, releaseDigest: binding.releaseDigest, sourceDigest: binding.sourceDigest, artifactDigest: binding.artifactDigest, imageDigest: binding.imageDigest, buildIdentity: intent.buildIdentity };
-    const receipt: FactoryPreparedPackageReceipt = { ...unsigned, receiptDigest: receiptSeal(this.tenantId, unsigned) };
-    await transaction.execute(sql`INSERT INTO factory_runner_preparation_receipts (tenant_id,project_id,package_name,package_version,package_digest,export_name,trust_revision,package_trust_digest,release_digest,source_digest,artifact_digest,image_digest,build_identity,receipt_digest) VALUES (${this.tenantId},${binding.projectId},${binding.reference.package},${binding.reference.version},${binding.reference.digest},${binding.reference.export},${trust.revision},${trust.packageTrustDigest},${binding.releaseDigest},${binding.sourceDigest},${binding.artifactDigest},${binding.imageDigest},${intent.buildIdentity},${receipt.receiptDigest})`);
-    this.local.set(this.localKey(binding.projectId, binding.reference), receipt);
-    return receipt;
-  }
-
-  private async currentTrust(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<FactoryReleaseTrustRecord> {
-    try {
-      const trust = await this.trust.readActiveTrustInTransaction(transaction, projectId);
-      if (!same(trust.packageLock, reference)) throw new FactoryPackagePreparationError("factory_package_untrusted");
-      return trust;
-    } catch (error) {
-      if (error instanceof FactoryPackagePreparationError) throw error;
-      const code = error instanceof Error && "code" in error ? (error as { code?: unknown }).code : undefined;
-      if (code === "factory_release_trust_inactive") throw new FactoryPackagePreparationError("factory_package_revoked");
-      if (code === "factory_release_trust_missing" || code === "factory_release_trust_corrupt") throw new FactoryPackagePreparationError("factory_package_trust_invalid");
-      throw error;
-    }
-  }
-
-  private async readBinding(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<FactoryV4PackageBinding> {
-    const [name, version, digest, exported] = key(reference);
-    const row = rows<BindingRow>(await transaction.execute(sql`SELECT package_name,package_version,package_digest,export_name,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,protected_digest FROM factory_runner_package_bindings WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND package_name=${name} AND package_version=${version} AND package_digest=${digest} AND export_name=${exported} FOR UPDATE`))[0];
-    if (!row) throw new FactoryPackagePreparationError("factory_package_binding_missing");
-    return this.binding(projectId, reference, row);
-  }
-
-  private binding(projectId: string, reference: RunnerReference, row: BindingRow): FactoryV4PackageBinding {
-    const value: Omit<FactoryV4PackageBinding, "protectedDigest"> = { projectId, reference, installationId: row.installation_id, releaseId: row.release_id, releaseDigest: row.release_digest, sourceDigest: row.source_digest, artifactDigest: row.artifact_digest, imageDigest: row.image_digest, manifestDigest: row.manifest_digest, issuerId: row.issuer_id, issuerGrantRevision: Number(row.issuer_grant_revision) };
-    if (![value.releaseDigest, value.sourceDigest, value.artifactDigest, value.manifestDigest].every(rawDigest) || !Number.isSafeInteger(value.issuerGrantRevision) || value.issuerGrantRevision < 1 || row.protected_digest !== bindingSeal(this.tenantId, value)) throw new FactoryPackagePreparationError("factory_package_binding_corrupt");
-    return { ...value, protectedDigest: row.protected_digest };
-  }
-
-  private async readReceipt(transaction: MigrationDb, projectId: string, reference: RunnerReference, trustRevision: number): Promise<FactoryPreparedPackageReceipt | undefined> {
-    const [name, version, digest, exported] = key(reference);
-    const row = rows<ReceiptRow>(await transaction.execute(sql`SELECT trust_revision,package_trust_digest,release_digest,source_digest,artifact_digest,image_digest,build_identity,receipt_digest FROM factory_runner_preparation_receipts WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND package_name=${name} AND package_version=${version} AND package_digest=${digest} AND export_name=${exported} AND trust_revision=${trustRevision} FOR UPDATE`))[0];
-    if (!row) return undefined;
-    const value: Omit<FactoryPreparedPackageReceipt, "receiptDigest"> = { projectId, reference, trustRevision: Number(row.trust_revision), packageTrustDigest: row.package_trust_digest, releaseDigest: row.release_digest, sourceDigest: row.source_digest, artifactDigest: row.artifact_digest, imageDigest: row.image_digest, buildIdentity: row.build_identity };
-    if (!Number.isSafeInteger(value.trustRevision) || value.trustRevision < 1 || !/^sha256:[a-f0-9]{64}$/.test(value.packageTrustDigest) || ![value.releaseDigest, value.sourceDigest, value.artifactDigest].every(rawDigest) || !value.imageDigest || new TextEncoder().encode(value.buildIdentity).byteLength > MAX_BUILD_ID_BYTES || row.receipt_digest !== receiptSeal(this.tenantId, value)) throw new FactoryPackagePreparationError("factory_package_receipt_corrupt");
-    return { ...value, receiptDigest: row.receipt_digest };
-  }
-
-  private verifyArtifacts(binding: FactoryV4PackageBinding, artifacts: WorkspaceFiles): void {
-    try { validateArtifactFiles(artifacts); } catch { throw new FactoryPackagePreparationError("factory_package_artifact_corrupt"); }
-    if (digestObject(artifacts) !== binding.artifactDigest) throw new FactoryPackagePreparationError("factory_package_artifact_corrupt");
-  }
-  private localKey(projectId: string, reference: RunnerReference): string { return canonicalJson([projectId, reference]); }
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants, private readonly trusts: FactoryPackageTrusts, private readonly catalog: FactoryV4PackageCatalog, private readonly runnerClient: Pick<Runner, "build" | "collectArtifacts">, private readonly buildLimits: Parameters<Runner["build"]>[0]["limits"]) { assertFactoryIdentity(tenantId); if (grants.tenantId !== tenantId || trusts.tenantId !== tenantId) throw new FactoryPackagePreparationError("factory_package_scope"); this.mutations = new FactoryMutations(database, tenantId, grants); }
+  async bind(actor: FactoryPrincipal, input: FactoryV4PackageBindingInput, idempotencyKey: string): Promise<FactoryV4PackageBinding> { const principal = snapshot(actor), captured = { projectId: input.projectId, reference: runner(input.reference), installationId: input.installationId, releaseId: input.releaseId }; assertFactoryIdentity(captured.projectId, captured.installationId, captured.releaseId); if (principal.kind !== "user" || principal.authentication !== "session") throw new FactoryPackagePreparationError("factory_package_human_required"); return this.mutations.execute({ principal, projectId: captured.projectId, action: "factory.trust", idempotencyKey, input: { kind: "factory.package.bind", ...captured } }, transaction => this.bindInTransaction(transaction, principal, captured)); }
+  async prepare(projectId: string, rawReference: RunnerReference): Promise<FactoryPreparedPackageReceipt> { const reference = runner(rawReference); assertFactoryIdentity(projectId); const intent = await this.database.transaction(transaction => this.intentInTransaction(transaction, projectId, reference)); if ("receipt" in intent) return intent.receipt; const artifacts = await this.hydrate(intent); return this.database.transaction(transaction => this.commitInTransaction(transaction, intent, artifacts)); }
+  async assertDispatchReady(request: Pick<FactoryRunnerRequest, "authority" | "runner">): Promise<FactoryPreparedPackageReceipt> { const captured = snapshot(request); if (captured.authority.tenantId !== this.tenantId) throw new FactoryPackagePreparationError("factory_package_scope"); return this.database.transaction(transaction => this.assertPreparedInTransaction(transaction, captured.authority.projectId, captured.runner)); }
+  async assertPreparedInTransaction(transaction: MigrationDb, projectId: string, rawReference: RunnerReference): Promise<FactoryPreparedPackageReceipt> { const reference = runner(rawReference); if (!await lockFactoryScope(transaction, this.tenantId, projectId)) throw new FactoryPackagePreparationError("factory_package_scope"); const binding = await this.readBinding(transaction, projectId, reference), trust = await this.trusts.readActiveInTransaction(transaction, projectId, reference), release = await this.catalog.loadInTransaction(transaction, binding), receipt = await this.readReceipt(transaction, projectId, reference, trust.revision); if (!receipt || !this.receiptMatches(receipt, this.intent(projectId, reference, trust, binding, release, "completed"))) throw new FactoryPackagePreparationError("factory_package_not_prepared"); return receipt; }
+  private async bindInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, input: FactoryV4PackageBindingInput): Promise<FactoryV4PackageBinding> { if (!await lockFactoryScope(transaction, this.tenantId, input.projectId, "write")) throw new FactoryPackagePreparationError("factory_package_scope"); const state = await this.catalog.loadForBindingInTransaction(transaction, input.installationId, input.releaseId); if (state.id !== input.releaseId || state.installationId !== input.installationId || state.manifest.name !== input.reference.package || state.manifest.version !== input.reference.version || !state.manifest.tools?.some(tool => tool.name === input.reference.export)) throw new FactoryPackagePreparationError("factory_package_release_unavailable"); const authorization = await this.grants.authorizeInTransaction(transaction, actor, input.projectId, "factory.trust"), unsigned: Omit<FactoryV4PackageBinding, "protectedDigest"> = { ...input, releaseDigest: state.releaseDigest, sourceDigest: state.sourceDigest, artifactDigest: state.artifactDigest, imageDigest: state.imageDigest, manifestDigest: digestObject(state.manifest), issuerId: actor.id, issuerGrantRevision: authorization.revision }, binding: FactoryV4PackageBinding = { ...unsigned, protectedDigest: bindingSeal(this.tenantId, unsigned) }, existing = await this.bindingRow(transaction, input.projectId, input.reference); if (existing) { const present = this.binding(input.projectId, input.reference, existing); if (!same(present, binding)) throw new FactoryPackagePreparationError("factory_package_binding_conflict"); return present; } await transaction.execute(sql`INSERT INTO factory_runner_package_bindings (tenant_id,project_id,package_name,package_version,package_digest,export_name,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,protected_digest) VALUES (${this.tenantId},${input.projectId},${input.reference.package},${input.reference.version},${input.reference.digest},${input.reference.export},${input.installationId},${input.releaseId},${binding.releaseDigest},${binding.sourceDigest},${binding.artifactDigest},${binding.imageDigest},${binding.manifestDigest},${actor.id},${authorization.revision},${binding.protectedDigest})`); await insertTransactionalAuditEntry(transaction, `factory-package-binding:${binding.protectedDigest}`, actor.id, "factory.package.bound", input.projectId, { tenantId: this.tenantId, projectId: input.projectId, reference: input.reference, installationId: input.installationId, releaseId: input.releaseId, grantRevision: authorization.revision }); return binding; }
+  private async intentInTransaction(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<FactoryPackagePreparationIntent | { receipt: FactoryPreparedPackageReceipt }> { if (!await lockFactoryScope(transaction, this.tenantId, projectId)) throw new FactoryPackagePreparationError("factory_package_scope"); const binding = await this.readBinding(transaction, projectId, reference), trust = await this.trusts.readActiveInTransaction(transaction, projectId, reference), release = await this.catalog.loadInTransaction(transaction, binding), existingReceipt = await this.readReceipt(transaction, projectId, reference, trust.revision); if (existingReceipt) return { receipt: existingReceipt }; const value = this.intent(projectId, reference, trust, binding, release, "prepared"), existing = await this.readIntent(transaction, projectId, reference, trust.revision); if (existing) { if (!same(existing, value)) throw new FactoryPackagePreparationError("factory_package_intent_corrupt"); return existing; } await transaction.execute(sql`INSERT INTO factory_runner_preparation_intents (tenant_id,project_id,package_name,package_version,package_digest,export_name,trust_revision,package_trust_digest,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,binding_protected_digest,evidence_digest,entrypoint,build_identity,state,intent_digest) VALUES (${this.tenantId},${projectId},${reference.package},${reference.version},${reference.digest},${reference.export},${value.trustRevision},${value.packageTrustDigest},${binding.installationId},${binding.releaseId},${binding.releaseDigest},${binding.sourceDigest},${binding.artifactDigest},${binding.imageDigest},${binding.manifestDigest},${binding.issuerId},${binding.issuerGrantRevision},${binding.protectedDigest},${value.evidenceDigest},${value.entrypoint},${value.buildIdentity},'prepared',${value.intentDigest})`); await insertTransactionalAuditEntry(transaction, `factory-package-intent:${value.intentDigest}`, null, "factory.package.preparation.intent", projectId, { tenantId: this.tenantId, projectId, reference, trustRevision: value.trustRevision, intentDigest: value.intentDigest, buildIdentity: value.buildIdentity, releaseDigest: binding.releaseDigest, sourceDigest: binding.sourceDigest, artifactDigest: binding.artifactDigest, imageDigest: binding.imageDigest, manifestDigest: binding.manifestDigest, evidenceDigest: value.evidenceDigest }); return value; }
+  private intent(projectId: string, reference: RunnerReference, trust: FactoryRunnerPackageTrustRecord, binding: FactoryV4PackageBinding, release: ReleaseRecord, state: "prepared" | "completed"): FactoryPackagePreparationIntent { const evidenceDigest = digestObject(release.evidence), entry = entrypoint(release), buildIdentity = `factory-package-${digestObject({ tenantId: this.tenantId, projectId, reference, trustRevision: trust.revision, packageTrustDigest: trust.packageTrustDigest, releaseDigest: binding.releaseDigest, sourceDigest: binding.sourceDigest, artifactDigest: binding.artifactDigest, imageDigest: binding.imageDigest, manifestDigest: binding.manifestDigest, evidenceDigest, entrypoint: entry })}`, unsigned: Omit<FactoryPackagePreparationIntent, "intentDigest" | "state"> = { projectId, reference, trustRevision: trust.revision, packageTrustDigest: trust.packageTrustDigest, binding, evidenceDigest, entrypoint: entry, buildIdentity }; return { ...unsigned, state, intentDigest: intentSeal(this.tenantId, unsigned) }; }
+  private async hydrate(intent: FactoryPackagePreparationIntent): Promise<WorkspaceFiles> { try { const cached = await this.runnerClient.collectArtifacts(intent.binding.artifactDigest); this.verifyArtifacts(intent.binding, cached); return cached; } catch { const source = await this.catalog.loadSource(intent.binding), result = await this.runnerClient.build({ operationId: intent.buildIdentity, sourceDigest: intent.binding.sourceDigest, files: source, entrypoint: intent.entrypoint, limits: this.buildLimits }); if (result.state !== "succeeded" || result.operationId !== intent.buildIdentity || result.sourceDigest !== intent.binding.sourceDigest || result.artifactDigest !== intent.binding.artifactDigest || result.imageDigest !== intent.binding.imageDigest || !result.manifest || digestObject(result.manifest) !== intent.binding.manifestDigest || result.manifest.name !== intent.binding.reference.package || result.manifest.version !== intent.binding.reference.version || !result.manifest.tools?.some(tool => tool.name === intent.binding.reference.export) || digestObject(result.evidence) !== intent.evidenceDigest || !result.evidence.tests.length || result.evidence.tests.some(test => !test.passed)) throw new FactoryPackagePreparationError("factory_package_build_mismatch"); const artifacts = await this.runnerClient.collectArtifacts(intent.binding.artifactDigest); this.verifyArtifacts(intent.binding, artifacts); return artifacts; } }
+  private async commitInTransaction(transaction: MigrationDb, intent: FactoryPackagePreparationIntent, artifacts: WorkspaceFiles): Promise<FactoryPreparedPackageReceipt> { if (!await lockFactoryScope(transaction, this.tenantId, intent.projectId)) throw new FactoryPackagePreparationError("factory_package_scope"); const binding = await this.readBinding(transaction, intent.projectId, intent.reference), trust = await this.trusts.readActiveInTransaction(transaction, intent.projectId, intent.reference), release = await this.catalog.loadInTransaction(transaction, binding), current = await this.readIntent(transaction, intent.projectId, intent.reference, intent.trustRevision); if (!current || !same(current, intent) || !sameBindingFacts(binding, intent.binding) || trust.revision !== intent.trustRevision || trust.packageTrustDigest !== intent.packageTrustDigest || digestObject(release.evidence) !== intent.evidenceDigest || entrypoint(release) !== intent.entrypoint) throw new FactoryPackagePreparationError("factory_package_intent_stale"); this.verifyArtifacts(binding, artifacts); const existing = await this.readReceipt(transaction, binding.projectId, binding.reference, trust.revision); if (existing) { if (!this.receiptMatches(existing, intent) || current.state !== "completed") throw new FactoryPackagePreparationError("factory_package_receipt_corrupt"); return existing; } if (current.state !== "prepared") throw new FactoryPackagePreparationError("factory_package_intent_corrupt"); const unsigned: Omit<FactoryPreparedPackageReceipt, "receiptDigest"> = { projectId: binding.projectId, reference: binding.reference, trustRevision: trust.revision, packageTrustDigest: trust.packageTrustDigest, releaseDigest: binding.releaseDigest, sourceDigest: binding.sourceDigest, artifactDigest: binding.artifactDigest, imageDigest: binding.imageDigest, manifestDigest: binding.manifestDigest, evidenceDigest: intent.evidenceDigest, buildIdentity: intent.buildIdentity }, receipt: FactoryPreparedPackageReceipt = { ...unsigned, receiptDigest: receiptSeal(this.tenantId, unsigned) }; await transaction.execute(sql`INSERT INTO factory_runner_preparation_receipts (tenant_id,project_id,package_name,package_version,package_digest,export_name,trust_revision,package_trust_digest,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,evidence_digest,build_identity,receipt_digest) VALUES (${this.tenantId},${binding.projectId},${binding.reference.package},${binding.reference.version},${binding.reference.digest},${binding.reference.export},${trust.revision},${trust.packageTrustDigest},${binding.releaseDigest},${binding.sourceDigest},${binding.artifactDigest},${binding.imageDigest},${binding.manifestDigest},${intent.evidenceDigest},${intent.buildIdentity},${receipt.receiptDigest})`); const changed = rows(await transaction.execute(sql`UPDATE factory_runner_preparation_intents SET state='completed',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${binding.projectId} AND package_name=${binding.reference.package} AND package_version=${binding.reference.version} AND package_digest=${binding.reference.digest} AND export_name=${binding.reference.export} AND trust_revision=${trust.revision} AND state='prepared' RETURNING trust_revision`)); if (changed.length !== 1) throw new FactoryPackagePreparationError("factory_package_intent_stale"); await insertTransactionalAuditEntry(transaction, `factory-package-receipt:${receipt.receiptDigest}`, null, "factory.package.prepared", binding.projectId, { tenantId: this.tenantId, projectId: binding.projectId, reference: binding.reference, trustRevision: trust.revision, receiptDigest: receipt.receiptDigest, intentDigest: intent.intentDigest, buildIdentity: receipt.buildIdentity }); return receipt; }
+  private receiptMatches(receipt: FactoryPreparedPackageReceipt, intent: FactoryPackagePreparationIntent): boolean { return receipt.trustRevision === intent.trustRevision && receipt.packageTrustDigest === intent.packageTrustDigest && receipt.releaseDigest === intent.binding.releaseDigest && receipt.sourceDigest === intent.binding.sourceDigest && receipt.artifactDigest === intent.binding.artifactDigest && receipt.imageDigest === intent.binding.imageDigest && receipt.manifestDigest === intent.binding.manifestDigest && receipt.evidenceDigest === intent.evidenceDigest && receipt.buildIdentity === intent.buildIdentity; }
+  private async bindingRow(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<BindingRow | undefined> { const [name, version, digest, exported] = tuple(reference); return rows<BindingRow>(await transaction.execute(sql`SELECT installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,protected_digest FROM factory_runner_package_bindings WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND package_name=${name} AND package_version=${version} AND package_digest=${digest} AND export_name=${exported} FOR UPDATE`))[0]; }
+  private async readBinding(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<FactoryV4PackageBinding> { const row = await this.bindingRow(transaction, projectId, reference); if (!row) throw new FactoryPackagePreparationError("factory_package_binding_missing"); return this.binding(projectId, reference, row); }
+  private binding(projectId: string, reference: RunnerReference, row: BindingRow): FactoryV4PackageBinding { const unsigned: Omit<FactoryV4PackageBinding, "protectedDigest"> = { projectId, reference, installationId: row.installation_id, releaseId: row.release_id, releaseDigest: row.release_digest, sourceDigest: row.source_digest, artifactDigest: row.artifact_digest, imageDigest: row.image_digest, manifestDigest: row.manifest_digest, issuerId: row.issuer_id, issuerGrantRevision: Number(row.issuer_grant_revision) }; if (![unsigned.releaseDigest, unsigned.sourceDigest, unsigned.artifactDigest, unsigned.manifestDigest].every(rawDigest) || !Number.isSafeInteger(unsigned.issuerGrantRevision) || unsigned.issuerGrantRevision < 1 || row.protected_digest !== bindingSeal(this.tenantId, unsigned)) throw new FactoryPackagePreparationError("factory_package_binding_corrupt"); return { ...unsigned, protectedDigest: row.protected_digest }; }
+  private async readIntent(transaction: MigrationDb, projectId: string, reference: RunnerReference, trustRevision: number): Promise<FactoryPackagePreparationIntent | undefined> { const [name, version, digest, exported] = tuple(reference), row = rows<IntentRow>(await transaction.execute(sql`SELECT trust_revision,package_trust_digest,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,binding_protected_digest,evidence_digest,entrypoint,build_identity,state,intent_digest FROM factory_runner_preparation_intents WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND package_name=${name} AND package_version=${version} AND package_digest=${digest} AND export_name=${exported} AND trust_revision=${trustRevision} FOR UPDATE`))[0]; if (!row) return undefined; const trust = Number(row.trust_revision), binding = this.binding(projectId, reference, { installation_id: row.installation_id, release_id: row.release_id, release_digest: row.release_digest, source_digest: row.source_digest, artifact_digest: row.artifact_digest, image_digest: row.image_digest, manifest_digest: row.manifest_digest, issuer_id: row.issuer_id, issuer_grant_revision: row.issuer_grant_revision, protected_digest: row.binding_protected_digest }), unsigned: Omit<FactoryPackagePreparationIntent, "intentDigest" | "state"> = { projectId, reference, trustRevision: trust, packageTrustDigest: row.package_trust_digest, binding, evidenceDigest: row.evidence_digest, entrypoint: row.entrypoint, buildIdentity: row.build_identity }; if (!Number.isSafeInteger(trust) || trust < 1 || !/^sha256:[a-f0-9]{64}$/.test(unsigned.packageTrustDigest) || !rawDigest(unsigned.evidenceDigest) || !unsigned.entrypoint || new TextEncoder().encode(unsigned.buildIdentity).byteLength > MAX_BUILD_ID_BYTES || (row.state !== "prepared" && row.state !== "completed") || row.intent_digest !== intentSeal(this.tenantId, unsigned)) throw new FactoryPackagePreparationError("factory_package_intent_corrupt"); return { ...unsigned, state: row.state, intentDigest: row.intent_digest }; }
+  private async readReceipt(transaction: MigrationDb, projectId: string, reference: RunnerReference, trustRevision: number): Promise<FactoryPreparedPackageReceipt | undefined> { const [name, version, digest, exported] = tuple(reference), row = rows<ReceiptRow>(await transaction.execute(sql`SELECT trust_revision,package_trust_digest,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,evidence_digest,build_identity,receipt_digest FROM factory_runner_preparation_receipts WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND package_name=${name} AND package_version=${version} AND package_digest=${digest} AND export_name=${exported} AND trust_revision=${trustRevision} FOR UPDATE`))[0]; if (!row) return undefined; const unsigned: Omit<FactoryPreparedPackageReceipt, "receiptDigest"> = { projectId, reference, trustRevision: Number(row.trust_revision), packageTrustDigest: row.package_trust_digest, releaseDigest: row.release_digest, sourceDigest: row.source_digest, artifactDigest: row.artifact_digest, imageDigest: row.image_digest, manifestDigest: row.manifest_digest, evidenceDigest: row.evidence_digest, buildIdentity: row.build_identity }; if (!Number.isSafeInteger(unsigned.trustRevision) || unsigned.trustRevision < 1 || !/^sha256:[a-f0-9]{64}$/.test(unsigned.packageTrustDigest) || ![unsigned.releaseDigest, unsigned.sourceDigest, unsigned.artifactDigest, unsigned.manifestDigest, unsigned.evidenceDigest].every(rawDigest) || !unsigned.imageDigest || new TextEncoder().encode(unsigned.buildIdentity).byteLength > MAX_BUILD_ID_BYTES || row.receipt_digest !== receiptSeal(this.tenantId, unsigned)) throw new FactoryPackagePreparationError("factory_package_receipt_corrupt"); return { ...unsigned, receiptDigest: row.receipt_digest }; }
+  private verifyArtifacts(binding: FactoryV4PackageBinding, artifacts: WorkspaceFiles): void { try { validateArtifactFiles(artifacts); } catch { throw new FactoryPackagePreparationError("factory_package_artifact_corrupt"); } if (digestObject(artifacts) !== binding.artifactDigest) throw new FactoryPackagePreparationError("factory_package_artifact_corrupt"); }
 }

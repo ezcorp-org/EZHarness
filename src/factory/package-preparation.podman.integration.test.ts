@@ -15,21 +15,13 @@ import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
 import { digestObject, FileBlobStore, putFiles } from "../extensions/v4/blobs";
-import { FactoryArtifacts } from "./artifacts";
-import { FactoryExecutionJournal } from "./executions";
 import { FactoryGrants, type FactoryPrincipal } from "./grants";
-import { FactoryPackagePreparations, FactoryV4PackageCatalog } from "./package-preparation";
+import { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } from "./package-preparation";
 import { FactoryRecords } from "./records";
-import { FactoryReleaseAuthorityStore, type FactoryReleaseRunLifecycle } from "./release-authority";
 
 const tenantId = "podman-package-tenant";
 const projectId = "podman-package-project";
 const admin: FactoryPrincipal = { kind: "user", id: "podman-package-admin", authentication: "session" };
-
-class NoRunLifecycle implements FactoryReleaseRunLifecycle {
-  readonly tenantId = tenantId;
-  async authorizeRunInTransaction(): Promise<never> { throw new Error("package preparation has no run authority"); }
-}
 
 function record(build: Awaited<ReturnType<Runner["build"]>>, sourceDigest: string): ReleaseRecord {
   if (build.state !== "succeeded" || !build.artifactDigest || !build.manifest) throw new Error("initial v4 build failed");
@@ -68,11 +60,11 @@ test("rebuilds the exact immutable v4 source into a fresh real Podman runner and
     await grants.set(admin, { projectId, principal: admin, action: "factory.trust", expectedRevision: 0, expiresAtMs: null });
     const repository = new DatabaseLifecycleRepository(db);
     await repository.create({ installation: { id: release.installationId, ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: release.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: release }, approvals: {} });
-    const authority = new FactoryReleaseAuthorityStore(db, tenantId, grants, new NoRunLifecycle(), new FactoryExecutionJournal(db, async () => {}), new FactoryArtifacts(db, blobs, tenantId));
-    await authority.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: reference, validatorTrustDigest: `sha256:${"b".repeat(64)}` }, "podman-trust");
+    const trusts = new FactoryPackageTrusts(db, tenantId, grants);
     consumer = new PodmanRunner({ root: consumerRoot, ...await provision() });
-    const preparations = new FactoryPackagePreparations(db, tenantId, grants, authority, new FactoryV4PackageCatalog(repository, blobs), consumer, buildLimits);
+    const preparations = new FactoryPackagePreparations(db, tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), consumer, buildLimits);
     await preparations.bind(admin, { projectId, reference, installationId: release.installationId, releaseId: release.id }, "podman-bind");
+    await trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "podman-trust");
     const receipt = await preparations.prepare(projectId, reference);
     expect(receipt).toMatchObject({ reference, artifactDigest: release.artifactDigest, sourceDigest, releaseDigest: release.releaseDigest, trustRevision: 1 });
     expect(filesDigest(await consumer.collectArtifacts(receipt.artifactDigest))).toBe(receipt.artifactDigest);
@@ -80,7 +72,7 @@ test("rebuilds the exact immutable v4 source into a fresh real Podman runner and
     const worker = await consumer.start({ workerId: context.workerId, artifactDigest: receipt.artifactDigest, context, limits: executionLimits }, async () => { throw new Error("unexpected host call"); });
     try { expect(await worker.request("extension/invoke", { name: reference.export, input: { prepared: true }, context })).toEqual({ prepared: true }); }
     finally { await worker.close(); }
-    const restarted = new FactoryPackagePreparations(db, tenantId, grants, authority, new FactoryV4PackageCatalog(repository, blobs), consumer, buildLimits);
+    const restarted = new FactoryPackagePreparations(db, tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), consumer, buildLimits);
     expect(await restarted.prepare(projectId, reference)).toEqual(receipt);
   } finally {
     await consumer?.close();
