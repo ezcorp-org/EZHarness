@@ -22,7 +22,11 @@ const bytes = (size: number) => new Uint8Array(randomBytes(size));
 const sha256 = (value: Uint8Array) => createHash("sha256").update(value).digest("base64");
 const expectRejected = async (action: () => Promise<unknown>, message: string) => {
   try { await action(); }
-  catch { return; }
+  catch (error) {
+    const denial = error as { $metadata?: { httpStatusCode?: number } };
+    if (denial.$metadata?.httpStatusCode === 403) return;
+    throw error;
+  }
   throw new Error(message);
 };
 const bodyBytes = async (body: unknown) => {
@@ -47,6 +51,33 @@ const waitForReadAfterRestart = async (read: () => Promise<Uint8Array>) => {
   }
   throw new Error(`S3 remained unavailable after restart: ${(lastError as Error).name}`);
 };
+
+// Read denials target existing foreign objects, so a missing object or a
+// server failure cannot be mistaken for a successful authorization check.
+const tenantObjects: Array<{ tenant: string; kind: "ordinary" | "archive"; digest: string; content: Uint8Array }> = [];
+for (let number = 1; number <= 10; number += 1) {
+  const tenant = String(number).padStart(2, "0");
+  for (const kind of ["ordinary", "archive"] as const) {
+    const credentials = await tenantCredentials(kind, tenant);
+    const storageClient = client(kind, credentials);
+    const store = new S3BlobStore({ endpoint: endpoint(kind), bucket: `tenant-${tenant}`, prefix: kind, credentials, client: storageClient });
+    const content = bytes(128);
+    const tenantDigest = await store.put(content);
+    if (Buffer.compare(Buffer.from(await store.get(tenantDigest)), Buffer.from(content)) !== 0) throw new Error(`Tenant ${tenant} ${kind} round trip failed.`);
+    tenantObjects.push({ tenant, kind, digest: tenantDigest, content });
+    storageClient.destroy();
+  }
+}
+for (const object of tenantObjects) {
+  const other = String(Number(object.tenant) % 10 + 1).padStart(2, "0");
+  const foreign = tenantObjects.find((entry) => entry.tenant === other && entry.kind === object.kind)!;
+  const storageClient = client(object.kind, await tenantCredentials(object.kind, object.tenant));
+  const target = { Bucket: `tenant-${other}`, Key: `${object.kind}/${foreign.digest}` };
+  await expectRejected(() => storageClient.send(new PutObjectCommand({ ...target, Body: object.content })), `Tenant ${object.tenant} wrote tenant ${other} storage.`);
+  await expectRejected(() => storageClient.send(new GetObjectCommand(target)), `Tenant ${object.tenant} read tenant ${other} storage.`);
+  await expectRejected(() => storageClient.send(new DeleteObjectCommand(target)), `Tenant ${object.tenant} deleted tenant ${other} storage.`);
+  storageClient.destroy();
+}
 
 const ordinaryCredentials = await tenantCredentials("ordinary");
 const archiveCredentials = await tenantCredentials("archive");
@@ -92,4 +123,4 @@ await run(["compose", "-f", "compose.factory-storage.local.yml", "--profile", "f
 await run(["compose", "-f", "compose.factory-storage.local.yml", "--profile", "factory-storage", "up", "-d", "--wait", "factory-storage-ordinary"]);
 if (Buffer.compare(Buffer.from(await waitForReadAfterRestart(() => ordinary.get(digest))), Buffer.from(immutable)) !== 0) throw new Error("S3 object did not survive a service restart.");
 
-console.log("Factory local S3 conformance passed.");
+console.log("Factory local S3 conformance passed for 10 tenant identities across ordinary and archive storage.");

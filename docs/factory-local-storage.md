@@ -11,8 +11,11 @@ is required so a container-readable configuration cannot be exposed through
 `/tmp`.
 
 The ordinary and archive services have separate SeaweedFS volumes and separate
-credential files. Their S3 and admin ports bind to `127.0.0.1` by default. The
-script refuses a non-loopback bind address. Set the generated directory in
+credential file mounts. Each service can read only its own credential file.
+Each service has a 768 MiB memory limit, one CPU, and a 256-process limit. Their S3 and admin ports bind to `127.0.0.1` by default. The
+script permits only the IPv4 loopback bind address. It checks that the runtime
+directory is owned by the current user with mode 0700. Shutdown accepts only
+a generated credential directory with a matching ownership record. Set the generated directory in
 `EZCORP_FACTORY_STORAGE_SECRETS_DIR` before a later Compose command, then run
 `scripts/setup-factory-storage.sh down` to remove containers, volumes, and
 generated credentials.
@@ -25,5 +28,8 @@ separation only. They do not prove an independent replication or failure domain
 required for a deployed archive.
 
 Compose health confirms that the S3 gateway answers authorization requests.
+Run `bun scripts/verify-factory-storage.ts` with the generated credential
+directory exported to test all ten tenant identities, cross-tenant denials,
+conditional writes, multipart uploads, version reads, and restart persistence.
 After a restart, the conformance runner also waits for an object read because
 SeaweedFS registers durable volumes after its master election completes.
