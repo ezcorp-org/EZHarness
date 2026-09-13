@@ -1185,3 +1185,13 @@ Review: `71700a687` reuses the strict local storage provisioner in the required 
 Plan review: the accepted C02 contract specifies the private HTTPS boundary under test. Existing runner-attempt authorization remains in its handler. The shared transport supplies only the verified certificate and bounded bytes, and cannot derive authority from a request body.
 
 Transport review: seven socket tests and 70 assertions pass, including a real Node client, mTLS denial, exact 64 KiB response bytes, fragmented framing, extra-request termination and bounded failures. Shared transport and attempt gateway measure 70/70 and36/36 executable lines. All four type checks and lint pass after installing both root and web locked dependencies. Receipts are `/tmp/factory-platform-evidence/private-https-final-focused.log`, `private-https-final-coverage/lcov.info`, `private-https-types-with-web.log`, and `private-https-lint-corrected.log`. Purpose-scoped orchestration routes and full production startup remain open.
+
+
+## Assembled factory component validation
+
+- [x] Integrate protected map release facts, encrypted versioned artifacts, Node continuation readers, controlled release protocol and shared private HTTPS.
+- [x] Preserve all scoped database foreign keys and the approval generation index across integration.
+- [x] Run gate integrity, SDK build, real PostgreSQL/S3, canonical Node coverage, four type checks and lint together on frozen source.
+- [ ] Run full application regression and complete production service composition.
+
+Review: `/tmp/factory-platform-evidence/assembled-platform-results.json` records seven successful producers at8a21a81d9. The combined component suite passes50 cases/274 assertions. Actual PostgreSQL/S3 passes23 cases/1,349 assertions including exact schema references and complete run-lifecycle storage composition. The canonical Node producer passes and all11 registered orchestrator sources have complete measured lines. These receipts remain component proofs, not production startup, full regression, independent archive durability or a10-tenant soak.
