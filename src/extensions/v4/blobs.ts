@@ -14,6 +14,7 @@ export function digestBytes(bytes: Uint8Array): string {
 
 const MAX_BLOB_BYTES = 192 * 1024 * 1024;
 const S3_MIN_PART_BYTES = 5 * 1024 * 1024;
+const MAX_S3_KEY_BYTES = 1024;
 
 export interface S3BlobStoreOptions {
   endpoint: string;
@@ -30,6 +31,8 @@ interface S3ResponseBody {
   transformToByteArray(): Promise<Uint8Array>;
 }
 
+interface S3StreamBody extends AsyncIterable<Uint8Array> {}
+
 function validatedDigest(digest: string): string {
   if (!/^[a-f0-9]{64}$/.test(digest)) throw new LifecycleError("invalid_digest", "Invalid content digest.");
   return digest;
@@ -40,7 +43,11 @@ export function s3ObjectKey(prefix: string, digest: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(normalized) || normalized.includes("//") || normalized.split("/").some((part) => part === "." || part === "..")) {
     throw new LifecycleError("invalid_path", "S3 object storage needs a bounded relative prefix.");
   }
-  return `${normalized}/${validatedDigest(digest)}`;
+  const key = `${normalized}/${validatedDigest(digest)}`;
+  if (new TextEncoder().encode(key).byteLength > MAX_S3_KEY_BYTES) {
+    throw new LifecycleError("invalid_path", "S3 object storage key exceeds the S3 byte limit.");
+  }
+  return key;
 }
 
 function sha256Base64(bytes: Uint8Array): string {
@@ -58,12 +65,48 @@ function isConditionalConflict(error: unknown): boolean {
 
 function isMissing(error: unknown): boolean {
   const name = (error as { name?: string }).name;
-  return statusCode(error) === 404 || name === "NoSuchKey" || name === "NotFound";
+  return statusCode(error) === 404 || name === "NoSuchKey" || name === "NoSuchVersion" || name === "NotFound";
 }
 
-function bytesFromBody(body: unknown): Promise<Uint8Array> {
-  if (body && typeof (body as Partial<S3ResponseBody>).transformToByteArray === "function") return (body as S3ResponseBody).transformToByteArray();
-  throw new LifecycleError("artifact_corrupt", "Stored S3 content has no readable response body.");
+function boundedS3Length(length: number | undefined): void {
+  if (length !== undefined && (!Number.isSafeInteger(length) || length < 0 || length > MAX_BLOB_BYTES)) {
+    throw new LifecycleError("artifact_corrupt", "Stored S3 content has an invalid or oversized length.");
+  }
+}
+
+function isS3StreamBody(body: unknown): body is S3StreamBody {
+  return Boolean(body && typeof (body as Partial<S3StreamBody>)[Symbol.asyncIterator] === "function");
+}
+
+async function bytesFromBody(body: unknown, contentLength: number | undefined): Promise<Uint8Array> {
+  boundedS3Length(contentLength);
+  if (!isS3StreamBody(body) && (!body || typeof (body as Partial<S3ResponseBody>).transformToByteArray !== "function")) {
+    throw new LifecycleError("artifact_corrupt", "Stored S3 content has no readable response body.");
+  }
+  if (!isS3StreamBody(body)) {
+    const bytes = await (body as S3ResponseBody).transformToByteArray();
+    if (bytes.byteLength > MAX_BLOB_BYTES || (contentLength !== undefined && bytes.byteLength !== contentLength)) {
+      throw new LifecycleError("artifact_corrupt", "Stored S3 content has an invalid length.");
+    }
+    return bytes;
+  }
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  for await (const chunk of body) {
+    byteLength += chunk.byteLength;
+    if (byteLength > MAX_BLOB_BYTES) throw new LifecycleError("artifact_corrupt", "Stored S3 content exceeds the artifact byte limit.");
+    chunks.push(chunk);
+  }
+  if (contentLength !== undefined && byteLength !== contentLength) {
+    throw new LifecycleError("artifact_corrupt", "Stored S3 content has an invalid length.");
+  }
+  const bytes = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }
 
 export class S3BlobStore implements BlobStore {
@@ -80,7 +123,9 @@ export class S3BlobStore implements BlobStore {
     s3ObjectKey(this.prefix, "0".repeat(64));
     this.multipartThresholdBytes = options.multipartThresholdBytes ?? 8 * 1024 * 1024;
     this.multipartPartBytes = options.multipartPartBytes ?? S3_MIN_PART_BYTES;
-    if (this.multipartThresholdBytes < S3_MIN_PART_BYTES || this.multipartPartBytes < S3_MIN_PART_BYTES) throw new LifecycleError("artifact_corrupt", "S3 multipart limits must be at least five MiB.");
+    if (!Number.isSafeInteger(this.multipartThresholdBytes) || !Number.isSafeInteger(this.multipartPartBytes) || this.multipartThresholdBytes < S3_MIN_PART_BYTES || this.multipartPartBytes < S3_MIN_PART_BYTES || this.multipartThresholdBytes > MAX_BLOB_BYTES || this.multipartPartBytes > MAX_BLOB_BYTES) {
+      throw new LifecycleError("artifact_corrupt", "S3 multipart limits must be safe whole-byte values from five MiB through the artifact limit.");
+    }
     this.client = options.client ?? new S3Client({ endpoint: options.endpoint, region: options.region ?? "us-east-1", forcePathStyle: true, credentials: options.credentials });
   }
 
@@ -97,18 +142,18 @@ export class S3BlobStore implements BlobStore {
     await this.client.send(new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: bytes, IfNoneMatch: "*", ChecksumSHA256: checksum }));
   }
 
-  private async putMultipart(key: string, bytes: Uint8Array, checksum: string): Promise<void> {
+  private async putMultipart(key: string, bytes: Uint8Array): Promise<void> {
     const created = await this.client.send(new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ChecksumAlgorithm: "SHA256" }));
     if (!created.UploadId) throw new LifecycleError("artifact_corrupt", "S3 did not create a multipart upload.");
     try {
-      const parts: Array<{ ETag: string; PartNumber: number }> = [];
+      const parts: Array<{ ETag: string; PartNumber: number; ChecksumSHA256: string }> = [];
       for (let offset = 0, partNumber = 1; offset < bytes.byteLength; offset += this.multipartPartBytes, partNumber += 1) {
         const part = bytes.subarray(offset, Math.min(bytes.byteLength, offset + this.multipartPartBytes));
         const uploaded = await this.client.send(new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId, PartNumber: partNumber, Body: part, ChecksumSHA256: sha256Base64(part) }));
         if (!uploaded.ETag) throw new LifecycleError("artifact_corrupt", "S3 did not return a multipart part identity.");
-        parts.push({ ETag: uploaded.ETag, PartNumber: partNumber });
+        parts.push({ ETag: uploaded.ETag, PartNumber: partNumber, ChecksumSHA256: sha256Base64(part) });
       }
-      await this.client.send(new CompleteMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId, MultipartUpload: { Parts: parts }, IfNoneMatch: "*", ChecksumSHA256: checksum }));
+      await this.client.send(new CompleteMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId, MultipartUpload: { Parts: parts }, IfNoneMatch: "*" }));
     } catch (error) {
       await this.client.send(new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: created.UploadId })).catch(() => undefined);
       throw error;
@@ -120,7 +165,7 @@ export class S3BlobStore implements BlobStore {
     const digest = digestBytes(bytes);
     const key = this.key(digest);
     try {
-      if (bytes.byteLength >= this.multipartThresholdBytes) await this.putMultipart(key, bytes, sha256Base64(bytes));
+      if (bytes.byteLength >= this.multipartThresholdBytes) await this.putMultipart(key, bytes);
       else await this.putSingle(key, bytes, sha256Base64(bytes));
     } catch (error) {
       if (!isConditionalConflict(error)) throw error;
@@ -129,25 +174,26 @@ export class S3BlobStore implements BlobStore {
     return digest;
   }
 
-  async get(digest: string): Promise<Uint8Array> {
-    const key = this.key(digest);
+  private async getS3Object(digest: string, versionId?: string): Promise<Uint8Array> {
     try {
-      const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key, ChecksumMode: "ENABLED" }));
-      const bytes = await bytesFromBody(result.Body);
+      const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: this.key(digest), VersionId: versionId, ChecksumMode: "ENABLED" }));
+      const bytes = await bytesFromBody(result.Body, result.ContentLength);
       if (digestBytes(bytes) !== digest) throw new LifecycleError("artifact_corrupt", "Stored S3 content does not match its digest.");
       return bytes;
     } catch (error) {
+      if (error instanceof LifecycleError) throw error;
       if (isMissing(error)) throw new LifecycleError("artifact_missing", "Stored extension files are missing. Restore extension release storage from backup.");
       throw error;
     }
   }
 
+  async get(digest: string): Promise<Uint8Array> {
+    return this.getS3Object(digest);
+  }
+
   async getVersion(digest: string, versionId: string): Promise<Uint8Array> {
     if (!versionId) throw new LifecycleError("invalid_digest", "S3 version identity is required.");
-    const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: this.key(digest), VersionId: versionId, ChecksumMode: "ENABLED" }));
-    const bytes = await bytesFromBody(result.Body);
-    if (digestBytes(bytes) !== digest) throw new LifecycleError("artifact_corrupt", "Stored S3 version does not match its digest.");
-    return bytes;
+    return this.getS3Object(digest, versionId);
   }
 
   async checksum(digest: string): Promise<string | undefined> {
