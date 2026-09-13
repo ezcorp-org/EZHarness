@@ -285,7 +285,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const service = { tenantId, subject: "orchestration" };
     for (const forged of [false, true]) {
       const run = await startRun(principal, definitionKey, request, 0, `parent-authority-${forged}`);
-      const { identity, transitions, activities, compiled, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+      const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
       const command = first.commands.find(value => value.kind === "run-child");
       expect(command?.kind).toBe("run-child");
       if (command?.kind !== "run-child") throw new Error("missing child command");
