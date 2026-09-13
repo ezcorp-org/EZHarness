@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
+import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import { referenceCodeV1, validateFactoryApiResponse, createKernelState, advanceKernel, type FactoryDefinition, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
@@ -29,6 +31,13 @@ import { FactoryInbox } from "../../factory/inbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
 import { FactoryAssuranceCommands } from "../../factory/assurance-commands";
 import { FactoryReleases } from "../../factory/releases";
+import { FactoryPrivateCommands, type FactoryPrivateCommandStores } from "../../factory/private-commands";
+import { FactoryLazyCommands } from "../../factory/lazy-commands";
+import { FactoryLazyInputReader } from "../../factory/lazy-input";
+import { FactoryArtifactAccess } from "../../factory/artifact-access";
+import { startFactoryPrivateService } from "../../factory/private-service";
+import { FactoryTransportQueue } from "../../factory/transport-queue";
+import { certificates, nodeHttpsRequest, signedServiceToken } from "./factory-certificates";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
@@ -57,6 +66,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   const cancelRun = async (...args: Parameters<FactoryRunLifecycle["cancel"]>) => (await lifecycle.cancel(...args)).run;
   const dispatchReady = { async assertDispatchReady() { return Object.freeze({ ready: true }); } };
   const dispatchReadinessDisposition = (error: unknown): "retry" | "deny" => error instanceof Error && error.message === "package denied" ? "deny" : "retry";
+  const privateCommands = (authority: FactoryCommandAuthority, transitions: FactoryTransitionArtifacts, stores: Partial<Pick<FactoryPrivateCommandStores, "tasks" | "execution" | "inputs" | "children" | "approvals">>) => {
+    const unused = async (): Promise<never> => { throw new Error("Unexpected product command in this fixture."); };
+    return new FactoryPrivateCommands({
+      service: { tenantId, subject: "orchestration" }, authority, transitions,
+      tasks: { request: unused }, execution: { admit: unused }, inputs: { execute: unused }, children: { resolve: unused }, approvals: { tenantId, execute: unused },
+      effects: { "cancel-node": unused, "request-acceptance": unused, "request-release": unused, "invalidate-partition": unused, "notify-partition": unused }, ...stores,
+    });
+  };
   const start = () => startRun(principal, key, body, 0, `start-${++sequence}`);
   const taskAdmissions = (authority: FactoryCommandAuthority, profiles: Readonly<Record<string, FactoryTaskResourceProfile>>) => {
     const unavailable = async (): Promise<never> => { throw new Error("This fixture admits product facts without calling a remote pool."); };
@@ -86,6 +103,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const reference = { ...identity, commandId: admission.id };
     const service = { tenantId, subject: "orchestration" };
     const profile = { resources: { cpu: 1 }, memoryBytes: 128, budget: { costMicros: "5", tokens: 6, computeMs: 7 } };
+    expect(await privateCommands(authority, transitions, { tasks: taskAdmissions(authority, { cpu: profile }) }).execute(service, reference)).toBeNull();
     const reserved = await taskAdmissions(authority, { cpu: profile }).request(service, reference);
     expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
     expect(await taskAdmissions(authority, { cpu: profile }).request(service, reference)).toEqual(reserved);
@@ -117,6 +135,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");
     const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: taskNode.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: taskNode.capabilities ?? [], tools: [] }], "factory-broker");
     const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
+    expect(await privateCommands(task.authority, task.transitions, { execution }).execute(task.service, task.dispatchReference)).toBeNull();
     const admitted = await execution.admit(task.service, task.dispatchReference);
     const { FactoryTaskCompletions } = await import("../../factory/task-completions");
     const completions = new FactoryTaskCompletions(fixture.db, task.authority, task.admissions, task.journal, task.queue, new FactoryArtifacts(fixture.db, objectStore, tenantId), lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), () => now);
@@ -149,6 +168,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await persistTransition(current.identity, 1, current.event, current.first.nextState, current.first.commands, undefined, current.activities);
     const releases = new FactoryReleases(fixture.db, tenantId, grants, { tenantId } as never, {} as never, {} as never, {} as never, {} as never, {} as never, () => now, 10_000, { authority: current.authority, service: { tenantId, subject: "orchestration" } });
     const approvals = new FactoryAssuranceCommands(fixture.db, tenantId, grants, current.authority, new FactoryInbox(fixture.db, tenantId, () => now), releases, { tenantId, subject: "orchestration" }, () => now);
+    expect(await privateCommands(current.authority, current.transitions, { approvals }).execute({ tenantId, subject: "orchestration" }, reference)).toBeNull();
     expect(await approvals.execute(reference)).toBeNull();
     expect((await releases.deliverNextNotification(projectId))?.kind).toBe("command_approval_requested");
     const visible = await releases.listDeliveredNotifications(principal, projectId, { limit: 200 });
@@ -689,12 +709,13 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const children = new FactoryChildRuns(fixture.db, tenantId, authority, lifecycle, transitions);
     const service = { tenantId, subject: "orchestration" };
     const reference = { ...identity, commandId: command.id, factory: command.factory };
-    const staged = await children.resolve(service, reference);
+    const router = privateCommands(authority, transitions, { children });
+    const staged = await router.resolveFactory(service, reference);
     expect(staged.definitionDigest).toBe(child.digest);
     const childRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${run.runId} AND parent_command_id=${command.id}`))[0]!.child_run_id;
     expect(childRunId).toMatch(/^child-[a-f0-9]{64}$/);
     expect(rows(await fixture.db.execute(sql`SELECT logical_run_id FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id=${childRunId}`))).toEqual([]);
-    expect(await children.resolve(service, reference)).toEqual(staged);
+    expect(await router.resolveFactory(service, reference)).toEqual(staged);
     expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" } });
     expect(await lifecycle.budgets.inspect({ projectId, runId: childRunId, envelopeId: "root" })).toMatchObject({ limits: { tokens: "100" } });
     const childStartedAtMs = await fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: childRunId }));
@@ -866,12 +887,16 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       const reference = { ...identity, commandId: command.id };
       const commands = first.commands.map(value => substituted && value.id === command.id ? { ...command, path: ["private"] } : value);
       await persistTransition(identity, 1, event, first.nextState, commands, undefined, activities);
+      const inputs = new FactoryLazyCommands(authority, new FactoryLazyInputReader(fixture.db, tenantId, artifacts, new FactoryArtifactAccess(fixture.db, tenantId, grants, artifacts), grants, () => now));
+      const router = privateCommands(authority, transitions, { inputs });
       if (substituted) {
-        await expect(authority.withCurrentInput(service, reference, async () => "read")).rejects.toMatchObject({ code: "factory_command_stale" });
+        await expect(router.execute(service, reference)).rejects.toMatchObject({ code: "factory_command_stale" });
       } else {
         expect(await authority.withCurrentInput(service, reference, async (_transaction, context) => context.command)).toEqual(command);
         await expect(authority.withCurrent(service, reference, async () => "task")).rejects.toMatchObject({ code: "factory_command_forbidden" });
-        const read = { kind: "input-value-read", id: `${command.id}:value`, atMs: now + 1, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: command.path, storageVersion: "immutable-version", mediaType: "application/json", value: "stored value" } as const;
+        const read = await router.execute(service, reference);
+        expect(read).toMatchObject({ kind: "input-value-read", value: "stored value", artifact });
+        if (!read) throw new Error("missing input result");
         const next = advanceKernel(compiled, first.nextState, read);
         await persistTransition(identity, 2, read, next.nextState, next.commands, undefined, activities);
         await expect(authority.withCurrentInput(service, reference, async () => "read")).rejects.toMatchObject({ code: "factory_command_stale" });
@@ -1307,5 +1332,40 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const deadline = await start();
     now += duration;
     await expect(fixture.db.transaction(tx => lifecycle.authorizeAdmissionInTransaction(tx, runKey(deadline.runId)))).rejects.toMatchObject({ code: "factory_run_stopped" });
+  });
+
+  test("the real private Node connection admits only the committed task and exact durable request", async () => {
+    const task = await dispatchedTask();
+    const node = task.compiled.indexes.nodeById[task.dispatch.nodeId];
+    if (node?.kind !== "task") throw new Error("missing task node");
+    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: node.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: [], tools: [] }], "factory-broker");
+    const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
+    const directories: string[] = [];
+    let server: ReturnType<typeof startFactoryPrivateService> | undefined;
+    try {
+      const certs = await certificates(directories, "orchestration");
+      const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+      const issuer = "factory-command-fixture";
+      const audience = "factory-private-service";
+      const token = signedServiceToken(keys.privateKey, { sub: "orchestration", iss: issuer, aud: audience, exp: Math.floor(Date.now() / 1000) + 60, scope: ["factory:orchestrate"] });
+      server = startFactoryPrivateService({
+        tenantId, certificateIdentity: "orchestration", tls: { ca: certs.ca, cert: certs.serverCert, key: certs.serverKey },
+        tokens: async () => ({ issuer, audience, publicKeys: { test: keys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
+        queue: new FactoryTransportQueue(new FactoryCommandOutbox(fixture.db, tenantId, projectId), new FactoryInbox(fixture.db, tenantId)),
+        artifacts: task.activities, commands: privateCommands(task.authority, task.transitions, { execution }),
+      });
+      const url = `${server.url}/internal/factory/v1/executions/${encodeURIComponent(task.dispatch.id)}`;
+      const body = { ...task.identity, command: { ...task.dispatch, input: { forged: true }, runner: { package: "untrusted" }, grants: ["admin"], resources: { memoryBytes: 999999 } } };
+      expect((await nodeHttpsRequest(url, certs, { method: "PUT", token: "invalid", body })).status).toBe(401);
+      expect(await fixture.db.transaction(tx => task.queue.readStoredInTransaction(tx, projectId, task.dispatch.id))).toBeNull();
+      for (let retry = 0; retry < 2; retry++) expect((await nodeHttpsRequest(url, certs, { method: "PUT", token, body })).status).toBe(204);
+      const stored = await fixture.db.transaction(tx => task.queue.readStoredInTransaction(tx, projectId, task.dispatch.id));
+      expect(stored?.request).toMatchObject({ runner: node.runner, input: { kind: "inline", value: task.dispatch.input }, grants: [], resources: { memoryBytes: 128 }, authority: { attemptId: task.dispatch.id, tenantId, projectId, runId: task.run.runId } });
+      expect((await nodeHttpsRequest(url, certs, { method: "PUT", token, body: { ...body, tenantId: "foreign" } })).status).toBe(403);
+      expect(await fixture.db.transaction(tx => task.queue.readStoredInTransaction(tx, projectId, task.dispatch.id))).toEqual(stored);
+    } finally {
+      server?.stop();
+      await Promise.all(directories.map(directory => rm(directory, { recursive: true, force: true })));
+    }
   });
 }
