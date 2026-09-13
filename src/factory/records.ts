@@ -66,7 +66,12 @@ function auditId(tenantId: string, projectId: string, runId: string, kind: strin
 type AuditRow = { interpreter_id: string; source_sequence: string | number; sequence: string | number; predecessor_digest: string | null; digest: string; payload: string };
 
 function batchFromRow(tenantId: string, key: FactoryRunKey, row: AuditRow): FactoryAuditBatch {
-  return { tenantId, projectId: key.projectId, runId: key.runId, interpreterId: row.interpreter_id, sourceSequence: Number(row.source_sequence), sequence: Number(row.sequence), predecessorDigest: row.predecessor_digest, digest: row.digest, payload: JSON.parse(row.payload) };
+  const input = { tenantId, projectId: key.projectId, runId: key.runId, interpreterId: row.interpreter_id, sourceSequence: Number(row.source_sequence), predecessorDigest: row.predecessor_digest, payload: JSON.parse(row.payload) };
+  const sequence = Number(row.sequence);
+  positive(input.sourceSequence);
+  positive(sequence);
+  if (digestObject(input) !== row.digest) throw new FactoryRecordError("factory_audit_corrupt");
+  return { ...input, sequence, digest: row.digest };
 }
 
 /** Product facts and recoverable projections. This repository does not schedule work. */
