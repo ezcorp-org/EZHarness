@@ -80,6 +80,10 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
   await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
   expect(await journal.operation(attempt, first.operationId)).toEqual({ state: "completed", result: { output: "first" } });
+  expect(await journal.operations(attempt)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ operationId: first.operationId, operationIndex: 0, state: "completed", resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } }),
+    expect.objectContaining({ operationId: ahead.operationId, operationIndex: 1, state: "completed", resultDigest: "ahead" }),
+  ]));
   expect(await journal.status(attempt)).toMatchObject({ terminalResult: { output: "ahead" }, workspaceCheckpoint: { revision: "checkpoint-2" } });
   await journal.prepare(attempt, first);
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
