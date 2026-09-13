@@ -73,6 +73,20 @@ describe("factory kernel", () => {
     expect(stopped.nextState.status).toBe("stopping");
     expect(stopped.nextState.unresolvedUncertainNodeIds).toEqual(["only"]);
   });
+
+  test("cancelling a map stops admitted items and never opens a blocked index", () => {
+    const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
+    const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two", "three"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 3, maxConcurrency: 1 };
+    const graph = compiled([map], { result: { kind: "ref", root: "node", name: "map" } });
+    const started = advanceKernel(graph, createKernelState(graph, "cancel-map", {}, 0), event("start", { kind: "start" }));
+    const admission = started.commands.find((command) => command.kind === "request-admission")!;
+    const admitted = advanceKernel(graph, started.nextState, event("admit", { kind: "admission-result", nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: 0, granted: true }));
+    const cancelled = advanceKernel(graph, admitted.nextState, event("cancel", { kind: "cancel", reason: "user" }));
+    expect(cancelled.nextState.status).toBe("stopping");
+    expect(cancelled.commands.some((command) => command.kind === "cancel-node" && command.nodeId === "map/items/0/item")).toBe(true);
+    expect(cancelled.nextState.nodes["map/items/1/item"]?.status).toBe("cancelled");
+    expect(cancelled.nextState.nodes["map/items/2/item"]?.status).toBe("cancelled");
+  });
 });
 
 void ({} as JsonValue);

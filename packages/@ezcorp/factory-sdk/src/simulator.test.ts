@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { advanceKernel, createKernelState } from "./kernel";
 import { simulateFactory } from "./simulator";
 import type { CompiledFactory } from "./types";
 
@@ -69,4 +70,29 @@ test("collect records one failed index and continues the other indexed items", (
   expect(result.state.status).toBe("completed");
   expect(result.state.nodes.map?.output).toEqual([{ error: "first failed" }, "second", "third"]);
   expect(result.commands.filter((command) => command.kind === "dispatch-node").map((command) => command.nodeId)).toEqual(["map/items/0/item", "map/items/1/item", "map/items/2/item"]);
+});
+
+test("all-mode map failure fails the enclosing run and stops active item attempts", () => {
+  const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
+  const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 2, maxConcurrency: 2 };
+  const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "map" } } } }, indexes: { nodeById: { map }, successors: { map: [] }, dependencyCounts: { map: 0 } } };
+  let state = advanceKernel(factory, createKernelState(factory, "all-failure", {}, 0), { kind: "start", id: "start", atMs: 0 }).nextState;
+  const firstAdmission = state.nodes["map/items/0/item"]!.attempts[0]!.commandId;
+  state = advanceKernel(factory, state, { kind: "admission-result", id: "admit-0", atMs: 0, nodeId: "map/items/0/item", commandId: firstAdmission, candidateGeneration: 0, granted: true }).nextState;
+  const secondAdmission = state.nodes["map/items/1/item"]!.attempts[0]!.commandId;
+  state = advanceKernel(factory, state, { kind: "admission-result", id: "admit-1", atMs: 0, nodeId: "map/items/1/item", commandId: secondAdmission, candidateGeneration: 0, granted: true }).nextState;
+  const firstDispatch = state.nodes["map/items/0/item"]!.attempts[0]!.commandId;
+  const failed = advanceKernel(factory, state, { kind: "node-failed", id: "failed", atMs: 1, nodeId: "map/items/0/item", commandId: firstDispatch, candidateGeneration: 0, attempt: 1, error: "bad item" });
+  const stopped = advanceKernel(factory, failed.nextState, { kind: "attempt-stopped", id: "stopped", atMs: 1, nodeId: "map/items/0/item", commandId: firstDispatch, candidateGeneration: 0, attempt: 1 });
+  expect(stopped.nextState.status).toBe("stopping");
+  expect(stopped.commands.some((command) => command.kind === "cancel-node" && command.nodeId === "map/items/1/item")).toBe(true);
+});
+
+test("an item keeps its map concurrency slot until its whole multi-node body completes", () => {
+  const body = { nodes: [{ id: "first", kind: "task" as const, runner }, { id: "second", kind: "task" as const, runner, dependsOn: ["first"] }], outputs: {} };
+  const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 2, maxConcurrency: 1 };
+  const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "map" } } } }, indexes: { nodeById: { map }, successors: { map: [] }, dependencyCounts: { map: 0 } } };
+  const dispatched: string[] = [];
+  simulateFactory(factory, "multi-body", {}, { execute: (_node, command) => { dispatched.push(command.nodeId); return { kind: "success", output: command.nodeId }; } });
+  expect(dispatched).toEqual(["map/items/0/first", "map/items/0/second", "map/items/1/first", "map/items/1/second"]);
 });

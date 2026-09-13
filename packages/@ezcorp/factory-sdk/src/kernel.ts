@@ -369,7 +369,7 @@ function failNode(factory: CompiledFactory, state: KernelState, node: FactoryNod
 
 function beginStopping(state: KernelState, reason: string, commands: KernelCommand[], cancelled: boolean): KernelState {
   if (state.status === "stopping") return state;
-  let next: KernelState = { ...state, status: "stopping", cancellationEpoch: state.cancellationEpoch + 1 };
+  let next: KernelState = { ...state, status: "stopping", cancellationEpoch: state.cancellationEpoch + (cancelled ? 1 : 0) };
   for (const [nodeId, runtime] of Object.entries(next.nodes)) {
     const active = runtime.attempts.filter((attempt) => !attempt.stopped);
     if (active.length === 0) continue;
@@ -582,6 +582,15 @@ function successorsFor(factory: CompiledFactory, nodeId: string): readonly strin
   const scope = nodeId.slice(0, separator);
   const node = nodeFor(factory, nodeId);
   if (!node) return [];
+  const itemMarker = "/items/";
+  const itemAt = scope.indexOf(itemMarker);
+  if (itemAt >= 0) {
+    const parentId = scope.slice(0, itemAt);
+    const item = scope.slice(itemAt + itemMarker.length);
+    const parent = nodeFor(factory, parentId);
+    if (!parent || (parent.kind !== "map" && parent.kind !== "loop")) return [];
+    return parent.body.nodes.filter((candidate) => (candidate.dependsOn ?? []).includes(node.id)).map((candidate) => `${parentId}/items/${item}/${candidate.id}`);
+  }
   const parts = scope.split("/");
   let graph = factory.definition.graph;
   for (let index = 0; index < parts.length; index += 2) {
