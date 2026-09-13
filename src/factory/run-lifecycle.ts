@@ -10,7 +10,7 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryAttemptAuthority } from "./executions";
 import type { FactoryDefinitions, FactoryDefinitionKey } from "./definitions";
-import type { FactoryGrants, FactoryPrincipal } from "./grants";
+import { FactoryGrantError, type FactoryGrants, type FactoryPrincipal } from "./grants";
 import { FactoryBudgets, type FactoryBudgetAdmission } from "./budgets";
 import { FactoryMutations } from "./mutations";
 import { FactoryInbox } from "./inbox";
@@ -37,7 +37,7 @@ export interface FactoryRunLifecycleOptions {
   readonly interpreterCompatibility: string;
   readonly limits: Required<BudgetBounds>;
   /** Stages immutable artifacts through the configured storage service; no effects. */
-  readonly stageDefinition: (compiled: CompiledFactory, identity: FactoryIdentity) => Promise<FactoryDefinitionSource>;
+  readonly stageDefinitionInTransaction: (transaction: MigrationDb, compiled: CompiledFactory, identity: FactoryIdentity) => Promise<FactoryDefinitionSource>;
   /** Resolves host-issued artifact handles and validates their scoped bytes. */
   readonly resolveParameters: (transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, parameters: FactoryRunStartBody["parameters"]) => Promise<JsonValue>;
 }
@@ -85,11 +85,11 @@ export class FactoryRunLifecycle {
       if (!Number.isSafeInteger(startedAtMs) || startedAtMs < 0 || !Number.isSafeInteger(deadlineAtMs)) throw new FactoryRunLifecycleError("factory_deadline_invalid");
       const runId = crypto.randomUUID();
       const identity = { tenantId: this.tenantId, projectId: key.projectId, logicalRunId: runId, interpreterId: "root" };
-      const definition = await this.options.stageDefinition(compiled, identity);
-      if (definition.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
-      const workflowInput = JSON.parse(encodeFactoryPayload({ ...identity, startedAtMs, deadlineAtMs, definition, input })) as JsonValue;
       const installation = (await lockFactoryScope(transaction, this.tenantId, key.projectId, "write"))!;
       await this.records.createRunInTransaction(transaction, { projectId: key.projectId, runId, definitionDigest: body.definitionDigest, interpreterBuild: this.options.interpreterBuild, executionEpoch: installation.executionEpoch, input, principalId: principal.id, principalKind: principal.kind }, async tx => {
+        const definition = await this.options.stageDefinitionInTransaction(tx, compiled, identity);
+        if (definition.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
+        const workflowInput = JSON.parse(encodeFactoryPayload({ ...identity, startedAtMs, deadlineAtMs, definition, input })) as JsonValue;
         await tx.execute(sql`INSERT INTO factory_run_lifecycle (tenant_id, project_id, run_id, factory_id, factory_version, definition_digest, grant_revision, status, deadline_ms, parameters_json, parameters_digest) VALUES (${this.tenantId}, ${key.projectId}, ${runId}, ${key.factoryId}, ${body.factoryVersion}, ${body.definitionDigest}, ${body.grantRevision}, 'queued', ${deadlineAtMs}, ${encodeFactoryPayload(body.parameters)}, ${digestObject(body.parameters)})`);
         await this.budgets.openEnvelopeInTransaction(tx, { projectId: key.projectId, runId, envelopeId: "root", limits: this.options.limits, deadlineAtMs });
         await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).enqueueInTransaction(tx, { kind: "start_run", projectId: key.projectId, logicalRunId: runId, interpreterId: "root", body: workflowInput });
@@ -115,7 +115,7 @@ export class FactoryRunLifecycle {
       await this.inbox.enqueueInTransaction(transaction, { ...key, interpreterId: "root" }, { kind: "cancel", id: eventId, atMs: this.now(), reason });
       await insertTransactionalAuditEntry(transaction, eventId, principal.kind === "user" ? principal.id : null, "factory.run.cancel.requested", key.runId, { tenantId: this.tenantId, projectId: key.projectId, cancellationEpoch: epoch, reason, principalId: principal.id, principalKind: principal.kind });
       return details(key, await this.row(transaction, key));
-    });
+    }, transaction => this.authorizeCancellation(transaction, principal, key));
   }
 
   async read(principal: FactoryPrincipal, key: FactoryRunKey): Promise<FactoryRunDetails> {
@@ -151,6 +151,21 @@ export class FactoryRunLifecycle {
     const fence = await this.authorizeRunInTransaction(transaction, { projectId: authority.projectId, runId: authority.runId });
     if (authority.cancellationEpoch !== fence.cancellationEpoch || authority.executionEpoch !== fence.executionEpoch || authority.grantRevision !== fence.grantRevision || !Number.isSafeInteger(authority.deadlineAt.getTime()) || authority.deadlineAt.getTime() <= this.now() || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new FactoryRunLifecycleError("factory_run_fence_changed");
   };
+
+  private async authorizeCancellation(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryRunKey): Promise<void> {
+    await this.options.grants.authorizeInTransaction(transaction, principal, key.projectId, "read");
+    const row = await this.row(transaction, key, true);
+    const request = await this.records.readRunRequestInTransaction(transaction, key);
+    if (request.principalId === principal.id && (request.principalKind ?? "user") === principal.kind) {
+      try {
+        await this.options.grants.authorizeInTransaction(transaction, principal, key.projectId, "factory.run", Number(row.grant_revision));
+        return;
+      } catch (error) {
+        if (!(error instanceof FactoryGrantError) || !["factory_forbidden", "factory_grant_stale"].includes(error.code)) throw error;
+      }
+    }
+    await this.options.grants.authorizeInTransaction(transaction, principal, key.projectId, "factory.operate");
+  }
 
   private async row(transaction: MigrationDb, key: FactoryRunKey, lock = false): Promise<LifecycleRow> {
     assertFactoryIdentity(key.projectId, key.runId);

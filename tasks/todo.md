@@ -1082,3 +1082,14 @@ Review: `/tmp/factory-platform-evidence/terminal-pool-provisioning-results.json`
 ### Review
 
 `stageInTransaction` and `stageDefinitionInTransaction` preserve the factory-run foreign key without an inner commit. A 576 KiB C08 transition cap now contains one command batch plus one state payload, while every page and manifest remains at most 32 KiB. Transition recording delegates to `FactoryInbox.commitTransitionInTransaction`, so the audit and exact inbox receipt either commit together or both roll back. PGlite and PostgreSQL/S3 proofs cover forced outer rollback, 40 KiB activity-produced transitions, corruption, index/length/identity/event-digest denial, wrong inbox identity, and concurrent retries. Typecheck, lint, package Node tests, and focused measured coverage pass.
+
+## Run lifecycle and immutable artifact composition
+
+- [x] Reproduce the real PostgreSQL artifact/run foreign-key failure and run-initiator cancellation denial.
+- [x] Stage the immutable definition after run creation in the same transaction, preserving all rollback semantics.
+- [x] Allow current initiators or operators to cancel; prove revoked grants, expired service accounts, foreign initiators and storage failure denials.
+- [x] Model the artifact/run foreign key and compare exact modeled FK columns and delete rules against PostgreSQL.
+- [x] Exercise the complete lifecycle conformance suite with PostgreSQL and local S3.
+- [x] Run combined artifact/inbox/lifecycle coverage, all four typecheck legs and full lint on frozen source.
+
+Review: `/tmp/factory-platform-evidence/lifecycle-artifacts-results.json` records all eight checks at exit zero. The component suite passes 25 cases; PostgreSQL suites pass 36 cases, including 10 full lifecycle cases using local S3. Measured executable lines are complete for lifecycle121/121, artifacts72/72, definition artifacts72/72, transition artifacts49/49, activities10/10, inbox90/90 and both new artifact migrations. All application database model lines are covered. Full platform boot, run routes, runtime effect composition and overall acceptance gates remain pending.

@@ -1,17 +1,19 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { canonicalJson } from "@ezcorp/extension-contract";
 import { referenceCodeV1, validateFactoryApiResponse, type FactoryDefinition, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
+import type { BlobStore } from "../../extensions/v4/types";
 import { digestBytes } from "../../extensions/v4/blobs";
+import { FactoryArtifacts } from "../../factory/artifacts";
+import { FactoryDefinitionArtifacts } from "../../factory/definition-artifacts";
 import { FactoryDefinitions } from "../../factory/definitions";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../factory/run-lifecycle";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
 
-export function factoryRunLifecycleConformance(create: () => Promise<{ db: TransactionalDb; close(): Promise<void> }>): void {
+export function factoryRunLifecycleConformance(create: () => Promise<{ db: TransactionalDb; blobs?: BlobStore; close(): Promise<void> }>): void {
   let fixture: Awaited<ReturnType<typeof create>>;
   let definitions: FactoryDefinitions;
   let grants: FactoryGrants;
@@ -41,17 +43,16 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('lifecycle-membership', ${projectId}, ${principal.id}, 'owner')`);
     grants = new FactoryGrants(fixture.db, tenantId, () => now);
     for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate"] as const) await grants.set(principal, { principal, projectId, action, expectedRevision: 0, expiresAtMs: null });
-    definitions = new FactoryDefinitions(fixture.db, tenantId, grants, blobs);
+    const objectStore = fixture.blobs ?? blobs;
+    definitions = new FactoryDefinitions(fixture.db, tenantId, grants, objectStore);
     const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: key.factoryId };
     await definitions.save(principal, key, 0, "definition-create", source);
     const version = await definitions.publish(principal, key, 1, "definition-publish");
     const parameters = Object.fromEntries(Object.entries(source.inputPorts).map(([name, schema]) => [name, { kind: "inline" as const, value: schema.type === "object" ? {} : "test value" }]));
     body = { factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: 1, parameters };
-    options = { definitions, grants, interpreterBuild: "kernel-build-immutable", interpreterCompatibility: source.interpreterCompatibility, limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 }, async stageDefinition(compiled, identity) {
+    options = { definitions, grants, interpreterBuild: "kernel-build-immutable", interpreterCompatibility: source.interpreterCompatibility, limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 }, async stageDefinitionInTransaction(transaction, compiled, identity) {
       stages++;
-      const bytes = new TextEncoder().encode(canonicalJson({ compiled, identity }));
-      const digest = await blobs.put(bytes);
-      return { definitionDigest: compiled.digest, definitionEncodedBytes: bytes.byteLength, manifest: { objectId: digest, digest: `sha256:${digest}`, encodedBytes: bytes.byteLength } };
+      return new FactoryDefinitionArtifacts(new FactoryArtifacts(fixture.db, objectStore, tenantId)).stageDefinitionInTransaction(transaction, compiled, identity);
     }, async resolveParameters(_transaction, _principal, _key, parameters) {
       return Object.fromEntries(Object.entries(parameters).map(([name, value]) => {
         if (value.kind !== "inline") throw new Error("fixture has no artifact input");
@@ -79,6 +80,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("outbox failure rolls back run, budget, audit and mutation receipt", async () => {
     const before = rows(await fixture.db.execute(sql`SELECT run_id FROM factory_runs`)).length;
+    const artifactsBefore = rows(await fixture.db.execute(sql`SELECT object_id FROM factory_artifacts`)).length;
     await fixture.db.execute(sql`CREATE FUNCTION reject_lifecycle_command() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'command failed'; END $$`);
     await fixture.db.execute(sql`CREATE TRIGGER reject_lifecycle_command BEFORE INSERT ON factory_command_outbox FOR EACH ROW EXECUTE FUNCTION reject_lifecycle_command()`);
     try { await expect(lifecycle.start(principal, key, body, 0, "rollback-start")).rejects.toThrow(); }
@@ -88,8 +90,44 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     }
     expect(rows(await fixture.db.execute(sql`SELECT run_id FROM factory_runs`))).toHaveLength(before);
     expect(rows(await fixture.db.execute(sql`SELECT run_id FROM factory_budget_envelopes`))).toHaveLength(before);
+    expect(rows(await fixture.db.execute(sql`SELECT object_id FROM factory_artifacts`))).toHaveLength(artifactsBefore);
     expect(rows(await fixture.db.execute(sql`SELECT idempotency_key FROM factory_mutation_receipts WHERE idempotency_key='rollback-start'`))).toEqual([]);
     expect((await lifecycle.start(principal, key, body, 0, "rollback-start")).status).toBe("queued");
+  });
+
+  test("current initiators can cancel without operate authority; other members and revoked initiators cannot", async () => {
+    const actor: FactoryPrincipal = { kind: "user", id: "run-only-member", authentication: "api-key" };
+    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${actor.id}, 'run-only@example.test', 'not-a-login', 'Run only', 'user')`);
+    await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('run-only-membership', ${projectId}, ${actor.id}, 'member')`);
+    await grants.set(principal, { principal: actor, projectId, action: "factory.run", expectedRevision: 0, expiresAtMs: null });
+    const owned = await lifecycle.start(actor, key, body, 0, "run-only-start");
+    const other = await start();
+    await expect(lifecycle.cancel(actor, runKey(other.runId), 1, "cancel-other")).rejects.toMatchObject({ code: "factory_forbidden" });
+    expect((await lifecycle.cancel(actor, runKey(owned.runId), 1, "cancel-owned")).status).toBe("cancelling");
+    await grants.revoke(principal, { principal: actor, projectId, action: "factory.run", expectedRevision: 1 });
+    await expect(lifecycle.cancel(actor, runKey(owned.runId), 1, "cancel-owned")).rejects.toMatchObject({ code: "factory_forbidden" });
+    await grants.set(principal, { principal: actor, projectId, action: "factory.operate", expectedRevision: 0, expiresAtMs: null });
+    expect((await lifecycle.cancel(actor, runKey(owned.runId), 1, "cancel-owned")).status).toBe("cancelling");
+    expect((await lifecycle.cancel(actor, runKey(other.runId), 1, "cancel-other")).status).toBe("cancelling");
+  });
+
+  test("service initiator expiry and grant storage failures cannot bypass cancellation authority", async () => {
+    const service: FactoryPrincipal = { kind: "service", id: "run-service", authentication: "service" };
+    await fixture.db.execute(sql`INSERT INTO service_accounts(id,name,created_by_user_id,project_id,max_tokens_per_day,expires_at) VALUES (${service.id}, 'run-service', ${principal.id}, ${projectId}, 100, ${new Date(now + duration)})`);
+    await grants.set(principal, { principal: service, projectId, action: "factory.run", expectedRevision: 0, expiresAtMs: now + duration });
+    const run = await lifecycle.start(service, key, body, 0, "service-start");
+    expect((await lifecycle.cancel(service, runKey(run.runId), 1, "service-cancel")).status).toBe("cancelling");
+    await fixture.db.execute(sql`UPDATE service_accounts SET expires_at=${new Date(now)} WHERE id=${service.id}`);
+    await expect(lifecycle.cancel(service, runKey(run.runId), 1, "service-cancel")).rejects.toMatchObject({ code: "factory_forbidden" });
+    const userRun = await start();
+    const original = grants.authorizeInTransaction.bind(grants);
+    const authorization = spyOn(grants, "authorizeInTransaction").mockImplementation((transaction, actor, project, action, revision) => {
+      if (action === "factory.run") throw new Error("grant storage unavailable");
+      return original(transaction, actor, project, action, revision);
+    });
+    try { await expect(lifecycle.cancel(principal, runKey(userRun.runId), 1, "storage-denied")).rejects.toThrow("grant storage unavailable"); }
+    finally { authorization.mockRestore(); }
+    expect((await lifecycle.read(principal, runKey(userRun.runId))).status).toBe("queued");
   });
 
   test("cancellation fences admission, retains unknown holds and is atomic with its decision", async () => {
@@ -178,7 +216,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(() => new FactoryRunLifecycle(fixture.db, "foreign", options)).toThrow("factory_scope_mismatch");
     const invalidClock = new FactoryRunLifecycle(fixture.db, tenantId, options, () => Number.MAX_SAFE_INTEGER);
     await expect(invalidClock.start(principal, key, body, 0, "bad-clock")).rejects.toMatchObject({ code: "factory_deadline_invalid" });
-    const wrongStage = new FactoryRunLifecycle(fixture.db, tenantId, { ...options, stageDefinition: async (compiled, identity) => ({ ...await options.stageDefinition(compiled, identity), definitionDigest: `sha256:${"d".repeat(64)}` }) }, () => now);
+    const wrongStage = new FactoryRunLifecycle(fixture.db, tenantId, { ...options, stageDefinitionInTransaction: async (transaction, compiled, identity) => ({ ...await options.stageDefinitionInTransaction(transaction, compiled, identity), definitionDigest: `sha256:${"d".repeat(64)}` }) }, () => now);
     await expect(wrongStage.start(principal, key, body, 0, "wrong-stage")).rejects.toMatchObject({ code: "factory_definition_conflict" });
     const run = await start(); const scoped = runKey(run.runId);
     await expect(lifecycle.read(principal, runKey("missing"))).rejects.toMatchObject({ code: "factory_run_not_found" });

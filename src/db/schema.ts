@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, foreignKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { buildFactorySchema } from "./factory-schema";
 import type { PublishedExtensionRelease } from "@ezcorp/extension-contract";
@@ -2924,4 +2924,7 @@ export const factoryArtifacts = pgTable("factory_artifacts", {
   storageVersion: text("storage_version").notNull(),
   encodedBytes: integer("encoded_bytes").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.objectId] })]);
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.objectId] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+]);

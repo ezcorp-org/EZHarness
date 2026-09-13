@@ -379,3 +379,7 @@
 - Restrict partition repair traversal to nodes present in the active kernel state. A full compiled successor index includes foreign partitions; a non-null assertion can turn a valid source repair into a workflow failure.
 - Snapshot caller-owned principals, resource keys, and mutation bodies before the first asynchronous authorization step. A caller can otherwise change the authority check, idempotency hash, or eventual write target while the operation waits.
 - Register shared authorization wrappers in the scope-enforcement scan when routes delegate their complete gate. A shared gate is safe only when the guard test recognizes and verifies its use.
+
+- An artifact staging callback must accept the caller's transaction and run after the scoped run row is inserted. A separate storage transaction can violate foreign keys or deadlock an enclosing transaction; prove composition with real PostgreSQL and S3.
+- Permission tables can contain alternative authorities. Test a run-only initiator separately from an owner who also holds operate permission, and recheck authority when returning a cached cancellation result.
+- Compare each modeled foreign key's exact columns, target and delete rule with the PostgreSQL catalog. Counting keys alone can miss a wrong relationship.

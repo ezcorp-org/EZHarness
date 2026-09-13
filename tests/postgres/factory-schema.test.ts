@@ -50,8 +50,13 @@ describe("Factory schema PostgreSQL conformance", () => {
     for (const model of models) {
       expect(byTable.get(model.name)?.some(({ type }) => type === "p")).toBe(true);
       const foreignKeys = byTable.get(model.name)?.filter(({ type }) => type === "f") ?? [];
-      expect(foreignKeys).toHaveLength(model.foreignKeys.length);
-      for (const key of model.foreignKeys) expect(foreignKeys.some(({ definition }) => definition.includes(`ON DELETE ${key.onDelete!.toUpperCase()}`))).toBe(true);
+      expect({ table: model.name, foreignKeys: foreignKeys.length }).toEqual({ table: model.name, foreignKeys: model.foreignKeys.length });
+      for (const key of model.foreignKeys) {
+        const reference = key.reference();
+        const definition = `FOREIGN KEY (${reference.columns.map(column => column.name).join(", ")}) REFERENCES ${getTableName(reference.foreignTable)}(${reference.foreignColumns.map(column => column.name).join(", ")})`;
+        const expected = `${definition}${key.onDelete && key.onDelete !== "no action" ? ` ON DELETE ${key.onDelete.toUpperCase()}` : ""}`;
+        expect({ table: model.name, found: foreignKeys.some(value => value.definition === expected) }).toEqual({ table: model.name, found: true });
+      }
     }
     expect(byTable.get("factory_execution_operations")?.some(({ type, definition }) => type === "f" && definition.includes("ON DELETE CASCADE"))).toBe(true);
     const indexRows = releaseRows<{ indexname: string; indexdef: string }>(await fixture.db.execute(sql`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename LIKE 'factory_%'`));
