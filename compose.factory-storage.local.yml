@@ -1,0 +1,40 @@
+# Local-only factory storage profile. This does not prove independent replication
+# or failure domains because both services run on the same host.
+services:
+  factory-storage-ordinary:
+    profiles: ["factory-storage"]
+    image: docker.io/chrislusf/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
+    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-master.telemetry=false", "-master.volumeSizeLimitMB=64", "-volume.max=20", "-s3", "-s3.config=/config/ordinary.json"]
+    ports:
+      - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ORDINARY_S3_PORT:-18333}:8333"
+      - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ORDINARY_ADMIN_PORT:-19333}:9333"
+    volumes:
+      - factory-storage-ordinary-data:/data
+      - ${EZCORP_FACTORY_STORAGE_SECRETS_DIR:?run scripts/setup-factory-storage.sh first}:/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "response=$$(wget -S -O /dev/null http://127.0.0.1:8333 2>&1 || true); case \"$$response\" in *\"403 Forbidden\"*) exit 0;; *) exit 1;; esac"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 2s
+
+  factory-storage-archive:
+    profiles: ["factory-storage"]
+    image: docker.io/chrislusf/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
+    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-master.telemetry=false", "-master.volumeSizeLimitMB=64", "-volume.max=20", "-s3", "-s3.config=/config/archive.json"]
+    ports:
+      - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ARCHIVE_S3_PORT:-18334}:8333"
+      - "${EZCORP_FACTORY_STORAGE_BIND_IP:-127.0.0.1}:${EZCORP_FACTORY_STORAGE_ARCHIVE_ADMIN_PORT:-19334}:9333"
+    volumes:
+      - factory-storage-archive-data:/data
+      - ${EZCORP_FACTORY_STORAGE_SECRETS_DIR:?run scripts/setup-factory-storage.sh first}:/config:ro
+    healthcheck:
+      test: ["CMD-SHELL", "response=$$(wget -S -O /dev/null http://127.0.0.1:8333 2>&1 || true); case \"$$response\" in *\"403 Forbidden\"*) exit 0;; *) exit 1;; esac"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 2s
+
+volumes:
+  factory-storage-ordinary-data:
+  factory-storage-archive-data:
