@@ -211,6 +211,14 @@ test("scoped map leaf repair invalidates its completed parent aggregate before r
   expect(repaired.nextState.nodes.map?.status).toBe("waiting");
   expect(repaired.nextState.nodes.map?.output).toBeUndefined();
   expect(repaired.nextState.nodes["map/items/0/work"]?.candidateGeneration).toBe(1);
+  let refreshed = admit(factory, repaired.nextState, "map/items/0/work", 2);
+  const fresh = refreshed.nodes["map/items/0/work"]!.attempts.at(-1)!;
+  refreshed = advanceKernel(factory, refreshed, { kind: "node-result", id: "leaf:new-result", atMs: 3, nodeId: "map/items/0/work", commandId: fresh.commandId, candidateGeneration: fresh.candidateGeneration, attempt: fresh.attempt, output: { result: "new" } }).nextState;
+  refreshed = admit(factory, refreshed, "hold", 3);
+  const hold = refreshed.nodes.hold!.attempts.at(-1)!;
+  const completed = advanceKernel(factory, refreshed, { kind: "node-result", id: "hold:result", atMs: 4, nodeId: "hold", commandId: hold.commandId, candidateGeneration: hold.candidateGeneration, attempt: hold.attempt, output: {} });
+  expect(completed.nextState.nodes.map?.output).toEqual({ result: ["new"] });
+  expect(completed.nextState.status).toBe("completed");
 });
 
 test("repair refuses a release after its external operation has been dispatched", () => {
@@ -257,4 +265,68 @@ test("repairing a nested branch/map/loop leaf invalidates every enclosing contro
   expect(repaired.nextState.nodes.branch?.output).toBeUndefined();
   expect(repaired.nextState.nodes["branch/then/map"]?.status).toBe("waiting");
   expect(repaired.nextState.nodes["branch/then/map/items/0/loop"]?.status).toBe("waiting");
+  let refreshed = admit(factory, repaired.nextState, leafId, 2);
+  const fresh = refreshed.nodes[leafId]!.attempts.at(-1)!;
+  refreshed = advanceKernel(factory, refreshed, { kind: "node-result", id: "nested:new-result", atMs: 3, nodeId: leafId, commandId: fresh.commandId, candidateGeneration: fresh.candidateGeneration, attempt: fresh.attempt, output: { result: "new" } }).nextState;
+  refreshed = admit(factory, refreshed, "hold", 3);
+  const hold = refreshed.nodes.hold!.attempts.at(-1)!;
+  const completed = advanceKernel(factory, refreshed, { kind: "node-result", id: "hold:result", atMs: 4, nodeId: "hold", commandId: hold.commandId, candidateGeneration: hold.candidateGeneration, attempt: hold.attempt, output: {} });
+  expect(completed.nextState.nodes.branch?.output).toEqual({ result: ["new"] });
+  expect(completed.nextState.status).toBe("completed");
+});
+
+test("direct map repair replaces prior aggregate values and reaches terminal completion", () => {
+  const map: Extract<FactoryNode, { kind: "map" }> = {
+    id: "map", kind: "map", collection: { kind: "literal", value: ["one", "two"] }, itemSchema: string, mode: "all", maxItems: 2, maxConcurrency: 2,
+    outputPorts: { result: { type: "array", items: string } }, body: { nodes: [{ id: "work", kind: "task", runner, outputPorts: { result: string } }], outputs: { result: { kind: "ref", root: "node", name: "work", path: ["result"] } } },
+  };
+  const factory = compiled([map, { id: "hold", kind: "task", runner }]);
+  let state = start(factory, "direct-map-repair");
+  for (const [nodeId, result] of [["map/items/0/work", "old-0"], ["map/items/1/work", "old-1"]] as const) {
+    state = admit(factory, state, nodeId);
+    const attempt = state.nodes[nodeId]!.attempts.at(-1)!;
+    state = advanceKernel(factory, state, { kind: "node-result", id: `${nodeId}:old`, atMs: 1, nodeId, commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output: { result } }).nextState;
+  }
+  const repaired = advanceKernel(factory, state, { kind: "repair", id: "map:repair", atMs: 2, nodeId: "map", reason: "replace map" });
+  expect(repaired.nextState.nodes.map?.candidateGeneration).toBe(1);
+  expect(repaired.nextState.nodes.map?.priorCandidates).toContainEqual(expect.objectContaining({ output: { result: ["old-0", "old-1"] } }));
+  let refreshed = repaired.nextState;
+  for (const [nodeId, result] of [["map/items/0/work", "new-0"], ["map/items/1/work", "new-1"]] as const) {
+    refreshed = admit(factory, refreshed, nodeId, 2);
+    const attempt = refreshed.nodes[nodeId]!.attempts.at(-1)!;
+    refreshed = advanceKernel(factory, refreshed, { kind: "node-result", id: `${nodeId}:new`, atMs: 3, nodeId, commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output: { result } }).nextState;
+  }
+  refreshed = admit(factory, refreshed, "hold", 3);
+  const hold = refreshed.nodes.hold!.attempts.at(-1)!;
+  const completed = advanceKernel(factory, refreshed, { kind: "node-result", id: "hold:result", atMs: 4, nodeId: "hold", commandId: hold.commandId, candidateGeneration: hold.candidateGeneration, attempt: hold.attempt, output: {} });
+  expect(completed.nextState.nodes.map?.output).toEqual({ result: ["new-0", "new-1"] });
+  expect(completed.nextState.status).toBe("completed");
+});
+
+test("direct loop repair removes stale prior iterations before the replacement completes", () => {
+  const loop: Extract<FactoryNode, { kind: "loop" }> = {
+    id: "loop", kind: "loop", initialInput: { kind: "literal", value: "seed" }, carriedSchema: string,
+    resultSchema: { type: "object", properties: { result: string }, required: ["result"], additionalProperties: false }, outputPorts: { result: string },
+    body: { nodes: [{ id: "work", kind: "task", runner, outputPorts: { result: string } }], outputs: { result: { kind: "ref", root: "node", name: "work", path: ["result"] } } },
+    until: { kind: "eq", left: { kind: "ref", root: "loop", name: "result", path: ["result"] }, right: { kind: "literal", value: "done" } }, nextInput: { kind: "literal", value: "seed" }, maxIterations: 3, maxElapsedMs: 1_000, onExhausted: "fail",
+  };
+  const factory = compiled([loop, { id: "hold", kind: "task", runner }]);
+  let state = start(factory, "direct-loop-repair");
+  for (const [nodeId, result] of [["loop/items/0/work", "again"], ["loop/items/1/work", "done"]] as const) {
+    state = admit(factory, state, nodeId);
+    const attempt = state.nodes[nodeId]!.attempts.at(-1)!;
+    state = advanceKernel(factory, state, { kind: "node-result", id: `${nodeId}:old`, atMs: 1, nodeId, commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output: { result } }).nextState;
+  }
+  expect(state.nodes.loop?.output).toEqual({ result: "done" });
+  const repaired = advanceKernel(factory, state, { kind: "repair", id: "loop:repair", atMs: 2, nodeId: "loop", reason: "replace loop" });
+  expect(repaired.nextState.nodes.loop?.candidateGeneration).toBe(1);
+  expect(repaired.nextState.nodes["loop/items/1/work"]?.status).not.toBe("blocked");
+  let refreshed = admit(factory, repaired.nextState, "loop/items/0/work", 2);
+  const fresh = refreshed.nodes["loop/items/0/work"]!.attempts.at(-1)!;
+  refreshed = advanceKernel(factory, refreshed, { kind: "node-result", id: "loop:new", atMs: 3, nodeId: "loop/items/0/work", commandId: fresh.commandId, candidateGeneration: fresh.candidateGeneration, attempt: fresh.attempt, output: { result: "done" } }).nextState;
+  refreshed = admit(factory, refreshed, "hold", 3);
+  const hold = refreshed.nodes.hold!.attempts.at(-1)!;
+  const completed = advanceKernel(factory, refreshed, { kind: "node-result", id: "hold:result", atMs: 4, nodeId: "hold", commandId: hold.commandId, candidateGeneration: hold.candidateGeneration, attempt: hold.attempt, output: {} });
+  expect(completed.nextState.nodes.loop?.output).toEqual({ result: "done" });
+  expect(completed.nextState.status).toBe("completed");
 });
