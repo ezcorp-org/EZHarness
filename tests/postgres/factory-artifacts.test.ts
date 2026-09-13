@@ -28,6 +28,13 @@ async function fixture() {
   return { database: database.db, client: storage.client, blobs: storage.blobs, identity, bucket: storage.bucket, prefix: storage.prefix };
 }
 
+test("PostgreSQL artifact primary key carries tenant and project scope", async () => {
+  const database = await setupFactoryPostgres(); closes.push(database.close);
+  const selected = await database.db.execute(sql`SELECT column_name FROM information_schema.key_column_usage WHERE table_schema = current_schema() AND table_name = 'factory_artifacts' AND constraint_name = 'factory_artifacts_pkey' ORDER BY ordinal_position`) as unknown as { rows?: Array<{ column_name: string }> } | Array<{ column_name: string }>;
+  const rows = Array.isArray(selected) ? selected : selected.rows;
+  expect(rows?.map(row => row.column_name)).toEqual(["tenant_id", "project_id", "object_id"]);
+});
+
 test("PostgreSQL scoped S3 references retain original bytes and reject foreign and changed version records", async () => {
   const { database, client, blobs, identity, bucket, prefix } = await fixture();
   const artifacts = new FactoryArtifacts(database, blobs, "artifact-tenant");
@@ -35,13 +42,13 @@ test("PostgreSQL scoped S3 references retain original bytes and reject foreign a
   const reference = await artifacts.stage(identity, "execution_manifest", content, { definitionDigest: `sha256:${"a".repeat(64)}`, interpreterScoped: false });
   expect(await artifacts.load(identity, reference, ["execution_manifest"])).toMatchObject({ content });
   await expect(artifacts.load({ ...identity, projectId: "foreign" }, reference, ["execution_manifest"])).rejects.toMatchObject({ code: "factory_artifact_not_found" });
-  const selected = await database.execute(sql`SELECT blob_digest, storage_version FROM factory_artifacts WHERE object_id=${reference.objectId}`) as unknown as { rows?: unknown[] } | unknown[];
+  const selected = await database.execute(sql`SELECT blob_digest, storage_version FROM factory_artifacts WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND object_id=${reference.objectId}`) as unknown as { rows?: unknown[] } | unknown[];
   const row = (Array.isArray(selected) ? selected : selected.rows) as Array<{ blob_digest: string; storage_version: string }>;
   await client.send(new PutObjectCommand({ Bucket: bucket, Key: s3ObjectKey(prefix, row[0]!.blob_digest), Body: new TextEncoder().encode("changed artifact bytes") }));
   expect((await artifacts.load(identity, reference, ["execution_manifest"])).content).toEqual(content);
   const changed = await blobs.version(row[0]!.blob_digest);
   expect(changed).not.toBe(row[0]!.storage_version);
-  await database.execute(sql`UPDATE factory_artifacts SET storage_version=${changed} WHERE object_id=${reference.objectId}`);
+  await database.execute(sql`UPDATE factory_artifacts SET storage_version=${changed} WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND object_id=${reference.objectId}`);
   await expect(artifacts.load(identity, reference, ["execution_manifest"])).rejects.toMatchObject({ code: "artifact_corrupt" });
 });
 

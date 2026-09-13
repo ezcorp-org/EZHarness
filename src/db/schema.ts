@@ -2909,7 +2909,7 @@ export const {
 } = buildFactorySchema({ projects, users });
 /** Host-issued references for Factory ordinary object storage. */
 export const factoryArtifacts = pgTable("factory_artifacts", {
-  objectId: text("object_id").primaryKey(),
+  objectId: text("object_id").notNull(),
   tenantId: text("tenant_id").notNull(),
   projectId: text("project_id").notNull(),
   runId: text("run_id").notNull(),
@@ -2924,4 +2924,4 @@ export const factoryArtifacts = pgTable("factory_artifacts", {
   storageVersion: text("storage_version").notNull(),
   encodedBytes: integer("encoded_bytes").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.objectId] })]);
