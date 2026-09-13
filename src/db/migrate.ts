@@ -2505,6 +2505,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  await db.execute(sql`ALTER TABLE service_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE`);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_service_account_name ON service_accounts(name)`);
   // FK index — ON DELETE RESTRICT scans this on every user delete to
   // decide whether to refuse. Required, not nice-to-have.

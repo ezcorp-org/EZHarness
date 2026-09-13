@@ -626,6 +626,7 @@ export const serviceAccounts = pgTable("service_accounts", {
   // no such case. Mandatory: there is deliberately no "unlimited" value.
   maxTokensPerDay: integer("max_tokens_per_day").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   disabledReason: text("disabled_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
