@@ -1745,3 +1745,12 @@ Review checkpoint: combined source `965deee9e` failed because the completion fix
 Review: focused product source `d19468631` passed 67 tests / 579 assertions. All 18 canonical PostgreSQL/S3 files ran: 128 tests passed; one schema assertion exposed the child definition default mismatch. Correction `fa766f7e8` passed both canonical schema tests, all four typechecks, lint, gate integrity, boundaries, orchestrator build, and all 77 Node tests. The original failed log remains available. Web component/API selection passed 35 tests across four files. The separate Bun route registry passed; it is not part of the Vitest selection. The Chromium approval inbox passed and its image was inspected at `/tmp/factory-platform-evidence/root-generic-approval-parent-inbox.png`. No clipped controls or overlap was seen. The generic context is displayed as compact JSON; review its readability in the final UI pass.
 
 Receipts: `/tmp/factory-platform-evidence/root-product-command-merge-combined-integration-results.json`, `root-product-command-merge-remainder-integration-results.json`, `root-generic-approval-parent-remainder-integration-results.json`, and `root-generic-approval-parent-route-registry.log`. This integration proof does not close the platform launch gates or the new private runtime dispatch leaf.
+
+## Private GitHub publication environment
+
+- [x] Create a private disposable publication-test repository as authorized by the user.
+- [x] Verify actual private visibility and the default branch through the GitHub API.
+- [x] Record repository and existing credential references without secret values.
+- [ ] Prove the real protected release-adapter path against the new repository.
+
+Review: `ezcorp-org/factory-platform-publication-tests` is private with default branch `main`. Existing GitHub CLI credentials are referenced by `/home/dev/.config/gh/hosts.yml`. No publication-test PR has been created yet.
