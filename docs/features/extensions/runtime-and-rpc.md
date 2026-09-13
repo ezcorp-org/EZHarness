@@ -78,7 +78,12 @@ Anything else → `-32601 Method not found`.
 3. `LifecycleHookDispatcher` (`lifecycle-dispatcher.ts`) and `EventSubscriptionDispatcher` (`event-subscription-dispatcher.ts`) are constructed, every extension's hooks/subscriptions registered, then `.start()` wires the bus listeners.
 4. `bootSpawnFlaggedBundledExtensions` spawns the event-ONLY bundled extensions (`bootSpawn: true` — `lessons-distiller`, `memory-extractor`) and pre-wires their reverse-RPC via a boot-only `eventDriven: true` `ToolExecutor`. Without this, `EventSubscriptionDispatcher.dispatch` would silently drop their `run:complete` events (`getProcessIfRunning` never starts a sleeping process).
 
-`autoWireBundledExtensions` (`auto-wire-bundled.ts`) inserts a `conversation_extensions` row for `AUTO_WIRE_BUNDLED_EXTENSION_NAMES` (`lessons-distiller`, `memory-extractor`) at conversation-create time, since event delivery is **always** gated on that wiring.
+`auto-wire-bundled.ts` keeps `conversation_extensions` populated for `AUTO_WIRE_BUNDLED_EXTENSION_NAMES` (`lessons-distiller`, `memory-extractor`), since event delivery is **always** gated on that wiring. Two entry points:
+
+- `autoWireBundledExtensions(conversationId)` inserts the row at conversation-create time — but only while the extension is already installed and enabled.
+- `reconcileBundledConversationWiring()` inserts the missing rows for **every** conversation. `ensureBundledExtensions()` runs it at boot, and `publishExtensionGeneration` (`extension-lifecycle-service.ts`) runs it whenever activation enables one of those names, so a conversation created while the extension was disabled starts receiving events with no restart and no migration. It replaced two sentinel-gated one-time backfills; their `settings` rows survive but are no longer read.
+
+Consequence: an enabled auto-wire bundled extension is wired into every conversation, so unwiring one by hand does not stick. Neither helper ever throws — a wiring miss must not fail conversation creation, boot, or an activation.
 
 ## Usage
 
