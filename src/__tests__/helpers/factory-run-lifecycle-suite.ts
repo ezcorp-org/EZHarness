@@ -285,7 +285,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const service = { tenantId, subject: "orchestration" };
     for (const forged of [false, true]) {
       const run = await startRun(principal, definitionKey, request, 0, `parent-authority-${forged}`);
-      const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+      const { identity, transitions, activities, compiled, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
       const command = first.commands.find(value => value.kind === "run-child");
       expect(command?.kind).toBe("run-child");
       if (command?.kind !== "run-child") throw new Error("missing child command");
@@ -326,7 +326,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const version = await definitions.publish(principal, definitionKey, 1, "durable-child-parent-publish");
     const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
     const run = await startRun(principal, definitionKey, request, 0, "durable-child-parent-start");
-    const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+    const { identity, transitions, activities, compiled, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
     const command = first.commands.find(value => value.kind === "run-child");
     expect(command?.kind).toBe("run-child");
     if (command?.kind !== "run-child") throw new Error("missing child command");
@@ -351,8 +351,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await persistTransition(childCommitted.identity, 1, childCommitted.event, childCommitted.first.nextState, childCommitted.first.commands, undefined, childCommitted.activities);
     const childTaskReference = { ...childCommitted.identity, commandId: childAdmission.id };
     await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).resolves.toBe("child-work");
-    // The child binding seals the exact parent head. A repaired/superseded parent cannot admit old child work.
-    await persistTransition(identity, 2, { kind: "timer-expired", id: "child-parent-superseded", atMs: now + 1, commandId: "unrelated" }, first.nextState, [], undefined, activities);
+    // A sibling timer can advance the parent head without replacing this child attempt.
+    await persistTransition(identity, 2, { kind: "timer-expired", id: "child-parent-unrelated", atMs: now + 1, commandId: "unrelated" }, first.nextState, [], undefined, activities);
+    await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).resolves.toBe("child-work");
+    // A repair replaces the subfactory attempt, so its original child task command is stale.
+    const repaired = advanceKernel(compiled, first.nextState, { kind: "repair", id: "child-parent-repaired", atMs: now + 2, nodeId: "child", reason: "replace child" });
+    await persistTransition(identity, 3, { kind: "repair", id: "child-parent-repaired", atMs: now + 2, nodeId: "child", reason: "replace child" }, repaired.nextState, repaired.commands, undefined, activities);
     await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).rejects.toMatchObject({ code: "factory_command_stale" });
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId), 8);
     const childIdentity = { tenantId, projectId, logicalRunId: childRunId, interpreterId: "root" };
@@ -361,8 +365,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await lifecycle.budgets.settle(spent, { costMicros: "3", tokens: 4, computeMs: 5 }, `sha256:${"c".repeat(64)}`);
     await persistTransition(childIdentity, 2, { id: "child-complete", kind: "cancel", atMs: now, reason: "settlement" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "child-terminal", output: {} }], undefined, activities);
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(childRunId), 8);
-    await children.settle(service, { projectId, childRunId });
-    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`))).toEqual([{ state: "settled" }]);
+    await expect(Promise.all([children.settle(service, { projectId, childRunId }), children.settle(service, { projectId, childRunId })])).resolves.toEqual([undefined, undefined]);
+    expect(rows(await fixture.db.execute(sql`SELECT state,settlement_digest FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`))).toEqual([{ state: "settled", settlement_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) }]);
     expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "0", tokens: "0", computeMs: "0" }, spent: { costMicros: "3", tokens: "4", computeMs: "5" } });
     await cancelRun(principal, runKey(run.runId), run.revision, "durable-child-parent-cancel");
     await expect(fixture.db.transaction(transaction => lifecycle.authorizeRunInTransaction(transaction, { projectId, runId: childRunId }))).rejects.toMatchObject({ code: "factory_run_stopped" });

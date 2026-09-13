@@ -133,7 +133,10 @@ export class FactoryChildRuns {
       const settlementDigest = `sha256:${digestObject({ bindingDigest: initial.binding_digest, childRunId: key.childRunId, sourceSequence: Number(head.source_sequence), terminal })}`;
       await this.lifecycle.budgets.settleChildDelegationInTransaction(transaction, { parent: { projectId: key.projectId, runId: initial.parent_run_id }, child: { projectId: key.projectId, runId: key.childRunId }, parentEnvelopeId: initial.parent_envelope_id, childEnvelopeId: initial.child_envelope_id, deadlineAtMs: Number(initial.deadline_ms) }, settlementDigest);
       const binding = await this.bindingByChild(transaction, key.projectId, key.childRunId, true);
-      if (!binding || binding.binding_digest !== initial.binding_digest || binding.state !== "open") throw new FactoryChildRunError("factory_child_conflict");
+      if (!binding || binding.binding_digest !== initial.binding_digest) throw new FactoryChildRunError("factory_child_conflict");
+      // A concurrent caller may have settled the same verified terminal receipt while this caller waited on budget locks.
+      if (binding.state === "settled") return;
+      if (binding.state !== "open") throw new FactoryChildRunError("factory_child_conflict");
       await transaction.execute(sql`UPDATE factory_child_runs SET state='settled',settlement_digest=${settlementDigest},updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.childRunId} AND state='open'`);
     });
   }

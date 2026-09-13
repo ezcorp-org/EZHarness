@@ -150,7 +150,7 @@ export class FactoryCommandAuthority {
     return node as Extract<FactoryNode, { kind: Kind }>;
   }
 
-  /** A child command remains live only while every sealed parent source is still the head. */
+  /** A child command remains live only while every sealed parent attempt remains current. */
   private async assertLiveAncestors(transaction: MigrationDb, projectId: string, runId: string, visited: Set<string>): Promise<void> {
     if (visited.size >= 16 || visited.has(runId)) throw new FactoryCommandAuthorityError("factory_command_corrupt");
     visited.add(runId);
@@ -159,11 +159,19 @@ export class FactoryCommandAuthority {
     try { verifyFactoryChildBinding(binding); }
     catch { throw new FactoryCommandAuthorityError("factory_command_corrupt"); }
     const parent = { tenantId: this.tenantId, projectId, logicalRunId: binding.parent_run_id, interpreterId: binding.parent_interpreter_id, commandId: binding.parent_command_id };
-    const [head, stored] = await Promise.all([
-      this.head(transaction, parent),
+    const [stored, plan] = await Promise.all([
       this.transitions.loadStoredCommandEntry(parent, transaction),
+      this.lifecycle.readExecutionPlanInTransaction(transaction, { projectId, runId: binding.parent_run_id }),
     ]);
-    if (Number(head.source_sequence) !== Number(binding.parent_source_sequence) || stored.sourceSequence !== Number(binding.parent_source_sequence) || stored.commandDigest !== binding.parent_command_digest || stored.command.kind !== "run-child") throw new FactoryCommandAuthorityError("factory_command_stale");
+    if (stored.sourceSequence !== Number(binding.parent_source_sequence) || stored.commandDigest !== binding.parent_command_digest || stored.command.kind !== "run-child") throw new FactoryCommandAuthorityError("factory_command_stale");
+    const before = await this.head(transaction, parent);
+    const transition = await this.transitions.loadCommittedTransition(parent, Number(before.source_sequence), transaction);
+    const current = await this.head(transaction, parent);
+    if (current.digest !== before.digest || Number(current.source_sequence) !== Number(before.source_sequence)) throw new FactoryCommandAuthorityError("factory_command_stale");
+    const state = transition.nextState;
+    if (state.logicalRunId !== parent.logicalRunId || state.definitionDigest !== plan.fence.definitionDigest || state.runDeadlineAtMs !== plan.fence.deadlineAtMs || state.cancellationEpoch !== plan.fence.cancellationEpoch || !["running", "waiting"].includes(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
+    const node = this.attemptNode({ command: stored.command, sourceSequence: stored.sourceSequence, commandDigest: stored.commandDigest, compiled: plan.compiled, state, fence: plan.fence, initiator: plan.initiator }, "subfactory");
+    if (node.factory.id !== stored.command.factory.id || node.factory.version !== stored.command.factory.version || node.factory.digest !== stored.command.factory.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
     await this.assertLiveAncestors(transaction, projectId, binding.parent_run_id, visited);
   }
 

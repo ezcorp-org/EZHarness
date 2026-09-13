@@ -504,3 +504,8 @@
 
 - A child has no root `start_run` outbox, so it must persist the original root clock inside its sealed binding. Never infer it from row creation time or use a zero default for legacy rows.
 - A reader of that clock must verify the entire binding digest, not only a timestamp and a digest-shaped string. A legacy populated binding without the fact must stop migration for explicit backfill.
+
+## 2026-09-13 — Child ancestor liveness
+
+- A sealed child binding pins the parent command and its attempt, not the parent audit head. Recheck that exact command against the latest verified parent state; unrelated timers, sibling results, and approvals may advance the head while the child remains valid.
+- Idempotent settlement must reread the binding after budget locks. A concurrent winner can change open to settled while the loser waits; return its same durable receipt instead of reporting a conflict.
