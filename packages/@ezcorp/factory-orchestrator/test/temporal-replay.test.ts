@@ -33,7 +33,7 @@ function compiled(nodes, id) {
     inputPorts: {}, outputPorts: {}, graph: { nodes, outputs: {} },
     acceptance: { id: "test-acceptance", version: "1", claims: [{ id: "test", validator: runner, required: true, protected: true }], groups: [] },
     packages: [{ name: runner.package, version: runner.version, digest: runner.digest }], factories: childReferences,
-    capabilities: [], effects: ["none"], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
+    capabilities: [], effects: [...new Set(["none", ...nodes.flatMap((item) => item.effects ?? [])])], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
   };
   const result = compileFactory(definition);
   assert.equal(result.ok, true, JSON.stringify(result));
@@ -425,6 +425,108 @@ describe("factory Temporal workflow", () => {
       await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), targetWorkflowId);
       await assertClosedReceipt(source);
       await assertClosedReceipt(target);
+    });
+  });
+
+  it("invalidates an old cross-partition approval before the repaired source completes", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const padding = Array.from({ length: 256 }, (_, index) => ({ ...node, id: `slow-repair-${index.toString().padStart(3, "0")}` }));
+    const source = { ...node, id: "a", outputPorts: { value: { type: "number" } } };
+    const approval = { id: "z-approval", kind: "approval", dependsOn: ["a"], choices: ["approve"], context: { kind: "literal", value: null }, actorScope: "owner", expiresInMs: 60_000, onDenied: "fail", onExpired: "fail" };
+    const publish = { ...node, id: "zz-publish-repaired", dependsOn: ["z-approval"], effects: ["publish"] };
+    const repairFactory = compiled([source, ...padding, approval, publish], "partition-repair-approval");
+    const sourcePartition = repairFactory.partitions.find((partition) => partition.nodeIds.includes("a"));
+    const targetPartition = repairFactory.partitions.find((partition) => partition.nodeIds.includes("z-approval"));
+    assert.ok(sourcePartition);
+    assert.ok(targetPartition);
+    assert.notEqual(sourcePartition.id, targetPartition.id);
+    assert.ok(targetPartition.nodeIds.includes("zz-publish-repaired"));
+    const logicalRunId = `partition-repair-${process.pid}`;
+    const sourceWorkflowId = `tenant/${logicalRunId}/partitions/${sourcePartition.id}`;
+    const targetWorkflowId = `tenant/${logicalRunId}/partitions/${targetPartition.id}`;
+    const sourceStored = storedPartition(repairFactory, sourcePartition.id);
+    const targetStored = storedPartition(repairFactory, targetPartition.id);
+    let releaseReplacement!: () => void;
+    const replacementGate = new Promise<void>((resolve) => { releaseReplacement = resolve; });
+    let releaseSlow!: () => void;
+    const slowGate = new Promise<void>((resolve) => { releaseSlow = resolve; });
+    const approvals = [];
+    let approvalArrived!: () => void;
+    let nextApproval = new Promise<void>((resolve) => { approvalArrived = resolve; });
+    let publishCount = 0;
+    const targetHandle = () => environment.client.workflow.getHandle(targetWorkflowId);
+    const sendTarget = async (sequence, event) => {
+      await targetHandle().signal("factoryInbox", { sequence, eventId: event.id, eventHash: eventHash(event), event });
+    };
+    const activities = {
+      ...definitionActivities(repairFactory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") {
+          if (command.nodeId === "slow-repair-000") await slowGate;
+          if (command.nodeId === "a" && command.candidateGeneration === 1) await replacementGate;
+          if (command.nodeId === "zz-publish-repaired") publishCount += 1;
+          return { kind: "node-result", id: `${command.id}:result`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: command.nodeId === "a" ? { value: command.candidateGeneration + 1 } : {} };
+        }
+        if (command.kind === "request-approval") {
+          approvals.push(command);
+          approvalArrived();
+          return null;
+        }
+        if (command.kind === "cancel-node") return { kind: "attempt-stopped", id: `${command.id}:stopped`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt };
+        if (command.kind === "notify-partition") {
+          const { kind: _kind, id, ...completion } = command;
+          await sendTarget(command.candidateGeneration === 0 ? 1 : 4, { kind: "partition-node-completed", id, atMs: Date.now(), ...completion });
+          return null;
+        }
+        if (command.kind === "invalidate-partition") {
+          const { kind: _kind, id, ...invalidation } = command;
+          await sendTarget(2, { kind: "partition-source-invalidated", id, atMs: Date.now(), ...invalidation });
+          return null;
+        }
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, activities });
+    await worker.runUntil(async () => {
+      const target = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: targetWorkflowId, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(repairFactory, { logicalRunId, interpreterId: targetPartition.id, startedAtMs, definition: targetStored.source })],
+      });
+      const sourceHandle = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: sourceWorkflowId, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(repairFactory, { logicalRunId, interpreterId: sourcePartition.id, startedAtMs, definition: sourceStored.source })],
+      });
+      await nextApproval;
+      const oldApproval = approvals[0];
+      assert.ok(oldApproval);
+      const repair = { kind: "repair", id: "repair-partition-source", atMs: Date.now(), nodeId: "a", reason: "replace source" };
+      await sourceHandle.signal("factoryInbox", { sequence: 1, eventId: repair.id, eventHash: eventHash(repair), event: repair });
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const state = await target.query("factoryState");
+        if (state.nodes["z-approval"].candidateGeneration === 1 && state.nodes["z-approval"].status === "blocked") break;
+        if (attempt === 99) assert.fail("target approval was not invalidated");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const staleDecision = { kind: "approval-decided", id: "stale-partition-approval", atMs: Date.now(), nodeId: "z-approval", commandId: oldApproval.id, choice: "approve" };
+      await sendTarget(3, staleDecision);
+      assert.equal(publishCount, 0);
+      nextApproval = new Promise<void>((resolve) => { approvalArrived = resolve; });
+      releaseReplacement();
+      await nextApproval;
+      const newApproval = approvals[1];
+      assert.ok(newApproval);
+      assert.notEqual(newApproval.id, oldApproval.id);
+      assert.equal(publishCount, 0);
+      const currentDecision = { kind: "approval-decided", id: "current-partition-approval", atMs: Date.now(), nodeId: "z-approval", commandId: newApproval.id, choice: "approve" };
+      await sendTarget(5, currentDecision);
+      assert.equal((await target.result()).status, "completed");
+      assert.equal(publishCount, 1);
+      releaseSlow();
+      assert.equal((await sourceHandle.result()).status, "completed");
+      await assertClosedReceipt(target);
+      await assertClosedReceipt(sourceHandle);
     });
   });
 

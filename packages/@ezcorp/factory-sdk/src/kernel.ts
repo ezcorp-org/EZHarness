@@ -80,7 +80,7 @@ function createInitialState(
     scopes: { root: { id: "root", depth: 0, expandedNodeCount: nodeIds.length, spentCostMicros: "0", unknownCostMicros: "0", nodeIds, roots: nodeIds } },
     appliedEventIds: [],
     unresolvedUncertainNodeIds: [],
-    ...(partitionId ? { partition: { id: partitionId, completedEdges: {}, externalOutputs: {} } } : {}),
+    ...(partitionId ? { partition: { id: partitionId, completedEdges: {}, invalidatedEdges: {}, externalOutputs: {} } } : {}),
   };
 }
 
@@ -149,6 +149,9 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
     case "repair":
       next = applyRepair(factory, next, event, commands);
       break;
+    case "partition-source-invalidated":
+      next = applyPartitionInvalidation(factory, next, event, commands);
+      break;
     case "partition-node-completed":
       next = applyPartitionCompletion(factory, next, event, commands);
       break;
@@ -178,6 +181,8 @@ function applyPartitionCompletion(
   const edgeKey = partitionEdgeKey(event.sourcePartitionId, event.sourceNodeId, event.nodeId);
   const priorEdge = state.partition.completedEdges[edgeKey];
   const priorOutput = state.partition.externalOutputs[event.sourceNodeId];
+  const invalidated = state.partition.invalidatedEdges[edgeKey];
+  if (invalidated && event.candidateGeneration < invalidated.candidateGeneration) return state;
   if (priorOutput) {
     if (event.candidateGeneration < priorOutput.candidateGeneration) return state;
     const exactSource = priorOutput.candidateGeneration === event.candidateGeneration
@@ -190,8 +195,11 @@ function applyPartitionCompletion(
       if (priorEdge) return state;
     }
   }
+  const invalidatedEdges = { ...state.partition.invalidatedEdges };
+  delete invalidatedEdges[edgeKey];
   const partitionState = {
     ...state.partition,
+    invalidatedEdges,
     completedEdges: { ...state.partition.completedEdges, [edgeKey]: event.id },
     externalOutputs: {
       ...state.partition.externalOutputs,
@@ -209,6 +217,39 @@ function applyPartitionCompletion(
     next = applyRepair(factory, next, { kind: "repair", id: event.id, atMs: event.atMs, nodeId: event.nodeId, reason: "PARTITION_SOURCE_REPAIRED" }, commands);
   }
   return activateReady(factory, next, commands, [event.nodeId]);
+}
+
+function applyPartitionInvalidation(
+  factory: KernelFactoryPlan,
+  state: KernelState,
+  event: Extract<KernelEvent, { kind: "partition-source-invalidated" }>,
+  commands: KernelCommand[],
+): KernelState {
+  if (!state.partition || state.partition.id !== event.targetPartitionId) return state;
+  if (!Number.isSafeInteger(event.candidateGeneration) || event.candidateGeneration < 1) throw new FactoryKernelError("partition invalidation generation must be a positive safe integer");
+  const partition = partitionFor(factory, state.partition.id);
+  const edge = partition?.inbound.find((candidate) => candidate.nodeId === event.nodeId && candidate.fromNodeId === event.sourceNodeId && candidate.fromPartitionId === event.sourcePartitionId);
+  if (!edge || !Object.hasOwn(state.nodes, event.nodeId)) return state;
+  const edgeKey = partitionEdgeKey(event.sourcePartitionId, event.sourceNodeId, event.nodeId);
+  const priorInvalidation = state.partition.invalidatedEdges[edgeKey];
+  const priorOutput = state.partition.externalOutputs[event.sourceNodeId];
+  if (event.candidateGeneration < (priorInvalidation?.candidateGeneration ?? priorOutput?.candidateGeneration ?? 0)) return state;
+  if (priorInvalidation?.candidateGeneration === event.candidateGeneration) {
+    if (priorInvalidation.eventId !== event.id) throw new FactoryKernelError("partition invalidation conflicts with its recorded source fence");
+    return state;
+  }
+  if (priorOutput && event.candidateGeneration <= priorOutput.candidateGeneration) return state;
+  const completedEdges = { ...state.partition.completedEdges };
+  delete completedEdges[edgeKey];
+  const externalOutputs = { ...state.partition.externalOutputs };
+  delete externalOutputs[event.sourceNodeId];
+  const partitionState = {
+    ...state.partition,
+    completedEdges,
+    invalidatedEdges: { ...state.partition.invalidatedEdges, [edgeKey]: { candidateGeneration: event.candidateGeneration, eventId: event.id } },
+    externalOutputs,
+  };
+  return applyRepair(factory, { ...state, partition: partitionState }, { kind: "repair", id: event.id, atMs: event.atMs, nodeId: event.nodeId, reason: "PARTITION_SOURCE_INVALIDATED" }, commands, true);
 }
 
 function emitPartitionNotifications(
@@ -394,13 +435,13 @@ function scheduleTimer(state: KernelState, nodeId: string, deadlineAtMs: number,
   return withNode(timer.state, nodeId, { ...timer.state.nodes[nodeId]!, timer: { id: timer.id, deadlineAtMs, purpose } });
 }
 
-function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "repair" }>, commands: KernelCommand[]): KernelState {
+function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "repair" }>, commands: KernelCommand[], allowProtected = false): KernelState {
   if (state.pendingRepair || state.status === "stopping") return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
   if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
   // A repair cannot replay publication or turn remediation into new consent.
-  if (node.kind === "approval" || node.kind === "release") return state;
+  if (!allowProtected && (node.kind === "approval" || node.kind === "release")) return state;
   const aggregateIds: string[] = [];
   let childId = event.nodeId;
   for (;;) {
@@ -421,9 +462,29 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
     queue.push(...localSuccessors(id));
     for (const childId of Object.keys(state.nodes)) if (childId.startsWith(`${id}/`)) queue.push(childId);
   }
-  if ([...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)) return state;
+  if ([...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)) {
+    return allowProtected ? beginStopping(state, "PARTITION_SOURCE_INVALIDATED_AFTER_RELEASE", commands, false) : state;
+  }
   if ([...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain))) return state;
-  let next: KernelState = { ...state, pendingRepair: { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason } };
+  let next: KernelState = { ...state, pendingRepair: { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason, ...(allowProtected ? { awaitDependencies: true } : {}) } };
+  if (state.partition && !allowProtected) {
+    const partition = partitionFor(factory, state.partition.id);
+    for (const edge of partition?.outbound.filter((candidate) => affected.has(candidate.nodeId)) ?? []) {
+      const generation = state.nodes[edge.nodeId]!.candidateGeneration + 1;
+      if (!Number.isSafeInteger(generation)) throw new FactoryKernelError("candidate generation exhausted");
+      const command = commandFor(next, "invalidate-partition", edge.nodeId);
+      next = command.state;
+      commands.push({
+        kind: "invalidate-partition",
+        id: command.id,
+        sourcePartitionId: state.partition.id,
+        targetPartitionId: edge.toPartitionId,
+        sourceNodeId: edge.nodeId,
+        nodeId: edge.toNodeId,
+        candidateGeneration: generation,
+      });
+    }
+  }
   for (const id of affected) next = cancelScope(next, id, commands, true);
   return completePendingRepair(factory, next, commands);
 }
@@ -436,7 +497,7 @@ function completePendingRepair(factory: KernelFactoryPlan, state: KernelState, c
     const previous = state.nodes[id]!;
     const replacedScope = repair.nodeIds.some(parentId => id.startsWith(`${parentId}/`));
     next = withNode(next, id, {
-      ...newCandidate(previous), status: id === repair.rootNodeId ? "ready" : replacedScope ? "cancelled" : "blocked", discarded: replacedScope,
+      ...newCandidate(previous), status: id === repair.rootNodeId && !repair.awaitDependencies ? "ready" : replacedScope ? "cancelled" : "blocked", discarded: replacedScope,
     });
   }
   for (const id of repair.aggregateIds) {

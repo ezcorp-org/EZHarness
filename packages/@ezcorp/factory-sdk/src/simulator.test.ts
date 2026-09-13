@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { compileFactory } from "./compiler";
 import { advanceKernel, createKernelState } from "./kernel";
 import { referenceCodeV1 } from "./references.js";
-import { simulateFactory } from "./simulator";
+import { simulateFactory, simulationEventsFor } from "./simulator";
 import type { CompiledFactory, FactoryDefinition, FactoryNode } from "./types";
 
 const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -116,4 +116,18 @@ test("loop starts a second scoped iteration after false until and returns the la
 
 test("the compiler rejects a non-boolean loop until expression before simulation", () => {
   expect(() => compiled([loop({ kind: "literal", value: "not boolean" })])).toThrow("EXPRESSION_TYPE");
+});
+
+test("the single-process simulator leaves partition transport commands for an external router", () => {
+  const factory = compiled([{ id: "work", kind: "task", runner }]);
+  const state = createKernelState(factory, "partition-routing", {}, 0);
+  expect(simulationEventsFor({
+    kind: "invalidate-partition",
+    id: "invalidate-a",
+    sourcePartitionId: "source",
+    targetPartitionId: "target",
+    sourceNodeId: "a",
+    nodeId: "b",
+    candidateGeneration: 1,
+  }, state, factory, {}, () => "unused")).toEqual([]);
 });

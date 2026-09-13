@@ -41,7 +41,7 @@ export function simulateFactory(
     const advanced = advanceKernel(factory, state, event);
     state = advanced.nextState;
     commands.push(...advanced.commands);
-    for (const command of advanced.commands) pending.push(...eventsFor(command, state, factory, options, eventId));
+    for (const command of advanced.commands) pending.push(...simulationEventsFor(command, state, factory, options, eventId));
     // ECMAScript sort is stable: equal timestamps retain recorded enqueue order.
     pending.sort((left, right) => left.atMs - right.atMs);
   }
@@ -53,7 +53,8 @@ export function simulateFactory(
   }
 }
 
-function eventsFor(
+/** @internal Converts only commands that the single-process simulator can settle locally. */
+export function simulationEventsFor(
   command: KernelCommand,
   state: KernelState,
   factory: CompiledFactory,
@@ -81,7 +82,7 @@ function eventsFor(
       return [{ kind: "timer-expired", id: eventId("timer"), atMs: command.deadlineAtMs, nodeId: command.nodeId, commandId: command.id }];
     case "cancel-node":
       return [{ kind: "attempt-stopped", id: eventId("stopped"), atMs: state.nowMs, nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt }];
-    case "notify-partition":
+    case "invalidate-partition": case "notify-partition":
     case "complete-partition":
     case "complete-run":
     case "fail-run":

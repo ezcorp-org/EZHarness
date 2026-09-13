@@ -126,10 +126,11 @@ export interface KernelState {
   readonly scopes: Readonly<Record<string, KernelScopeState>>;
   readonly appliedEventIds: readonly string[];
   readonly unresolvedUncertainNodeIds: readonly string[];
-  readonly pendingRepair?: { readonly rootNodeId: string; readonly nodeIds: readonly string[]; readonly aggregateIds: readonly string[]; readonly reason: string };
+  readonly pendingRepair?: { readonly rootNodeId: string; readonly nodeIds: readonly string[]; readonly aggregateIds: readonly string[]; readonly reason: string; readonly awaitDependencies?: boolean };
   readonly partition?: {
     readonly id: string;
     readonly completedEdges: Readonly<Record<string, string>>;
+    readonly invalidatedEdges: Readonly<Record<string, { readonly candidateGeneration: number; readonly eventId: string }>>;
     readonly externalOutputs: Readonly<Record<string, {
       readonly status: "succeeded" | "failed" | "skipped" | "cancelled";
       readonly output?: JsonValue;
@@ -206,6 +207,14 @@ export type KernelEvent =
       readonly reason: string;
     })
   | (KernelEventBase & {
+      readonly kind: "partition-source-invalidated";
+      readonly sourcePartitionId: string;
+      readonly targetPartitionId: string;
+      readonly sourceNodeId: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
+    })
+  | (KernelEventBase & {
       readonly kind: "partition-node-completed";
       readonly sourcePartitionId: string;
       readonly targetPartitionId: string;
@@ -254,6 +263,15 @@ export type KernelCommand =
       readonly context: JsonValue;
       readonly actorScope: string;
       readonly deadlineAtMs: number;
+    }
+  | {
+      readonly kind: "invalidate-partition";
+      readonly id: string;
+      readonly sourcePartitionId: string;
+      readonly targetPartitionId: string;
+      readonly sourceNodeId: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
     }
   | {
       readonly kind: "notify-partition";
