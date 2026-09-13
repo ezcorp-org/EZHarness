@@ -1566,3 +1566,12 @@ Plan review: a private command ID is the only request authority; the reader vali
 - Factory approval, uncertain-release, and settled-release notifications now use the existing durable release queue as the in-app inbox. Delivery is one atomic queued-to-delivered transaction. Reads authorize the current session user and load a bounded current-state projection in one transaction. Pending and uncertain items disappear when they stop being actionable; settled items remain completion receipts for principals with `factory.release`.
 - The factory page shows the inbox and sends approval decisions through the existing assurance API. It exposes no archive, sender, provider-evidence, or pinned-material details. Restart delivery and browser merging retain one item per durable notification identity.
 - PGlite passes 19 cases with 120 assertions, and isolated PostgreSQL passes 14 cases with 92 assertions. Focused SDK, web, OpenAPI, route, browser evidence, coverage, builds, all four type checks, lint, boundaries, patch coverage, and gate integrity pass. Proof paths and exact measured-line counts are in `tasks/factory/release-notification-delivery-GATES.md`.
+
+## Committed human approval authority — root
+
+- [ ] Prove exact current approval scope, choices, attempt, deadline and durable initiator through published lifecycle records.
+- [ ] Provide the same current check inside the caller's decision transaction.
+- [ ] Expose the verified compiled plan and durable initiator for runner policy without a second lookup.
+- [ ] Verify PGlite/PostgreSQL, coverage and static checks.
+
+Plan review: request authority comes from the committed interpreter. A later human decision separately requires current explicit factory.approve and the declared actor scope; its store writes the correlated event through the existing inbox in the same transaction.

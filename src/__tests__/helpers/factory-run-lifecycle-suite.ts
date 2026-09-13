@@ -279,6 +279,42 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     }
   });
 
+  test("approval decisions share the current command transaction and exact declared human scope", async () => {
+    const definitionKey = { projectId, factoryId: "approval-authority-factory" };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts: {}, outputPorts: {},
+      graph: { nodes: [{ id: "human", kind: "approval", actorScope: "operator", choices: ["approve", "deny"], context: { kind: "literal", value: { subject: "review" } }, expiresInMs: 60_000, onDenied: "fail", onExpired: "fail" }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "approval-authority-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "approval-authority-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: {} };
+    const service = { tenantId, subject: "orchestration" };
+    for (const forged of [false, true]) {
+      const run = await startRun(principal, definitionKey, request, 0, `approval-authority-${forged}`);
+      const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+      const command = first.commands.find(value => value.kind === "request-approval");
+      expect(command?.kind).toBe("request-approval");
+      if (command?.kind !== "request-approval") throw new Error("missing approval command");
+      const reference = { ...identity, commandId: command.id };
+      await persistTransition(identity, 1, event, first.nextState, first.commands.map(value => forged && value.id === command.id ? { ...command, actorScope: "owner" } : value), undefined, activities);
+      if (forged) {
+        await expect(authority.withCurrentApproval(service, reference, async () => "approval")).rejects.toMatchObject({ code: "factory_command_stale" });
+      } else {
+        const select = (_transaction: unknown, context: Awaited<Parameters<Parameters<FactoryCommandAuthority["withCurrentApproval"]>[2]>[1]>) => Promise.resolve({ command: context.command, principal: context.initiator, attempt: context.attempt, compiled: context.compiled.digest });
+        const approved = await authority.withCurrentApproval(service, reference, select);
+        expect(approved).toMatchObject({ command, principal: { id: principal.id, kind: "user", authentication: "api-key" }, attempt: { commandId: command.id, candidateGeneration: 0, attempt: 1, deadlineAtMs: command.deadlineAtMs }, compiled: request.definitionDigest });
+        expect(await fixture.db.transaction(transaction => authority.withCurrentApprovalInTransaction(transaction, service, reference, async (actual, context) => {
+          expect(actual).toBe(transaction);
+          return select(actual, context);
+        }))).toEqual(approved);
+        await expect(authority.withCurrent(service, reference, async () => "task")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+        const timer = first.commands.find(value => value.kind === "start-timer")!;
+        await expect(authority.withCurrentApproval(service, { ...reference, commandId: timer.id }, async () => "approval")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+        await cancelRun(principal, runKey(run.runId), run.revision, "approval-authority-cancel");
+        await expect(authority.withCurrentApproval(service, reference, select)).rejects.toMatchObject({ code: "factory_run_stopped" });
+      }
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+    }
+  });
+
   test("public run reads consume bounded committed root transitions and recover from their cursor", async () => {
     const run = await start();
     const runIdentity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };

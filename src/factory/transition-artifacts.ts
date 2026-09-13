@@ -48,16 +48,16 @@ function auditedManifest(payload: unknown): ImmutableObjectReference {
 export class FactoryTransitionArtifacts {
   constructor(private readonly artifacts: FactoryArtifacts) {}
 
-  async loadTransitionManifest(request: FactoryIdentity & { readonly sourceSequence: number; readonly manifest: ImmutableObjectReference }): Promise<LoadedTransitionManifest> {
+  async loadTransitionManifest(request: FactoryIdentity & { readonly sourceSequence: number; readonly manifest: ImmutableObjectReference }, transaction?: MigrationDb): Promise<LoadedTransitionManifest> {
     if (!validSequence(request.sourceSequence) || !reference(request.manifest)) throw new FactoryArtifactError("factory_transition_invalid");
-    const loaded = await this.artifacts.load(request, request.manifest, ["transition_manifest"], true);
+    const loaded = await this.loadArtifact(transaction, request, request.manifest, ["transition_manifest"], true);
     if (loaded.sourceSequence !== request.sourceSequence || loaded.pageIndex !== null || !sameReference(loaded.reference, request.manifest)) throw new FactoryArtifactError("factory_transition_not_found");
     return this.parseManifest(loaded.content, request, loaded.reference, "factory_transition_not_found");
   }
 
-  async loadTransitionPage(request: FactoryIdentity & { readonly sourceSequence: number; readonly page: TransitionPageReference }): Promise<LoadedTransitionPage> {
+  async loadTransitionPage(request: FactoryIdentity & { readonly sourceSequence: number; readonly page: TransitionPageReference }, transaction?: MigrationDb): Promise<LoadedTransitionPage> {
     if (!validSequence(request.sourceSequence) || !pageReference(request.page)) throw new FactoryArtifactError("factory_transition_invalid");
-    const loaded = await this.artifacts.load(request, request.page, ["transition_page"], true);
+    const loaded = await this.loadArtifact(transaction, request, request.page, ["transition_page"], true);
     if (loaded.sourceSequence !== request.sourceSequence || loaded.pageIndex !== request.page.index || !sameReference(loaded.reference, request.page)) throw new FactoryArtifactError("factory_transition_not_found");
     try { return { ...loaded.reference, index: request.page.index, contentBase64: encodeFactoryPageBase64(loaded.content) }; }
     catch { throw new FactoryArtifactError("factory_transition_corrupt"); }
@@ -117,22 +117,23 @@ export class FactoryTransitionArtifacts {
   }
 
   /** Resolves one indexed command, then proves its audit and immutable transition before returning it. */
-  async loadStoredCommand(referenceValue: StoredFactoryCommandReference): Promise<KernelCommand> {
+  async loadStoredCommand(referenceValue: StoredFactoryCommandReference, transaction?: MigrationDb): Promise<KernelCommand> {
+    const database = transaction ?? this.artifacts.database;
     const reference = { tenantId: referenceValue.tenantId, projectId: referenceValue.projectId, logicalRunId: referenceValue.logicalRunId, interpreterId: referenceValue.interpreterId, commandId: referenceValue.commandId };
     try { assertFactoryIdentity(reference.tenantId, reference.projectId, reference.logicalRunId, reference.interpreterId, reference.commandId); }
     catch { throw new FactoryArtifactError("factory_transition_command_invalid"); }
-    const indexed = rows<CommandIndexRow>(await this.artifacts.database.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
+    const indexed = rows<CommandIndexRow>(await database.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
     if (!indexed) throw new FactoryArtifactError("factory_transition_command_not_found");
     const sourceSequence = Number(indexed.source_sequence);
     if (!validSequence(sourceSequence) || !/^sha256:[0-9a-f]{64}$/.test(indexed.command_digest)) throw new FactoryArtifactError("factory_transition_command_corrupt");
     const records = new FactoryRecords(this.artifacts.database, reference.tenantId);
     let batch: FactoryAuditBatch | null;
-    try { batch = await records.readAuditBatchInTransaction(this.artifacts.database, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, sourceSequence); }
+    try { batch = await records.readAuditBatchInTransaction(database, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, sourceSequence); }
     catch { throw new FactoryArtifactError("factory_transition_command_corrupt"); }
     if (!batch) throw new FactoryArtifactError("factory_transition_command_not_found");
     const manifest = auditedManifest(batch.payload);
     let transition: TransitionArtifact;
-    try { transition = await loadTransitionArtifact(reference, sourceSequence, manifest, this); }
+    try { transition = await loadTransitionArtifact(reference, sourceSequence, manifest, this.reader(transaction)); }
     catch { throw new FactoryArtifactError("factory_transition_command_corrupt"); }
     if (transition.event.id !== (batch.payload as { eventId: unknown }).eventId || eventDigest(transition.event) !== (batch.payload as { eventHash: unknown }).eventHash) throw new FactoryArtifactError("factory_transition_command_corrupt");
     const command = indexedCommands(transition.commands).find(value => value.commandId === reference.commandId);
@@ -141,22 +142,30 @@ export class FactoryTransitionArtifacts {
   }
 
   /** Loads one committed audit transition by its bounded global sequence. */
-  async loadCommittedTransition(identityValue: FactoryIdentity, sourceSequence: number): Promise<TransitionArtifact> {
+  async loadCommittedTransition(identityValue: FactoryIdentity, sourceSequence: number, transaction?: MigrationDb): Promise<TransitionArtifact> {
     const identity = { tenantId: identityValue.tenantId, projectId: identityValue.projectId, logicalRunId: identityValue.logicalRunId, interpreterId: identityValue.interpreterId };
     try { assertFactoryIdentity(identity.tenantId, identity.projectId, identity.logicalRunId, identity.interpreterId); }
     catch { throw new FactoryArtifactError("factory_transition_invalid"); }
     if (!validSequence(sourceSequence)) throw new FactoryArtifactError("factory_transition_invalid");
     const records = new FactoryRecords(this.artifacts.database, identity.tenantId);
     let batch: FactoryAuditBatch | null;
-    try { batch = await records.readAuditBatchInTransaction(this.artifacts.database, { projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId }, sourceSequence); }
+    try { batch = await records.readAuditBatchInTransaction(transaction ?? this.artifacts.database, { projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId }, sourceSequence); }
     catch { throw new FactoryArtifactError("factory_transition_corrupt"); }
     if (!batch) throw new FactoryArtifactError("factory_transition_not_found");
     const manifest = auditedManifest(batch.payload);
     let transition: TransitionArtifact;
-    try { transition = await loadTransitionArtifact(identity, sourceSequence, manifest, this); }
+    try { transition = await loadTransitionArtifact(identity, sourceSequence, manifest, this.reader(transaction)); }
     catch { throw new FactoryArtifactError("factory_transition_corrupt"); }
     if (transition.event.id !== (batch.payload as { eventId: unknown }).eventId || eventDigest(transition.event) !== (batch.payload as { eventHash: unknown }).eventHash) throw new FactoryArtifactError("factory_transition_corrupt");
     return transition;
+  }
+
+  private loadArtifact(transaction: MigrationDb | undefined, ...args: Parameters<FactoryArtifacts["load"]>): ReturnType<FactoryArtifacts["load"]> {
+    return transaction ? this.artifacts.loadInTransaction(transaction, ...args) : this.artifacts.load(...args);
+  }
+
+  private reader(transaction?: MigrationDb): Pick<FactoryTransitionArtifacts, "loadTransitionManifest" | "loadTransitionPage"> {
+    return transaction ? { loadTransitionManifest: request => this.loadTransitionManifest(request, transaction), loadTransitionPage: request => this.loadTransitionPage(request, transaction) } : this;
   }
 
   private async indexCommand(transaction: MigrationDb, snapshot: TransitionRecord, command: IndexedCommand): Promise<void> {
