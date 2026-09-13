@@ -422,3 +422,5 @@
 
 - Do not report a factory leaf complete from focused Bun tests and lint. Record all four canonical typechecks, owned-source and patch LCOV producers, real Node runtime proof, and real local-S3 proof.
 - Rebuild `@ezcorp/factory-sdk` before Node orchestrator checks that consume generated `dist` declarations.
+
+- After changing kernel state retention or control expansion, run every SDK test file, including expansion and recovery. Focused kernel, partition and simulator proofs do not cover all repair behavior.

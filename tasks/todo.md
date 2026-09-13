@@ -1204,3 +1204,13 @@ Transport review: seven socket tests and 70 assertions pass, including a real No
 - [ ] Run full application regression and complete production service composition.
 
 Review: `/tmp/factory-platform-evidence/assembled-platform-results.json` records seven successful producers at8a21a81d9. The combined component suite passes50 cases/274 assertions. Actual PostgreSQL/S3 passes23 cases/1,349 assertions including exact schema references and complete run-lifecycle storage composition. The canonical Node producer passes and all11 registered orchestrator sources have complete measured lines. These receipts remain component proofs, not production startup, full regression, independent archive durability or a10-tenant soak.
+
+
+## Full backend regression after component integration
+
+- [x] Run the canonical backend suite at `3eeee3259`.
+- [ ] Fix five SDK expansion/repair regressions and verify every SDK test file.
+- [ ] Fix two bundled grant review failures and the Bun/Node/Python golden fixture failure.
+- [ ] Repeat the canonical backend suite on the integrated corrections.
+
+Review: `/tmp/factory-platform-evidence/assembled-backend-3eeee3259.log` reports 26,078 passing tests and eight failures across five files. Focused component receipts did not cover those failures. Sol owns SDK corrections; Terra owns the bundled-review and Python corrections. Full regression remains open.
