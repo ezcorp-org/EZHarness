@@ -1617,3 +1617,5 @@ Plan review: there must be no configuration path that creates a held task budget
 - [x] Add a DB-transactional `lazy-commands.ts` adapter that maps only verified reader output to bounded kernel events.
 - [x] Prove PGlite, PostgreSQL/S3, and private HTTPS generic-command behavior including stale, cancelled, substituted, version, and oversized denials.
 - [ ] Run owned coverage, SDK build, all canonical typechecks, lint, and integrity checks.
+
+Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.
