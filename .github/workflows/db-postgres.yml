@@ -96,3 +96,13 @@ jobs:
           path: coverage-factory-pool/lcov.info
           retention-days: 3
           if-no-files-found: error
+
+      - name: Measure factory provisioning against real PostgreSQL
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" COV_OUT=coverage-factory-provisioning bash scripts/factory-provisioning-coverage.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-provisioning
+          path: coverage-factory-provisioning/lcov.info
+          retention-days: 3
+          if-no-files-found: error
