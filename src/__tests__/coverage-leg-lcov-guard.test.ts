@@ -775,11 +775,12 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
   }
 
   /** Execute the extracted real verdict with every unrelated producer green. */
-  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number; webUtility?: number } = {}): Run {
+  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number; webUtility?: number; python?: number } = {}): Run {
     const sdk = exits.sdk ?? 0;
     const emptyNodeShim = exits.emptyNodeShim ?? 0;
     const webUtility = exits.webUtility ?? 0;
-    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_UTILITY_EXIT=${webUtility}\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+    const python = exits.python ?? 0;
+    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_UTILITY_EXIT=${webUtility}\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nPYTHON_LEG_EXIT=${python}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
     return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
   }
 
@@ -869,6 +870,22 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     const full = runCoverageVerdict(fullVerdict, { webUtility: 1 });
     expect(full.code).toBe(1);
     expect(full.stdout).toContain("web_utility=1");
+  });
+
+  test("python quality/coverage failure gates the full verdict", async () => {
+    // coverage.py is the ONLY instrumenter that can measure Python source, so
+    // a failed Python leg means the merged report is missing a whole tree that
+    // no other producer can supply. It is registered in full mode only,
+    // because CI publishes the same producer from `Factory runner contracts`.
+    const tail = await fullModeTail();
+    const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
+    const fullExit = 'if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi';
+    const fullVerdict = tail.slice(fullVerdictStart, tail.indexOf(fullExit, fullVerdictStart) + fullExit.length);
+
+    const full = runCoverageVerdict(fullVerdict, { python: 1 });
+    expect(full.code).toBe(1);
+    expect(full.stdout).toContain("python=1");
+    expect(runCoverageVerdict(fullVerdict, { python: 0 }).code).toBe(0);
   });
 
   test("empty Node shim failure gates both verdicts even after its lcov guard passed", async () => {
