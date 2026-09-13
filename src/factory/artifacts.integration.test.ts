@@ -135,14 +135,21 @@ test("stored commands resolve only after their exact transition audit commits an
   const finalized = await persistTransition(identity, 1, event, {} as never, [command], { sequence: receipt.eventSequence, eventId: event.id, eventHash: receipt.eventHash }, activity);
   const reference = { ...identity, commandId: command.id };
   expect(await transitions.loadStoredCommand(reference)).toEqual(command);
+  const mutableReference = { ...reference };
+  const pending = transitions.loadStoredCommand(mutableReference);
+  mutableReference.projectId = "foreign-project";
+  expect(await pending).toEqual(command);
   expect(await inbox.confirmApplied(key, { inboxSequence: receipt.eventSequence, eventId: event.id, eventHash: receipt.eventHash })).toBe(true);
   await expect(transitions.loadStoredCommand({ ...reference, commandId: "missing" })).rejects.toMatchObject({ code: "factory_transition_command_not_found" });
   await expect(transitions.loadStoredCommand({ ...reference, projectId: "foreign-project" })).rejects.toMatchObject({ code: "factory_transition_command_not_found" });
   const record = { ...identity, sourceSequence: 1, eventId: event.id, eventHash: finalized.eventHash, inboxSequence: receipt.eventSequence, artifactManifest: finalized.manifest };
   await Promise.all([transitions.recordTransition(record), transitions.recordTransition(record)]);
-  await expect(persistTransition(identity, 2, { id: "stored-command-next", kind: "node-succeeded", atMs: 2 } as never, {} as never, [storedCommand(command.id, 1)], undefined, activity)).rejects.toMatchObject({ code: "factory_transition_command_conflict" });
+  await persistTransition(identity, 2, { id: "stored-command-repeat", kind: "node-succeeded", atMs: 2 } as never, {} as never, [command], undefined, activity);
+  const index = await db.execute(sql`SELECT source_sequence FROM factory_transition_commands WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} AND command_id=${command.id}`) as unknown as { rows?: Array<{ source_sequence: number }> } | Array<{ source_sequence: number }>;
+  expect((Array.isArray(index) ? index : index.rows)![0]!.source_sequence).toBe(1);
+  await expect(persistTransition(identity, 3, { id: "stored-command-next", kind: "node-succeeded", atMs: 3 } as never, {} as never, [storedCommand(command.id, 1)], undefined, activity)).rejects.toMatchObject({ code: "factory_transition_command_conflict" });
   const rows = await db.execute(sql`SELECT source_sequence FROM factory_audit_batches WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId}`) as unknown as { rows?: unknown[] } | unknown[];
-  expect(Array.isArray(rows) ? rows : rows.rows).toHaveLength(1);
+  expect(Array.isArray(rows) ? rows : rows.rows).toHaveLength(2);
 });
 
 test("stored command lookup rejects uncommitted, malformed, and tampered transition authority", async () => {

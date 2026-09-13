@@ -426,3 +426,8 @@
 - After changing kernel state retention or control expansion, run every SDK test file, including expansion and recovery. Focused kernel, partition and simulator proofs do not cover all repair behavior.
 
 - Run each production client against its real server across process boundaries. A raw HTTP client and a separate mock-server client suite can both pass while they disagree on empty responses or receipt shapes.
+
+## 2026-09-13 — Stored command lookup review
+
+- Snapshot every trusted command-reference coordinate before its first await, then use only that snapshot for lookup and verification.
+- A stable command ID with identical canonical bytes may recur in a later transition. Retain its first committed audit pointer; reject only a digest change.

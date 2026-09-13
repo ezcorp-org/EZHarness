@@ -118,23 +118,24 @@ export class FactoryTransitionArtifacts {
 
   /** Resolves one indexed command, then proves its audit and immutable transition before returning it. */
   async loadStoredCommand(referenceValue: StoredFactoryCommandReference): Promise<KernelCommand> {
-    try { assertFactoryIdentity(referenceValue.tenantId, referenceValue.projectId, referenceValue.logicalRunId, referenceValue.interpreterId, referenceValue.commandId); }
+    const reference = { tenantId: referenceValue.tenantId, projectId: referenceValue.projectId, logicalRunId: referenceValue.logicalRunId, interpreterId: referenceValue.interpreterId, commandId: referenceValue.commandId };
+    try { assertFactoryIdentity(reference.tenantId, reference.projectId, reference.logicalRunId, reference.interpreterId, reference.commandId); }
     catch { throw new FactoryArtifactError("factory_transition_command_invalid"); }
-    const indexed = rows<CommandIndexRow>(await this.artifacts.database.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${referenceValue.tenantId} AND project_id=${referenceValue.projectId} AND run_id=${referenceValue.logicalRunId} AND interpreter_id=${referenceValue.interpreterId} AND command_id=${referenceValue.commandId}`))[0];
+    const indexed = rows<CommandIndexRow>(await this.artifacts.database.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
     if (!indexed) throw new FactoryArtifactError("factory_transition_command_not_found");
     const sourceSequence = Number(indexed.source_sequence);
     if (!validSequence(sourceSequence) || !/^sha256:[0-9a-f]{64}$/.test(indexed.command_digest)) throw new FactoryArtifactError("factory_transition_command_corrupt");
-    const records = new FactoryRecords(this.artifacts.database, referenceValue.tenantId);
+    const records = new FactoryRecords(this.artifacts.database, reference.tenantId);
     let batch: FactoryAuditBatch | null;
-    try { batch = await records.readAuditBatchInTransaction(this.artifacts.database, { projectId: referenceValue.projectId, runId: referenceValue.logicalRunId, interpreterId: referenceValue.interpreterId }, sourceSequence); }
+    try { batch = await records.readAuditBatchInTransaction(this.artifacts.database, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, sourceSequence); }
     catch { throw new FactoryArtifactError("factory_transition_command_corrupt"); }
     if (!batch) throw new FactoryArtifactError("factory_transition_command_not_found");
     const manifest = auditedManifest(batch.payload);
     let transition: TransitionArtifact;
-    try { transition = await loadTransitionArtifact(referenceValue, sourceSequence, manifest, this); }
+    try { transition = await loadTransitionArtifact(reference, sourceSequence, manifest, this); }
     catch { throw new FactoryArtifactError("factory_transition_command_corrupt"); }
     if (transition.event.id !== (batch.payload as { eventId: unknown }).eventId || eventDigest(transition.event) !== (batch.payload as { eventHash: unknown }).eventHash) throw new FactoryArtifactError("factory_transition_command_corrupt");
-    const command = indexedCommands(transition.commands).find(value => value.commandId === referenceValue.commandId);
+    const command = indexedCommands(transition.commands).find(value => value.commandId === reference.commandId);
     if (!command || command.digest !== indexed.command_digest) throw new FactoryArtifactError("factory_transition_command_corrupt");
     return command.command;
   }
@@ -142,7 +143,7 @@ export class FactoryTransitionArtifacts {
   private async indexCommand(transaction: MigrationDb, snapshot: TransitionRecord, command: IndexedCommand): Promise<void> {
     const current = rows<CommandIndexRow>(await transaction.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${snapshot.tenantId} AND project_id=${snapshot.projectId} AND run_id=${snapshot.logicalRunId} AND interpreter_id=${snapshot.interpreterId} AND command_id=${command.commandId} FOR UPDATE`))[0];
     if (current) {
-      if (Number(current.source_sequence) !== snapshot.sourceSequence || current.command_digest !== command.digest) throw new FactoryArtifactError("factory_transition_command_conflict");
+      if (current.command_digest !== command.digest) throw new FactoryArtifactError("factory_transition_command_conflict");
       return;
     }
     await transaction.execute(sql`INSERT INTO factory_transition_commands (tenant_id, project_id, run_id, interpreter_id, command_id, source_sequence, command_digest) VALUES (${snapshot.tenantId}, ${snapshot.projectId}, ${snapshot.logicalRunId}, ${snapshot.interpreterId}, ${command.commandId}, ${snapshot.sourceSequence}, ${command.digest})`);
