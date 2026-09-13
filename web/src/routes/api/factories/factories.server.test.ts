@@ -122,6 +122,7 @@ describe("factory definition and grant routes", () => {
     expect((await json(responses[7]!)).kind).toBe("draft.validation");
     expect((await json(responses[8]!)).kind).toBe("version.page");
     expect((await json(responses[9]!)).kind).toBe("version.summary");
+    expect((await json(responses[10]!)).kind).toBe("version.details");
     expect((await json(responses[11]!)).kind).toBe("grant.page");
     expect((await json(responses[13]!)).kind).toBe("grant.resource");
     expect(definitions.publish).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), resource, 1, "publish", "1.0.0");

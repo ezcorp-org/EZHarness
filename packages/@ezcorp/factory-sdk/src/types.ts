@@ -787,6 +787,11 @@ export interface FactoryVersionSummary {
   readonly publishedAtMs: number;
 }
 
+export interface FactoryVersionDetails extends FactoryVersionSummary {
+  /** Immutable definition embedded in the verified compiled artifact. */
+  readonly source: FactoryDefinition;
+}
+
 export interface FactoryRunSummary {
   /** @minLength 1 @maxLength 512 */
   readonly runId: string;
@@ -897,6 +902,7 @@ export type FactoryApiResponse =
     readonly diagnostics: readonly CompilerDiagnostic[];
   }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "version.summary"; readonly resource: FactoryVersionSummary }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "version.details"; readonly resource: FactoryVersionDetails }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "version.page"; readonly page: FactoryApiPage<FactoryVersionSummary> }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "run.details"; readonly resource: FactoryRunDetails }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "run.page"; readonly page: FactoryApiPage<FactoryRunSummary> }

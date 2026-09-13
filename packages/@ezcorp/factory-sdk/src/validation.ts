@@ -758,7 +758,8 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
     if (response.kind === "draft.details" && response.resource.source.id !== response.resource.factoryId) return issue("API_FACTORY_ID", "Draft definition ID must match its resource ID.", ["resource", "source", "id"]);
   }
   if (response.kind === "draft.page" && response.page.items.some((item) => !validDraftSummary(item))) return issue("API_DRAFT_RESOURCE", "Draft page contains an invalid digest or availability detail.", ["page", "items"]);
-  if (response.kind === "version.summary" && !validVersion(response.resource)) return issue("API_VERSION_DIGEST", "Published version digests and artifacts must be valid.", ["resource"]);
+  if ((response.kind === "version.summary" || response.kind === "version.details") && !validVersion(response.resource)) return issue("API_VERSION_DIGEST", "Published version digests and artifacts must be valid.", ["resource"]);
+  if (response.kind === "version.details" && (response.resource.source.id !== response.resource.factoryId || response.resource.source.version !== response.resource.version)) return issue("API_VERSION_IDENTITY", "Published definition identity must match its version resource.", ["resource", "source"]);
   if (response.kind === "version.page" && response.page.items.some((item) => !validVersion(item))) return issue("API_VERSION_DIGEST", "Published version page contains an invalid digest or artifact.", ["page", "items"]);
   if (response.kind === "run.details" && !validDigest(response.resource.definitionDigest, true)) return issue("API_RUN_DIGEST", "Run definition digest must be prefixed lowercase sha256.", ["resource", "definitionDigest"]);
   if (response.kind === "run.details") {

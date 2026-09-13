@@ -188,7 +188,11 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
     }
     case "version.get": {
       const result = await definitions.readVersion(principal, request.path, request.path.version);
-      return versionResponse(result.version);
+      return {
+        schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION,
+        kind: "version.details",
+        resource: { ...versionResource(result.version), source: result.compiled.definition },
+      };
     }
     case "version.list": {
       const page = await definitions.listVersions(principal, request.path, request.query.cursor ?? "", request.query.limit ?? 50);

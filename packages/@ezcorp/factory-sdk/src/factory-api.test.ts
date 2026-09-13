@@ -80,6 +80,7 @@ function responses(): FactoryApiResponse[] {
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.page", page: { items: [grant] } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "mutation.accepted", receipt: { resourceId: "run-1", commandId: "command-1", statusUrl: "/api/factories/runs/run-1" } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "error", error: { code: "revision_conflict", message: "Reload the draft.", retryable: false, currentRevision: 2 } },
+    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "version.details", resource: { ...version, source: referenceCodeV1 } },
   ];
 }
 
@@ -182,6 +183,8 @@ describe("factory product API schema", () => {
     expect(code(validateFactoryApiResponse({ ...version, resource: { ...version.resource, compiledBlobDigest: "b".repeat(63) } }))).toBe("API_RESPONSE_SCHEMA");
     const versionPage = responses()[6] as Extract<FactoryApiResponse, { kind: "version.page" }>;
     expect(code(validateFactoryApiResponse({ ...versionPage, page: { items: [{ ...versionPage.page.items[0]!, compiledBlobDigest: "A".repeat(64) }] } }))).toBe("API_VERSION_DIGEST");
+    const versionDetails = responses()[15] as Extract<FactoryApiResponse, { kind: "version.details" }>;
+    expect(code(validateFactoryApiResponse({ ...versionDetails, resource: { ...versionDetails.resource, source: { ...versionDetails.resource.source, version: "different" } } }))).toBe("API_VERSION_IDENTITY");
     const runDetails = responses()[7] as Extract<FactoryApiResponse, { kind: "run.details" }>;
     expect(code(validateFactoryApiResponse({ ...runDetails, resource: { ...runDetails.resource, definitionDigest: `sha256:${"A".repeat(64)}` } }))).toBe("API_RUN_DIGEST");
     expect(code(validateFactoryApiResponse({ ...runDetails, resource: { ...runDetails.resource, parameters: { value: { kind: "inline", value: "x".repeat(FACTORY_LIMITS.maxInlineValueBytes + 1) } } } }))).toBe("API_PARAMETER_BYTES");
