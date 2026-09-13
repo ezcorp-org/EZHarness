@@ -1,6 +1,6 @@
 import { validateValue } from "./validation.js";
 import { evaluateExpression } from "./expressions.js";
-import { isUnsignedDecimal } from "./canonical.js";
+import { canonicalizeJson, isUnsignedDecimal, validateIJson } from "./canonical.js";
 import type {
   AdvanceResult,
   KernelCommand,
@@ -8,7 +8,7 @@ import type {
   KernelNodeState,
   KernelState,
 } from "./kernel-types.js";
-import type { CompiledFactory, FactoryNode, JsonValue, ValueReference, ValueSource } from "./types.js";
+import type { CompiledFactory, FactoryGraph, FactoryNode, JsonValue, ValueSource } from "./types.js";
 
 const DEFAULT_RUN_DEADLINE_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_RUN_DEADLINE_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -36,7 +36,7 @@ export function createKernelState(
   return {
     logicalRunId,
     definitionDigest: factory.digest,
-    input,
+    input: snapshotValue(input),
     status: "created",
     runDeadlineAtMs: nowMs + Math.min(requested, MAX_RUN_DEADLINE_MS),
     nowMs,
@@ -169,7 +169,7 @@ function applyAdmission(factory: CompiledFactory, state: KernelState, event: Ext
   const attempt = runtime.attempts.at(-1);
   if (!attempt || attempt.commandId !== event.commandId || attempt.stopped) return state;
   if (!event.granted) return failNode(factory, state, node, event.nodeId, "ADMISSION_DENIED", "admission_denied", commands);
-  const input = inputFor(state, node);
+  const input = inputFor(state, node, event.nodeId);
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "dispatch-node", event.nodeId);
   const running = {
@@ -191,7 +191,7 @@ function applyResult(factory: CompiledFactory, state: KernelState, event: Extrac
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
   if (!validateOutput(node, event.output)) return stopFailedAttempt(state, event.nodeId, "OUTPUT_INVALID", commands);
   const attempts = runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt);
-  const next = withNode(state, event.nodeId, { ...runtime, status: "succeeded", output: event.output, error: undefined, attempts });
+  const next = withNode(state, event.nodeId, { ...runtime, status: "succeeded", output: snapshotValue(event.output), error: undefined, attempts });
   const progressed = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
   return progressLoop(factory, progressMap(factory, completeScopeIfReady(factory, progressed, event.nodeId, commands), event.nodeId, commands), event.nodeId, commands);
 }
@@ -294,7 +294,7 @@ function activateReady(factory: CompiledFactory, state: KernelState, commands: K
 function dispatchReady(factory: CompiledFactory, state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
   const runtime = state.nodes[nodeId]!;
   if (node.kind === "branch") {
-    const evaluated = evaluateExpression(node.condition, expressionContext(state));
+    const evaluated = evaluateExpression(node.condition, expressionContext(state, nodeId));
     if (!evaluated.ok || typeof evaluated.value !== "boolean") return failNode(factory, state, node, nodeId, "BRANCH_PREDICATE_INVALID", "execution", commands);
     const condition = evaluated.value;
     const selected = condition ? "then" : "else";
@@ -311,14 +311,15 @@ function dispatchReady(factory: CompiledFactory, state: KernelState, node: Facto
       if ((child.dependsOn?.length ?? 0) === 0) roots.push(childId);
     }
     const scoped = { ...state, nodes: childNodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, selectedBranch: selected as "then" | "else", expandedNodeCount: expanded, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: graph.nodes.map((child) => `${scopeId}/${child.id}`), roots } } };
-    return activateReady(factory, withNode(scoped, nodeId, { ...runtime, status: "waiting", selected, output: undefined, waitingReason: "external_reconciliation" }), commands, roots);
+    const waiting = activateReady(factory, withNode(scoped, nodeId, { ...runtime, status: "waiting", selected, output: undefined, waitingReason: "external_reconciliation" }), commands, roots);
+    return completeScopeIfReady(factory, waiting, `${scopeId}/`, commands);
   }
   if (node.kind === "join") return settleJoin(factory, state, node, nodeId, commands);
   if (node.kind === "map") {
-    const collection = resolveValue(node.collection, state);
+    const collection = resolveValue(node.collection, state, nodeId);
     if (!Array.isArray(collection)) return failNode(factory, state, node, nodeId, "MAP_COLLECTION_INVALID", "execution", commands);
     if (collection.length > node.maxItems) return failNode(factory, state, node, nodeId, "MAP_ITEM_BOUND", "bound_exhausted", commands);
-    if (collection.length === 0) return activateReady(factory, withNode(state, nodeId, { ...runtime, status: "succeeded", output: [], map: { snapshot: [], itemCount: 0, completedIndexes: [], failedIndexes: [], outcomes: [] } }), commands, successorsFor(factory, nodeId));
+    if (collection.length === 0) return completeControl(factory, withNode(state, nodeId, { ...runtime, map: { snapshot: [], itemCount: 0, completedIndexes: [], failedIndexes: [], outcomes: [] } }), nodeId, Object.fromEntries(Object.keys(node.outputPorts ?? {}).map(name => [name, []])), commands);
     const nodes: Record<string, KernelNodeState> = { ...state.nodes };
     const scopeIds: string[] = [];
     const roots: string[] = [];
@@ -330,15 +331,21 @@ function dispatchReady(factory: CompiledFactory, state: KernelState, node: Facto
     }
     const scopeId = `${nodeId}/items`;
     const scoped = { ...state, nodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, expandedNodeCount: scopeIds.length, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: scopeIds, roots } } };
-    return activateReady(factory, withNode(scoped, nodeId, { ...runtime, status: "waiting", map: { snapshot: collection, itemCount: collection.length, completedIndexes: [], failedIndexes: [], outcomes: Array.from({ length: collection.length }) }, waitingReason: "external_reconciliation" }), commands, roots);
+    let waiting = activateReady(factory, withNode(scoped, nodeId, { ...runtime, status: "waiting", map: { snapshot: snapshotValue(collection) as JsonValue[], itemCount: collection.length, completedIndexes: [], failedIndexes: [], outcomes: Array.from({ length: collection.length }) }, waitingReason: "external_reconciliation" }), commands, roots);
+    if (node.body.nodes.length === 0) for (let item = 0; item < collection.length; item += 1) waiting = progressMap(factory, waiting, `${nodeId}/items/${item}/`, commands);
+    return waiting;
   }
-  if (node.kind === "loop") return startLoopIteration(factory, state, node, nodeId, runtime, resolveValue(node.initialInput, state), 0, commands);
+  if (node.kind === "loop") {
+    let waiting = startLoopIteration(factory, state, node, nodeId, runtime, resolveValue(node.initialInput, state, nodeId), 0, commands);
+    while (node.body.nodes.length === 0 && waiting.nodes[nodeId]?.status === "waiting") waiting = progressLoop(factory, waiting, `${nodeId}/items/${waiting.nodes[nodeId]!.loop!.iteration}/`, commands);
+    return waiting;
+  }
   if (node.kind === "approval") {
     const deadlineAtMs = Math.min(nodeDeadline(state, node), state.nowMs + Math.min(node.expiresInMs, 24 * 60 * 60 * 1_000));
     const command = commandFor(state, "request-approval", nodeId);
     const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
     const waiting = { ...runtime, status: "waiting" as const, attempts: runtime.attempts.concat(attempt), waitingReason: "approval" as const, waitingDeadlineAtMs: deadlineAtMs };
-    commands.push({ kind: "request-approval", id: command.id, nodeId, choices: node.choices, context: resolveValue(node.context, state), actorScope: node.actorScope, deadlineAtMs });
+    commands.push({ kind: "request-approval", id: command.id, nodeId, choices: node.choices, context: resolveValue(node.context, state, nodeId), actorScope: node.actorScope, deadlineAtMs });
     return scheduleTimer(withNode(command.state, nodeId, waiting), nodeId, deadlineAtMs, "deadline", commands);
   }
   if (node.kind === "subfactory") return dispatchChild(state, node, nodeId, commands);
@@ -361,7 +368,7 @@ function dispatchChild(state: KernelState, node: Extract<FactoryNode, { kind: "s
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "run-child", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
-  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node), deadlineAtMs });
+  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node, nodeId), deadlineAtMs });
   return withNode(command.state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: deadlineAtMs });
 }
 
@@ -370,7 +377,7 @@ function dispatchAcceptance(state: KernelState, node: Extract<FactoryNode, { kin
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "request-acceptance", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
-  commands.push({ kind: "request-acceptance", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, candidate: resolveValue(node.candidate, state), evidence: resolveValue(node.evidence, state), deadlineAtMs });
+  commands.push({ kind: "request-acceptance", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, candidate: resolveValue(node.candidate, state, nodeId), evidence: resolveValue(node.evidence, state, nodeId), deadlineAtMs });
   return withNode(command.state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: deadlineAtMs });
 }
 
@@ -379,7 +386,7 @@ function dispatchRelease(state: KernelState, node: Extract<FactoryNode, { kind: 
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "request-release", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
-  commands.push({ kind: "request-release", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, input: inputFor(state, node), deadlineAtMs });
+  commands.push({ kind: "request-release", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, input: inputFor(state, node, nodeId), deadlineAtMs });
   return withNode(command.state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: deadlineAtMs });
 }
 
@@ -527,11 +534,14 @@ function matchesAttempt(runtime: KernelNodeState, event: Extract<KernelEvent, { 
   return (runtime.status === "running" || runtime.status === "waiting") && attempt?.commandId === event.commandId && attempt.candidateGeneration === event.candidateGeneration && attempt.attempt === event.attempt && !attempt.stopped;
 }
 
-function inputFor(state: KernelState, node: FactoryNode): JsonValue {
+function inputFor(state: KernelState, node: FactoryNode, nodeId: string): JsonValue {
   const bindings = node.bindings;
-  if (!bindings || Object.keys(bindings).length === 0) return state.input;
+  if (!bindings || Object.keys(bindings).length === 0) {
+    validateRecord(node.inputPorts ?? {}, state.input, `node ${nodeId} input`);
+    return state.input;
+  }
   const input: Record<string, JsonValue> = {};
-  for (const [name, source] of Object.entries(bindings)) input[name] = resolveValue(source, state);
+  for (const [name, source] of Object.entries(bindings)) input[name] = resolveValue(source, state, nodeId);
   validateRecord(node.inputPorts ?? {}, input, `node ${node.id} input`);
   return input;
 }
@@ -543,7 +553,12 @@ function validateOutput(node: FactoryNode, output: JsonValue): boolean {
   } catch { return false; }
 }
 
+function snapshotValue(value: JsonValue): JsonValue {
+  return JSON.parse(canonicalizeJson(value)) as JsonValue;
+}
+
 function validateRecord(schemas: Readonly<Record<string, import("./types").PortSchema>>, value: JsonValue, label: string): void {
+  if (!validateIJson(value).ok || new TextEncoder().encode(canonicalizeJson(value)).byteLength > 64 * 1024) throw new FactoryKernelError(`${label} must be bounded I-JSON`);
   if (Object.keys(schemas).length === 0) return;
   if (!isRecord(value)) throw new FactoryKernelError(`${label} must be an object`);
   for (const [name, schema] of Object.entries(schemas)) {
@@ -552,52 +567,73 @@ function validateRecord(schemas: Readonly<Record<string, import("./types").PortS
   }
 }
 
-function resolveValue(source: ValueSource, state: KernelState): JsonValue {
-  if (source.kind === "literal") return source.value;
-  return resolveReference(source, state);
+function resolveValue(source: ValueSource, state: KernelState, nodeId = ""): JsonValue {
+  const result = evaluateExpression(source, expressionContext(state, nodeId));
+  if (!result.ok) throw new FactoryKernelError(result.message);
+  return result.value;
 }
 
-function resolveReference(reference: ValueReference, state: KernelState): JsonValue {
-  let value: JsonValue | undefined;
-  if (reference.root === "input") value = isRecord(state.input) ? state.input[reference.name] : undefined;
-  else if (reference.root === "node") value = state.nodes[reference.name]?.output;
-  if (value === undefined) throw new FactoryKernelError(`reference ${reference.root}.${reference.name} is missing`);
-  for (const segment of reference.path ?? []) {
-    if (typeof segment === "number") value = Array.isArray(value) ? value[segment] : undefined;
-    else value = isRecord(value) ? value[segment] : undefined;
-    if (value === undefined) throw new FactoryKernelError(`reference path is missing`);
-  }
-  return value;
-}
-
-function expressionContext(state: KernelState, loop?: Readonly<Record<string, JsonValue>>): { readonly inputs: Readonly<Record<string, JsonValue>>; readonly nodes: Readonly<Record<string, JsonValue>>; readonly loop?: Readonly<Record<string, JsonValue>> } {
-  const inputs = isRecord(state.input) ? state.input : {};
+function expressionContext(state: KernelState, nodeId = "", loopOverride?: Readonly<Record<string, JsonValue>>): import("./types.js").ExpressionContext {
   const nodes: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
-  for (const [id, runtime] of Object.entries(state.nodes)) if (runtime.output !== undefined) nodes[id] = runtime.output;
-  return { inputs, nodes, loop };
+  const parts = nodeId.split("/");
+  const scopes = [""];
+  let map: Readonly<Record<string, JsonValue>> | undefined;
+  let loop: Readonly<Record<string, JsonValue>> | undefined;
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    const parentId = parts.slice(0, index + 1).join("/");
+    const runtime = Object.hasOwn(state.nodes, parentId) ? state.nodes[parentId] : undefined;
+    if (runtime?.selected && parts[index + 1] === runtime.selected) {
+      scopes.push(`${parts.slice(0, index + 2).join("/")}/`);
+      index += 1;
+    } else if ((runtime?.map || runtime?.loop) && parts[index + 1] === "items") {
+      const item = Number(parts[index + 2]);
+      if (runtime.map) map = { item: runtime.map.snapshot[item]!, index: item };
+      if (runtime.loop) loop = { carried: runtime.loop.carried, index: item };
+      scopes.push(`${parts.slice(0, index + 3).join("/")}/`);
+      index += 2;
+    }
+  }
+  // Outer names are loaded first. A local declared name takes precedence.
+  for (const scope of scopes) for (const [id, runtime] of Object.entries(state.nodes)) {
+    if (id.startsWith(scope) && !id.slice(scope.length).includes("/") && runtime.output !== undefined) nodes[id.slice(scope.length)] = runtime.output;
+  }
+  return { inputs: isRecord(state.input) ? state.input : {}, nodes, map, loop: loopOverride ?? loop };
 }
 
-function graphOutput(factory: CompiledFactory, state: KernelState): JsonValue {
-  const output: Record<string, JsonValue> = {};
-  for (const [name, source] of Object.entries(factory.definition.graph.outputs)) output[name] = resolveValue(source, state);
+function graphValues(graph: FactoryGraph, state: KernelState, scope = ""): Record<string, JsonValue> {
+  const output: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
+  for (const [name, source] of Object.entries(graph.outputs)) output[name] = resolveValue(source, state, scope);
   return output;
 }
 
+function graphOutput(factory: CompiledFactory, state: KernelState): JsonValue {
+  const output = graphValues(factory.definition.graph, state);
+  validateRecord(factory.definition.outputPorts, output, "run output");
+  return output;
+}
+
+function completeControl(factory: CompiledFactory, state: KernelState, nodeId: string, output: JsonValue, commands: KernelCommand[]): KernelState {
+  const node = nodeFor(factory, nodeId)!;
+  if (!validateOutput(node, output)) return failNode(factory, state, node, nodeId, "OUTPUT_INVALID", "output_invalid", commands);
+  const done = withNode(state, nodeId, { ...state.nodes[nodeId]!, status: "succeeded", output, timer: undefined });
+  const progressed = activateReady(factory, done, commands, successorsFor(factory, nodeId));
+  return progressLoop(factory, progressMap(factory, completeScopeIfReady(factory, progressed, nodeId, commands), nodeId, commands), nodeId, commands);
+}
+
 function completeScopeIfReady(factory: CompiledFactory, state: KernelState, nodeId: string, commands: KernelCommand[]): KernelState {
-  const scope = Object.values(state.scopes).find((candidate) => candidate.nodeIds.includes(nodeId));
-  if (!scope?.parentNodeId || !scope.nodeIds.every((id) => state.nodes[id]?.status === "succeeded")) return state;
+  const scopeId = nodeId.slice(0, nodeId.lastIndexOf("/"));
+  const scope = Object.hasOwn(state.scopes, scopeId) ? state.scopes[scopeId] : undefined;
+  if (!scope?.parentNodeId || !scope.nodeIds.every(id => state.nodes[id]?.status === "succeeded" || state.nodes[id]?.discarded)) return state;
   const parent = state.nodes[scope.parentNodeId];
-  if (parent?.status !== "waiting") return state;
-  const output: Record<string, JsonValue> = {};
-  for (const id of scope.nodeIds) output[id.slice(id.lastIndexOf("/") + 1)] = state.nodes[id]!.output ?? null;
-  const complete = withNode(state, scope.parentNodeId, { ...parent, status: "succeeded", output });
-  return activateReady(factory, complete, commands, successorsFor(factory, scope.parentNodeId));
+  const parentNode = nodeFor(factory, scope.parentNodeId);
+  if (parent?.status !== "waiting" || parentNode?.kind !== "branch" || !parent.selected) return state;
+  return completeControl(factory, state, scope.parentNodeId, graphValues(parentNode[parent.selected], state, `${scopeId}/`), commands);
 }
 
 function progressMap(factory: CompiledFactory, state: KernelState, nodeId: string, commands: KernelCommand[]): KernelState {
   if (state.status !== "running") return state;
   const marker = "/items/";
-  const markerAt = nodeId.indexOf(marker);
+  const markerAt = nodeId.lastIndexOf(marker);
   if (markerAt < 0) return state;
   const parentId = nodeId.slice(0, markerAt);
   const itemStart = markerAt + marker.length;
@@ -607,20 +643,25 @@ function progressMap(factory: CompiledFactory, state: KernelState, nodeId: strin
   const parent = state.nodes[parentId];
   if (parentNode?.kind !== "map" || !parent?.map || !Number.isSafeInteger(item)) return state;
   const prefix = `${parentId}/items/${item}/`;
-  const members = Object.keys(state.nodes).filter((id) => id.startsWith(prefix));
-  if (members.length === 0 || !members.every((id) => state.nodes[id]?.status === "succeeded" || state.nodes[id]?.status === "failed" || state.nodes[id]?.status === "cancelled")) return state;
+  const members = parentNode.body.nodes.map(child => `${prefix}${child.id}`);
+  if (!members.every((id) => terminalStatus(state.nodes[id]!.status))) return state;
   if (parent.map.completedIndexes.includes(item) || parent.map.failedIndexes.includes(item)) return state;
   const failed = members.find((id) => state.nodes[id]?.status !== "succeeded");
   if (failed && parentNode.mode === "all") return failNode(factory, state, parentNode, parentId, "MAP_ITEM_FAILED", "execution", commands);
   const outcomes = parent.map.outcomes.slice();
-  outcomes[item] = failed ? { error: state.nodes[failed]!.error ?? "MAP_ITEM_FAILED" } : state.nodes[members.at(-1)!]!.output ?? null;
+  outcomes[item] = failed ? { error: state.nodes[failed]!.error ?? "MAP_ITEM_FAILED" } : graphValues(parentNode.body, state, prefix);
   const map = { ...parent.map, outcomes, completedIndexes: failed ? parent.map.completedIndexes : parent.map.completedIndexes.concat(item), failedIndexes: failed ? parent.map.failedIndexes.concat(item) : parent.map.failedIndexes };
   let next = withNode(state, parentId, { ...parent, map });
   const terminalItems = map.completedIndexes.length + map.failedIndexes.length;
   if (terminalItems === map.itemCount) {
-    const output: JsonValue = outcomes.map((outcome) => outcome ?? { error: "MAP_ITEM_MISSING" });
-    next = withNode(next, parentId, { ...next.nodes[parentId]!, status: "succeeded", output });
-    return activateReady(factory, next, commands, successorsFor(factory, parentId));
+    const output: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
+    for (const name of Object.keys(parentNode.outputPorts ?? {})) {
+      output[name] = outcomes.map((outcome, index) => {
+        const value = isRecord(outcome) ? outcome[name] ?? null : null;
+        return parentNode.mode === "all" ? value : map.failedIndexes.includes(index) ? { outcome: "failed", error: isRecord(outcome) ? outcome.error ?? "MAP_ITEM_FAILED" : "MAP_ITEM_FAILED" } : { outcome: "succeeded", value };
+      });
+    }
+    return completeControl(factory, next, parentId, output, commands);
   }
   const activeItems = new Set(Object.keys(next.nodes).filter((id) => id.startsWith(`${parentId}/items/`) && ["reserved", "running", "waiting", "retry_wait"].includes(next.nodes[id]!.status)).map((id) => Number(id.slice(`${parentId}/items/`.length).split("/")[0])));
   for (let nextItem = 0; nextItem < map.itemCount && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
@@ -657,14 +698,14 @@ function progressLoop(factory: CompiledFactory, state: KernelState, nodeId: stri
   const parent = parentId ? state.nodes[parentId] : undefined;
   if (!parentId || !parent || parentNode?.kind !== "loop" || !parent.loop) return state;
   const prefix = `${parentId}/items/${parent.loop.iteration}/`;
-  const members = Object.keys(state.nodes).filter((id) => id.startsWith(prefix));
-  if (members.length === 0 || !members.every((id) => state.nodes[id]?.status === "succeeded")) return state;
-  const result = state.nodes[members.at(-1)!]!.output ?? null;
+  const members = parentNode.body.nodes.map(child => `${prefix}${child.id}`);
+  if (!members.every((id) => state.nodes[id]?.status === "succeeded" || state.nodes[id]?.discarded)) return state;
+  const result = graphValues(parentNode.body, state, prefix);
   if (!validateValue(parentNode.resultSchema, result).ok) return failNode(factory, state, parentNode, parentId, "LOOP_RESULT_INVALID", "execution", commands);
-  const context = expressionContext(state, { carried: parent.loop.carried, result, iteration: parent.loop.iteration });
+  const context = expressionContext(state, `${parentId}/items/${parent.loop.iteration}/`, { carried: parent.loop.carried, result, index: parent.loop.iteration });
   const until = evaluateExpression(parentNode.until, context);
   if (!until.ok || typeof until.value !== "boolean") return failNode(factory, state, parentNode, parentId, "LOOP_UNTIL_INVALID", "execution", commands);
-  if (until.value) return activateReady(factory, withNode(state, parentId, { ...parent, status: "succeeded", output: result }), commands, successorsFor(factory, parentId));
+  if (until.value) return completeControl(factory, state, parentId, result, commands);
   if (parentNode.budget?.maxCostMicros !== undefined && BigInt(parent.loop.spentCostMicros) + BigInt(parent.loop.unknownCostMicros) >= BigInt(parentNode.budget.maxCostMicros)) return failNode(factory, state, parentNode, parentId, "LOOP_BUDGET_EXHAUSTED", "bound_exhausted", commands);
   const next = evaluateExpression(parentNode.nextInput, context);
   if (!next.ok || !validateValue(parentNode.carriedSchema, next.value).ok) return failNode(factory, state, parentNode, parentId, "LOOP_NEXT_INPUT_INVALID", "execution", commands);
@@ -673,7 +714,7 @@ function progressLoop(factory: CompiledFactory, state: KernelState, nodeId: stri
 
 function mapParent(nodeId: string): string | undefined {
   const marker = "/items/";
-  const markerAt = nodeId.indexOf(marker);
+  const markerAt = nodeId.lastIndexOf(marker);
   return markerAt < 0 ? undefined : nodeId.slice(0, markerAt);
 }
 
@@ -696,14 +737,19 @@ function parseMicros(value: string): bigint | undefined {
   return typeof value === "string" && value.length <= 64 * 1024 && isUnsignedDecimal(value) ? BigInt(value) : undefined;
 }
 
-function nodeFor(factory: CompiledFactory, nodeId: string): FactoryNode | undefined {
+interface NodeLocation {
+  readonly node: FactoryNode;
+  readonly graph: FactoryGraph;
+  readonly scope: string;
+}
+
+function locateNode(factory: CompiledFactory, nodeId: string): NodeLocation | undefined {
   const parts = nodeId.split("/");
   let graph = factory.definition.graph;
   for (let index = 0; index < parts.length; index += 1) {
-    const id = parts[index]!;
-    const node = graph.nodes.find((candidate) => candidate.id === id);
+    const node = graph.nodes.find(candidate => candidate.id === parts[index]);
     if (!node) return undefined;
-    if (index === parts.length - 1) return node;
+    if (index === parts.length - 1) return { node, graph, scope: parts.slice(0, index).join("/") };
     const scope = parts[index + 1];
     if (node.kind === "branch" && (scope === "then" || scope === "else")) { graph = node[scope]; index += 1; continue; }
     if ((node.kind === "map" || node.kind === "loop") && scope === "items" && parts[index + 2] !== undefined) { graph = node.body; index += 2; continue; }
@@ -712,34 +758,21 @@ function nodeFor(factory: CompiledFactory, nodeId: string): FactoryNode | undefi
   return undefined;
 }
 
+/** Resolve one expanded instance against the immutable compiled definition. */
+export function nodeFor(factory: CompiledFactory, nodeId: string): FactoryNode | undefined {
+  return locateNode(factory, nodeId)?.node;
+}
+
 function successorsFor(factory: CompiledFactory, nodeId: string): readonly string[] {
   if (!nodeId.includes("/")) return factory.indexes.successors[nodeId] ?? [];
-  const separator = nodeId.lastIndexOf("/");
-  const scope = nodeId.slice(0, separator);
-  const node = nodeFor(factory, nodeId);
-  if (!node) return [];
-  const itemMarker = "/items/";
-  const itemAt = scope.indexOf(itemMarker);
-  if (itemAt >= 0) {
-    const parentId = scope.slice(0, itemAt);
-    const item = scope.slice(itemAt + itemMarker.length);
-    const parent = nodeFor(factory, parentId);
-    if (!parent || (parent.kind !== "map" && parent.kind !== "loop")) return [];
-    return parent.body.nodes.filter((candidate) => (candidate.dependsOn ?? []).includes(node.id)).map((candidate) => `${parentId}/items/${item}/${candidate.id}`);
-  }
-  const parts = scope.split("/");
-  let graph = factory.definition.graph;
-  for (let index = 0; index < parts.length; index += 2) {
-    const branch = graph.nodes.find((candidate) => candidate.id === parts[index]);
-    if (branch?.kind !== "branch") return [];
-    graph = branch[parts[index + 1] as "then" | "else"];
-  }
-  return graph.nodes.filter((candidate) => (candidate.dependsOn ?? []).includes(node.id)).map((candidate) => `${scope}/${candidate.id}`);
+  const location = locateNode(factory, nodeId);
+  if (!location) return [];
+  return location.graph.nodes.filter(candidate => (candidate.dependsOn ?? []).includes(location.node.id) || (candidate.kind === "join" && candidate.predecessors.includes(location.node.id))).map(candidate => `${location.scope}/${candidate.id}`);
 }
 
 function toJoinOutcome(status: KernelNodeState["status"]): "succeeded" | "failed" | "skipped" | "cancelled" {
   return status === "succeeded" || status === "failed" || status === "skipped" ? status : "cancelled";
 }
 
-function isRecord(value: JsonValue): value is Record<string, JsonValue> { return typeof value === "object" && value !== null && !Array.isArray(value); }
+function isRecord(value: unknown): value is Record<string, JsonValue> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function distinct(values: readonly string[]): readonly string[] { return [...new Set(values)]; }

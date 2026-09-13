@@ -1,4 +1,4 @@
-import { advanceKernel, createKernelState } from "./kernel.js";
+import { advanceKernel, createKernelState, nodeFor } from "./kernel.js";
 import type { KernelCommand, KernelEvent, KernelState } from "./kernel-types.js";
 import type { CompiledFactory, FactoryNode, JsonValue } from "./types.js";
 
@@ -64,7 +64,7 @@ function eventsFor(
     case "request-admission":
       return [{ kind: "admission-result", id: eventId("admission"), atMs: state.nowMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: options.admit?.(command) ?? true }];
     case "dispatch-node": {
-      const node = factory.indexes.nodeById[command.nodeId]!;
+      const node = nodeFor(factory, command.nodeId)!;
       return outcomeEvents(options.execute?.(node, command) ?? { kind: "success", output: command.input }, command, state.nowMs, eventId);
     }
     case "run-child":
