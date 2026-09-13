@@ -705,7 +705,9 @@ export function compileFactory(input: unknown): CompileResult {
   for (const [index, group] of (definition.acceptance.groups ?? []).entries()) {
     if (group.id.length === 0 || groupIds.has(group.id) || group.claimIds.length === 0 || new Set(group.claimIds).size !== group.claimIds.length || !Number.isSafeInteger(group.minimumPasses) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || group.claimIds.some((id) => !claimIds.has(id) || groupedClaims.has(id))) addDiagnostic(context, "ACCEPTANCE_GROUP", "Acceptance groups require a unique ID, known claims used by one group, and a feasible positive pass threshold.", ["acceptance", "groups", index]);
     groupIds.add(group.id);
-    for (const id of group.claimIds) groupedClaims.add(id);
+    for (const id of group.claimIds) {
+      groupedClaims.add(id);
+    }
   }
   if (definition.acceptance.claims.some((claim) => !claim.required && !groupedClaims.has(claim.id))) diagnostics.push(diagnostic("ACCEPTANCE_GROUP", "Every optional claim must belong to one acceptance group.", ["acceptance", "claims"]));
 
@@ -720,6 +722,7 @@ export function compileFactory(input: unknown): CompileResult {
     }
   }
   for (const name of Object.keys(definition.graph.outputs)) if (!own(definition.outputPorts, name)) addDiagnostic(context, "GRAPH_OUTPUT_UNKNOWN", `Graph declares unknown factory output: ${name}.`, ["graph", "outputs", name]);
+  if (diagnostics.some(({ code }) => code === "BOUND_DEFINITION_BYTES")) return { ok: false, diagnostics };
 
   const lock = {
     packages: [...definition.packages].sort((left, right) => compareText(left.name, right.name)),
