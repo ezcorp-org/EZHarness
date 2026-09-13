@@ -149,42 +149,51 @@ export class FactoryBudgets {
 
   /** Only a trusted provider/stop receipt resolves a hold, including a zero-use hold. */
   async settle(key: FactoryBudgetReservationKey, actual: FactoryBudgetAmount, receiptDigest: string): Promise<void> {
+    const captured = { key: { ...key }, actual: { ...actual }, receiptDigest };
+    await this.database.transaction(transaction => this.settleInTransaction(transaction, captured.key, captured.actual, captured.receiptDigest));
+  }
+
+  async settleInTransaction(transaction: MigrationDb, key: FactoryBudgetReservationKey, actual: FactoryBudgetAmount, receiptDigest: string): Promise<void> {
+    key = { ...key };
     const used = amount(actual);
     if (!/^sha256:[a-f0-9]{64}$/.test(receiptDigest)) throw new FactoryBudgetError("factory_budget_receipt_invalid");
-    await this.database.transaction(async transaction => {
-      await this.lockRun(transaction, key);
-      const row = (await this.reservation(transaction, key))!;
-      if (row.state === "settled") {
-        if (row.actual !== encode(used) || row.receipt_digest !== receiptDigest) throw new FactoryBudgetError("factory_budget_conflict");
-        return;
-      }
-      const envelopeKey = { ...key, envelopeId: row.envelope_id };
-      const envelope = (await this.envelope(transaction, envelopeKey))!;
-      const exceededReservation = dimensions.some(dimension => used[dimension] > decode(row.amount)[dimension]);
-      if (exceededReservation) await transaction.execute(sql`UPDATE factory_budget_envelopes SET admission_blocked=TRUE WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
-      await this.writeTotals(transaction, envelopeKey, combine(decode(envelope.allocated), decode(row.amount), true), combine(decode(envelope.spent), used));
-      await transaction.execute(sql`UPDATE factory_budget_reservations SET state='settled', actual=${encode(used)}, receipt_digest=${receiptDigest} WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId}`);
-      await this.audit(transaction, key, "settled", key.reservationId, { actual: totals(used), receiptDigest, exceededReservation });
-    });
+    await this.lockRun(transaction, key);
+    const row = (await this.reservation(transaction, key))!;
+    if (row.state === "settled") {
+      if (row.actual !== encode(used) || row.receipt_digest !== receiptDigest) throw new FactoryBudgetError("factory_budget_conflict");
+      return;
+    }
+    const envelopeKey = { ...key, envelopeId: row.envelope_id };
+    const envelope = (await this.envelope(transaction, envelopeKey))!;
+    const exceededReservation = dimensions.some(dimension => used[dimension] > decode(row.amount)[dimension]);
+    if (exceededReservation) await transaction.execute(sql`UPDATE factory_budget_envelopes SET admission_blocked=TRUE WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
+    await this.writeTotals(transaction, envelopeKey, combine(decode(envelope.allocated), decode(row.amount), true), combine(decode(envelope.spent), used));
+    await transaction.execute(sql`UPDATE factory_budget_reservations SET state='settled', actual=${encode(used)}, receipt_digest=${receiptDigest} WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId}`);
+    await this.audit(transaction, key, "settled", key.reservationId, { actual: totals(used), receiptDigest, exceededReservation });
   }
 
   async closeEnvelope(key: FactoryBudgetKey): Promise<void> {
-    await this.database.transaction(async transaction => {
-      await this.lockRun(transaction, key);
-      const row = (await this.envelope(transaction, key))!;
-      if (row.state === "closed") return;
-      const active = rows(await transaction.execute(sql`SELECT reservation_id FROM factory_budget_reservations WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND envelope_id=${key.envelopeId} AND state<>'settled' LIMIT 1`));
-      const children = rows(await transaction.execute(sql`SELECT envelope_id FROM factory_budget_envelopes WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND parent_id=${key.envelopeId} AND state='open' LIMIT 1`));
-      if (active.length || children.length || dimensions.some(dimension => decode(row.allocated)[dimension] !== 0n)) throw new FactoryBudgetError("factory_budget_pending");
-      if (row.parent_id !== null) {
-        const parentKey = { ...key, envelopeId: row.parent_id };
-        const parent = (await this.envelope(transaction, parentKey))!;
-        await this.writeTotals(transaction, parentKey, combine(decode(parent.allocated), decode(row.limits), true), combine(decode(parent.spent), decode(row.spent)));
-      }
-      await transaction.execute(sql`UPDATE factory_budget_envelopes SET state='closed' WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND envelope_id=${key.envelopeId}`);
-      await this.audit(transaction, key, "envelope-closed", key.envelopeId, { spent: totals(decode(row.spent)) });
-    });
+    const captured = { ...key };
+    await this.database.transaction(transaction => this.closeEnvelopeInTransaction(transaction, captured));
   }
+
+  async closeEnvelopeInTransaction(transaction: MigrationDb, key: FactoryBudgetKey): Promise<void> {
+    key = { ...key };
+    await this.lockRun(transaction, key);
+    const row = (await this.envelope(transaction, key))!;
+    if (row.state === "closed") return;
+    const active = rows(await transaction.execute(sql`SELECT reservation_id FROM factory_budget_reservations WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND envelope_id=${key.envelopeId} AND state<>'settled' LIMIT 1`));
+    const children = rows(await transaction.execute(sql`SELECT envelope_id FROM factory_budget_envelopes WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND parent_id=${key.envelopeId} AND state='open' LIMIT 1`));
+    if (active.length || children.length || dimensions.some(dimension => decode(row.allocated)[dimension] !== 0n)) throw new FactoryBudgetError("factory_budget_pending");
+    if (row.parent_id !== null) {
+      const parentKey = { ...key, envelopeId: row.parent_id };
+      const parent = (await this.envelope(transaction, parentKey))!;
+      await this.writeTotals(transaction, parentKey, combine(decode(parent.allocated), decode(row.limits), true), combine(decode(parent.spent), decode(row.spent)));
+    }
+    await transaction.execute(sql`UPDATE factory_budget_envelopes SET state='closed' WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND envelope_id=${key.envelopeId}`);
+    await this.audit(transaction, key, "envelope-closed", key.envelopeId, { spent: totals(decode(row.spent)) });
+  }
+
 
   async inspect(key: FactoryBudgetKey): Promise<{ state: "open" | "closed"; admissionBlocked: boolean; limits: FactoryBudgetTotals; allocated: FactoryBudgetTotals; spent: FactoryBudgetTotals }> {
     return this.database.transaction(async transaction => {

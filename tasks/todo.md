@@ -1549,3 +1549,14 @@ Review: only the current committed run-child attempt can resolve its exact compi
 - [ ] Verify PGlite, PostgreSQL/S3, coverage and all static checks before integration.
 
 Plan review: a private command ID is the only request authority; the reader validates the durable artifact binding within the same run transaction.
+
+## Atomic terminal budget receipts — root
+
+- [x] Prove settlement and envelope closure roll back with their enclosing receipt transaction.
+- [x] Reuse the existing budget settlement and closure logic through transaction-scoped entry points.
+- [x] Snapshot caller scope and usage before asynchronous transaction admission.
+- [x] Verify PGlite/PostgreSQL, exact coverage and static checks.
+
+Plan review: terminal journal and child completion must commit measured usage, release the hold and publish the completion receipt together. These entry points preserve existing trusted-receipt and unknown-hold rules.
+
+Review: settlement and envelope closure now accept the caller transaction, while public calls reuse those same implementations and capture caller-owned scope/usage before awaiting. A failed terminal receipt rolls both settlement and child-to-parent spent transfer back; exact retry settles once after revocation, and unresolved usage retains its hold. PGlite and PostgreSQL each pass 11 tests / 64 assertions. Budget coverage is 178/178 lines and 54/54 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-terminal-budget-source.json` and `root-terminal-budget-integration-results.json`.
