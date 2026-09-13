@@ -6,10 +6,12 @@ import { FactoryDefinitionError } from "$server/factory/definitions";
 import { FactoryGrantError } from "$server/factory/grants";
 import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
+import { FactoryServiceCredentialError } from "$server/factory/service-credentials";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 
-vi.mock("$server/factory/boot", () => ({ factoryBootConfig: { get enabled() { return state.enabled; } } }));
+vi.mock("$server/factory/boot", () => ({ factoryBootConfig: { get enabled() { return state.enabled; }, installationId: "test-installation" } }));
+vi.mock("$server/auth/jwt", async importOriginal => ({ ...(await importOriginal<typeof import("$server/auth/jwt")>()), getJwtSecret: async () => "test-factory-service-secret" }));
 vi.mock("$server/factory/application", async importOriginal => {
   const actual = await importOriginal<typeof import("$server/factory/application")>();
   return { ...actual, getFactoryApplication: () => state.application };
@@ -29,6 +31,7 @@ const definitions = {
 };
 const runs = { start: vi.fn(), read: vi.fn(), list: vi.fn(), cancel: vi.fn(), readCommand: vi.fn() };
 const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn() };
+const credentials = { issue: vi.fn(), revoke: vi.fn(), authenticate: vi.fn() };
 
 const sourceDigest = createHash("sha256").update(canonicalizeJson(referenceCodeV1 as unknown as Parameters<typeof canonicalizeJson>[0])).digest("hex");
 const compiledResult = compileFactory(referenceCodeV1);
@@ -55,6 +58,8 @@ const runList = await import("./projects/[projectId]/runs/+server");
 const runItem = await import("./projects/[projectId]/runs/[runId]/+server");
 const runControl = await import("./projects/[projectId]/runs/[runId]/control/+server");
 const runCommand = await import("./projects/[projectId]/runs/[runId]/commands/[commandId]/+server");
+const credentialIssue = await import("./projects/[projectId]/service-accounts/[serviceAccountId]/credentials/+server");
+const credentialRevoke = await import("./projects/[projectId]/service-accounts/[serviceAccountId]/credentials/[credentialId]/+server");
 const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "queued", createdAtMs: 1, updatedAtMs: 1 };
 const receipt = { resourceId: run.runId, commandId: "command-1", statusUrl: "/api/factories/projects/project-1/runs/run-1/commands/command-1" };
 const shared = await import("./_shared");
@@ -65,6 +70,7 @@ beforeEach(() => {
     tenantId: "tenant-1",
     definitions,
     grants,
+    credentials,
     runs,
     availableResourceClasses: new Set(["cpu"]),
   } as unknown as FactoryApplication;
@@ -87,6 +93,9 @@ beforeEach(() => {
   grants.list.mockResolvedValue({ items: [grant], nextCursor: null });
   grants.set.mockResolvedValue({ revision: 1, expiresAtMs: null });
   grants.revoke.mockResolvedValue({ revision: 2, expiresAtMs: null });
+  const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
+  credentials.issue.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 1, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: false });
+  credentials.revoke.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 2, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: true });
 });
 
 function event(method: string, pathname: string, options: { body?: unknown; revision?: number; key?: string; auth?: "session" | "api-key" | "internal"; anonymous?: boolean; scopes?: string[]; params?: Record<string, string> } = {}) {
@@ -150,6 +159,42 @@ describe("factory run request routes", () => {
 });
 
 describe("factory definition and grant routes", () => {
+  test("issues and revokes short-lived credentials only through a human session", async () => {
+    const path = { projectId: "project-1", serviceAccountId: "service-1" };
+    const expiresAtMs = (Math.floor(Date.now() / 1_000) + 60) * 1_000;
+    const issued = await credentialIssue.POST(event("POST", "/api/factories/projects/project-1/service-accounts/service-1/credentials", { params: path, body: { scopes: ["read"], expiresAtMs }, revision: 0, key: "credential-issue" }));
+    expect(issued.status).toBe(200);
+    expect(await json(issued)).toMatchObject({ kind: "service-credential.issued", resource: { serviceAccountId: "service-1", revision: 1 }, token: expect.stringMatching(/^ezkfsvc_/) });
+    expect(credentials.issue).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), { ...path, scopes: ["read"], expiresAtMs, expectedRevision: 0 }, "credential-issue");
+    const revoked = await credentialRevoke.DELETE(event("DELETE", "/api/factories/projects/project-1/service-accounts/service-1/credentials/credential-1", { params: { ...path, credentialId: "credential-1" }, revision: 1, key: "credential-revoke" }));
+    expect(await json(revoked)).toMatchObject({ kind: "service-credential.resource", resource: { revision: 2, revoked: true } });
+    const denied = await credentialIssue.POST(event("POST", "/api/factories/projects/project-1/service-accounts/service-1/credentials", { params: path, body: { scopes: ["read"], expiresAtMs }, revision: 0, key: "credential-key", auth: "api-key", scopes: ["write"] }));
+    expect(denied.status).toBe(403);
+  });
+
+  test("uses service locals without creating a user and confines the project", async () => {
+    const service = { tokenUse: "factory-service" as const, serviceAccountId: "service-1", projectId: "project-1", credentialId: "credential-1", revision: 1, scopes: ["read"] as const, issuedAtMs: 1_000, expiresAtMs: 2_000 };
+    const allowed = event("GET", "/api/factories/projects/project-1/definitions", { params: { projectId: "project-1" }, anonymous: true }) as { locals: App.Locals };
+    allowed.locals.factoryServicePrincipal = service;
+    expect((await collection.GET(allowed as never)).status).toBe(200);
+    expect(definitions.listDrafts).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "service", id: "service-1", credential: service }), "project-1", expect.anything());
+    const foreign = event("GET", "/api/factories/projects/project-2/definitions", { params: { projectId: "project-2" }, anonymous: true }) as { locals: App.Locals };
+    foreign.locals.factoryServicePrincipal = service;
+    expect((await collection.GET(foreign as never)).status).toBe(403);
+    const narrow = event("POST", "/api/factories/projects/project-1/definitions", { params: { projectId: "project-1" }, body: { source: referenceCodeV1 }, revision: 0, key: "service-write", anonymous: true }) as { locals: App.Locals };
+    narrow.locals.factoryServicePrincipal = service;
+    expect((await collection.POST(narrow as never)).status).toBe(403);
+  });
+
+  test("maps credential conflicts, absence, authority, input and storage errors", async () => {
+    const params = { projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1" };
+    for (const [code, status] of [["factory_service_credential_conflict", 412], ["factory_service_credential_not_found", 404], ["factory_service_credential_forbidden", 403], ["factory_human_required", 403], ["factory_service_credential_invalid", 400], ["factory_service_credential_corrupt", 500]] as const) {
+      credentials.revoke.mockRejectedValueOnce(new FactoryServiceCredentialError(code));
+      const response = await credentialRevoke.DELETE(event("DELETE", "/api/factories/projects/project-1/service-accounts/service-1/credentials/credential-1", { params, revision: 1, key: `credential-${code}` }));
+      expect(response.status).toBe(status);
+      expect(await json(response)).toMatchObject({ kind: "error", error: { code } });
+    }
+  });
   test("routes every successful draft, version, and grant operation through the shared contract", async () => {
     const project = { projectId: "project-1" };
     const resource = { ...project, factoryId: referenceCodeV1.id };

@@ -5,6 +5,8 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
 import { FactoryRecords, assertFactoryIdentity } from "./records";
 import { FactoryMutations } from "./mutations";
+import type { FactoryServiceTokenIdentity } from "../auth/factory-service-token";
+import { assertFactoryServiceCredentialInTransaction } from "./service-credentials";
 
 export const FACTORY_ACTIONS = ["factory.author", "factory.publish", "factory.run", "factory.operate", "factory.approve", "factory.release", "factory.trust"] as const;
 export type FactoryAction = typeof FACTORY_ACTIONS[number];
@@ -13,6 +15,8 @@ export interface FactoryPrincipal {
   readonly id: string;
   /** Set only by the authenticated server boundary. Never copy this from JSON. */
   readonly authentication: "session" | "api-key" | "service";
+  /** Present only for a public, HTTP-authenticated service credential. */
+  readonly credential?: FactoryServiceTokenIdentity;
 }
 export interface FactoryGrantKey { readonly projectId: string; readonly principal: FactoryPrincipal; readonly action: FactoryAction }
 export interface FactoryGrantRevision { readonly revision: number; readonly expiresAtMs: number | null }
@@ -32,7 +36,14 @@ export interface FactoryGrantListOptions { readonly cursor?: string; readonly li
 type GrantRow = { principal_kind?: string; principal_id?: string; action?: string; revision: string | number; expires_ms: string | number | null; revoked_at: unknown; issuer_id: string; updated_ms?: string | number };
 
 function snapshotPrincipal(principal: FactoryPrincipal): FactoryPrincipal {
-  return Object.freeze({ kind: principal.kind, id: principal.id, authentication: principal.authentication });
+  return Object.freeze({
+    kind: principal.kind,
+    id: principal.id,
+    authentication: principal.authentication,
+    ...(principal.credential === undefined ? {} : {
+      credential: Object.freeze({ ...principal.credential, scopes: Object.freeze([...principal.credential.scopes]) }),
+    }),
+  });
 }
 
 function snapshotKey(key: FactoryGrantKey): FactoryGrantKey {
@@ -194,6 +205,10 @@ export class FactoryGrants {
       return user;
     }
     if (principal.kind !== "service" || principal.authentication !== "service") throw new FactoryGrantError("factory_forbidden");
+    if (principal.credential) {
+      if (principal.credential.serviceAccountId !== principal.id || principal.credential.projectId !== projectId) throw new FactoryGrantError("factory_forbidden");
+      await assertFactoryServiceCredentialInTransaction(transaction, this.tenantId, principal.credential);
+    }
     const service = rows(await transaction.execute(sql`SELECT id FROM service_accounts WHERE id=${principal.id} AND enabled=TRUE AND (expires_at IS NULL OR expires_at > ${new Date(this.now())}) AND (project_id IS NULL OR project_id=${projectId}) FOR SHARE`))[0];
     const scoped = !membership || rows(await transaction.execute(sql`SELECT action FROM factory_grants WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND principal_kind='service' AND principal_id=${principal.id} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ${new Date(this.now())}) LIMIT 1 FOR SHARE`))[0];
     if (!service || !scoped) throw new FactoryGrantError("factory_forbidden");

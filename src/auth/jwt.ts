@@ -6,7 +6,12 @@ import { factoryBootConfig } from "../factory/boot";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-type InstallationBoundJwtPayload = JWTPayload & { iss: string; aud: string };
+export type InstallationTokenPayload = Record<string, unknown> & {
+  iss: string;
+  aud: string;
+  iat: number;
+  exp: number;
+};
 
 function base64UrlEncode(data: Uint8Array): string {
   let binary = "";
@@ -17,12 +22,14 @@ function base64UrlEncode(data: Uint8Array): string {
 }
 
 function base64UrlDecode(str: string): Uint8Array<ArrayBuffer> {
+  if (!/^[A-Za-z0-9_-]+$/.test(str)) throw new Error("Invalid base64url");
   const padded = str.replace(/-/g, "+").replace(/_/g, "/");
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
+  if (base64UrlEncode(bytes) !== str) throw new Error("Non-canonical base64url");
   return bytes;
 }
 
@@ -57,7 +64,6 @@ export async function signJWT(
   expiresInSeconds: number = 30 * 24 * 3600,
   installation?: string,
 ): Promise<string> {
-  const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   // jti = JWT ID (RFC 7519 §4.1.7). 16 random bytes hex-encoded = 32 chars.
   // Without it, two JWTs signed in the same second with the same payload
@@ -67,15 +73,23 @@ export async function signJWT(
   const jtiBytes = new Uint8Array(16);
   crypto.getRandomValues(jtiBytes);
   const jti = Array.from(jtiBytes).map(b => b.toString(16).padStart(2, "0")).join("");
-  const audience = await installationId(secret, installation);
-  const fullPayload: InstallationBoundJwtPayload = {
+  return signInstallationToken({
     ...payload,
-    iss: audience,
-    aud: audience,
     iat: now,
     exp: now + expiresInSeconds,
     jti,
-  };
+  }, secret, installation);
+}
+
+/** Sign non-session claims with the same installation-bound HMAC envelope. */
+export async function signInstallationToken(
+  payload: Record<string, unknown> & { iat: number; exp: number },
+  secret: string,
+  installation?: string,
+): Promise<string> {
+  const header = { alg: "HS256", typ: "JWT" };
+  const audience = await installationId(secret, installation);
+  const fullPayload: InstallationTokenPayload = { ...payload, iss: audience, aud: audience };
 
   const headerB64 = base64UrlEncode(encoder.encode(JSON.stringify(header)));
   const payloadB64 = base64UrlEncode(encoder.encode(JSON.stringify(fullPayload)));
@@ -92,12 +106,25 @@ export async function verifyJWT(
   secret: string,
   installation?: string,
 ): Promise<JWTPayload | null> {
+  const payload = await verifyInstallationToken(token, secret, installation);
+  if (!payload || !isUserSessionPayload(payload)) return null;
+  return payload;
+}
+
+/** Verify the shared envelope without interpreting its application claims. */
+export async function verifyInstallationToken(
+  token: string,
+  secret: string,
+  installation?: string,
+): Promise<InstallationTokenPayload | null> {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
 
   const [headerB64, payloadB64, signatureB64] = parts as [string, string, string];
 
   try {
+    const header = JSON.parse(decoder.decode(base64UrlDecode(headerB64))) as unknown;
+    if (!isExactHeader(header)) return null;
     const key = await importKey(secret);
     const signingInput = `${headerB64}.${payloadB64}`;
     const signature = base64UrlDecode(signatureB64);
@@ -105,18 +132,40 @@ export async function verifyJWT(
     const valid = await crypto.subtle.verify("HMAC", key, signature, encoder.encode(signingInput));
     if (!valid) return null;
 
-    const payload: InstallationBoundJwtPayload = JSON.parse(decoder.decode(base64UrlDecode(payloadB64)));
+    const payload = JSON.parse(decoder.decode(base64UrlDecode(payloadB64))) as unknown;
+    if (!isObject(payload)) return null;
     const now = Math.floor(Date.now() / 1000);
-    if (!Number.isSafeInteger(payload.iat) || !Number.isSafeInteger(payload.exp) || payload.exp <= now) {
+    if (!Number.isSafeInteger(payload.iat) || !Number.isSafeInteger(payload.exp) || (payload.exp as number) <= now) {
       return null;
     }
     const expectedInstallation = await installationId(secret, installation);
     if (payload.iss !== expectedInstallation || payload.aud !== expectedInstallation) return null;
 
-    return payload;
+    return payload as InstallationTokenPayload;
   } catch {
     return null;
   }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isExactHeader(value: unknown): boolean {
+  return isObject(value)
+    && Object.keys(value).length === 2
+    && value.alg === "HS256"
+    && value.typ === "JWT";
+}
+
+function isUserSessionPayload(value: InstallationTokenPayload): value is InstallationTokenPayload & JWTPayload {
+  const allowed = new Set(["id", "email", "name", "role", "iat", "exp", "iss", "aud", "jti"]);
+  return Object.keys(value).every((key) => allowed.has(key))
+    && typeof value.id === "string" && value.id.length > 0
+    && typeof value.email === "string"
+    && typeof value.name === "string"
+    && (value.role === "admin" || value.role === "member")
+    && (value.jti === undefined || (typeof value.jti === "string" && /^[a-f0-9]{32}$/.test(value.jti)));
 }
 
 let _cachedSecret: string | null = null;

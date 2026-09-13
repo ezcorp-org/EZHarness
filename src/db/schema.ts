@@ -2900,6 +2900,7 @@ export const {
   factoryInboxCursors,
   factoryInboxEvents,
   factoryGrants,
+  factoryServiceCredentials,
   factoryBudgetEnvelopes,
   factoryBudgetReservations,
   factoryMutationReceipts,
@@ -2909,7 +2910,7 @@ export const {
   factoryExecutions,
   factoryExecutionOperationCursors,
   factoryExecutionOperations,
-} = buildFactorySchema({ projects, users });
+} = buildFactorySchema({ projects, users, serviceAccounts });
 /** Host-issued references for Factory ordinary object storage. */
 export const factoryArtifacts = pgTable("factory_artifacts", {
   objectId: text("object_id").notNull(),

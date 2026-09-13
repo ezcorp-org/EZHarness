@@ -6,7 +6,7 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { signJWT, verifyJWT } from "../auth/jwt";
+import { signInstallationToken, signJWT, verifyJWT } from "../auth/jwt";
 import { hashPassword, verifyPassword } from "../auth/password";
 import type { AuthUser } from "../auth/types";
 
@@ -84,6 +84,25 @@ describe("signJWT / verifyJWT round-trip", () => {
 			{ ...payload, exp: 1.5 },
 		]) {
 			expect(await verifyJWT(await signPayload(header, candidate), SECRET, "installation-a")).toBeNull();
+		}
+	});
+
+	test("accepts legacy user sessions without jti and rejects non-user or extra claims", async () => {
+		const now = Math.floor(Date.now() / 1_000);
+		const legacy = await signInstallationToken({ ...SAMPLE_USER, iat: now, exp: now + 60 }, SECRET, "installation-a");
+		expect(await verifyJWT(legacy, SECRET, "installation-a")).toMatchObject(SAMPLE_USER);
+		const extra = await signInstallationToken({ ...SAMPLE_USER, tokenUse: "factory-service", iat: now, exp: now + 60 }, SECRET, "installation-a");
+		expect(await verifyJWT(extra, SECRET, "installation-a")).toBeNull();
+		const missing = await signInstallationToken({ id: SAMPLE_USER.id, email: SAMPLE_USER.email, name: SAMPLE_USER.name, iat: now, exp: now + 60 }, SECRET, "installation-a");
+		expect(await verifyJWT(missing, SECRET, "installation-a")).toBeNull();
+	});
+
+	test("requires the exact HS256 JWT header", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET, 60, "installation-a");
+		const payload = decodePayload(token);
+		for (const header of [{ alg: "none", typ: "JWT" }, { alg: "HS256", typ: "JWT", kid: "extra" }, { alg: "HS256", typ: "wrong" }]) {
+			const encodedHeader = base64UrlEncode(JSON.stringify(header));
+			expect(await verifyJWT(await signPayload(encodedHeader, payload), SECRET, "installation-a")).toBeNull();
 		}
 	});
 

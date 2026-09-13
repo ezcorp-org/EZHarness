@@ -49,6 +49,8 @@ function requests(): FactoryApiRequest[] {
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.list", path: project, query: { principalKind: "service", action: "factory.run" } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.set", path: { ...project, principalKind: "service", principalId: "agent-1", action: "factory.run" }, preconditions: { ...preconditions, expectedRevision: 0 }, body: { expiresAtMs: 2_000_000_000_000 } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.revoke", path: { ...project, principalKind: "user", principalId: "user-1", action: "factory.author" }, preconditions },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "service-credential.issue", path: { ...project, serviceAccountId: "service-1" }, preconditions: { ...preconditions, expectedRevision: 0 }, body: { scopes: ["read", "chat"], expiresAtMs: 2_000_000_000_000 } },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "service-credential.revoke", path: { ...project, serviceAccountId: "service-1", credentialId: "credential-1" }, preconditions },
   ];
   return values.map((request) => "preconditions" in request
     ? { ...request, preconditions: { ...request.preconditions, payloadDigest: factoryApiPayloadDigest(request) } } as FactoryApiRequest
@@ -64,6 +66,7 @@ function responses(): FactoryApiResponse[] {
   const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "running", createdAtMs: 1, updatedAtMs: 1 } as const;
   const approval = { approvalId: "approval-1", runId: "run-1", revision: 1, contextDigest: sourceDigest, status: "pending", expiresAtMs: 2 } as const;
   const grant = { principalKind: "user", principalId: "user-1", action: "factory.author", revision: 1, expiresAtMs: null, revoked: false } as const;
+  const credential = { serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read", "chat"] as const, revision: 1, issuedAtMs: 1_999_999_940_000, expiresAtMs: 2_000_000_000_000, revoked: false } as const;
   return [
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.summary", resource: draftSummary() },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.details", resource: { ...draftSummary(), source: referenceCodeV1 } },
@@ -81,6 +84,8 @@ function responses(): FactoryApiResponse[] {
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "mutation.accepted", receipt: { resourceId: "run-1", commandId: "command-1", statusUrl: "/api/factories/runs/run-1" } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "error", error: { code: "revision_conflict", message: "Reload the draft.", retryable: false, currentRevision: 2 } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "version.details", resource: { ...version, source: referenceCodeV1 } },
+    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "service-credential.issued", resource: credential, token: "ezkfsvc_aaa.bbb.ccc" },
+    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "service-credential.resource", resource: { ...credential, revision: 2, revoked: true } },
   ];
 }
 
@@ -119,6 +124,10 @@ describe("factory product API schema", () => {
     expect(code(validateFactoryApiRequest({ ...requests()[4]!, query: { limit: 201 } }))).toBe("API_REQUEST_SCHEMA");
     expect(code(validateFactoryApiRequest({ ...requests()[4]!, query: { cursor: "bad\ncursor" } }))).toBe("API_QUERY");
     expect(code(validateFactoryApiRequest({ ...requests()[21]!, body: { expiresAtMs: null } }))).toBe("API_GRANT_EXPIRY");
+    const issue = requests()[23] as Extract<FactoryApiRequest, { kind: "service-credential.issue" }>;
+    expect(code(validateFactoryApiRequest({ ...issue, body: { ...issue.body, scopes: ["chat", "read"] } }))).toBe("API_CREDENTIAL_SCOPES");
+    expect(code(validateFactoryApiRequest({ ...issue, body: { ...issue.body, expiresAtMs: issue.body.expiresAtMs + 1 } }))).toBe("API_CREDENTIAL_EXPIRY");
+    expect(code(validateFactoryApiRequest({ ...issue, preconditions: { ...issue.preconditions, expectedRevision: 1 } }))).toBe("API_EXPECTED_REVISION");
   });
 
   test("hashes the canonical mutation payload and rejects changed key reuse", () => {
@@ -202,5 +211,9 @@ describe("factory product API schema", () => {
     const draftPage = responses()[2] as Extract<FactoryApiResponse, { kind: "draft.page" }>;
     expect(code(validateFactoryApiResponse({ ...draftPage, page: { items: Array(201).fill(draftSummary()) } }))).toBe("API_RESPONSE_SCHEMA");
     expect(code(validateFactoryApiResponse({ schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.export", format: "yaml", source: "界".repeat(5_600_000) }))).toBe("API_RESPONSE_BYTES");
+    const credential = responses()[16] as Extract<FactoryApiResponse, { kind: "service-credential.issued" }>;
+    expect(code(validateFactoryApiResponse({ ...credential, token: "wrong" }))).toBe("API_CREDENTIAL_TOKEN");
+    expect(code(validateFactoryApiResponse({ ...credential, resource: { ...credential.resource, scopes: ["chat", "read"] } }))).toBe("API_CREDENTIAL_RESOURCE");
+    expect(code(validateFactoryApiResponse({ ...credential, resource: { ...credential.resource, expiresAtMs: credential.resource.issuedAtMs } }))).toBe("API_CREDENTIAL_RESOURCE");
   });
 });

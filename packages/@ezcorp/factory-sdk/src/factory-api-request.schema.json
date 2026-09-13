@@ -1051,6 +1051,62 @@
             "preconditions"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryServiceCredentialIssueBody"
+            },
+            "kind": {
+              "const": "service-credential.issue",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryServiceAccountPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "service-credential.revoke",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryServiceCredentialPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
         }
       ],
       "description": "Canonical C09 route input. `path` is populated from trusted routing state. Tenant identity is intentionally absent, and resource identity never appears in a request body."
@@ -1747,6 +1803,85 @@
         "failed",
         "cancelled",
         "uncertain"
+      ],
+      "type": "string"
+    },
+    "FactoryServiceAccountPath": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "serviceAccountId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "serviceAccountId"
+      ],
+      "type": "object"
+    },
+    "FactoryServiceCredentialIssueBody": {
+      "additionalProperties": false,
+      "properties": {
+        "expiresAtMs": {
+          "description": "Whole-second expiry, no more than one hour after issuance.",
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "scopes": {
+          "description": "Canonical order is read, write, chat.",
+          "items": {
+            "$ref": "#/definitions/FactoryServiceScope"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "scopes",
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryServiceCredentialPath": {
+      "additionalProperties": false,
+      "properties": {
+        "credentialId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "serviceAccountId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "credentialId",
+        "projectId",
+        "serviceAccountId"
+      ],
+      "type": "object"
+    },
+    "FactoryServiceScope": {
+      "enum": [
+        "read",
+        "write",
+        "chat"
       ],
       "type": "string"
     },

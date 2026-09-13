@@ -9,6 +9,7 @@ import { FactoryGrants } from "./grants";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "./run-lifecycle";
 import { FactoryArtifacts } from "./artifacts";
 import { FactoryDefinitionArtifacts } from "./definition-artifacts";
+import { FactoryServiceCredentials } from "./service-credentials";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -20,6 +21,7 @@ export interface FactoryApplication {
   readonly definitions: FactoryDefinitions;
   readonly runs: FactoryRunLifecycle;
   readonly grants: FactoryGrants;
+  readonly credentials: FactoryServiceCredentials;
   readonly availableResourceClasses: ReadonlySet<string>;
 }
 
@@ -66,6 +68,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
     resources.add(resourceClass);
   }
   const definitions = new FactoryDefinitions(options.database, options.tenantId, grants, options.blobs);
+  const credentials = new FactoryServiceCredentials(options.database, options.tenantId, grants);
   const artifacts = new FactoryDefinitionArtifacts(new FactoryArtifacts(options.database, options.blobs, options.tenantId));
   const runs = new FactoryRunLifecycle(options.database, options.tenantId, {
     ...options.runOptions, definitions, grants,
@@ -74,6 +77,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   return Object.freeze({
     tenantId: options.tenantId,
     grants,
+    credentials,
     definitions,
     runs,
     availableResourceClasses: immutableSet(resources),

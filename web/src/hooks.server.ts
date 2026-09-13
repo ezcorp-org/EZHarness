@@ -28,6 +28,9 @@ import { createPreviewWebSocketHandler } from "$lib/server/preview/ws-bridge";
 import { isLoopbackTestBypass } from "$lib/server/test-surface";
 import { principalId } from "$server/auth/principal-id";
 import { runWithGateInitiator } from "$server/auth/gate-initiator";
+import { isRegisteredFactoryRoute } from "$server/auth/factory-service-routes";
+import { factoryBootConfig } from "$server/factory/boot";
+import { getFactoryApplication } from "$server/factory/application";
 
 const log = logger.child("hooks.server");
 
@@ -525,6 +528,13 @@ const handleApp: Handle = async ({ event, resolve }) => {
     || url.pathname.startsWith("/favicon")
 ;
 
+  // Factory handlers own the disabled/unready response and must expose it
+  // before any credential lookup. The registry match keeps this bypass exact.
+  if (isRegisteredFactoryRoute(request.method, event.route.id)
+    && (!factoryBootConfig.enabled || !getFactoryApplication())) {
+    return resolveBounded(event);
+  }
+
   if (!isPublic) {
     // ── Loopback test-surface bypass ───────────────────────────────────
     // The deterministic mock-LLM completions endpoint is called
@@ -632,6 +642,8 @@ const handleApp: Handle = async ({ event, resolve }) => {
           remoteAddress,
           proxyForwardedHeadersPresent,
           onBehalfOfHeader: request.headers.get("x-ezcorp-on-behalf-of"),
+          method: request.method,
+          routeId: event.route.id,
         },
         authHeader,
       );
@@ -641,12 +653,12 @@ const handleApp: Handle = async ({ event, resolve }) => {
       // is skipped here, so a valid key can never be throttled. check()
       // increments the per-IP counter; once it crosses FAILED_BEARER_LIMIT the
       // peek() above starts returning 429 for subsequent sprays this window.
-      if (presentedBearer && !event.locals.user) {
+      if (presentedBearer && !event.locals.user && !event.locals.factoryServicePrincipal) {
         const ip = getClientIp(request, socketAddress);
         failedBearerLimiter.check(`ip:${ip}:bearerFail`);
       }
 
-      if (!event.locals.user) {
+      if (!event.locals.user && !event.locals.factoryServicePrincipal) {
         let count: number;
         try { count = await getUserCount(); } catch {
           // DB unreachable. Under PI_SKIP_INIT (E2E) the DB is intentionally

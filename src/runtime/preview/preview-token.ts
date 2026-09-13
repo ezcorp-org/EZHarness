@@ -1,4 +1,4 @@
-import { signJWT, verifyJWT, getJwtSecret } from "../../auth/jwt";
+import { signInstallationToken, verifyInstallationToken, getJwtSecret } from "../../auth/jwt";
 
 /**
  * Token / cookie handoff for the secure-preview reverse proxy
@@ -116,9 +116,8 @@ export function _resetCodeStoreForTests(): void {
 
 /**
  * Sign the `__ezpreview` JWT (HS256, same instance secret as the session
- * JWT). Reuses `signJWT` so there is ONE signing implementation — the
- * preview claims ride alongside a minimal AuthUser-shaped payload (the
- * preview proxy only ever reads `previewId` + `userId`).
+ * JWT). The explicit token use keeps preview capability tokens disjoint from
+ * authenticated user sessions.
  */
 export async function signPreviewToken(
   claims: PreviewTokenClaims,
@@ -126,24 +125,20 @@ export async function signPreviewToken(
   ttlSeconds: number = PREVIEW_TOKEN_TTL_SECONDS,
 ): Promise<string> {
   const key = secret ?? (await getJwtSecret());
-  // signJWT spreads the payload into the JWT body; the extra preview
-  // fields survive verbatim. The AuthUser fields are placeholders — the
-  // proxy never trusts them, only `previewId`/`userId`.
-  const payload = {
-    id: claims.userId,
-    email: "",
-    name: "",
-    role: "member" as const,
+  const now = Math.floor(Date.now() / 1_000);
+  return signInstallationToken({
+    tokenUse: "preview",
     previewId: claims.previewId,
     userId: claims.userId,
-  };
-  return signJWT(payload, key, ttlSeconds);
+    iat: now,
+    exp: now + ttlSeconds,
+  }, key);
 }
 
 /**
  * Verify a `__ezpreview` JWT. Returns the preview claims when the
  * signature is valid AND the token is unexpired (expiry is enforced
- * inside `verifyJWT`), otherwise null. Also rejects a structurally-valid
+ * inside `verifyInstallationToken`), otherwise null. Also rejects a structurally-valid
  * token that is missing the preview claims (e.g. a stray session JWT).
  */
 export async function verifyPreviewToken(
@@ -152,10 +147,12 @@ export async function verifyPreviewToken(
 ): Promise<PreviewTokenClaims | null> {
   if (!token) return null;
   const key = secret ?? (await getJwtSecret());
-  const payload = await verifyJWT(token, key);
+  const payload = await verifyInstallationToken(token, key);
   if (!payload) return null;
-  const previewId = (payload as Record<string, unknown>).previewId;
-  const userId = (payload as Record<string, unknown>).userId;
+  const keys = ["tokenUse", "previewId", "userId", "iat", "exp", "iss", "aud"];
+  if (Object.keys(payload).length !== keys.length || Object.keys(payload).some(key => !keys.includes(key)) || payload.tokenUse !== "preview") return null;
+  const previewId = payload.previewId;
+  const userId = payload.userId;
   if (typeof previewId !== "string" || typeof userId !== "string") return null;
   if (!previewId || !userId) return null;
   return { previewId, userId };

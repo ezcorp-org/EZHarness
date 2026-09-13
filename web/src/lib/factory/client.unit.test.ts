@@ -22,6 +22,7 @@ const version = {
 	compiledBytes: 1,
 	publishedAtMs: 2,
 };
+const credential = { serviceAccountId: "service one", credentialId: "credential/one", scopes: ["read"] as const, revision: 1, issuedAtMs: 1_000, expiresAtMs: 61_000, revoked: false };
 
 function api(value: FactoryApiResponse, status = 200): Response {
 	return Response.json(value, { status });
@@ -45,6 +46,10 @@ function response(kind: FactoryApiResponse["kind"]): FactoryApiResponse {
 			return { schemaVersion: "factory.api.response.v1", kind, resource: { ...version, source } };
 		case "version.summary":
 			return { schemaVersion: "factory.api.response.v1", kind, resource: version };
+		case "service-credential.issued":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: credential, token: "ezkfsvc_aaa.bbb.ccc" };
+		case "service-credential.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: { ...credential, revision: 2, revoked: true } };
 		default:
 			throw new Error("unsupported fixture");
 	}
@@ -59,6 +64,8 @@ describe("FactoryApiClient", () => {
 		fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 			const path = String(input);
 			calls.push({ path, init });
+			if (path.includes("/service-accounts/") && init?.method === "DELETE") return api(response("service-credential.resource"));
+			if (path.includes("/service-accounts/")) return api(response("service-credential.issued"));
 			if (path.includes("/export")) return api(response("draft.export"));
 			if (path.includes("/validate")) return api(response("draft.validation"));
 			if (path.includes("/versions/")) return api(response("version.details"));
@@ -83,6 +90,8 @@ describe("FactoryApiClient", () => {
 		expect(await client.listVersions("project/one", source.id)).toEqual([version]);
 		expect(await client.getVersion("project/one", source.id, source.version)).toMatchObject({ source });
 		expect(await client.publishVersion("project/one", source.id, 1, source.version)).toEqual(version);
+		expect(await client.issueServiceCredential("project/one", "service one", ["read"], 61_000)).toMatchObject({ resource: credential, token: expect.stringMatching(/^ezkfsvc_/) });
+		expect(await client.revokeServiceCredential("project/one", "service one", "credential/one", 1)).toMatchObject({ revision: 2, revoked: true });
 
 		const listed = new URL(calls[0]!.path, "http://localhost");
 		expect(listed.pathname).toContain("project%2Fone/definitions");
@@ -96,6 +105,10 @@ describe("FactoryApiClient", () => {
 		expect(calls[6]?.path).toContain("format=yaml");
 		expect(calls[7]?.init?.headers).toEqual({ "content-type": "application/json" });
 		expect(calls[10]?.init?.body).toBe(JSON.stringify({ version: source.version }));
+		expect(calls[11]?.path).toContain("service%20one/credentials");
+		expect(calls[11]?.init?.body).toBe(JSON.stringify({ scopes: ["read"], expiresAtMs: 61_000 }));
+		expect(calls[12]?.path).toContain("credential%2Fone");
+		expect(calls[12]?.init?.method).toBe("DELETE");
 	});
 
 	test("uses the platform fetch and bounded random key defaults", async () => {

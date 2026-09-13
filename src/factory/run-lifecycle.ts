@@ -92,7 +92,7 @@ export class FactoryRunLifecycle {
       const runId = crypto.randomUUID();
       const identity = { tenantId: this.tenantId, projectId: key.projectId, logicalRunId: runId, interpreterId: "root" };
       const installation = (await lockFactoryScope(transaction, this.tenantId, key.projectId, "write"))!;
-      await this.records.createRunInTransaction(transaction, { projectId: key.projectId, runId, definitionDigest: body.definitionDigest, interpreterBuild: this.options.interpreterBuild, executionEpoch: installation.executionEpoch, input, principalId: principal.id, principalKind: principal.kind }, async tx => {
+      await this.records.createRunInTransaction(transaction, { projectId: key.projectId, runId, definitionDigest: body.definitionDigest, interpreterBuild: this.options.interpreterBuild, executionEpoch: installation.executionEpoch, input, principalId: principal.id, principalKind: principal.kind, ...(principal.credential === undefined ? {} : { serviceCredential: principal.credential }) }, async tx => {
         const definition = await this.options.stageDefinitionInTransaction(tx, compiled, identity);
         if (definition.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
         const workflowInput = JSON.parse(encodeFactoryPayload({ ...identity, startedAtMs, deadlineAtMs, definition, input })) as JsonValue;
@@ -181,7 +181,7 @@ export class FactoryRunLifecycle {
     if (![fence.revision, fence.grantRevision, fence.deadlineAtMs].every(value => Number.isSafeInteger(value) && value > 0) || !Number.isSafeInteger(fence.cancellationEpoch) || fence.cancellationEpoch < 0 || fence.definitionDigest !== request.definitionDigest) throw new FactoryRunLifecycleError("factory_run_corrupt");
     if (!["queued", "running", "waiting"].includes(row.status) || Number(row.deadline_ms) <= this.now()) throw new FactoryRunLifecycleError("factory_run_stopped");
     const kind = request.principalKind ?? "user";
-    await this.options.grants.authorizeInTransaction(transaction, { kind, id: request.principalId, authentication: kind === "user" ? "api-key" : "service" }, key.projectId, "factory.run", Number(row.grant_revision));
+    await this.options.grants.authorizeInTransaction(transaction, { kind, id: request.principalId, authentication: kind === "user" ? "api-key" : "service", ...(request.serviceCredential === undefined ? {} : { credential: request.serviceCredential }) }, key.projectId, "factory.run", Number(row.grant_revision));
     return fence;
   }
 
