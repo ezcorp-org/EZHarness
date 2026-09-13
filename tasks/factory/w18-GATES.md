@@ -5,8 +5,9 @@ enforcement gate runs after W13–W17 and is not claimed here. Every result belo
 is LOCAL. None of it claims hosted enforcement: no required check is registered,
 no runner exists, and no secret is provisioned.
 
-Receipts live under `/tmp/factory-platform-evidence/w18/`. Producing commits are
-named per gate.
+Receipts live under `/tmp/factory-platform-evidence/w18/`, indexed by
+`RECEIPTS.md` with checksums in `SHA256SUMS`. Producing commits are named per
+gate. The working tree was clean at every producer run.
 
 - [x] G1: All seven exact C11 lanes exist as jobs with real producers, artifacts, runner labels, and readiness dependencies.
   CHECK: `bun scripts/check-factory-lanes.ts`
@@ -78,17 +79,27 @@ named per gate.
   EXPECT: both exit 1 with the exact missing lists
   EVIDENCE: `fe9a7636e`; `/tmp/factory-platform-evidence/w18/required-checks.log`, `runner-readiness.log`, `gh-inspection.log`. 0 runners, 0 secrets, 10 of 21 required contexts. `docs/validation/factory/stage-2b/` carries the exact payload, labels, and secret names. Stage 1 and stage 2a are untouched history.
 
-- [ ] G14: Hosted enforcement. NOT CLAIMED IN THIS WAVE.
+- [x] G14: The Python producer is registered in the canonical local pipeline, so its own wildcard gate cannot red every local run.
+  CHECK: `bun test --timeout 180000 ./scripts/python-quality-registration.test.ts ./src/__tests__/coverage-leg-lcov-guard.test.ts`; `COVERAGE_LEGS_ONLY=1 bash scripts/test-coverage.sh`
+  EXPECT: 56 pass, 0 fail; legs-only exit 0 with 9 shards and no Python leg
+  EVIDENCE: `dc122aa21`; `/tmp/factory-platform-evidence/w18/cov-legs2.log` (1437 pass / 0 fail, exit 0). Registered in full local mode only, like the Web Vitest receipt, because CI publishes the same producer from the one job that installs the pinned uv. Its exit gates the COVERAGE verdict.
+
+- [x] G15: The whole W18 surface passes the repository's own checks.
+  CHECK: `bun run typecheck`; `bun run lint`; `BASE_REF=integ/w00 bun scripts/gate-integrity.ts`; both `BASE_REF=integ/w00` coverage gates
+  EXPECT: all exit 0
+  EVIDENCE: `/tmp/factory-platform-evidence/w18/RECEIPTS.md`. 425 tests pass across the 16 W18 suites; 3 new source files gated at 100%; all changed executable lines covered across 5 files. The 8 remaining biome infos are pre-existing in files W18 did not touch.
+
+- [ ] G16: Hosted enforcement. NOT CLAIMED IN THIS WAVE.
   CHECK: `bun scripts/check-required-checks.ts` after an administrator applies `docs/validation/factory/stage-2b/branch-protection-required-status-checks.json`
   EXPECT: exit 0
   EVIDENCE: none. No runner is registered, no secret is provisioned, and no required check is added. The three labelled lanes are expected to be RED until those exist; that is the designed fail-closed state, not a defect.
 
-- [ ] G15: A deliberate lane failure blocks the candidate, then is removed with both results retained. NOT CLAIMED IN THIS WAVE.
+- [ ] G17: A deliberate lane failure blocks the candidate, then is removed with both results retained. NOT CLAIMED IN THIS WAVE.
   CHECK: a temporary failing assertion on a branch, then its removal
   EXPECT: two retained hosted results
-  EVIDENCE: none. Requires hosted enforcement from G14.
+  EVIDENCE: none. Requires hosted enforcement from G16.
 
-- [ ] G16: The full feature diff passes the new-file and patch gates. NOT CLAIMED IN THIS WAVE.
+- [ ] G18: The full feature diff passes the new-file and patch gates. NOT CLAIMED IN THIS WAVE.
   CHECK: `BASE_REF=2588c9f19edcae24273f4a2049eb3ac37bd6f920 bun scripts/check-new-file-coverage.ts && ... check-patch-coverage.ts`
   EXPECT: exit 0 after W13–W17
   EVIDENCE: reproduced and recorded as the backlog below, not fixed by exclusion.
