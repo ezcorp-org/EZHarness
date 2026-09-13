@@ -1,7 +1,7 @@
 import { lockFactoryScope } from "./locks";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
 import { validateDurableInputPorts, validateValue } from "@ezcorp/factory-sdk/validation";
-import type { BudgetBounds, CompiledFactory, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue } from "@ezcorp/factory-sdk";
+import type { BudgetBounds, CompiledFactory, FactoryReference, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableInput, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue } from "@ezcorp/factory-sdk";
 import type { FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -23,6 +23,28 @@ export interface FactoryRunRequest { readonly run: FactoryRunDetails; readonly r
 export interface FactoryResolvedParameters {
   readonly kind: "factory.run-resolved-parameters";
   readonly input: JsonValue;
+}
+
+export interface FactoryChildRunAdmission {
+  readonly parent: FactoryRunFence;
+  readonly parentInterpreterId: string;
+  readonly parentCommandId: string;
+  readonly childRunId: string;
+  readonly parentEnvelopeId: string;
+  readonly factory: FactoryReference;
+  readonly input: JsonValue;
+  readonly durableInput?: FactoryDurableInput;
+  readonly startedAtMs: number;
+  readonly deadlineAtMs: number;
+  readonly initiator: FactoryPrincipal;
+}
+export interface FactoryChildRunReceipt {
+  readonly childRunId: string;
+  readonly definition: FactoryDefinitionSource;
+  readonly definitionDigest: string;
+  readonly deadlineAtMs: number;
+  readonly parentEnvelopeId: string;
+  readonly childEnvelopeId: "root";
 }
 
 export interface FactoryRunFence {
@@ -129,6 +151,31 @@ export class FactoryRunLifecycle {
       const runKey = { projectId: key.projectId, runId };
       return this.requestResult(transaction, runKey, await this.row(transaction, runKey), "start_run");
     });
+  }
+
+  /** Creates a child as its own durable run while reserving only the parent remainder. */
+  async createChildInTransaction(transaction: MigrationDb, value: FactoryChildRunAdmission): Promise<FactoryChildRunReceipt> {
+    const input = JSON.parse(encodeFactoryPayload(value)) as FactoryChildRunAdmission;
+    assertFactoryIdentity(input.parent.projectId, input.parent.runId, input.parentInterpreterId, input.parentCommandId, input.childRunId, input.parentEnvelopeId, input.factory.id, input.factory.version, input.factory.digest);
+    if (input.parent.tenantId !== this.tenantId || input.deadlineAtMs !== input.parent.deadlineAtMs && input.deadlineAtMs > input.parent.deadlineAtMs || !Number.isSafeInteger(input.startedAtMs) || input.startedAtMs < 0 || !Number.isSafeInteger(input.deadlineAtMs) || input.deadlineAtMs <= this.now()) throw new FactoryRunLifecycleError("factory_child_invalid");
+    const { fence } = await this.readExecutionPlanInTransaction(transaction, { projectId: input.parent.projectId, runId: input.parent.runId });
+    if (fence.executionEpoch !== input.parent.executionEpoch || fence.cancellationEpoch !== input.parent.cancellationEpoch || fence.grantRevision !== input.parent.grantRevision || fence.deadlineAtMs !== input.parent.deadlineAtMs) throw new FactoryRunLifecycleError("factory_child_stale");
+    const { version, compiled } = await this.options.definitions.readVersionInTransaction(transaction, input.initiator, { projectId: input.parent.projectId, factoryId: input.factory.id }, input.factory.version);
+    if (version.definitionDigest !== input.factory.digest || compiled.digest !== input.factory.digest || compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_definition_conflict");
+    const ports = compiled.definition.inputPorts;
+    if (input.durableInput === undefined) {
+      if (typeof input.input !== "object" || input.input === null || Array.isArray(input.input) || Object.keys(input.input).some(name => !Object.hasOwn(ports, name)) || Object.entries(ports).some(([name, schema]) => !Object.hasOwn(input.input as object, name) || !validateValue(schema, (input.input as Record<string, JsonValue>)[name]!).ok)) throw new FactoryRunLifecycleError("factory_input_invalid");
+    } else if (!validateDurableInputPorts(ports, input.input, input.durableInput).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
+    const childKey = { projectId: input.parent.projectId, runId: input.childRunId };
+    let source!: FactoryDefinitionSource;
+    await this.records.createRunInTransaction(transaction, { projectId: childKey.projectId, runId: childKey.runId, definitionDigest: compiled.digest, interpreterBuild: this.options.interpreterBuild, executionEpoch: fence.executionEpoch, input: input.input, principalId: input.initiator.id, principalKind: input.initiator.kind, ...(input.initiator.credential === undefined ? {} : { serviceCredential: input.initiator.credential }) }, async tx => {
+      const identity = { tenantId: this.tenantId, projectId: childKey.projectId, logicalRunId: childKey.runId, interpreterId: input.parentInterpreterId };
+      source = await this.options.stageDefinitionInTransaction(tx, compiled, identity);
+      if (source.definitionDigest !== compiled.digest) throw new FactoryRunLifecycleError("factory_definition_conflict");
+      await tx.execute(sql`INSERT INTO factory_run_lifecycle (tenant_id, project_id, run_id, factory_id, factory_version, definition_digest, grant_revision, status, deadline_ms, parameters_json, parameters_digest) VALUES (${this.tenantId}, ${childKey.projectId}, ${childKey.runId}, ${input.factory.id}, ${input.factory.version}, ${compiled.digest}, ${fence.grantRevision}, 'queued', ${input.deadlineAtMs}, ${encodeFactoryPayload(input.input)}, ${digestObject(input.input)})`);
+      await this.budgets.openChildDelegationInTransaction(tx, { parent: { projectId: input.parent.projectId, runId: input.parent.runId }, child: childKey, parentEnvelopeId: input.parentEnvelopeId, childEnvelopeId: "root", deadlineAtMs: input.deadlineAtMs });
+    });
+    return { childRunId: childKey.runId, definition: source, definitionDigest: compiled.digest, deadlineAtMs: input.deadlineAtMs, parentEnvelopeId: input.parentEnvelopeId, childEnvelopeId: "root" };
   }
 
   async cancel(principal: FactoryPrincipal, key: FactoryRunKey, expectedRevision: number, idempotencyKey: string, reason = "Operator requested cancellation"): Promise<FactoryRunRequest> {

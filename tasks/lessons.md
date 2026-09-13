@@ -490,3 +490,7 @@
 
 - A child run can be independently durable without becoming independently authorized. Recheck every live ancestor binding and fence before each child task, child, or approval admission; an old child receipt may recover only its exact prior result.
 - A child budget uses a sealed parent portion, not a fresh copy of parent limits. Lock parent before child, reserve the parent sub-envelope with child creation, and settle only measured child spending after every child hold resolves.
+
+## 2026-09-13 — Child workflow scheduling identity
+
+- One logical child run has one scheduling authority. A child launched through `executeChild` must use its durable child logical ID and must never also enqueue a root `start_run` command.

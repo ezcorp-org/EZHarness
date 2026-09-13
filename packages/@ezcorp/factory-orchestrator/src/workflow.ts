@@ -24,6 +24,7 @@ import {
   FACTORY_INBOX_SIGNAL,
   FACTORY_STATE_QUERY,
   FACTORY_WORKFLOW_TYPE,
+  factoryWorkflowId,
   MAX_INBOX_EVENTS,
   MAX_INFLIGHT_COMMANDS,
   type FactoryActivities,
@@ -106,7 +107,7 @@ async function runCommand(
       return await scope.run(async () => {
         const definition = await reads.resolveFactory({ ...workflowIdentity(input), commandId: command.id, factory: command.factory });
         const result = await executeChild<typeof factoryWorkflow>(FACTORY_WORKFLOW_TYPE, {
-          workflowId: `${input.tenantId}/${command.id}`,
+          workflowId: factoryWorkflowId(input.tenantId, factoryChildRunId(input.logicalRunId, command)),
           args: [childInput(input, command, definition)],
           retry: { maximumAttempts: 1 },
           cancellationType: ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
