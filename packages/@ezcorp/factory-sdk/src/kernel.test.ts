@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { advanceKernel, createKernelState } from "./kernel";
+import { FactoryKernelError, advanceKernel, createKernelState } from "./kernel";
 import type { CompiledFactory, FactoryNode, JsonValue } from "./types";
 
 const runner = { package: "inert", version: "1", digest: "sha256:test", export: "run" } as const;
@@ -48,9 +48,28 @@ describe("factory kernel", () => {
   test("rejects a settlement for a nonexistent node without changing the run ledger", () => {
     const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
     const initial = createKernelState(graph, "usage-fence", {}, 0);
-    const settled = advanceKernel(graph, initial, { kind: "usage-settled", id: "unknown-node", atMs: 1, nodeId: "does-not-exist", knownCostMicros: "7" });
+    const settled = advanceKernel(graph, initial, { kind: "usage-settled", id: "unknown-node", atMs: 1, nodeId: "does-not-exist", commandId: "missing", candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "7" });
     expect(settled.nextState.spentCostMicros).toBe("0");
     expect(settled.nextState.unknownCostMicros).toBe("0");
+  });
+
+  test("settlements fence the attempt and reconcile cumulative revisions without double charging", () => {
+    const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
+    let state = advanceKernel(graph, createKernelState(graph, "usage-revision", {}, 0), event("start", { kind: "start" })).nextState;
+    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "work", commandId: "usage-revision:work:request-admission:1", candidateGeneration: 0, granted: true })).nextState;
+    const commandId = "usage-revision:work:dispatch-node:2";
+    const initial = advanceKernel(graph, state, { kind: "usage-settled", id: "delivery-a", atMs: 1, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
+    expect(initial.nextState.spentCostMicros).toBe("4");
+    expect(initial.nextState.unknownCostMicros).toBe("6");
+    const duplicate = advanceKernel(graph, initial.nextState, { kind: "usage-settled", id: "delivery-b", atMs: 2, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
+    expect(duplicate.nextState.spentCostMicros).toBe("4");
+    const reconciled = advanceKernel(graph, duplicate.nextState, { kind: "usage-settled", id: "delivery-c", atMs: 3, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 2, knownCostMicros: "10", unknownCostMicros: "0" });
+    expect(reconciled.nextState.spentCostMicros).toBe("10");
+    expect(reconciled.nextState.unknownCostMicros).toBe("0");
+    expect(() => advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-conflict", atMs: 4, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 2, knownCostMicros: "11" })).toThrow(FactoryKernelError);
+    const stale = advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-stale", atMs: 5, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
+    expect(stale.nextState.spentCostMicros).toBe("10");
+    expect(() => advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-gap", atMs: 5, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 4, knownCostMicros: "10" })).toThrow(FactoryKernelError);
   });
 
   test("uses stable command identities and independently advances a ready successor", () => {
