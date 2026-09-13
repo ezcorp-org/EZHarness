@@ -458,3 +458,5 @@
 - In tool orchestration, check each shell exit code before dependent staging or commit calls. A failed conflict-resolution script must stop the sequence.
 - Validate the current protected row before advancing any authority revision or epoch. A correct expected counter must never launder a damaged prior seal.
 - A successful terminal fact must close the attempt's effect journal. Preserve exact terminal replay through its own verified path, and reject every later prepare or dispatch.
+
+- A PostgreSQL restart test must call the production migration adapter and lock, not a raw Drizzle connection whose execute result has a different shape. Reuse one fixture migration function for setup and restart.

@@ -1421,3 +1421,5 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - [x] Propose bounded reference/page protocol and ownership.
 - [x] Implement host authorization, immutable paging and conformance tests.
 - [ ] Validate coverage, types and lint.
+
+Restart fixture review: the combined 12-file PostgreSQL producer at `49a6ad119` passed 88 cases and failed the new repeated-migration case because it supplied raw Bun SQL rows to a migration that uses the production normalized adapter. The fixture now repeats the same locked migration entrypoint used on startup; PGlite retains its own native adapter. Actual logs and the failed receipt remain under `root-restart-integration-*`. Regression is still open.
