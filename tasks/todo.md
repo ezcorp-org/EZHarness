@@ -1464,3 +1464,18 @@ Review: `FactoryCommandAuthority` loads an indexed immutable task command, the l
 Plan review: retain the existing budget store, run locks and audit helper. The pool dispatcher must commit the verified compute allocation and its inbox event together. A lost or failed event write cannot leave work marked running. Tests use the existing database-backed budget conformance seam.
 
 Review: both rollback and caller-mutation failures were reproduced before the correction. Direct allocation and dispatcher composition now share `markRunningInTransaction`; the allocation and its event can commit or roll back together. PGlite and actual PostgreSQL each pass nine cases with 53 assertions. Focused LCOV measures budgets at 174/174 lines and 52/52 functions. SDK build, all four type checks, lint, gate integrity and factory boundaries pass. Exact source hashes and command exits are in `/tmp/factory-platform-evidence/root-budget-allocation-source.json` and `root-budget-allocation-integration-results.json`.
+
+## Production orchestration integration
+
+Review: the production process is integrated at `8d83911c23e64007a9a50c76e10dac34c0f231a2`. Frozen root/web installs, SDK/orchestrator builds, all four type checks, lint, gate integrity, boundaries, coverage registration/converter tests and the canonical Node coverage producer pass. The runtime producer reports 73 tests, zero failures and 107.943 seconds; exact commands/exits are in `/tmp/factory-platform-evidence/root-production-orchestrator-integration-results.json`. The real tenant-01 proof also reached ready with both authenticated worker polling and a live dispatcher. Full platform boot remains pending.
+
+## Factory database and service startup phases — root
+
+- [x] Reproduce the startup dependency loop through real PostgreSQL and a fresh process.
+- [x] Keep installation, database and isolated-secret checks before opening the database.
+- [x] Keep factory service readiness closed until actual post-database probes pass.
+- [x] Verify feature-off startup and flag-on PGlite rejection remain correct.
+
+Plan review: database initialization is a prerequisite of the private gateway and worker. Split configuration checks from service readiness. The application must remain unready during that interval; callers cannot open factory admission with a configuration check alone.
+
+Review: a fresh flag-on Bun process against isolated PostgreSQL reproduced the premature service-readiness failure. Configuration checks now run before driver startup; database initialization leaves factory readiness at `booting / factory-services-pending`. Full service readiness still requires all seven probes. The focused boot/real-init/PostgreSQL-adapter suite passes 34 tests with 85 assertions; actual PostgreSQL startup/restart passes three tests with 21 assertions. Boot source coverage is 77/77 lines and 7/7 functions. SDK build, all four types, lint, gate integrity and boundaries pass. Proof commands/exits and exact source hashes are in `/tmp/factory-platform-evidence/root-boot-phases-integration-results.json` and `root-boot-phases-source.json`. The actual post-database service composition remains a separate open platform gate.

@@ -29,5 +29,5 @@ export async function setupFactoryPostgres() {
     await migrateDatabase();
   }
   catch (error) { await close(); throw error; }
-  return { db, close, migrate: migrateDatabase };
+  return { db, close, migrate: migrateDatabase, databaseUrl: isolatedUrl.toString() };
 }
