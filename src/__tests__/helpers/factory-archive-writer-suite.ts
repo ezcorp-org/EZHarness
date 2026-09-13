@@ -190,6 +190,10 @@ async function setup() {
     return releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval.approvalId });
   };
   const stateOf = async (label: string) => rows<{ state: string; archive_ready: boolean }>(await db.execute(sql`SELECT state,archive_ready FROM factory_release_operations WHERE tenant_id=${TENANT} AND destination_object=${`releases/${label}`}`))[0];
+  /** The outbox kinds this operation has enqueued, in order. */
+  const notificationKinds = async (operationId: string) => rows<{ deduplication_id: string; created_at: Date }>(
+    await db.execute(sql`SELECT deduplication_id,created_at FROM factory_notifications WHERE tenant_id=${TENANT} AND deduplication_id LIKE ${`%:${operationId}:%`} ORDER BY created_at,deduplication_id`),
+  ).map(row => row.deduplication_id.split(":")[0]!);
   const rejectAudit = async (action: string) => {
     await db.execute(sql.raw(`CREATE FUNCTION reject_${action.replaceAll(".", "_")}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='${action}' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$`));
     await db.execute(sql.raw(`CREATE TRIGGER reject_${action.replaceAll(".", "_")} BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_${action.replaceAll(".", "_")}()`));
@@ -199,7 +203,7 @@ async function setup() {
     };
   };
 
-  return { db, admin, projectId, scope, members, reader, archive, store, writer, releases, provider, recovery, prepare, claim, stateOf, rejectAudit, mutationKey, attemptMaterials, blobs };
+  return { db, admin, projectId, scope, members, reader, archive, store, writer, releases, provider, recovery, prepare, claim, stateOf, notificationKinds, rejectAudit, mutationKey, attemptMaterials, blobs };
 }
 
 async function manifestFor(world: Awaited<ReturnType<typeof setup>>, operation: FactoryReleaseOperation) {
@@ -315,6 +319,9 @@ test("the confirmed receipt reaches the archive before the product row, and reco
   const archived = await world.writer.readArchivedReceipt(uncertain);
   expect(archived).toEqual(world.provider.receipts.get(`${operation.operationId}:${uncertain.dispatchGeneration}`)!);
 
+  // Orchestration was not told either: the archive precedes the outbox, not only the row.
+  expect(await world.notificationKinds(operation.operationId)).toEqual(["release_uncertain"]);
+
   // The ordinary store is unreachable, so settlement waits rather than guessing.
   world.provider.productStoreDown = true;
   await expect(world.recovery.recover(world.projectId, operation.operationId, world.provider, world.mutationKey("recover"))).rejects.toThrow("unreachable");
@@ -326,6 +333,7 @@ test("the confirmed receipt reaches the archive before the product row, and reco
   expect(outcome.kind).toBe("settled_from_archive");
   expect(outcome.operation).toMatchObject({ state: "succeeded", receipt: archived! });
   expect(world.provider.publishes).toBe(1);
+  expect(await world.notificationKinds(operation.operationId)).toEqual(["release_uncertain", "release_settled"]);
 
   // Recovering the settled operation again is a no-op, not a second effect.
   expect(await world.recovery.recover(world.projectId, operation.operationId, world.provider, world.mutationKey("recover"))).toMatchObject({ kind: "already_settled" });

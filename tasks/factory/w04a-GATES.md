@@ -101,7 +101,7 @@ no change to W07's file.
 - [x] G3: The archive holds every referenced member before a dispatch claim is possible, and
       publication stays pending when a member is unavailable or reads back different bytes.
       CHECK: `bun test --timeout 120000 ./src/factory/archive-writer.integration.test.ts`
-      EXPECT: 10 pass, 0 fail, 76 assertions.
+      EXPECT: 10 pass, 0 fail, 78 assertions.
       EVIDENCE: receipt `focused`.
 - [x] G4: A crash at each archive boundary recovers by identity and writes no second object.
       CHECK: the G3 suite, case "a crash at each archive boundary before the claim recovers by
@@ -116,8 +116,11 @@ no change to W07's file.
       ...", "a crash between the provider effect and the receipt archive ...", "a lost provider
       response ...", and "an archived receipt from another generation cannot settle this one".
       EXPECT: after a failed settlement the operation is `uncertain` with no receipt while the
-      archive already holds it; `publishes` stays at 1 through recovery; a receipt naming another
-      generation, operation, request digest, object, account, or provider is never used.
+      archive already holds it, and the outbox holds `["release_uncertain"]` only, so the archive
+      precedes the orchestration notification as well as the product row; after recovery the
+      outbox holds `["release_uncertain", "release_settled"]`; `publishes` stays at 1 through
+      recovery; a receipt naming another generation, operation, request digest, object, account,
+      or provider is never used.
       EVIDENCE: receipts `focused` and `postgres-storage`.
 - [x] G6: Settlement waits for the ordinary store. With the product store unreachable the archive
       still returns the receipt and recovery refuses to settle; it settles once the store returns.
@@ -131,7 +134,7 @@ no change to W07's file.
       CHECK: `bun test --timeout 300000 ./tests/postgres/factory-archive-writer.test.ts` with
       `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set, under the shared
       heavy lock.
-      EXPECT: 10 pass, 0 fail, 76 assertions.
+      EXPECT: 10 pass, 0 fail, 78 assertions.
       EVIDENCE: receipts `postgres-archive-writer-concurrent`, `final-postgres`, and
       `postgres-storage`.
 - [x] G8: No product or restore credential can read, overwrite, or delete an archive object, for
