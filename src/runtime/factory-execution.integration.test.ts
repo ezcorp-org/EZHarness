@@ -202,6 +202,45 @@ test("factory records failed broker and stream results without retrying the prov
   ]);
 });
 
+test("a rejected durable stream settlement rejects every concurrent result caller", async () => {
+  const events: string[] = [];
+  let afterCalls = 0;
+  const execution = factory(async () => resultStream(assistant([{ type: "text", text: "reply" }])), events, {
+    after: async () => {
+      afterCalls += 1;
+      throw new Error("journal after failed");
+    },
+  });
+  const runtime = createFactoryAgentRuntime(execution);
+  const stream = await runtime.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, {});
+  const first = stream.result();
+  const second = stream.result();
+  const results = await Promise.allSettled([first, second]);
+  expect(afterCalls).toBe(1);
+  expect(results).toEqual([
+    { status: "rejected", reason: expect.objectContaining({ message: "journal after failed" }) },
+    { status: "rejected", reason: expect.objectContaining({ message: "journal after failed" }) },
+  ]);
+});
+
+test("factory rejects non-JSON broker payloads and exhausted operation indexes before hooks", async () => {
+  const events: string[] = [];
+  let beforeCalls = 0;
+  const execution = factory(async () => resultStream(assistant([{ type: "text", text: "reply" }])), events, {
+    before: async () => { beforeCalls += 1; },
+  });
+  const runtime = createFactoryAgentRuntime(execution);
+  await expect(runtime.streamFn({ ...model, invalid: () => undefined } as any, { systemPrompt: "", messages: [], tools: [] }, {})).rejects.toThrow("non-JSON");
+  expect(beforeCalls).toBe(0);
+
+  const exhausted = createFactoryAgentRuntime({
+    ...execution,
+    attempt: { ...execution.attempt, nextOperationIndex: Number.MAX_SAFE_INTEGER },
+  });
+  await expect(exhausted.streamFn(model, { systemPrompt: "", messages: [], tools: [] }, {})).rejects.toThrow("index is exhausted");
+  expect(beforeCalls).toBe(0);
+});
+
 test("factory entrypoint bypasses host credential resolution and disables executor failover", async () => {
   const events: string[] = [];
   const execution = factory(async () => resultStream(assistant([{ type: "text", text: "unused" }])), events);

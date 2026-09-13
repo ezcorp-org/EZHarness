@@ -13,6 +13,7 @@ import type {
   BeforeToolCallContext,
   StreamFn,
 } from "@earendil-works/pi-agent-core";
+import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 
 export interface FactoryAttemptIdentity {
   attemptToken: string;
@@ -84,13 +85,29 @@ export function assertFactoryExecutionContext(value: FactoryExecutionContext): v
   }
 }
 
+/**
+ * The broker contract is JSON.  Reject values which cannot cross that
+ * boundary instead of assigning them a shared placeholder digest.
+ */
+function transportJson(value: unknown, path = "$"): JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (Number.isFinite(value)) return value;
+    throw new Error(`Factory broker payload contains a non-finite number at ${path}.`);
+  }
+  if (Array.isArray(value)) return value.map((entry, index) => transportJson(entry, `${path}[${index}]`));
+  if (typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    throw new Error(`Factory broker payload contains a non-JSON value at ${path}.`);
+  }
+  const result: Record<string, JsonValue> = {};
+  // This is the only JSON.stringify-compatible normalization: object fields
+  // which are absent on the wire remain absent. Array entries still reject.
+  for (const [key, entry] of Object.entries(value)) if (entry !== undefined) result[key] = transportJson(entry, `${path}.${key}`);
+  return result;
+}
+
 function digest(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value, (_key, entry) => {
-    if (entry instanceof Uint8Array) return { bytesSha256: createHash("sha256").update(entry).digest("hex"), byteLength: entry.byteLength };
-    if (typeof entry === "function") return "[function]";
-    if (typeof entry === "bigint") return entry.toString();
-    return entry;
-  })).digest("hex");
+  return createHash("sha256").update(canonicalJson(transportJson(value))).digest("hex");
 }
 
 function factoryOperation(
@@ -117,6 +134,27 @@ function brokerOptions(options: SimpleStreamOptions | undefined): Omit<SimpleStr
   return safe;
 }
 
+/** Remove host-only tool implementations before a request reaches the broker. */
+function brokerContext(context: Context): Context {
+  const wire = {
+    ...(context.systemPrompt === undefined ? {} : { systemPrompt: context.systemPrompt }),
+    messages: context.messages,
+    ...(context.tools === undefined ? {} : {
+      tools: context.tools.map(({ name, description, parameters, constrainedSampling }) => ({
+        name,
+        description,
+        parameters,
+        ...(constrainedSampling === undefined ? {} : { constrainedSampling }),
+      })),
+    }),
+  };
+  return transportJson(wire) as unknown as Context;
+}
+
+function brokerModel(model: Model<Api>): Model<Api> {
+  return transportJson(model) as unknown as Model<Api>;
+}
+
 function messageResultDigest(message: AssistantMessage): string {
   return digest({ content: message.content, model: message.model, provider: message.provider, stopReason: message.stopReason, usage: message.usage });
 }
@@ -130,11 +168,10 @@ function journaledStream(
   operation: FactoryOperation,
   journal: FactoryJournalHooks,
 ): AssistantMessageEventStream {
-  let settled = false;
+  let settlement: Promise<void> | undefined;
   const settle = async (result: FactoryOperationResult): Promise<void> => {
-    if (settled) return;
-    settled = true;
-    await journal.after(result);
+    settlement ??= journal.after(result);
+    await settlement;
   };
 
   return {
@@ -167,22 +204,32 @@ export function createFactoryAgentRuntime(execution: FactoryExecutionContext): F
   assertFactoryExecutionContext(execution);
   let nextOperationIndex = execution.attempt.nextOperationIndex;
   const toolOperations = new Map<string, FactoryOperation>();
-  const allocate = (kind: FactoryOperation["kind"], request: unknown): FactoryOperation =>
-    factoryOperation(execution.attempt, nextOperationIndex++, kind, request);
+  const allocate = (kind: FactoryOperation["kind"], request: unknown): FactoryOperation => {
+    // Reserve a valid successor before touching a durable hook. This keeps a
+    // resumed attempt from silently wrapping its stable operation namespace.
+    if (!Number.isSafeInteger(nextOperationIndex) || nextOperationIndex < 0 || nextOperationIndex >= Number.MAX_SAFE_INTEGER) {
+      throw new Error("Factory attempt operation index is exhausted.");
+    }
+    const operation = factoryOperation(execution.attempt, nextOperationIndex, kind, request);
+    nextOperationIndex += 1;
+    return operation;
+  };
 
   return {
     streamFn: async (model, context, options) => {
       if (options?.signal?.aborted) throw new Error("Factory attempt is aborted.");
       if (options?.apiKey) throw new Error("Factory provider transport rejects host API keys.");
       const safeOptions = brokerOptions(options);
-      const operation = allocate("model", { model, context, options: safeOptions });
+      const wireModel = brokerModel(model);
+      const wireContext = brokerContext(context);
+      const operation = allocate("model", { model: wireModel, context: wireContext, options: safeOptions });
       await execution.journal.before(operation);
       try {
         const stream = await execution.broker.stream({
           attemptToken: execution.attempt.attemptToken,
           operation,
-          model,
-          context,
+          model: wireModel,
+          context: wireContext,
           options: safeOptions,
         });
         return journaledStream(stream, operation, execution.journal);
