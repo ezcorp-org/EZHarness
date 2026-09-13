@@ -61,6 +61,9 @@ export class FactoryAssurance {
     [actor, input] = snapshot([actor, input]);
     this.contract(input);
     await this.executeAuthorizedMutation(actor, input.projectId, "factory.trust", idempotencyKey, { kind: "assurance.contract.approve", contract: input }, async (transaction, approvalGrantRevision) => {
+      const current = rows<{ revision: number | string } & ContractRow>(await transaction.execute(sql`SELECT revision,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,approved_by,approval_grant_revision,protected_snapshot_digest FROM factory_acceptance_contracts WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND contract_id=${input.contractId} ORDER BY revision DESC LIMIT 1 FOR UPDATE`))[0];
+      if (current) this.assertProtectedContractRow(current, input.projectId, input.contractId, Number(current.revision));
+      if ((current ? Number(current.revision) : 0) !== input.revision - 1) throw new FactoryAssuranceError("factory_assurance_stale");
       const authority = { revision: approvalGrantRevision };
       const protectedSnapshotDigest = protectedContractSnapshotDigest(this.tenantId, input, actor.id, authority.revision);
       await transaction.execute(sql`INSERT INTO factory_acceptance_contracts (tenant_id, project_id, contract_id, revision, contract_digest, validator_lock_digest, mandatory_claims, claim_groups, approved_by, approval_grant_revision, protected_snapshot_digest) VALUES (${this.tenantId}, ${input.projectId}, ${input.contractId}, ${input.revision}, ${input.contractDigest}, ${input.validatorLockDigest}, ${encoded(input.mandatoryClaims)}, ${encoded(input.claimGroups)}, ${actor.id}, ${authority.revision}, ${protectedSnapshotDigest}) ON CONFLICT (tenant_id, project_id, contract_id, revision) DO NOTHING`);
@@ -69,7 +72,7 @@ export class FactoryAssurance {
       this.assertProtectedContractRow(saved, input.projectId, input.contractId, input.revision);
       await insertTransactionalAuditEntry(transaction, `factory-assurance-contract:${digest(input)}:${authority.revision}`, actor.id, "factory.assurance.contract.approved", input.contractId, { tenantId: this.tenantId, projectId: input.projectId, revision: input.revision, contractDigest: input.contractDigest, validatorLockDigest: input.validatorLockDigest });
       return { contractId: input.contractId, revision: input.revision };
-    });
+    }, true);
   }
 
   async captureEvidence(input: FactoryCandidateKey & { readonly validatorId: string }): Promise<string> {
@@ -183,12 +186,18 @@ export class FactoryAssurance {
 
   private contract(input: FactoryContractRevision): void { requiredText(input.projectId, input.contractId); requiredDigest(input.contractDigest, input.validatorLockDigest); if (!Number.isSafeInteger(input.revision) || input.revision < 1) throw new FactoryAssuranceError("factory_assurance_invalid"); claims(input.mandatoryClaims, input.claimGroups); }
   private approvalRequest(input: FactoryApprovalRequest): void { requiredText(input.projectId, input.operationId, input.decisionId); requiredDigest(input.destinationDigest); counter(input.expectedGeneration); if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= this.now() || input.expiresAtMs - this.now() > 86_400_000) throw new FactoryAssuranceError("factory_assurance_invalid"); }
-  private async executeAuthorizedMutation<Result>(actor: FactoryPrincipal, projectId: string, action: "factory.trust" | "factory.approve", idempotencyKey: string, input: unknown, apply: (transaction: MigrationDb, grantRevision: number) => Promise<Result>): Promise<Result> {
+  private async executeAuthorizedMutation<Result>(actor: FactoryPrincipal, projectId: string, action: "factory.trust" | "factory.approve", idempotencyKey: string, input: unknown, apply: (transaction: MigrationDb, grantRevision: number) => Promise<Result>, serializeProject = false): Promise<Result> {
     let grantRevision: number | undefined;
     return this.mutations.execute({ principal: actor, projectId, action, idempotencyKey, input }, transaction => {
       if (grantRevision === undefined) throw new FactoryAssuranceError("factory_assurance_stale");
       return apply(transaction, grantRevision);
-    }, async transaction => { grantRevision = (await this.grants.authorizeInTransaction(transaction, actor, projectId, action)).revision; });
+    }, async transaction => {
+      if (serializeProject) {
+        const project = rows(await transaction.execute(sql`SELECT project_id FROM factory_projects WHERE tenant_id=${this.tenantId} AND project_id=${projectId} FOR UPDATE`))[0];
+        if (!project) throw new FactoryAssuranceError("factory_assurance_not_found");
+      }
+      grantRevision = (await this.grants.authorizeInTransaction(transaction, actor, projectId, action)).revision;
+    });
   }
   private evidence(evidence: FactoryTrustedEvidence, expected: FactoryCandidateKey & { validatorId: string }): void { key(evidence); if (evidence.projectId !== expected.projectId || evidence.runId !== expected.runId || evidence.nodeInstanceId !== expected.nodeInstanceId || evidence.candidateGeneration !== expected.candidateGeneration || evidence.validatorId !== expected.validatorId) throw new FactoryAssuranceError("factory_assurance_trust"); requiredText(evidence.validatorId, evidence.artifact.artifactId); requiredDigest(evidence.validatorLockDigest, evidence.candidateDigest, evidence.artifact.digest, evidence.environmentDigest, evidence.configurationDigest, evidence.runnerDigest); const claimIds = new Set<string>(); const invalidClaim = evidence.claims.some(claim => { if (typeof claim.id !== "string" || typeof claim.passed !== "boolean" || typeof claim.decisive !== "boolean" || claimIds.has(claim.id)) return true; claimIds.add(claim.id); return false; }); if (!Number.isSafeInteger(evidence.issuerGrantRevision) || evidence.issuerGrantRevision < 1 || !Number.isSafeInteger(evidence.artifact.encodedBytes) || evidence.artifact.encodedBytes < 0 || !Number.isSafeInteger(evidence.issuedAtMs) || !Number.isSafeInteger(evidence.expiresAtMs) || evidence.issuedAtMs > this.now() || evidence.expiresAtMs <= evidence.issuedAtMs || evidence.claims.length > 1000 || invalidClaim) throw new FactoryAssuranceError("factory_assurance_trust"); }
   private async contractRow(transaction: MigrationDb, projectId: string, contractId: string, revision: number): Promise<ContractRow> { const row = rows<ContractRow>(await transaction.execute(sql`SELECT contract_digest, validator_lock_digest, mandatory_claims, claim_groups, approved_by, approval_grant_revision, protected_snapshot_digest FROM factory_acceptance_contracts WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND contract_id=${contractId} AND revision=${revision} FOR SHARE`))[0]; if (!row) throw new FactoryAssuranceError("factory_assurance_not_found"); this.assertProtectedContractRow(row, projectId, contractId, revision); return row; }

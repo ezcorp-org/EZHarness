@@ -88,12 +88,12 @@ export interface FactoryDestinationReservationReader {
 }
 
 export interface FactorySenderFence {
-  proveStopped(operation: FactoryReleaseOperation, senderToken: string, evidence: unknown): Promise<boolean>;
+  proveStopped(operation: FactoryReleaseOperation, senderToken: string, evidence: unknown, signal?: AbortSignal): Promise<boolean>;
 }
 
 export interface FactoryReleaseProvider {
   publish(claim: FactoryReleaseClaim): Promise<FactoryProviderReceipt>;
-  proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown): Promise<boolean>;
+  proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown, signal?: AbortSignal): Promise<boolean>;
 }
 
 export interface FactoryProviderReceipt {
@@ -303,6 +303,14 @@ function notificationStore(database: MigrationDb, tenantId: string, projectId: s
 
 const notificationQueue = new DurableDeliveryQueue<FactoryNotification>((code, message) => new FactoryReleaseError(code, message), randomUUID);
 
+async function boundedReconciliationProof(timeoutMs: number, prove: (signal: AbortSignal) => Promise<readonly [boolean, boolean]>): Promise<readonly [boolean, boolean]> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new FactoryReleaseError("factory_release_reconciliation_timeout")); }, timeoutMs); });
+  try { return await Promise.race([prove(controller.signal), expired]); }
+  finally { if (timeout) clearTimeout(timeout); controller.abort(); }
+}
+
 /** C04 release operation store. All authority-bearing collaborators are mandatory and transaction-bound. */
 export class FactoryReleases {
   private readonly mutations: FactoryMutations;
@@ -317,9 +325,11 @@ export class FactoryReleases {
     private readonly archive: FactoryReleaseArchive,
     private readonly senderFence: FactorySenderFence,
     private readonly now: () => number = Date.now,
+    private readonly reconciliationProofTimeoutMs = 10_000,
   ) {
     assertFactoryIdentity(tenantId);
     if (grants.tenantId !== tenantId || assurance.tenantId !== tenantId) throw new FactoryReleaseError("factory_release_scope");
+    count(reconciliationProofTimeoutMs, true);
     this.mutations = new FactoryMutations(database, tenantId, grants);
   }
 
@@ -363,7 +373,7 @@ export class FactoryReleases {
     [actor, policy] = canonical([actor, policy]);
     text(policy.projectId, policy.policyId, policy.principal.id, policy.action, policy.destinationProvider, policy.destinationAccount, policy.destinationPrefix); digest(policy.contractDigest);
     count(policy.revision, true); count(policy.maxOperations, true); count(policy.maxSpendMicros);
-    if (actor.kind !== "user" || actor.authentication !== "session" || policy.expiresAtMs <= this.now() || policy.expiresAtMs - this.now() > THIRTY_DAYS_MS) throw new FactoryReleaseError("factory_release_policy_invalid");
+    if (actor.kind !== "user" || actor.authentication !== "session" || policy.revision !== 1 || policy.expiresAtMs <= this.now() || policy.expiresAtMs - this.now() > THIRTY_DAYS_MS) throw new FactoryReleaseError("factory_release_policy_invalid");
     await this.mutations.execute({ principal: actor, projectId: policy.projectId, action: "factory.approve", idempotencyKey, input: { kind: "release.policy.create", policy } }, async transaction => {
       const inserted = rows(await transaction.execute(sql`INSERT INTO factory_release_policies (tenant_id,project_id,policy_id,principal_kind,principal_id,action,destination_provider,destination_account,destination_prefix,contract_digest,revision,max_operations,max_spend_micros,expires_at_ms,created_by) VALUES (${this.tenantId},${policy.projectId},${policy.policyId},${policy.principal.kind},${policy.principal.id},${policy.action},${policy.destinationProvider},${policy.destinationAccount},${policy.destinationPrefix},${policy.contractDigest},${policy.revision},${policy.maxOperations},${policy.maxSpendMicros},${policy.expiresAtMs},${actor.id}) ON CONFLICT DO NOTHING RETURNING policy_id`));
       if (!inserted.length) throw new FactoryReleaseError("factory_release_policy_conflict");
@@ -383,11 +393,11 @@ export class FactoryReleases {
     });
   }
 
-  async requestApproval(actor: FactoryPrincipal, projectId: string, operationId: string, expiresAtMs: number, idempotencyKey: string): Promise<{ approvalId: string; contextDigest: string }> {
+  async requestApproval(actor: FactoryPrincipal, projectId: string, operationId: string, expiresAtMs: number, expectedGeneration: number, idempotencyKey: string): Promise<{ approvalId: string; contextDigest: string }> {
     [actor, projectId, operationId] = canonical([actor, projectId, operationId]); text(projectId, operationId);
-    return this.mutations.execute({ principal: actor, projectId, action: "factory.approve", idempotencyKey, input: { kind: "release.approval.request", operationId, expiresAtMs } }, async transaction => {
+    count(expectedGeneration); return this.mutations.execute({ principal: actor, projectId, action: "factory.approve", idempotencyKey, input: { kind: "release.approval.request", operationId, expiresAtMs, expectedGeneration } }, async transaction => {
       const operation = await this.readInTransaction(transaction, projectId, operationId, "update");
-      if (operation?.state !== "pending" || !operation.archiveReady || expiresAtMs > operation.deadlineMs) throw new FactoryReleaseError("factory_release_not_claimable");
+      if (operation?.state !== "pending" || operation.dispatchGeneration !== expectedGeneration || !operation.archiveReady || expiresAtMs > operation.deadlineMs) throw new FactoryReleaseError("factory_release_not_claimable");
       const approval = await this.assurance.requestApprovalInTransaction(transaction, actor, { projectId, operationId, decisionId: operation.decisionId, destinationDigest: operation.destinationDigest, expectedGeneration: operation.dispatchGeneration + 1, expiresAtMs });
       await this.enqueueNotificationInTransaction(transaction, projectId, "approval_requested", operationId, { approvalId: approval.approvalId, expiresAtMs });
       return approval;
@@ -442,18 +452,18 @@ export class FactoryReleases {
     } catch { return this.markUncertain(startedClaim, "receipt_archive_unknown"); }
   }
 
-  async reconcile(operator: FactoryPrincipal, request: FactoryReconciliationRequest, provider: FactoryReleaseProvider, idempotencyKey: string): Promise<FactoryReleaseOperation> {
+  async reconcile(operator: FactoryPrincipal, request: FactoryReconciliationRequest, expectedGeneration: number, provider: FactoryReleaseProvider, idempotencyKey: string): Promise<FactoryReleaseOperation> {
     [operator, request] = canonical([operator, request]);
-    text(request.projectId, request.operationId, request.reason); if (encoder.encode(request.reason).byteLength > MAX_REASON_BYTES || encoder.encode(canonicalJson(request.providerEvidence)).byteLength > MAX_REQUEST_BYTES || !request.providerEvidence || typeof request.providerEvidence !== "object" || Array.isArray(request.providerEvidence) || !Object.keys(request.providerEvidence).length || operator.kind !== "user" || operator.authentication !== "session") throw new FactoryReleaseError("factory_release_reconciliation_invalid");
-    return this.mutations.execute({ principal: operator, projectId: request.projectId, action: "factory.operate", idempotencyKey, input: { kind: "release.reconcile", request } }, async transaction => {
+    text(request.projectId, request.operationId, request.reason); count(expectedGeneration, true); if (encoder.encode(request.reason).byteLength > MAX_REASON_BYTES || encoder.encode(canonicalJson(request.providerEvidence)).byteLength > MAX_REQUEST_BYTES || !request.providerEvidence || typeof request.providerEvidence !== "object" || Array.isArray(request.providerEvidence) || !Object.keys(request.providerEvidence).length || operator.kind !== "user" || operator.authentication !== "session") throw new FactoryReleaseError("factory_release_reconciliation_invalid");
+    return this.mutations.execute({ principal: operator, projectId: request.projectId, action: "factory.operate", idempotencyKey, input: { kind: "release.reconcile", request, expectedGeneration } }, async transaction => {
       const locked = await this.readInTransaction(transaction, request.projectId, request.operationId, "update");
-      if (!locked?.senderToken || locked.state !== "uncertain" && !(locked.state === "executing" && locked.dispatchStarted)) throw new FactoryReleaseError("factory_release_reconciliation_stale");
+      if (!locked?.senderToken || locked.dispatchGeneration !== expectedGeneration || locked.state !== "uncertain" && !(locked.state === "executing" && locked.dispatchStarted)) throw new FactoryReleaseError("factory_release_reconciliation_stale");
       if (request.action === "attach_receipt") {
         if (!request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
         validateReceipt(locked, request.receipt);
       } else if (request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
       if (request.action === "confirm_no_effect") {
-        const [stopped, absent] = await Promise.all([this.senderFence.proveStopped(locked, locked.senderToken, request.providerEvidence), provider.proveNoEffect(locked, request.providerEvidence)]);
+        const [stopped, absent] = await boundedReconciliationProof(this.reconciliationProofTimeoutMs, signal => Promise.all([this.senderFence.proveStopped(locked, locked.senderToken!, request.providerEvidence, signal), provider.proveNoEffect(locked, request.providerEvidence, signal)]));
         if (!stopped || !absent) throw new FactoryReleaseError("factory_release_absence_unproved");
       }
       const evidence = { action: request.action, reason: request.reason, providerEvidence: request.providerEvidence, ...(request.receipt ? { receipt: request.receipt } : {}) };

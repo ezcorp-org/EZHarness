@@ -1464,3 +1464,18 @@ Review: `FactoryCommandAuthority` loads an indexed immutable task command, the l
 Plan review: retain the existing budget store, run locks and audit helper. The pool dispatcher must commit the verified compute allocation and its inbox event together. A lost or failed event write cannot leave work marked running. Tests use the existing database-backed budget conformance seam.
 
 Review: both rollback and caller-mutation failures were reproduced before the correction. Direct allocation and dispatcher composition now share `markRunningInTransaction`; the allocation and its event can commit or roll back together. PGlite and actual PostgreSQL each pass nine cases with 53 assertions. Focused LCOV measures budgets at 174/174 lines and 52/52 functions. SDK build, all four type checks, lint, gate integrity and factory boundaries pass. Exact source hashes and command exits are in `/tmp/factory-platform-evidence/root-budget-allocation-source.json` and `root-budget-allocation-integration-results.json`.
+# C04 release and assurance session API (2026-09-13)
+
+- [x] Seal the public endpoint, request, response, and application composition contract.
+- [x] Enforce operation generation and version preconditions inside release and assurance store transactions.
+- [x] Add SDK schemas and validators for public release and assurance resources.
+- [x] Add the strict store-backed application adapter and shared session handler dispatch.
+- [x] Add route files, API registry entries, and browser client methods.
+- [x] Prove store conformance, route auth/body handling, response redaction, client behavior, and API documentation registration.
+- [x] Run focused coverage, builds, all four typechecks, lint, boundaries, and patch coverage.
+- [x] Commit one immutable API checkpoint and record proof paths.
+
+## Review
+
+- The public API exposes assurance contracts, release preparation and reads, approval requests and decisions, automatic policies, and human reconciliation through the real stores. C01 scopes are exact: prepare/read use chat, reconciliation uses write plus a store-level human-session check, and contract/approval/policy mutations remain session-only. Every mutation uses canonical idempotency and exact generation/revision preconditions. Public resources omit raw requests, evidence, archive coordinates, sender tokens, and dispatch controls; provider selection uses only the persisted operation through a snapshotted resolver.
+- Focused backend coverage passes 38 tests with 206 assertions, and the final S3 adapter passes 3 tests with 26 assertions. SDK validation covers every added executable line. Final web coverage passes 27 tests with the shared handler at 214/214, browser client at 80/80, and each new route at 100%. Route, OpenAPI, and scope suites pass 50 tests with 115 assertions. SDK, harness-client, and transport builds, all four typechecks, the production web build, lint, factory boundaries, gate integrity, and diff checks pass. Proof paths are recorded in `tasks/factory/release-api-GATES.md`.

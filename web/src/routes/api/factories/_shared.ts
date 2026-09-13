@@ -7,6 +7,9 @@ import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
 import { FactoryServiceCredentialError } from "$server/factory/service-credentials";
 import { FactoryReleaseAuthorityError, type FactoryReleaseControl, type FactoryReleaseTrustRecord } from "$server/factory/release-authority";
+import { FactoryAssuranceError } from "$server/factory/assurance";
+import { FactoryReleaseError, type FactoryReleaseOperation } from "$server/factory/releases";
+import type { FactoryReleaseApplication } from "$server/factory/release-application";
 import { signFactoryServiceToken } from "$server/auth/factory-service-token";
 import { getJwtSecret } from "$server/auth/jwt";
 import { readBoundedJson } from "$lib/server/security/bounded-json";
@@ -60,6 +63,13 @@ const MUTATION_KINDS = new Set([
   "release.trust.publish",
   "release.trust.revoke",
   "release.control.set",
+  "release.contract.put",
+  "release.prepare",
+  "release.approval.request",
+  "release.approval.decide",
+  "release.policy.put",
+  "release.policy.delete",
+  "release.reconcile",
 ]);
 
 export function readFactoryJson(request: Request): Promise<unknown> {
@@ -278,6 +288,39 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
       const result = await application.releaseAuthority.setReleaseEnabled(principal, request.path.projectId, request.body.enabled, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.control.resource", resource: releaseControlResource(result) };
     }
+    case "release.contract.put": {
+      const result = await releaseOperations(application).putContract(principal, request.path.projectId, request.path.contractId, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.contract.resource", resource: result };
+    }
+    case "release.prepare": {
+      const result = await releaseOperations(application).prepare(principal, request.path.projectId, request.body, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.operation.resource", resource: releaseOperationResource(result) };
+    }
+    case "release.get": {
+      const result = await releaseOperations(application).inspect(principal, request.path.projectId, request.path.operationId);
+      if (!result) throw new FactoryReleaseError("factory_release_not_found");
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.operation.resource", resource: releaseOperationResource(result) };
+    }
+    case "release.approval.request": {
+      const result = await releaseOperations(application).requestApproval(principal, request.path.projectId, request.path.operationId, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.approval.resource", resource: result };
+    }
+    case "release.approval.decide": {
+      const result = await releaseOperations(application).decideApproval(principal, request.path.projectId, request.path.approvalId, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.approval.resource", resource: result };
+    }
+    case "release.policy.put": {
+      const result = await releaseOperations(application).putPolicy(principal, request.path.projectId, request.path.policyId, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.policy.resource", resource: result };
+    }
+    case "release.policy.delete": {
+      const result = await releaseOperations(application).deletePolicy(principal, request.path.projectId, request.path.policyId, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.policy.resource", resource: result };
+    }
+    case "release.reconcile": {
+      const result = await releaseOperations(application).reconcile(principal, request.path.projectId, request.path.operationId, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.operation.resource", resource: releaseOperationResource(result) };
+    }
     default:
       return unsupportedRequest(request);
   }
@@ -339,6 +382,25 @@ function releaseControlResource(record: FactoryReleaseControl) {
   return resource;
 }
 
+function releaseOperations(application: FactoryApplication): FactoryReleaseApplication {
+  if (!application.releaseOperations) throw new FactoryReleaseError("factory_release_application_unavailable");
+  return application.releaseOperations;
+}
+
+function releaseOperationResource(operation: FactoryReleaseOperation) {
+  return {
+    operationId: operation.operationId, runId: operation.runId, nodeInstanceId: operation.nodeInstanceId,
+    candidateGeneration: operation.candidateGeneration, decisionId: operation.decisionId, candidateDigest: operation.candidateDigest,
+    contractDigest: operation.contractDigest, executionEpoch: operation.executionEpoch, cancellationEpoch: operation.cancellationEpoch,
+    releaseEnableEpoch: operation.releaseEnableEpoch, action: operation.action, destination: operation.destination,
+    destinationDigest: operation.destinationDigest, requestDigest: operation.requestDigest, estimatedSpendMicros: operation.estimatedSpendMicros,
+    deadlineMs: operation.deadlineMs, state: operation.state, dispatchGeneration: operation.dispatchGeneration,
+    dispatchStarted: operation.dispatchStarted, archiveReady: operation.archiveReady,
+    ...(operation.outcomeCode === undefined ? {} : { outcomeCode: operation.outcomeCode }),
+    ...(operation.receipt === undefined ? {} : { receipt: operation.receipt }),
+  };
+}
+
 function grantPrincipal(kind: "user" | "service", id: string): FactoryPrincipal {
   return kind === "user" ? { kind, id, authentication: "session" } : { kind, id, authentication: "service" };
 }
@@ -373,6 +435,25 @@ function mappedError(error: unknown): Response {
     if (error.code === "factory_release_authority_human_required" || error.code === "factory_release_authority_scope") return errorResponse(403, error.code, "Human release authority is required.");
     if (error.code === "factory_release_authority_invalid") return errorResponse(400, error.code, "The release authority request is invalid.");
     return errorResponse(500, error.code, "Release authority storage is unavailable.", true);
+  }
+  if (error instanceof FactoryAssuranceError) {
+    if (error.code === "factory_assurance_not_found") return errorResponse(404, error.code, "Release assurance record not found.");
+    if (error.code === "factory_assurance_stale" || error.code === "factory_assurance_conflict") return errorResponse(412, error.code, "The release assurance precondition is stale.");
+    if (error.code === "factory_assurance_invalid") return errorResponse(400, error.code, "The release assurance request is invalid.");
+    if (error.code === "factory_assurance_claim_failed" || error.code === "factory_assurance_evidence_stale") return errorResponse(422, error.code, "The candidate does not satisfy the current assurance contract.");
+    return errorResponse(500, error.code, "Release assurance storage is unavailable.", true);
+  }
+  if (error instanceof FactoryReleaseError) {
+    if (error.code === "factory_release_application_unavailable") return errorResponse(503, error.code, "Release services are not ready.", true);
+    if (error.code === "factory_release_reconciliation_timeout") return errorResponse(503, error.code, "Release reconciliation proof timed out.", true);
+    if (error.code === "factory_release_not_found") return errorResponse(404, error.code, "Release operation not found.");
+    if (error.code === "factory_release_conflict" || error.code === "factory_release_policy_conflict") return errorResponse(409, error.code, "A different release record already uses this identity.");
+    if (error.code === "factory_release_precondition" || error.code === "factory_release_policy_stale" || error.code === "factory_release_reconciliation_stale" || error.code === "factory_release_not_claimable" || error.code === "factory_release_stale" || error.code === "factory_release_authority_stale" || error.code === "factory_release_trust_changed" || error.code === "factory_release_destination_changed") return errorResponse(412, error.code, "The release precondition is stale.");
+    if (error.code === "factory_release_policy_denied") return errorResponse(403, error.code, "The automatic release policy does not permit this operation.");
+    if (error.code === "factory_release_human_required") return errorResponse(403, error.code, "A human session is required to reconcile a release.");
+    if (error.code === "factory_release_absence_unproved" || error.code === "factory_release_foreign_receipt") return errorResponse(422, error.code, "The provider evidence does not prove the requested reconciliation.");
+    if (error.code === "factory_release_invalid" || error.code === "factory_release_policy_invalid" || error.code === "factory_release_reconciliation_invalid") return errorResponse(400, error.code, "The release request is invalid.");
+    return errorResponse(500, error.code, "Release storage is unavailable.", true);
   }
   if (error instanceof FactoryGrantError) {
     if (error.code === "factory_grant_conflict" || error.code === "factory_grant_stale") return errorResponse(412, error.code, "The factory grant revision is stale.");
