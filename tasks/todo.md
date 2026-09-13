@@ -1432,3 +1432,7 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - [ ] Validate coverage, types and lint.
 
 Restart fixture review: the combined 12-file PostgreSQL producer at `49a6ad119` passed 88 cases and failed the new repeated-migration case because it supplied raw Bun SQL rows to a migration that uses the production normalized adapter. The fixture now repeats the same locked migration entrypoint used on startup; PGlite retains its own native adapter. Actual logs and the failed receipt remain under `root-restart-integration-*`. Regression is still open.
+
+## Integrated regression receipt
+
+The current platform regression passes at `7ea6e4bd9171460a7ef5a3de9d46203faf2049a8`: canonical `bun run test` reports **26,152 pass, 0 fail, 1,714 files**. All four type checks, lint, gate integrity, factory boundaries and actionlint pass. `/tmp/factory-platform-evidence/root-authority-static-backend-integration-results.json` records exact commands and exits. At the preceding `176f6871f`, the corrected combined PostgreSQL/S3 lane passes **89 tests / 2,231 assertions** across its 12 CI files; the PGlite restart lane and actual Node gateway transport pass. The remaining overall platform gates stay open; later source changes need their affected checks.
