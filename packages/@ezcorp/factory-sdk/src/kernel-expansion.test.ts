@@ -110,3 +110,38 @@ test("a loop configured to escalate waits for remediation when its iteration bou
   expect(state.nodes.loop?.waitingReason).toBe("remediation");
   expect(state.stopReason).toBeUndefined();
 });
+
+function escalationApproval() {
+  return compiled([{
+    id: "approval", kind: "approval", choices: ["approve", "deny"], context: { kind: "literal", value: { request: "publish" } }, actorScope: "operator",
+    expiresInMs: 100, onDenied: "escalate", onExpired: "escalate", outputPorts: { choice: { type: "string", enum: ["approve", "deny"] } },
+  }], { maxExpandedNodes: 1, maxScopeDepth: 1 });
+}
+
+test("an expired approval configured to escalate waits for remediation instead of failing", () => {
+  const factory = escalationApproval();
+  const started = advanceKernel(factory, createKernelState(factory, "approval-expired-escalate", {}, 0), { kind: "start", id: "start", atMs: 0 });
+  const timer = started.nextState.nodes.approval?.timer;
+  if (!timer) throw new Error("missing approval timer");
+  const expired = advanceKernel(factory, started.nextState, { kind: "timer-expired", id: "approval-expired", atMs: timer.deadlineAtMs, nodeId: "approval", commandId: timer.id });
+
+  expect(expired.nextState.status).toBe("waiting");
+  expect(expired.nextState.nodes.approval?.status).toBe("waiting");
+  expect(expired.nextState.nodes.approval?.waitingReason).toBe("remediation");
+  expect(expired.commands.some((command) => command.kind === "fail-run")).toBe(false);
+});
+
+test("a denied approval configured to escalate waits for remediation instead of failing", () => {
+  const factory = escalationApproval();
+  const started = advanceKernel(factory, createKernelState(factory, "approval-denied-escalate", {}, 0), { kind: "start", id: "start", atMs: 0 });
+  const attempt = started.nextState.nodes.approval?.attempts.at(-1);
+  if (!attempt) throw new Error("missing approval request");
+  const denied = advanceKernel(factory, started.nextState, {
+    kind: "approval-decided", id: "approval-denied", atMs: 1, nodeId: "approval", commandId: attempt.commandId, choice: "deny",
+  });
+
+  expect(denied.nextState.status).toBe("waiting");
+  expect(denied.nextState.nodes.approval?.status).toBe("waiting");
+  expect(denied.nextState.nodes.approval?.waitingReason).toBe("remediation");
+  expect(denied.commands.some((command) => command.kind === "fail-run")).toBe(false);
+});

@@ -50,11 +50,7 @@ test("an any join contains a failed candidate while a qualified sibling remains 
   const factory = compiled([
     { id: "failed-candidate", kind: "task", runner, retry: { maxAttempts: 1, initialDelayMs: 0, maximumDelayMs: 0 } },
     { id: "winner-candidate", kind: "task", runner },
-    {
-      id: "winner", kind: "join", mode: "any", predecessors: ["failed-candidate", "winner-candidate"],
-      eligibleOutcomes: ["succeeded"], quorum: 1,
-      outputPorts: { winners: { type: "array", items: { type: "object", properties: { nodeId: string, outputs: { type: "object", additionalProperties: true } }, required: ["nodeId", "outputs"], additionalProperties: false } } },
-    },
+    { id: "winner", kind: "join", mode: "any", predecessors: ["failed-candidate", "winner-candidate"], eligibleOutcomes: ["succeeded"], quorum: 1 },
     { id: "shared-downstream", kind: "task", runner, dependsOn: ["winner"] },
   ]);
   let state = start(factory, "contained-any");
@@ -75,6 +71,14 @@ test("an any join contains a failed candidate while a qualified sibling remains 
   expect(won.nextState.nodes.winner?.status).toBe("succeeded");
   expect(won.nextState.nodes["shared-downstream"]?.status).toBe("reserved");
   expect(won.commands.some((command) => command.kind === "cancel-node" && command.nodeId === "shared-downstream")).toBe(false);
+  const shared = admit(factory, won.nextState, "shared-downstream");
+  const sharedAttempt = shared.nodes["shared-downstream"]!.attempts.at(-1)!;
+  const completed = advanceKernel(factory, shared, {
+    kind: "node-result", id: "shared-downstream:result", atMs: 30, nodeId: "shared-downstream", commandId: sharedAttempt.commandId,
+    candidateGeneration: sharedAttempt.candidateGeneration, attempt: sharedAttempt.attempt, output: {},
+  });
+  expect(completed.nextState.status).toBe("completed");
+  expect(completed.commands).toContainEqual(expect.objectContaining({ kind: "complete-run" }));
 });
 
 test("a collect map drains failed item descendants while independent active items continue", () => {
@@ -84,8 +88,8 @@ test("a collect map drains failed item descendants while independent active item
     outputPorts: { result: { type: "array", items: { type: "object", additionalProperties: true } } },
     body: {
       nodes: [
-        { id: "primary", kind: "task", runner, outputPorts: { value: string } },
-        { id: "sidecar", kind: "task", runner, outputPorts: { value: string } },
+        { id: "primary", kind: "task", runner, retry: { maxAttempts: 1, initialDelayMs: 0, maximumDelayMs: 0 }, outputPorts: { value: string } },
+        { id: "sidecar", kind: "task", runner, retry: { maxAttempts: 1, initialDelayMs: 0, maximumDelayMs: 0 }, outputPorts: { value: string } },
       ],
       outputs: { result: { kind: "ref", root: "node", name: "primary", path: ["value"] } },
     },
@@ -108,4 +112,39 @@ test("a collect map drains failed item descendants while independent active item
   expect(afterStop.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "collect/items/0/sidecar" }));
   expect(afterStop.nextState.nodes["collect/items/1/primary"]?.status).toBe("running");
   expect(afterStop.nextState.nodes["collect/items/1/sidecar"]?.status).toBe("running");
+
+  const sidecar = afterStop.nextState.nodes["collect/items/0/sidecar"]!.attempts.at(-1)!;
+  let progressed = advanceKernel(factory, afterStop.nextState, {
+    kind: "attempt-stopped", id: "first-sidecar:stopped", atMs: 11, nodeId: "collect/items/0/sidecar", commandId: sidecar.commandId,
+    candidateGeneration: sidecar.candidateGeneration, attempt: sidecar.attempt,
+  }).nextState;
+  for (const [nodeId, value] of [["collect/items/1/primary", "second"], ["collect/items/1/sidecar", "cleanup"]] as const) {
+    const attempt = progressed.nodes[nodeId]!.attempts.at(-1)!;
+    progressed = advanceKernel(factory, progressed, {
+      kind: "node-result", id: `${nodeId}:result`, atMs: 20, nodeId, commandId: attempt.commandId,
+      candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output: { value },
+    }).nextState;
+  }
+  expect(progressed.status).toBe("completed");
+  expect(progressed.nodes.collect?.output).toEqual({ result: [
+    { outcome: "failed", error: "first-item-failed" },
+    { outcome: "succeeded", value: "second" },
+  ] });
+});
+
+test("a required task failure outside a containment construct fails the run", () => {
+  const factory = compiled([{ id: "required", kind: "task", runner, retry: { maxAttempts: 1, initialDelayMs: 0, maximumDelayMs: 0 } }]);
+  let state = start(factory, "uncontained-failure");
+  state = admit(factory, state, "required");
+  const attempt = state.nodes.required!.attempts.at(-1)!;
+  const failing = advanceKernel(factory, state, {
+    kind: "node-failed", id: "required:failed", atMs: 1, nodeId: "required", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, error: "required-failure",
+  });
+  const stopped = advanceKernel(factory, failing.nextState, {
+    kind: "attempt-stopped", id: "required:stopped", atMs: 1, nodeId: "required", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt,
+  });
+  expect(stopped.nextState.status).toBe("failed");
+  expect(stopped.commands).toContainEqual(expect.objectContaining({ kind: "fail-run", error: "required-failure" }));
 });
