@@ -24,6 +24,14 @@
   let projectId = $state(untrack(() => data.projectBinding?.projectId ?? ""));
   let writeScope = $state(untrack(() => data.projectBinding?.writePaths.join(", ") ?? ""));
   let reviewedProject = $state(false);
+  // The two unsandboxed acknowledgement points. The server refuses a build
+  // or an approval on a trusted-local host without them
+  // (`unsandboxed_acknowledgement_required`); these only gate the click so
+  // the refusal is never the first thing a person sees. Build asks per
+  // workspace, approval asks per approval id — like `reviewedApproval`.
+  let acknowledgedUnsandboxedBuild = $state(false);
+  let acknowledgedUnsandboxedApproval = $state("");
+  const unsandboxed = $derived(data.extensionRunnerMode === "trusted-local");
   const isFileOrganizer = $derived(installationState?.releases[installationState.installation.activeReleaseId ?? ""]?.manifest.name === "file-organizer");
   const fileNames = $derived(Object.keys(files).sort());
   const selectedFile = $derived(files[selected]);
@@ -47,6 +55,8 @@
       projectId = next.projectBinding?.projectId ?? "";
       writeScope = next.projectBinding?.writePaths.join(", ") ?? "";
       reviewedProject = false;
+      acknowledgedUnsandboxedBuild = false;
+      acknowledgedUnsandboxedApproval = "";
     });
   });
 
@@ -95,7 +105,7 @@
     await run("Building", async () => {
       if (dirty) await save();
       if (!workspace) return;
-      const operation = await control<LifecycleOperation>("extensions_build", { workspaceId: workspace.id, expectedRevision: workspace.revision, idempotencyKey: crypto.randomUUID() });
+      const operation = await control<LifecycleOperation>("extensions_build", { workspaceId: workspace.id, expectedRevision: workspace.revision, idempotencyKey: crypto.randomUUID(), ...(unsandboxed ? { acknowledgeUnsandboxed: true } : {}) });
       await refresh(operation.id);
       notice = "Build queued. It continues if you close this page. Refresh to see its status.";
     });
@@ -111,7 +121,10 @@
 
   async function approve(approvalId: string, decision: boolean): Promise<void> {
     await run(decision ? "Approving" : "Rejecting", async () => {
-      await request(`/api/extensions/releases/${installationState!.installation.id}/approve`, { approvalId, decision });
+      // The approval's OWN profile decides, not the host's current mode: it
+      // is what the release was built under, and what the server checks.
+      const trustedLocal = installationState!.approvals[approvalId]?.runnerProfile === data.trustedLocalProfile;
+      await request(`/api/extensions/releases/${installationState!.installation.id}/approve`, { approvalId, decision, ...(decision && trustedLocal ? { acknowledgeUnsandboxed: true } : {}) });
       reviewedApproval = "";
       await refresh();
     });
@@ -178,7 +191,7 @@
 
 <div class="workspace-shell">
   <header class="workspace-heading">
-    <div><p class="eyebrow">Extensions / Version 4</p><h1>Extension workspace</h1><p class="muted">Build in isolation. Review the exact release. Activate only after approval.</p></div>
+    <div><p class="eyebrow">Extensions / Version 4</p><h1>Extension workspace</h1><p class="muted">{unsandboxed ? "No sandbox on this host. Every build and every release needs your explicit acknowledgement." : "Build in isolation. Review the exact release. Activate only after approval."}</p></div>
     {#if installationState}<span class="state-badge">{installationState.installation.uninstalled ? "Uninstalled" : installationState.installation.status} · generation {installationState.installation.generation}</span>{/if}
   </header>
   {#if failure}<div role="alert" class="message failure">{failure} Your local edits remain in this page.</div>{/if}
@@ -209,7 +222,8 @@
         </aside><div class="code-pane">
           {#if selected && typeof selectedFile === "string"}<label class="file-heading" for="source-code">{selected}</label><textarea id="source-code" value={selectedFile} oninput={(event) => files[selected] = event.currentTarget.value} spellcheck="false" disabled={!!busy} aria-label={`Source: ${selected}`}></textarea>{:else if selectedFile && typeof selectedFile !== "string"}<h3 class="file-heading">{selected}</h3><p class="muted" data-testid="binary-asset">Binary asset · {workspaceFileByteLength(selectedFile)} bytes · {selectedFile.executable ? "Executable in runner" : "Read-only"}. Binary content is not editable as text.</p><button onclick={downloadFile} disabled={!!busy}>Download asset</button>{:else}<p class="muted">Add a file to begin.</p>{/if}
         </div></div>
-        <div class="actions"><button onclick={() => run("Saving", save)} disabled={!!busy || !dirty}>Save revision</button><button class="primary" onclick={build} disabled={!!busy}>{busy === "Building" ? "Building…" : "Save and build"}</button><button class="quiet" onclick={removeFile} disabled={!!busy || !selected}>Remove selected file</button></div>
+        {#if unsandboxed}<p role="note" data-testid="unsandboxed-build-note"><strong>No sandbox on this host.</strong> This build — including the extension's own tests and the candidate verification run — runs as a plain process with the app's full powers. Not applied: {data.unsandboxedOmittedControls.join(", ")}.</p><label class="review-check"><input type="checkbox" bind:checked={acknowledgedUnsandboxedBuild} disabled={!!busy} />I understand this build runs without a sandbox.</label>{/if}
+        <div class="actions"><button onclick={() => run("Saving", save)} disabled={!!busy || !dirty}>Save revision</button><button class="primary" onclick={build} disabled={!!busy || (unsandboxed && !acknowledgedUnsandboxedBuild)}>{busy === "Building" ? "Building…" : "Save and build"}</button><button class="quiet" onclick={removeFile} disabled={!!busy || !selected}>Remove selected file</button></div>
       </section>
     {/if}
     <section class="panel"><div class="section-heading"><h2>02 / Build checks</h2><button onclick={() => run("Refreshing", () => refresh())} disabled={!!busy}>Refresh status</button></div>
@@ -220,7 +234,8 @@
       {#each approvals as approval (approval.id)}<article class="approval"><h3>{approval.status === "approved" ? "Approved release" : "Human approval required"}</h3><p class="muted">Installation owner: {approval.principalId} · Scope: {approval.scope}</p><code>{approval.releaseDigest}</code><pre>{JSON.stringify(approval.grants.map((grant) => JSON.parse(grant)), null, 2)}</pre>
         {#if installationState.releases[approval.releaseId]?.manifest.permissions.networkTcp?.length}<p role="note"><strong>Opaque TCP access:</strong> Native code can send traffic to the listed exact host and port. The host does not inspect this traffic or TLS content. A private IP exception can reach an internal service; approve only a destination you trust.</p>{/if}
         {#if installationState.releases[approval.releaseId]?.manifest.permissions.secretRead?.length}<p role="note"><strong>Raw credential extraction:</strong> Native code can read these provider secrets, return them in tool output, or send them to an approved network destination. Only active administrators can use this grant. Prefer opaque credential handles. Approval does not grant access to another user's or project's credentials.</p>{/if}
-        {#if approval.status === "pending"}<label class="review-check"><input type="checkbox" checked={reviewedApproval === approval.id} onchange={(event) => reviewedApproval = event.currentTarget.checked ? approval.id : ""} disabled={!!busy || !data.canApprove} />I reviewed this release and its permissions.</label><div class="actions"><button class="primary" disabled={!!busy || !data.canApprove || reviewedApproval !== approval.id} onclick={() => approve(approval.id, true)}>Approve exact release</button><button disabled={!!busy || !data.canApprove} onclick={() => approve(approval.id, false)}>Reject</button></div>{#if !data.canApprove}<p class="muted">An administrator must review this release in a human session. API keys cannot approve.</p>{/if}
+        {#if approval.runnerProfile === data.trustedLocalProfile}<p role="note" data-testid="unsandboxed-approval-note"><strong>Not isolated:</strong> this release was built without a sandbox and will run as a plain process with the app's full powers — database, provider keys, every user's data, unbounded CPU and memory. Not applied: {data.unsandboxedOmittedControls.join(", ")}.</p>{/if}
+        {#if approval.status === "pending"}<label class="review-check"><input type="checkbox" checked={reviewedApproval === approval.id} onchange={(event) => reviewedApproval = event.currentTarget.checked ? approval.id : ""} disabled={!!busy || !data.canApprove} />I reviewed this release and its permissions.</label>{#if approval.runnerProfile === data.trustedLocalProfile}<label class="review-check"><input type="checkbox" checked={acknowledgedUnsandboxedApproval === approval.id} onchange={(event) => acknowledgedUnsandboxedApproval = event.currentTarget.checked ? approval.id : ""} disabled={!!busy || !data.canApprove} />I understand this extension will run without a sandbox.</label>{/if}<div class="actions"><button class="primary" disabled={!!busy || !data.canApprove || reviewedApproval !== approval.id || (approval.runnerProfile === data.trustedLocalProfile && acknowledgedUnsandboxedApproval !== approval.id)} onclick={() => approve(approval.id, true)}>Approve exact release</button><button disabled={!!busy || !data.canApprove} onclick={() => approve(approval.id, false)}>Reject</button></div>{#if !data.canApprove}<p class="muted">An administrator must review this release in a human session. API keys cannot approve.</p>{/if}
         {:else}<button class="primary" disabled={!!busy || installationState.installation.uninstalled} onclick={() => releaseAction("activate", { approvalId: approval.id, idempotencyKey: crypto.randomUUID() })}>Activate approved release</button>{/if}
       </article>{/each}
     </section>

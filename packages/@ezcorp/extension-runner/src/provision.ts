@@ -19,23 +19,45 @@ async function readTree(path: string, destination: string, declarationsOnly = fa
   await visit(path, "");
   return files;
 }
-async function packageFiles(name: string): Promise<WorkspaceFiles> {
-  const resolvePaths = [dirname(require.resolve("@types/bun/package.json")), dirname(require.resolve("@types/node/package.json")), import.meta.dirname];
+/**
+ * Where the five toolchain packages are looked up from. Resolution walks the
+ * `node_modules` hierarchy upward from `root`, then from the resolved
+ * `@types/bun` and `@types/node` directories (`bun-types` and `undici-types`
+ * may be nested under them rather than hoisted).
+ */
+function toolchainResolvePaths(root: string): string[] {
+  const from = { paths: [root] };
+  return [dirname(require.resolve("@types/bun/package.json", from)), dirname(require.resolve("@types/node/package.json", from)), root];
+}
+async function packageFiles(name: string, resolvePaths: string[]): Promise<WorkspaceFiles> {
   const path = await realpath(dirname(require.resolve(`${name}/package.json`, { paths: resolvePaths })));
   return readTree(path, `node_modules/${name}`);
 }
 
-export async function provisionToolchain(options: { sdkEntrypoint?: string } = {}): Promise<Provision> {
+/**
+ * `toolchainRoot` names the tree the trusted toolchain is provisioned from.
+ * The default — this module's own directory — is right for the host runner,
+ * which always runs from source. It is WRONG for any caller that has been
+ * bundled elsewhere (the in-process trusted-local runner inside the SvelteKit
+ * server build): from `web/build/server/…` the walk finds `web/node_modules`
+ * first, which carries a different `typescript` major than the pinned root
+ * closure and no `@types/bun` at all. "Only from the installed trusted
+ * application release" therefore requires the caller to say where that is.
+ */
+export async function provisionToolchain(options: { sdkEntrypoint?: string; toolchainRoot?: string } = {}): Promise<Provision> {
   const entrypoint = options.sdkEntrypoint ?? new URL("../../sdk/src/v4/index.ts", import.meta.url).pathname;
-  let provision = provisions.get(entrypoint);
-  if (!provision) { provision = loadProvision(entrypoint).catch(error => { provisions.delete(entrypoint); throw error; }); provisions.set(entrypoint, provision); }
+  const toolchainRoot = options.toolchainRoot ?? import.meta.dirname;
+  const key = `${toolchainRoot}\0${entrypoint}`;
+  let provision = provisions.get(key);
+  if (!provision) { provision = loadProvision(entrypoint, toolchainRoot).catch(error => { provisions.delete(key); throw error; }); provisions.set(key, provision); }
   return structuredClone(await provision);
 }
-async function loadProvision(entrypoint: string): Promise<Provision> {
+async function loadProvision(entrypoint: string, toolchainRoot: string): Promise<Provision> {
   const sdkRoot = resolve(dirname(entrypoint), "../..");
   const sdkFiles = await bundleTrustedPackages(sdkRoot);
   const packageNames = ["typescript", "@types/bun", "bun-types", "@types/node", "undici-types"];
-  const toolchainFiles: WorkspaceFiles = Object.assign({}, ...await Promise.all(packageNames.map(packageFiles)));
+  const resolvePaths = toolchainResolvePaths(toolchainRoot);
+  const toolchainFiles: WorkspaceFiles = Object.assign({}, ...await Promise.all(packageNames.map(name => packageFiles(name, resolvePaths))));
   return { sdkFiles, toolchainFiles };
 }
 

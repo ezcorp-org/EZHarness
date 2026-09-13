@@ -1,4 +1,11 @@
 {
+  "src/extensions/runner-mode.ts": 100,
+  "src/extensions/trusted-local-runner.ts": 100,
+  "src/extensions/trusted-local-hooks.ts": 100,
+  "src/db/queries/extension-trusted-local-approvals.ts": 100,
+  "src/db/migrations/add-extension-trusted-local-approvals.ts": 100,
+  "web/src/lib/components/UnsandboxedExtensionsBanner.svelte": 100,
+  "web/src/lib/components/UnsandboxedExtensionsBanner.helpers.ts": 100,
   "scripts/git-worktree-clean.ts": 100,
   "web/src/routes/(app)/admin/moderation/+page.server.ts": 100,
   "web/src/routes/api/auth/setup/+server.ts": 100,

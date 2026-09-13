@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { canonicalJson, compileValueSchema, validateManifest, type CandidateVerificationReport, type InstallationRecord, type ReleaseRecord, type ReverseRpc, type Runner, type RunnerExecution, type WorkspaceFiles } from "@ezcorp/extension-contract";
-import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies } from "@ezcorp/extension-runner";
+import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies, trustedLocalImage } from "@ezcorp/extension-runner";
 import { createLazyExtensionRunner } from "./runner-connection";
+import { getExtensionRunnerMode, ISOLATED_PROFILE, TRUSTED_LOCAL_PROFILE, trustedLocalBunDigest } from "./runner-mode";
 import { eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
 import { extensionLogger } from "../logger";
@@ -129,6 +130,16 @@ const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let recoveryCapacityAvailable = false;
 
 async function initialize(): Promise<LifecycleServices> {
+  // In trusted-local mode the in-process runner needs its approval store and
+  // audit sink before its first use. Both live in `db/`, which this function
+  // loads lazily (like every other `db/` module below) so that
+  // `runner-connection.ts` keeps no static path into `db/connection`.
+  const trustedLocal = getExtensionRunnerMode() === "trusted-local";
+  if (trustedLocal) {
+    const { createTrustedLocalHooks } = await import("./trusted-local-hooks");
+    const { configureTrustedLocalRunner } = await import("./trusted-local-runner");
+    configureTrustedLocalRunner(createTrustedLocalHooks());
+  }
   const runner = createLazyExtensionRunner();
   const { getDb } = await import("../db/connection");
   const { getUserById } = await import("../db/queries/users");
@@ -149,11 +160,27 @@ async function initialize(): Promise<LifecycleServices> {
   const { getProjectRoot } = await import("./project-root");
   const blobs = new FileBlobStore(process.env.EZCORP_EXTENSION_BLOB_ROOT ?? join(getProjectRoot(), ".ezcorp", "extension-releases"));
   const authorization = createLifecycleAuthorization({ user: getUserById, installation: async (id) => (await repository.read(id))?.installation ?? null, projectionById: getExtension, projectionByName: getExtensionByName, projectMember: async (userId, projectId) => Boolean(await getProjectMembership(userId, projectId)) });
+  // Profile and image are stamped on every release and approval and
+  // rechecked at activation (`checkApproval` → `stale_approval`,
+  // `verification_failed`). Deriving both from the mode means switching a
+  // host between isolated and trusted-local invalidates every existing
+  // approval and forces re-approval under the new terms — the behaviour a
+  // downgrade needs, and it costs nothing. The image is the runner's own
+  // `trustedLocalImage()` so the lifecycle's expectation cannot drift from
+  // what the runner stamps.
+  const { recordTrustedLocalApproval, recordTrustedLocalVerificationApproval, revokeTrustedLocalApprovals } = await import("../db/queries/extension-trusted-local-approvals");
   const lifecycle = new ExtensionLifecycle({
     repository,
     blobs,
-    runner, resolveDependencies, runnerProfile: "rootless-podman-v4", runnerImageDigest: process.env.EZCORP_EXTENSION_RUNNER_IMAGE ?? DEFAULT_IMAGE,
+    runner, resolveDependencies,
+    runnerProfile: trustedLocal ? TRUSTED_LOCAL_PROFILE : ISOLATED_PROFILE,
+    runnerImageDigest: trustedLocal ? trustedLocalImage(await trustedLocalBunDigest()) : (process.env.EZCORP_EXTENSION_RUNNER_IMAGE ?? DEFAULT_IMAGE),
     validatorVersion: "runner-v4.1", buildLimits,
+    ...(trustedLocal ? { trustedLocal: {
+      recordApproval: async (input: { phase: "build" | "execute"; digest: string; installationId: string; approvedBy: string }) => { await recordTrustedLocalApproval(input); },
+      recordVerificationApproval: async (input: { installationId: string; sourceDigest: string; artifactDigest: string }) => { await recordTrustedLocalVerificationApproval(input); },
+      revokeApprovals: async (installationId: string, digest?: string) => { await revokeTrustedLocalApprovals(installationId, digest); },
+    } } : {}),
     ...authorization,
     verifyCandidate: (release) => verifyExtensionCandidate(runner, release),
     prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),

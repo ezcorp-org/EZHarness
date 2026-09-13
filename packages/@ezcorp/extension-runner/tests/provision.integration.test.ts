@@ -24,6 +24,23 @@ async function createRunnerRootWithLongInheritedTmp(): Promise<string> {
   }
 }
 
+test("toolchainRoot names the tree the trusted toolchain comes from; the default is this package's own", async () => {
+  // The repository root is four levels above tests/ — the pinned closure the
+  // host runner always resolves against. A caller bundled elsewhere (the
+  // in-process trusted-local runner inside the SvelteKit build) must name it.
+  const repoRoot = resolve(import.meta.dirname, "..", "..", "..", "..");
+  const explicit = await provisionToolchain({ toolchainRoot: repoRoot });
+  for (const name of ["typescript", "@types/bun", "bun-types", "@types/node", "undici-types"]) expect(explicit.toolchainFiles[`node_modules/${name}/package.json`]).toBeDefined();
+  // Same closure either way from source, so the default and the explicit
+  // root provision the identical TypeScript.
+  const implicit = await provisionToolchain();
+  expect(explicit.toolchainFiles["node_modules/typescript/package.json"]).toEqual(implicit.toolchainFiles["node_modules/typescript/package.json"]);
+  // A root with no closure is an error, not a silent fallback to wherever
+  // this module happens to live.
+  const empty = await mkdtemp("/tmp/ez-toolchain-empty-");
+  try { await expect(provisionToolchain({ toolchainRoot: empty })).rejects.toThrow(); } finally { await rm(empty, { recursive: true, force: true }); }
+}, 120_000);
+
 test("runner provision preserves type-only exports and their declaration closure", async () => {
   const { sdkFiles } = await provisionToolchain();
   const metadata = JSON.parse(workspaceText(sdkFiles["node_modules/@ezcorp/extension-contract/package.json"], "package.json"));

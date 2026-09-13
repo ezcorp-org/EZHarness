@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { getExtensionRunnerMode, RUNNER_MODE_VARIABLE, UNSANDBOXED_ACK_VARIABLE } from "./extensions/runner-mode";
 
 const log = logger.child("env-validation");
 
@@ -24,6 +25,31 @@ export function validateEnv(): void {
   validateSecret("EZCORP_JWT_SECRET");
   validateDatabaseUrl();
   validatePort("EZCORP_OAUTH_CB_PORT");
+  validateExtensionRunnerMode();
+}
+
+/**
+ * The extension runner mode is the one switch here that is dangerous rather
+ * than merely malformed. `getExtensionRunnerMode()` is fail-closed (both keys
+ * or nothing, no stray acknowledgement, no conflict with the isolated
+ * socket); an incoherent combination stops boot with the exact fix. When the
+ * unsandboxed mode IS coherently selected, say so at error level every start
+ * — it is the loudest channel an operator reads without opening the app.
+ */
+function validateExtensionRunnerMode(): void {
+  let mode: ReturnType<typeof getExtensionRunnerMode>;
+  try {
+    mode = getExtensionRunnerMode();
+  } catch (cause) {
+    throw new Error(`${RUNNER_MODE_VARIABLE} / ${UNSANDBOXED_ACK_VARIABLE}: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+  if (mode === "trusted-local") {
+    log.error(
+      `${RUNNER_MODE_VARIABLE}=trusted-local: extensions build and run WITHOUT a sandbox on this host — ` +
+        "no filesystem, network, seccomp, or cgroup limits; the app itself is the blast radius. " +
+        "Every build and every release still requires a per-digest human acknowledgement.",
+    );
+  }
 }
 
 function validateSecret(varName: string): void {
