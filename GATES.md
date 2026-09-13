@@ -1,7 +1,14 @@
-# Gates: Extension v4 implementation and PR
+# Cancellation authority leaf
 
-- [x] G1: The production rewrite and current `origin/main` are integrated at `181b7512` (tree `faa5d8ac42d605ccdbd9e079942c80269278e01d`).
-- [x] G2: Final local executable validation passes after the consolidated dependency refresh. See `gates/final-validation.md` and `docs/extension-v4-validation.md`.
-- [x] G3: Security, revocation, transaction, browser, image, candidate and PostgreSQL proofs pass. No remaining production blocker was found in independent review.
-- [ ] G4: A maintainer reviews the 84 migration-policy findings and applies `gate-change-approved` only if the recorded dispositions are acceptable.
-- [ ] G5: Draft PR 246 is updated, hosted CI passes, and a non-author approves it. Local results do not authorize merge.
+- [x] Every journal predicate fences `cancellation_epoch`.
+  CHECK: rg -n "execution_epoch=.*cancellation_epoch" src/factory/executions.ts
+  EXPECT: all authority-scoped execution predicates include both fields
+  EVIDENCE: reconcileLate, cancel, confirmStopped, status, and lockLive SQL include the field.
+- [x] Runtime attempt identity carries cancellation epoch.
+  CHECK: bun test --timeout 30000 ./src/runtime/factory-execution.integration.test.ts
+  EXPECT: pass
+  EVIDENCE: factory-execution integration passed 6 tests.
+- [x] Gateway and journal stale epoch tests pass.
+  CHECK: bun test --timeout 30000 ./src/factory/executions.integration.test.ts ./src/factory/execution-gateway.integration.test.ts
+  EXPECT: pass
+  EVIDENCE: pinned Bun focused command passed 10 tests / 101 assertions.

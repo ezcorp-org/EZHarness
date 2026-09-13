@@ -68,6 +68,7 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
     || execution.attempt.runId !== request.authority.runId
     || execution.attempt.nodeInstanceId !== request.authority.nodeInstanceId
     || execution.attempt.candidateGeneration !== request.authority.candidateGeneration
+    || execution.attempt.cancellationEpoch !== request.authority.cancellationEpoch
     || execution.attempt.nextOperationIndex !== request.authority.nextOperationIndex
     || request.model !== undefined && (execution.model.provider !== request.model.provider || execution.model.id !== request.model.model)) {
     throw new Error("Factory execution does not match the signed runner request.");

@@ -20,6 +20,7 @@ export interface FactoryAttemptIdentity {
   runId: string;
   nodeInstanceId: string;
   candidateGeneration: number;
+  cancellationEpoch: number;
   nextOperationIndex: number;
 }
 
@@ -77,7 +78,7 @@ export interface FactoryAgentRuntime {
  * wired. Structural typing is not a runtime authority boundary.
  */
 export function assertFactoryExecutionContext(value: FactoryExecutionContext): void {
-  if (!value?.attempt?.attemptToken || !value.attempt.runId || !value.attempt.nodeInstanceId || !value.model?.id || !value.model.provider || !Number.isSafeInteger(value.attempt.candidateGeneration) || value.attempt.candidateGeneration < 0 || !Number.isSafeInteger(value.attempt.nextOperationIndex) || value.attempt.nextOperationIndex < 0) {
+  if (!value?.attempt?.attemptToken || !value.attempt.runId || !value.attempt.nodeInstanceId || !value.model?.id || !value.model.provider || !Number.isSafeInteger(value.attempt.candidateGeneration) || value.attempt.candidateGeneration < 0 || !Number.isSafeInteger(value.attempt.cancellationEpoch) || value.attempt.cancellationEpoch < 0 || !Number.isSafeInteger(value.attempt.nextOperationIndex) || value.attempt.nextOperationIndex < 0) {
     throw new Error("Factory execution needs a complete attempt identity.");
   }
   if (typeof value.broker?.stream !== "function" || typeof value.journal?.before !== "function" || typeof value.journal?.after !== "function" || typeof value.journal?.checkpointWorkspace !== "function") {

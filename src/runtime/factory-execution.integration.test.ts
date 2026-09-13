@@ -59,7 +59,7 @@ function factory(
   overrides: Partial<FactoryExecutionContext["journal"]> = {},
 ): FactoryExecutionContext {
   return {
-    attempt: { attemptToken: "attempt-token", runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 2, nextOperationIndex: 7 },
+    attempt: { attemptToken: "attempt-token", runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 2, cancellationEpoch: 0, nextOperationIndex: 7 },
     model,
     broker: { stream: broker },
     journal: {
