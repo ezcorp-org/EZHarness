@@ -19,6 +19,11 @@
       "types": "./dist/validation.d.ts",
       "import": "./dist/validation.js"
     },
+    "./compiler": {
+      "bun": "./src/compiler.ts",
+      "types": "./dist/compiler.d.ts",
+      "import": "./dist/compiler.js"
+    },
     "./schema": {
       "bun": "./src/schema.ts",
       "types": "./dist/schema.d.ts",
@@ -48,7 +53,7 @@
   "scripts": {
     "build": "bunx tsc -b tsconfig.build.json",
     "test": "bun test ./src",
-    "schema:generate": "bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryDefinition --tsconfig tsconfig.build.json --no-type-check --out src/factory-definition.schema.json"
+    "schema:generate": "bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryDefinition --tsconfig tsconfig.build.json --no-type-check --out src/factory-definition.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type CompiledFactory --tsconfig tsconfig.build.json --no-type-check --out src/compiled-factory.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryRunnerRequest --tsconfig tsconfig.build.json --no-type-check --out src/factory-runner-request.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryRunnerResult --tsconfig tsconfig.build.json --no-type-check --out src/factory-runner-result.schema.json"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

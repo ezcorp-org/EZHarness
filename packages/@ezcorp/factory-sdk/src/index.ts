@@ -1,13 +1,14 @@
 export type * from "./types.js";
 export { FACTORY_IR_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_SCHEMA_VERSION } from "./types.js";
-export { factoryDefinitionJsonSchema, isFactoryDefinition } from "./schema.js";
+export { compiledFactoryJsonSchema, factoryDefinitionJsonSchema, factoryRunnerRequestJsonSchema, factoryRunnerResultJsonSchema, isCompiledFactory, isFactoryDefinition, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
 export { evaluateExpression, validateExpression } from "./expressions.js";
 export { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 export { FactoryParseError, parseFactoryJson, parseFactoryYaml, parseIJson, parseIYaml } from "./parse.js";
-export { compileFactory } from "./compiler.js";
+export { compileFactory, verifyCompiledFactoryArtifact } from "./compiler.js";
+export type { CompiledFactoryPageBytes } from "./compiler.js";
 export { defineFactory, FactoryAuthoringError } from "./authoring.js";
 export { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";
-export { firstValidationIssue, isSchemaContained, resolveSchemaReference, validatePortSchema, validateValue } from "./validation.js";
+export { firstValidationIssue, isSchemaContained, resolveSchemaReference, validateCompiledFactory, validateFactoryRunnerRequest, validateFactoryRunnerResult, validatePortSchema, validateValue } from "./validation.js";
 export type * from "./kernel-types.js";
 export { FactoryKernelError, advanceKernel, createKernelState } from "./kernel.js";
 export { simulateFactory } from "./simulator.js";

@@ -3,6 +3,8 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue
 
 export const FACTORY_SCHEMA_VERSION = "factory.v1" as const;
 export const FACTORY_IR_SCHEMA_VERSION = "factory.ir.v1" as const;
+export const FACTORY_RUNNER_REQUEST_SCHEMA_VERSION = "factory.runner.request.v1" as const;
+export const FACTORY_RUNNER_RESULT_SCHEMA_VERSION = "factory.runner.result.v1" as const;
 export const FACTORY_LIMITS = Object.freeze({
   maxDefinitionBytes: 16 * 1024 * 1024,
   maxInlineValueBytes: 64 * 1024,
@@ -18,6 +20,7 @@ export const FACTORY_LIMITS = Object.freeze({
   defaultNodeDeadlineMs: 30 * 60 * 1_000,
   maximumNodeDeadlineMs: 24 * 60 * 60 * 1_000,
   maximumApprovalWaitMs: 24 * 60 * 60 * 1_000,
+  maxWireBytes: 64 * 1024,
 });
 
 export type PortSchemaType =
@@ -332,6 +335,152 @@ export interface CompiledFactory {
   readonly partitions: readonly CompiledPartition[];
   readonly pages: readonly CompiledPage[];
 }
+
+/** Opaque, immutable object reference. Ownership is resolved by the gateway. */
+export interface FactoryArtifactReference {
+  readonly artifactId: string;
+  readonly digest: string;
+  readonly encodedBytes: number;
+}
+
+export interface FactoryCheckpointReference extends FactoryArtifactReference {
+  readonly journalCursor: number;
+}
+
+export type FactoryTransportValue =
+  | { readonly kind: "inline"; readonly value: JsonValue }
+  | { readonly kind: "artifact"; readonly artifact: FactoryArtifactReference };
+
+/** Authority carried by the signed attempt token and checked on every effect. */
+export interface FactoryRunnerAuthority {
+  readonly attemptId: string;
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly nodeInstanceId: string;
+  readonly candidateGeneration: number;
+  readonly attemptNumber: number;
+  readonly grantRevision: number;
+  readonly reservationGeneration: number;
+  readonly executionEpoch: number;
+  readonly cancellationEpoch: number;
+  readonly deadlineAtMs: number;
+  readonly nextOperationIndex: number;
+}
+
+export interface FactoryModelPin {
+  readonly provider: string;
+  readonly model: string;
+  readonly configurationDigest: string;
+  readonly configuration: Readonly<Record<string, JsonValue>>;
+  readonly policyDigest: string;
+  readonly policy: Readonly<Record<string, JsonValue>>;
+}
+
+export interface FactoryToolDeclaration {
+  readonly name: string;
+  readonly description?: string;
+  readonly inputSchema: PortSchema;
+  readonly outputSchema?: PortSchema;
+}
+
+export interface FactoryBrokerTransport {
+  readonly attemptToken: string;
+  readonly audience: string;
+}
+
+export interface FactoryRunnerRequest {
+  readonly schemaVersion: "factory.runner.request.v1";
+  readonly authority: FactoryRunnerAuthority;
+  readonly runner: RunnerReference;
+  readonly input: FactoryTransportValue;
+  readonly grants: readonly string[];
+  readonly resources: ResourceBounds;
+  readonly model?: FactoryModelPin;
+  readonly tools: readonly FactoryToolDeclaration[];
+  readonly broker: FactoryBrokerTransport;
+  readonly checkpoint?: FactoryCheckpointReference;
+}
+
+export interface FactoryMeasuredUsage {
+  readonly kind: "measured";
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly computeMs: number;
+  readonly costMicros: string;
+}
+
+export interface FactoryUnknownUsage {
+  readonly kind: "unknown";
+  readonly reason: string;
+  readonly heldCostMicros: string;
+}
+
+export type FactoryUsage = FactoryMeasuredUsage | FactoryUnknownUsage;
+
+export interface FactoryRunnerOperationBase {
+  readonly operationId: string;
+  readonly operationIndex: number;
+  readonly kind: "model" | "tool";
+  readonly requestDigest: string;
+}
+
+export type FactoryRunnerOperationResult =
+  | (FactoryRunnerOperationBase & {
+    readonly state: "completed";
+    readonly resultDigest: string;
+    readonly providerReceiptDigest?: string;
+    readonly usage: FactoryMeasuredUsage;
+    readonly workspaceCheckpoint: FactoryCheckpointReference;
+  })
+  | (FactoryRunnerOperationBase & {
+    readonly state: "failed";
+    readonly resultDigest: string;
+    readonly providerReceiptDigest?: string;
+    readonly usage?: FactoryUsage;
+    readonly workspaceCheckpoint?: FactoryCheckpointReference;
+  })
+  | (FactoryRunnerOperationBase & {
+    readonly state: "uncertain";
+    readonly providerReceiptDigest: string;
+    readonly resultDigest?: string;
+    readonly usage: FactoryUnknownUsage;
+    readonly workspaceCheckpoint?: FactoryCheckpointReference;
+  });
+
+interface FactoryRunnerResultBase {
+  readonly schemaVersion: "factory.runner.result.v1";
+  readonly journalCursor: number;
+  readonly operations: readonly FactoryRunnerOperationResult[];
+}
+
+export type FactoryRunnerResult =
+  | (FactoryRunnerResultBase & {
+    readonly status: "completed";
+    readonly resultDigest: string;
+    readonly output: FactoryArtifactReference;
+    readonly usage: FactoryMeasuredUsage;
+    readonly workspaceCheckpoint: FactoryCheckpointReference;
+  })
+  | (FactoryRunnerResultBase & {
+    readonly status: "failed";
+    readonly resultDigest: string;
+    readonly error: { readonly code: string; readonly message: string; readonly retryable: boolean };
+    readonly usage?: FactoryUsage;
+    readonly workspaceCheckpoint?: FactoryCheckpointReference;
+  })
+  | (FactoryRunnerResultBase & {
+    readonly status: "cancelled";
+    readonly usage?: FactoryUsage;
+    readonly workspaceCheckpoint?: FactoryCheckpointReference;
+  })
+  | (FactoryRunnerResultBase & {
+    readonly status: "uncertain";
+    readonly providerReceiptDigest: string;
+    readonly resultDigest?: string;
+    readonly usage: FactoryUnknownUsage;
+    readonly workspaceCheckpoint?: FactoryCheckpointReference;
+  });
 
 export interface CompilerDiagnostic {
   readonly code: string;

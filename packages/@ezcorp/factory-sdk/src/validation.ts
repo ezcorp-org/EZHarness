@@ -1,5 +1,19 @@
-import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
-import type { JsonValue, PortSchema, ValidationIssue, ValidationResult } from "./types.js";
+import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
+import { isCompiledFactory, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
+import {
+  FACTORY_LIMITS,
+  type CompiledFactory,
+  type FactoryArtifactReference,
+  type FactoryGraph,
+  type FactoryRunnerOperationResult,
+  type FactoryRunnerRequest,
+  type FactoryRunnerResult,
+  type FactoryUsage,
+  type JsonValue,
+  type PortSchema,
+  type ValidationIssue,
+  type ValidationResult,
+} from "./types.js";
 
 const PORT_SCHEMA_KEYS = new Set([
   "$defs", "$ref", "additionalProperties", "const", "description", "enum", "items",
@@ -248,4 +262,228 @@ export function isSchemaContained(producer: PortSchema, consumer: PortSchema): b
 
 export function firstValidationIssue(result: ValidationResult): ValidationIssue | undefined {
   return result.ok ? undefined : result.issues[0];
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function validDigest(value: string, prefixed: boolean): boolean {
+  const content = prefixed ? value.startsWith("sha256:") ? value.slice(7) : "" : value;
+  if (content.length !== 64) return false;
+  for (const character of content) {
+    if (!((character >= "0" && character <= "9") || (character >= "a" && character <= "f"))) return false;
+  }
+  return true;
+}
+
+function safeCounter(value: number, minimum = 0): boolean {
+  return Number.isSafeInteger(value) && value >= minimum;
+}
+
+function boundedText(value: string, maximum = 256): boolean {
+  if (value.length === 0 || unicodeLength(value) > maximum) return false;
+  for (const character of value) if (character.charCodeAt(0) < 32) return false;
+  return true;
+}
+
+function isSortedUnique(values: readonly string[]): boolean {
+  for (let index = 0; index < values.length; index += 1) {
+    if (index > 0 && compareText(values[index - 1] as string, values[index] as string) >= 0) return false;
+  }
+  return true;
+}
+
+function encodedBytes(value: JsonValue): number {
+  return new TextEncoder().encode(canonicalizeJson(value)).byteLength;
+}
+
+function graphNodes(root: FactoryGraph): readonly { readonly id: string; readonly value: JsonValue }[] {
+  const result: { id: string; value: JsonValue }[] = [];
+  const pending: FactoryGraph[] = [root];
+  while (pending.length > 0) {
+    const graph = pending.pop() as FactoryGraph;
+    for (let index = graph.nodes.length - 1; index >= 0; index -= 1) {
+      const node = graph.nodes[index]!;
+      result.push({ id: node.id, value: node as unknown as JsonValue });
+      if (node.kind === "branch") {
+        pending.push(node.else, node.then);
+      } else if (node.kind === "map" || node.kind === "loop") {
+        pending.push(node.body);
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Workflow-safe validation for an already compiled artifact. It checks the
+ * generated schema and every bounded manifest relationship without hashing.
+ */
+export function validateCompiledFactory(value: unknown): ValidationResult {
+  if (!isCompiledFactory(value)) return issue("COMPILED_SCHEMA", "Value does not match the generated CompiledFactory schema.", []);
+  const factory = value as CompiledFactory;
+  if (!validDigest(factory.digest, true) || (factory.presentationDigest !== undefined && !validDigest(factory.presentationDigest, true))) return issue("COMPILED_DIGEST", "Compiled digests must be lowercase sha256 values.", ["digest"]);
+  if (encodedBytes({ definition: factory.definition, lock: factory.lock } as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("COMPILED_BYTES", "Compiled definition and lock exceed 16 MiB.", []);
+  if (!safeCounter(factory.definition.bounds.maxExpandedNodes, 1) || factory.definition.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes || !safeCounter(factory.definition.bounds.maxScopeDepth, 1) || factory.definition.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth) return issue("COMPILED_BOUND", "Compiled definition bounds exceed launch limits.", ["definition", "bounds"]);
+  if ((factory.definition.presentation === undefined) !== (factory.presentationDigest === undefined)) return issue("COMPILED_PRESENTATION", "Presentation content and digest must be present together.", ["presentationDigest"]);
+
+  const expectedLock = {
+    packages: [...factory.definition.packages].sort((left, right) => compareText(left.name, right.name)),
+    factories: [...(factory.definition.factories ?? [])].sort((left, right) => compareText(left.id, right.id)),
+    interpreter: factory.definition.interpreterCompatibility,
+  } as unknown as JsonValue;
+  if (!jsonEqual(factory.lock as unknown as JsonValue, expectedLock)) return issue("COMPILED_LOCK", "Dependency lock does not match the embedded definition.", ["lock"]);
+
+  const nodes = graphNodes(factory.definition.graph);
+  if (nodes.length > FACTORY_LIMITS.maxExpandedNodes) return issue("COMPILED_NODES", "Compiled node count exceeds launch limits.", ["indexes", "nodeById"]);
+  const nodeIds = new Set<string>();
+  for (const node of nodes) {
+    if (!boundedText(node.id) || nodeIds.has(node.id)) return issue("COMPILED_NODE_ID", "Compiled node IDs must be bounded and unique.", ["indexes", "nodeById", node.id]);
+    nodeIds.add(node.id);
+    if (!own(factory.indexes.nodeById, node.id) || !jsonEqual(factory.indexes.nodeById[node.id] as unknown as JsonValue, node.value)) return issue("COMPILED_NODE_INDEX", "Node index differs from the embedded graph.", ["indexes", "nodeById", node.id]);
+  }
+  const indexKeys = Object.keys(factory.indexes.nodeById);
+  const successorKeys = Object.keys(factory.indexes.successors);
+  const dependencyKeys = Object.keys(factory.indexes.dependencyCounts);
+  if (indexKeys.length !== nodeIds.size || successorKeys.length !== nodeIds.size || dependencyKeys.length !== nodeIds.size || [...indexKeys, ...successorKeys, ...dependencyKeys].some((id) => !nodeIds.has(id))) return issue("COMPILED_INDEX_KEYS", "Every compiled index must contain exactly the graph node IDs.", ["indexes"]);
+  const inbound = new Map<string, number>([...nodeIds].map((id) => [id, 0]));
+  for (const id of nodeIds) {
+    const successors = factory.indexes.successors[id] as readonly string[];
+    if (!isSortedUnique(successors) || successors.some((successor) => !nodeIds.has(successor))) return issue("COMPILED_SUCCESSORS", "Successor indexes must be sorted, unique, and local.", ["indexes", "successors", id]);
+    for (const successor of successors) inbound.set(successor, (inbound.get(successor) ?? 0) + 1);
+  }
+  for (const id of nodeIds) if (!safeCounter(factory.indexes.dependencyCounts[id] as number) || factory.indexes.dependencyCounts[id] !== inbound.get(id)) return issue("COMPILED_DEPENDENCIES", "Dependency counts do not match successor indexes.", ["indexes", "dependencyCounts", id]);
+
+  const partitionByNode = new Map<string, string>();
+  const partitionIds = new Set<string>();
+  for (let index = 0; index < factory.partitions.length; index += 1) {
+    const partition = factory.partitions[index]!;
+    if (partition.id !== `partition-${index}` || partitionIds.has(partition.id) || partition.nodeIds.length === 0 || partition.nodeIds.length > FACTORY_LIMITS.maxPartitionNodes) return issue("COMPILED_PARTITION", "Partitions need canonical IDs and bounded nonempty node lists.", ["partitions", index]);
+    partitionIds.add(partition.id);
+    if (!isSortedUnique(partition.dependsOn)) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must be sorted and unique.", ["partitions", index, "dependsOn"]);
+    for (const dependency of partition.dependsOn) {
+      const dependencyIndex = factory.partitions.findIndex((candidate) => candidate.id === dependency);
+      if (dependencyIndex < 0 || dependencyIndex >= index) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must point to an earlier partition.", ["partitions", index, "dependsOn"]);
+    }
+    for (const id of partition.nodeIds) {
+      if (!nodeIds.has(id) || partitionByNode.has(id)) return issue("COMPILED_PARTITION_NODE", "Each compiled node must occur in one partition.", ["partitions", index, "nodeIds"]);
+      partitionByNode.set(id, partition.id);
+    }
+  }
+  if (partitionByNode.size !== nodeIds.size) return issue("COMPILED_PARTITION_COVERAGE", "Partitions must cover every compiled node.", ["partitions"]);
+
+  const pagedNodes = new Map<string, string[]>();
+  const pageIds = new Set<string>();
+  for (let index = 0; index < factory.pages.length; index += 1) {
+    const page = factory.pages[index]!;
+    if (page.id !== `page-${index}` || pageIds.has(page.id) || !partitionIds.has(page.partitionId) || page.nodeIds.length === 0 || !safeCounter(page.encodedBytes, 2) || page.encodedBytes > 32 * 1024 || !validDigest(page.digest, true)) return issue("COMPILED_PAGE", "Pages need canonical IDs, bounded bytes, valid digests, and a partition.", ["pages", index]);
+    pageIds.add(page.id);
+    const list = pagedNodes.get(page.partitionId) ?? [];
+    for (const id of page.nodeIds) {
+      if (partitionByNode.get(id) !== page.partitionId) return issue("COMPILED_PAGE_NODE", "Page nodes must belong to the page partition.", ["pages", index, "nodeIds"]);
+      list.push(id);
+    }
+    pagedNodes.set(page.partitionId, list);
+  }
+  for (const partition of factory.partitions) {
+    const actual = pagedNodes.get(partition.id) ?? [];
+    if (actual.length !== partition.nodeIds.length || actual.some((id, index) => id !== partition.nodeIds[index])) return issue("COMPILED_PAGE_COVERAGE", "Pages must cover each partition in node order.", ["pages"]);
+  }
+  return { ok: true };
+}
+
+function validateArtifactReference(reference: FactoryArtifactReference, path: readonly (string | number)[]): ValidationResult {
+  if (!boundedText(reference.artifactId) || reference.artifactId.includes("/") || reference.artifactId.includes("\\")) return issue("RUNNER_ARTIFACT_ID", "Artifact IDs must be bounded opaque identifiers, not paths.", [...path, "artifactId"]);
+  if (!validDigest(reference.digest, true)) return issue("RUNNER_DIGEST", "Artifact digest must be a lowercase sha256 value.", [...path, "digest"]);
+  return safeCounter(reference.encodedBytes) ? { ok: true } : issue("RUNNER_ARTIFACT_BYTES", "Artifact bytes must be a nonnegative safe integer.", [...path, "encodedBytes"]);
+}
+
+function validateUsage(usage: FactoryUsage, path: readonly (string | number)[]): ValidationResult {
+  if (usage.kind === "unknown") return boundedText(usage.reason, 1_024) && isUnsignedDecimal(usage.heldCostMicros) ? { ok: true } : issue("RUNNER_USAGE", "Unknown usage needs a reason and unsigned held cost.", path);
+  return safeCounter(usage.inputTokens) && safeCounter(usage.outputTokens) && safeCounter(usage.computeMs) && isUnsignedDecimal(usage.costMicros) ? { ok: true } : issue("RUNNER_USAGE", "Measured usage counters and cost must be nonnegative integers.", path);
+}
+
+function validateOperation(operation: FactoryRunnerOperationResult, path: readonly (string | number)[]): ValidationResult {
+  const resultDigestInvalid = operation.state === "uncertain"
+    ? operation.resultDigest !== undefined && !validDigest(operation.resultDigest, false)
+    : !validDigest(operation.resultDigest, false);
+  if (!boundedText(operation.operationId, 1_024) || !safeCounter(operation.operationIndex) || !validDigest(operation.requestDigest, false) || resultDigestInvalid || operation.providerReceiptDigest !== undefined && !validDigest(operation.providerReceiptDigest, false)) return issue("RUNNER_OPERATION", "Runner operation identity or digest is invalid.", path);
+  if (operation.usage !== undefined) {
+    const usage = validateUsage(operation.usage, [...path, "usage"]);
+    if (!usage.ok) return usage;
+  }
+  if (operation.workspaceCheckpoint !== undefined) return validateArtifactReference(operation.workspaceCheckpoint, [...path, "workspaceCheckpoint"]);
+  return { ok: true };
+}
+
+function validateRunnerEnvelope(value: unknown, kind: "request" | "result"): ValidationResult {
+  if (encodedBytes(value as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("RUNNER_WIRE_BYTES", `Factory runner ${kind} exceeds 64 KiB.`, []);
+  return { ok: true };
+}
+
+export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
+  if (!isFactoryRunnerRequest(value)) return issue("RUNNER_REQUEST_SCHEMA", "Value does not match the generated FactoryRunnerRequest schema.", []);
+  const request = value as FactoryRunnerRequest;
+  const envelope = validateRunnerEnvelope(request, "request");
+  if (!envelope.ok) return envelope;
+  const authority = request.authority;
+  for (const [key, field] of Object.entries(authority)) {
+    if (typeof field === "string" ? !boundedText(field, 1_024) : !safeCounter(field)) return issue("RUNNER_AUTHORITY", "Runner authority fields must be bounded identities and nonnegative safe counters.", ["authority", key]);
+  }
+  if (authority.deadlineAtMs < 1) return issue("RUNNER_DEADLINE", "Runner deadline must be a positive epoch millisecond.", ["authority", "deadlineAtMs"]);
+  if (!boundedText(request.runner.package) || !boundedText(request.runner.export) || !boundedText(request.runner.version) || request.runner.version === "latest" || request.runner.version.includes("*") || !validDigest(request.runner.digest, true)) return issue("RUNNER_PIN", "Runner package, exact version, export, and digest are required.", ["runner"]);
+  if (request.model !== undefined && (!boundedText(request.model.provider) || !boundedText(request.model.model) || !validDigest(request.model.configurationDigest, true) || !validDigest(request.model.policyDigest, true) || request.runner.model !== undefined && request.runner.model !== request.model.model || request.runner.configurationDigest !== undefined && request.runner.configurationDigest !== request.model.configurationDigest)) return issue("RUNNER_MODEL_PIN", "Model and policy pins must match the runner reference.", ["model"]);
+  if (!boundedText(request.broker.attemptToken, 4_096) || !boundedText(request.broker.audience) || request.grants.some((grant) => !boundedText(grant)) || new Set(request.grants).size !== request.grants.length) return issue("RUNNER_GRANT", "Broker authority and grants must be bounded and unique.", ["grants"]);
+  if (request.resources.maxCostMicros !== undefined && !isUnsignedDecimal(request.resources.maxCostMicros) || request.resources.resourceClass !== undefined && !boundedText(request.resources.resourceClass) || [request.resources.maxTokens, request.resources.maxComputeMs, request.resources.memoryBytes].some((bound) => bound !== undefined && !safeCounter(bound))) return issue("RUNNER_RESOURCES", "Runner resource bounds must use safe counters and unsigned decimal cost.", ["resources"]);
+  if (request.input.kind === "artifact") {
+    const artifact = validateArtifactReference(request.input.artifact, ["input", "artifact"]);
+    if (!artifact.ok) return artifact;
+  } else if (encodedBytes(request.input.value) > FACTORY_LIMITS.maxInlineValueBytes) return issue("RUNNER_INLINE_BYTES", "Inline runner input exceeds 64 KiB.", ["input", "value"]);
+  if (request.checkpoint !== undefined) {
+    const checkpoint = validateArtifactReference(request.checkpoint, ["checkpoint"]);
+    if (!checkpoint.ok || !safeCounter(request.checkpoint.journalCursor, -1)) return checkpoint.ok ? issue("RUNNER_CURSOR", "Checkpoint cursor must be a safe integer.", ["checkpoint", "journalCursor"]) : checkpoint;
+  }
+  const toolNames = new Set<string>();
+  for (let index = 0; index < request.tools.length; index += 1) {
+    const tool = request.tools[index]!;
+    if (!boundedText(tool.name) || toolNames.has(tool.name) || tool.description !== undefined && !boundedText(tool.description, 4_096)) return issue("RUNNER_TOOL", "Tool declarations must have unique bounded names.", ["tools", index]);
+    toolNames.add(tool.name);
+    const input = validatePortSchema(tool.inputSchema);
+    if (!input.ok) return issue("RUNNER_TOOL_SCHEMA", "Tool input schema is invalid.", ["tools", index, "inputSchema"]);
+    if (tool.outputSchema !== undefined && !validatePortSchema(tool.outputSchema).ok) return issue("RUNNER_TOOL_SCHEMA", "Tool output schema is invalid.", ["tools", index, "outputSchema"]);
+  }
+  return { ok: true };
+}
+
+export function validateFactoryRunnerResult(value: unknown): ValidationResult {
+  if (!isFactoryRunnerResult(value)) return issue("RUNNER_RESULT_SCHEMA", "Value does not match the generated FactoryRunnerResult schema.", []);
+  const result = value as FactoryRunnerResult;
+  const envelope = validateRunnerEnvelope(result, "result");
+  if (!envelope.ok) return envelope;
+  if (!safeCounter(result.journalCursor, -1)) return issue("RUNNER_CURSOR", "Result cursor must be a safe integer.", ["journalCursor"]);
+  let previousIndex = -1;
+  for (let index = 0; index < result.operations.length; index += 1) {
+    const operation = result.operations[index]!;
+    if (operation.operationIndex <= previousIndex) return issue("RUNNER_OPERATION_ORDER", "Operation results must be strictly ordered by index.", ["operations", index, "operationIndex"]);
+    previousIndex = operation.operationIndex;
+    const operationResult = validateOperation(operation, ["operations", index]);
+    if (!operationResult.ok) return operationResult;
+  }
+  if (result.usage !== undefined) {
+    const usage = validateUsage(result.usage, ["usage"]);
+    if (!usage.ok) return usage;
+  }
+  if (result.workspaceCheckpoint !== undefined) {
+    const checkpoint = validateArtifactReference(result.workspaceCheckpoint, ["workspaceCheckpoint"]);
+    if (!checkpoint.ok || result.workspaceCheckpoint.journalCursor !== result.journalCursor) return checkpoint.ok ? issue("RUNNER_CURSOR", "Workspace checkpoint must match the result cursor.", ["workspaceCheckpoint", "journalCursor"]) : checkpoint;
+  }
+  if (result.status === "completed") {
+    if (!validDigest(result.resultDigest, false)) return issue("RUNNER_DIGEST", "Completed result digest is invalid.", ["resultDigest"]);
+    const output = validateArtifactReference(result.output, ["output"]);
+    if (!output.ok) return output;
+  } else if (result.status === "failed") {
+    if (!validDigest(result.resultDigest, false) || !boundedText(result.error.code) || !boundedText(result.error.message, 4_096)) return issue("RUNNER_FAILURE", "Failed result needs a digest and structured bounded error.", ["error"]);
+  } else if (result.status === "uncertain" && (!validDigest(result.providerReceiptDigest, false) || result.resultDigest !== undefined && !validDigest(result.resultDigest, false))) return issue("RUNNER_UNCERTAIN", "Uncertain result receipt or result digest is invalid.", ["providerReceiptDigest"]);
+  return { ok: true };
 }

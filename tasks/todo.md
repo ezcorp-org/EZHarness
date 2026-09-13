@@ -930,3 +930,16 @@ Local test review: SeaweedFS ordinary and archive services run with separate fil
 ### Review
 
 The public route now stores `Idempotency-Key` as a bounded `factory:` key. The executor compares a canonical input and authority digest before dispatch, returns the existing durable run for an exact retry, and returns a typed conflict for changed input. A keyed async 202 waits only for durable creation or lookup and returns that run's actual ID. The host daemon runs the existing orphan classifier each tick with the boot cutoff and current lease time. Focused backend, route, v4, daemon, type, lint, and 100% new-source/route coverage checks pass.
+
+## Factory SDK artifact and runner wire validation
+
+- [ ] Add generated JSON Schemas for `CompiledFactory`, `FactoryRunnerRequest`, and `FactoryRunnerResult` from the SDK type source.
+- [ ] Add a Temporal-safe structural compiled-artifact validator with I-JSON, limit, index, partition, and page manifest checks.
+- [ ] Add a Node compiler verifier that recompiles the embedded definition and compares every canonical IR field and fetched page bytes.
+- [ ] Add canonical C02 request/result types and pure validators for identities, fences, deadlines, pins, refs, usage, and 64 KiB wire bounds.
+- [ ] Export pure and Node entry points without pulling compiler crypto/YAML into the validation subpath.
+- [ ] Add adversarial tests and prove 100% source and changed-line coverage, build, typecheck, lint, and native Node imports.
+
+### Review
+
+Pending implementation and measured verification.

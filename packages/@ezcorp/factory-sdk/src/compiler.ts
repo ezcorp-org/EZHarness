@@ -19,8 +19,9 @@ import {
   type PortSchema,
   type ValueSource,
   type BudgetBounds,
+  type ValidationResult,
 } from "./types.js";
-import { isSchemaContained, resolveSchemaReference, validatePortSchema, validateValue } from "./validation.js";
+import { isSchemaContained, resolveSchemaReference, validateCompiledFactory, validatePortSchema, validateValue } from "./validation.js";
 
 const DIGEST_PREFIX = "sha256:";
 
@@ -667,4 +668,47 @@ export function compileFactory(input: unknown): CompileResult {
     pages,
   };
   return { ok: true, factory: deepFreeze(factory) };
+}
+
+export type CompiledFactoryPageBytes = Readonly<Record<string, Uint8Array>>;
+
+function verificationIssue(code: string, message: string, path: readonly (string | number)[]): ValidationResult {
+  return { ok: false, issues: [{ code, message, path }] };
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) if (left[index] !== right[index]) return false;
+  return true;
+}
+
+function sha256Bytes(value: Uint8Array): string {
+  return `${DIGEST_PREFIX}${createHash("sha256").update(value).digest("hex")}`;
+}
+
+/**
+ * Trusted Node/Bun boundary check. Recompilation proves every canonical IR
+ * field; supplied page bytes prove the manifests reference the fetched data.
+ */
+export function verifyCompiledFactoryArtifact(
+  value: unknown,
+  pageBytes: CompiledFactoryPageBytes,
+): ValidationResult {
+  const structural = validateCompiledFactory(value);
+  if (!structural.ok) return structural;
+  const factory = value as CompiledFactory;
+  const rebuilt = compileFactory(factory.definition);
+  if (!rebuilt.ok) return verificationIssue("COMPILED_RECOMPILE", "Embedded definition does not compile.", ["definition"]);
+  if (canonicalizeJson(factory as unknown as JsonValue) !== canonicalizeJson(rebuilt.factory as unknown as JsonValue)) return verificationIssue("COMPILED_CANONICAL", "Compiled artifact differs from canonical recompilation.", []);
+  const suppliedIds = Object.keys(pageBytes);
+  if (suppliedIds.length !== factory.pages.length || suppliedIds.some((id) => !factory.pages.some((page) => page.id === id))) return verificationIssue("COMPILED_PAGE_BYTES", "Fetched page byte set differs from the page manifest.", ["pages"]);
+  for (let index = 0; index < factory.pages.length; index += 1) {
+    const page = factory.pages[index]!;
+    if (!Object.hasOwn(pageBytes, page.id)) return verificationIssue("COMPILED_PAGE_BYTES", "A fetched page is missing.", ["pages", index]);
+    const expectedText = canonicalizeJson(page.nodeIds.map((id) => factory.indexes.nodeById[id]) as unknown as JsonValue);
+    const expected = new TextEncoder().encode(expectedText);
+    const actual = pageBytes[page.id]!;
+    if (actual.byteLength !== page.encodedBytes || sha256Bytes(actual) !== page.digest || !bytesEqual(actual, expected)) return verificationIssue("COMPILED_PAGE_BYTES", "Fetched page bytes do not match the canonical page and digest.", ["pages", index]);
+  }
+  return { ok: true };
 }

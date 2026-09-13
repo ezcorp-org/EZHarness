@@ -1,0 +1,443 @@
+{
+  "$ref": "#/definitions/FactoryRunnerResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryArtifactReference": {
+      "additionalProperties": false,
+      "description": "Opaque, immutable object reference. Ownership is resolved by the gateway.",
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryCheckpointReference": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        },
+        "journalCursor": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes",
+        "journalCursor"
+      ],
+      "type": "object"
+    },
+    "FactoryMeasuredUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "computeMs": {
+          "type": "number"
+        },
+        "costMicros": {
+          "type": "string"
+        },
+        "inputTokens": {
+          "type": "number"
+        },
+        "kind": {
+          "const": "measured",
+          "type": "string"
+        },
+        "outputTokens": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "inputTokens",
+        "outputTokens",
+        "computeMs",
+        "costMicros"
+      ],
+      "type": "object"
+    },
+    "FactoryRunnerOperationResult": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "model",
+                "tool"
+              ],
+              "type": "string"
+            },
+            "operationId": {
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "providerReceiptDigest": {
+              "type": "string"
+            },
+            "requestDigest": {
+              "type": "string"
+            },
+            "resultDigest": {
+              "type": "string"
+            },
+            "state": {
+              "const": "completed",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryMeasuredUsage"
+            },
+            "workspaceCheckpoint": {
+              "$ref": "#/definitions/FactoryCheckpointReference"
+            }
+          },
+          "required": [
+            "kind",
+            "operationId",
+            "operationIndex",
+            "requestDigest",
+            "resultDigest",
+            "state",
+            "usage",
+            "workspaceCheckpoint"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "model",
+                "tool"
+              ],
+              "type": "string"
+            },
+            "operationId": {
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "providerReceiptDigest": {
+              "type": "string"
+            },
+            "requestDigest": {
+              "type": "string"
+            },
+            "resultDigest": {
+              "type": "string"
+            },
+            "state": {
+              "const": "failed",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryUsage"
+            },
+            "workspaceCheckpoint": {
+              "$ref": "#/definitions/FactoryCheckpointReference"
+            }
+          },
+          "required": [
+            "kind",
+            "operationId",
+            "operationIndex",
+            "requestDigest",
+            "resultDigest",
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": [
+                "model",
+                "tool"
+              ],
+              "type": "string"
+            },
+            "operationId": {
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "providerReceiptDigest": {
+              "type": "string"
+            },
+            "requestDigest": {
+              "type": "string"
+            },
+            "resultDigest": {
+              "type": "string"
+            },
+            "state": {
+              "const": "uncertain",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryUnknownUsage"
+            },
+            "workspaceCheckpoint": {
+              "$ref": "#/definitions/FactoryCheckpointReference"
+            }
+          },
+          "required": [
+            "kind",
+            "operationId",
+            "operationIndex",
+            "providerReceiptDigest",
+            "requestDigest",
+            "state",
+            "usage"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FactoryRunnerResult": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "journalCursor": {
+              "type": "number"
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/FactoryRunnerOperationResult"
+              },
+              "type": "array"
+            },
+            "output": {
+              "$ref": "#/definitions/FactoryArtifactReference"
+            },
+            "resultDigest": {
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": "factory.runner.result.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "completed",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryMeasuredUsage"
+            },
+            "workspaceCheckpoint": {
+              "$ref": "#/definitions/FactoryCheckpointReference"
+            }
+          },
+          "required": [
+            "journalCursor",
+            "operations",
+            "output",
+            "resultDigest",
+            "schemaVersion",
+            "status",
+            "usage",
+            "workspaceCheckpoint"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retryable": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "retryable"
+              ],
+              "type": "object"
+            },
+            "journalCursor": {
+              "type": "number"
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/FactoryRunnerOperationResult"
+              },
+              "type": "array"
+            },
+            "resultDigest": {
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": "factory.runner.result.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "failed",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryUsage"
+            },
+            "workspaceCheckpoint": {
+              "$ref": "#/definitions/FactoryCheckpointReference"
+            }
+          },
+          "required": [
+            "error",
+            "journalCursor",
+            "operations",
+            "resultDigest",
+            "schemaVersion",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "journalCursor": {
+              "type": "number"
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/FactoryRunnerOperationResult"
+              },
+              "type": "array"
+            },
+            "schemaVersion": {
+              "const": "factory.runner.result.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "cancelled",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryUsage"
+            },
+            "workspaceCheckpoint": {
+              "$ref": "#/definitions/FactoryCheckpointReference"
+            }
+          },
+          "required": [
+            "journalCursor",
+            "operations",
+            "schemaVersion",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "journalCursor": {
+              "type": "number"
+            },
+            "operations": {
+              "items": {
+                "$ref": "#/definitions/FactoryRunnerOperationResult"
+              },
+              "type": "array"
+            },
+            "providerReceiptDigest": {
+              "type": "string"
+            },
+            "resultDigest": {
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": "factory.runner.result.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "uncertain",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryUnknownUsage"
+            },
+            "workspaceCheckpoint": {
+              "$ref": "#/definitions/FactoryCheckpointReference"
+            }
+          },
+          "required": [
+            "journalCursor",
+            "operations",
+            "providerReceiptDigest",
+            "schemaVersion",
+            "status",
+            "usage"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FactoryUnknownUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "heldCostMicros": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "unknown",
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason",
+        "heldCostMicros"
+      ],
+      "type": "object"
+    },
+    "FactoryUsage": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryMeasuredUsage"
+        },
+        {
+          "$ref": "#/definitions/FactoryUnknownUsage"
+        }
+      ]
+    }
+  }
+}

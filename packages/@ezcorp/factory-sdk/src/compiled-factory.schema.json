@@ -1,0 +1,1674 @@
+{
+  "$ref": "#/definitions/CompiledFactory",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AcceptanceClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "freshnessMs": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "validator": {
+          "$ref": "#/definitions/RunnerReference"
+        }
+      },
+      "required": [
+        "id",
+        "validator",
+        "required",
+        "protected"
+      ],
+      "type": "object"
+    },
+    "AcceptanceContract": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "items": {
+            "$ref": "#/definitions/AcceptanceClaim"
+          },
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/definitions/AcceptanceGroup"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "claims"
+      ],
+      "type": "object"
+    },
+    "AcceptanceGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "claimIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "minimumPasses": {
+          "type": "number"
+        },
+        "requireAllDecisive": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "claimIds",
+        "minimumPasses",
+        "requireAllDecisive"
+      ],
+      "type": "object"
+    },
+    "AcceptanceNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "candidate": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "contract": {
+          "type": "string"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "acceptance",
+          "type": "string"
+        },
+        "maxRepairs": {
+          "type": "number"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "candidate",
+        "contract",
+        "evidence",
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ApprovalNode": {
+      "additionalProperties": false,
+      "properties": {
+        "actorScope": {
+          "type": "string"
+        },
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "context": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "expiresInMs": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "approval",
+          "type": "string"
+        },
+        "onDenied": {
+          "enum": [
+            "fail",
+            "escalate"
+          ],
+          "type": "string"
+        },
+        "onExpired": {
+          "enum": [
+            "fail",
+            "escalate"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "actorScope",
+        "choices",
+        "context",
+        "expiresInMs",
+        "id",
+        "kind",
+        "onDenied",
+        "onExpired"
+      ],
+      "type": "object"
+    },
+    "BinaryExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "eq",
+            "lt",
+            "lte",
+            "gt",
+            "gte"
+          ],
+          "type": "string"
+        },
+        "left": {
+          "$ref": "#/definitions/Expression"
+        },
+        "right": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "left",
+        "right"
+      ],
+      "type": "object"
+    },
+    "BooleanExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "and",
+            "or"
+          ],
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "$ref": "#/definitions/Expression"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "values"
+      ],
+      "type": "object"
+    },
+    "BranchNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "condition": {
+          "$ref": "#/definitions/Expression"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "else": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "branch",
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        },
+        "then": {
+          "$ref": "#/definitions/FactoryGraph"
+        }
+      },
+      "required": [
+        "condition",
+        "else",
+        "id",
+        "kind",
+        "then"
+      ],
+      "type": "object"
+    },
+    "BudgetBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxComputeMs": {
+          "type": "number"
+        },
+        "maxCostMicros": {
+          "type": "string"
+        },
+        "maxTokens": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "CompiledFactory": {
+      "additionalProperties": false,
+      "properties": {
+        "definition": {
+          "$ref": "#/definitions/FactoryDefinition"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "indexes": {
+          "$ref": "#/definitions/CompiledIndexes"
+        },
+        "lock": {
+          "$ref": "#/definitions/DependencyLock"
+        },
+        "pages": {
+          "items": {
+            "$ref": "#/definitions/CompiledPage"
+          },
+          "type": "array"
+        },
+        "partitions": {
+          "items": {
+            "$ref": "#/definitions/CompiledPartition"
+          },
+          "type": "array"
+        },
+        "presentationDigest": {
+          "type": "string"
+        },
+        "schemaVersion": {
+          "const": "factory.ir.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "digest",
+        "definition",
+        "lock",
+        "indexes",
+        "partitions",
+        "pages"
+      ],
+      "type": "object"
+    },
+    "CompiledIndexes": {
+      "additionalProperties": false,
+      "properties": {
+        "dependencyCounts": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        "nodeById": {
+          "additionalProperties": {
+            "$ref": "#/definitions/FactoryNode"
+          },
+          "type": "object"
+        },
+        "successors": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "nodeById",
+        "successors",
+        "dependencyCounts"
+      ],
+      "type": "object"
+    },
+    "CompiledPage": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "nodeIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "partitionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "partitionId",
+        "nodeIds",
+        "encodedBytes",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "CompiledPartition": {
+      "additionalProperties": false,
+      "properties": {
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "nodeIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "nodeIds",
+        "dependsOn"
+      ],
+      "type": "object"
+    },
+    "DependencyLock": {
+      "additionalProperties": false,
+      "properties": {
+        "factories": {
+          "items": {
+            "$ref": "#/definitions/FactoryReference"
+          },
+          "type": "array"
+        },
+        "interpreter": {
+          "type": "string"
+        },
+        "packages": {
+          "items": {
+            "$ref": "#/definitions/PackageReference"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "packages",
+        "factories",
+        "interpreter"
+      ],
+      "type": "object"
+    },
+    "Effect": {
+      "enum": [
+        "none",
+        "read",
+        "write",
+        "publish"
+      ],
+      "type": "string"
+    },
+    "ExistsExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "exists",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ValueReference"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Expression": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/LiteralExpression"
+        },
+        {
+          "$ref": "#/definitions/ValueReference"
+        },
+        {
+          "$ref": "#/definitions/ExistsExpression"
+        },
+        {
+          "$ref": "#/definitions/BinaryExpression"
+        },
+        {
+          "$ref": "#/definitions/NotExpression"
+        },
+        {
+          "$ref": "#/definitions/BooleanExpression"
+        },
+        {
+          "$ref": "#/definitions/InExpression"
+        },
+        {
+          "$ref": "#/definitions/LengthExpression"
+        }
+      ]
+    },
+    "FactoryBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxExpandedNodes": {
+          "type": "number"
+        },
+        "maxScopeDepth": {
+          "type": "number"
+        },
+        "runDeadlineMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "maxExpandedNodes",
+        "maxScopeDepth"
+      ],
+      "type": "object"
+    },
+    "FactoryDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "$ref": "#/definitions/AcceptanceContract"
+        },
+        "bounds": {
+          "$ref": "#/definitions/FactoryBounds"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "factories": {
+          "items": {
+            "$ref": "#/definitions/FactoryReference"
+          },
+          "type": "array"
+        },
+        "graph": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "interpreterCompatibility": {
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "packages": {
+          "items": {
+            "$ref": "#/definitions/PackageReference"
+          },
+          "type": "array"
+        },
+        "presentation": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": "factory.v1",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "version",
+        "interpreterCompatibility",
+        "inputPorts",
+        "outputPorts",
+        "graph",
+        "acceptance",
+        "packages",
+        "capabilities",
+        "effects",
+        "bounds"
+      ],
+      "type": "object"
+    },
+    "FactoryGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "items": {
+            "$ref": "#/definitions/FactoryNode"
+          },
+          "type": "array"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "nodes",
+        "outputs"
+      ],
+      "type": "object"
+    },
+    "FactoryNode": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TaskNode"
+        },
+        {
+          "$ref": "#/definitions/BranchNode"
+        },
+        {
+          "$ref": "#/definitions/JoinNode"
+        },
+        {
+          "$ref": "#/definitions/MapNode"
+        },
+        {
+          "$ref": "#/definitions/LoopNode"
+        },
+        {
+          "$ref": "#/definitions/SubfactoryNode"
+        },
+        {
+          "$ref": "#/definitions/ApprovalNode"
+        },
+        {
+          "$ref": "#/definitions/AcceptanceNode"
+        },
+        {
+          "$ref": "#/definitions/ReleaseNode"
+        }
+      ]
+    },
+    "FactoryReference": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "InExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "collection": {
+          "$ref": "#/definitions/Expression"
+        },
+        "kind": {
+          "const": "in",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "collection"
+      ],
+      "type": "object"
+    },
+    "JoinNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "eligibleOutcomes": {
+          "items": {
+            "$ref": "#/definitions/JoinOutcome"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "join",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "all",
+            "any",
+            "quorum"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "predecessors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "quorum": {
+          "type": "number"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "mode",
+        "predecessors"
+      ],
+      "type": "object"
+    },
+    "JoinOutcome": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "skipped",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "JsonPrimitive": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string"
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonPrimitive"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "LengthExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "length",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LiteralExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/JsonValue"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LiteralValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/JsonValue"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LoopNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "body": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "budget": {
+          "$ref": "#/definitions/BudgetBounds"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "carriedSchema": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "initialInput": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "loop",
+          "type": "string"
+        },
+        "maxElapsedMs": {
+          "type": "number"
+        },
+        "maxIterations": {
+          "type": "number"
+        },
+        "nextInput": {
+          "$ref": "#/definitions/Expression"
+        },
+        "onExhausted": {
+          "enum": [
+            "fail",
+            "escalate"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "resultSchema": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        },
+        "until": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "body",
+        "carriedSchema",
+        "id",
+        "initialInput",
+        "kind",
+        "maxElapsedMs",
+        "maxIterations",
+        "nextInput",
+        "onExhausted",
+        "resultSchema",
+        "until"
+      ],
+      "type": "object"
+    },
+    "MapNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "body": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "collection": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "itemSchema": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "kind": {
+          "const": "map",
+          "type": "string"
+        },
+        "maxConcurrency": {
+          "type": "number"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "mode": {
+          "enum": [
+            "all",
+            "collect"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "body",
+        "collection",
+        "id",
+        "itemSchema",
+        "kind",
+        "maxConcurrency",
+        "maxItems",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "NotExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "not",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PackageReference": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "PortSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "$defs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "$ref": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "const": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        "items": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minItems": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "number"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PortSchemaType"
+            },
+            {
+              "items": [
+                {
+                  "enum": [
+                    "array",
+                    "boolean",
+                    "integer",
+                    "number",
+                    "object",
+                    "string"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "null",
+                  "type": "string"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PortSchemaType": {
+      "enum": [
+        "array",
+        "boolean",
+        "integer",
+        "null",
+        "number",
+        "object",
+        "string"
+      ],
+      "type": "string"
+    },
+    "ReferencePathSegment": {
+      "type": [
+        "string",
+        "number"
+      ]
+    },
+    "ReferenceRoot": {
+      "enum": [
+        "input",
+        "node",
+        "map",
+        "loop"
+      ],
+      "type": "string"
+    },
+    "ReleaseNode": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptedCandidate": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "adapter": {
+          "$ref": "#/definitions/RunnerReference"
+        },
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "destination": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "release",
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "acceptedCandidate",
+        "adapter",
+        "destination",
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ResourceBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxComputeMs": {
+          "type": "number"
+        },
+        "maxCostMicros": {
+          "type": "string"
+        },
+        "maxTokens": {
+          "type": "number"
+        },
+        "memoryBytes": {
+          "type": "number"
+        },
+        "resourceClass": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RetryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "initialDelayMs": {
+          "type": "number"
+        },
+        "maxAttempts": {
+          "type": "number"
+        },
+        "maximumDelayMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "maxAttempts",
+        "initialDelayMs",
+        "maximumDelayMs"
+      ],
+      "type": "object"
+    },
+    "RunnerReference": {
+      "additionalProperties": false,
+      "properties": {
+        "configurationDigest": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "export": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "version",
+        "digest",
+        "export"
+      ],
+      "type": "object"
+    },
+    "SubfactoryNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "factory": {
+          "$ref": "#/definitions/FactoryReference"
+        },
+        "grants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "subfactory",
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "releaseMode": {
+          "enum": [
+            "none",
+            "authorized"
+          ],
+          "type": "string"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "factory",
+        "grants",
+        "id",
+        "kind",
+        "releaseMode"
+      ],
+      "type": "object"
+    },
+    "TaskNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "task",
+          "type": "string"
+        },
+        "maxIterations": {
+          "type": "number"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        },
+        "runner": {
+          "$ref": "#/definitions/RunnerReference"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "runner"
+      ],
+      "type": "object"
+    },
+    "ValueReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "ref",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/definitions/ReferencePathSegment"
+          },
+          "type": "array"
+        },
+        "root": {
+          "$ref": "#/definitions/ReferenceRoot"
+        }
+      },
+      "required": [
+        "kind",
+        "root",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ValueSource": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ValueReference"
+        },
+        {
+          "$ref": "#/definitions/LiteralValue"
+        }
+      ]
+    }
+  }
+}

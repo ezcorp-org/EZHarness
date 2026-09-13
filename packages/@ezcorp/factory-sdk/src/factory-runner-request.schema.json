@@ -1,0 +1,464 @@
+{
+  "$ref": "#/definitions/FactoryRunnerRequest",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryArtifactReference": {
+      "additionalProperties": false,
+      "description": "Opaque, immutable object reference. Ownership is resolved by the gateway.",
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryBrokerTransport": {
+      "additionalProperties": false,
+      "properties": {
+        "attemptToken": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptToken",
+        "audience"
+      ],
+      "type": "object"
+    },
+    "FactoryCheckpointReference": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        },
+        "journalCursor": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes",
+        "journalCursor"
+      ],
+      "type": "object"
+    },
+    "FactoryModelPin": {
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
+        "configurationDigest": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "policy": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
+        "policyDigest": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "configurationDigest",
+        "configuration",
+        "policyDigest",
+        "policy"
+      ],
+      "type": "object"
+    },
+    "FactoryRunnerAuthority": {
+      "additionalProperties": false,
+      "description": "Authority carried by the signed attempt token and checked on every effect.",
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "attemptNumber": {
+          "type": "number"
+        },
+        "cancellationEpoch": {
+          "type": "number"
+        },
+        "candidateGeneration": {
+          "type": "number"
+        },
+        "deadlineAtMs": {
+          "type": "number"
+        },
+        "executionEpoch": {
+          "type": "number"
+        },
+        "grantRevision": {
+          "type": "number"
+        },
+        "nextOperationIndex": {
+          "type": "number"
+        },
+        "nodeInstanceId": {
+          "type": "string"
+        },
+        "projectId": {
+          "type": "string"
+        },
+        "reservationGeneration": {
+          "type": "number"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId",
+        "tenantId",
+        "projectId",
+        "runId",
+        "nodeInstanceId",
+        "candidateGeneration",
+        "attemptNumber",
+        "grantRevision",
+        "reservationGeneration",
+        "executionEpoch",
+        "cancellationEpoch",
+        "deadlineAtMs",
+        "nextOperationIndex"
+      ],
+      "type": "object"
+    },
+    "FactoryRunnerRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "$ref": "#/definitions/FactoryRunnerAuthority"
+        },
+        "broker": {
+          "$ref": "#/definitions/FactoryBrokerTransport"
+        },
+        "checkpoint": {
+          "$ref": "#/definitions/FactoryCheckpointReference"
+        },
+        "grants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input": {
+          "$ref": "#/definitions/FactoryTransportValue"
+        },
+        "model": {
+          "$ref": "#/definitions/FactoryModelPin"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "runner": {
+          "$ref": "#/definitions/RunnerReference"
+        },
+        "schemaVersion": {
+          "const": "factory.runner.request.v1",
+          "type": "string"
+        },
+        "tools": {
+          "items": {
+            "$ref": "#/definitions/FactoryToolDeclaration"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "authority",
+        "runner",
+        "input",
+        "grants",
+        "resources",
+        "tools",
+        "broker"
+      ],
+      "type": "object"
+    },
+    "FactoryToolDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "inputSchema": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "name": {
+          "type": "string"
+        },
+        "outputSchema": {
+          "$ref": "#/definitions/PortSchema"
+        }
+      },
+      "required": [
+        "name",
+        "inputSchema"
+      ],
+      "type": "object"
+    },
+    "FactoryTransportValue": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "inline",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/JsonValue"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "$ref": "#/definitions/FactoryArtifactReference"
+            },
+            "kind": {
+              "const": "artifact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "artifact"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JsonPrimitive": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string"
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonPrimitive"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "PortSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "$defs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "$ref": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "const": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        "items": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minItems": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "number"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PortSchemaType"
+            },
+            {
+              "items": [
+                {
+                  "enum": [
+                    "array",
+                    "boolean",
+                    "integer",
+                    "number",
+                    "object",
+                    "string"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "null",
+                  "type": "string"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PortSchemaType": {
+      "enum": [
+        "array",
+        "boolean",
+        "integer",
+        "null",
+        "number",
+        "object",
+        "string"
+      ],
+      "type": "string"
+    },
+    "ResourceBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxComputeMs": {
+          "type": "number"
+        },
+        "maxCostMicros": {
+          "type": "string"
+        },
+        "maxTokens": {
+          "type": "number"
+        },
+        "memoryBytes": {
+          "type": "number"
+        },
+        "resourceClass": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RunnerReference": {
+      "additionalProperties": false,
+      "properties": {
+        "configurationDigest": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "export": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "version",
+        "digest",
+        "export"
+      ],
+      "type": "object"
+    }
+  }
+}

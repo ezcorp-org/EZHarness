@@ -1,8 +1,16 @@
 import factoryDefinitionJsonSchema from "./factory-definition.schema.json" with { type: "json" };
-import { jsonEqual, validateIJson } from "./canonical.js";
-import type { JsonValue } from "./types.js";
+import compiledFactoryJsonSchema from "./compiled-factory.schema.json" with { type: "json" };
+import factoryRunnerRequestJsonSchema from "./factory-runner-request.schema.json" with { type: "json" };
+import factoryRunnerResultJsonSchema from "./factory-runner-result.schema.json" with { type: "json" };
+import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
+import type { CompiledFactory, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "./types.js";
 
-export { factoryDefinitionJsonSchema };
+export {
+  compiledFactoryJsonSchema,
+  factoryDefinitionJsonSchema,
+  factoryRunnerRequestJsonSchema,
+  factoryRunnerResultJsonSchema,
+};
 
 type SchemaObject = Readonly<Record<string, unknown>>;
 
@@ -42,8 +50,9 @@ function validate(schema: SchemaObject, root: SchemaObject, value: unknown): boo
     if (schema.items && typeof schema.items === "object" && !value.every((item) => validate(schema.items as SchemaObject, root, item))) return false;
   }
   if (typeof value === "string") {
-    if (typeof schema.minLength === "number" && value.length < schema.minLength) return false;
-    if (typeof schema.maxLength === "number" && value.length > schema.maxLength) return false;
+    const length = unicodeLength(value);
+    if (typeof schema.minLength === "number" && length < schema.minLength) return false;
+    if (typeof schema.maxLength === "number" && length > schema.maxLength) return false;
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) return false;
@@ -67,4 +76,20 @@ function validate(schema: SchemaObject, root: SchemaObject, value: unknown): boo
 
 export function isFactoryDefinition(value: unknown): boolean {
   return validateIJson(value).ok && validate(factoryDefinitionJsonSchema as SchemaObject, factoryDefinitionJsonSchema as SchemaObject, value);
+}
+
+function matchesGeneratedSchema(schema: SchemaObject, value: unknown): boolean {
+  return validateIJson(value).ok && validate(schema, schema, value);
+}
+
+export function isCompiledFactory(value: unknown): value is CompiledFactory {
+  return matchesGeneratedSchema(compiledFactoryJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryRunnerRequest(value: unknown): value is FactoryRunnerRequest {
+  return matchesGeneratedSchema(factoryRunnerRequestJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryRunnerResult(value: unknown): value is FactoryRunnerResult {
+  return matchesGeneratedSchema(factoryRunnerResultJsonSchema as SchemaObject, value);
 }
