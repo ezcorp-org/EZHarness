@@ -29,6 +29,11 @@
       "types": "./dist/expressions.d.ts",
       "import": "./dist/expressions.js"
     },
+    "./types": {
+      "bun": "./src/types.ts",
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
     "./kernel": {
       "bun": "./src/kernel.ts",
       "types": "./dist/kernel.d.ts",

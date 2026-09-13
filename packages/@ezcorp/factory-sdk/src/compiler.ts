@@ -55,6 +55,14 @@ function cloneDefinition(value: FactoryDefinition): FactoryDefinition {
   return JSON.parse(canonicalizeJson(value as unknown as JsonValue)) as FactoryDefinition;
 }
 
+function joinOutputPorts(): Readonly<Record<string, PortSchema>> {
+  return { winners: { type: "array", items: { type: "object", properties: { nodeId: { type: "string", minLength: 1 }, outputs: { type: "object", additionalProperties: true } }, required: ["nodeId", "outputs"], additionalProperties: false } } };
+}
+
+function approvalOutputPorts(choices: readonly string[]): Readonly<Record<string, PortSchema>> {
+  return { choice: { type: "string", enum: choices } };
+}
+
 function diagnostic(code: string, message: string, path: readonly (string | number)[], nodeId?: string): CompilerDiagnostic {
   return { code, message, path, ...(nodeId === undefined ? {} : { nodeId }) };
 }
@@ -70,7 +78,7 @@ function materializeGraph(graph: FactoryGraph): FactoryGraph {
         effects: node.effects ?? ["none"],
         bindings: node.bindings ?? {},
         inputPorts: node.inputPorts ?? {},
-        outputPorts: node.outputPorts ?? {},
+        outputPorts: node.outputPorts ?? (node.kind === "join" ? joinOutputPorts() : node.kind === "approval" ? approvalOutputPorts(node.choices) : {}),
       };
       if (node.kind === "task") return { ...common, retry: node.retry ?? { maxAttempts: 3, initialDelayMs: 1_000, maximumDelayMs: 2_000 } };
       if (node.kind === "branch") return { ...common, then: materializeGraph(node.then), else: materializeGraph(node.else) };
@@ -325,7 +333,30 @@ function checkNodeSource(source: ValueSource, node: FactoryNode, availableNodes:
   return schema;
 }
 
-function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly (string | number)[], depth: number, speculative: boolean, visibleNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas): void {
+function validateControlOutputs(node: Extract<FactoryNode, { kind: "branch" | "map" | "loop" }>, childOutputs: readonly Readonly<Record<string, PortSchema | undefined>>[], context: CompileContext, path: readonly (string | number)[]): void {
+  const outputPorts = node.outputPorts ?? {};
+  for (const [name, outputPort] of Object.entries(outputPorts)) {
+    for (const outputs of childOutputs) {
+      const childOutput = own(outputs, name) ? outputs[name] : undefined;
+      if (!childOutput) addDiagnostic(context, "CONTROL_OUTPUT_MISSING", `Control body must declare output: ${name}.`, [...path, "outputPorts", name], node.id);
+      else if (node.kind === "map") {
+        if (!schemaTypes(outputPort).includes("array") || !outputPort.items) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", "Map output ports must be typed arrays.", [...path, "outputPorts", name], node.id);
+        else {
+          const item = node.mode === "all" ? childOutput : {
+            type: "object" as const,
+            properties: { outcome: { type: "string" as const, enum: ["succeeded", "failed"] }, value: childOutput, error: { type: "string" as const } },
+            required: ["outcome"],
+            additionalProperties: false,
+          };
+          if (!isSchemaContained(item, outputPort.items)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Map body output is incompatible with collection port: ${name}.`, [...path, "outputPorts", name], node.id);
+        }
+      } else if (!isSchemaContained(childOutput, outputPort)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Control body output is incompatible: ${name}.`, [...path, "outputPorts", name], node.id);
+    }
+  }
+  for (const outputs of childOutputs) for (const name of Object.keys(outputs)) if (!own(outputPorts, name)) addDiagnostic(context, "CONTROL_OUTPUT_UNKNOWN", `Control body declares an unknown output: ${name}.`, [...path, "body", "outputs", name], node.id);
+}
+
+function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly (string | number)[], depth: number, speculative: boolean, visibleNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas): Readonly<Record<string, PortSchema | undefined>> {
   if (depth > context.definition.bounds.maxScopeDepth || depth > FACTORY_LIMITS.maxScopeDepth) addDiagnostic(context, "BOUND_SCOPE_DEPTH", "Graph scope depth exceeds its bound.", path);
   const localNodes = new Map<string, FactoryNode>();
   graph.nodes.forEach((node, index) => {
@@ -355,8 +386,10 @@ function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly 
     if (node.kind === "join") {
       if (node.mode === "all" && (node.quorum !== undefined || node.eligibleOutcomes !== undefined)) addDiagnostic(context, "JOIN_CONFIGURATION", "All joins cannot declare quorum outcomes.", nodePath, node.id);
       if (node.mode !== "all" && (!node.eligibleOutcomes?.length || !Number.isSafeInteger(node.quorum) || (node.quorum ?? 0) < 1 || (node.quorum ?? 0) > node.predecessors.length)) addDiagnostic(context, "JOIN_CONFIGURATION", "Any/quorum joins require eligible outcomes and a positive feasible quorum.", nodePath, node.id);
+      if (Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners || !isSchemaContained(joinOutputPorts().winners as PortSchema, node.outputPorts.winners)) addDiagnostic(context, "JOIN_OUTPUT", "Join outputPorts must declare the intrinsic winners record.", [...nodePath, "outputPorts"], node.id);
     }
     if (node.kind === "branch" && (containsPublication(node.then) || containsPublication(node.else))) addDiagnostic(context, "SPECULATIVE_PUBLICATION", "Speculative branches cannot publish or release.", nodePath, node.id);
+    if (node.kind === "approval" && (Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice || !isSchemaContained(approvalOutputPorts(node.choices).choice as PortSchema, node.outputPorts.choice))) addDiagnostic(context, "APPROVAL_OUTPUT", "Approval outputPorts must declare the intrinsic choice enum.", [...nodePath, "outputPorts"], node.id);
     if (node.kind === "branch") {
       const result = validateExpression(node.condition);
       if (!result.ok) addDiagnostic(context, result.issues[0]?.code ?? "EXPRESSION_INVALID", result.issues[0]?.message ?? "Branch expression is invalid.", [...nodePath, "condition"], node.id);
@@ -436,17 +469,29 @@ function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly 
     if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!Number.isSafeInteger(node.maxRepairs) || node.maxRepairs < 0 || node.maxRepairs >= context.definition.bounds.maxExpandedNodes)) addDiagnostic(context, "BOUND_REPAIR", "Acceptance repair bound is invalid.", [...nodePath, "maxRepairs"], node.id);
     if (node.kind === "branch") {
       const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
-      walkGraph(node.then, context, [...nodePath, "then"], depth + 1, true, ancestors, scopes);
-      walkGraph(node.else, context, [...nodePath, "else"], depth + 1, true, ancestors, scopes);
+      const thenOutputs = walkGraph(node.then, context, [...nodePath, "then"], depth + 1, true, ancestors, scopes);
+      const elseOutputs = walkGraph(node.else, context, [...nodePath, "else"], depth + 1, true, ancestors, scopes);
+      validateControlOutputs(node, [thenOutputs, elseOutputs], context, nodePath);
     } else if (node.kind === "map") {
       const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
-      walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, map: { item: node.itemSchema, index: { type: "integer", minimum: 0 } } });
+      const bodyOutputs = walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, map: { item: node.itemSchema, index: { type: "integer", minimum: 0 } } });
+      validateControlOutputs(node, [bodyOutputs], context, nodePath);
     } else if (node.kind === "loop") {
       const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
-      walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, loop: { carried: node.carriedSchema, result: node.resultSchema, index: { type: "integer", minimum: 0 } } });
+      const bodyOutputs = walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, loop: { carried: node.carriedSchema, result: node.resultSchema, index: { type: "integer", minimum: 0 } } });
+      validateControlOutputs(node, [bodyOutputs], context, nodePath);
+      if (!hasOnlyType(node.resultSchema, "object") || !node.resultSchema.properties || node.resultSchema.additionalProperties !== false || node.resultSchema.required?.length !== Object.keys(node.resultSchema.properties).length || Object.keys(node.resultSchema.properties).some((name) => !node.resultSchema.required?.includes(name) || !own(node.outputPorts ?? {}, name)) || Object.keys(node.outputPorts ?? {}).some((name) => !own(node.resultSchema.properties ?? {}, name))) addDiagnostic(context, "LOOP_RESULT_SCHEMA", "Loop resultSchema must be a closed object with every output property required and matched to outputPorts.", [...nodePath, "resultSchema"], node.id);
+      else for (const [name, resultPort] of Object.entries(node.resultSchema.properties)) {
+        const bodyOutput = bodyOutputs[name];
+        const outputPort = node.outputPorts?.[name];
+        if (bodyOutput && !isSchemaContained(bodyOutput, resultPort)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Loop body output is incompatible with resultSchema: ${name}.`, [...nodePath, "resultSchema", "properties", name], node.id);
+        if (outputPort && !isSchemaContained(resultPort, outputPort)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Loop resultSchema is incompatible with output port: ${name}.`, [...nodePath, "outputPorts", name], node.id);
+      }
     }
   });
-  for (const [name, source] of Object.entries(graph.outputs)) sourceSchema(source, availableNodes, scopes, context, [...path, "outputs", name]);
+  const outputSchemas = Object.create(null) as Record<string, PortSchema | undefined>;
+  for (const [name, source] of Object.entries(graph.outputs)) outputSchemas[name] = sourceSchema(source, availableNodes, scopes, context, [...path, "outputs", name]);
+  return outputSchemas;
 }
 
 function topologicalOrder(context: CompileContext): string[] {
@@ -559,20 +604,24 @@ export function compileFactory(input: unknown): CompileResult {
     }
   };
   collectGenerators(definition.graph);
-  if (definition.acceptance.id.length === 0 || definition.acceptance.version.length === 0 || definition.acceptance.claims.length === 0) diagnostics.push(diagnostic("ACCEPTANCE_CONTRACT", "Acceptance contract identity and at least one claim are required.", ["acceptance"]));
+  if (definition.acceptance.id.length === 0 || definition.acceptance.version.length === 0 || definition.acceptance.version === "latest" || definition.acceptance.version.includes("*") || definition.acceptance.claims.length === 0) diagnostics.push(diagnostic("ACCEPTANCE_CONTRACT", "Acceptance contract identity, exact version, and at least one claim are required.", ["acceptance"]));
   const claimIds = new Set<string>();
   definition.acceptance.claims.forEach((claim, index) => {
     if (claim.id.length === 0 || claimIds.has(claim.id)) addDiagnostic(context, "ACCEPTANCE_CLAIM", "Acceptance claim IDs must be nonempty and unique.", ["acceptance", "claims", index, "id"]);
     claimIds.add(claim.id);
     validateRunner(claim.validator, context, ["acceptance", "claims", index, "validator"]);
     checkRunnerLock(claim.validator, context, ["acceptance", "claims", index, "validator"]);
+    if (claim.freshnessMs !== undefined && (!Number.isSafeInteger(claim.freshnessMs) || claim.freshnessMs < 1 || claim.freshnessMs > definition.bounds.runDeadlineMs!)) addDiagnostic(context, "ACCEPTANCE_FRESHNESS", "Claim freshness must be a positive safe integer within the run deadline.", ["acceptance", "claims", index, "freshnessMs"], claim.id);
     if (claim.protected && generatorPackages.has(claim.validator.package)) addDiagnostic(context, "ACCEPTANCE_AUTHORITY", "A protected validator cannot share the generator package.", ["acceptance", "claims", index], claim.id);
   });
   const groupIds = new Set<string>();
+  const groupedClaims = new Set<string>();
   for (const [index, group] of (definition.acceptance.groups ?? []).entries()) {
-    if (group.id.length === 0 || groupIds.has(group.id) || group.claimIds.length === 0 || new Set(group.claimIds).size !== group.claimIds.length || !Number.isSafeInteger(group.minimumPasses) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || group.claimIds.some((id) => !claimIds.has(id))) addDiagnostic(context, "ACCEPTANCE_GROUP", "Acceptance groups require a unique ID, known unique claims, and a feasible positive pass threshold.", ["acceptance", "groups", index]);
+    if (group.id.length === 0 || groupIds.has(group.id) || group.claimIds.length === 0 || new Set(group.claimIds).size !== group.claimIds.length || !Number.isSafeInteger(group.minimumPasses) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || group.claimIds.some((id) => !claimIds.has(id) || groupedClaims.has(id))) addDiagnostic(context, "ACCEPTANCE_GROUP", "Acceptance groups require a unique ID, known claims used by one group, and a feasible positive pass threshold.", ["acceptance", "groups", index]);
     groupIds.add(group.id);
+    for (const id of group.claimIds) groupedClaims.add(id);
   }
+  if (definition.acceptance.claims.some((claim) => !claim.required && !groupedClaims.has(claim.id))) diagnostics.push(diagnostic("ACCEPTANCE_GROUP", "Every optional claim must belong to one acceptance group.", ["acceptance", "claims"]));
 
   walkGraph(definition.graph, context, ["graph"], 1, false, new Map(), {});
   if (expandedGraphCount(definition.graph, definition.bounds.maxExpandedNodes) > definition.bounds.maxExpandedNodes) diagnostics.push(diagnostic("BOUND_EXPANDED_NODES", "Graph expansion exceeds its expanded-node bound.", ["graph"]));

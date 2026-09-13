@@ -52,7 +52,7 @@ test("any join selects its first qualified result and cancels each loser before 
   state = admit(graph, state, "c");
   const winner = result(graph, state, "b", 10, "b-result");
 
-  expect(winner.nextState.nodes.join?.output).toEqual([{ id: "b", output: "b-result" }]);
+  expect(winner.nextState.nodes.join?.output).toEqual({ winners: [{ id: "b", output: "b-result" }] });
   expect(winner.nextState.nodes.join?.status).toBe("succeeded");
   expect(winner.nextState.nodes.a?.status).toBe("stopping");
   expect(winner.nextState.nodes.c?.status).toBe("stopping");
@@ -76,10 +76,10 @@ test("quorum retains the first qualified set in recorded order and cancels remai
   state = result(graph, state, "b", 10, "b-result").nextState;
   const winner = result(graph, state, "a", 20, "a-result");
 
-  expect(winner.nextState.nodes.join?.output).toEqual([
+  expect(winner.nextState.nodes.join?.output).toEqual({ winners: [
     { id: "b", output: "b-result" },
     { id: "a", output: "a-result" },
-  ]);
+  ] });
   expect(winner.nextState.nodes.join?.status).toBe("succeeded");
   expect(winner.nextState.nodes.c?.status).toBe("stopping");
   expect(winner.commands.filter((command) => command.kind === "cancel-node").map((command) => command.nodeId)).toEqual(["c"]);

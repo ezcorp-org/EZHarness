@@ -1,21 +1,29 @@
 import { describe, expect, test } from "bun:test";
+import { compileFactory } from "./compiler";
 import { FactoryKernelError, advanceKernel, createKernelState } from "./kernel";
-import type { CompiledFactory, FactoryNode, JsonValue } from "./types";
+import { referenceCodeV1 } from "./references.js";
+import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from "./types";
 
-const runner = { package: "inert", version: "1", digest: "sha256:test", export: "run" } as const;
+const digest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+const runner = { package: "inert", version: "1", digest, export: "run" } as const;
 
-function compiled(nodes: readonly FactoryNode[], outputs: Record<string, { readonly kind: "ref"; readonly root: "node"; readonly name: string }>): CompiledFactory {
-  const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
-  const successors: Record<string, readonly string[]> = {};
-  const dependencyCounts: Record<string, number> = {};
-  for (const node of nodes) { successors[node.id] = []; dependencyCounts[node.id] = node.dependsOn?.length ?? 0; }
-  for (const node of nodes) for (const parent of node.dependsOn ?? []) successors[parent] = [...(successors[parent] ?? []), node.id];
-  return {
-    schemaVersion: "factory.ir.v1", digest: "sha256:factory", definition: {
-      schemaVersion: "factory.v1", id: "test", version: "1", interpreterCompatibility: "1", inputPorts: {}, outputPorts: {},
-      graph: { nodes, outputs }, acceptance: { id: "none", version: "1", claims: [] }, packages: [], capabilities: [], effects: [], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16 },
-    }, lock: { packages: [], factories: [], interpreter: "1" }, indexes: { nodeById, successors, dependencyCounts }, partitions: [],
+function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { readonly kind: "ref"; readonly root: "node"; readonly name: string }>): CompiledFactory {
+  const normalize = (node: FactoryNode): FactoryNode => {
+    if (node.kind === "map") return { ...node, outputPorts: node.outputPorts ?? {}, body: { ...node.body, nodes: node.body.nodes.map(normalize), outputs: node.body.outputs } };
+    if (node.kind === "loop") return { ...node, outputPorts: node.outputPorts ?? {}, body: { ...node.body, nodes: node.body.nodes.map(normalize), outputs: node.body.outputs } };
+    if (node.kind === "branch") return { ...node, outputPorts: node.outputPorts ?? {}, then: { ...node.then, nodes: node.then.nodes.map(normalize) }, else: { ...node.else, nodes: node.else.nodes.map(normalize) } };
+    return node;
   };
+  const definition: FactoryDefinition = {
+    schemaVersion: "factory.v1", id: "kernel-event-regression", version: "1", interpreterCompatibility: "1",
+    inputPorts: {}, outputPorts: {}, graph: { nodes: nodes.map(normalize), outputs: {} },
+    acceptance: referenceCodeV1.acceptance,
+    packages: [{ name: runner.package, version: runner.version, digest }, ...referenceCodeV1.packages],
+    capabilities: [], effects: ["none"], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16 },
+  };
+  const result = compileFactory(definition);
+  if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(", "));
+  return result.factory;
 }
 
 const event = <T extends object>(id: string, values: T): T & { readonly id: string; readonly atMs: number } => ({ id, atMs: 1, ...values });

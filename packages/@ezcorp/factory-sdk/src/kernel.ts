@@ -240,11 +240,11 @@ function applyApproval(factory: CompiledFactory, state: KernelState, event: Extr
   const runtime = state.nodes[event.nodeId];
   if (node?.kind !== "approval" || !runtime || runtime.status !== "waiting") return state;
   const pending = runtime.attempts.at(-1);
-  if (!pending || pending.commandId !== event.commandId || event.atMs > pending.deadlineAtMs) return state;
+  if (!pending || pending.commandId !== event.commandId || event.atMs >= pending.deadlineAtMs) return state;
   if (!node.choices.includes(event.choice)) return state;
   if (event.choice === "approve" || event.choice === "accepted") {
     const attempts = runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt);
-    return activateReady(factory, withNode(state, event.nodeId, { ...runtime, status: "succeeded", output: event.choice, attempts }), commands, successorsFor(factory, event.nodeId));
+    return completeControl(factory, withNode(state, event.nodeId, { ...runtime, attempts }), event.nodeId, { choice: event.choice }, commands);
   }
   return failNode(factory, state, node, event.nodeId, "APPROVAL_DENIED", "approval_denied", commands);
 }
@@ -408,7 +408,7 @@ function settleJoin(factory: CompiledFactory, state: KernelState, node: Extract<
     }
   }
   const selected = winners.sort(([left, a], [right, b]) => (a!.terminalSequence ?? 0) - (b!.terminalSequence ?? 0) || (left < right ? -1 : left > right ? 1 : 0)).slice(0, quorum);
-  let next = withNode(state, nodeId, { ...state.nodes[nodeId]!, status: "succeeded", output: selected.map(([id, runtime]) => ({ id, output: runtime!.output ?? null })) });
+  let next = withNode(state, nodeId, { ...state.nodes[nodeId]!, status: "succeeded", output: { winners: selected.map(([id, runtime]) => ({ id, output: runtime!.output ?? null })) } });
   if (node.mode !== "all") {
     const selectedIds = selected.map(([id]) => id);
     for (const [loserId] of outcomes) {

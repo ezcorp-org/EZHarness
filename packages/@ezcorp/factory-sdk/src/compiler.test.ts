@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { FactoryAuthoringError, defineFactory } from "./authoring";
 import { compileFactory } from "./compiler";
 import { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references";
-import type { FactoryDefinition, FactoryNode } from "./types";
+import type { FactoryDefinition, FactoryGraph, FactoryNode, FactoryReference } from "./types";
 
 function clone(definition: FactoryDefinition = referenceCodeV1): FactoryDefinition {
   return structuredClone(definition);
@@ -13,8 +13,15 @@ function codes(definition: unknown): string[] {
   return result.ok ? [] : result.diagnostics.map((entry) => entry.code);
 }
 
+function nodesIn(graph: FactoryGraph): FactoryNode[] {
+  return graph.nodes.flatMap((candidate) => [
+    candidate,
+    ...(candidate.kind === "branch" ? [...nodesIn(candidate.then), ...nodesIn(candidate.else)] : candidate.kind === "map" || candidate.kind === "loop" ? nodesIn(candidate.body) : []),
+  ]);
+}
+
 function node(definition: FactoryDefinition, id: string): FactoryNode {
-  return definition.graph.nodes.find((candidate) => candidate.id === id) as FactoryNode;
+  return nodesIn(definition.graph).find((candidate) => candidate.id === id) as FactoryNode;
 }
 
 describe("factory compiler", () => {
@@ -34,6 +41,18 @@ describe("factory compiler", () => {
       expect(Object.isFrozen(first.factory)).toBe(true);
       expect(Object.isFrozen(first.factory.definition.graph.nodes)).toBe(true);
     }
+    const imageRounds = node(referenceImageV1, "candidate-rounds") as Extract<FactoryNode, { kind: "loop" }>;
+    const imageMap = node(referenceImageV1, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>;
+    const imageTask = node(referenceImageV1, "generate-seed") as Extract<FactoryNode, { kind: "task" }>;
+    expect(imageRounds.maxIterations).toBe(2);
+    expect((imageMap.collection as { value: unknown }).value).toEqual([11, 23, 37, 53]);
+    expect((imageTask.bindings!.inferenceSteps as { value: number }).value).toBe(30);
+    expect((imageTask.bindings!.guidance as { value: number }).value).toBe(7.5);
+    expect((imageTask.bindings!.width as { value: number }).value).toBe(1024);
+    expect(referenceImageV1.acceptance.groups).toEqual([{ id: "semantic-quorum", claimIds: ["semantic-evaluation-1", "semantic-evaluation-2", "semantic-evaluation-3"], minimumPasses: 2, requireAllDecisive: true }]);
+    expect(referenceCodeV1.acceptance.claims.map((claim) => claim.id)).toEqual(["frozen-install", "build", "typecheck", "declared-tests", "protected-fixtures", "dependency-advisory", "secret-scan", "allowed-paths", "protected-assets-unchanged", "supervised-review"]);
+    expect((node(referenceDataV1, "parse-schema-validation") as Extract<FactoryNode, { kind: "task" }>).bindings!.partitionRows).toEqual({ kind: "literal", value: 10_000 });
+    for (const definition of referenceFactories) for (const taskNode of nodesIn(definition.graph).filter((candidate): candidate is Extract<FactoryNode, { kind: "task" }> => candidate.kind === "task")) expect(Object.keys(taskNode.bindings ?? {}).sort()).toEqual(Object.keys(taskNode.inputPorts ?? {}).sort());
   });
 
   test("materializes defaults and separates presentation digest", () => {
@@ -57,6 +76,8 @@ describe("factory compiler", () => {
     const oldId = first.id;
     first.id = "__proto__";
     for (const candidate of definition.graph.nodes) if (candidate.dependsOn?.includes(oldId)) (candidate as { dependsOn: string[] }).dependsOn = candidate.dependsOn.map((id) => id === oldId ? "__proto__" : id);
+    ((node(definition, "parse-schema-validation") as Extract<FactoryNode, { kind: "task" }>).bindings!.snapshot as { name: string }).name = "__proto__";
+    ((node(definition, "protected-reconciliation") as Extract<FactoryNode, { kind: "task" }>).bindings!.snapshot as { name: string }).name = "__proto__";
     const result = compileFactory(definition);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -128,6 +149,7 @@ describe("factory compiler", () => {
     expect(codes(definition)).toContain("BINDING_REACHABILITY");
     const absent = clone();
     (node(absent, "freeze-complete-git-tree") as { inputPorts: Record<string, unknown> }).inputPorts = { candidate: { type: "string" } };
+    (node(absent, "freeze-complete-git-tree") as { bindings: Record<string, unknown> }).bindings = {};
     expect(codes(absent)).toContain("BINDING_MISSING");
     const missingInput = clone();
     (node(missingInput, "freeze-complete-git-tree") as { inputPorts: Record<string, unknown>; bindings: Record<string, unknown> }).inputPorts = { candidate: { type: "string" } };
@@ -235,6 +257,41 @@ describe("factory compiler", () => {
       outputs: { receipt: { kind: "literal", value: {} } },
     };
     expect(codes(definition)).toEqual([]);
+  });
+
+  test("requires explicit typed control output records", () => {
+    const missingMap = clone(referenceImageV1);
+    delete (node(missingMap, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).body.outputs.variants;
+    expect(codes(missingMap)).toContain("CONTROL_OUTPUT_MISSING");
+
+    const incompatibleMap = clone(referenceImageV1);
+    (node(incompatibleMap, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).outputPorts!.variants = { type: "array", items: { type: "string" } };
+    expect(codes(incompatibleMap)).toContain("CONTROL_OUTPUT_TYPE");
+
+    const unknownMap = clone(referenceImageV1);
+    (node(unknownMap, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).body.outputs.other = { kind: "literal", value: true };
+    expect(codes(unknownMap)).toContain("CONTROL_OUTPUT_UNKNOWN");
+
+    const invalidLoop = clone();
+    (node(invalidLoop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>).resultSchema = { type: "string" };
+    expect(codes(invalidLoop)).toContain("LOOP_RESULT_SCHEMA");
+
+    const incompatibleLoop = clone();
+    const loop = node(incompatibleLoop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>;
+    loop.resultSchema = { ...loop.resultSchema, properties: { ...loop.resultSchema.properties, candidate: { type: "string" } } };
+    expect(codes(incompatibleLoop)).toContain("CONTROL_OUTPUT_TYPE");
+
+    const branch = clone();
+    (branch.graph.nodes as FactoryNode[]).splice(1, 0, { id: "branch-output", kind: "branch", condition: { kind: "literal", value: true }, outputPorts: { selected: { type: "boolean" } }, then: { nodes: [], outputs: {} }, else: { nodes: [], outputs: {} } });
+    expect(codes(branch)).toContain("CONTROL_OUTPUT_MISSING");
+
+    const join = clone();
+    (join.graph.nodes as FactoryNode[]).splice(1, 0, { id: "join-output", kind: "join", mode: "all", predecessors: ["snapshot-repository"], outputPorts: {} });
+    expect(codes(join)).toContain("JOIN_OUTPUT");
+
+    const approval = clone();
+    (node(approval, "release-approval") as Extract<FactoryNode, { kind: "approval" }>).outputPorts = {};
+    expect(codes(approval)).toContain("APPROVAL_OUTPUT");
   });
 
   test("validates typed paths, scope references, nested outputs, and control sources", () => {

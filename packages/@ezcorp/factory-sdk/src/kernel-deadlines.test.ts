@@ -96,8 +96,10 @@ test("cancelling an active retry-enabled attempt never schedules a retry after s
 
 test("loop maxElapsedMs installs expiry, cancels its active child, then fails after stop", () => {
   const loop: Extract<FactoryNode, { readonly kind: "loop" }> = {
-    id: "loop", kind: "loop", initialInput: { kind: "literal", value: "seed" }, carriedSchema: { type: "string" }, resultSchema: { type: "string" },
-    body: { nodes: [{ id: "child", kind: "task", runner, deadlineMs: 100 }], outputs: {} },
+    id: "loop", kind: "loop", initialInput: { kind: "literal", value: "seed" }, carriedSchema: { type: "string" },
+    outputPorts: { result: { type: "string" } },
+    resultSchema: { type: "object", properties: { result: { type: "string" } }, required: ["result"], additionalProperties: false },
+    body: { nodes: [{ id: "child", kind: "task", runner, deadlineMs: 100, outputPorts: { result: { type: "string" } } }], outputs: { result: { kind: "ref", root: "node", name: "child", path: ["result"] } } },
     until: { kind: "literal", value: false }, nextInput: { kind: "literal", value: "seed" }, maxIterations: 10, maxElapsedMs: 5, onExhausted: "fail",
   };
   const graph = compiled([loop]);

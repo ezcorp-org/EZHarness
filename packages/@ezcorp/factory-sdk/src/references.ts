@@ -26,6 +26,13 @@ const artifactSchema: PortSchema = {
 const evidenceSchema: PortSchema = { type: "array", items: artifactSchema };
 const receiptSchema: PortSchema = { type: "object", additionalProperties: true };
 const stringSchema: PortSchema = { type: "string", minLength: 1 };
+const booleanSchema: PortSchema = { type: "boolean" };
+const mapOutcomeSchema = (value: PortSchema): PortSchema => ({
+  type: "object",
+  properties: { outcome: { type: "string", enum: ["succeeded", "failed"] }, value, error: { type: "string" } },
+  required: ["outcome"],
+  additionalProperties: false,
+});
 const repairResultSchema: PortSchema = {
   type: "object",
   properties: { accepted: { type: "boolean" }, candidate: artifactSchema },
@@ -96,8 +103,17 @@ export const referenceCodeV1: FactoryDefinition = baseDefinition(
   "reference.code.v1",
   {
     nodes: [
-      task("snapshot-repository", codeSnapshot, [], { snapshot: artifactSchema }),
-      { ...task("generate-private-candidate", codeGenerate, ["snapshot-repository"], { candidate: artifactSchema }, ["write"]), maxIterations: 12 },
+      {
+        ...task("snapshot-repository", codeSnapshot, [], { snapshot: artifactSchema }),
+        inputPorts: { repositoryConnection: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema },
+        bindings: { repositoryConnection: input("repositoryConnection"), baseCommitSha: input("baseCommitSha") },
+      },
+      {
+        ...task("generate-private-candidate", codeGenerate, ["snapshot-repository"], { candidate: artifactSchema }, ["write"]),
+        inputPorts: { snapshot: artifactSchema, request: stringSchema, baseBranch: stringSchema },
+        bindings: { snapshot: ref("snapshot-repository", "snapshot"), request: input("request"), baseBranch: input("baseBranch") },
+        maxIterations: 12,
+      },
       {
         id: "bounded-repair",
         kind: "loop",
@@ -106,19 +122,19 @@ export const referenceCodeV1: FactoryDefinition = baseDefinition(
         carriedSchema: artifactSchema,
         resultSchema: repairResultSchema,
         body: {
-          nodes: [{ ...task("repair-candidate", codeRepair, [], { result: repairResultSchema }, ["write"]), inputPorts: { candidate: artifactSchema }, bindings: { candidate: { kind: "ref", root: "loop", name: "carried" } } }],
-          outputs: { result: ref("repair-candidate", "result") },
+          nodes: [{ ...task("repair-candidate", codeRepair, [], { result: repairResultSchema }, ["write"]), inputPorts: { candidate: artifactSchema, request: stringSchema }, bindings: { candidate: { kind: "ref", root: "loop", name: "carried" }, request: input("request") } }],
+          outputs: { accepted: { kind: "ref", root: "node", name: "repair-candidate", path: ["result", "accepted"] }, candidate: { kind: "ref", root: "node", name: "repair-candidate", path: ["result", "candidate"] } },
         },
         until: { kind: "ref", root: "loop", name: "result", path: ["accepted"] },
         nextInput: { kind: "ref", root: "loop", name: "result", path: ["candidate"] },
         maxIterations: 3,
         maxElapsedMs: 6 * 60 * 60 * 1_000,
         onExhausted: "escalate",
-        outputPorts: { candidate: artifactSchema },
+        outputPorts: { accepted: booleanSchema, candidate: artifactSchema },
         effects: ["write"],
       },
-      task("freeze-complete-git-tree", codeFreeze, ["bounded-repair"], { candidate: artifactSchema }),
-      task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }),
+      { ...task("freeze-complete-git-tree", codeFreeze, ["bounded-repair"], { candidate: artifactSchema }), inputPorts: { candidate: artifactSchema, baseCommitSha: stringSchema }, bindings: { candidate: ref("bounded-repair", "candidate"), baseCommitSha: input("baseCommitSha") } },
+      { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "candidate") } },
       { id: "acceptance", kind: "acceptance", dependsOn: ["freeze-complete-git-tree", "protected-checks"], contract: "reference.code.v1.contract", candidate: ref("freeze-complete-git-tree", "candidate"), evidence: ref("protected-checks", "evidence"), maxRepairs: 2, outputPorts: { acceptedCandidate: artifactSchema } },
       { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
       { id: "github-pr-release", kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: githubRelease, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("destinationRepository"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },
@@ -158,30 +174,71 @@ const imageVisionTwo = runner("@ezcorp/reference-image-validator", "semanticEval
 const imageVisionThree = runner("@ezcorp/reference-image-validator", "semanticEvaluationThree", "c", "claude-haiku-4-5-20251001");
 const imageSelect = runner("@ezcorp/reference-image", "selectFirstAccepted", "d");
 const s3Release = runner("@ezcorp/s3-immutable-publish", "publish", "e");
+const imageRoundResultSchema: PortSchema = {
+  type: "object",
+  properties: { accepted: booleanSchema, candidate: artifactSchema, evidence: evidenceSchema, revisedPrompt: stringSchema },
+  required: ["accepted", "candidate", "evidence", "revisedPrompt"],
+  additionalProperties: false,
+};
 
 export const referenceImageV1: FactoryDefinition = baseDefinition(
   "reference.image.v1",
   {
     nodes: [
-      task("brief-snapshot", runner("@ezcorp/reference-image", "snapshotBrief", "f"), [], { brief: stringSchema }),
       {
-        id: "generate-four-seeds",
-        kind: "map",
+        ...task("brief-snapshot", runner("@ezcorp/reference-image", "snapshotBrief", "f"), [], { brief: stringSchema }),
+        inputPorts: { brief: stringSchema, outputName: stringSchema },
+        bindings: { brief: input("brief"), outputName: input("outputName") },
+      },
+      {
+        id: "candidate-rounds",
+        kind: "loop",
         dependsOn: ["brief-snapshot"],
-        collection: { kind: "literal", value: [11, 23, 37, 53] },
-        itemSchema: { type: "integer", enum: [11, 23, 37, 53] },
-        body: { nodes: [{ ...task("generate-seed", imageGenerate, [], { image: artifactSchema }, ["write"]), inputPorts: { seed: { type: "integer" } }, bindings: { seed: { kind: "ref", root: "map", name: "item" } } }], outputs: { image: ref("generate-seed", "image") } },
-        mode: "collect",
-        maxItems: 4,
-        maxConcurrency: 4,
-        outputPorts: { variants: { type: "array", items: { type: "object", additionalProperties: true }, maxItems: 4 } },
-        resources: { resourceClass: "gpu", maxComputeMs: 4 * 60 * 60 * 1_000 },
+        initialInput: ref("brief-snapshot", "brief"),
+        carriedSchema: stringSchema,
+        resultSchema: imageRoundResultSchema,
+        body: {
+          nodes: [
+            {
+              id: "generate-four-seeds",
+              kind: "map",
+              collection: { kind: "literal", value: [11, 23, 37, 53] },
+              itemSchema: { type: "integer", enum: [11, 23, 37, 53] },
+              body: {
+                nodes: [{
+                  ...task("generate-seed", imageGenerate, [], { image: artifactSchema }, ["write"]),
+                  inputPorts: { seed: { type: "integer" }, prompt: stringSchema, inferenceSteps: { type: "integer", const: 30 }, guidance: { type: "number", const: 7.5 }, width: { type: "integer", const: 1024 }, height: { type: "integer", const: 1024 } },
+                  bindings: { seed: { kind: "ref", root: "map", name: "item" }, prompt: { kind: "ref", root: "loop", name: "carried" }, inferenceSteps: { kind: "literal", value: 30 }, guidance: { kind: "literal", value: 7.5 }, width: { kind: "literal", value: 1024 }, height: { kind: "literal", value: 1024 } },
+                }],
+                outputs: { variants: ref("generate-seed", "image") },
+              },
+              mode: "collect",
+              maxItems: 4,
+              maxConcurrency: 4,
+              outputPorts: { variants: { type: "array", items: mapOutcomeSchema(artifactSchema), maxItems: 4 } },
+              resources: { resourceClass: "gpu", maxComputeMs: 4 * 60 * 60 * 1_000 },
+              effects: ["write"],
+            },
+            { ...task("normalize-png", imageNormalize, ["generate-four-seeds"], { variants: { type: "array", items: artifactSchema, maxItems: 4 } }, ["write"]), inputPorts: { variants: { type: "array", items: mapOutcomeSchema(artifactSchema), maxItems: 4 } }, bindings: { variants: ref("generate-four-seeds", "variants") } },
+            { ...task("protected-image-checks", imageValidate, ["normalize-png"], { evidence: evidenceSchema }), inputPorts: { variants: { type: "array", items: artifactSchema, maxItems: 4 } }, bindings: { variants: ref("normalize-png", "variants") } },
+            { ...task("choose-first-accepted", imageSelect, ["normalize-png", "protected-image-checks"], { result: imageRoundResultSchema }), inputPorts: { variants: { type: "array", items: artifactSchema, maxItems: 4 }, evidence: evidenceSchema, prompt: stringSchema }, bindings: { variants: ref("normalize-png", "variants"), evidence: ref("protected-image-checks", "evidence"), prompt: { kind: "ref", root: "loop", name: "carried" } } },
+          ],
+          outputs: {
+            accepted: { kind: "ref", root: "node", name: "choose-first-accepted", path: ["result", "accepted"] },
+            candidate: { kind: "ref", root: "node", name: "choose-first-accepted", path: ["result", "candidate"] },
+            evidence: { kind: "ref", root: "node", name: "choose-first-accepted", path: ["result", "evidence"] },
+            revisedPrompt: { kind: "ref", root: "node", name: "choose-first-accepted", path: ["result", "revisedPrompt"] },
+          },
+        },
+        until: { kind: "ref", root: "loop", name: "result", path: ["accepted"] },
+        nextInput: { kind: "ref", root: "loop", name: "result", path: ["revisedPrompt"] },
+        maxIterations: 2,
+        maxElapsedMs: 8 * 60 * 60 * 1_000,
+        onExhausted: "escalate",
+        outputPorts: { accepted: booleanSchema, candidate: artifactSchema, evidence: evidenceSchema, revisedPrompt: stringSchema },
         effects: ["write"],
       },
-      task("normalize-png", imageNormalize, ["generate-four-seeds"], { variants: { type: "array", items: artifactSchema, maxItems: 4 } }, ["write"]),
-      task("protected-image-checks", imageValidate, ["normalize-png"], { evidence: evidenceSchema }),
-      task("choose-first-accepted", imageSelect, ["normalize-png", "protected-image-checks"], { candidate: artifactSchema }),
-      { id: "acceptance", kind: "acceptance", dependsOn: ["choose-first-accepted", "protected-image-checks"], contract: "reference.image.v1.contract", candidate: ref("choose-first-accepted", "candidate"), evidence: ref("protected-image-checks", "evidence"), maxRepairs: 1, outputPorts: { acceptedCandidate: artifactSchema } },
+      { id: "acceptance", kind: "acceptance", dependsOn: ["candidate-rounds"], contract: "reference.image.v1.contract", candidate: ref("candidate-rounds", "candidate"), evidence: ref("candidate-rounds", "evidence"), maxRepairs: 1, outputPorts: { acceptedCandidate: artifactSchema } },
       { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
       { id: "s3-publication", kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: s3Release, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("destination"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },
     ],
@@ -213,11 +270,15 @@ export const referenceDataV1: FactoryDefinition = baseDefinition(
   "reference.data.v1",
   {
     nodes: [
-      task("input-snapshot", runner("@ezcorp/reference-data", "snapshotCsv", "e"), [], { snapshot: artifactSchema }),
-      task("parse-schema-validation", dataParse, ["input-snapshot"], { partitions: { type: "array", items: artifactSchema, maxItems: 100 } }),
-      { id: "transform-partitions", kind: "map", dependsOn: ["parse-schema-validation"], collection: ref("parse-schema-validation", "partitions"), itemSchema: artifactSchema, body: { nodes: [{ ...task("pyarrow-transform", dataTransform, [], { partition: artifactSchema }, ["write"]), inputPorts: { partition: artifactSchema }, bindings: { partition: { kind: "ref", root: "map", name: "item" } } }], outputs: { partition: ref("pyarrow-transform", "partition") } }, mode: "all", maxItems: 100, maxConcurrency: 32, effects: ["write"], outputPorts: { partitions: { type: "array", items: artifactSchema, maxItems: 100 } } },
-      task("ordered-reduction", dataReduce, ["transform-partitions"], { dataset: artifactSchema, manifest: artifactSchema }, ["write"]),
-      task("protected-reconciliation", dataValidate, ["input-snapshot", "ordered-reduction"], { evidence: evidenceSchema }),
+      { ...task("input-snapshot", runner("@ezcorp/reference-data", "snapshotCsv", "e"), [], { snapshot: artifactSchema }), inputPorts: { csv: artifactSchema }, bindings: { csv: input("csv") } },
+      {
+        ...task("parse-schema-validation", dataParse, ["input-snapshot"], { partitions: { type: "array", items: artifactSchema, maxItems: 100 } }),
+        inputPorts: { snapshot: artifactSchema, maximumRows: { type: "integer", const: 1_000_000 }, maximumBytes: { type: "integer", const: 256 * 1024 * 1024 }, partitionRows: { type: "integer", const: 10_000 } },
+        bindings: { snapshot: ref("input-snapshot", "snapshot"), maximumRows: { kind: "literal", value: 1_000_000 }, maximumBytes: { kind: "literal", value: 256 * 1024 * 1024 }, partitionRows: { kind: "literal", value: 10_000 } },
+      },
+      { id: "transform-partitions", kind: "map", dependsOn: ["parse-schema-validation"], collection: ref("parse-schema-validation", "partitions"), itemSchema: artifactSchema, body: { nodes: [{ ...task("pyarrow-transform", dataTransform, [], { partition: artifactSchema }, ["write"]), inputPorts: { partition: artifactSchema }, bindings: { partition: { kind: "ref", root: "map", name: "item" } } }], outputs: { partitions: ref("pyarrow-transform", "partition") } }, mode: "all", maxItems: 100, maxConcurrency: 32, effects: ["write"], outputPorts: { partitions: { type: "array", items: artifactSchema, maxItems: 100 } } },
+      { ...task("ordered-reduction", dataReduce, ["transform-partitions"], { dataset: artifactSchema, manifest: artifactSchema }, ["write"]), inputPorts: { partitions: { type: "array", items: artifactSchema, maxItems: 100 } }, bindings: { partitions: ref("transform-partitions", "partitions") } },
+      { ...task("protected-reconciliation", dataValidate, ["input-snapshot", "ordered-reduction"], { evidence: evidenceSchema }), inputPorts: { snapshot: artifactSchema, dataset: artifactSchema, manifest: artifactSchema }, bindings: { snapshot: ref("input-snapshot", "snapshot"), dataset: ref("ordered-reduction", "dataset"), manifest: ref("ordered-reduction", "manifest") } },
       { id: "acceptance", kind: "acceptance", dependsOn: ["ordered-reduction", "protected-reconciliation"], contract: "reference.data.v1.contract", candidate: ref("ordered-reduction", "dataset"), evidence: ref("protected-reconciliation", "evidence"), maxRepairs: 1, outputPorts: { acceptedCandidate: artifactSchema } },
       { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
       { id: "s3-export", kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: s3Release, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("destination"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },
@@ -241,25 +302,43 @@ const codeReference: FactoryReference = { id: referenceCodeV1.id, version: refer
 const imageReference: FactoryReference = { id: referenceImageV1.id, version: referenceImageV1.version, digest: digest("b") };
 const dataReference: FactoryReference = { id: referenceDataV1.id, version: referenceDataV1.version, digest: digest("c") };
 const catalogValidate = runner("@ezcorp/reference-catalog-validator", "protectedCatalogChecks", "d");
+const catalogPrepare = runner("@ezcorp/reference-catalog", "prepareCatalogRequest", "e");
+const githubDestinationSchema: PortSchema = {
+  type: "object",
+  properties: { repository: { type: "object", additionalProperties: true }, baseBranch: stringSchema },
+  required: ["repository", "baseBranch"],
+  additionalProperties: false,
+};
 
 export const referenceCatalogV1: FactoryDefinition = baseDefinition(
   "reference.catalog.v1",
   {
     nodes: [
-      { id: "accepted-data", kind: "subfactory", factory: dataReference, releaseMode: "none", grants: [], outputPorts: { artifact: artifactSchema, evidence: evidenceSchema } },
-      { id: "accepted-image", kind: "subfactory", factory: imageReference, releaseMode: "none", grants: [], outputPorts: { artifact: artifactSchema, evidence: evidenceSchema } },
-      { id: "static-catalog-code", kind: "subfactory", dependsOn: ["accepted-data", "accepted-image"], factory: codeReference, releaseMode: "none", grants: [], outputPorts: { candidate: artifactSchema } },
-      task("protected-catalog-tests", catalogValidate, ["static-catalog-code"], { evidence: evidenceSchema }),
+      { id: "accepted-data", kind: "subfactory", factory: dataReference, releaseMode: "none", grants: [], inputPorts: { csv: artifactSchema }, bindings: { csv: input("csv") }, outputPorts: { artifact: artifactSchema, evidence: evidenceSchema } },
+      { id: "accepted-image", kind: "subfactory", factory: imageReference, releaseMode: "none", grants: [], inputPorts: { brief: stringSchema, outputName: stringSchema }, bindings: { brief: input("brief"), outputName: { kind: "literal", value: "catalog-tree.png" } }, outputPorts: { artifact: artifactSchema, evidence: evidenceSchema } },
+      { ...task("prepare-catalog-request", catalogPrepare, ["accepted-data", "accepted-image"], { request: stringSchema }), inputPorts: { data: artifactSchema, image: artifactSchema }, bindings: { data: ref("accepted-data", "artifact"), image: ref("accepted-image", "artifact") } },
+      {
+        id: "static-catalog-code",
+        kind: "subfactory",
+        dependsOn: ["prepare-catalog-request"],
+        factory: codeReference,
+        releaseMode: "none",
+        grants: [],
+        inputPorts: { repositoryConnection: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema, request: stringSchema, destinationRepository: { type: "object", additionalProperties: true }, baseBranch: stringSchema },
+        bindings: { repositoryConnection: input("repository"), baseCommitSha: input("baseCommitSha"), request: ref("prepare-catalog-request", "request"), destinationRepository: { kind: "ref", root: "input", name: "githubDestination", path: ["repository"] }, baseBranch: { kind: "ref", root: "input", name: "githubDestination", path: ["baseBranch"] } },
+        outputPorts: { candidate: artifactSchema },
+      },
+      { ...task("protected-catalog-tests", catalogValidate, ["static-catalog-code"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("static-catalog-code", "candidate") } },
       { id: "acceptance", kind: "acceptance", dependsOn: ["static-catalog-code", "protected-catalog-tests"], contract: "reference.catalog.v1.contract", candidate: ref("static-catalog-code", "candidate"), evidence: ref("protected-catalog-tests", "evidence"), outputPorts: { acceptedCandidate: artifactSchema } },
       { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
       { id: "github-pr-release", kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: githubRelease, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("githubDestination"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },
     ],
     outputs: { receipt: ref("github-pr-release", "receipt") },
   },
-  { csv: artifactSchema, brief: stringSchema, repository: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema, githubDestination: { type: "object", additionalProperties: true } },
+  { csv: artifactSchema, brief: stringSchema, repository: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema, githubDestination: githubDestinationSchema },
   { receipt: receiptSchema },
   [claim("catalog-build", catalogValidate), claim("catalog-render", catalogValidate)],
-  [packageOf(catalogValidate), packageOf(githubRelease)],
+  [packageOf(catalogValidate), packageOf(catalogPrepare), packageOf(githubRelease)],
   [dataReference, imageReference, codeReference],
 );
 

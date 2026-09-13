@@ -146,7 +146,7 @@ test("empty map and loop bodies progress to their explicit empty output records"
     body: { nodes: [], outputs: { result: { kind: "literal", value: "empty-map-result" } } }, mode: "all", maxItems: 1, maxConcurrency: 1,
   };
   const loop: Extract<FactoryNode, { readonly kind: "loop" }> = {
-    id: "empty-loop", kind: "loop", initialInput: { kind: "literal", value: { value: "seed" } }, carriedSchema: { type: "object", properties: { value: string }, required: ["value"], additionalProperties: false }, resultSchema: { type: "object", properties: {}, additionalProperties: false },
+    id: "empty-loop", kind: "loop", initialInput: { kind: "literal", value: { value: "seed" } }, carriedSchema: { type: "object", properties: { value: string }, required: ["value"], additionalProperties: false }, resultSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
     outputPorts: {},
     body: { nodes: [], outputs: {} }, until: { kind: "literal", value: true }, nextInput: { kind: "literal", value: { value: "seed" } }, maxIterations: 1, maxElapsedMs: 100, onExhausted: "fail",
   };
@@ -170,7 +170,7 @@ test("a selected branch containing a map completes its nested scoped output", ()
     },
   };
   const branch: Extract<FactoryNode, { readonly kind: "branch" }> = {
-    id: "branch", kind: "branch", condition: { kind: "literal", value: true }, outputPorts: { result: { type: "array", items: string } },
+    id: "branch", kind: "branch", condition: { kind: "literal", value: true }, outputPorts: { result: { type: "array", items: { type: ["string", "null"] } } },
     then: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "nested-map", path: ["result"] } } },
     else: { nodes: [], outputs: { result: { kind: "literal", value: [] } } },
   };
