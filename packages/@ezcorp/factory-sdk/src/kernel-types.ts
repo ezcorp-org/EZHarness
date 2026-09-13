@@ -111,7 +111,7 @@ export interface KernelState {
   readonly scopes: Readonly<Record<string, KernelScopeState>>;
   readonly appliedEventIds: readonly string[];
   readonly unresolvedUncertainNodeIds: readonly string[];
-  readonly pendingRepair?: { readonly rootNodeId: string; readonly nodeIds: readonly string[]; readonly reason: string };
+  readonly pendingRepair?: { readonly rootNodeId: string; readonly nodeIds: readonly string[]; readonly aggregateIds: readonly string[]; readonly reason: string };
 }
 
 export interface KernelEventBase {

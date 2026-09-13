@@ -281,8 +281,18 @@ function applyRepair(factory: CompiledFactory, state: KernelState, event: Extrac
   if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
   // A repair cannot replay publication or turn remediation into new consent.
   if (node.kind === "approval" || node.kind === "release") return state;
+  const aggregateIds: string[] = [];
+  let childId = event.nodeId;
+  for (;;) {
+    const parentId = Object.values(state.scopes).find(scope => scope.nodeIds.includes(childId))?.parentNodeId;
+    if (!parentId) break;
+    const parent = state.nodes[parentId]!;
+    if (parent.loop && !event.nodeId.startsWith(`${parentId}/items/${parent.loop.iteration}/`)) return state;
+    aggregateIds.push(parentId);
+    childId = parentId;
+  }
   const affected = new Set<string>();
-  const queue = [event.nodeId];
+  const queue = [event.nodeId, ...aggregateIds.flatMap(id => successorsFor(factory, id))];
   for (let index = 0; index < queue.length; index += 1) {
     const id = queue[index]!;
     if (affected.has(id)) continue;
@@ -292,7 +302,7 @@ function applyRepair(factory: CompiledFactory, state: KernelState, event: Extrac
   }
   if ([...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)) return state;
   if ([...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain))) return state;
-  let next: KernelState = { ...state, pendingRepair: { rootNodeId: event.nodeId, nodeIds: [...affected], reason: event.reason } };
+  let next: KernelState = { ...state, pendingRepair: { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason } };
   for (const id of affected) next = cancelScope(next, id, commands, true);
   return completePendingRepair(factory, next, commands);
 }
@@ -303,16 +313,30 @@ function completePendingRepair(factory: CompiledFactory, state: KernelState, com
   let next = state;
   for (const id of repair.nodeIds) {
     const previous = state.nodes[id]!;
-    if (!Number.isSafeInteger(previous.candidateGeneration + 1)) throw new FactoryKernelError("candidate generation exhausted");
     next = withNode(next, id, {
-      status: id === repair.rootNodeId ? "ready" : "blocked", candidateGeneration: previous.candidateGeneration + 1, nextAttempt: 1, attempts: previous.attempts,
-      priorCandidates: (previous.priorCandidates ?? []).concat({ candidateGeneration: previous.candidateGeneration, status: previous.status, output: previous.output, error: previous.error }),
+      ...newCandidate(previous), status: id === repair.rootNodeId ? "ready" : "blocked",
     });
+  }
+  for (const id of repair.aggregateIds) {
+    const previous = state.nodes[id]!;
+    let map = previous.map;
+    if (map) {
+      const changed = new Set(repair.nodeIds.filter(child => child.startsWith(`${id}/items/`)).map(child => Number(child.slice(`${id}/items/`.length).split("/")[0])));
+      map = { ...map, completedIndexes: map.completedIndexes.filter(index => !changed.has(index)), failedIndexes: map.failedIndexes.filter(index => !changed.has(index)), outcomes: map.outcomes.map((outcome, index) => changed.has(index) ? undefined : outcome) };
+    }
+    next = withNode(next, id, { ...newCandidate(previous), status: "waiting", waitingReason: "external_reconciliation", selected: previous.selected, map, loop: previous.loop, timer: previous.timer });
+    const definition = nodeFor(factory, id)!;
+    if (definition.kind === "loop" && previous.loop && !previous.timer) next = scheduleTimer(next, id, Math.min(state.runDeadlineAtMs, previous.loop.startedAtMs + definition.maxElapsedMs), "deadline", commands);
   }
   const scopes = { ...next.scopes };
   for (const [id, scope] of Object.entries(scopes)) if (scope.parentNodeId && repair.nodeIds.includes(scope.parentNodeId)) delete scopes[id];
   next = { ...next, scopes, pendingRepair: undefined, status: "running" };
   return activateReady(factory, next, commands, [repair.rootNodeId]);
+}
+
+function newCandidate(previous: KernelNodeState): KernelNodeState {
+  if (!Number.isSafeInteger(previous.candidateGeneration + 1)) throw new FactoryKernelError("candidate generation exhausted");
+  return { status: "blocked", candidateGeneration: previous.candidateGeneration + 1, nextAttempt: 1, attempts: previous.attempts, priorCandidates: (previous.priorCandidates ?? []).concat({ candidateGeneration: previous.candidateGeneration, status: previous.status, output: previous.output, error: previous.error }) };
 }
 
 function activateReady(factory: CompiledFactory, state: KernelState, commands: KernelCommand[], candidates?: readonly string[]): KernelState {
@@ -551,6 +575,7 @@ function beginStopping(state: KernelState, reason: string, commands: KernelComma
 }
 
 function finish(factory: CompiledFactory, state: KernelState, commands: KernelCommand[]): AdvanceResult {
+  if (state.pendingRepair) return { nextState: state, commands };
   if (state.status === "stopping") {
     if (Object.values(state.nodes).some((node) => node.attempts.some((attempt) => !attempt.stopped) || node.attempts.some((attempt) => attempt.uncertain))) return { nextState: state, commands };
     const cancelled = state.stopKind === "cancelled";
