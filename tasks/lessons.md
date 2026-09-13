@@ -476,3 +476,12 @@
 ## Producer source freeze
 
 - Do not queue a coverage or integration producer until all source, tests, registration, and gate edits are complete. If the source changes while my own producer waits for the shared heavy lock, cancel only my queued producer and restart it from the final source snapshot.
+## 2026-09-13 — Durable input validation
+
+- A durable artifact descriptor cannot be validated through a placeholder JSON value. Validate its immutable host facts separately, and validate only inline parameters against workflow port schemas until a recorded bounded read resolves an artifact field.
+
+## 2026-09-13 — Command reply identity
+- Keep response event identity in the agreed command-derived form when retries and records already use it; do not substitute a new hash only for defensive length concerns.
+
+## 2026-09-13 — Async partition test liveness
+- For a cross-partition Temporal assertion, wait for the recorded delivery activity to finish before querying the target state. Polling a target before the source effect is scheduled tests host timing, not invalidation behavior.
