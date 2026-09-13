@@ -291,6 +291,7 @@
   "src/extensions/project-pr-broker.ts": 100,
   "src/extensions/project-open-pr.ts": 100,
   "src/extensions/project-pull-request-broker.ts": 100,
+  "src/extensions/project-github-transport.ts": 100,
   "src/extensions/project-consent.ts": 100,
   "web/src/routes/api/__test/project-proposal/+server.ts": 100,
   "web/src/routes/(app)/extensions/project-proposals/[id]/+page.server.ts": 100,

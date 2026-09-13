@@ -1905,3 +1905,12 @@ Plan review: reuse the existing release store, broker credential/egress boundary
 Review: pending.
 
 Receipt verification review: the original reconciliation test resolved a fabricated receipt as success. The store now requires bounded provider confirmation before any archive or success mutation. S3 derives the expected receipt from the exact returned object version, digest, and media type, then compares all receipt fields. Uncertainty survives rejection and timeout. The focused store/adapter/application run passes 24 tests / 161 assertions; PostgreSQL passes 15 tests / 99 assertions; all four type checks, lint, boundaries, and gate integrity pass. Live S3 uses all ten tenant identities: ten publications, ten archived receipts, ten verified receipts, forty rejected altered receipts, and three foreign-access denials. A subsequent adapter test also proves the old exact version remains verifiable after the current object changes and that a media-type mismatch fails. Adapter coverage is 101/101 lines and 28/28 functions. Raw results: /tmp/factory-platform-evidence/root-provider-receipt-final-combined-integration-results.json, root-provider-receipt-version-final.log, and root-provider-receipt-s3-live.json. Final committed patch checks and parent integration remain pending.
+
+## Shared GitHub publication transport — root
+
+- [x] Extract the existing project broker's host credential, authorization, bounded egress, and no-retry behavior into one shared transport.
+- [x] Prove request capture, foreign-path denial, credential/error containment, and all prior pull-request decision behavior.
+- [x] Pass four type checks, lint, gate integrity, and factory boundaries.
+- [ ] Pass committed patch/new-file coverage and merged parent tests.
+
+Review: eleven existing/new broker transport tests pass with 71 assertions. The shared transport measures 18/18 lines and 5/5 functions; its explicit floor is 100. Test evidence: /tmp/factory-platform-evidence/root-github-transport-red.log, root-github-transport-green.log, root-github-transport-coverage/lcov.info, and root-github-transport-final-combined-integration-results.json. The GitHub immutable branch/PR provider, async manifest resolver, and real publication proof remain the next leaf.
