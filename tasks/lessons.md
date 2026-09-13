@@ -510,6 +510,14 @@
 - A sealed child binding pins the parent command and its attempt, not the parent audit head. Recheck that exact command against the latest verified parent state; unrelated timers, sibling results, and approvals may advance the head while the child remains valid.
 - Idempotent settlement must reread the binding after budget locks. A concurrent winner can change open to settled while the loser waits; return its same durable receipt instead of reporting a conflict.
 
+## 2026-09-13 — Runner boundary scope
+
+- `FactoryRunnerSupervisor.invoke` is a single-tool journal adapter. Never present it as a complete `TrustedFactoryRunner.run` implementation or use it to prove full C02 request execution.
+- Package preparation may prove exact v4 build and artifact hydration. The durable dispatcher remains responsible for claim, token minting, and complete request execution.
+
+## 2026-09-13 — Schema migration parity
+
+- For every migration default, model the same default in `schema.ts`. Run the canonical schema parity test; focused feature tests do not detect a missing ORM default.
 - When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
 - Before importing a support commit into an older isolated worktree, compare its parent ancestry with the worktree base. If the support commit depends on intermediate modules, merge the validated descendant that contains the full ancestry instead of cherry-picking the leaf alone.
 # Generic approval currentness (2026-09-13)
@@ -520,3 +528,13 @@
 ## 2026-09-13 — Partition command batches
 
 - Do not use the simultaneous-activity limit as a persisted command-batch limit. A valid partition can emit more commands than it executes at once. Test real published partition transitions through product storage, not only an in-memory Temporal activity fixture.
+
+## 2026-09-13 — Preparation receipts need durable authority
+
+- Do not populate an in-memory readiness cache until the enclosing database transaction has committed. Return only immutable snapshots; a rollback must not expose a receipt.
+- A claimed two-phase operation needs a durable intent before external work. Read checks alone are not an intent.
+- Do not reuse one project-wide package lock for a graph with several pinned runner references. Each prepared reference needs its own revocable trust fact and readiness check.
+- Keep comments aligned with the accepted transport seam. Dispatcher readiness runs after durable claim and before token minting.
+# Package trust identity — 2026-09-13
+
+- When a public reference accepts optional identity fields, every database key and foreign key must use the canonical complete reference. A seal alone does not prevent row collisions.

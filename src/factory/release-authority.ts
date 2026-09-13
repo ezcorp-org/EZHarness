@@ -213,6 +213,12 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     return { candidateGeneration: authority.candidateGeneration, candidateDigest: terminal.candidateDigest, pointerRevision };
   }
 
+  /** Reads the sealed active package trust inside an existing product transaction. */
+  async readActiveTrustInTransaction(transaction: MigrationDb, projectId: string): Promise<FactoryReleaseTrustRecord> {
+    assertFactoryIdentity(projectId);
+    return this.requireTrust(transaction, projectId, "update", true);
+  }
+
   async lockCurrentInTransaction(transaction: MigrationDb, tenantId: string, projectId: string, runId: string, nodeInstanceId: string): Promise<FactoryReleaseAuthority> {
     if (tenantId !== this.tenantId) throw new FactoryReleaseAuthorityError("factory_release_authority_scope");
     assertFactoryIdentity(projectId, runId, nodeInstanceId);

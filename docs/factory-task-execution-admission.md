@@ -9,7 +9,7 @@
 
 The attempt ID is the immutable dispatch command ID. The reservation ID is `factoryTaskReservationId`. The stored deadline is the original pool lease deadline. An exact retry returns the committed runner identity, including its original cursor and deadline. A changed runner policy, request identity, allocation fence, run fence, or command fails closed.
 
-The product database never stores a bearer token in this path. The runner dispatcher must mint a fresh, short-lived attempt token after it claims the queue entry.
+The product database never stores a bearer token in this path. After it claims the queue entry and before it mints a fresh, short-lived attempt token, the dispatcher reads the current prepared-package receipt for the exact runner tuple. A missing receipt may retry preparation. A revoked, stale, corrupt, foreign, or untrusted receipt denies dispatch. The dispatcher does not perform package preparation or use a process-local readiness cache.
 
 `FactoryNativeRunnerPolicy` is the strict production resolver for the built-in native runner. Boot supplies exact runner profiles from trusted operator configuration. Each profile fixes the package pin, resource ceiling, allowed capabilities, optional model configuration and policy digests, and capability-bound tool declarations. Admission rechecks the initiator's current `factory.run` grant and requires the package to match both the compiled dependency lock and a configured profile. It uses the admitted compute budget and memory ceiling in the durable runner request.
 

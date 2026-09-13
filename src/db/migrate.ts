@@ -3085,4 +3085,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryTaskCompletions(db);
   const { up: addFactoryValidatorMaterials } = await import("./migrations/add-factory-validator-materials");
   await addFactoryValidatorMaterials(db);
+  const { up: addFactoryPackagePreparations } = await import("./migrations/add-factory-package-preparations");
+  await addFactoryPackagePreparations(db);
 }

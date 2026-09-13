@@ -1805,3 +1805,28 @@ Partition batch correction review: 60 focused product/artifact/private-service t
 - [x] Pass static and committed patch/new-file coverage gates.
 
 Review: source 0c7219dca passed 61 product tests / 750 assertions and 50 PostgreSQL/S3/schema tests / 2,775 assertions. Type checks found only an inferred optional undefined output port in the new authority fixture. Correction cf4984b49 passed all four type legs, lint, boundaries, and gate integrity. Merged patch/new-file coverage against fa47daaaf passed. Receipts: /tmp/factory-platform-evidence/root-partition-authority-parent-integration-results.json, root-partition-authority-types-remainder-integration-results.json, and root-partition-authority-parent-coverage-results.json. The new end-to-end partition delivery adapter is still under test; its repair trace exposed a separate kernel generation notification defect.
+## C05 factory v4 package preparation — Terra
+
+- [x] Include the complete canonical runner reference in every preparation identity and prove independent configuration revocation.
+- [x] Replace C04 release trust and local readiness with tuple-scoped runner trust and durable receipt facts.
+- [x] Seal durable build intents before external work; recover the same build identity after restart.
+- [x] Prove independent runner-tuple revocation and all required storage/runner gates.
+- [ ] Define the scoped immutable v4 release mapping and sealed receipt schema.
+- [ ] Add a production catalog adapter that reads the existing v4 repository and blob store without copying release storage.
+- [ ] Create a two-phase preparation flow: durable intent, out-of-transaction RunnerClient build/collect, then revalidated receipt commit.
+- [ ] Wrap the existing trusted runner so dispatch requires a matching current prepared receipt and cannot run after trust or grant revocation.
+- [ ] Prove PGlite, PostgreSQL/S3, real Podman preparation/recovery, revocation, coverage, SDK build, type checks, and lint.
+
+Plan review: v4 source and artifacts remain in the established immutable repository. Factory state records only the scoped source mapping, the exact trust revision, and the verified local build receipt. No runner build or blob read occurs under a product transaction.
+
+Correction review: `FactoryPackageTrusts` stores a sealed revision and current pointer for each complete runner tuple. It uses the existing factory mutation, audit, human tenant-administrator, and `factory.trust` grant rules; C04 release trust remains unchanged. A receipt is now the only readiness fact. Before any external build, preparation commits one sealed intent containing the exact binding authority plus release, source, artifact, image, manifest, evidence, trust, entrypoint, and build facts. A restart uses that same build identity; receipt insertion and intent completion are one transaction. The focused PGlite migration/flow proof passes 3 cases and 27 assertions, PostgreSQL plus ordinary S3 passes 2 cases and 26 assertions, and real Podman passes 1 case. The PGlite proof simulates a process crash after intent persistence, checks restart identity, prepares two tuple exports concurrently, and revokes only the first while the second remains ready. Focused coverage is 84/84 package-preparation and 14/14 migration executable lines at `/tmp/factory-platform-evidence/terra-c05-package-trust-coverage/lcov.info`. All four typecheck legs, lint, factory boundaries, and gate integrity pass; lint reports eight existing infos.
+
+Full-reference correction: every package preparation primary key and foreign key now includes the canonical reference digest, and bindings preserve canonical reference JSON for validation. The PGlite and PostgreSQL/S3 flows use the same package/export with a different model and configuration digest, prepare both concurrently, then revoke one while the other remains ready. Final coverage is 87/87 package-preparation and 14/14 migration executable lines at `/tmp/factory-platform-evidence/terra-c05-package-trust-full-reference-coverage/lcov.info`.
+
+## C02 fresh Bun/Python launcher — Terra
+
+- [ ] Map the native runner, Python process, V4 package receipt, pool, task completion, and dispatcher seams.
+- [ ] Agree the trusted run request, result, artifact, usage, checkpoint, reattach, and pool lifecycle contract.
+- [ ] Implement one fresh isolated Bun/Python attempt launcher with receipt readiness and broker-only effects.
+- [ ] Prove real CPU no-GPU fail-closed, Podman/Python execution and recovery, then supported AMD GPU execution for the first ten local installations.
+- [ ] Run focused coverage, PostgreSQL/S3, canonical static checks, and lint.
