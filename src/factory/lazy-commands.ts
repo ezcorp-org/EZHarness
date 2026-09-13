@@ -72,12 +72,12 @@ export class FactoryLazyCommands {
   }
 
   private valueBudget(context: FactoryAuthorizedInputCommand, command: InputValueCommand, artifact: FactoryArtifactReference): number {
-    const skeleton: KernelEvent = { kind: "input-value-read", id: eventId(command), atMs: context.state.nowMs, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: command.path, storageVersion: "storage-version", mediaType: "application/json", value: null };
+    const skeleton: KernelEvent = { kind: "input-value-read", id: eventId(command), atMs: context.state.nowMs, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: command.path, storageVersion: "v".repeat(512), mediaType: "application/json", value: null };
     return this.payloadBudget(command.maxBytes, skeleton);
   }
 
   private pageBudget(context: FactoryAuthorizedInputCommand, command: InputPageCommand, artifact: FactoryArtifactReference): number {
-    const skeleton: KernelEvent = { kind: "input-page-read", id: eventId(command), atMs: context.state.nowMs, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: command.path, storageVersion: "storage-version", mediaType: "application/json", cursor: command.cursor, maxItems: command.maxItems, items: [], nextCursor: Number.MAX_SAFE_INTEGER };
+    const skeleton: KernelEvent = { kind: "input-page-read", id: eventId(command), atMs: context.state.nowMs, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: command.path, storageVersion: "v".repeat(512), mediaType: "application/json", cursor: command.cursor, maxItems: command.maxItems, items: [], nextCursor: Number.MAX_SAFE_INTEGER };
     return this.payloadBudget(command.maxBytes, skeleton);
   }
 
