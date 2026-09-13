@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { referenceCodeV1, validateFactoryApiResponse, createKernelState, advanceKernel, type FactoryDefinition, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, validateFactoryApiResponse, createKernelState, advanceKernel, type FactoryDefinition, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
@@ -23,6 +23,8 @@ import { FactoryExecutionJournal } from "../../factory/executions";
 import { FactoryAttemptQueue } from "../../factory/attempt-queue";
 import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admission";
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "../../factory/native-runner-policy";
+import { FactoryAttemptDispatcher } from "../../factory/attempt-dispatcher";
+import { verifyFactoryAttemptToken } from "../../factory/attempt-token";
 import { FactoryInbox } from "../../factory/inbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
 import { FactoryAssuranceCommands } from "../../factory/assurance-commands";
@@ -53,6 +55,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   const runKey = (runId: string) => ({ projectId, runId });
   const startRun = async (...args: Parameters<FactoryRunLifecycle["start"]>) => (await lifecycle.start(...args)).run;
   const cancelRun = async (...args: Parameters<FactoryRunLifecycle["cancel"]>) => (await lifecycle.cancel(...args)).run;
+  const dispatchReady = { async assertDispatchReady() { return Object.freeze({ ready: true }); } };
+  const dispatchReadinessDisposition = (error: unknown): "retry" | "deny" => error instanceof Error && error.message === "package denied" ? "deny" : "retry";
   const start = () => startRun(principal, key, body, 0, `start-${++sequence}`);
   const taskAdmissions = (authority: FactoryCommandAuthority, profiles: Readonly<Record<string, FactoryTaskResourceProfile>>) => {
     const unavailable = async (): Promise<never> => { throw new Error("This fixture admits product facts without calling a remote pool."); };
@@ -151,6 +155,13 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const item = visible.items.find(value => value.kind === "command_approval_requested" && value.runId === run.runId);
     if (item?.kind !== "command_approval_requested") throw new Error("missing command approval notification");
     return { ...current, approvals, command, item, reference, releases, run };
+  };
+  const persistCompletedTask = async (task: Awaited<ReturnType<typeof dispatchedTask>>, receipt: import("../../factory/task-completions").FactoryTaskCompletionReceipt) => {
+    const advanced = advanceKernel(task.compiled, task.next.nextState, receipt.event);
+    await persistTransition(task.identity, 3, receipt.event, advanced.nextState, advanced.commands, undefined, task.activities);
+    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId))).toMatchObject({ sequence: 3, lag: 0 });
+    return advanced;
+
   };
   beforeAll(async () => {
     fixture = await create();
@@ -388,10 +399,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, task.dispatchReference))).toEqual(completed);
     expect(completed.event).toMatchObject({ kind: "node-result", commandId: task.dispatch.id, nodeId: task.dispatch.nodeId, candidateGeneration: 0, output: value });
     expect(await lifecycle.budgets.inspect({ projectId, runId: task.run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "0", tokens: "0", computeMs: "0" }, spent: { costMicros: "4", tokens: "3", computeMs: "3" } });
-    const advanced = advanceKernel(task.compiled, task.next.nextState, completed.event);
+    const advanced = await persistCompletedTask(task, completed);
     expect(advanced.nextState.nodes[task.dispatch.nodeId]?.status).toBe("succeeded");
-    await persistTransition(task.identity, 3, completed.event, advanced.nextState, advanced.commands, undefined, task.activities);
-    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId))).toMatchObject({ sequence: 3, lag: 0 });
     expect(await completions.complete(task.service, task.dispatchReference, result)).toEqual(completed);
     await expect(completions.complete(task.service, task.dispatchReference, { ...result, resultDigest: "e".repeat(64) })).rejects.toMatchObject({ code: "factory_task_completion_conflict" });
     const receipt = rows<{ receipt_json: string }>(await fixture.db.execute(sql`SELECT receipt_json FROM factory_task_completions WHERE attempt_id=${task.dispatch.id}`))[0]!;
@@ -399,6 +408,186 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     try { await expect(completions.complete(task.service, task.dispatchReference, result)).rejects.toMatchObject({ code: "factory_task_completion_corrupt" }); }
     finally { await fixture.db.execute(sql`UPDATE factory_task_completions SET receipt_json=${receipt.receipt_json} WHERE attempt_id=${task.dispatch.id}`); }
     expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${task.run.runId} AND event_id=${completed.event.id}`))).toHaveLength(1);
+    const completionDelivery = await task.queue.read(projectId, task.dispatch.id);
+    if (!completionDelivery) throw new Error("completed attempt queue row is missing");
+    await fixture.db.transaction(transaction => task.queue.recoverDeliveredInTransaction(transaction, completionDelivery));
+  });
+
+  test("attempt dispatcher mints one fresh authority and atomically commits a successful result", async () => {
+    const { task, completions, admitted, result } = await completedTask();
+    let runnerCalls = 0;
+    const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { async run(request) {
+      runnerCalls++;
+      const verified = await verifyFactoryAttemptToken(request.broker.attemptToken, "dispatcher-secret", "dispatcher-installation");
+      expect(verified).toMatchObject({ attemptId: task.dispatch.id, tenantId, projectId, runId: task.run.runId, nodeInstanceId: task.dispatch.nodeId, requestDigest: admitted.delivery.reference.requestDigest });
+      expect(request.broker.audience).toBe("factory-broker");
+      return result;
+    } }, completions, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 1_000 });
+    expect(admitted.delivery.reference.command).toEqual(task.dispatchReference);
+    const dispatched = await dispatcher.dispatchOne();
+    expect(dispatched).toMatchObject({ kind: "completed", attemptId: task.dispatch.id, recovered: false, receipt: { reservationId: task.reserved.reservationId } });
+    expect(runnerCalls).toBe(1);
+    expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "delivered" });
+    expect(await dispatcher.dispatchOne()).toEqual({ kind: "idle" });
+    expect(rows<{ request_json: string }>(await fixture.db.execute(sql`SELECT request_json::text AS request_json FROM factory_executions WHERE attempt_id=${task.dispatch.id}`))[0]!.request_json).not.toContain("dispatcher-secret");
+    expect(rows<{ reference_json: string }>(await fixture.db.execute(sql`SELECT reference_json::text AS reference_json FROM factory_attempt_queue WHERE attempt_id=${task.dispatch.id}`))[0]!.reference_json).not.toContain("attemptToken");
+    if (dispatched.kind === "completed") await persistCompletedTask(task, dispatched.receipt);
+  });
+
+  test("attempt dispatcher recovers a sealed completion without launching the runner", async () => {
+    const { task, completions, result } = await completedTask();
+    const receipt = await completions.complete(task.service, task.dispatchReference, result);
+    await fixture.db.execute(sql`UPDATE factory_attempt_queue SET state='outcome_unknown',failure_code='response_lost' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND attempt_id=${task.dispatch.id}`);
+    const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { async run() { throw new Error("runner must not relaunch"); } }, completions, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
+    expect(await dispatcher.dispatchOne()).toEqual({ kind: "completed", attemptId: task.dispatch.id, recovered: true, receipt });
+    const recovered = await task.queue.read(projectId, task.dispatch.id);
+    expect(recovered?.state).toBe("delivered");
+    expect(recovered?.failureCode).toBeUndefined();
+    await persistCompletedTask(task, receipt);
+  });
+
+  test("attempt dispatcher resolves a lost commit response from its sealed receipt", async () => {
+    const { task, completions, result } = await completedTask();
+    let transactions = 0;
+    const responseLossDatabase: TransactionalDb = {
+      execute: query => fixture.db.execute(query),
+      async transaction(work) {
+        const value = await fixture.db.transaction(work);
+        transactions++;
+        if (transactions === 3) throw new Error("completion response lost");
+        return value;
+      },
+    };
+    const queue = new FactoryAttemptQueue(responseLossDatabase, task.journal, tenantId, () => now);
+    const dispatcher = new FactoryAttemptDispatcher(responseLossDatabase, queue, { run: async () => result }, completions, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 1_000 });
+    const dispatched = await dispatcher.dispatchOne();
+    expect(dispatched).toMatchObject({ kind: "completed", attemptId: task.dispatch.id, recovered: true });
+    expect(transactions).toBe(4);
+    expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "delivered" });
+    const readReceipt = await fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, task.dispatchReference));
+    expect(readReceipt).toBeDefined();
+    expect(await completions.complete(task.service, task.dispatchReference, result)).toEqual(readReceipt!);
+    if (dispatched.kind === "completed") await persistCompletedTask(task, dispatched.receipt);
+  });
+
+  test("attempt dispatcher rejects corrupt completion candidates instead of hiding them", async () => {
+    const { task, completions, result } = await completedTask();
+    const receipt = await completions.complete(task.service, task.dispatchReference, result);
+    await fixture.db.execute(sql`UPDATE factory_attempt_queue SET state='outcome_unknown',reference_json='{}' WHERE attempt_id=${task.dispatch.id}`);
+    await expect(task.queue.completionCandidates()).rejects.toMatchObject({ code: "factory_attempt_corrupt" });
+    await expect(task.queue.completionCandidates(0)).rejects.toMatchObject({ code: "factory_attempt_scan_invalid" });
+    await fixture.db.execute(sql`UPDATE factory_attempt_queue SET state='delivered' WHERE attempt_id=${task.dispatch.id}`);
+    await persistCompletedTask(task, receipt);
+  });
+
+  test("attempt dispatcher never repeats failed, cancelled, uncertain, invalid, or lost execution outcomes", async () => {
+    const cases: Array<{ expected: "failed" | "cancelled" | "outcome_unknown"; result(base: Awaited<ReturnType<typeof completedTask>>["result"]): FactoryRunnerResult }> = [
+      { expected: "failed", result: base => ({ schemaVersion: base.schemaVersion, status: "failed", journalCursor: base.journalCursor, operations: base.operations, resultDigest: "e".repeat(64), error: { code: "RUNNER_FAILED", message: "runner failed", retryable: false }, usage: base.usage, workspaceCheckpoint: base.workspaceCheckpoint }) },
+      { expected: "cancelled", result: base => ({ schemaVersion: base.schemaVersion, status: "cancelled", journalCursor: base.journalCursor, operations: base.operations, usage: base.usage, workspaceCheckpoint: base.workspaceCheckpoint }) },
+      { expected: "outcome_unknown", result: base => ({ schemaVersion: base.schemaVersion, status: "uncertain", journalCursor: base.journalCursor, operations: [], providerReceiptDigest: "f".repeat(64), usage: { kind: "unknown", reason: "provider receipt pending", heldCostMicros: "4" }, workspaceCheckpoint: base.workspaceCheckpoint }) },
+    ];
+    for (const testCase of cases) {
+      const { task, completions, result } = await completedTask();
+      let calls = 0;
+      const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { async run() { calls++; return testCase.result(result); } }, completions, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
+      expect(await dispatcher.dispatchOne()).toEqual({ kind: testCase.expected, attemptId: task.dispatch.id });
+      expect(calls).toBe(1);
+      expect(await dispatcher.dispatchOne()).toEqual({ kind: "idle" });
+      expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "outcome_unknown" });
+      expect(await lifecycle.budgets.inspect({ projectId, runId: task.run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "5" }, spent: { costMicros: "0" } });
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+    }
+
+    for (const mode of ["throw", "invalid", "completion"] as const) {
+      const { task, completions, result } = await completedTask();
+      const runner = mode === "throw" ? { async run(): Promise<FactoryRunnerResult> { throw new Error("connection outcome lost"); } }
+        : { async run(): Promise<FactoryRunnerResult> { return mode === "invalid" ? { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: -2, operations: [] } : result; } };
+      let completionReads = 0;
+      const completionStore = mode === "completion" ? {
+        async readInTransaction(...args: Parameters<typeof completions.readInTransaction>) {
+          if (completionReads++ > 0) throw new Error("completion receipt unavailable");
+          return completions.readInTransaction(...args);
+        },
+        async completeInTransaction(): Promise<never> { throw new Error("completion store unavailable"); },
+      } : completions;
+      const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, runner, completionStore, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
+      expect(await dispatcher.dispatchOne()).toEqual({ kind: "outcome_unknown", attemptId: task.dispatch.id });
+      expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "outcome_unknown" });
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+    }
+  });
+
+  test("attempt dispatcher retries only before runner invocation and survives an expired owner", async () => {
+    const tokenFailure = await completedTask();
+    let runnerCalls = 0;
+    const signerFailure = new FactoryAttemptDispatcher(fixture.db, tokenFailure.task.queue, { async run() { runnerCalls++; return tokenFailure.result; } }, tokenFailure.completions, dispatchReady, dispatchReadinessDisposition, { service: tokenFailure.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 100 }, async () => { throw new Error("signer unavailable"); });
+    expect(await signerFailure.dispatchOne()).toEqual({ kind: "retry", attemptId: tokenFailure.task.dispatch.id });
+    expect(runnerCalls).toBe(0);
+    expect(await tokenFailure.task.queue.read(projectId, tokenFailure.task.dispatch.id)).toMatchObject({ state: "queued", failureCode: "attempt_token_unavailable" });
+    now += 1_000;
+    expect(await tokenFailure.task.queue.claim()).toBeNull();
+    expect(await tokenFailure.task.queue.read(projectId, tokenFailure.task.dispatch.id)).toMatchObject({ state: "cancelled", failureCode: "authority_rejected" });
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, tokenFailure.task.transitions, lifecycle).project(runKey(tokenFailure.task.run.runId));
+    const expired = await completedTask();
+    const dispatcher = new FactoryAttemptDispatcher(fixture.db, expired.task.queue, { async run() {
+      now += 301_000;
+      expect(await expired.task.queue.claim()).toBeNull();
+      return { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: -1, operations: [] };
+    } }, expired.completions, dispatchReady, dispatchReadinessDisposition, { service: expired.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 300_000 });
+    expect(await dispatcher.dispatchOne()).toEqual({ kind: "cancelled", attemptId: expired.task.dispatch.id });
+    expect(await expired.task.queue.read(projectId, expired.task.dispatch.id)).toMatchObject({ state: "outcome_unknown", failureCode: "worker_lease_expired" });
+    for (const options of [
+      { service: { ...expired.task.service, tenantId: "foreign" }, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" },
+      { service: expired.task.service, installationId: "", attemptTokenSecret: "dispatcher-secret" },
+      { service: expired.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "", attemptTokenLifetimeSeconds: 0 },
+      { service: expired.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 300_001 },
+    ]) expect(() => new FactoryAttemptDispatcher(fixture.db, expired.task.queue, { run: async () => expired.result }, expired.completions, dispatchReady, dispatchReadinessDisposition, options)).toThrow("configuration is invalid");
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, expired.task.transitions, lifecycle).project(runKey(expired.task.run.runId));
+  });
+
+  test("attempt dispatcher settles package readiness before token mint or execution", async () => {
+    for (const expected of ["retry", "cancelled"] as const) {
+      const { task, completions, admitted, result } = await completedTask();
+      let readinessCalls = 0;
+      let signerCalls = 0;
+      let runnerCalls = 0;
+      const message = expected === "retry" ? "package pending" : "package denied";
+      const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, { async run() { runnerCalls++; return result; } }, completions, {
+        async assertDispatchReady(request) {
+          readinessCalls++;
+          expect(request).toEqual({ authority: admitted.request.authority, runner: admitted.request.runner });
+          throw new Error(message);
+        },
+      }, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" }, async () => {
+        signerCalls++;
+        return "unreachable";
+      });
+      expect(await dispatcher.dispatchOne()).toEqual({ kind: expected, attemptId: task.dispatch.id });
+      expect({ readinessCalls, signerCalls, runnerCalls }).toEqual({ readinessCalls: 1, signerCalls: 0, runnerCalls: 0 });
+      expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: expected === "retry" ? "queued" : "cancelled", failureCode: expected === "retry" ? "runner_package_not_ready" : "runner_package_denied" });
+      expect(await lifecycle.budgets.inspect({ projectId, runId: task.run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "5" }, spent: { costMicros: "0" } });
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+    }
+  });
+
+  test("attempt dispatcher fails closed before execution when recovery or minted authority is invalid", async () => {
+    const unavailable = await completedTask();
+    let runnerCalls = 0;
+    const unreadable = new FactoryAttemptDispatcher(fixture.db, unavailable.task.queue, { async run() { runnerCalls++; return unavailable.result; } }, {
+      async readInTransaction(): Promise<never> { throw new Error("completion store unavailable"); },
+      completeInTransaction: unavailable.completions.completeInTransaction.bind(unavailable.completions),
+    }, dispatchReady, dispatchReadinessDisposition, { service: unavailable.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
+    expect(await unreadable.dispatchOne()).toEqual({ kind: "retry", attemptId: unavailable.task.dispatch.id });
+    expect(runnerCalls).toBe(0);
+    expect(await unavailable.task.queue.read(projectId, unavailable.task.dispatch.id)).toMatchObject({ state: "queued", failureCode: "completion_read_unavailable" });
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, unavailable.task.transitions, lifecycle).project(runKey(unavailable.task.run.runId));
+
+    const invalidToken = await completedTask();
+    const dispatcher = new FactoryAttemptDispatcher(fixture.db, invalidToken.task.queue, { async run() { runnerCalls++; return invalidToken.result; } }, invalidToken.completions, dispatchReady, dispatchReadinessDisposition, { service: invalidToken.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" }, async () => "");
+    expect(await dispatcher.dispatchOne()).toEqual({ kind: "outcome_unknown", attemptId: invalidToken.task.dispatch.id });
+    expect(runnerCalls).toBe(0);
+    expect(await invalidToken.task.queue.read(projectId, invalidToken.task.dispatch.id)).toMatchObject({ state: "outcome_unknown", failureCode: "runner_request_invalid" });
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, invalidToken.task.transitions, lifecycle).project(runKey(invalidToken.task.run.runId));
   });
 
   test("task completion rejects stale authority, invalid output and oversized workflow payloads without settling holds", async () => {

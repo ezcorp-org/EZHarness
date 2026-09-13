@@ -99,7 +99,7 @@ function referenceFor(authority: FactoryAttemptAuthority, command: TrustedFactor
   return Object.freeze({ attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptNumber: authority.attemptNumber, grantRevision: authority.grantRevision, reservationGeneration: authority.reservationGeneration, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch, requestDigest: authority.requestDigest, deadlineAtMs, command: commandReference(command, authority) });
 }
 
-function authorityFor(reference: FactoryAttemptReference): FactoryAttemptAuthority {
+export function factoryAttemptAuthority(reference: FactoryAttemptReference): FactoryAttemptAuthority {
   return { attemptId: reference.attemptId, tenantId: reference.tenantId, projectId: reference.projectId, runId: reference.runId, nodeInstanceId: reference.nodeInstanceId, candidateGeneration: reference.candidateGeneration, attemptNumber: reference.attemptNumber, grantRevision: reference.grantRevision, reservationGeneration: reference.reservationGeneration, executionEpoch: reference.executionEpoch, cancellationEpoch: reference.cancellationEpoch, requestDigest: reference.requestDigest, deadlineAt: new Date(reference.deadlineAtMs) };
 }
 
@@ -202,7 +202,10 @@ class FactoryAttemptStore implements DurableDeliveryStore<FactoryAttemptDelivery
 const stateMachine = new DurableDeliveryQueue<FactoryAttemptDelivery>((code, message) => new FactoryAttemptQueueError(code, message), randomUUID);
 
 function authorityRejected(error: unknown): boolean {
-  return error instanceof FactoryGrantError || error instanceof FactoryRecordError || (error instanceof Error && ["Factory attempt is stale, cancelled, or expired.", "Factory run epoch is stale or unavailable."].includes(error.message));
+  const code = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+  return error instanceof FactoryGrantError || error instanceof FactoryRecordError
+    || typeof code === "string" && ["factory_run_stopped", "factory_run_fence_changed", "factory_grant_stale"].includes(code)
+    || error instanceof Error && ["Factory attempt is stale, cancelled, or expired.", "Factory run epoch is stale or unavailable."].includes(error.message);
 }
 
 /** Durable attempt dispatch queue. Only the execution journal stores runner request data. */
@@ -248,7 +251,7 @@ export class FactoryAttemptQueue {
       }
       try {
         const claimed = await this.database.transaction(async transaction => {
-          const request = await this.journal.requestInTransaction(transaction, authorityFor(delivery.reference));
+          const request = await this.journal.requestInTransaction(transaction, factoryAttemptAuthority(delivery.reference));
           const current = await stateMachine.claim(new FactoryAttemptStore(transaction, delivery.tenantId, delivery.projectId, delivery.id), queueScope, now, leaseMs);
           return current ? { delivery: current, request } : null;
         });
@@ -265,20 +268,39 @@ export class FactoryAttemptQueue {
     return null;
   }
 
-  async settle(claim: ClaimedFactoryAttempt, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryAttemptDelivery> {
+  async settle(claim: ClaimedFactoryAttempt, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<FactoryAttemptDelivery> {
     return this.database.transaction(transaction => this.settleInTransaction(transaction, claim, outcome, failureCode));
   }
 
   /** Settle inside the product transaction that persists a trusted completion. */
-  async settleInTransaction(transaction: MigrationDb, claim: ClaimedFactoryAttempt, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryAttemptDelivery> {
+  async settleInTransaction(transaction: MigrationDb, claim: ClaimedFactoryAttempt, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<FactoryAttemptDelivery> {
     const delivery = JSON.parse(canonicalJson(claim.delivery)) as FactoryAttemptDelivery;
     if (delivery.tenantId !== this.tenantId || delivery.inputHash !== durableInputHash(delivery.reference)) throw new FactoryAttemptQueueError("factory_attempt_corrupt");
     return stateMachine.settle(new FactoryAttemptStore(transaction, delivery.tenantId, delivery.projectId), scope(delivery.tenantId, delivery.projectId), delivery, this.now(), outcome, failureCode);
   }
 
+  /** Mark an attempt delivered only after its sealed completion receipt is verified. */
+  async recoverDeliveredInTransaction(transaction: MigrationDb, delivery: FactoryAttemptDelivery): Promise<FactoryAttemptDelivery> {
+    delivery = JSON.parse(canonicalJson(delivery)) as FactoryAttemptDelivery;
+    if (delivery.tenantId !== this.tenantId || delivery.inputHash !== durableInputHash(delivery.reference)) throw new FactoryAttemptQueueError("factory_attempt_corrupt");
+    return stateMachine.recoverDelivered(new FactoryAttemptStore(transaction, delivery.tenantId, delivery.projectId), scope(delivery.tenantId, delivery.projectId), delivery.id);
+  }
+
+  /** Bounded identities whose journal terminal may have survived a lost queue acknowledgement. */
+  async completionCandidates(limit = CLAIM_SCAN_LIMIT): Promise<readonly FactoryAttemptDelivery[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new FactoryAttemptQueueError("factory_attempt_scan_invalid");
+    const candidates = rows<AttemptRow>(await this.database.execute(sql`SELECT queue.* FROM factory_attempt_queue queue JOIN factory_executions execution
+      ON execution.attempt_id=queue.attempt_id AND execution.tenant_id=queue.tenant_id AND execution.project_id=queue.project_id AND execution.run_id=queue.run_id
+      WHERE queue.tenant_id=${this.tenantId} AND queue.state IN ('queued','leased','outcome_unknown') AND execution.status='completed'
+      ORDER BY queue.updated_at,queue.project_id,queue.attempt_id LIMIT ${limit}`));
+    return Object.freeze(candidates.map(decode));
+  }
+
   async read(projectId: string, attemptId: string): Promise<FactoryAttemptDelivery | null> {
     return this.readInTransaction(this.database, projectId, attemptId);
   }
+
+  get transactionalDatabase(): TransactionalDb { return this.database; }
 
   async readInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<FactoryAttemptDelivery | null> {
     identity(projectId, attemptId);
@@ -289,7 +311,7 @@ export class FactoryAttemptQueue {
   async readStoredInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<StoredFactoryAttempt | null> {
     const delivery = await this.readInTransaction(transaction, projectId, attemptId);
     if (!delivery) return null;
-    const request = await this.journal.requestInTransaction(transaction, authorityFor(delivery.reference));
+    const request = await this.journal.requestInTransaction(transaction, factoryAttemptAuthority(delivery.reference));
     return Object.freeze({ delivery, request });
   }
 

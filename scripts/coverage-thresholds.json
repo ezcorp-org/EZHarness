@@ -191,6 +191,7 @@
   "src/factory/executions.ts": 100,
   "src/db/migrations/add-factory-executions.ts": 100,
   "src/factory/attempt-queue.ts": 100,
+  "src/factory/attempt-dispatcher.ts": 100,
   "src/db/migrations/add-factory-attempt-queue.ts": 100,
   "src/db/migrations/add-factory-transition-commands.ts": 100,
   "src/db/migrations/add-factory-child-runs.ts": 100,

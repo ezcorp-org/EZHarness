@@ -70,7 +70,8 @@ export async function verifyFactoryAttemptQueue(createFixture: () => Promise<Att
     const stored = rows<{ reference: string }>(await fixture.db.execute(sql`SELECT reference_json::text AS reference FROM factory_attempt_queue WHERE attempt_id=${rollback.attemptId}`))[0]?.reference ?? "";
     expect(stored).not.toContain("fresh-token");
     expect(stored).not.toContain("immutable");
-    expect(JSON.parse(stored).command).toEqual(command(rollback.attemptId));
+    const parsed = JSON.parse(stored) as string | { command: unknown };
+    expect((typeof parsed === "string" ? JSON.parse(parsed) : parsed).command).toEqual(command(rollback.attemptId));
     const admitted = await queue.claim();
     expect(admitted?.delivery.id).toBe(rollback.attemptId);
     if (!admitted) throw new Error("Expected the admitted rollback attempt.");
