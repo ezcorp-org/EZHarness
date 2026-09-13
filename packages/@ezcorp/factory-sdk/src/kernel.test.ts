@@ -7,7 +7,7 @@ import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from 
 const digest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 const runner = { package: "inert", version: "1", digest, export: "run" } as const;
 
-function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { readonly kind: "ref"; readonly root: "node"; readonly name: string }>): CompiledFactory {
+function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { readonly kind: "ref"; readonly root: "node"; readonly name: string }>, inputPorts: FactoryDefinition["inputPorts"] = {}): CompiledFactory {
   const normalize = (node: FactoryNode): FactoryNode => {
     if (node.kind === "map") return { ...node, outputPorts: node.outputPorts ?? {}, body: { ...node.body, nodes: node.body.nodes.map(normalize), outputs: node.body.outputs } };
     if (node.kind === "loop") return { ...node, outputPorts: node.outputPorts ?? {}, body: { ...node.body, nodes: node.body.nodes.map(normalize), outputs: node.body.outputs } };
@@ -16,7 +16,7 @@ function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { read
   };
   const definition: FactoryDefinition = {
     schemaVersion: "factory.v1", id: "kernel-event-regression", version: "1", interpreterCompatibility: "1",
-    inputPorts: {}, outputPorts: {}, graph: { nodes: nodes.map(normalize), outputs: {} },
+    inputPorts, outputPorts: {}, graph: { nodes: nodes.map(normalize), outputs: {} },
     acceptance: referenceCodeV1.acceptance,
     packages: [{ name: runner.package, version: runner.version, digest }, ...referenceCodeV1.packages],
     capabilities: [], effects: ["none"], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16 },
@@ -208,6 +208,38 @@ describe("factory kernel", () => {
     expect(stopped.nextState.nodes.map?.candidateGeneration).toBe(1);
     expect(stopped.nextState.nodes["map/items/0/item"]?.candidateGeneration).toBe(1);
   });
+
+  test("does not replay an approved item after its protected node is evicted", () => {
+    const approval = { id: "approve", kind: "approval" as const, choices: ["approve"], context: { kind: "literal" as const, value: null }, actorScope: "owner", expiresInMs: 60_000, onDenied: "fail" as const, onExpired: "fail" as const };
+    const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two"] }, itemSchema: { type: "string" as const }, body: { nodes: [approval], outputs: {} }, mode: "all" as const, maxItems: 2, maxConcurrency: 1 };
+    const graph = compiled([map], {});
+    const started = advanceKernel(graph, createKernelState(graph, "protected-evicted-map", {}, 0), event("start", { kind: "start" }));
+    const request = started.commands.find((command) => command.kind === "request-approval")!;
+    const approved = advanceKernel(graph, started.nextState, event("approve-item-zero", { kind: "approval-decided", nodeId: request.nodeId, commandId: request.id, choice: "approve" }));
+    expect(approved.nextState.nodes["map/items/0/approve"]).toBeUndefined();
+    expect(approved.nextState.nodes["map/items/1/approve"]?.status).toBe("waiting");
+    const repair = advanceKernel(graph, approved.nextState, event("repair-old-approval", { kind: "repair", nodeId: "map/items/0/approve", reason: "must remain approved" }));
+    expect(repair.commands).toEqual([]);
+    expect(repair.nextState.nodes.map?.candidateGeneration).toBe(0);
+    expect(repair.nextState.nodes.map?.map?.completedIndexes).toEqual([0]);
+  });
+
+  test("completes 9,999 immediate nested controls without retaining scopes or recursing", () => {
+    const emptyOutput = { nodes: [], outputs: { value: { kind: "literal" as const, value: "" } } };
+    const branch = { id: "choose", kind: "branch" as const, condition: { kind: "literal" as const, value: true }, then: emptyOutput, else: emptyOutput, outputPorts: { value: { type: "string" as const } } };
+    const map = {
+      id: "map", kind: "map" as const, collection: { kind: "ref" as const, root: "input" as const, name: "items", path: [] }, itemSchema: { type: "number" as const },
+      body: { nodes: [branch], outputs: { values: { kind: "ref" as const, root: "node" as const, name: "choose", path: ["value"] } } },
+      outputPorts: { values: { type: "array" as const, items: { type: "string" as const } } }, mode: "all" as const, maxItems: 9_999, maxConcurrency: 1,
+    };
+    const graph = compiled([map], {}, { items: { type: "array", items: { type: "number" }, maxItems: 9_999 } });
+    const started = advanceKernel(graph, createKernelState(graph, "immediate-map", { items: Array.from({ length: 9_999 }, (_, index) => index) }, 0), event("start", { kind: "start" }));
+    expect(started.nextState.status).toBe("completed");
+    expect(Object.keys(started.nextState.nodes)).toEqual(["map"]);
+    expect(Object.keys(started.nextState.scopes)).toEqual(["root"]);
+    expect(started.nextState.scopes.root?.expandedNodeCount).toBe(10_000);
+    expect(started.nextState.nodes.map?.output?.values).toHaveLength(9_999);
+  }, 30_000);
 });
 
 void ({} as JsonValue);

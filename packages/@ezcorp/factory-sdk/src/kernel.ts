@@ -157,6 +157,7 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
       break;
   }
   next = completePendingRepair(factory, next, commands);
+  next = refillWaitingMaps(factory, next, commands);
   next = emitPartitionNotifications(factory, state, next, commands);
   return finish(factory, next, commands);
 }
@@ -439,6 +440,7 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
   if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
+  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release")) return state;
   if (node && !runtime) {
     const parentId = mapParent(event.nodeId);
     const parent = parentId ? state.nodes[parentId] : undefined;
@@ -450,7 +452,6 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
   }
   if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
   // A repair cannot replay publication or turn remediation into new consent.
-  if (!allowProtected && (node.kind === "approval" || node.kind === "release")) return state;
   const aggregateIds: string[] = [];
   let childId = event.nodeId;
   for (;;) {
@@ -534,7 +535,10 @@ function completePendingRepair(factory: KernelFactoryPlan, state: KernelState, c
     if (definition.kind === "loop" && previous.loop && !previous.timer) next = scheduleTimer(next, id, Math.min(state.runDeadlineAtMs, previous.loop.startedAtMs + definition.maxElapsedMs), "deadline", commands);
   }
   const scopes = { ...next.scopes };
-  for (const [id, scope] of Object.entries(scopes)) if (scope.parentNodeId && repair.nodeIds.includes(scope.parentNodeId)) delete scopes[id];
+  const replacedScopes = Object.values(scopes).filter((scope) => scope.nodeIds.some((id) => repair.nodeIds.includes(id))).map((scope) => scope.id);
+  for (const [id, scope] of Object.entries(scopes)) {
+    if (scope.parentNodeId && (repair.nodeIds.includes(scope.parentNodeId) || replacedScopes.some((prefix) => id === prefix || id.startsWith(`${prefix}/`)))) delete scopes[id];
+  }
   next = { ...next, scopes, pendingRepair: undefined, status: "running" };
   return activateReady(factory, next, commands, [repair.rootNodeId]);
 }
@@ -583,7 +587,6 @@ function dispatchReady(factory: KernelFactoryPlan, state: KernelState, node: Fac
     if (collection.length === 0) return completeControl(factory, withNode(cleanState, nodeId, { ...runtime, map: { snapshot: [], itemCount: 0, completedIndexes: [], failedIndexes: [], outcomes: {} } }), nodeId, Object.fromEntries(Object.keys(node.outputPorts ?? {}).map(name => [name, []])), commands);
     let waiting = withNode(cleanState, nodeId, { ...runtime, status: "waiting", map: { snapshot: snapshotValue(collection) as JsonValue[], itemCount: collection.length, completedIndexes: [], failedIndexes: [], outcomes: {} }, waitingReason: "external_reconciliation" });
     waiting = fillMapWindow(factory, waiting, node, nodeId, commands);
-    if (node.body.nodes.length === 0) for (let item = 0; item < collection.length; item += 1) waiting = progressMap(factory, waiting, `${nodeId}/items/${item}/`, commands);
     return waiting;
   }
   if (node.kind === "loop") {
@@ -1001,7 +1004,8 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
   const nodes = { ...state.nodes };
   for (const id of Object.keys(nodes)) if (id.startsWith(prefix)) delete nodes[id];
   const scopes = { ...state.scopes };
-  delete scopes[`${parentId}/items/${item}`];
+  const itemScope = `${parentId}/items/${item}`;
+  for (const id of Object.keys(scopes)) if (id === itemScope || id.startsWith(`${itemScope}/`)) delete scopes[id];
   const next = withNode({ ...state, nodes, scopes }, parentId, { ...parent, map });
   const terminalItems = map.completedIndexes.length + map.failedIndexes.length;
   if (terminalItems === map.itemCount) {
@@ -1015,20 +1019,30 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
     }
     return completeControl(factory, next, parentId, output, commands);
   }
-  return fillMapWindow(factory, next, parentNode, parentId, commands);
+  return next;
 }
 
 function fillMapWindow(factory: KernelFactoryPlan, state: KernelState, parentNode: Extract<FactoryNode, { kind: "map" }>, parentId: string, commands: KernelCommand[]): KernelState {
-  const map = state.nodes[parentId]!.map!;
   let next = state;
-  const activeItems = new Set(Object.keys(next.nodes).filter((id) => id.startsWith(`${parentId}/items/`) && ["reserved", "running", "waiting", "retry_wait"].includes(next.nodes[id]!.status)).map((id) => Number(id.slice(`${parentId}/items/`.length).split("/")[0])));
-  for (let nextItem = 0; nextItem < map.itemCount && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
-    if (map.completedIndexes.includes(nextItem) || map.failedIndexes.includes(nextItem) || activeItems.has(nextItem)) continue;
+  const activeItems = new Set(Object.keys(next.nodes).filter((id) => id.startsWith(`${parentId}/items/`) && ["reserved", "running", "waiting", "retry_wait", "stopping"].includes(next.nodes[id]!.status)).map((id) => Number(id.slice(`${parentId}/items/`.length).split("/")[0])));
+  for (let nextItem = 0; next.nodes[parentId]?.status === "waiting" && nextItem < next.nodes[parentId]!.map!.itemCount && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
+    const currentMap = next.nodes[parentId]!.map!;
+    if (currentMap.completedIndexes.includes(nextItem) || currentMap.failedIndexes.includes(nextItem) || activeItems.has(nextItem)) continue;
     const scopeId = `${parentId}/items/${nextItem}`;
     const expansion = instantiateScope(factory, next, parentId, scopeId, parentNode.body, [scopeId]);
     if (!expansion.ok) return failNode(factory, next, parentNode, parentId, expansion.error, "bound_exhausted", commands);
     next = activateReady(factory, expansion.state, commands, expansion.roots);
-    activeItems.add(nextItem);
+    if (parentNode.body.nodes.length === 0) next = progressMap(factory, next, `${scopeId}/`, commands);
+    if (Object.keys(next.nodes).some((id) => id.startsWith(`${scopeId}/`) && ["reserved", "running", "waiting", "retry_wait", "stopping"].includes(next.nodes[id]!.status))) activeItems.add(nextItem);
+  }
+  return next;
+}
+
+function refillWaitingMaps(factory: KernelFactoryPlan, state: KernelState, commands: KernelCommand[]): KernelState {
+  let next = state;
+  for (const nodeId of Object.keys(next.nodes)) {
+    const node = nodeFor(factory, nodeId);
+    if (node?.kind === "map" && next.nodes[nodeId]?.status === "waiting" && next.nodes[nodeId]?.map) next = fillMapWindow(factory, next, node, nodeId, commands);
   }
   return next;
 }
