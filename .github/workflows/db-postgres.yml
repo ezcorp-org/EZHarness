@@ -14,6 +14,21 @@
 # NOTE FOR MAINTAINERS: workflow files are CODEOWNERS-owned. This is a NEW,
 # additive job — it does not touch any existing gate (coverage thresholds,
 # EXCLUDES, gate-integrity). It needs a human review to land.
+#
+# W18: the W00 audit (discrepancy 12) found five real-PostgreSQL suites that
+# ran in NO producer at all — factory-budgets, factory-encryption-s3,
+# factory-inbox, factory-project-creation, and factory-records. They are now in
+# the real storage step below, after setup-factory-storage.sh has exported the
+# credential directory, because factory-encryption-s3 writes real objects.
+# scripts/factory-postgres-suite-registration.test.ts derives the requirement
+# from tests/postgres/ on disk, so the next unregistered suite fails closed
+# instead of waiting for another audit.
+#
+# W18 also split the assurance and release producers into their own job so the
+# C11 required check `Factory assurance and release` names a real producer set
+# rather than hiding inside a bundled job. GitHub Actions cannot share one
+# `services:` block between jobs and has no YAML anchors, so the PostgreSQL
+# service declaration below is necessarily repeated once.
 
 name: db-postgres
 
@@ -108,9 +123,6 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-      - name: Prove factory assurance against real PostgreSQL
-        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/factory-assurance.test.ts
-
       - name: Measure factory provisioning against real PostgreSQL
         run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" COV_OUT=coverage-factory-provisioning bash scripts/factory-provisioning-coverage.sh
 
@@ -153,12 +165,14 @@ jobs:
           ./tests/postgres/factory-run-inputs.test.ts
           ./tests/postgres/factory-definitions.test.ts
           ./tests/postgres/factory-private-service.test.ts
-          ./tests/postgres/factory-releases.test.ts
-          ./tests/postgres/factory-release-authority.test.ts
-          ./tests/postgres/factory-validator-materials.test.ts
           ./tests/postgres/factory-package-preparation.test.ts
           ./tests/postgres/factory-executions.test.ts
           ./tests/postgres/factory-attempt-queue.test.ts
+          ./tests/postgres/factory-budgets.test.ts
+          ./tests/postgres/factory-encryption-s3.test.ts
+          ./tests/postgres/factory-inbox.test.ts
+          ./tests/postgres/factory-project-creation.test.ts
+          ./tests/postgres/factory-records.test.ts
           ./tests/postgres/factory-execution-gateway.test.ts
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts
@@ -169,6 +183,76 @@ jobs:
         with:
           name: lcov-cov-factory-storage
           path: coverage-factory-storage/lcov.info
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Stop factory object storage
+        if: always()
+        shell: bash
+        run: scripts/setup-factory-storage.sh down
+
+  # C11 lane 4 of 7: protected evidence, exact authorization, provider-adapter
+  # conformance, and the F04 races. Real engine plus real object storage; these
+  # suites previously ran inside `External Postgres (Bun.sql)`, so no required
+  # check carried the contract's lane name.
+  factory-assurance-release:
+    name: Factory assurance and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ezcorp_assurance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/ezcorp_assurance
+      FACTORY_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/ezcorp_assurance
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+
+      - name: Start factory object storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_dir="$RUNNER_TEMP/factory-storage-runtime"
+          install -d -m 700 "$runtime_dir"
+          export XDG_RUNTIME_DIR="$runtime_dir"
+          setup_output="$(scripts/setup-factory-storage.sh up)"
+          storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
+          test -n "$storage_dir"
+          test -d "$storage_dir"
+          echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+          echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
+
+      - name: Prove factory assurance against real PostgreSQL
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/factory-assurance.test.ts
+
+      - name: Run the release, authority, and protected-material producers on real PostgreSQL and S3
+        shell: bash
+        run: >-
+          FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000
+          --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-assurance-release
+          ./tests/postgres/factory-releases.test.ts
+          ./tests/postgres/factory-release-authority.test.ts
+          ./tests/postgres/factory-validator-materials.test.ts
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-assurance-release
+          path: coverage-factory-assurance-release/lcov.info
           retention-days: 3
           if-no-files-found: error
 
