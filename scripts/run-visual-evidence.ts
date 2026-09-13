@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { mkdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import lanesManifest from "../web/e2e/lanes.json";
 
 export type EvidenceSelection = { mode: "none" | "all" | "some"; specs: string[] };
 export type EvidenceGroup = { name: "mock" | "real-auth"; commands: string[][] };
@@ -15,11 +16,32 @@ export function parseEvidenceSelection(text: string): EvidenceSelection {
 	return { mode: "some", specs: lines };
 }
 
-export function evidenceGroups(selection: EvidenceSelection, runnerReady = false): EvidenceGroup[] {
+/**
+ * The `real-auth` lane of web/e2e/lanes.json as Playwright-rootDir-relative
+ * paths (`e2e/chip-reorder.spec.ts`). Tiering is by lane MEMBERSHIP, never by
+ * an `e2e/real-auth/` prefix: eight real-auth journeys sit at the e2e/ root,
+ * and the mock config ignores every member, so a prefix rule hands them to a
+ * config that reports "No tests found". Mirrors `is_real_auth_spec` in
+ * scripts/visual-evidence/capture.sh, which bash cannot import.
+ */
+export function realAuthSpecs(lanes: Record<string, string[]> = lanesManifest.lanes): ReadonlySet<string> {
+	return new Set((lanes["real-auth"] ?? []).map((path) => path.slice("web/".length)));
+}
+
+/** Selected specs are regex-escaped by select-specs.ts; paths carry no literal backslashes. */
+export function isRealAuthSpec(spec: string, members: ReadonlySet<string> = realAuthSpecs()): boolean {
+	return members.has(spec.replace(/\\/g, ""));
+}
+
+export function evidenceGroups(
+	selection: EvidenceSelection,
+	runnerReady = false,
+	members: ReadonlySet<string> = realAuthSpecs(),
+): EvidenceGroup[] {
 	if (selection.mode === "none") return [];
 	const all = selection.mode === "all";
-	const mock = all ? [] : selection.specs.filter((spec) => !spec.startsWith("e2e/real-auth/"));
-	const real = all ? [] : selection.specs.filter((spec) => spec.startsWith("e2e/real-auth/"));
+	const mock = all ? [] : selection.specs.filter((spec) => !isRealAuthSpec(spec, members));
+	const real = all ? [] : selection.specs.filter((spec) => isRealAuthSpec(spec, members));
 	const groups: EvidenceGroup[] = [];
 	if (all || mock.length > 0) {
 		groups.push({

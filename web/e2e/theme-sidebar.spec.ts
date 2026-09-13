@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, HYDRATION_ATTR } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 import { clickExposedSwipeDrawerBackdrop } from "./fixtures/swipe-drawer.js";
 
@@ -11,6 +11,9 @@ const proj = makeProject({ id: "proj-1", name: "Test Project" });
 // `(app)` route (`/account`) instead. Use `data-testid` selectors that
 // target the layout SUT directly (no role / class drift).
 const APP_ROUTE = "/account";
+
+/** What the page recorded about itself at DOMContentLoaded. */
+interface ThemeSample { dark: boolean; hydrated: string | null }
 
 // ThemeToggle is rendered TWICE in the (app) layout:
 //   - inside `desktop-sidebar` (visible at ≥lg, 1024px+)
@@ -81,23 +84,32 @@ test.describe("Theme", () => {
 	test("FOUC prevention script sets .dark before hydration", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 
-		// Set dark preference so the inline script in app.html adds .dark
-		await page.addInitScript(() => {
+		// Set the dark preference so the inline script in app.html adds .dark, and
+		// sample the document IN THE PAGE at DOMContentLoaded. Reading it back over
+		// CDP after the event — what this test used to do — races hydration, which
+		// applies the very same class: a deleted FOUC script would still read green.
+		// The hydration marker is sampled in the same synchronous callback, so
+		// "before hydration" is asserted rather than assumed.
+		await page.addInitScript((attribute: string) => {
 			localStorage.setItem("ezcorp-theme", "dark");
-		});
-
-		// Intercept before Svelte hydration: check .dark is present on DOMContentLoaded
-		const hasDarkBeforeHydration = await new Promise<boolean>((resolve) => {
-			page.on("domcontentloaded", async () => {
-				const result = await page.evaluate(() =>
-					document.documentElement.classList.contains("dark"),
-				);
-				resolve(result);
+			document.addEventListener("DOMContentLoaded", () => {
+				(window as unknown as { __ezThemeAtDomContentLoaded?: ThemeSample }).__ezThemeAtDomContentLoaded = {
+					dark: document.documentElement.classList.contains("dark"),
+					hydrated: document.documentElement.getAttribute(attribute),
+				};
 			});
-			page.goto(APP_ROUTE);
-		});
+		}, HYDRATION_ATTR);
 
-		expect(hasDarkBeforeHydration).toBe(true);
+		// `page.goto` is hydration-gated (fixtures/hydration.ts wraps it), so it
+		// MUST be awaited. Left dangling inside a raw Promise, its hydration wait
+		// outlives the test body and rejects with "page.waitForFunction: Test
+		// ended" — the whole flake.
+		await page.goto(APP_ROUTE);
+
+		const sample = await page.evaluate(
+			() => (window as unknown as { __ezThemeAtDomContentLoaded?: ThemeSample }).__ezThemeAtDomContentLoaded,
+		);
+		expect(sample).toEqual({ dark: true, hydrated: "false" });
 	});
 });
 
