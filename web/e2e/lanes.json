@@ -90,6 +90,7 @@
     ],
     "evidence": [
       "web/e2e/admin-routing-cost.spec.ts",
+      "web/e2e/agent-detail-breadcrumb.spec.ts",
       "web/e2e/api-key-scopes-evidence.spec.ts",
       "web/e2e/auth-autocomplete.spec.ts",
       "web/e2e/auto-model-routing.spec.ts",
