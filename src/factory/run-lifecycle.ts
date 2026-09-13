@@ -62,6 +62,11 @@ function summary(key: FactoryRunKey, row: LifecycleRow): FactoryRunSummary {
   return { runId: key.runId, factoryId: row.factory_id, factoryVersion: row.factory_version, definitionDigest: row.definition_digest, grantRevision: Number(row.grant_revision), revision: Number(row.revision), status: row.status, createdAtMs: Number(row.created_ms), updatedAtMs: Number(row.updated_ms) };
 }
 
+function initiator(request: Awaited<ReturnType<FactoryRecords["readRunRequestInTransaction"]>>): FactoryPrincipal {
+  const kind = request.principalKind ?? "user";
+  return { kind, id: request.principalId, authentication: kind === "user" ? "api-key" : "service", ...(request.serviceCredential === undefined ? {} : { credential: request.serviceCredential }) };
+}
+
 /** Product start/cancellation facts. Interpreter state is committed through audit. */
 export class FactoryRunLifecycle {
   readonly budgets: FactoryBudgets;
@@ -203,8 +208,7 @@ export class FactoryRunLifecycle {
     const fence = Object.freeze({ tenantId: this.tenantId, ...key, executionEpoch: request.executionEpoch, cancellationEpoch: Number(row.cancellation_epoch), grantRevision: Number(row.grant_revision), revision: Number(row.revision), deadlineAtMs: Number(row.deadline_ms), definitionDigest: row.definition_digest, status: row.status });
     if (![fence.revision, fence.grantRevision, fence.deadlineAtMs].every(value => Number.isSafeInteger(value) && value > 0) || !Number.isSafeInteger(fence.cancellationEpoch) || fence.cancellationEpoch < 0 || fence.definitionDigest !== request.definitionDigest) throw new FactoryRunLifecycleError("factory_run_corrupt");
     if (!["queued", "running", "waiting"].includes(row.status) || Number(row.deadline_ms) <= this.now()) throw new FactoryRunLifecycleError("factory_run_stopped");
-    const kind = request.principalKind ?? "user";
-    await this.options.grants.authorizeInTransaction(transaction, { kind, id: request.principalId, authentication: kind === "user" ? "api-key" : "service", ...(request.serviceCredential === undefined ? {} : { credential: request.serviceCredential }) }, key.projectId, "factory.run", Number(row.grant_revision));
+    await this.options.grants.authorizeInTransaction(transaction, initiator(request), key.projectId, "factory.run", Number(row.grant_revision));
     return fence;
   }
 
@@ -214,6 +218,18 @@ export class FactoryRunLifecycle {
     const fence = await this.authorizeRunInTransaction(transaction, { projectId: authority.projectId, runId: authority.runId });
     if (authority.cancellationEpoch !== fence.cancellationEpoch || authority.executionEpoch !== fence.executionEpoch || authority.grantRevision !== fence.grantRevision || !Number.isSafeInteger(authority.deadlineAt.getTime()) || authority.deadlineAt.getTime() <= this.now() || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new FactoryRunLifecycleError("factory_run_fence_changed");
   };
+
+  /** Private command admission uses the exact published plan and the live initiator. */
+  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory }> {
+    key = { projectId: key.projectId, runId: key.runId };
+    const fence = await this.authorizeRunInTransaction(transaction, key);
+    const row = await this.row(transaction, key);
+    const request = await this.records.readRunRequestInTransaction(transaction, key);
+    const principal = initiator(request);
+    const { compiled } = await this.options.definitions.readVersionInTransaction(transaction, principal, { projectId: key.projectId, factoryId: row.factory_id }, row.factory_version);
+    if (compiled.digest !== fence.definitionDigest || compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_definition_conflict");
+    return { fence, compiled };
+  }
 
   private async authorizeCancellation(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryRunKey): Promise<void> {
     await this.options.grants.authorizeInTransaction(transaction, principal, key.projectId, "read");

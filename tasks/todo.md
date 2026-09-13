@@ -1423,3 +1423,14 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - [ ] Validate coverage, types and lint.
 
 Restart fixture review: the combined 12-file PostgreSQL producer at `49a6ad119` passed 88 cases and failed the new repeated-migration case because it supplied raw Bun SQL rows to a migration that uses the production normalized adapter. The fixture now repeats the same locked migration entrypoint used on startup; PGlite retains its own native adapter. Actual logs and the failed receipt remain under `root-restart-integration-*`. Regression is still open.
+
+## Current committed command authority — root
+
+- [x] Prove a committed kernel admission command resolves only against the live run and exact published definition.
+- [x] Reuse kernel expanded-node resolution and reject stale generations, commands and run fences.
+- [x] Bind immutable transition reads to the same locked database head before product admission.
+- [x] Prove PostgreSQL/S3, revocation, cancellation and mutable input cases; run static checks and coverage.
+
+Plan review: the next private command policy uses product records, exact stored transition artifacts and current grants. The transport supplies only a scoped command reference. The shared run-lifecycle conformance suite is the approved test boundary; no user authority is supplied by the Node worker.
+
+Review: `FactoryCommandAuthority` loads an indexed immutable task command, the latest verified interpreter transition and the exact published plan. It then locks the live run, rechecks grants and epochs, compares the same audit head, and admits only the current task attempt. The shared conformance suite proves delayed-command rejection, concurrent transition rejection, configuration scope, caller input snapshots, expiry and cancellation. PGlite and actual PostgreSQL/S3 each pass 19 tests with 147 assertions. Measured coverage is command authority 39/39 lines and 8/8 functions, plus lifecycle 172/172 lines and 46/46 functions. SDK build, all four type checks, lint, boundaries and gate integrity pass. Exact source hashes are in `/tmp/factory-platform-evidence/root-command-authority-complete-source.json`; producer commands/exits are in `root-command-authority-complete-integration-results.json`. This is the task authorization step; pool reservation/dispatch, child creation and lazy read dispatch remain pending.
