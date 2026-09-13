@@ -39,6 +39,7 @@
 - A fixed oldest-first pending page can starve healthy work when a corrupt row remains pending. Persist each failed attempt and order unattempted work before the least-recently-attempted retry; prove the `runs: 1` case across repeated drains.
 - A resolver that expands a large immutable artifact into JSON can exceed durable request and workflow-history limits. Keep oversized inputs as verified opaque references through the start and activity contracts, and bind media type plus storage version with the digest and byte count.
 - Snapshot every public artifact-load identity, reference, and allowed-kind list before the transaction starts. A caller can mutate values while the database waits for a transaction.
+- A lazy artifact reader must derive its reference from the durable run parameter by name and compare the caller value exactly. A valid project artifact alone must not become an input substitution capability.
 - When a focused coverage command uses `set -u` in a login shell, the system logout hook can replace a successful test exit. Avoid the login shell or capture and return the command status outside that hook.
 - Check an agent’s live state before assigning the next check. A message to a completed agent does not restart work; use a follow-up task and verify that it is running.
 - Run the pinned secret scan after final evidence edits. Name commit-hash fields explicitly; an ambiguous API field can trigger a false positive. Correct the metadata instead of adding a scanner exception.
