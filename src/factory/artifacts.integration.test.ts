@@ -129,6 +129,16 @@ test("the Node transition activity keeps large transitions paged and rejects cor
   expect(manifest.encodedBytes).toBeLessThanOrEqual(32 * 1024);
   const pages = await db.execute(sql`SELECT object_id FROM factory_artifacts WHERE run_id=${identity.logicalRunId} AND kind='transition_page'`) as unknown as { rows?: unknown[] } | unknown[];
   expect(Array.isArray(pages) ? pages : pages.rows).toHaveLength(2);
+  const loadedManifest = await activity.loadTransitionManifest({ ...identity, sourceSequence: 1, manifest });
+  expect(loadedManifest.self).toEqual(manifest);
+  expect(loadedManifest.pages).toHaveLength(2);
+  const loadedPages = await Promise.all(loadedManifest.pages.map(page => activity.loadTransitionPage({ ...identity, sourceSequence: 1, page })));
+  const restored = JSON.parse(loadedPages.map(page => page.content).join(""));
+  expect(restored).toMatchObject({ schemaVersion: "factory.transition.v1", sourceSequence: 1, event, nextState: { padding: "x".repeat(40 * 1024) } });
+  await expect(activity.loadTransitionManifest({ ...identity, sourceSequence: 2, manifest })).rejects.toMatchObject({ code: "factory_transition_not_found" });
+  await expect(activity.loadTransitionManifest({ ...identity, projectId: "foreign-project", sourceSequence: 1, manifest })).rejects.toMatchObject({ code: "factory_artifact_not_found" });
+  await expect(activity.loadTransitionPage({ ...identity, sourceSequence: 2, page: loadedManifest.pages[0]! })).rejects.toMatchObject({ code: "factory_transition_not_found" });
+  await expect(activity.loadTransitionPage({ ...identity, page: { ...loadedManifest.pages[0]!, digest: `sha256:${"0".repeat(64)}` }, sourceSequence: 1 })).rejects.toMatchObject({ code: "factory_artifact_not_found" });
 
   const invalidEvent: Extract<KernelEvent, { kind: "cancel" }> = { id: "invalid-event", kind: "cancel", atMs: 2, reason: "x" };
   const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 2, event: invalidEvent, nextState: {}, commands: [] }));
@@ -140,6 +150,7 @@ test("the Node transition activity keeps large transitions paged and rejects cor
   await expect(transitions.finalizeTransitionArtifact({ ...request, expectedEventHash: `sha256:${"0".repeat(64)}` })).rejects.toMatchObject({ code: "factory_transition_event_conflict" });
   await db.execute(sql`UPDATE factory_artifacts SET digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND object_id=${page.objectId}`);
   await expect(transitions.finalizeTransitionArtifact({ ...request, pages: [{ ...page, digest: `sha256:${"0".repeat(64)}` }] })).rejects.toMatchObject({ code: "factory_artifact_corrupt" });
+  await expect(activity.loadTransitionPage({ ...identity, sourceSequence: 2, page: { ...page, digest: `sha256:${"0".repeat(64)}` } })).rejects.toMatchObject({ code: "factory_artifact_corrupt" });
   expect(artifacts).toBeDefined();
 });
 

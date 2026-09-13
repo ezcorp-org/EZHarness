@@ -7,6 +7,14 @@
 - [x] Write approval request, decision, and consumption audit facts in their owning transactions.
 - [ ] Prove direct pre-accept and post-approval tampering, plus audit write faults, fail closed on PGlite and PostgreSQL.
 - [ ] Run static checks, coverage, and real PostgreSQL proof; record the review.
+## Factory continuation reader leaf — Terra
+
+- [x] Load scoped transition manifests and pages through immutable artifact references.
+- [x] Validate canonical manifest identity, source sequence, page order, digest, page limits, and aggregate bytes.
+- [x] Prove a Node-saved paged transition restores from PGlite and PostgreSQL/S3, while foreign, replayed, and corrupt references fail.
+- [x] Run focused and full required static validation; record receipts.
+
+Review: PGlite restored the exact 40 KiB Node-produced transition through two bounded pages. The PostgreSQL/S3 proof repeated the same producer-to-reader round trip. Both reject foreign identity, a replayed source sequence, changed references, and corrupt content; the existing failed inbox admission test proves the audit transaction rolls back. Focused coverage reports 100% executable lines for the three owned source files. The post-codec protobuf boundary test uses installed Temporal 1.23 proto encoding at exactly 64 KiB and rejects one byte more.
 
 ## Factory C06 encryption leaf — Terra
 
