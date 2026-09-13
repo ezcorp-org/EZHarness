@@ -1,10 +1,11 @@
-import { canonicalJson, assertJson } from "@ezcorp/extension-contract";
+import { canonicalJson } from "@ezcorp/extension-contract";
 import { FACTORY_LIMITS, type FactoryArtifactReference, type JsonValue } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import type { FactoryArtifactAccess } from "./artifact-access";
-import type { FactoryArtifacts, FactoryArtifactKind } from "./artifacts";
+import type { FactoryArtifacts } from "./artifacts";
+import { FactoryInputArtifacts, snapshotFactoryInputArtifact } from "./input-artifacts";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { FactoryRecords, assertFactoryIdentity } from "./records";
@@ -14,7 +15,6 @@ export const FACTORY_LAZY_INPUT_PAGE_BYTES = FACTORY_LIMITS.maxRecordedPageBytes
 export const FACTORY_LAZY_INPUT_PAGE_ITEMS = 32;
 
 type PathSegment = string | number;
-type LocalArtifactRow = { readonly run_id: string; readonly kind: FactoryArtifactKind; readonly storage_version: string };
 type RunInputRow = { readonly parameters_json: string; readonly parameters_digest: string; readonly grant_revision: string | number; readonly status: string; readonly deadline_ms: string | number };
 
 export interface FactoryLazyInputScope {
@@ -57,12 +57,9 @@ function unavailable(): never { throw new FactoryLazyInputError("factory_lazy_in
 function pageRequired(): never { throw new FactoryLazyInputError("factory_lazy_input_page_required"); }
 function isRecord(value: JsonValue): value is { readonly [key: string]: JsonValue } { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function bytes(value: JsonValue): number { return new TextEncoder().encode(canonicalJson(value)).byteLength; }
-function equalBytes(left: Uint8Array, right: Uint8Array): boolean { return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]); }
 
 function snapshotArtifact(value: FactoryArtifactReference): FactoryArtifactReference {
-  if (!value || typeof value.artifactId !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.digest) || !Number.isSafeInteger(value.encodedBytes) || value.encodedBytes < 1 || value.encodedBytes > 16 * 1024 * 1024) unavailable();
-  assertFactoryIdentity(value.artifactId);
-  return Object.freeze({ artifactId: value.artifactId, digest: value.digest, encodedBytes: value.encodedBytes });
+  try { return snapshotFactoryInputArtifact(value); } catch { unavailable(); }
 }
 
 function snapshotScope(value: FactoryLazyInputScope): FactoryLazyInputScope {
@@ -111,16 +108,6 @@ function pathValue(root: JsonValue, path: readonly PathSegment[]): JsonValue {
   return value;
 }
 
-function canonicalJsonValue(content: Uint8Array): JsonValue {
-  let value: unknown;
-  try {
-    const raw = new TextDecoder("utf-8", { fatal: true }).decode(content);
-    value = JSON.parse(raw);
-    assertJson(value);
-    if (!equalBytes(content, new TextEncoder().encode(canonicalJson(value)))) unavailable();
-  } catch { unavailable(); }
-  return value as JsonValue;
-}
 
 /**
  * Host-side immutable JSON reader. It may load a 16 MiB blob, but it never
@@ -128,11 +115,13 @@ function canonicalJsonValue(content: Uint8Array): JsonValue {
  */
 export class FactoryLazyInputReader {
   private readonly records: FactoryRecords;
+  private readonly inputs: FactoryInputArtifacts;
 
-  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly artifacts: FactoryArtifacts, private readonly access: FactoryArtifactAccess, private readonly grants: FactoryGrants, private readonly now: () => number = Date.now) {
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, artifacts: FactoryArtifacts, access: FactoryArtifactAccess, private readonly grants: FactoryGrants, private readonly now: () => number = Date.now) {
     assertFactoryIdentity(tenantId);
     if (artifacts.tenantId !== tenantId || access.tenantId !== tenantId || grants.tenantId !== tenantId) throw new FactoryLazyInputError("factory_scope_mismatch");
     this.records = new FactoryRecords(database, tenantId);
+    this.inputs = new FactoryInputArtifacts(artifacts, access);
   }
 
   readValue(input: FactoryLazyInputValueRequest): Promise<FactoryLazyInputValue> {
@@ -145,7 +134,7 @@ export class FactoryLazyInputReader {
     const snapshot = request(input);
     try {
       const loaded = await this.loadInTransaction(transaction, snapshot);
-      const value = pathValue(canonicalJsonValue(loaded.content), snapshot.path);
+      const value = pathValue(loaded.value, snapshot.path);
       if (bytes(value) > snapshot.maxBytes) pageRequired();
       return { artifact: snapshot.artifact, mediaType: "application/json", storageVersion: loaded.storageVersion, value };
     } catch (error) {
@@ -164,7 +153,7 @@ export class FactoryLazyInputReader {
     const snapshot = pageRequest(input);
     try {
       const loaded = await this.loadInTransaction(transaction, snapshot);
-      const selected = pathValue(canonicalJsonValue(loaded.content), snapshot.path);
+      const selected = pathValue(loaded.value, snapshot.path);
       if (!Array.isArray(selected) || snapshot.cursor > selected.length) unavailable();
       const items: JsonValue[] = [];
       let next = snapshot.cursor;
@@ -182,21 +171,9 @@ export class FactoryLazyInputReader {
     }
   }
 
-  private async loadInTransaction(transaction: MigrationDb, input: FactoryLazyInputValueRequest): Promise<{ readonly content: Uint8Array; readonly storageVersion: string }> {
+  private async loadInTransaction(transaction: MigrationDb, input: FactoryLazyInputValueRequest) {
     await this.pinnedArtifactInTransaction(transaction, input);
-    try {
-      const shared = await this.access.loadSharedInTransaction(transaction, input.projectId, input.artifact, "application/json");
-      return { content: shared.content, storageVersion: shared.storageVersion };
-    } catch { /* Same-project reads do not need a cross-project grant. */ }
-    const local = rows<LocalArtifactRow>(await transaction.execute(sql`SELECT run_id, kind, storage_version FROM factory_artifacts
-      WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND object_id=${input.artifact.artifactId} AND digest=${input.artifact.digest} AND encoded_bytes=${input.artifact.encodedBytes} FOR SHARE`));
-    if (local.length !== 1) unavailable();
-    try {
-      const row = local[0]!;
-      const loaded = await this.artifacts.loadInTransaction(transaction, { tenantId: this.tenantId, projectId: input.projectId, logicalRunId: row.run_id, interpreterId: "root" }, { objectId: input.artifact.artifactId, digest: input.artifact.digest, encodedBytes: input.artifact.encodedBytes }, [row.kind], false);
-      if (loaded.reference.objectId !== input.artifact.artifactId || loaded.reference.digest !== input.artifact.digest || loaded.reference.encodedBytes !== input.artifact.encodedBytes || loaded.content.byteLength !== input.artifact.encodedBytes) unavailable();
-      return { content: Uint8Array.from(loaded.content), storageVersion: row.storage_version };
-    } catch { unavailable(); }
+    return this.inputs.loadInTransaction(transaction, input.projectId, input.artifact);
   }
 
   /** The activity may only use the exact artifact reference persisted at run admission. */

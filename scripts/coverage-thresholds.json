@@ -932,6 +932,8 @@
   "src/factory/artifacts.ts": 100,
   "src/factory/artifact-access.ts": 100,
   "src/factory/lazy-input.ts": 100,
+  "src/factory/input-artifacts.ts": 100,
+  "src/factory/run-inputs.ts": 100,
   "src/factory/lazy-commands.ts": 100,
   "src/factory/definition-artifacts.ts": 100,
   "src/factory/transition-artifacts.ts": 100,
