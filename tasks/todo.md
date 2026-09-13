@@ -1697,10 +1697,12 @@ Plan review: test the public completion boundary with a published factory, admit
 - [x] Reproduce a successful admitted task that has no durable completion adapter.
 - [x] Commit exact terminal evidence, measured spend, bounded workflow result, and sealed retry receipt in one transaction.
 - [x] Prove retry, corruption, cancellation, output limits, and write-fault rollback with PGlite and PostgreSQL/S3.
-- [ ] Verify changed-source coverage, all four typechecks, lint, gate registration, and integration.
-- [ ] Record exact evidence and review the completed leaf.
+- [x] Verify changed-source coverage, all four typechecks, lint, gate registration, and integration.
+- [x] Record exact evidence and review the completed leaf.
 
 Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product and registration 47 passed / 421 assertions; PostgreSQL/S3 plus schema parity 46 passed / 2,090 assertions. SDK build, all four typechecks, lint (zero errors / eight existing infos), gate integrity, and boundaries passed. Both database producers report task-completions 79/79 lines and 18/18 functions, migration 4/4 and 2/2; shared command authority 88/88 and 26/26, artifacts 106/106 and 28/28, input artifacts 39/39 and 7/7. Source snapshot and exact results: `/tmp/factory-platform-evidence/root-task-completion-final-source.json` and `root-task-completion-final-integration-results.json`. Committed patch/new-file coverage and parent integration remain pending.
+
+Committed review: `a7dae2809` passed merged new-file and patch coverage gates (`root-task-completion-committed-coverage-results.json`). Its clean committed source is recorded in `root-task-completion-final-source.json`; the earlier broad log records its pre-commit base separately. Parent integration with child runs, native policy, and generic approvals is documented below. Full launch and non-success terminal handling remain open.
 
 ## Parent integration — native policy, child runs, successful completion
 
@@ -1732,3 +1734,14 @@ Review checkpoint: combined source `965deee9e` failed because the completion fix
 - A current human with explicit `factory.approve` can choose only a declared answer. Owner review also requires the durable run initiator. Tenant-contract-admin review also requires current `factory.trust`. The decision transaction locks run authority before the approval and inbox rows, then commits one audited decision and one stable `approval-decided` event. Exact retries reuse that row and event after current reviewer authorization.
 - The existing factory inbox and session API expose the generic request beside release notifications. Foreign and revoked principals cannot read or decide it. Release approval remains a separate C04 consent path.
 - PGlite and isolated PostgreSQL each pass 26 lifecycle cases with 248 assertions. Focused SDK, migration, release, API, web, Chromium, coverage, build, all typecheck legs, lint, boundaries, patch coverage, and gate integrity pass. Exact commands, logs, measured lines, and source hashes are in `tasks/factory/generic-command-approval-GATES.md`.
+
+## Parent integration — generic approvals and child completion
+
+- [x] Merge the Sol generic approval and Terra child bindings with root task completion.
+- [x] Preserve and repair combined fixture and database model defects.
+- [x] Pass SDK, product, PostgreSQL schema, all four types, lint, boundary and Node checks.
+- [x] Pass web components, route registry, Playwright Chromium, and inspect the captured image.
+
+Review: focused product source `d19468631` passed 67 tests / 579 assertions. All 18 canonical PostgreSQL/S3 files ran: 128 tests passed; one schema assertion exposed the child definition default mismatch. Correction `fa766f7e8` passed both canonical schema tests, all four typechecks, lint, gate integrity, boundaries, orchestrator build, and all 77 Node tests. The original failed log remains available. Web component/API selection passed 35 tests across four files. The separate Bun route registry passed; it is not part of the Vitest selection. The Chromium approval inbox passed and its image was inspected at `/tmp/factory-platform-evidence/root-generic-approval-parent-inbox.png`. No clipped controls or overlap was seen. The generic context is displayed as compact JSON; review its readability in the final UI pass.
+
+Receipts: `/tmp/factory-platform-evidence/root-product-command-merge-combined-integration-results.json`, `root-product-command-merge-remainder-integration-results.json`, `root-generic-approval-parent-remainder-integration-results.json`, and `root-generic-approval-parent-route-registry.log`. This integration proof does not close the platform launch gates or the new private runtime dispatch leaf.
