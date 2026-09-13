@@ -1672,3 +1672,12 @@ Review: application composition now provides a concrete host input resolver. Adm
 - [x] Run PGlite, PostgreSQL/S3, migration restart, changed-source LCOV, SDK build, all canonical typechecks, and lint.
 
 Review: final source coverage is 100% for `child-runs.ts`, `command-authority.ts`, `run-lifecycle.ts`, `factory-schema.ts`, and the child start-clock migration. The registration lines in `migrate.ts` are exercised by the full migration restart test; its whole-file aggregate is 95.93% because the module has unrelated historical branches.
+
+## C07 durable child review corrections
+
+- [x] Keep a child attempt live across unrelated parent audit-head advances.
+- [x] Reject the child after an actual repair replaces its sealed parent attempt.
+- [x] Make concurrent terminal settlement converge on one stored receipt.
+- [x] Register 100% coverage thresholds for child binding and all three migrations.
+
+Review: ancestor validation loads the stored sealed `run-child` command, reads the latest verified parent transition, and applies the same attempt checks used by command authority. This permits harmless parent progress but rejects replaced, stopped, cancelled, expired, or mismatched attempts.
