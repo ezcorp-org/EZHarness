@@ -73,6 +73,21 @@ describe("factory compiler", () => {
     expect(first.factory.definition.graph.nodes[0]?.deadlineMs).toBe(30 * 60 * 1_000);
   });
 
+  test("bounds default and explicit node deadlines by the run deadline", () => {
+    const defaulted = clone();
+    defaulted.bounds.runDeadlineMs = 600_000;
+    for (const claim of defaulted.acceptance.claims) (claim as { freshnessMs?: number }).freshnessMs = 600_000;
+    const compiled = compileFactory(defaulted);
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) expect(compiled.factory.definition.graph.nodes.every((item) => item.deadlineMs === 600_000)).toBe(true);
+
+    const explicit = clone();
+    explicit.bounds.runDeadlineMs = 600_000;
+    for (const claim of explicit.acceptance.claims) (claim as { freshnessMs?: number }).freshnessMs = 600_000;
+    (node(explicit, "snapshot-repository") as { deadlineMs?: number }).deadlineMs = 600_001;
+    expect(codes(explicit)).toContain("BOUND_NODE_DEADLINE");
+  });
+
   test("uses safe own-property indexes for hostile identifiers", () => {
     const definition = clone(referenceDataV1);
     const first = definition.graph.nodes[0] as { id: string };

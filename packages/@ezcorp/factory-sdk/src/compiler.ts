@@ -74,12 +74,12 @@ function diagnostic(code: string, message: string, path: readonly (string | numb
   return { code, message, path, ...(nodeId === undefined ? {} : { nodeId }) };
 }
 
-function materializeGraph(graph: FactoryGraph): FactoryGraph {
+function materializeGraph(graph: FactoryGraph, runDeadlineMs: number): FactoryGraph {
   return {
     nodes: graph.nodes.map((node) => {
       const common = {
         ...node,
-        deadlineMs: node.deadlineMs ?? FACTORY_LIMITS.defaultNodeDeadlineMs,
+        deadlineMs: node.deadlineMs ?? Math.min(FACTORY_LIMITS.defaultNodeDeadlineMs, runDeadlineMs),
         dependsOn: node.dependsOn ?? [],
         capabilities: node.capabilities ?? [],
         effects: node.effects ?? ["none"],
@@ -88,9 +88,9 @@ function materializeGraph(graph: FactoryGraph): FactoryGraph {
         outputPorts: node.outputPorts ?? (node.kind === "join" ? joinOutputPorts() : node.kind === "approval" ? approvalOutputPorts(node.choices) : {}),
       };
       if (node.kind === "task") return { ...common, retry: node.retry ?? { maxAttempts: 3, initialDelayMs: 1_000, maximumDelayMs: 2_000 } };
-      if (node.kind === "branch") return { ...common, then: materializeGraph(node.then), else: materializeGraph(node.else) };
-      if (node.kind === "map") return { ...common, body: materializeGraph(node.body) };
-      if (node.kind === "loop") return { ...common, body: materializeGraph(node.body) };
+      if (node.kind === "branch") return { ...common, then: materializeGraph(node.then, runDeadlineMs), else: materializeGraph(node.else, runDeadlineMs) };
+      if (node.kind === "map") return { ...common, body: materializeGraph(node.body, runDeadlineMs) };
+      if (node.kind === "loop") return { ...common, body: materializeGraph(node.body, runDeadlineMs) };
       return common;
     }),
     outputs: graph.outputs,
@@ -98,13 +98,14 @@ function materializeGraph(graph: FactoryGraph): FactoryGraph {
 }
 
 function materializeDefinition(definition: FactoryDefinition): FactoryDefinition {
+  const runDeadlineMs = definition.bounds.runDeadlineMs ?? FACTORY_LIMITS.defaultRunDeadlineMs;
   return {
     ...definition,
-    graph: materializeGraph(definition.graph),
+    graph: materializeGraph(definition.graph, runDeadlineMs),
     factories: definition.factories ?? [],
     bounds: {
       ...definition.bounds,
-      runDeadlineMs: definition.bounds.runDeadlineMs ?? FACTORY_LIMITS.defaultRunDeadlineMs,
+      runDeadlineMs,
     },
   };
 }
@@ -378,7 +379,7 @@ function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly 
     validateSchemas(node.inputPorts ?? {}, context, [...nodePath, "inputPorts"]);
     validateSchemas(node.outputPorts ?? {}, context, [...nodePath, "outputPorts"]);
     checkAuthority(node, context, nodePath);
-    if (node.deadlineMs !== undefined && (!Number.isSafeInteger(node.deadlineMs) || node.deadlineMs <= 0 || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs)) addDiagnostic(context, "BOUND_NODE_DEADLINE", "Node deadline is outside launch bounds.", [...nodePath, "deadlineMs"], node.id);
+    if (node.deadlineMs !== undefined && (!Number.isSafeInteger(node.deadlineMs) || node.deadlineMs <= 0 || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs || node.deadlineMs > context.definition.bounds.runDeadlineMs!)) addDiagnostic(context, "BOUND_NODE_DEADLINE", "Node deadline is outside launch or run bounds.", [...nodePath, "deadlineMs"], node.id);
     if (node.retry && (!Number.isSafeInteger(node.retry.maxAttempts) || node.retry.maxAttempts < 1 || node.retry.maxAttempts > 3 || !Number.isSafeInteger(node.retry.initialDelayMs) || node.retry.initialDelayMs < 0 || !Number.isSafeInteger(node.retry.maximumDelayMs) || node.retry.maximumDelayMs < node.retry.initialDelayMs)) addDiagnostic(context, "BOUND_RETRY", "Retry policy is invalid or exceeds three attempts.", [...nodePath, "retry"], node.id);
     if (node.kind !== "task" && node.retry) addDiagnostic(context, "RETRY_UNSUPPORTED", "Only task nodes can declare a retry policy.", [...nodePath, "retry"], node.id);
     if (node.kind === "task" && node.maxIterations !== undefined && (!Number.isSafeInteger(node.maxIterations) || node.maxIterations < 1)) addDiagnostic(context, "BOUND_AGENT_ITERATIONS", "Task iterations require a positive bound.", [...nodePath, "maxIterations"], node.id);
