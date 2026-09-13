@@ -21,10 +21,10 @@ const READ_TIMEOUT_MS = 15_000;
 
 function identity(value: Claims, attemptId: string): FactoryAttemptAuthority | null {
   const strings = ["attemptId", "tenantId", "projectId", "runId", "nodeInstanceId"].map(key => value[key]);
-  const numbers = ["candidateGeneration", "attemptNumber", "grantRevision", "reservationGeneration", "executionEpoch"].map(key => value[key]);
+  const numbers = ["candidateGeneration", "attemptNumber", "grantRevision", "reservationGeneration", "executionEpoch", "cancellationEpoch"].map(key => value[key]);
   const deadline = value.deadlineAt;
   if (strings.some(value => typeof value !== "string" || !value) || numbers.some(value => !Number.isSafeInteger(value) || (value as number) < 0) || !Number.isSafeInteger(deadline) || (strings[0] as string) !== attemptId) return null;
-  return { attemptId, tenantId: strings[1] as string, projectId: strings[2] as string, runId: strings[3] as string, nodeInstanceId: strings[4] as string, candidateGeneration: numbers[0] as number, attemptNumber: numbers[1] as number, grantRevision: numbers[2] as number, reservationGeneration: numbers[3] as number, executionEpoch: numbers[4] as number, deadlineAt: new Date(deadline as number) };
+  return { attemptId, tenantId: strings[1] as string, projectId: strings[2] as string, runId: strings[3] as string, nodeInstanceId: strings[4] as string, candidateGeneration: numbers[0] as number, attemptNumber: numbers[1] as number, grantRevision: numbers[2] as number, reservationGeneration: numbers[3] as number, executionEpoch: numbers[4] as number, cancellationEpoch: numbers[5] as number, deadlineAt: new Date(deadline as number) };
 }
 
 function reply(status: number, value: unknown): string {

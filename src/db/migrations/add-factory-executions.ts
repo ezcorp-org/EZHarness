@@ -14,6 +14,7 @@ export async function up(database: MigrationDb): Promise<void> {
     grant_revision BIGINT NOT NULL,
     reservation_generation BIGINT NOT NULL,
     execution_epoch BIGINT NOT NULL,
+    cancellation_epoch BIGINT NOT NULL DEFAULT 0,
     deadline_at TIMESTAMP WITH TIME ZONE NOT NULL,
     request_hash TEXT NOT NULL,
     request_json JSONB NOT NULL,
@@ -27,6 +28,7 @@ export async function up(database: MigrationDb): Promise<void> {
     FOREIGN KEY (tenant_id, project_id, run_id) REFERENCES factory_runs(tenant_id, project_id, run_id) ON DELETE RESTRICT
   )`);
   await database.execute(sql`ALTER TABLE factory_executions ADD COLUMN IF NOT EXISTS operation_initial_index BIGINT NOT NULL DEFAULT 0`);
+  await database.execute(sql`ALTER TABLE factory_executions ADD COLUMN IF NOT EXISTS cancellation_epoch BIGINT NOT NULL DEFAULT 0`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_execution_operation_cursors (
     tenant_id TEXT NOT NULL,
     project_id TEXT NOT NULL,

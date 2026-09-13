@@ -26,6 +26,7 @@ function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAtt
     grantRevision: 4,
     reservationGeneration: 5,
     executionEpoch: 6,
+    cancellationEpoch: 0,
     deadlineAt: new Date(Date.now() + 60_000),
     ...overrides,
   };
@@ -89,6 +90,7 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
   await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
+  await expect(journal.prepare(authority({ cancellationEpoch: 1 }), operation(2))).rejects.toThrow("stale, cancelled, or expired");
 
   const second = operation(2);
   await journal.prepare(attempt, second);

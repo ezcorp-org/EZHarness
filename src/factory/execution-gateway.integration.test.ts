@@ -47,7 +47,7 @@ async function certificates(): Promise<Certificates> {
 }
 
 function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
-  return { attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, deadlineAt: new Date(Date.now() + 60_000), ...overrides };
+  return { attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, deadlineAt: new Date(Date.now() + 60_000), ...overrides };
 }
 
 async function token(attempt: FactoryAttemptAuthority): Promise<string> {

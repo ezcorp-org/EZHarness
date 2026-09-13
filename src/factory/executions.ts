@@ -17,6 +17,7 @@ export interface FactoryAttemptAuthority {
   grantRevision: number;
   reservationGeneration: number;
   executionEpoch: number;
+  cancellationEpoch: number;
   deadlineAt: Date;
 }
 
@@ -62,7 +63,7 @@ function hashJson(value: string): string {
 }
 
 function assertIdentity(value: FactoryAttemptAuthority): void {
-  const counters = [value.candidateGeneration, value.attemptNumber, value.grantRevision, value.reservationGeneration, value.executionEpoch];
+  const counters = [value.candidateGeneration, value.attemptNumber, value.grantRevision, value.reservationGeneration, value.executionEpoch, value.cancellationEpoch];
   if (!value.attemptId || !value.tenantId || !value.projectId || !value.runId || !value.nodeInstanceId || counters.some(counter => !Number.isSafeInteger(counter) || counter < 0) || !(value.deadlineAt instanceof Date) || !Number.isFinite(value.deadlineAt.getTime())) {
     throw new Error("Factory attempt authority is incomplete.");
   }
@@ -94,7 +95,7 @@ export class FactoryExecutionJournal {
       const cursor = releaseRows<{ next_operation_index: number | string }>(await database.execute(sql`SELECT next_operation_index FROM factory_execution_operation_cursors WHERE tenant_id=${input.tenantId} AND project_id=${input.projectId} AND run_id=${input.runId} AND node_instance_id=${input.nodeInstanceId} AND candidate_generation=${input.candidateGeneration} FOR UPDATE`))[0];
       const initialIndex = Number(cursor?.next_operation_index);
       if (!Number.isSafeInteger(initialIndex) || initialIndex < 0) throw new Error("Factory operation cursor is invalid.");
-      const inserted = releaseRows(await database.execute(sql`INSERT INTO factory_executions(attempt_id, tenant_id, project_id, run_id, node_instance_id, candidate_generation, attempt_number, grant_revision, reservation_generation, execution_epoch, deadline_at, request_hash, request_json, operation_initial_index, status) VALUES (${input.attemptId}, ${input.tenantId}, ${input.projectId}, ${input.runId}, ${input.nodeInstanceId}, ${input.candidateGeneration}, ${input.attemptNumber}, ${input.grantRevision}, ${input.reservationGeneration}, ${input.executionEpoch}, ${input.deadlineAt}, ${requestHash}, ${requestJson}::jsonb, ${initialIndex}, 'admitted') ON CONFLICT (attempt_id) DO NOTHING RETURNING attempt_id`));
+      const inserted = releaseRows(await database.execute(sql`INSERT INTO factory_executions(attempt_id, tenant_id, project_id, run_id, node_instance_id, candidate_generation, attempt_number, grant_revision, reservation_generation, execution_epoch, cancellation_epoch, deadline_at, request_hash, request_json, operation_initial_index, status) VALUES (${input.attemptId}, ${input.tenantId}, ${input.projectId}, ${input.runId}, ${input.nodeInstanceId}, ${input.candidateGeneration}, ${input.attemptNumber}, ${input.grantRevision}, ${input.reservationGeneration}, ${input.executionEpoch}, ${input.cancellationEpoch}, ${input.deadlineAt}, ${requestHash}, ${requestJson}::jsonb, ${initialIndex}, 'admitted') ON CONFLICT (attempt_id) DO NOTHING RETURNING attempt_id`));
       if (inserted.length) return { requestHash, reused: false };
       const raced = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${input.attemptId}`))[0];
       if (raced?.request_hash === requestHash) return { requestHash, reused: true };
@@ -221,7 +222,7 @@ export class FactoryExecutionJournal {
     assertIdentity(authority);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
-      const row = releaseRows<{ status: string; journal_cursor: number; cancel_accepted_at: Date | null; stopped_at: Date | null }>(await database.execute(sql`SELECT status, journal_cursor, cancel_accepted_at, stopped_at FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch}`))[0];
+      const row = releaseRows<{ status: string; journal_cursor: number; cancel_accepted_at: Date | null; stopped_at: Date | null }>(await database.execute(sql`SELECT status, journal_cursor, cancel_accepted_at, stopped_at FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch}`))[0];
       const cursor = Number(row?.journal_cursor);
       if (!row?.status || !Number.isSafeInteger(cursor)) throw new Error("Factory attempt is unavailable to this tenant.");
       const terminal = releaseRows<{ result_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT result_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND state='completed' ORDER BY operation_index DESC LIMIT 1`))[0];
@@ -236,7 +237,7 @@ export class FactoryExecutionJournal {
   }
 
   private authorityDigest(authority: FactoryAttemptAuthority): Record<string, string | number> {
-    return { attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptNumber: authority.attemptNumber, grantRevision: authority.grantRevision, reservationGeneration: authority.reservationGeneration, executionEpoch: authority.executionEpoch, deadlineAt: authority.deadlineAt.getTime() };
+    return { attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptNumber: authority.attemptNumber, grantRevision: authority.grantRevision, reservationGeneration: authority.reservationGeneration, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch, deadlineAt: authority.deadlineAt.getTime() };
   }
 
   private sameEvidence(stored: { state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }, state: FactoryOperationState, result: FactoryOperationSettlement): boolean {
@@ -266,7 +267,7 @@ export class FactoryExecutionJournal {
   private async lockLive(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     await this.lockRunFence(database, authority);
     await this.authorizeInTransaction(database, authority);
-    const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
+    const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
     if (!locked.length) throw new Error("Factory attempt is stale, cancelled, or expired.");
   }
 

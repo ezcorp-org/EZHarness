@@ -30,6 +30,7 @@ export function nativeFactoryJournal(journal: FactoryExecutionJournal): NativeFa
     grantRevision: request.authority.grantRevision,
     reservationGeneration: request.authority.reservationGeneration,
     executionEpoch: request.authority.executionEpoch,
+    cancellationEpoch: request.authority.cancellationEpoch,
     deadlineAt: new Date(request.authority.deadlineAtMs),
   });
   return {
