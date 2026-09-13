@@ -27,8 +27,7 @@ function admission(attempt: FactoryAttemptAuthority, input?: JsonValue) {
   return { ...attempt, requestDigest: factoryRunnerRequestDigest(request), request };
 }
 
-function operation(index: number) {
-  const attempt = authority();
+function operationFor(attempt: FactoryAttemptAuthority, index: number) {
   return { operationId: `${attempt.runId}:${attempt.nodeInstanceId}:${attempt.candidateGeneration}:${index}`, operationIndex: index, kind: "model" as const, requestDigest: "e".repeat(64) };
 }
 
@@ -83,19 +82,51 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
   });
 
   test("out-of-order results cannot advance the cursor across an unfinished operation", async () => {
-    const attempt = admission(authority());
+    const attempt = admission(authority({ attemptId: "cursor-attempt" }));
     await journal.admit(attempt);
-    const zero = operation(0);
-    const one = operation(1);
+    const zero = operationFor(attempt, 0);
+    const one = operationFor(attempt, 1);
     await journal.prepare(attempt, zero);
     await journal.prepare(attempt, one);
     await journal.dispatch(attempt, zero.operationId);
     await journal.dispatch(attempt, one.operationId);
-    await journal.settle(attempt, one.operationId, "completed", { resultDigest: "one", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 1 } });
+    await journal.settle(attempt, one.operationId, "completed", { resultDigest: "one", result: { output: "one" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 1 } });
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: -1 });
-    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
-    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
-    await expect(journal.settle(attempt, zero.operationId, "completed", { resultDigest: "changed", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } })).rejects.toThrow("cannot settle");
+    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
+    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
+    await expect(journal.settle(attempt, zero.operationId, "completed", { resultDigest: "changed", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } })).rejects.toThrow("cannot settle");
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: 1 });
+  });
+
+  test("project revocation serializes cancellation and effect claims before installation and run locks", async () => {
+    const attempt = admission(authority({ attemptId: "project-lock-attempt", candidateGeneration: 2 }));
+    await journal.admit(attempt);
+    const pending = operationFor(attempt, 0);
+    await journal.prepare(attempt, pending);
+    let releaseProject!: () => void;
+    let signalProjectLocked!: () => void;
+    const projectLocked = new Promise<void>((resolve) => { signalProjectLocked = resolve; });
+    const release = new Promise<void>((resolve) => { releaseProject = resolve; });
+    const revoke = client.begin(async transaction => {
+      await transaction.unsafe("SELECT project_id FROM factory_projects WHERE tenant_id = 'execution-tenant' AND project_id = 'execution-project' FOR UPDATE");
+      signalProjectLocked();
+      await release;
+    });
+    await projectLocked;
+    let cancelFinished = false;
+    let effectFinished = false;
+    const cancellation = journal.cancel(attempt).finally(() => { cancelFinished = true; });
+    const effect = journal.dispatch(attempt, pending.operationId).finally(() => { effectFinished = true; });
+    await Bun.sleep(50);
+    expect(cancelFinished).toBe(false);
+    expect(effectFinished).toBe(false);
+    releaseProject();
+    await revoke;
+    await expect(cancellation).resolves.toBe(true);
+    const effectOutcome = await Promise.allSettled([effect]);
+    const [outcome] = effectOutcome;
+    if (!outcome) throw new Error("Factory effect did not settle after project revocation released.");
+    if (outcome.status === "fulfilled") expect(outcome.value).toEqual({ claimed: true });
+    else expect((outcome.reason as Error).message).toContain("stale, cancelled, or expired");
   });
 });

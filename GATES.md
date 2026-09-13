@@ -61,3 +61,15 @@
   CHECK: bun run typecheck && bun run lint
   EXPECT: exit 0
   EVIDENCE: pinned four-leg typecheck passed; lint exited 0 with eight existing informational diagnostics outside this leaf.
+
+# Factory journal lock-order gates
+
+- [x] L1 Every journal path obtains the scoped project share lock before installation and run fences.
+  CHECK: rg -n "lockProjectScope|lockInstallationFence|lockRunFence" src/factory/executions.ts
+  EXPECT: project -> installation -> run order
+  EVIDENCE: lockRunFence calls lockProjectScope, lockInstallationFence, then locks the run; the source comment records the shared Factory order through lifecycle, budget, and journal rows.
+
+- [x] L2 A PostgreSQL project revoke lock serializes concurrent cancellation and effect work without a deadlock.
+  CHECK: FACTORY_TEST_POSTGRES_URL=... bun test ./tests/postgres/factory-executions.test.ts
+  EXPECT: pass
+  EVIDENCE: pinned Bun real PostgreSQL journal test passed. Its project UPDATE barrier held both cancellation and dispatch until release; both requests then settled without deadlock. Combined journal LCOV was 202/202.

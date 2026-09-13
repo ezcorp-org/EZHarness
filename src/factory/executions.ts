@@ -298,7 +298,22 @@ export class FactoryExecutionJournal {
   }
 
   private async lockRunFence(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
-    const run = releaseRows(await database.execute(sql`SELECT factory_runs.run_id FROM factory_runs JOIN factory_installation ON factory_installation.tenant_id = factory_runs.tenant_id WHERE factory_runs.tenant_id=${authority.tenantId} AND factory_runs.project_id=${authority.projectId} AND factory_runs.run_id=${authority.runId} AND factory_runs.execution_epoch=${authority.executionEpoch} AND factory_installation.execution_epoch=${authority.executionEpoch} FOR UPDATE`));
+    // Every Factory product transaction follows this order. Project authority
+    // comes first, then the installation epoch, then the run; rows below a
+    // run (lifecycle, budget, journal) are locked only after this fence.
+    await this.lockProjectScope(database, authority);
+    await this.lockInstallationFence(database, authority);
+    const run = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND execution_epoch=${authority.executionEpoch} FOR UPDATE`));
     if (!run.length) throw new Error("Factory run epoch is stale or unavailable.");
+  }
+
+  private async lockProjectScope(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
+    const project = releaseRows(await database.execute(sql`SELECT project_id FROM factory_projects WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} FOR SHARE`));
+    if (!project.length) throw new Error("Factory run epoch is stale or unavailable.");
+  }
+
+  private async lockInstallationFence(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
+    const installation = releaseRows(await database.execute(sql`SELECT tenant_id FROM factory_installation WHERE tenant_id=${authority.tenantId} AND execution_epoch=${authority.executionEpoch} FOR SHARE`));
+    if (!installation.length) throw new Error("Factory run epoch is stale or unavailable.");
   }
 }
