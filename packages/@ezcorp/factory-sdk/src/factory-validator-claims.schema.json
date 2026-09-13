@@ -1,0 +1,134 @@
+{
+  "$id": "urn:ezcorp:factory:validator-claims:v1",
+  "$ref": "#/definitions/FactoryValidatorClaimReport",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryArtifactReference": {
+      "additionalProperties": false,
+      "description": "Opaque, immutable object reference. Ownership is resolved by the gateway.",
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryValidatorClaimOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "decisive": {
+          "description": "A decisive claim can close its group alone.",
+          "type": "boolean"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/definitions/FactoryArtifactReference"
+          },
+          "maxItems": 100,
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "measuredAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "reasonCode": {
+          "description": "Machine-readable reason.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "summary": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/definitions/FactoryValidatorVerdict"
+        }
+      },
+      "required": [
+        "id",
+        "verdict",
+        "decisive",
+        "summary",
+        "reasonCode",
+        "evidence",
+        "measuredAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryValidatorClaimReport": {
+      "additionalProperties": false,
+      "description": "What the isolated guest writes. It carries no provenance and mints no trust.",
+      "properties": {
+        "claims": {
+          "items": {
+            "$ref": "#/definitions/FactoryValidatorClaimOutcome"
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "error": {
+          "$ref": "#/definitions/FactoryValidatorError",
+          "description": "Present only when every claim is VALIDATOR_ERROR."
+        },
+        "schemaVersion": {
+          "const": "factory.validator-claims.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "claims"
+      ],
+      "type": "object"
+    },
+    "FactoryValidatorError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "message": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "FactoryValidatorVerdict": {
+      "description": "A process exit alone is never a verdict. Only this union decides a protected claim.",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "INCONCLUSIVE",
+        "VALIDATOR_ERROR"
+      ],
+      "type": "string"
+    }
+  }
+}
