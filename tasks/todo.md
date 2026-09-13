@@ -943,3 +943,10 @@ The public route now stores `Idempotency-Key` as a bounded `factory:` key. The e
 ### Review
 
 Pending implementation and measured verification.
+## Factory Stage2c durable execution gateway
+
+- [x] Define idempotent attempt admission, operation journal, checkpoints, status, and cancellation records with tenant/project/run keys.
+- [x] Add idempotent real-Postgres migration and one ordered `migrate.ts` call.
+- [x] Bind signed attempt claims and peer tenant identity at the HTTPS gateway before durable admission or effects.
+- [ ] Prove real HTTPS, PostgreSQL, response loss/recovery, conflict, cancellation, stale callback, and reattach behavior.
+- [ ] Run changed-line and new-source coverage, typecheck, lint, and focused real-Postgres tests.
