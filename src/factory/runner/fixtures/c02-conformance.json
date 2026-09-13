@@ -5,7 +5,7 @@
       "kind": "request",
       "value": {
         "schemaVersion": "factory.runner.request.v1",
-        "authority": { "attemptId": "attempt-1", "tenantId": "tenant-1", "projectId": "project-1", "runId": "run-1", "nodeInstanceId": "node-1", "candidateGeneration": 0, "attemptNumber": 1, "grantRevision": 2, "reservationGeneration": 3, "executionEpoch": 4, "cancellationEpoch": 0, "deadlineAtMs": 2000000000000, "nextOperationIndex": 5 },
+        "authority": { "attemptId": "attempt-1", "tenantId": "tenant-1", "projectId": "project-1", "runId": "run-1", "nodeInstanceId": "node-1", "candidateGeneration": 0, "attemptNumber": 1, "grantRevision": 2, "reservationGeneration": 3, "executionEpoch": 4, "cancellationEpoch": 0, "deadlineAtMs": 2000000000000, "nextOperationIndex": 0 },
         "runner": { "package": "@example/runner", "version": "1.2.3", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "export": "run", "model": "model-v1", "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
         "input": { "kind": "inline", "value": { "prompt": "safe" } },
         "grants": ["model:invoke", "tool:read"],

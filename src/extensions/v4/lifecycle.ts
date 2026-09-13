@@ -307,8 +307,8 @@ export class ExtensionLifecycle {
     await this.dependencies.authorize(actor, "approve", this.release(snapshot, requested.releaseId), requested.grants);
     return this.transaction(actor, installationId, (state) => {
       const approval = this.approval(state, approvalId);
-      this.checkApproval(state, approval, false);
       if (approval.status !== "pending") throw new LifecycleError("approval_decided", "This approval already has a decision.");
+      this.checkApproval(state, approval, false);
       approval.status = decision ? "approved" : "rejected";
       approval.approvedBy = actor.principalId;
       return approval;

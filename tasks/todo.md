@@ -34,6 +34,15 @@ Review: descriptor tests reject an actual FIFO and a symlinked parent. The real 
 
 Review: `src/factory/file-key-wraps.ts` reads only private descriptor-anchored files, accepts only `factory.key-wraps.v1`, has no data-key creation or rotation path, and returns only the Node-compatible history codec. The Node 24 test covers the workflow context round trip plus missing, empty, foreign, malformed, corrupt, wrong-master, mode, and grantable-root denials. Canonical Node coverage records 101/101 lines for this source at `/tmp/factory-platform-evidence/terra-c06-node-coverage/lcov.info`. The real PostgreSQL and local S3 proof publishes and reads an encrypted definition through `createFactoryApplication` at `/tmp/factory-platform-evidence/terra-c06-definitions-postgres-s3.log`. Four type legs and lint complete at `/tmp/factory-platform-evidence/terra-c06-types-lint.log`; lint has zero errors and eight existing infos.
 
+## Backend regression repairs — Terra
+
+- [x] Preserve the terminal human-review error after a rejection.
+- [x] Permit bounded canonical bundled host-API grant records through approval.
+- [x] Align the C02 request fixture cursor with the checkpoint protocol.
+- [x] Run focused tests, required static checks, and changed-source coverage.
+
+Review: full affected test files pass independently: 3 event-subscription cases, 7 grant-reconciliation cases, and 3 real-Python C02 conformance cases. The focused canonical Bun coverage receipt at `/tmp/factory-platform-evidence/terra-backend-regression-coverage.log` covers the changed lifecycle lines (310–311) and approval-context limit (32). The four canonical typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-backend-regression-types-lint.log`; lint reports zero errors and eight existing infos.
+
 - [x] Fetch PR and latest main; preserve original worktrees.
 - [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
 - [x] Complete clean/reused installs, package suites, backend, web, static, and coverage runs.
