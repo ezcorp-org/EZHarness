@@ -84,6 +84,7 @@ function childInput(parent: FactoryWorkflowInput, command: Extract<KernelCommand
     deadlineAtMs: command.deadlineAtMs,
     definition,
     input: command.input,
+    ...(command.durableInput === undefined ? {} : { durableInput: command.durableInput }),
   };
 }
 
@@ -146,8 +147,8 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     throw workflowFailure(error, "FACTORY_DEFINITION_INVALID");
   }
   const created = isPartitionSource(input.definition)
-    ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs)
-    : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs);
+    ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs, input.durableInput)
+    : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs, input.durableInput);
   const restored = input.continuation?.stateArtifact
     ? await loadTransitionArtifact(workflowIdentity(input), input.continuation.stateArtifact.sourceSequence, input.continuation.stateArtifact.manifest, reads)
     : undefined;

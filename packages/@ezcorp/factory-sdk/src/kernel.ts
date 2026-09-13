@@ -671,7 +671,7 @@ function dispatchChild(state: KernelState, node: Extract<FactoryNode, { kind: "s
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "run-child", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
-  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node, nodeId), deadlineAtMs });
+  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node, nodeId), ...(state.durableInput === undefined ? {} : { durableInput: state.durableInput }), deadlineAtMs });
   return waitForExternal(command.state, nodeId, runtime, attempt, commands);
 }
 
