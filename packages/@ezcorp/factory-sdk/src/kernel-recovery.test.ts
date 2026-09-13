@@ -149,3 +149,112 @@ test("an invalid required source result never dispatches its typed dependent bou
   expect(stopped.commands.some((command) => command.kind === "request-admission" && command.nodeId === "dependent")).toBe(false);
   expect(stopped.commands.some((command) => command.kind === "dispatch-node" && command.nodeId === "dependent")).toBe(false);
 });
+
+function activeDependent() {
+  const factory = compiled([
+    { id: "candidate", kind: "task", runner, outputPorts: { payload: string } },
+    { id: "consumer", kind: "task", runner, dependsOn: ["candidate"], inputPorts: { payload: string }, outputPorts: { seen: string }, bindings: { payload: { kind: "ref", root: "node", name: "candidate", path: ["payload"] } } },
+  ]);
+  let state = start(factory, "active-descendant-repair");
+  state = admit(factory, state, "candidate");
+  const candidate = state.nodes.candidate!.attempts.at(-1)!;
+  state = advanceKernel(factory, state, { kind: "node-result", id: "candidate:result", atMs: 1, nodeId: "candidate", commandId: candidate.commandId, candidateGeneration: candidate.candidateGeneration, attempt: candidate.attempt, output: { payload: "old" } }).nextState;
+  state = admit(factory, state, "consumer", 1);
+  return { factory, state, candidate, consumer: state.nodes.consumer!.attempts.at(-1)! };
+}
+
+test("repair drains an active descendant before admitting a fresh candidate and preserves prior facts", () => {
+  const setup = activeDependent();
+  const repairing = advanceKernel(setup.factory, setup.state, { kind: "repair", id: "repair", atMs: 2, nodeId: "candidate", reason: "replace" });
+  expect(repairing.nextState.pendingRepair?.rootNodeId).toBe("candidate");
+  expect(repairing.nextState.nodes.candidate?.candidateGeneration).toBe(0);
+  expect(repairing.nextState.nodes.consumer?.status).toBe("stopping");
+  expect(repairing.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "consumer", attemptCommandId: setup.consumer.commandId }));
+  expect(repairing.commands.some((command) => command.kind === "request-admission" && command.nodeId === "candidate" && command.candidateGeneration === 1)).toBe(false);
+
+  const drained = advanceKernel(setup.factory, repairing.nextState, { kind: "attempt-stopped", id: "consumer:stopped", atMs: 2, nodeId: "consumer", commandId: setup.consumer.commandId, candidateGeneration: setup.consumer.candidateGeneration, attempt: setup.consumer.attempt });
+  expect(drained.nextState.pendingRepair).toBeUndefined();
+  expect(drained.nextState.nodes.candidate?.candidateGeneration).toBe(1);
+  expect(drained.nextState.nodes.candidate?.priorCandidates).toContainEqual(expect.objectContaining({ candidateGeneration: 0, output: { payload: "old" } }));
+  expect(drained.nextState.nodes.consumer?.status).toBe("blocked");
+
+  const stale = advanceKernel(setup.factory, drained.nextState, { kind: "node-result", id: "candidate:stale-result", atMs: 3, nodeId: "candidate", commandId: setup.candidate.commandId, candidateGeneration: 0, attempt: 1, output: { payload: "stale" } });
+  expect(stale.nextState.nodes.candidate?.output).toBeUndefined();
+  const charged = advanceKernel(setup.factory, stale.nextState, { kind: "usage-settled", id: "candidate:old-charge", atMs: 3, nodeId: "candidate", commandId: setup.candidate.commandId, candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "4" });
+  expect(charged.nextState.spentCostMicros).toBe("4");
+});
+
+test("global cancellation clears a pending repair and prevents a fresh candidate admission", () => {
+  const setup = activeDependent();
+  const repairing = advanceKernel(setup.factory, setup.state, { kind: "repair", id: "repair", atMs: 2, nodeId: "candidate", reason: "replace" });
+  expect(repairing.nextState.status).toBe("running");
+  const cancelled = advanceKernel(setup.factory, repairing.nextState, { kind: "cancel", id: "cancel", atMs: 2, reason: "operator" });
+  expect(cancelled.nextState.pendingRepair).toBeUndefined();
+  expect(cancelled.nextState.status).toBe("stopping");
+  const stopped = advanceKernel(setup.factory, cancelled.nextState, { kind: "attempt-stopped", id: "consumer:stopped", atMs: 2, nodeId: "consumer", commandId: setup.consumer.commandId, candidateGeneration: setup.consumer.candidateGeneration, attempt: setup.consumer.attempt });
+  expect(stopped.nextState.nodes.candidate?.candidateGeneration).toBe(0);
+  expect(stopped.commands.some((command) => command.kind === "request-admission" && command.nodeId === "candidate" && command.candidateGeneration === 1)).toBe(false);
+});
+
+test("scoped map leaf repair invalidates its completed parent aggregate before re-execution", () => {
+  const map: Extract<FactoryNode, { kind: "map" }> = {
+    id: "map", kind: "map", collection: { kind: "literal", value: ["one"] }, itemSchema: string, mode: "all", maxItems: 1, maxConcurrency: 1,
+    outputPorts: { result: { type: "array", items: string } }, body: { nodes: [{ id: "work", kind: "task", runner, outputPorts: { result: string } }], outputs: { result: { kind: "ref", root: "node", name: "work", path: ["result"] } } },
+  };
+  const factory = compiled([map, { id: "hold", kind: "task", runner }]);
+  let state = start(factory, "scoped-map-repair");
+  state = admit(factory, state, "map/items/0/work");
+  const leaf = state.nodes["map/items/0/work"]!.attempts.at(-1)!;
+  state = advanceKernel(factory, state, { kind: "node-result", id: "leaf:result", atMs: 1, nodeId: "map/items/0/work", commandId: leaf.commandId, candidateGeneration: leaf.candidateGeneration, attempt: leaf.attempt, output: { result: "old" } }).nextState;
+  expect(state.nodes.map?.output).toEqual({ result: ["old"] });
+  const repaired = advanceKernel(factory, state, { kind: "repair", id: "leaf:repair", atMs: 2, nodeId: "map/items/0/work", reason: "replace item" });
+  expect(repaired.nextState.nodes.map?.status).toBe("waiting");
+  expect(repaired.nextState.nodes.map?.output).toBeUndefined();
+  expect(repaired.nextState.nodes["map/items/0/work"]?.candidateGeneration).toBe(1);
+});
+
+test("repair refuses a release after its external operation has been dispatched", () => {
+  const factory = compiled([
+    { id: "accept", kind: "acceptance", contract: referenceCodeV1.acceptance.id, candidate: { kind: "literal", value: "candidate" }, evidence: { kind: "literal", value: "evidence" }, outputPorts: { acceptedCandidate: string } },
+    { id: "release", kind: "release", dependsOn: ["accept"], adapter: runner, acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: "destination" }, outputPorts: { receipt: string } },
+  ]);
+  let state = start(factory, "release-repair");
+  const accepted = state.nodes.accept!.attempts.at(-1)!;
+  state = advanceKernel(factory, state, { kind: "node-result", id: "accepted", atMs: 1, nodeId: "accept", commandId: accepted.commandId, candidateGeneration: accepted.candidateGeneration, attempt: accepted.attempt, output: { acceptedCandidate: "candidate" } }).nextState;
+  const release = state.nodes.release!.attempts.at(-1)!;
+  expect(state.nodes.release?.status).toBe("waiting");
+  const repaired = advanceKernel(factory, state, { kind: "repair", id: "release:repair", atMs: 2, nodeId: "release", reason: "cannot replay publication" });
+  expect(repaired.nextState.nodes.release?.candidateGeneration).toBe(release.candidateGeneration);
+  expect(repaired.nextState.nodes.release?.status).toBe("waiting");
+  expect(repaired.nextState.pendingRepair).toBeUndefined();
+  expect(repaired.commands).toEqual([]);
+});
+
+test("repairing a nested branch/map/loop leaf invalidates every enclosing control result", () => {
+  const loop: Extract<FactoryNode, { kind: "loop" }> = {
+    id: "loop", kind: "loop", initialInput: { kind: "literal", value: "seed" }, carriedSchema: string,
+    resultSchema: { type: "object", properties: { result: string }, required: ["result"], additionalProperties: false }, outputPorts: { result: string },
+    body: { nodes: [{ id: "work", kind: "task", runner, outputPorts: { result: string } }], outputs: { result: { kind: "ref", root: "node", name: "work", path: ["result"] } } },
+    until: { kind: "literal", value: true }, nextInput: { kind: "literal", value: "seed" }, maxIterations: 1, maxElapsedMs: 1_000, onExhausted: "fail",
+  };
+  const map: Extract<FactoryNode, { kind: "map" }> = {
+    id: "map", kind: "map", collection: { kind: "literal", value: ["one"] }, itemSchema: string, mode: "all", maxItems: 1, maxConcurrency: 1,
+    outputPorts: { result: { type: "array", items: string } }, body: { nodes: [loop], outputs: { result: { kind: "ref", root: "node", name: "loop", path: ["result"] } } },
+  };
+  const branch: Extract<FactoryNode, { kind: "branch" }> = {
+    id: "branch", kind: "branch", condition: { kind: "literal", value: true }, outputPorts: { result: { type: "array", items: { type: ["string", "null"] } } },
+    then: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "map", path: ["result"] } } }, else: { nodes: [], outputs: { result: { kind: "literal", value: [] } } },
+  };
+  const factory = compiled([branch, { id: "hold", kind: "task", runner }]);
+  const leafId = "branch/then/map/items/0/loop/items/0/work";
+  let state = start(factory, "nested-control-repair");
+  state = admit(factory, state, leafId);
+  const leaf = state.nodes[leafId]!.attempts.at(-1)!;
+  state = advanceKernel(factory, state, { kind: "node-result", id: "nested:result", atMs: 1, nodeId: leafId, commandId: leaf.commandId, candidateGeneration: leaf.candidateGeneration, attempt: leaf.attempt, output: { result: "old" } }).nextState;
+  expect(state.nodes.branch?.output).toEqual({ result: ["old"] });
+  const repaired = advanceKernel(factory, state, { kind: "repair", id: "nested:repair", atMs: 2, nodeId: leafId, reason: "replace nested leaf" });
+  expect(repaired.nextState.nodes.branch?.status).toBe("waiting");
+  expect(repaired.nextState.nodes.branch?.output).toBeUndefined();
+  expect(repaired.nextState.nodes["branch/then/map"]?.status).toBe("waiting");
+  expect(repaired.nextState.nodes["branch/then/map/items/0/loop"]?.status).toBe("waiting");
+});
