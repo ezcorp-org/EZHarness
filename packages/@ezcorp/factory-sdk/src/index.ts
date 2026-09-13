@@ -5,6 +5,7 @@ export { compiledExecutionManifestJsonSchema, compiledFactoryJsonSchema, compile
 export { evaluateExpression, validateExpression } from "./expressions.js";
 export { canonicalizeJson, isUnsignedDecimal, jsonEqual, sha256Hex, unicodeLength, validateIJson } from "./canonical.js";
 export { factoryApiMutationPayload, factoryApiPayloadDigest, validateFactoryApiPayloadDigest } from "./api.js";
+export { decodeFactoryPageBase64, encodeFactoryPageBase64, FACTORY_PAGE_BYTES_LIMIT } from "./page-bytes.js";
 export { FactoryParseError, parseFactoryJson, parseFactoryYaml, parseIJson, parseIYaml } from "./parse.js";
 export { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, factoryRunnerRequestDigest, factoryRunnerRequestIdentity, verifyCompiledFactoryArtifact } from "./compiler.js";
 export type { CompiledFactoryPageBytes } from "./compiler.js";

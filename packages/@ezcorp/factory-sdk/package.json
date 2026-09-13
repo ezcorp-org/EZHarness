@@ -39,6 +39,11 @@
       "types": "./dist/canonical.d.ts",
       "import": "./dist/canonical.js"
     },
+    "./page-bytes": {
+      "bun": "./src/page-bytes.ts",
+      "types": "./dist/page-bytes.d.ts",
+      "import": "./dist/page-bytes.js"
+    },
     "./transport-types": {
       "bun": "./src/transport-types.ts",
       "types": "./dist/transport-types.d.ts",
