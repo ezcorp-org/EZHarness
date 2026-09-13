@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
+import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
+import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
 
@@ -18,11 +19,13 @@ export interface FactoryAttemptAuthority {
   reservationGeneration: number;
   executionEpoch: number;
   cancellationEpoch: number;
+  /** Canonical C02 request identity, excluding only the ephemeral broker token. */
+  requestDigest: string;
   deadlineAt: Date;
 }
 
 export interface FactoryAttemptAdmission extends FactoryAttemptAuthority {
-  request: unknown;
+  request: FactoryRunnerRequest;
 }
 
 export interface FactoryJournalOperation {
@@ -58,13 +61,9 @@ export interface FactoryJournalOperationEvidence extends FactoryJournalOperation
 /** Runs under the journal row locks immediately before an effect can dispatch. */
 export type FactoryAttemptAuthorizer = (database: MigrationDb, authority: FactoryAttemptAuthority) => Promise<void>;
 
-function hashJson(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
-}
-
 function assertIdentity(value: FactoryAttemptAuthority): void {
   const counters = [value.candidateGeneration, value.attemptNumber, value.grantRevision, value.reservationGeneration, value.executionEpoch, value.cancellationEpoch];
-  if (!value.attemptId || !value.tenantId || !value.projectId || !value.runId || !value.nodeInstanceId || counters.some(counter => !Number.isSafeInteger(counter) || counter < 0) || !(value.deadlineAt instanceof Date) || !Number.isFinite(value.deadlineAt.getTime())) {
+  if (!value.attemptId || !value.tenantId || !value.projectId || !value.runId || !value.nodeInstanceId || !/^[a-f0-9]{64}$/.test(value.requestDigest) || counters.some(counter => !Number.isSafeInteger(counter) || counter < 0) || !(value.deadlineAt instanceof Date) || !Number.isFinite(value.deadlineAt.getTime())) {
     throw new Error("Factory attempt authority is incomplete.");
   }
 }
@@ -81,8 +80,22 @@ export class FactoryExecutionJournal {
 
   async admit(input: FactoryAttemptAdmission): Promise<{ requestHash: string; reused: boolean }> {
     this.assertLiveInput(input);
-    const requestJson = canonicalJson({ authority: this.authorityDigest(input), request: input.request });
-    const requestHash = hashJson(requestJson);
+    const requestIdentity = factoryRunnerRequestIdentity(input.request);
+    const requestHash = factoryRunnerRequestDigest(input.request);
+    if (requestHash !== input.requestDigest) throw new Error("Factory signed attempt does not match the canonical runner request.");
+    if (requestIdentity.authority.attemptId !== input.attemptId
+      || requestIdentity.authority.tenantId !== input.tenantId
+      || requestIdentity.authority.projectId !== input.projectId
+      || requestIdentity.authority.runId !== input.runId
+      || requestIdentity.authority.nodeInstanceId !== input.nodeInstanceId
+      || requestIdentity.authority.candidateGeneration !== input.candidateGeneration
+      || requestIdentity.authority.attemptNumber !== input.attemptNumber
+      || requestIdentity.authority.grantRevision !== input.grantRevision
+      || requestIdentity.authority.reservationGeneration !== input.reservationGeneration
+      || requestIdentity.authority.executionEpoch !== input.executionEpoch
+      || requestIdentity.authority.cancellationEpoch !== input.cancellationEpoch
+      || requestIdentity.authority.deadlineAtMs !== input.deadlineAt.getTime()) throw new Error("Factory signed attempt does not match the canonical runner request.");
+    const requestJson = canonicalJson(requestIdentity);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, input);
       await this.authorizeInTransaction(database, input);
@@ -159,7 +172,7 @@ export class FactoryExecutionJournal {
   async operation(authority: FactoryAttemptAuthority, operationId: string): Promise<FactoryJournalOperationStatus> {
     assertIdentity(authority);
     return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
+      await this.lockScopedRead(database, authority);
       const stored = releaseRows<{ state: FactoryOperationState; result_json: unknown }>(await database.execute(sql`SELECT state, result_json FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
       if (!stored) throw new Error("Factory operation is unavailable to this tenant.");
       if (stored.state === "completed") return { state: stored.state, result: this.storedJson(stored.result_json) as JsonValue };
@@ -171,7 +184,7 @@ export class FactoryExecutionJournal {
   async operations(authority: FactoryAttemptAuthority): Promise<FactoryJournalOperationEvidence[]> {
     assertIdentity(authority);
     return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
+      await this.lockScopedRead(database, authority);
       const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id, operation_index, kind, state, request_digest, result_digest, provider_receipt_digest, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} ORDER BY operation_index ASC`));
       return stored.map((operation) => ({
         operationId: operation.operation_id,
@@ -193,7 +206,7 @@ export class FactoryExecutionJournal {
     if (!result.providerReceiptDigest) throw new Error("Late factory receipts need a digest.");
     await this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_execution_operations SET state='uncertain', provider_receipt_digest=${result.providerReceiptDigest}, result_digest=${result.resultDigest ?? null}, result_json=${result.result === undefined ? null : canonicalJson(result.result)}::jsonb, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' AND EXISTS (SELECT 1 FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch}) RETURNING operation_id`));
+      const updated = releaseRows(await database.execute(sql`UPDATE factory_execution_operations SET state='uncertain', provider_receipt_digest=${result.providerReceiptDigest}, result_digest=${result.resultDigest ?? null}, result_json=${result.result === undefined ? null : canonicalJson(result.result)}::jsonb, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' AND EXISTS (SELECT 1 FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest}) RETURNING operation_id`));
       if (updated.length) return;
       const existing = releaseRows<{ state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT state, provider_receipt_digest, result_digest, result_json, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
       if (!existing || !this.sameEvidence(existing, "uncertain", result)) throw new Error("Late factory receipt does not match a dispatched operation.");
@@ -204,7 +217,7 @@ export class FactoryExecutionJournal {
     assertIdentity(authority);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='cancel_accepted', cancel_accepted_at=COALESCE(cancel_accepted_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND status IN ('admitted', 'running') RETURNING attempt_id`));
+      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='cancel_accepted', cancel_accepted_at=COALESCE(cancel_accepted_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status IN ('admitted', 'running') RETURNING attempt_id`));
       return Boolean(updated.length);
     });
   }
@@ -213,7 +226,7 @@ export class FactoryExecutionJournal {
     assertIdentity(authority);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='stopped', stopped_at=COALESCE(stopped_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND status='cancel_accepted' RETURNING attempt_id`));
+      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='stopped', stopped_at=COALESCE(stopped_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status='cancel_accepted' RETURNING attempt_id`));
       return Boolean(updated.length);
     });
   }
@@ -221,8 +234,8 @@ export class FactoryExecutionJournal {
   async status(authority: FactoryAttemptAuthority): Promise<{ status: string; journalCursor: number; cancelAcceptedAt: Date | null; stoppedAt: Date | null; workspaceCheckpoint?: unknown; terminalResult?: JsonValue }> {
     assertIdentity(authority);
     return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
-      const row = releaseRows<{ status: string; journal_cursor: number; cancel_accepted_at: Date | null; stopped_at: Date | null }>(await database.execute(sql`SELECT status, journal_cursor, cancel_accepted_at, stopped_at FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch}`))[0];
+      await this.lockScopedRead(database, authority);
+      const row = releaseRows<{ status: string; journal_cursor: number; cancel_accepted_at: Date | null; stopped_at: Date | null }>(await database.execute(sql`SELECT status, journal_cursor, cancel_accepted_at, stopped_at FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest}`))[0];
       const cursor = Number(row?.journal_cursor);
       if (!row?.status || !Number.isSafeInteger(cursor)) throw new Error("Factory attempt is unavailable to this tenant.");
       const terminal = releaseRows<{ result_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT result_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND state='completed' ORDER BY operation_index DESC LIMIT 1`))[0];
@@ -234,10 +247,6 @@ export class FactoryExecutionJournal {
         ...(terminal ? { workspaceCheckpoint: this.storedJson(terminal.workspace_checkpoint), terminalResult: this.storedJson(terminal.result_json) as JsonValue } : {}),
       };
     });
-  }
-
-  private authorityDigest(authority: FactoryAttemptAuthority): Record<string, string | number> {
-    return { attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptNumber: authority.attemptNumber, grantRevision: authority.grantRevision, reservationGeneration: authority.reservationGeneration, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch, deadlineAt: authority.deadlineAt.getTime() };
   }
 
   private sameEvidence(stored: { state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }, state: FactoryOperationState, result: FactoryOperationSettlement): boolean {
@@ -267,8 +276,14 @@ export class FactoryExecutionJournal {
   private async lockLive(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     await this.lockRunFence(database, authority);
     await this.authorizeInTransaction(database, authority);
-    const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
+    const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
     if (!locked.length) throw new Error("Factory attempt is stale, cancelled, or expired.");
+  }
+
+  private async lockScopedRead(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
+    await this.lockRunFence(database, authority);
+    const stored = releaseRows(await database.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`));
+    if (!stored.length) throw new Error("Factory attempt is unavailable to this tenant.");
   }
 
   private async lockRunFence(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {

@@ -7,6 +7,8 @@ import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "./executions";
+import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 
 const databases: PGlite[] = [];
 
@@ -27,9 +29,23 @@ function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAtt
     reservationGeneration: 5,
     executionEpoch: 6,
     cancellationEpoch: 0,
+    requestDigest: "a".repeat(64),
     deadlineAt: new Date(Date.now() + 60_000),
     ...overrides,
   };
+}
+
+function runnerRequest(attempt: FactoryAttemptAuthority, input: JsonValue = { b: 2, a: 1 }): FactoryRunnerRequest {
+  return {
+    schemaVersion: "factory.runner.request.v1",
+    authority: { attemptId: attempt.attemptId, tenantId: attempt.tenantId, projectId: attempt.projectId, runId: attempt.runId, nodeInstanceId: attempt.nodeInstanceId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attemptNumber, grantRevision: attempt.grantRevision, reservationGeneration: attempt.reservationGeneration, executionEpoch: attempt.executionEpoch, cancellationEpoch: attempt.cancellationEpoch, deadlineAtMs: attempt.deadlineAt.getTime(), nextOperationIndex: 0 },
+    runner: { package: "runner", version: "1", digest: `sha256:${"a".repeat(64)}`, export: "run" }, input: { kind: "inline", value: input }, grants: [], resources: {}, tools: [], broker: { attemptToken: "ephemeral-broker-token", audience: "gateway" },
+  };
+}
+
+function admission(attempt: FactoryAttemptAuthority, input?: JsonValue) {
+  const request = runnerRequest(attempt, input);
+  return { ...attempt, requestDigest: factoryRunnerRequestDigest(request), request };
 }
 
 function operation(index: number) {
@@ -56,12 +72,12 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
 
   const authorizations: string[] = [];
   const journal = new FactoryExecutionJournal(db, async (_transaction, current) => { authorizations.push(current.attemptId); });
-  const attempt = authority();
-  expect(await journal.admit({ ...attempt, request: { b: 2, a: 1 } })).toMatchObject({ reused: false });
-  expect(await journal.admit({ ...attempt, request: { a: 1, b: 2 } })).toMatchObject({ reused: true });
-  await expect(journal.admit({ ...attempt, request: { a: 3 } })).rejects.toThrow("conflicts");
-  await expect(journal.admit({ ...attempt, tenantId: "tenant-b", request: { a: 1, b: 2 } })).rejects.toThrow("epoch is stale");
-  await expect(journal.admit({ ...authority({ attemptId: "unknown-project", projectId: "missing" }), request: {} })).rejects.toThrow();
+  const attempt = admission(authority());
+  expect(await journal.admit(attempt)).toMatchObject({ reused: false });
+  expect(await journal.admit({ ...attempt, request: { ...attempt.request, broker: { ...attempt.request.broker, attemptToken: "reissued-broker-token" } } })).toMatchObject({ reused: true });
+  await expect(journal.admit({ ...attempt, request: runnerRequest(attempt, { a: 3 }) })).rejects.toThrow("does not match");
+  await expect(journal.admit(admission(authority({ tenantId: "tenant-b" })))).rejects.toThrow("epoch is stale");
+  await expect(journal.admit(admission(authority({ attemptId: "unknown-project", projectId: "missing" })))).rejects.toThrow();
 
   const first = operation(0);
   await journal.prepare(attempt, first);
@@ -90,12 +106,12 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
   await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
-  await expect(journal.prepare(authority({ cancellationEpoch: 1 }), operation(2))).rejects.toThrow("stale, cancelled, or expired");
+  await expect(journal.prepare({ ...attempt, cancellationEpoch: 1 }, operation(2))).rejects.toThrow("stale, cancelled, or expired");
 
   const second = operation(2);
   await journal.prepare(attempt, second);
   await journal.dispatch(attempt, second.operationId);
-  const expired = authority({ deadlineAt: new Date(Date.now() - 1) });
+  const expired = { ...attempt, deadlineAt: new Date(Date.now() - 1) };
   expect(await journal.cancel(expired)).toBe(true);
   expect(await journal.cancel(attempt)).toBe(false);
   expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
@@ -106,11 +122,11 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.status(attempt)).toMatchObject({ status: "stopped" });
   expect(await journal.confirmStopped(attempt)).toBe(false);
 
-  const resumed = authority({ attemptId: "attempt-resumed", attemptNumber: 4 });
-  expect(await journal.admit({ ...resumed, request: { resume: true } })).toMatchObject({ reused: false });
+  const resumed = admission(authority({ attemptId: "attempt-resumed", attemptNumber: 4 }));
+  expect(await journal.admit(resumed)).toMatchObject({ reused: false });
   await expect(journal.prepare(resumed, operation(0))).rejects.toThrow("not contiguous");
   await journal.prepare(resumed, operation(3));
 
-  await expect(journal.status(authority({ grantRevision: 99 }))).rejects.toThrow("unavailable");
+  await expect(journal.status({ ...attempt, grantRevision: 99 })).rejects.toThrow("unavailable");
   expect(await journal.cancel(expired)).toBe(false);
 });

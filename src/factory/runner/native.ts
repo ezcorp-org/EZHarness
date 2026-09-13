@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { canonicalJson } from "@ezcorp/extension-contract";
 import type { AgentRun } from "../../types";
 import type { FactoryArtifactReference, FactoryCheckpointReference, FactoryRunnerOperationResult, FactoryRunnerRequest, FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { AgentExecutor, FactoryAttemptExecutionRequest } from "../../runtime/executor";
 import type { FactoryExecutionContext } from "../../runtime/factory-execution";
@@ -18,11 +18,7 @@ export interface NativeFactoryArtifacts {
   checkpoint(request: FactoryRunnerRequest, run: AgentRun): Promise<FactoryCheckpointReference>;
 }
 
-/** Immutable attempt identity: excludes only the short-lived bearer token. */
-export function factoryRunnerRequestDigest(request: FactoryRunnerRequest): string {
-  const { attemptToken: _attemptToken, ...broker } = request.broker;
-  return createHash("sha256").update(canonicalJson({ ...request, broker })).digest("hex");
-}
+export { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 
 /** Bind the native entrypoint to the read-only durable C02 journal. */
 export function nativeFactoryJournal(journal: FactoryExecutionJournal): NativeFactoryJournal {
@@ -38,6 +34,7 @@ export function nativeFactoryJournal(journal: FactoryExecutionJournal): NativeFa
     reservationGeneration: request.authority.reservationGeneration,
     executionEpoch: request.authority.executionEpoch,
     cancellationEpoch: request.authority.cancellationEpoch,
+    requestDigest: factoryRunnerRequestDigest(request),
     deadlineAt: new Date(request.authority.deadlineAtMs),
   });
   return {
@@ -47,7 +44,7 @@ export function nativeFactoryJournal(journal: FactoryExecutionJournal): NativeFa
       return operations;
     },
     async journalCursor(request) { return (await journal.status(authority(request))).journalCursor; },
-    async usage(request) { return operationUsage(await journal.operations(authority(request))); },
+    async usage(request) { return operationUsage(await journal.operations(authority(request)) as FactoryRunnerOperationResult[]); },
   };
 }
 

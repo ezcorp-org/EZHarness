@@ -62,7 +62,6 @@ export class FactoryRunnerSupervisor {
     if (!Number.isSafeInteger(input.operationIndex) || input.operationIndex < 0 || !input.toolName) throw new Error("Factory runner request is malformed.");
     await this.options.authorizeAttempt(input.authority);
     const operationEntry = operation(input);
-    await this.options.journal.admit({ ...input.authority, request: { artifactDigest: input.artifactDigest, toolName: input.toolName, toolInput: input.toolInput } });
     await this.options.journal.prepare(input.authority, operationEntry);
     const invocation = context(input);
     const previous = await this.options.journal.operation(input.authority, operationEntry.operationId);

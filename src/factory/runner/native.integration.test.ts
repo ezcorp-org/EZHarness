@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryRunnerOperationResult, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryExecutionContext } from "../../runtime/factory-execution";
+import type { FactoryAttemptAuthority } from "../executions";
 import { AgentExecutor } from "../../runtime/executor";
 import { EventBus } from "../../runtime/events";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
@@ -26,7 +27,7 @@ const operation: FactoryRunnerOperationResult = { operationId: "run:node:0:5", o
 const request: FactoryRunnerRequest = {
   schemaVersion: "factory.runner.request.v1",
   authority: { attemptId: "attempt", tenantId: "tenant", projectId: "project", runId: "run", nodeInstanceId: "node", candidateGeneration: 0, attemptNumber: 0, grantRevision: 0, reservationGeneration: 0, executionEpoch: 0, cancellationEpoch: 0, deadlineAtMs: 2_000_000_000_000, nextOperationIndex: 5 },
-  runner: { package: "runner", version: "1", digest: pinned, export: "run" }, input: { kind: "inline", value: { prompt: "native" } }, grants: [], resources: {}, tools: [], broker: { attemptToken: "attempt-token", audience: "gateway" },
+  runner: { package: "runner", version: "1", digest: pinned, export: "run" }, input: { kind: "inline", value: { prompt: "native" } }, grants: [], resources: {}, model: { provider: "broker", model: "model", configurationDigest: pinned, configuration: { temperature: 0 }, policyDigest: pinned, policy: { allow: true } }, tools: [], broker: { attemptToken: "attempt-token", audience: "gateway" },
 };
 
 test("native Bun entrypoint executes through the shared factory runtime and derives its result from journal evidence", async () => {
@@ -57,15 +58,25 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
     executor: { executeFactoryAttempt: async () => { throw new Error("must not execute forged request"); } }, journal: { operations: async () => [operation], journalCursor: async () => 5, usage: async () => operation.usage! },
     artifacts: { output: async () => ({ artifactId: "output", digest: pinned, encodedBytes: 4 }), checkpoint: async () => checkpoint },
   })).rejects.toThrow("does not match the signed runner request");
-  await expect(runNativeFactoryRunner({ ...request, input: { kind: "inline", value: { prompt: "forged" } } }, { ...options, executor: { executeFactoryAttempt: async () => { throw new Error("must not execute changed request"); } } })).rejects.toThrow("does not match the signed runner request");
+  for (const changed of [
+    { ...request, input: { kind: "inline" as const, value: { prompt: "forged" } } },
+    { ...request, model: { ...request.model!, configuration: { temperature: 1 } } },
+    { ...request, model: { ...request.model!, policy: { allow: false } } },
+    { ...request, broker: { ...request.broker, audience: "different-gateway" } },
+  ]) {
+    let executions = 0;
+    await expect(runNativeFactoryRunner(changed, { ...options, executor: { executeFactoryAttempt: async () => { executions += 1; throw new Error("changed request reached actual executor"); } } })).rejects.toThrow("does not match the signed runner request");
+    expect(executions).toBe(0);
+  }
+  expect(factoryRunnerRequestDigest({ ...request, broker: { ...request.broker, attemptToken: "reissued-token" } })).toBe(factoryRunnerRequestDigest(request));
   await expect(runNativeFactoryRunner({}, {} as any)).rejects.toThrow("RUNNER_REQUEST_SCHEMA");
 });
 
 test("native journal adapter maps complete authority and preserves measured and held durable usage", async () => {
   const calls: unknown[] = [];
   const adapter = nativeFactoryJournal({
-    operations: async authority => { calls.push(authority); return [operation]; },
-    status: async authority => { calls.push(authority); return { journalCursor: 5 }; },
+    operations: async (authority: FactoryAttemptAuthority) => { calls.push(authority); return [operation]; },
+    status: async (authority: FactoryAttemptAuthority) => { calls.push(authority); return { journalCursor: 5 }; },
   } as any);
   expect(await adapter.journalCursor(request)).toBe(5);
   expect(await adapter.operations(request)).toEqual([operation]);

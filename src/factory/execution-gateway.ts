@@ -1,5 +1,7 @@
 import { verifyJWT } from "../auth/jwt";
 import type { JWTPayload } from "../auth/types";
+import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority } from "./executions";
 
 export interface FactoryGatewayOptions {
@@ -20,11 +22,12 @@ const MAX_HEADER_BYTES = 16 * 1024;
 const READ_TIMEOUT_MS = 15_000;
 
 function identity(value: Claims, attemptId: string): FactoryAttemptAuthority | null {
-  const strings = ["attemptId", "tenantId", "projectId", "runId", "nodeInstanceId"].map(key => value[key]);
+  const strings = ["attemptId", "tenantId", "projectId", "runId", "nodeInstanceId", "requestDigest"].map(key => value[key]);
   const numbers = ["candidateGeneration", "attemptNumber", "grantRevision", "reservationGeneration", "executionEpoch", "cancellationEpoch"].map(key => value[key]);
   const deadline = value.deadlineAt;
   if (strings.some(value => typeof value !== "string" || !value) || numbers.some(value => !Number.isSafeInteger(value) || (value as number) < 0) || !Number.isSafeInteger(deadline) || (strings[0] as string) !== attemptId) return null;
-  return { attemptId, tenantId: strings[1] as string, projectId: strings[2] as string, runId: strings[3] as string, nodeInstanceId: strings[4] as string, candidateGeneration: numbers[0] as number, attemptNumber: numbers[1] as number, grantRevision: numbers[2] as number, reservationGeneration: numbers[3] as number, executionEpoch: numbers[4] as number, cancellationEpoch: numbers[5] as number, deadlineAt: new Date(deadline as number) };
+  if (!/^[a-f0-9]{64}$/.test(strings[5] as string)) return null;
+  return { attemptId, tenantId: strings[1] as string, projectId: strings[2] as string, runId: strings[3] as string, nodeInstanceId: strings[4] as string, requestDigest: strings[5] as string, candidateGeneration: numbers[0] as number, attemptNumber: numbers[1] as number, grantRevision: numbers[2] as number, reservationGeneration: numbers[3] as number, executionEpoch: numbers[4] as number, cancellationEpoch: numbers[5] as number, deadlineAt: new Date(deadline as number) };
 }
 
 function reply(status: number, value: unknown): string {
@@ -76,8 +79,10 @@ export function startFactoryExecutionGateway(options: FactoryGatewayOptions): { 
           const attempt = match && claims ? identity(claims, decodeURIComponent(match[1]!)) : null;
           if (!attempt || socket.data.tenantId !== attempt.tenantId) send(socket, 401, { error: "unauthorized" });
           else if (method === "PUT" && !match![2]) {
+            const runnerRequest = request as FactoryRunnerRequest;
+            if (factoryRunnerRequestDigest(runnerRequest) !== attempt.requestDigest) throw new Error("Factory runner request does not match signed attempt.");
             await options.authorizeAttempt(attempt);
-            const admitted = await options.journal.admit({ ...attempt, request });
+            const admitted = await options.journal.admit({ ...attempt, request: runnerRequest });
             send(socket, admitted.reused ? 200 : 201, { attemptId: attempt.attemptId, ...admitted });
           }
           else if (method === "GET" && !match![2]) send(socket, 200, await options.journal.status(attempt));

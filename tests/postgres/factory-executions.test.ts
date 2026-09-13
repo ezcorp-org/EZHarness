@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { SQL } from "bun";
 import { drizzle } from "drizzle-orm/bun-sql";
 import { sql } from "drizzle-orm";
+import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import { migrate } from "../../src/db/migrate";
 import { __test } from "../../src/db/connection";
 import { releaseRows } from "../../src/db/queries/extension-releases";
@@ -13,7 +15,16 @@ const url = process.env.FACTORY_TEST_POSTGRES_URL;
 if (!url) throw new Error("FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL conformance.");
 
 function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
-  return { attemptId: "execution-attempt", tenantId: "execution-tenant", projectId: "execution-project", runId: "execution-run", nodeInstanceId: "execution-node", candidateGeneration: 1, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, deadlineAt: new Date(Date.now() + 60_000), ...overrides };
+  return { attemptId: "execution-attempt", tenantId: "execution-tenant", projectId: "execution-project", runId: "execution-run", nodeInstanceId: "execution-node", candidateGeneration: 1, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 60_000), ...overrides };
+}
+
+function runnerRequest(attempt: FactoryAttemptAuthority, input: JsonValue = { task: "same" }): FactoryRunnerRequest {
+  return { schemaVersion: "factory.runner.request.v1", authority: { attemptId: attempt.attemptId, tenantId: attempt.tenantId, projectId: attempt.projectId, runId: attempt.runId, nodeInstanceId: attempt.nodeInstanceId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attemptNumber, grantRevision: attempt.grantRevision, reservationGeneration: attempt.reservationGeneration, executionEpoch: attempt.executionEpoch, cancellationEpoch: attempt.cancellationEpoch, deadlineAtMs: attempt.deadlineAt.getTime(), nextOperationIndex: 0 }, runner: { package: "runner", version: "1", digest: `sha256:${"a".repeat(64)}`, export: "run" }, input: { kind: "inline", value: input }, grants: [], resources: {}, tools: [], broker: { attemptToken: "ephemeral-postgres-token", audience: "gateway" } };
+}
+
+function admission(attempt: FactoryAttemptAuthority, input?: JsonValue) {
+  const request = runnerRequest(attempt, input);
+  return { ...attempt, requestDigest: factoryRunnerRequestDigest(request), request };
 }
 
 function operation(index: number) {
@@ -53,18 +64,18 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
   });
 
   test("canonical admission rejects a foreign authority and a response-loss retry reuses one row", async () => {
-    const attempt = authority();
-    expect(await journal.admit({ ...attempt, request: { b: 2, a: 1 } })).toMatchObject({ reused: false });
-    expect(await journal.admit({ ...attempt, request: { a: 1, b: 2 } })).toMatchObject({ reused: true });
-    await expect(journal.admit({ ...attempt, tenantId: "foreign-tenant", request: { a: 1, b: 2 } })).rejects.toThrow("epoch is stale");
+    const attempt = admission(authority(), { b: 2, a: 1 });
+    expect(await journal.admit(attempt)).toMatchObject({ reused: false });
+    expect(await journal.admit({ ...attempt, request: { ...attempt.request, broker: { ...attempt.request.broker, attemptToken: "reissued-postgres-token" } } })).toMatchObject({ reused: true });
+    await expect(journal.admit(admission(authority({ tenantId: "foreign-tenant" }), { a: 1, b: 2 }))).rejects.toThrow("epoch is stale");
     expect(releaseRows(await db.execute(sql`SELECT attempt_id FROM factory_executions`))).toHaveLength(1);
   });
 
   test("racing attempt authorities admit at most one canonical identity", async () => {
     const base = authority({ attemptId: "racing-attempt" });
     const outcomes = await Promise.allSettled([
-      journal.admit({ ...base, grantRevision: 10, request: { task: "same" } }),
-      journal.admit({ ...base, grantRevision: 11, request: { task: "same" } }),
+      journal.admit(admission({ ...base, grantRevision: 10 })),
+      journal.admit(admission({ ...base, grantRevision: 11 })),
     ]);
     expect(outcomes.filter(outcome => outcome.status === "fulfilled")).toHaveLength(1);
     expect(outcomes.filter(outcome => outcome.status === "rejected")).toHaveLength(1);
@@ -72,7 +83,8 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
   });
 
   test("out-of-order results cannot advance the cursor across an unfinished operation", async () => {
-    const attempt = authority();
+    const attempt = admission(authority());
+    await journal.admit(attempt);
     const zero = operation(0);
     const one = operation(1);
     await journal.prepare(attempt, zero);

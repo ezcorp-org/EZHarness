@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { up } from "../../db/migrations/add-factory-grants";
 import { FactoryRunGrants } from "../../factory/run-grants";
@@ -106,7 +108,7 @@ test("service principals need explicit project grants and current account validi
   expect((await grants.authorize(service, "grant-project", "read")).revision).toBe(0);
   const serviceRun = { projectId: "grant-project", runId: "grant-service-run", definitionDigest: `sha256:${"a".repeat(64)}`, interpreterBuild: "factory-v1", executionEpoch: 1, input: {}, principalId: service.id, principalKind: "service" as const };
   await new FactoryRecords(fixture.db, "grant-tenant").createRun(serviceRun, async () => {});
-  const authority: FactoryAttemptAuthority = { tenantId: "grant-tenant", projectId: serviceRun.projectId, runId: serviceRun.runId, nodeInstanceId: "service-node", attemptId: "service-attempt", candidateGeneration: 1, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, deadlineAt: new Date(now + 100) };
+  const authority: FactoryAttemptAuthority = { tenantId: "grant-tenant", projectId: serviceRun.projectId, runId: serviceRun.runId, nodeInstanceId: "service-node", attemptId: "service-attempt", candidateGeneration: 1, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(now + 100) };
   const runGrants = new FactoryRunGrants(fixture.db, "grant-tenant", () => now);
   await expect(runGrants.authorize(authority)).resolves.toBeUndefined();
   await expect(grants.set(admin, { projectId: "grant-other", principal: service, action: "factory.run", expectedRevision: 0, expiresAtMs: now + 100 })).rejects.toMatchObject({ code: "factory_forbidden" });
@@ -135,12 +137,14 @@ test("journal effect claims recheck the durable initiator's current grant", asyn
   const request = { projectId: key.projectId, runId: "grant-run", definitionDigest: `sha256:${"a".repeat(64)}`, interpreterBuild: "factory-v1", executionEpoch: 1, input: {}, principalId: member.id };
   await records.createRun(request, async () => {});
   const runGrants = new FactoryRunGrants(fixture.db, "grant-tenant", () => now);
-  const attempt: FactoryAttemptAuthority = { tenantId: "grant-tenant", projectId: key.projectId, runId: request.runId, nodeInstanceId: "node", attemptId: "grant-attempt", candidateGeneration: 1, attemptNumber: 1, grantRevision: 4, reservationGeneration: 1, executionEpoch: 1, deadlineAt: new Date(now + 1_000) };
+  const baseAttempt: FactoryAttemptAuthority = { tenantId: "grant-tenant", projectId: key.projectId, runId: request.runId, nodeInstanceId: "node", attemptId: "grant-attempt", candidateGeneration: 1, attemptNumber: 1, grantRevision: 4, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(now + 1_000) };
+  const runnerRequest: FactoryRunnerRequest = { schemaVersion: "factory.runner.request.v1", authority: { attemptId: baseAttempt.attemptId, tenantId: baseAttempt.tenantId, projectId: baseAttempt.projectId, runId: baseAttempt.runId, nodeInstanceId: baseAttempt.nodeInstanceId, candidateGeneration: baseAttempt.candidateGeneration, attemptNumber: baseAttempt.attemptNumber, grantRevision: baseAttempt.grantRevision, reservationGeneration: baseAttempt.reservationGeneration, executionEpoch: baseAttempt.executionEpoch, cancellationEpoch: baseAttempt.cancellationEpoch, deadlineAtMs: baseAttempt.deadlineAt.getTime(), nextOperationIndex: 0 }, runner: { package: "runner", version: "1", digest: `sha256:${"a".repeat(64)}`, export: "run" }, input: { kind: "inline", value: {} }, grants: [], resources: {}, tools: [], broker: { attemptToken: "ephemeral-grant-token", audience: "gateway" } };
+  const attempt = { ...baseAttempt, requestDigest: factoryRunnerRequestDigest(runnerRequest) };
   const journal = new FactoryExecutionJournal(fixture.db, runGrants.authorizeInTransaction, () => new Date(now));
   await runGrants.authorize(attempt);
   await expect(runGrants.authorize({ ...attempt, tenantId: "foreign" })).rejects.toMatchObject({ code: "factory_forbidden" });
   await expect(runGrants.authorize({ ...attempt, executionEpoch: 2 })).rejects.toMatchObject({ code: "factory_forbidden" });
-  expect(await journal.admit({ ...attempt, request: {} })).toMatchObject({ reused: false });
+  expect(await journal.admit({ ...attempt, request: runnerRequest })).toMatchObject({ reused: false });
   const operation = { operationId: `${request.runId}:node:1:0`, operationIndex: 0, kind: "tool" as const, requestDigest: "a".repeat(64) };
   await journal.prepare(attempt, operation);
   await grants.revoke(admin, { ...key, expectedRevision: 4 });

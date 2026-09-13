@@ -13,6 +13,8 @@ import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { signJWT } from "../auth/jwt";
 import type { AuthUser } from "../auth/types";
+import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "./executions";
 import { startFactoryExecutionGateway } from "./execution-gateway";
 
@@ -47,7 +49,20 @@ async function certificates(): Promise<Certificates> {
 }
 
 function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
-  return { attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, deadlineAt: new Date(Date.now() + 60_000), ...overrides };
+  return { attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 60_000), ...overrides };
+}
+
+function runnerRequest(attempt: FactoryAttemptAuthority, input: JsonValue = { prompt: "gateway" }): FactoryRunnerRequest {
+  return {
+    schemaVersion: "factory.runner.request.v1",
+    authority: { attemptId: attempt.attemptId, tenantId: attempt.tenantId, projectId: attempt.projectId, runId: attempt.runId, nodeInstanceId: attempt.nodeInstanceId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attemptNumber, grantRevision: attempt.grantRevision, reservationGeneration: attempt.reservationGeneration, executionEpoch: attempt.executionEpoch, cancellationEpoch: attempt.cancellationEpoch, deadlineAtMs: attempt.deadlineAt.getTime(), nextOperationIndex: 0 },
+    runner: { package: "runner", version: "1", digest: `sha256:${"a".repeat(64)}`, export: "run" }, input: { kind: "inline", value: input }, grants: [], resources: {}, tools: [], broker: { attemptToken: "ephemeral-gateway-token", audience: "installation-a" },
+  };
+}
+
+function signedAuthority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
+  const attempt = authority(overrides);
+  return { ...attempt, requestDigest: factoryRunnerRequestDigest(runnerRequest(attempt)) };
 }
 
 async function token(attempt: FactoryAttemptAuthority): Promise<string> {
@@ -55,7 +70,7 @@ async function token(attempt: FactoryAttemptAuthority): Promise<string> {
 }
 
 async function call(url: string, certificates: Certificates, attempt: FactoryAttemptAuthority, options: { method?: string; path?: string; body?: unknown; certificate?: "client" | "foreign" | "none"; version?: string; contentType?: string } = {}): Promise<{ status: number; body: unknown }> {
-  const body = options.body === undefined ? "" : JSON.stringify(options.body);
+  const body = JSON.stringify(options.body ?? runnerRequest(attempt));
   const certificate = options.certificate ?? "client";
   return new Promise((resolve, reject) => {
     const request = httpsRequest(`${url}${options.path ?? `/internal/factory/v1/executions/${attempt.attemptId}`}`, {
@@ -101,26 +116,27 @@ test("native Bun mTLS gateway derives attempt authority from an installation tok
   const authorized: FactoryAttemptAuthority[] = [];
   const server = startFactoryExecutionGateway({ journal, authorizeAttempt: async value => { authorized.push(value); }, jwtSecret: "test-secret", installationId: "installation-a", tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca } });
   servers.push(server);
-  const attempt = authority();
+  const attempt = signedAuthority();
 
   await expect(call(server.url, certs, attempt, { certificate: "none" })).rejects.toThrow();
   expect(await call(server.url, certs, attempt, { certificate: "foreign" })).toMatchObject({ status: 401, body: { error: "unauthorized" } });
   expect(await call(server.url, certs, attempt, { version: "2" })).toMatchObject({ status: 400, body: { error: "invalid_request" } });
   expect(await call(server.url, certs, attempt, { contentType: "text/plain" })).toMatchObject({ status: 400, body: { error: "invalid_request" } });
-  const denied = authority({ attemptId: "denied" });
+  const denied = signedAuthority({ attemptId: "denied" });
   const deniedServer = startFactoryExecutionGateway({ journal, authorizeAttempt: async () => { throw new Error("Factory grant is revoked."); }, jwtSecret: "test-secret", installationId: "installation-a", tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca } });
   servers.push(deniedServer);
-  expect(await call(deniedServer.url, certs, denied, { body: { model: "test" } })).toMatchObject({ status: 400, body: { error: "invalid_request" } });
+  expect(await call(deniedServer.url, certs, denied)).toMatchObject({ status: 400, body: { error: "invalid_request" } });
   await expect(journal.status(denied)).rejects.toThrow("unavailable");
-  expect(await call(server.url, certs, attempt, { body: { model: "test" } })).toMatchObject({ status: 201, body: { attemptId: "attempt-1", reused: false } });
+  expect(await call(server.url, certs, attempt)).toMatchObject({ status: 201, body: { attemptId: "attempt-1", reused: false } });
   expect(authorized).toHaveLength(1);
-  expect(await call(server.url, certs, attempt, { body: { model: "test" } })).toMatchObject({ status: 200, body: { attemptId: "attempt-1", reused: true } });
-  expect(await call(server.url, certs, attempt, { body: { model: "other" } })).toMatchObject({ status: 409, body: { error: "invalid_request" } });
+  expect(await call(server.url, certs, attempt)).toMatchObject({ status: 200, body: { attemptId: "attempt-1", reused: true } });
+  expect(await call(server.url, certs, attempt, { body: runnerRequest(attempt, { prompt: "other" }) })).toMatchObject({ status: 400, body: { error: "invalid_request" } });
   expect(await call(server.url, certs, attempt, { method: "GET" })).toMatchObject({ status: 200, body: { status: "admitted", journalCursor: -1 } });
-  expect(await call(server.url, certs, authority({ deadlineAt: new Date(Date.now() - 1) }), { method: "POST", path: "/internal/factory/v1/executions/attempt-1/cancel" })).toMatchObject({ status: 202, body: { accepted: true } });
+  expect(await call(server.url, certs, { ...attempt, deadlineAt: new Date(Date.now() - 1) }, { method: "POST", path: "/internal/factory/v1/executions/attempt-1/cancel" })).toMatchObject({ status: 202, body: { accepted: true } });
   expect(await call(server.url, certs, attempt, { method: "DELETE" })).toMatchObject({ status: 405, body: { error: "method_not_allowed" } });
-  const rawBody = JSON.stringify({ model: "split" });
-  const rawHeaders = `PUT /internal/factory/v1/executions/raw-split HTTP/1.1\r\nauthorization: Bearer ${await token(authority({ attemptId: "raw-split" }))}\r\nx-ezcorp-factory-version: 1\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(rawBody)}\r\n\r\n`;
+  const rawAttempt = signedAuthority({ attemptId: "raw-split" });
+  const rawBody = JSON.stringify(runnerRequest(rawAttempt));
+  const rawHeaders = `PUT /internal/factory/v1/executions/raw-split HTTP/1.1\r\nauthorization: Bearer ${await token(rawAttempt)}\r\nx-ezcorp-factory-version: 1\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(rawBody)}\r\n\r\n`;
   expect(await rawTls(server.url, certs, [rawHeaders, rawBody.slice(0, 3), rawBody.slice(3)])).toContain("HTTP/1.1 201 Created");
   const duplicate = `PUT /internal/factory/v1/executions/raw-duplicate HTTP/1.1\r\nauthorization: Bearer ignored\r\nauthorization: Bearer ignored\r\nx-ezcorp-factory-version: 1\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}`;
   expect(await rawTls(server.url, certs, [duplicate])).toContain("HTTP/1.1 400 Bad Request");
