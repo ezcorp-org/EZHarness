@@ -1,5 +1,60 @@
 import type { Locator, Page } from "@playwright/test";
 
+export interface Point { x: number; y: number }
+export interface Box extends Point { width: number; height: number }
+
+/** Every drag driver shares one contract, so a spec can take either. */
+export type DragGesture = (page: Page, from: Point, to: Point, beforeRelease?: () => Promise<void>) => Promise<void>;
+
+/**
+ * Resolve once the document's web fonts have loaded. `font-display: swap`
+ * lays every label out twice, so measure only after the second pass.
+ */
+export async function fontsReady(page: Page): Promise<void> {
+	await page.evaluate(() => document.fonts.ready.then(() => undefined));
+}
+
+/**
+ * A bounding box that is safe to hand to `page.mouse` / CDP input.
+ *
+ * `click()` re-runs actionability — visible, stable bounding box — in the
+ * same step that presses. Raw pointer coordinates get neither: they are
+ * numbers captured earlier, and the press lands on whatever occupies them when
+ * it arrives. This helper closes the in-flight part of that gap: it waits for
+ * the element to be visible and for the web fonts, then requires the box to
+ * hold one position across two consecutive frames, and it fails closed on a
+ * zero-area box (a hidden element measures as zeros that are perfectly
+ * "stable"; `boundingBox()` would have returned null there).
+ *
+ * It cannot see a relayout that has not started yet. If the row will re-wrap
+ * when later content arrives — the chip row does, when `/api/extensions`
+ * resolves and the labels change from ids to names (CI run 34538320472) — the
+ * caller must first wait for that content, then measure.
+ */
+export async function stableBoundingBox(locator: Locator): Promise<Box> {
+	await locator.waitFor({ state: "visible" });
+	await fontsReady(locator.page());
+	const box = await locator.evaluate(async (element) => {
+		const read = () => {
+			const rect = element.getBoundingClientRect();
+			return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+		};
+		const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+		let previous = read();
+		for (let frame = 0; frame < 120; frame++) {
+			await nextFrame();
+			const current = read();
+			if (current.x === previous.x && current.y === previous.y && current.width === previous.width && current.height === previous.height) {
+				return current;
+			}
+			previous = current;
+		}
+		throw new Error("Element never held one position across two frames");
+	});
+	if (box.width <= 0 || box.height <= 0) throw new Error(`Element is not measurable: ${JSON.stringify(box)}`);
+	return box;
+}
+
 /**
  * `use:longPress` (web/src/lib/actions/longPress.ts) defaults to
  * `pointerTypes: ["touch", "pen"]` — mouse is DELIBERATELY excluded so
@@ -37,8 +92,8 @@ export async function longPressTouch(locator: Locator): Promise<void> {
 /** Drive browser-native touch input; synthetic pointer events do not exercise pan cancellation. */
 export async function dragTouch(
 	page: Page,
-	from: { x: number; y: number },
-	to: { x: number; y: number },
+	from: Point,
+	to: Point,
 	beforeRelease?: () => Promise<void>,
 ): Promise<void> {
 	const touch = await page.context().newCDPSession(page);
@@ -58,6 +113,18 @@ export async function dragTouch(
 }
 
 /**
+ * How far the pointer travels before the destination move.
+ *
+ * `svelte-dnd-action` arms the drag once either axis moves 3px
+ * (`MIN_MOVEMENT_BEFORE_DRAG_START_PX`), so a 6px step clears it from any
+ * angle — 6px at 45 degrees is 4.24px per axis. Keeping the step small also
+ * leaves the destination move well clear of the library's 10px re-decision
+ * tolerance (`TOLERANCE_PX` in its observer), which would otherwise freeze a
+ * short drag on the index it picked at activation.
+ */
+const MOUSE_ACTIVATION_PX = 6;
+
+/**
  * Drive a desktop drag in two observable stages.
  *
  * `svelte-dnd-action` creates its drag ghost only after the pointer crosses
@@ -68,13 +135,13 @@ export async function dragTouch(
  */
 export async function dragMouse(
 	page: Page,
-	from: { x: number; y: number },
-	to: { x: number; y: number },
+	from: Point,
+	to: Point,
 	beforeRelease?: () => Promise<void>,
 ): Promise<void> {
 	const distance = Math.hypot(to.x - from.x, to.y - from.y);
 	if (distance === 0) throw new Error("Mouse drag requires distinct start and destination points");
-	const activationDistance = Math.min(12, distance / 2);
+	const activationDistance = Math.min(MOUSE_ACTIVATION_PX, distance / 2);
 	const activationPoint = {
 		x: from.x + (to.x - from.x) * activationDistance / distance,
 		y: from.y + (to.y - from.y) * activationDistance / distance,
@@ -90,3 +157,6 @@ export async function dragMouse(
 		await page.mouse.up();
 	}
 }
+
+/** Compile-time proof that both drivers honour `DragGesture`. */
+export const dragGestures = { mouse: dragMouse, touch: dragTouch } satisfies Record<string, DragGesture>;
