@@ -1102,3 +1102,12 @@ Review: `/tmp/factory-platform-evidence/terminal-pool-provisioning-results.json`
 - [x] Run combined artifact/inbox/lifecycle coverage, all four typecheck legs and full lint on frozen source.
 
 Review: `/tmp/factory-platform-evidence/lifecycle-artifacts-results.json` records all eight checks at exit zero. The component suite passes 25 cases; PostgreSQL suites pass 36 cases, including 10 full lifecycle cases using local S3. Measured executable lines are complete for lifecycle121/121, artifacts72/72, definition artifacts72/72, transition artifacts49/49, activities10/10, inbox90/90 and both new artifact migrations. All application database model lines are covered. Full platform boot, run routes, runtime effect composition and overall acceptance gates remain pending.
+
+
+## Factory assurance integration — model parity
+
+- [x] Reproduce the missing Drizzle assurance foreign keys against real PostgreSQL.
+- [x] Match model references and delete behavior to the additive migrations.
+- [x] Verify sealed contracts, evidence, approvals, audit faults, and current authority after integration.
+
+Review: integration head `3dffb7418` plus this model fix passes the 21 focused cases, PostgreSQL schema (2 cases, 895 assertions), and PostgreSQL assurance (13 cases, 38 assertions). All four type checks and lint pass. Owned measured lines are assurance 130/130, assurance migration 10/10, and shared approval context 19/19. Receipts: `/tmp/factory-platform-evidence/assurance-integrated-results.json` and `assurance-integrated-coverage/lcov.info`. These are component proofs; application boot, release dispatch, production journeys, and the 10-tenant soak remain open.
