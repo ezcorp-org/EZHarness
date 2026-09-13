@@ -55,6 +55,22 @@ export interface ApiRouteEntry {
 }
 
 export const apiRegistry: ApiRouteEntry[] = [
+  // Factory authoring. Read/write routes admit exact-scoped API keys; publish
+  // and grant mutations are human decisions and therefore session-only.
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions", description: "List current project factory drafts with trusted resource availability", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions", description: "Create revision 1 of a factory draft", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/import", description: "Import canonical JSON or supported YAML as revision 1", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId", description: "Read one current project factory draft", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "PUT", path: "/api/factories/projects/:projectId/definitions/:factoryId", description: "Save a factory draft at an exact revision", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/definitions/:factoryId", description: "Archive a factory draft at an exact revision", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/export", description: "Export a factory draft as canonical JSON or JSON-subset YAML", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/validate", description: "Validate unsaved factory source with author authority", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions", description: "List immutable published factory versions", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions", description: "Publish an exact draft revision from an interactive human session", category: "factories", scope: "session" },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions/:version", description: "Read and verify one immutable factory version", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/grants", description: "List current project factory grants and revocations", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "PUT", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Issue or replace an exact project factory grant from an interactive human session", category: "factories", scope: "session" },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Revoke an exact project factory grant from an interactive human session", category: "factories", scope: "session" },
   { method: "POST", path: "/api/__test/project-proposal", description: "Seed a controlled project review fixture only when the test surface is enabled", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/__test/marketplace-release", description: "Seed marketplace source from an existing owned verified release only when the test surface is enabled", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/extensions/import-source", description: "Import bounded extension source into an isolated lifecycle build", category: "extensions", scope: "session" },

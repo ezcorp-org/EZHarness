@@ -744,7 +744,7 @@ describe("registry ⇄ filesystem parity", () => {
   test("the session-only entries left the frozen list and declare `session`", () => {
     // The 90 → 78 shrink, asserted by NAME for the reason the `:name/run` test
     // above states: the count survives any swap, this does not. It is the
-    // REGISTRY half only — that these thirteen entries declare `"session"` and
+    // REGISTRY half only — that these entries declare `"session"` and
     // no longer sit in the frozen list. Whether each one's HANDLER actually
     // gates on a session is derived from the tree, in both directions, by
     // `src/__tests__/session-scope-surface.test.ts`; asserting it twice from
@@ -755,6 +755,7 @@ describe("registry ⇄ filesystem parity", () => {
     // commit, the truest value the type could then express) and is re-declared
     // here, so the whole session-only surface reads one way.
     const SESSION_ONLY = [
+      "DELETE /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
       "GET /api/extensions/:name/preview",
@@ -770,6 +771,7 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
       "POST /api/extensions/releases/:installationId/project",
+      "POST /api/factories/projects/:projectId/definitions/:factoryId/versions",
       "POST /api/import/commit",
       "POST /api/marketplace/:id/install",
       "POST /api/mcp-servers",
@@ -778,6 +780,7 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/workflows/approvals/:id",
       "POST /api/workflows/delegations",
       "POST /api/workflows/delegations/preview",
+      "PUT /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
       "PUT /api/mcp-servers/:id",
       "PUT /api/projects/:id/tool-permission-mode",
     ];

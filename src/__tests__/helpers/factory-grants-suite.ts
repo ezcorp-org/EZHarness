@@ -58,6 +58,25 @@ test("grants fence revisions, expire at their boundary, and retain revocation au
   expect(rows(await fixture.db.execute(sql`SELECT id FROM audit_log WHERE action='factory.grant.revoked'`))).toHaveLength(1);
 });
 
+test("grant metadata pages are scoped, filtered, cursor-bound, and durably idempotent", async () => {
+  const key = { projectId: "grant-project", principal: member, action: "factory.operate" as const };
+  const issued = await grants.set(admin, { ...key, expectedRevision: 0, expiresAtMs: null }, "http-grant-set");
+  expect(await grants.set(admin, { ...key, expectedRevision: 0, expiresAtMs: null }, "http-grant-set")).toEqual(issued);
+  await expect(grants.set(admin, { ...key, expectedRevision: 0, expiresAtMs: now + 1_000 }, "http-grant-set")).rejects.toMatchObject({ code: "idempotency_conflict" });
+  expect(await grants.read(member, key)).toMatchObject({ projectId: key.projectId, principalKind: "user", principalId: member.id, action: key.action, revision: 1, revoked: false, issuerId: admin.id, updatedAtMs: expect.any(Number) });
+  const filtered = await grants.list(member, key.projectId, { principalKind: "user", action: key.action, limit: 1 });
+  expect(filtered.items).toHaveLength(1);
+  expect(filtered.items[0]).toMatchObject({ principalId: member.id, action: key.action });
+  const first = await grants.list(member, key.projectId, { principalKind: "user", limit: 1 });
+  expect(first.nextCursor).not.toBeNull();
+  expect((await grants.list(member, key.projectId, { principalKind: "user", limit: 200, cursor: first.nextCursor! })).items.every(item => item.principalId !== first.items[0]!.principalId || item.action !== first.items[0]!.action)).toBe(true);
+  await expect(grants.list(member, key.projectId, { cursor: "not-a-cursor" })).rejects.toMatchObject({ code: "factory_page_invalid" });
+  await expect(grants.list(member, key.projectId, { cursor: "x".repeat(2_049) })).rejects.toMatchObject({ code: "factory_page_invalid" });
+  const revoked = await grants.revoke(admin, { ...key, expectedRevision: 1 }, "http-grant-revoke");
+  expect(await grants.revoke(admin, { ...key, expectedRevision: 1 }, "http-grant-revoke")).toEqual(revoked);
+  expect(await grants.read(member, key)).toMatchObject({ revision: 2, revoked: true });
+});
+
 test("owners cannot issue a wider action or a longer expiry than their current grant", async () => {
   const key = { projectId: "grant-project", principal: member, action: "factory.author" as const };
   await expect(grants.set(owner, { ...key, expectedRevision: 0, expiresAtMs: null })).rejects.toMatchObject({ code: "factory_forbidden" });

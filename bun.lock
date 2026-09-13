@@ -103,6 +103,9 @@
     "packages/@ezcorp/harness-client": {
       "name": "@ezcorp/harness-client",
       "version": "0.1.0",
+      "dependencies": {
+        "@ezcorp/factory-sdk": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "1.3.14",
         "@types/node": "^26.4.0",

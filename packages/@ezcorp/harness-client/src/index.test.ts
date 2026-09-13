@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { HarnessClient, HarnessApiError, SseDataBuffer, RUNTIME_EVENT_NAMES, HARNESS_ROUTES, buildPath, type CallerToolCall } from "./index";
 // The app's canonical list — must stay identical to the package's copy.
 import { RUNTIME_EVENT_NAMES as APP_EVENT_NAMES } from "../../../../web/src/lib/runtime-event-names";
+import { referenceCodeV1 } from "@ezcorp/factory-sdk";
 
 describe("SseDataBuffer", () => {
   test("splits records and skips comments/heartbeats", () => {
@@ -27,6 +28,40 @@ describe("SseDataBuffer", () => {
     const b = new SseDataBuffer();
     expect(b.push("data: a\ndata: b\n\n")).toEqual(["a\nb"]);
   });
+});
+
+test("factory authoring client sends encoded paths, queries, and mutation preconditions", async () => {
+  const requests: Request[] = [];
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init);
+    requests.push(request);
+    return Response.json({ schemaVersion: "factory.api.response.v1", kind: "draft.validation", valid: true, diagnostics: [] });
+  }) as unknown as typeof fetch;
+  const factory = new HarnessClient({ baseUrl: "http://factory.test/", apiKey: "ezk_factory", fetch: fetcher });
+  await factory.listFactoryDefinitions("project/one", { limit: 2, archived: false, availability: "available" });
+  await factory.createFactoryDraft("project/one", referenceCodeV1, "create-key");
+  await factory.importFactoryDraft("project/one", "yaml", "schemaVersion: factory.v1", "import-key");
+  await factory.getFactoryDraft("project/one", "factory/one");
+  await factory.updateFactoryDraft("project/one", "factory/one", referenceCodeV1, 1, "update-key");
+  await factory.archiveFactoryDraft("project/one", "factory/one", 2, "archive-key");
+  await factory.exportFactoryDraft("project/one", "factory/one", "json");
+  await factory.validateFactoryDraft("project/one", "factory/one", referenceCodeV1);
+  await factory.listFactoryVersions("project/one", "factory/one", {});
+  await factory.getFactoryVersion("project/one", "factory/one", "1/0");
+  await factory.listFactoryGrants("project/one", { principalKind: "service", action: "factory.run" });
+
+  expect(requests).toHaveLength(11);
+  expect(new URL(requests[0]!.url).pathname).toBe("/api/factories/projects/project%2Fone/definitions");
+  expect(new URL(requests[0]!.url).searchParams.get("archived")).toBe("false");
+  expect(requests[1]!.headers.get("If-Match")).toBe("0");
+  expect(requests[1]!.headers.get("Idempotency-Key")).toBe("create-key");
+  expect(await requests[1]!.clone().json()).toEqual({ source: referenceCodeV1 });
+  expect(requests[5]!.method).toBe("DELETE");
+  expect(requests[5]!.headers.get("If-Match")).toBe("2");
+  expect(new URL(requests[8]!.url).search).toBe("");
+  expect(new URL(requests[9]!.url).pathname).toEndWith("/versions/1%2F0");
+  expect(new URL(requests[10]!.url).searchParams.get("action")).toBe("factory.run");
+  expect(requests.every(request => request.headers.get("Authorization") === "Bearer ezk_factory")).toBe(true);
 });
 
 test("extension control exposes the shared lifecycle without a key-based approval method", async () => {

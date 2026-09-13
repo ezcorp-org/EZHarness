@@ -91,6 +91,7 @@ const SESSION_GATE_PRIMITIVES = [
   "requireSessionAuth(",
   "requireAdminSession(",
   "mcpControlRequest(",
+  "handleFactorySessionApi(",
 ] as const;
 
 /**
@@ -261,6 +262,13 @@ describe("scope: \"session\" ⇄ requireSessionAuth — both directions, derived
     expect(body).toContain("requireSessionAuth(locals)");
     expect(body).toContain('user.role !== "admin"');
     expect(body!.indexOf("requireSessionAuth(locals)")).toBeLessThan(body!.indexOf("await action("));
+  });
+
+  test("the factory wrapper delegates only to the shared session scope", async () => {
+    const declarations = await declarationsOf(join(REPO_ROOT, "web/src/routes/api/factories/_shared.ts"));
+    const body = declarations.get("handleFactorySessionApi")?.body;
+    expect(body).toContain('scope: "session"');
+    expect(body).toContain("handleFactoryApi(event");
   });
 
   test("a session gate is never confused with a plain read on the same file", () => {

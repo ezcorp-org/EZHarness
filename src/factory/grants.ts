@@ -4,6 +4,7 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
 import { assertFactoryIdentity } from "./records";
+import { FactoryMutations } from "./mutations";
 
 export const FACTORY_ACTIONS = ["factory.author", "factory.publish", "factory.run", "factory.operate", "factory.approve", "factory.release", "factory.trust"] as const;
 export type FactoryAction = typeof FACTORY_ACTIONS[number];
@@ -16,7 +17,19 @@ export interface FactoryPrincipal {
 export interface FactoryGrantKey { readonly projectId: string; readonly principal: FactoryPrincipal; readonly action: FactoryAction }
 export interface FactoryGrantRevision { readonly revision: number; readonly expiresAtMs: number | null }
 export interface FactoryGrantUpdate extends FactoryGrantKey { readonly expectedRevision: number; readonly expiresAtMs: number | null }
-type GrantRow = { revision: string | number; expires_ms: string | number | null; revoked_at: unknown; issuer_id: string };
+export interface FactoryGrantRecord {
+  readonly projectId: string;
+  readonly principalKind: FactoryPrincipal["kind"];
+  readonly principalId: string;
+  readonly action: FactoryAction;
+  readonly revision: number;
+  readonly expiresAtMs: number | null;
+  readonly revoked: boolean;
+  readonly issuerId: string;
+  readonly updatedAtMs: number;
+}
+export interface FactoryGrantListOptions { readonly cursor?: string; readonly limit?: number; readonly principalKind?: FactoryPrincipal["kind"]; readonly action?: FactoryAction }
+type GrantRow = { principal_kind?: string; principal_id?: string; action?: string; revision: string | number; expires_ms: string | number | null; revoked_at: unknown; issuer_id: string; updated_ms?: string | number };
 
 export class FactoryGrantError extends Error {
   constructor(readonly code: string) { super(code); this.name = "FactoryGrantError"; }
@@ -44,29 +57,75 @@ export class FactoryGrants {
     return { revision, expiresAtMs: grant.expires_ms === null ? null : Number(grant.expires_ms) };
   }
 
-  set(actor: FactoryPrincipal, update: FactoryGrantUpdate): Promise<FactoryGrantRevision> {
-    return this.mutate(actor, update, false);
+  set(actor: FactoryPrincipal, update: FactoryGrantUpdate, idempotencyKey?: string): Promise<FactoryGrantRevision> {
+    return this.mutate(actor, update, false, idempotencyKey);
   }
 
-  revoke(actor: FactoryPrincipal, update: FactoryGrantKey & { readonly expectedRevision: number }): Promise<FactoryGrantRevision> {
-    return this.mutate(actor, { ...update, expiresAtMs: null }, true);
+  revoke(actor: FactoryPrincipal, update: FactoryGrantKey & { readonly expectedRevision: number }, idempotencyKey?: string): Promise<FactoryGrantRevision> {
+    return this.mutate(actor, { ...update, expiresAtMs: null }, true, idempotencyKey);
   }
 
-  private async mutate(actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean): Promise<FactoryGrantRevision> {
+  async read(actor: FactoryPrincipal, key: FactoryGrantKey): Promise<FactoryGrantRecord> {
+    return this.database.transaction(async transaction => {
+      await this.authorizeInTransaction(transaction, actor, key.projectId, "read");
+      const row = await this.find(transaction, key);
+      if (!row) throw new FactoryGrantError("factory_grant_not_found");
+      return this.record(key.projectId, row, key);
+    });
+  }
+
+  async list(actor: FactoryPrincipal, projectId: string, options: FactoryGrantListOptions = {}): Promise<{ items: readonly FactoryGrantRecord[]; nextCursor: string | null }> {
+    const limit = options.limit ?? 50;
+    const principalKind = options.principalKind;
+    const action = options.action;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new FactoryGrantError("factory_page_invalid");
+    if (principalKind !== undefined && principalKind !== "user" && principalKind !== "service") throw new FactoryGrantError("factory_page_invalid");
+    if (action !== undefined) this.action(action);
+    const after = this.decodeCursor(options.cursor);
+    return this.database.transaction(async transaction => {
+      await this.authorizeInTransaction(transaction, actor, projectId, "read");
+      const principalFilter = principalKind === undefined ? sql`` : sql`AND principal_kind=${principalKind}`;
+      const actionFilter = action === undefined ? sql`` : sql`AND action=${action}`;
+      const cursorFilter = after === null ? sql`` : sql`AND (principal_kind, principal_id, action) > (${after.kind}, ${after.id}, ${after.action})`;
+      const selected = rows<GrantRow>(await transaction.execute(sql`SELECT principal_kind, principal_id, action, revision, EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms, revoked_at, issuer_id, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms
+        FROM factory_grants WHERE tenant_id=${this.tenantId} AND project_id=${projectId} ${principalFilter} ${actionFilter} ${cursorFilter}
+        ORDER BY principal_kind, principal_id, action LIMIT ${limit + 1}`));
+      const items = selected.slice(0, limit).map(row => this.record(projectId, row));
+      const last = items[items.length - 1];
+      return { items, nextCursor: selected.length > limit && last ? this.encodeCursor(last) : null };
+    });
+  }
+
+  private async mutate(actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean, idempotencyKey?: string): Promise<FactoryGrantRevision> {
     this.action(update.action);
     if (!revoke && update.principal.kind === "service" && update.expiresAtMs === null) throw new FactoryGrantError("factory_grant_invalid");
     if (actor.kind !== "user" || actor.authentication !== "session") throw new FactoryGrantError("factory_human_required");
     if (!Number.isSafeInteger(update.expectedRevision) || update.expectedRevision < 0 || (!revoke && update.expiresAtMs !== null && (!Number.isSafeInteger(update.expiresAtMs) || update.expiresAtMs <= this.now()))) throw new FactoryGrantError("factory_grant_invalid");
-    return this.database.transaction(async transaction => {
-      await this.lockProject(transaction, update.projectId, true);
-      const issuer = await this.livePrincipal(transaction, actor, update.projectId, false);
-      if (issuer.role !== "admin") {
-        const owner = rows(await transaction.execute(sql`SELECT id FROM project_members WHERE project_id=${update.projectId} AND user_id=${actor.id} AND role='owner' FOR SHARE`))[0];
-        if (!owner || update.action === "factory.trust") throw new FactoryGrantError("factory_forbidden");
-        const authority = await this.authorizeInTransaction(transaction, actor, update.projectId, update.action);
-        if (!revoke && authority.expiresAtMs !== null && (update.expiresAtMs === null || update.expiresAtMs > authority.expiresAtMs)) throw new FactoryGrantError("factory_grant_widening");
-      }
-      await this.livePrincipal(transaction, update.principal, update.projectId, update.principal.kind === "user");
+    if (idempotencyKey === undefined) return this.database.transaction(async transaction => {
+      await this.authorizeMutation(transaction, actor, update, revoke);
+      return this.applyMutation(transaction, actor, update, revoke);
+    });
+    const mutations = new FactoryMutations(this.database, this.tenantId, this);
+    return mutations.execute(
+      { principal: actor, projectId: update.projectId, action: update.action, idempotencyKey, input: { kind: revoke ? "grant.revoke" : "grant.set", principalKind: update.principal.kind, principalId: update.principal.id, action: update.action, expectedRevision: update.expectedRevision, expiresAtMs: update.expiresAtMs } },
+      transaction => this.applyMutation(transaction, actor, update, revoke),
+      transaction => this.authorizeMutation(transaction, actor, update, revoke),
+    );
+  }
+
+  private async authorizeMutation(transaction: MigrationDb, actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean): Promise<void> {
+    await this.lockProject(transaction, update.projectId, true);
+    const issuer = await this.livePrincipal(transaction, actor, update.projectId, false);
+    if (issuer.role !== "admin") {
+      const owner = rows(await transaction.execute(sql`SELECT id FROM project_members WHERE project_id=${update.projectId} AND user_id=${actor.id} AND role='owner' FOR SHARE`))[0];
+      if (!owner || update.action === "factory.trust") throw new FactoryGrantError("factory_forbidden");
+      const authority = await this.authorizeInTransaction(transaction, actor, update.projectId, update.action);
+      if (!revoke && authority.expiresAtMs !== null && (update.expiresAtMs === null || update.expiresAtMs > authority.expiresAtMs)) throw new FactoryGrantError("factory_grant_widening");
+    }
+    await this.livePrincipal(transaction, update.principal, update.projectId, update.principal.kind === "user");
+  }
+
+  private async applyMutation(transaction: MigrationDb, actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean): Promise<FactoryGrantRevision> {
       const prior = await this.find(transaction, update);
       if (Number(prior?.revision ?? 0) !== update.expectedRevision || (revoke && !prior)) throw new FactoryGrantError("factory_grant_conflict");
       const revision = update.expectedRevision + 1;
@@ -78,7 +137,6 @@ export class FactoryGrants {
       const target = digestObject({ tenantId: this.tenantId, projectId: update.projectId, kind: update.principal.kind, id: update.principal.id, action: update.action });
       await insertTransactionalAuditEntry(transaction, `factory-grant:${target}:${revision}`, actor.id, revoke ? "factory.grant.revoked" : "factory.grant.issued", target, { tenantId: this.tenantId, projectId: update.projectId, principalKind: update.principal.kind, principalId: update.principal.id, action: update.action, revision, expiresAtMs });
       return { revision, expiresAtMs };
-    });
   }
 
   private action(action: FactoryAction): void {
@@ -109,6 +167,37 @@ export class FactoryGrants {
   }
 
   private async find(transaction: MigrationDb, key: FactoryGrantKey): Promise<GrantRow | undefined> {
-    return rows<GrantRow>(await transaction.execute(sql`SELECT revision, EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms, revoked_at, issuer_id FROM factory_grants WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND principal_kind=${key.principal.kind} AND principal_id=${key.principal.id} AND action=${key.action} FOR SHARE`))[0];
+    return rows<GrantRow>(await transaction.execute(sql`SELECT principal_kind, principal_id, action, revision, EXTRACT(EPOCH FROM expires_at) * 1000 AS expires_ms, revoked_at, issuer_id, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_grants WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND principal_kind=${key.principal.kind} AND principal_id=${key.principal.id} AND action=${key.action} FOR SHARE`))[0];
+  }
+
+  private record(projectId: string, row: GrantRow, key?: FactoryGrantKey): FactoryGrantRecord {
+    const principalKind = (row.principal_kind ?? key?.principal.kind) as FactoryPrincipal["kind"];
+    const principalId = row.principal_id ?? key?.principal.id;
+    const action = (row.action ?? key?.action) as FactoryAction;
+    if ((principalKind !== "user" && principalKind !== "service") || !principalId || !FACTORY_ACTIONS.includes(action)) throw new FactoryGrantError("factory_grant_corrupt");
+    const revision = Number(row.revision);
+    const updatedAtMs = Number(row.updated_ms);
+    const expiresAtMs = row.expires_ms === null ? null : Number(row.expires_ms);
+    try { assertFactoryIdentity(principalId, row.issuer_id); } catch { throw new FactoryGrantError("factory_grant_corrupt"); }
+    if (!Number.isSafeInteger(revision) || revision < 1 || !Number.isSafeInteger(updatedAtMs) || updatedAtMs < 0 || expiresAtMs !== null && (!Number.isSafeInteger(expiresAtMs) || expiresAtMs < 0)) throw new FactoryGrantError("factory_grant_corrupt");
+    return { projectId, principalKind, principalId, action, revision, expiresAtMs, revoked: row.revoked_at !== null, issuerId: row.issuer_id, updatedAtMs };
+  }
+
+  private encodeCursor(record: Pick<FactoryGrantRecord, "principalKind" | "principalId" | "action">): string {
+    return Buffer.from(JSON.stringify([record.principalKind, record.principalId, record.action]), "utf8").toString("base64url");
+  }
+
+  private decodeCursor(cursor: string | undefined): { kind: FactoryPrincipal["kind"]; id: string; action: FactoryAction } | null {
+    if (cursor === undefined) return null;
+    if (cursor.length < 1 || cursor.length > 2_048) throw new FactoryGrantError("factory_page_invalid");
+    try {
+      const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+      if (!Array.isArray(parsed) || parsed.length !== 3 || (parsed[0] !== "user" && parsed[0] !== "service") || typeof parsed[1] !== "string" || !parsed[1] || !FACTORY_ACTIONS.includes(parsed[2])) throw new Error("invalid");
+      const canonical = Buffer.from(JSON.stringify(parsed), "utf8").toString("base64url");
+      if (canonical !== cursor) throw new Error("invalid");
+      return { kind: parsed[0], id: parsed[1], action: parsed[2] };
+    } catch {
+      throw new FactoryGrantError("factory_page_invalid");
+    }
   }
 }

@@ -25,6 +25,19 @@ export interface HarnessRoute {
 }
 
 export const HARNESS_ROUTES = {
+  // Factory definition authoring (human-only publish and grant mutations are
+  // deliberately absent because a HarnessClient authenticates with a key).
+  listFactoryDefinitions: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions" },
+  createFactoryDraft: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions" },
+  importFactoryDraft: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions/import" },
+  getFactoryDraft: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId" },
+  updateFactoryDraft: { httpMethod: "PUT", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId" },
+  archiveFactoryDraft: { httpMethod: "DELETE", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId" },
+  exportFactoryDraft: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/export" },
+  validateFactoryDraft: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/validate" },
+  listFactoryVersions: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/versions" },
+  getFactoryVersion: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/versions/:version" },
+  listFactoryGrants: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/grants" },
   extensionControl: { httpMethod: "POST", pathTemplate: "/api/extensions/control" },
   // Configure
   getSetting: { httpMethod: "GET", pathTemplate: "/api/settings/:key" },

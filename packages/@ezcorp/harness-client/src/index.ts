@@ -17,6 +17,7 @@ export { SseDataBuffer } from "./sse";
 import { SseDataBuffer } from "./sse";
 import type { RuntimeEvent } from "./events";
 import { HARNESS_ROUTES, buildPath, type HarnessRouteName } from "./routes";
+import type { FactoryApiResponse, FactoryDefinition, FactoryDefinitionListQuery, FactoryGrantListQuery, FactoryListQuery } from "@ezcorp/factory-sdk";
 
 export interface HarnessClientOptions {
   /** Base origin of the EZCorp instance, e.g. `http://localhost:3000`. */
@@ -317,10 +318,10 @@ export class HarnessClient {
     return h;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async request<T>(method: string, path: string, body?: unknown, extraHeaders?: Record<string, string>): Promise<T> {
     const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,
-      headers: this.headers(body !== undefined ? { "Content-Type": "application/json" } : undefined),
+      headers: this.headers({ ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...extraHeaders }),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       // Never follow a 3xx: fetch strips `Authorization` on a cross-origin
       // redirect but FORWARDS it on a same-origin one, so the exposure is a
@@ -339,9 +340,66 @@ export class HarnessClient {
    *  HTTP method + path template once, substitutes `:param` segments, and
    *  delegates to `request()`. Every single-request method routes through here
    *  so a path string is never written inline. */
-  private route<T>(name: HarnessRouteName, params?: Record<string, string>, body?: unknown): Promise<T> {
+  private route<T>(name: HarnessRouteName, params?: Record<string, string>, body?: unknown, headers?: Record<string, string>): Promise<T> {
     const r = HARNESS_ROUTES[name];
-    return this.request<T>(r.httpMethod, buildPath(r.pathTemplate, params), body);
+    return this.request<T>(r.httpMethod, buildPath(r.pathTemplate, params), body, headers);
+  }
+
+  private factoryMutation(name: HarnessRouteName, params: Record<string, string>, expectedRevision: number, idempotencyKey: string, body?: unknown): Promise<FactoryApiResponse> {
+    return this.route(name, params, body, { "If-Match": String(expectedRevision), "Idempotency-Key": idempotencyKey });
+  }
+
+  private factoryQuery(name: HarnessRouteName, params: Record<string, string>, query: object): Promise<FactoryApiResponse> {
+    const route = HARNESS_ROUTES[name];
+    const path = buildPath(route.pathTemplate, params);
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value !== undefined) search.set(key, String(value));
+    return this.request(route.httpMethod, search.size === 0 ? path : `${path}?${search}`);
+  }
+
+  // ── Factory authoring ──────────────────────────────────────────────
+  listFactoryDefinitions(projectId: string, query: FactoryDefinitionListQuery = {}): Promise<FactoryApiResponse> {
+    return this.factoryQuery("listFactoryDefinitions", { projectId }, query);
+  }
+
+  createFactoryDraft(projectId: string, source: FactoryDefinition, idempotencyKey: string): Promise<FactoryApiResponse> {
+    return this.factoryMutation("createFactoryDraft", { projectId }, 0, idempotencyKey, { source });
+  }
+
+  importFactoryDraft(projectId: string, format: "json" | "yaml", source: string, idempotencyKey: string): Promise<FactoryApiResponse> {
+    return this.factoryMutation("importFactoryDraft", { projectId }, 0, idempotencyKey, { format, source });
+  }
+
+  getFactoryDraft(projectId: string, factoryId: string): Promise<FactoryApiResponse> {
+    return this.route("getFactoryDraft", { projectId, factoryId });
+  }
+
+  updateFactoryDraft(projectId: string, factoryId: string, source: FactoryDefinition, expectedRevision: number, idempotencyKey: string): Promise<FactoryApiResponse> {
+    return this.factoryMutation("updateFactoryDraft", { projectId, factoryId }, expectedRevision, idempotencyKey, { source });
+  }
+
+  archiveFactoryDraft(projectId: string, factoryId: string, expectedRevision: number, idempotencyKey: string): Promise<FactoryApiResponse> {
+    return this.factoryMutation("archiveFactoryDraft", { projectId, factoryId }, expectedRevision, idempotencyKey);
+  }
+
+  exportFactoryDraft(projectId: string, factoryId: string, format: "json" | "yaml"): Promise<FactoryApiResponse> {
+    return this.factoryQuery("exportFactoryDraft", { projectId, factoryId }, { format });
+  }
+
+  validateFactoryDraft(projectId: string, factoryId: string, source: FactoryDefinition): Promise<FactoryApiResponse> {
+    return this.route("validateFactoryDraft", { projectId, factoryId }, { source });
+  }
+
+  listFactoryVersions(projectId: string, factoryId: string, query: FactoryListQuery = {}): Promise<FactoryApiResponse> {
+    return this.factoryQuery("listFactoryVersions", { projectId, factoryId }, query);
+  }
+
+  getFactoryVersion(projectId: string, factoryId: string, version: string): Promise<FactoryApiResponse> {
+    return this.route("getFactoryVersion", { projectId, factoryId, version });
+  }
+
+  listFactoryGrants(projectId: string, query: FactoryGrantListQuery = {}): Promise<FactoryApiResponse> {
+    return this.factoryQuery("listFactoryGrants", { projectId }, query);
   }
 
   // ── Configure ──────────────────────────────────────────────────────

@@ -1,0 +1,87 @@
+import type { FactoryAvailability, FactoryDefinition } from "@ezcorp/factory-sdk";
+import type { TransactionalDb } from "../db/migrations/types";
+import type { BlobStore } from "../extensions/v4/types";
+import { assertFactoryIdentity } from "./records";
+import { factoryDefinitionRequirements, FactoryDefinitions, type FactoryDraftMetadata } from "./definitions";
+import { FactoryGrants } from "./grants";
+
+export interface FactoryDefinitionAvailability {
+  readonly availability: FactoryAvailability;
+  readonly availabilityReason?: string;
+}
+
+export interface FactoryApplication {
+  readonly tenantId: string;
+  readonly definitions: FactoryDefinitions;
+  readonly grants: FactoryGrants;
+  readonly availableResourceClasses: ReadonlySet<string>;
+}
+
+export interface FactoryApplicationOptions {
+  readonly database: TransactionalDb;
+  readonly tenantId: string;
+  readonly blobs: BlobStore;
+  readonly grants?: FactoryGrants;
+  readonly availableResourceClasses: Iterable<string>;
+}
+
+let configuredApplication: FactoryApplication | null = null;
+
+/** Compose the HTTP-facing stores only from already-probed, trusted services. */
+export function createFactoryApplication(options: FactoryApplicationOptions): FactoryApplication {
+  assertFactoryIdentity(options.tenantId);
+  const grants = options.grants ?? new FactoryGrants(options.database, options.tenantId);
+  if (grants.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
+  const resources = new Set<string>();
+  for (const resourceClass of options.availableResourceClasses) {
+    assertFactoryIdentity(resourceClass);
+    resources.add(resourceClass);
+  }
+  return Object.freeze({
+    tenantId: options.tenantId,
+    grants,
+    definitions: new FactoryDefinitions(options.database, options.tenantId, grants, options.blobs),
+    availableResourceClasses: resources as ReadonlySet<string>,
+  });
+}
+
+/** Root boot configures this only after every required service probe succeeds. */
+export function configureFactoryApplication(application: FactoryApplication | null): void {
+  configuredApplication = application;
+}
+
+export function getFactoryApplication(): FactoryApplication | null {
+  return configuredApplication;
+}
+
+/** Compile once, then inspect the compiler's deep node index for resource needs. */
+export function definitionAvailability(
+  source: FactoryDefinition,
+  availableResourceClasses: ReadonlySet<string>,
+): FactoryDefinitionAvailability {
+  return requirementsAvailability(factoryDefinitionRequirements(source), availableResourceClasses);
+}
+
+export function draftAvailability(
+  draft: Pick<FactoryDraftMetadata, "requiredResourceClasses" | "requirementsComplete" | "validationDiagnosticCount">,
+  availableResourceClasses: ReadonlySet<string>,
+): FactoryDefinitionAvailability {
+  return requirementsAvailability(draft, availableResourceClasses);
+}
+
+function requirementsAvailability(
+  requirements: Pick<FactoryDraftMetadata, "requiredResourceClasses" | "requirementsComplete" | "validationDiagnosticCount">,
+  availableResourceClasses: ReadonlySet<string>,
+): FactoryDefinitionAvailability {
+  if (requirements.validationDiagnosticCount > 0) {
+    return {
+      availability: "unavailable",
+      availabilityReason: `Definition validation failed with ${requirements.validationDiagnosticCount} diagnostic${requirements.validationDiagnosticCount === 1 ? "" : "s"}.`,
+    };
+  }
+  if (!requirements.requirementsComplete) return { availability: "unavailable", availabilityReason: "Definition resource requirements exceed supported limits." };
+  const missing = requirements.requiredResourceClasses.filter((resourceClass) => !availableResourceClasses.has(resourceClass));
+  return missing.length === 0
+    ? { availability: "available" }
+    : { availability: "unavailable", availabilityReason: `Unavailable resource classes: ${missing.join(", ")}.` };
+}

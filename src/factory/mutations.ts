@@ -26,13 +26,18 @@ export class FactoryMutations {
     if (grants.tenantId !== tenantId) throw new FactoryMutationError("factory_scope_mismatch");
   }
 
-  async execute<Result>(request: FactoryMutation, apply: (transaction: MigrationDb) => Promise<Result>): Promise<Result> {
+  async execute<Result>(
+    request: FactoryMutation,
+    apply: (transaction: MigrationDb) => Promise<Result>,
+    authorize?: (transaction: MigrationDb) => Promise<void>,
+  ): Promise<Result> {
     if (typeof request.idempotencyKey !== "string" || !isBoundedIdempotencyKey(request.idempotencyKey)) throw new FactoryMutationError("invalid_idempotency_key");
     const { projectId, idempotencyKey, action, expectedGrantRevision } = request;
     const principal = { ...request.principal };
     const digest = idempotencyInputDigest({ action, input: request.input });
     return this.database.transaction(async transaction => {
-      await this.grants.authorizeInTransaction(transaction, principal, projectId, action, expectedGrantRevision);
+      if (authorize) await authorize(transaction);
+      else await this.grants.authorizeInTransaction(transaction, principal, projectId, action, expectedGrantRevision);
       const inserted = rows(await transaction.execute(sql`INSERT INTO factory_mutation_receipts
         (tenant_id, project_id, principal_kind, principal_id, idempotency_key, input_digest)
         VALUES (${this.tenantId}, ${projectId}, ${principal.kind}, ${principal.id}, ${idempotencyKey}, ${digest})
