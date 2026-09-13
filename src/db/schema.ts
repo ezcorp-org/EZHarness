@@ -3040,7 +3040,7 @@ export const factoryValidatorAssignments = pgTable("factory_validator_assignment
   trustRevision: bigint("trust_revision", { mode: "number" }).notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), assignmentDigest: text("assignment_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.candidateNodeInstanceId, table.candidateGeneration, table.validatorId] }),
-  uniqueIndex("factory_validator_assignments_attempt_key").on(table.validatorAttemptId),
+  uniqueIndex("uq_factory_validator_assignment_attempt_claim").on(table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId),
   foreignKey({ columns: [table.tenantId, table.projectId, table.validatorLockDigest], foreignColumns: [factoryValidatorMaterials.tenantId, factoryValidatorMaterials.projectId, factoryValidatorMaterials.validatorLockDigest] }).onDelete("restrict"),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.candidateNodeInstanceId, table.candidateGeneration], foreignColumns: [factoryReleaseCandidateHistory.tenantId, factoryReleaseCandidateHistory.projectId, factoryReleaseCandidateHistory.runId, factoryReleaseCandidateHistory.nodeInstanceId, factoryReleaseCandidateHistory.candidateGeneration] }).onDelete("restrict"),
   foreignKey({ columns: [table.validatorAttemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
@@ -3048,11 +3048,11 @@ export const factoryValidatorAssignments = pgTable("factory_validator_assignment
 ]);
 
 export const factoryValidatorResults = pgTable("factory_validator_results", {
-  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), validatorAttemptId: text("validator_attempt_id").notNull(), terminalFactDigest: text("terminal_fact_digest").notNull(),
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), validatorAttemptId: text("validator_attempt_id").notNull(), validatorId: text("validator_id").notNull(), terminalFactDigest: text("terminal_fact_digest").notNull(),
   artifactId: text("artifact_id").notNull(), artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), claimsJson: text("claims_json").notNull(), issuedAtMs: bigint("issued_at_ms", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), evidenceDigest: text("evidence_digest").notNull(), resultDigest: text("result_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  primaryKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId] }),
-  foreignKey({ columns: [table.validatorAttemptId], foreignColumns: [factoryValidatorAssignments.validatorAttemptId] }).onDelete("restrict"),
+  primaryKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId], foreignColumns: [factoryValidatorAssignments.tenantId, factoryValidatorAssignments.projectId, factoryValidatorAssignments.validatorAttemptId, factoryValidatorAssignments.validatorId] }).onDelete("restrict"),
   foreignKey({ columns: [table.validatorAttemptId], foreignColumns: [factoryExecutionTerminals.attemptId] }).onDelete("restrict"),
   foreignKey({ columns: [table.tenantId, table.projectId, table.artifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
 ]);

@@ -10,7 +10,7 @@ const dialect = new PgDialect();
 const postgresType = (type: string) => type === "timestamp with time zone" || type === "timestamptz" ? "timestamp with time zone" : type;
 const normalizeDefault = (value: string) => value.replace(/::[a-z ]+$/u, "").replace(/^\((.*)\)$/u, "$1");
 
-const expectedIndexes = ["idx_factory_command_outbox_ready", "idx_factory_executions_run", "idx_factory_execution_operations_cursor", "idx_factory_inbox_pending", "factory_budget_root", "idx_factory_run_lifecycle_list", "idx_factory_projection_attempts_pending"];
+const expectedIndexes = ["idx_factory_command_outbox_ready", "idx_factory_executions_run", "idx_factory_execution_operations_cursor", "idx_factory_inbox_pending", "factory_budget_root", "idx_factory_run_lifecycle_list", "idx_factory_projection_attempts_pending", "uq_factory_validator_assignment_attempt_claim"];
 
 describe("Factory schema PostgreSQL conformance", () => {
   let fixture: Awaited<ReturnType<typeof setupFactoryPostgres>>;

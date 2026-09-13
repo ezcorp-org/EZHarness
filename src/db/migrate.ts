@@ -3087,6 +3087,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryTaskOutcomes(db);
   const { up: addFactoryValidatorMaterials } = await import("./migrations/add-factory-validator-materials");
   await addFactoryValidatorMaterials(db);
+  const { up: allowFactoryValidatorMulticlaim } = await import("./migrations/allow-factory-validator-multiclaim");
+  await allowFactoryValidatorMulticlaim(db);
   const { up: addFactoryPackagePreparations } = await import("./migrations/add-factory-package-preparations");
   await addFactoryPackagePreparations(db);
   const { up: addFactoryProtectedCommandEffects } = await import("./migrations/add-factory-protected-command-effects");

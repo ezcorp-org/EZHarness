@@ -69,6 +69,55 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("repeated migration keeps one validator attempt's several claim-keyed results and their assignment key", async () => {
+    const db = fixture.db;
+    const tenantId = "restart-tenant", projectId = "restart-project", runId = "restart-run";
+    const digest = (fill: string) => `sha256:${fill.repeat(64).slice(0, 64)}`;
+    const bare = (fill: string) => fill.repeat(64).slice(0, 64);
+    const lock = digest("1");
+    const execution = (attemptId: string, node: string) => db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${attemptId},${tenantId},${projectId},${runId},${node},0,1,1,1,1,0,NOW() + INTERVAL '1 hour',${bare("2")},'{}'::jsonb,'admitted')`);
+    const terminal = (attemptId: string, node: string, artifactId: string) => db.execute(sql`INSERT INTO factory_execution_terminals(tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_id,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest) VALUES (${tenantId},${projectId},${runId},${node},0,${attemptId},${bare("2")},${bare("3")},${digest("4")},'{}',${artifactId},${digest("5")},64,1,0,${digest("6")})`);
+    const output = (artifactId: string, node: string) => db.execute(sql`INSERT INTO factory_artifacts(object_id,tenant_id,project_id,run_id,kind,candidate_node_instance_id,candidate_generation,digest,blob_digest,storage_version,encoded_bytes) VALUES (${artifactId},${tenantId},${projectId},${runId},'candidate_output',${node},0,${digest("5")},${bare("7")},'version-1',64)`);
+
+    await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('restart-trust-admin','restart-trust@example.test','x','Restart trust','admin')`);
+    await db.execute(sql`INSERT INTO factory_release_trust_revisions(tenant_id,project_id,revision,state,package_lock_json,package_trust_digest,validator_trust_digest,approved_by,approval_grant_revision,protected_digest) VALUES (${tenantId},${projectId},1,'active','{}',${digest("8")},${lock},'restart-trust-admin',1,${digest("9")})`);
+    await db.execute(sql`INSERT INTO factory_release_trust_current(tenant_id,project_id,revision) VALUES (${tenantId},${projectId},1)`);
+    await db.execute(sql`INSERT INTO factory_drafts(tenant_id,project_id,factory_id,revision,source_digest,source_json,required_resources_json,requirements_complete,validation_diagnostic_count) VALUES (${tenantId},${projectId},'restart-factory',1,${digest("a")},'{}','[]',TRUE,0)`);
+    await db.execute(sql`INSERT INTO factory_versions(tenant_id,project_id,factory_id,version,draft_revision,definition_digest,compiled_blob_digest,compiled_bytes,lock_json) VALUES (${tenantId},${projectId},'restart-factory','1.0.0',1,${digest("a")},${digest("b")},16,'{}')`);
+    await db.execute(sql`INSERT INTO factory_validator_materials(tenant_id,project_id,factory_id,factory_version,definition_digest,contract_id,contract_version,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,validators_json,material_digest) VALUES (${tenantId},${projectId},'restart-factory','1.0.0',${digest("a")},'restart-contract','1.0.0',${digest("c")},${lock},'[]','[]','[]',${digest("d")})`);
+    await output("restart-candidate-output", "candidate-node");
+    await output("restart-validator-output", "validator-node");
+    await execution("restart-candidate-attempt", "candidate-node");
+    await execution("restart-validator-attempt", "validator-node");
+    await terminal("restart-candidate-attempt", "candidate-node", "restart-candidate-output");
+    await terminal("restart-validator-attempt", "validator-node", "restart-validator-output");
+    await db.execute(sql`INSERT INTO factory_release_candidate_history(tenant_id,project_id,run_id,node_instance_id,candidate_generation,candidate_digest,attempt_id,execution_epoch,cancellation_epoch,terminal_fact_digest,output_artifact_id,output_bytes,trust_revision,package_trust_digest,validator_trust_digest,proof_digest) VALUES (${tenantId},${projectId},${runId},'candidate-node',0,${digest("5")},'restart-candidate-attempt',1,0,${digest("6")},'restart-candidate-output',64,1,${digest("8")},${lock},${digest("e")})`);
+    for (const claimId of ["claim-a", "claim-b"]) {
+      await db.execute(sql`INSERT INTO factory_validator_assignments(tenant_id,project_id,run_id,candidate_node_instance_id,candidate_generation,validator_id,validator_attempt_id,validator_authority_json,definition_digest,validator_lock_digest,candidate_digest,candidate_artifact_id,candidate_artifact_digest,candidate_artifact_bytes,runner_json,runner_digest,environment_digest,configuration_digest,freshness_ms,trust_revision,issuer_grant_revision,assignment_digest) VALUES (${tenantId},${projectId},${runId},'candidate-node',0,${claimId},'restart-validator-attempt','{}',${digest("a")},${lock},${digest("5")},'restart-candidate-output',${digest("5")},64,'{}',${digest("f")},${digest("0")},${digest("1")},1000,1,1,${digest("2")})`);
+      await db.execute(sql`INSERT INTO factory_validator_results(tenant_id,project_id,validator_attempt_id,validator_id,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest) VALUES (${tenantId},${projectId},'restart-validator-attempt',${claimId},${digest("6")},'restart-validator-output',${digest("5")},64,${`[{"id":"${claimId}","passed":true,"decisive":true}]`},1,2,${digest("3")},${digest("4")})`);
+    }
+
+    const validatorConstraints = async () => rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid IN ('factory_validator_assignments'::regclass,'factory_validator_results'::regclass) AND contype IN ('p','f','u') ORDER BY definition`));
+    const before = await validatorConstraints();
+    const beforeOids = rows(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_validator_results'::regclass ORDER BY conname`));
+    expect(before.some(row => row.definition === "PRIMARY KEY (tenant_id, project_id, validator_attempt_id, validator_id)")).toBe(true);
+    expect(before.some(row => row.definition === "UNIQUE (validator_attempt_id)")).toBe(false);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      expect(await validatorConstraints()).toEqual(before);
+      expect(rows(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_validator_results'::regclass ORDER BY conname`))).toEqual(beforeOids);
+      expect(rows(await db.execute(sql`SELECT validator_id,claims_json FROM factory_validator_results WHERE tenant_id=${tenantId} AND validator_attempt_id='restart-validator-attempt' ORDER BY validator_id`))).toEqual([
+        { validator_id: "claim-a", claims_json: '[{"id":"claim-a","passed":true,"decisive":true}]' },
+        { validator_id: "claim-b", claims_json: '[{"id":"claim-b","passed":true,"decisive":true}]' },
+      ]);
+      expect(rows<{ indexdef: string }>(await db.execute(sql`SELECT indexdef FROM pg_indexes WHERE indexname='uq_factory_validator_assignment_attempt_claim'`))).toHaveLength(1);
+      const duplicate = await db.execute(sql`INSERT INTO factory_validator_results(tenant_id,project_id,validator_attempt_id,validator_id,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest) VALUES (${tenantId},${projectId},'restart-validator-attempt','claim-a',${digest("6")},'restart-validator-output',${digest("5")},64,'[]',1,2,${digest("3")},${digest("4")})`).then(() => null, (error: unknown) => error);
+      expect(duplicate).toBeInstanceOf(Error);
+      const unassigned = await db.execute(sql`INSERT INTO factory_validator_results(tenant_id,project_id,validator_attempt_id,validator_id,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest) VALUES (${tenantId},${projectId},'restart-validator-attempt','claim-never-assigned',${digest("6")},'restart-validator-output',${digest("5")},64,'[]',1,2,${digest("3")},${digest("4")})`).then(() => null, (error: unknown) => error);
+      expect(unassigned).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { compileFactory, factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
-import { referenceCodeV1, referenceFactories, type CompiledFactory, type FactoryArtifactReference, type FactoryRunnerRequest, type FactoryRunnerResult, type RunnerReference } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, referenceFactories, type CompiledFactory, type FactoryArtifactReference, type FactoryRunnerRequest, type FactoryRunnerResult, type JsonValue, type RunnerReference } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { BlobStore } from "../../extensions/v4/types";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
@@ -26,8 +26,8 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
   let fixture: Fixture, database: TransactionalDb, artifacts: FactoryArtifacts, grants: FactoryGrants, journal: FactoryExecutionJournal;
   let releases: FactoryReleaseAuthorityStore, validators: FactoryTrustedValidators, assurance: FactoryAssurance;
   let compiled: CompiledFactory;
-  let runtime: FactoryTrustedValidatorRuntime, material: Awaited<ReturnType<FactoryTrustedValidators["registerMaterialInTransaction"]>>;
-  let candidateAdmission: FactoryAttemptAdmission, validatorAdmission: FactoryAttemptAdmission;
+  let runtime: FactoryTrustedValidatorRuntime, reviewRuntime: FactoryTrustedValidatorRuntime, material: Awaited<ReturnType<FactoryTrustedValidators["registerMaterialInTransaction"]>>;
+  let candidateAdmission: FactoryAttemptAdmission, validatorAdmission: FactoryAttemptAdmission, reviewAdmission: FactoryAttemptAdmission;
   let candidateArtifact: FactoryArtifactReference;
   const cancellationEpoch = 0;
 
@@ -57,10 +57,10 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
     }
   }
 
-  function admission(attemptId: string, nodeInstanceId: string, candidateGeneration: number, runner: RunnerReference, input: FactoryRunnerRequest["input"]): FactoryAttemptAdmission {
+  function admission(attemptId: string, nodeInstanceId: string, candidateGeneration: number, runner: RunnerReference, input: FactoryRunnerRequest["input"], validatorRuntime = nodeInstanceId.startsWith("validator") ? runtime : undefined): FactoryAttemptAdmission {
     const base = { attemptId, tenantId, projectId, runId, nodeInstanceId, candidateGeneration, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch, deadlineAt: new Date(deadlineAtMs) };
     const { deadlineAt: _deadline, ...wire } = base;
-    const request: FactoryRunnerRequest = { schemaVersion: "factory.runner.request.v1", authority: { ...wire, deadlineAtMs, nextOperationIndex: 0 }, runner, input, grants: [], resources: nodeInstanceId.startsWith("validator") ? runtime.resources : {}, tools: [], broker: { attemptToken: `token-${attemptId}`, audience: nodeInstanceId.startsWith("validator") ? runtime.brokerAudience : "candidate-gateway" } };
+    const request: FactoryRunnerRequest = { schemaVersion: "factory.runner.request.v1", authority: { ...wire, deadlineAtMs, nextOperationIndex: 0 }, runner, input, grants: [], resources: validatorRuntime ? validatorRuntime.resources : {}, tools: [], broker: { attemptToken: `token-${attemptId}`, audience: validatorRuntime ? validatorRuntime.brokerAudience : "candidate-gateway" } };
     return { ...base, request, requestDigest: factoryRunnerRequestDigest(request) };
   }
 
@@ -78,7 +78,7 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
 
   beforeAll(async () => {
     fixture = await createFixture(); database = fixture.db;
-    const definition = { ...referenceCodeV1, acceptance: { ...referenceCodeV1.acceptance, claims: [referenceCodeV1.acceptance.claims[0]!] } };
+    const definition = { ...referenceCodeV1, acceptance: { ...referenceCodeV1.acceptance, claims: [referenceCodeV1.acceptance.claims[0]!, referenceCodeV1.acceptance.claims[1]!, referenceCodeV1.acceptance.claims.at(-1)!] } };
     const result = compileFactory(definition); if (!result.ok) throw new Error("validator definition did not compile"); compiled = result.factory;
     const validatorRunner = compiled.definition.acceptance.claims[0]!.validator;
     runtime = { runner: validatorRunner, resources: { maxComputeMs: 1000 }, brokerAudience: "trusted-validator-gateway", environmentDigest: digest("validator-environment Hers"), configurationDigest: validatorRunner.configurationDigest!, maxEvidenceAgeMs: 10_000 };
@@ -108,6 +108,7 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
       const key = digest(claim.validator);
       if (!trustedRuntimes.has(key)) trustedRuntimes.set(key, { runner: claim.validator, resources: { maxComputeMs: 1000 }, brokerAudience: `trusted-${key.slice(-12)}`, environmentDigest: digest({ runner: claim.validator, kind: "environment" }), configurationDigest: claim.validator.configurationDigest!, maxEvidenceAgeMs: 86_400_000 });
     }
+    reviewRuntime = trustedRuntimes.get(digest(compiled.definition.acceptance.claims.at(-1)!.validator))!;
     validators = new FactoryTrustedValidators(database, tenantId, lifecycle, journal, artifacts, releases, trustedRuntimes.values());
     material = await database.transaction(transaction => validators.registerMaterialInTransaction(transaction, projectId, compiled));
     await releases.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: candidateRunner, validatorTrustDigest: material.validatorLockDigest }, "validator-trust");
@@ -158,20 +159,49 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
       candidateArtifact = await artifacts.stageCandidateOutputInTransaction(transaction, { tenantId, projectId, logicalRunId: runId }, candidateAdmission.nodeInstanceId, candidateAdmission.candidateGeneration, artifactJson.canonical({ candidate: "bytes" }));
       await releases.completeCurrentCandidateInTransaction(transaction, { authority: candidateAdmission, result: completed(candidateArtifact), expectedCurrentGeneration: null });
     });
-    validatorAdmission = admission("validator-attempt", "validator-node", 0, runtime.runner, { kind: "artifact", artifact: candidateArtifact });
+    const taskClaims = material.mandatoryClaims.slice(0, 2).map(claim => claim.validatorId);
+    const reviewClaim = material.mandatoryClaims.at(-1)!.validatorId;
+    const taskInput = JSON.parse(canonicalJson({ candidate: { kind: "artifact", artifact: candidateArtifact } })) as JsonValue;
+    validatorAdmission = admission("validator-attempt", "validator-node", 0, runtime.runner, { kind: "inline", value: taskInput });
     await journal.admit(validatorAdmission);
-    await database.transaction(transaction => validators.bindAttemptInTransaction(transaction, { candidate: { projectId, runId, nodeInstanceId: candidateAdmission.nodeInstanceId, candidateGeneration: 0 }, validatorId: material.mandatoryClaims[0]!.validatorId, authority: validatorAdmission }));
-    await terminal(validatorAdmission, { schemaVersion: "factory.validator-result.v1", claims: [{ id: material.mandatoryClaims[0]!.id, passed: true, decisive: true }] });
     const candidate = { projectId, runId, nodeInstanceId: candidateAdmission.nodeInstanceId, candidateGeneration: 0 };
-    const first = await database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, material.mandatoryClaims[0]!.validatorId));
-    const second = await database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, material.mandatoryClaims[0]!.validatorId));
+    await database.transaction(transaction => validators.bindTaskAttemptInTransaction(transaction, { candidate, validatorIds: taskClaims, authority: validatorAdmission, expectedInput: taskInput }));
+    await terminal(validatorAdmission, { schemaVersion: "factory.validator-result.v1", claims: material.mandatoryClaims.slice(0, 2).map(claim => ({ id: claim.id, passed: true, decisive: true })) });
+    reviewAdmission = admission("validator-review-attempt", "validator-review-node", 0, reviewRuntime.runner, { kind: "artifact", artifact: candidateArtifact }, reviewRuntime);
+    await journal.admit(reviewAdmission);
+    await database.transaction(transaction => validators.bindAttemptInTransaction(transaction, { candidate, validatorId: reviewClaim, authority: reviewAdmission }));
+    await terminal(reviewAdmission, { schemaVersion: "factory.validator-result.v1", claims: [{ id: reviewClaim, passed: true, decisive: true }] });
+    const first = await database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, taskClaims[0]!));
+    const second = await database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, taskClaims[0]!));
     expect(second).toEqual(first);
-    expect(first).toMatchObject({ candidateDigest: candidateArtifact.digest, validatorLockDigest: material.validatorLockDigest, runnerDigest: digest(runtime.runner), environmentDigest: runtime.environmentDigest, configurationDigest: runtime.configurationDigest, claims: [{ passed: true, decisive: true }] });
+    expect(first).toMatchObject({ candidateDigest: candidateArtifact.digest, validatorLockDigest: material.validatorLockDigest, runnerDigest: digest(runtime.runner), environmentDigest: runtime.environmentDigest, configurationDigest: runtime.configurationDigest, claims: [{ id: taskClaims[0], passed: true, decisive: true }] });
+    const sibling = await database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, taskClaims[1]!));
+    expect(sibling.claims).toEqual([{ id: taskClaims[1]!, passed: true, decisive: true }]);
+    expect(sibling.artifact).toEqual(first.artifact);
+    expect(rows(await database.execute(sql`SELECT validator_id FROM factory_validator_assignments WHERE validator_attempt_id=${validatorAdmission.attemptId} ORDER BY validator_id`))).toEqual([...taskClaims].sort().map(validator_id => ({ validator_id })));
+    expect(rows(await database.execute(sql`SELECT validator_id,result_digest FROM factory_validator_results WHERE validator_attempt_id=${validatorAdmission.attemptId} ORDER BY validator_id`)).map(row => (row as { validator_id: string }).validator_id)).toEqual([...taskClaims].sort());
+    expect(new Set(rows<{ result_digest: string }>(await database.execute(sql`SELECT result_digest FROM factory_validator_results WHERE validator_attempt_id=${validatorAdmission.attemptId}`)).map(row => row.result_digest)).size).toBe(2);
     expect(rows(await database.execute(sql`SELECT enabled FROM factory_release_controls WHERE tenant_id=${tenantId} AND project_id=${projectId}`))).toEqual([]);
-    await assurance.captureEvidence({ ...candidate, validatorId: material.mandatoryClaims[0]!.validatorId });
+    for (const claim of material.mandatoryClaims) await assurance.captureEvidence({ ...candidate, validatorId: claim.validatorId });
     const accepted = await assurance.accept({ ...candidate, contractId: material.contractId, revision: 1 });
     expect(accepted).toMatchObject({ candidateDigest: candidateArtifact.digest });
     expect(await database.transaction(transaction => assurance.acceptCurrentInTransaction(transaction, candidate, material.contractId))).toEqual(accepted);
+  });
+
+  test("one attempt binds only claims that share its pinned execution profile, and only claims it was assigned", async () => {
+    const candidate = { projectId, runId, nodeInstanceId: candidateAdmission.nodeInstanceId, candidateGeneration: 0 };
+    const taskClaims = material.mandatoryClaims.slice(0, 2).map(claim => claim.validatorId);
+    const reviewClaim = material.mandatoryClaims.at(-1)!.validatorId;
+    const mixedInput = JSON.parse(canonicalJson({ candidate: { kind: "artifact", artifact: candidateArtifact } })) as JsonValue;
+    const mixed = admission("validator-mixed-profile", "validator-mixed-profile", 0, runtime.runner, { kind: "inline", value: mixedInput });
+    await journal.admit(mixed);
+    await expect(database.transaction(transaction => validators.bindTaskAttemptInTransaction(transaction, { candidate, validatorIds: [taskClaims[0]!, reviewClaim], authority: mixed, expectedInput: mixedInput }))).rejects.toMatchObject({ code: "factory_validator_attempt_untrusted" });
+    await expect(database.transaction(transaction => validators.bindTaskAttemptInTransaction(transaction, { candidate, validatorIds: [taskClaims[0]!, "claim-that-no-material-pins"], authority: mixed, expectedInput: mixedInput }))).rejects.toMatchObject({ code: "factory_validator_material_stale" });
+    for (const validatorIds of [[], [taskClaims[0]!, taskClaims[0]!], Array.from({ length: 1001 }, (_value, index) => `claim-${index}`)]) {
+      await expect(database.transaction(transaction => validators.bindTaskAttemptInTransaction(transaction, { candidate, validatorIds, authority: mixed, expectedInput: mixedInput }))).rejects.toMatchObject({ code: "factory_validator_invalid" });
+    }
+    expect(rows(await database.execute(sql`SELECT validator_id FROM factory_validator_assignments WHERE validator_attempt_id=${mixed.attemptId}`))).toEqual([]);
+    await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, reviewClaim))).resolves.toMatchObject({ validatorId: reviewClaim, runnerDigest: digest(reviewRuntime.runner) });
   });
 
   test("runner, candidate artifact, and validator result bytes cannot come from caller control", async () => {
@@ -190,7 +220,7 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
 
   test("tampered assignments, result records, terminal facts, and validator trust fail closed", async () => {
     const candidate = { projectId, runId, nodeInstanceId: candidateAdmission.nodeInstanceId, candidateGeneration: 0 };
-    const stored = rows<{ environment_digest: string; configuration_digest: string; runner_json: string; claims_json: string }>(await database.execute(sql`SELECT a.environment_digest,a.configuration_digest,a.runner_json,r.claims_json FROM factory_validator_assignments a JOIN factory_validator_results r ON r.validator_attempt_id=a.validator_attempt_id WHERE a.validator_attempt_id=${validatorAdmission.attemptId}`))[0]!;
+    const stored = rows<{ environment_digest: string; configuration_digest: string; runner_json: string; claims_json: string }>(await database.execute(sql`SELECT a.environment_digest,a.configuration_digest,a.runner_json,r.claims_json FROM factory_validator_assignments a JOIN factory_validator_results r ON r.tenant_id=a.tenant_id AND r.project_id=a.project_id AND r.validator_attempt_id=a.validator_attempt_id AND r.validator_id=a.validator_id WHERE a.validator_attempt_id=${validatorAdmission.attemptId} AND a.validator_id=${material.mandatoryClaims[0]!.validatorId}`))[0]!;
     await database.execute(sql`UPDATE factory_validator_assignments SET environment_digest=${digest("tampered-environment")} WHERE validator_attempt_id=${validatorAdmission.attemptId}`);
     await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, material.mandatoryClaims[0]!.validatorId))).rejects.toMatchObject({ code: "factory_validator_assignment_corrupt" });
     await database.execute(sql`UPDATE factory_validator_assignments SET environment_digest=${stored.environment_digest} WHERE validator_attempt_id=${validatorAdmission.attemptId}`);
@@ -208,5 +238,28 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
     await database.execute(sql`UPDATE factory_execution_terminals SET terminal_fact_digest=${terminalFact.terminal_fact_digest} WHERE attempt_id=${validatorAdmission.attemptId}`);
     await releases.revokeTrust(admin, projectId, 1, "revoke-validator-trust");
     await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, material.mandatoryClaims[0]!.validatorId))).rejects.toMatchObject({ code: "factory_release_trust_inactive" });
+  });
+
+  test("a repaired candidate rebinds by claim under the latest trust revision, and an omitted claim mints no evidence", async () => {
+    await releases.publishTrust(admin, { projectId, expectedRevision: 2, packageLock: candidateRunner, validatorTrustDigest: material.validatorLockDigest }, "validator-trust-restored");
+    const repaired = admission("candidate-attempt-repair", "candidate-node", 1, candidateRunner, { kind: "inline", value: { request: "candidate-repair" } });
+    await journal.admit(repaired);
+    const repairedArtifact = await database.transaction(async transaction => {
+      const staged = await artifacts.stageCandidateOutputInTransaction(transaction, { tenantId, projectId, logicalRunId: runId }, repaired.nodeInstanceId, repaired.candidateGeneration, artifactJson.canonical({ candidate: "repaired-bytes" }));
+      await releases.completeCurrentCandidateInTransaction(transaction, { authority: repaired, result: completed(staged), expectedCurrentGeneration: 0 });
+      return staged;
+    });
+    const candidate = { projectId, runId, nodeInstanceId: repaired.nodeInstanceId, candidateGeneration: 1 };
+    const claims = material.mandatoryClaims.slice(0, 2).map(claim => claim.validatorId);
+    const input = JSON.parse(canonicalJson({ candidate: { kind: "artifact", artifact: repairedArtifact } })) as JsonValue;
+    const attempt = admission("validator-repair-attempt", "validator-repair-node", 1, runtime.runner, { kind: "inline", value: input });
+    await journal.admit(attempt);
+    await database.transaction(transaction => validators.bindTaskAttemptInTransaction(transaction, { candidate, validatorIds: claims, authority: attempt, expectedInput: input }));
+    await terminal(attempt, { schemaVersion: "factory.validator-result.v1", claims: [{ id: claims[0]!, passed: false, decisive: true }] });
+    await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, claims[0]!))).resolves.toMatchObject({ candidateDigest: repairedArtifact.digest, claims: [{ id: claims[0], passed: false, decisive: true }] });
+    await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, claims[1]!))).rejects.toMatchObject({ code: "factory_validator_result_invalid" });
+    expect(rows(await database.execute(sql`SELECT validator_id FROM factory_validator_results WHERE validator_attempt_id=${attempt.attemptId}`))).toEqual([{ validator_id: claims[0] }]);
+    expect(rows<{ trust_revision: number | string }>(await database.execute(sql`SELECT DISTINCT trust_revision FROM factory_validator_assignments WHERE validator_attempt_id=${attempt.attemptId}`)).map(row => Number(row.trust_revision))).toEqual([3]);
+    await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, { projectId, runId, nodeInstanceId: candidateAdmission.nodeInstanceId, candidateGeneration: 0 }, claims[0]!))).rejects.toMatchObject({ code: "factory_release_authority_stale" });
   });
 }
