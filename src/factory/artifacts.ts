@@ -50,7 +50,7 @@ function supportsBoundVersions(value: ArtifactBlobStore): value is BoundBlobStor
 
 /** Product-side immutable pointers. Blob digests are never an authorization handle. */
 export class FactoryArtifacts {
-  constructor(readonly database: TransactionalDb, private readonly blobs: ArtifactBlobStore, private readonly tenantId: string) { assertFactoryIdentity(tenantId); }
+  constructor(readonly database: TransactionalDb, private readonly blobs: ArtifactBlobStore, readonly tenantId: string) { assertFactoryIdentity(tenantId); }
 
   async stage(identityValue: FactoryArtifactScope, kind: FactoryArtifactKind, content: Uint8Array, options: FactoryArtifactStageOptions = {}): Promise<ImmutableObjectReference> {
     const snapshot = { identity: { ...identityValue }, kind, content: Uint8Array.from(content), options: { ...options } };
