@@ -3025,6 +3025,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addWorkflowDelegationRelease(db);
   const { up: addFactoryRecords } = await import("./migrations/add-factory-records");
   await addFactoryRecords(db);
+  const { up: addFactoryInbox } = await import("./migrations/add-factory-inbox");
+  await addFactoryInbox(db);
   const { up: addFactoryGrants } = await import("./migrations/add-factory-grants");
   await addFactoryGrants(db);
   const { up: addFactoryBudgets } = await import("./migrations/add-factory-budgets");

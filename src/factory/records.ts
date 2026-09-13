@@ -108,24 +108,27 @@ export class FactoryRecords {
   }
 
   async createRun(input: FactoryRunRequest, enqueue: (transaction: MigrationDb, request: FactoryRunRequest) => Promise<void>): Promise<{ readonly created: boolean }> {
+    const snapshot = runRequest(input).request;
+    return this.database.transaction(transaction => this.createRunInTransaction(transaction, snapshot, enqueue));
+  }
+
+  async createRunInTransaction(transaction: MigrationDb, input: FactoryRunRequest, enqueue: (transaction: MigrationDb, request: FactoryRunRequest) => Promise<void>): Promise<{ readonly created: boolean }> {
     const { payload, request } = runRequest(input);
     const digest = digestObject(request);
-    return this.database.transaction(async (transaction) => {
-      const installation = rows<{ execution_epoch: number }>(await transaction.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${this.tenantId} FOR UPDATE`))[0];
-      if (!installation || installation.execution_epoch !== request.executionEpoch) throw new FactoryRecordError("factory_epoch_changed");
-      const inserted = rows(await transaction.execute(sql`INSERT INTO factory_runs
-        (tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload)
-        VALUES (${this.tenantId}, ${request.projectId}, ${request.runId}, ${request.definitionDigest}, ${request.interpreterBuild}, ${request.executionEpoch}, ${digest}, ${payload})
-        ON CONFLICT (tenant_id, project_id, run_id) DO NOTHING RETURNING run_id`));
-      if (inserted.length === 0) {
-        const existing = rows<{ request_digest: string }>(await transaction.execute(sql`SELECT request_digest FROM factory_runs WHERE tenant_id = ${this.tenantId} AND project_id = ${request.projectId} AND run_id = ${request.runId}`))[0]!;
-        if (existing.request_digest !== digest) throw new FactoryRecordError("factory_run_conflict");
-        return { created: false };
-      }
-      await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, request.projectId, request.runId, "start", digest), request.principalKind === "service" ? null : request.principalId, "factory.run.requested", request.runId, { tenantId: this.tenantId, projectId: request.projectId, definitionDigest: request.definitionDigest, executionEpoch: request.executionEpoch, principalKind: request.principalKind ?? "user", principalId: request.principalId });
-      await enqueue(transaction, request);
-      return { created: true };
-    });
+    const installation = rows<{ execution_epoch: number }>(await transaction.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${this.tenantId} FOR UPDATE`))[0];
+    if (!installation || installation.execution_epoch !== request.executionEpoch) throw new FactoryRecordError("factory_epoch_changed");
+    const inserted = rows(await transaction.execute(sql`INSERT INTO factory_runs
+      (tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload)
+      VALUES (${this.tenantId}, ${request.projectId}, ${request.runId}, ${request.definitionDigest}, ${request.interpreterBuild}, ${request.executionEpoch}, ${digest}, ${payload})
+      ON CONFLICT (tenant_id, project_id, run_id) DO NOTHING RETURNING run_id`));
+    if (inserted.length === 0) {
+      const existing = rows<{ request_digest: string }>(await transaction.execute(sql`SELECT request_digest FROM factory_runs WHERE tenant_id = ${this.tenantId} AND project_id = ${request.projectId} AND run_id = ${request.runId}`))[0]!;
+      if (existing.request_digest !== digest) throw new FactoryRecordError("factory_run_conflict");
+      return { created: false };
+    }
+    await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, request.projectId, request.runId, "start", digest), request.principalKind === "service" ? null : request.principalId, "factory.run.requested", request.runId, { tenantId: this.tenantId, projectId: request.projectId, definitionDigest: request.definitionDigest, executionEpoch: request.executionEpoch, principalKind: request.principalKind ?? "user", principalId: request.principalId });
+    await enqueue(transaction, request);
+    return { created: true };
   }
 
   async readRunRequestInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunRequest> {
@@ -138,31 +141,41 @@ export class FactoryRecords {
   }
 
   async appendAudit(request: FactoryAuditInput): Promise<FactoryAuditBatch> {
+    const snapshot = JSON.parse(boundedPayload(request)) as FactoryAuditInput;
+    return this.database.transaction(transaction => this.appendAuditInTransaction(transaction, snapshot));
+  }
+
+  async appendAuditInTransaction(transaction: MigrationDb, request: FactoryAuditInput): Promise<FactoryAuditBatch> {
     const input = JSON.parse(boundedPayload(request)) as FactoryAuditInput;
     identity(input.projectId, input.runId, input.interpreterId);
     positive(input.sourceSequence);
     const payload = boundedPayload(input.payload);
     const digest = digestObject({ tenantId: this.tenantId, ...input });
-    return this.database.transaction(async (transaction) => {
-      const run = await this.lockRun(transaction, input);
-      const existing = rows<AuditRow>(await transaction.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches
-        WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId} AND interpreter_id = ${input.interpreterId} AND source_sequence = ${input.sourceSequence}`))[0];
-      if (existing) {
-        if (existing.digest !== digest) throw new FactoryRecordError("factory_audit_conflict");
-        return batchFromRow(this.tenantId, input, existing);
-      }
-      const predecessor = rows<{ source_sequence: string | number; digest: string }>(await transaction.execute(sql`SELECT source_sequence, digest FROM factory_audit_batches
-        WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId} AND interpreter_id = ${input.interpreterId} ORDER BY source_sequence DESC LIMIT 1`))[0];
-      if (input.sourceSequence !== Number(predecessor?.source_sequence ?? 0) + 1 || input.predecessorDigest !== (predecessor?.digest ?? null)) throw new FactoryRecordError("factory_audit_gap");
-      const sequence = Number(run.next_sequence);
-      positive(sequence);
-      positive(sequence + 1);
-      await transaction.execute(sql`INSERT INTO factory_audit_batches (tenant_id, project_id, run_id, interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload)
-        VALUES (${this.tenantId}, ${input.projectId}, ${input.runId}, ${input.interpreterId}, ${input.sourceSequence}, ${sequence}, ${input.predecessorDigest}, ${digest}, ${payload})`);
-      await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, input.projectId, input.runId, "transition", { interpreterId: input.interpreterId, sourceSequence: input.sourceSequence }), null, "factory.run.transition", input.runId, { tenantId: this.tenantId, projectId: input.projectId, digest, sequence });
-      await transaction.execute(sql`UPDATE factory_runs SET next_sequence = ${sequence + 1} WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId}`);
-      return { tenantId: this.tenantId, ...input, payload: JSON.parse(payload), sequence, digest };
-    });
+    const run = await this.lockRun(transaction, input);
+    const existing = rows<AuditRow>(await transaction.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId} AND interpreter_id = ${input.interpreterId} AND source_sequence = ${input.sourceSequence}`))[0];
+    if (existing) {
+      if (existing.digest !== digest) throw new FactoryRecordError("factory_audit_conflict");
+      return batchFromRow(this.tenantId, input, existing);
+    }
+    const predecessor = rows<{ source_sequence: string | number; digest: string }>(await transaction.execute(sql`SELECT source_sequence, digest FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId} AND interpreter_id = ${input.interpreterId} ORDER BY source_sequence DESC LIMIT 1`))[0];
+    if (input.sourceSequence !== Number(predecessor?.source_sequence ?? 0) + 1 || input.predecessorDigest !== (predecessor?.digest ?? null)) throw new FactoryRecordError("factory_audit_gap");
+    const sequence = Number(run.next_sequence);
+    positive(sequence);
+    positive(sequence + 1);
+    await transaction.execute(sql`INSERT INTO factory_audit_batches (tenant_id, project_id, run_id, interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload)
+      VALUES (${this.tenantId}, ${input.projectId}, ${input.runId}, ${input.interpreterId}, ${input.sourceSequence}, ${sequence}, ${input.predecessorDigest}, ${digest}, ${payload})`);
+    await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, input.projectId, input.runId, "transition", { interpreterId: input.interpreterId, sourceSequence: input.sourceSequence }), null, "factory.run.transition", input.runId, { tenantId: this.tenantId, projectId: input.projectId, digest, sequence });
+    await transaction.execute(sql`UPDATE factory_runs SET next_sequence = ${sequence + 1} WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId}`);
+    return { tenantId: this.tenantId, ...input, payload: JSON.parse(payload), sequence, digest };
+  }
+
+  async readAuditBatchInTransaction(transaction: MigrationDb, key: FactoryRunKey & { readonly interpreterId: string }, sourceSequence: number): Promise<FactoryAuditBatch | null> {
+    identity(key.projectId, key.runId, key.interpreterId);
+    positive(sourceSequence);
+    const row = rows<AuditRow>(await transaction.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND interpreter_id=${key.interpreterId} AND source_sequence=${sourceSequence}`))[0];
+    return row ? batchFromRow(this.tenantId, key, row) : null;
   }
 
   async readAudit(key: FactoryRunKey, after = 0, limit = 50): Promise<readonly FactoryAuditBatch[]> {

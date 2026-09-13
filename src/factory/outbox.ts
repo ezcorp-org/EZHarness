@@ -13,10 +13,10 @@ interface FactoryCommandBase {
 }
 
 export type FactoryCommandInput =
-  | (FactoryCommandBase & { readonly kind: "start_run" })
+  | (FactoryCommandBase & { readonly kind: "start_run"; readonly interpreterId?: string })
   | (FactoryCommandBase & { readonly kind: "compute_admission"; readonly reservationId: string })
-  | (FactoryCommandBase & { readonly kind: "decision"; readonly interpreterId: string; readonly decisionId: string })
-  | (FactoryCommandBase & { readonly kind: "partition_notification"; readonly interpreterId: string; readonly notificationId: string });
+  | (FactoryCommandBase & { readonly kind: "decision"; readonly interpreterId: string; readonly decisionId: string; readonly eventSequence?: number; readonly eventHash?: string })
+  | (FactoryCommandBase & { readonly kind: "partition_notification"; readonly interpreterId: string; readonly notificationId: string; readonly eventSequence?: number; readonly eventHash?: string });
 
 export interface FactoryCommand {
   readonly commandId: string;
@@ -28,6 +28,8 @@ export interface FactoryCommand {
   readonly kind: FactoryCommandInput["kind"];
   readonly interpreterId?: string;
   readonly eventId?: string;
+  readonly eventSequence?: number;
+  readonly eventHash?: string;
   readonly body: unknown;
 }
 
@@ -65,8 +67,11 @@ function queueScope(tenantId: string, projectId: string): string {
   return `${tenantId}\0${projectId}`;
 }
 
-function decode(row: CommandRow): FactoryCommandDelivery {
-  return { ...JSON.parse(row.payload), state: row.state, inputHash: row.input_hash };
+function decode(row: CommandRow, tenantId: string, projectId: string): FactoryCommandDelivery {
+  const delivery = JSON.parse(row.payload) as FactoryCommandDelivery;
+  const command = delivery.command;
+  if (delivery.tenantId !== tenantId || delivery.projectId !== projectId || command.tenantId !== tenantId || command.projectId !== projectId || delivery.logicalRunId !== command.logicalRunId || delivery.id !== command.commandId || delivery.deduplicationId !== command.commandId || command.requestId !== command.commandId || delivery.inputHash !== row.input_hash || durableInputHash(command) !== row.input_hash) throw new FactoryOutboxError("factory_command_corrupt");
+  return { ...delivery, state: row.state, inputHash: row.input_hash };
 }
 
 class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery> {
@@ -84,7 +89,7 @@ class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery
     this.assertScope(scope);
     const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
       WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId} AND deduplication_id = ${deduplicationId}`));
-    return result[0] ? decode(result[0]) : null;
+    return result[0] ? decode(result[0], this.tenantId, this.projectId) : null;
   }
 
   async insert(delivery: FactoryCommandDelivery): Promise<boolean> {
@@ -102,14 +107,14 @@ class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery
         AND ((payload::jsonb->'command'->>'kind' = 'compute_admission') = ${this.destination === 'pool'})
         AND ((state = 'queued' AND available_at <= ${now}) OR (state = 'leased' AND lease_until <= ${now}))
       ORDER BY available_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`));
-    return result[0] ? decode(result[0]) : null;
+    return result[0] ? decode(result[0], this.tenantId, this.projectId) : null;
   }
 
   async findById(scope: string, id: string): Promise<FactoryCommandDelivery | null> {
     this.assertScope(scope);
     const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
       WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId} AND id = ${id} FOR UPDATE`));
-    return result[0] ? decode(result[0]) : null;
+    return result[0] ? decode(result[0], this.tenantId, this.projectId) : null;
   }
 
   async write(delivery: FactoryCommandDelivery): Promise<void> {
@@ -122,7 +127,7 @@ class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery
     this.assertScope(scope);
     const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
       WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId} AND id = ${id}`));
-    return result[0] ? decode(result[0]) : null;
+    return result[0] ? decode(result[0], this.tenantId, this.projectId) : null;
   }
 }
 
@@ -134,7 +139,16 @@ function commandFor(tenantId: string, input: FactoryCommandInput): FactoryComman
   if (input.kind === "compute_admission") identity(input.reservationId);
   else if (input.kind !== "start_run") identity(input.interpreterId, input.kind === "decision" ? input.decisionId : input.notificationId);
   const identityId = input.kind === "start_run" ? input.logicalRunId : input.kind === "compute_admission" ? input.reservationId : input.kind === "decision" ? input.decisionId : input.notificationId;
-  const commandId = `factory-command:${durableInputHash({ tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, kind: input.kind, identityId }).slice(7)}`;
+  const interpreter = input.kind === "compute_admission" ? undefined : input.interpreterId;
+  if (interpreter !== undefined) identity(interpreter);
+  let eventProof = {};
+  if (input.kind === "decision" || input.kind === "partition_notification") {
+    if (input.eventSequence !== undefined || input.eventHash !== undefined) {
+      if (!Number.isSafeInteger(input.eventSequence) || input.eventSequence! < 1 || input.eventHash !== durableInputHash(input.body)) throw new FactoryOutboxError("factory_command_event_invalid");
+      eventProof = { eventSequence: input.eventSequence, eventHash: input.eventHash };
+    }
+  }
+  const commandId = `factory-command:${durableInputHash({ tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, kind: input.kind, identityId, ...(interpreter === undefined ? {} : { interpreterId: interpreter }) }).slice(7)}`;
   const command: FactoryCommand = {
     commandId,
     requestId: commandId,
@@ -143,11 +157,12 @@ function commandFor(tenantId: string, input: FactoryCommandInput): FactoryComman
     logicalRunId: input.logicalRunId,
     workflowId: `${tenantId}/${input.logicalRunId}`,
     kind: input.kind,
-    ...(input.kind === "start_run" || input.kind === "compute_admission" ? {} : { interpreterId: input.interpreterId, eventId: identityId }),
+    ...(interpreter === undefined ? {} : { interpreterId: interpreter }),
+    ...(input.kind === "start_run" || input.kind === "compute_admission" ? {} : { eventId: identityId, ...eventProof }),
     body: input.body,
   };
   assertBoundedCommand(command);
-  return command;
+  return JSON.parse(canonicalJson(command)) as FactoryCommand;
 }
 
 /** Tenant/project-scoped transactional commands consumed by the Node dispatcher. */
@@ -160,7 +175,9 @@ export class FactoryCommandOutbox {
   }
 
   async enqueue(input: FactoryCommandInput): Promise<FactoryCommandDelivery> {
-    return this.database.transaction(transaction => this.enqueueInTransaction(transaction, input));
+    assertJson(input);
+    const snapshot = JSON.parse(canonicalJson(input)) as FactoryCommandInput;
+    return this.database.transaction(transaction => this.enqueueInTransaction(transaction, snapshot));
   }
 
   async enqueueInTransaction(transaction: MigrationDb, input: FactoryCommandInput): Promise<FactoryCommandDelivery> {

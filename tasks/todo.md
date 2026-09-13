@@ -984,3 +984,17 @@ Component review: canonical types pass in all four sections. Nine conformance ca
 ### Review
 
 The API envelope separates trusted route identity and header-derived preconditions from strict bodies. Tenant identity is absent. Draft definitions can be structurally valid while compiler diagnostics still report incomplete graph semantics. Published resources pin definition and compiled IR with the durable store's exact metadata names. Run start and repair/replan accept typed inline or immutable artifact parameters and stay under the durable 64 KiB command limit. The pure API entry point derives and verifies the canonical mutation digest while excluding only the caller key and digest claim. The canonical SDK run passed 96 tests and 798 assertions with 100% measured lines in the API, canonical, compiler, schema, types, and validation sources.
+
+## Factory durable inbox and applied receipts
+
+- [x] Add bounded per-interpreter durable inbox sequences and exact immutable event identities.
+- [x] Commit decision outbox and inbox together; commit applied receipts with verified transition audit.
+- [x] Connect transport claims and lease settlement without trusting caller command bytes.
+- [x] Prove races, wrong-event high-water rejection, rollback, corrupt records, scope and capacity on PGlite and PostgreSQL.
+- [x] Run measured coverage, SDK build, type checks and lint; review integration boundaries.
+
+Review: This leaf supports complete platform recovery. Queued intention alone is never proof that an event was applied.
+
+Component review: 29 targeted tests pass (203 assertions); actual PostgreSQL 8 cases pass (66 assertions). Measured lines: inbox89/89, transport queue26/26, outbox145/145, records138/138, additive inbox migration7/7. All four typecheck sections pass; focused Biome passes after import cleanup. Evidence is under /tmp/factory-platform-evidence/inbox-*. The pure transport type import will move to the SDK when the current orchestrator branch is integrated. Full platform gates remain pending.
+
+Additional integration check: model every new factory database table in schema.ts as required by the database instructions; current raw SQL modules alone do not satisfy that contract.

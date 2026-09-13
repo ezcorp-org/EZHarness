@@ -55,6 +55,15 @@ describe("factory command outbox", () => {
     expect(decision.id).not.toBe(notice.id);
   });
 
+  test("event proofs reject wrong or incomplete identities and snapshot mutable bodies", async () => {
+    const body = { input: 1 };
+    const pending = outbox.enqueue(start("snapshot", body));
+    body.input = 2;
+    expect((await pending).command.body).toEqual({ input: 1 });
+    const base = { kind: "decision" as const, projectId: "project-one", logicalRunId: "signals", interpreterId: "partition-a", decisionId: "invalid-proof", body: {} };
+    for (const proof of [{ eventSequence: 0 }, { eventSequence: 1 }, { eventHash: `sha256:${"a".repeat(64)}` }, { eventSequence: 1, eventHash: `sha256:${"a".repeat(64)}` }]) await expect(outbox.enqueue({ ...base, ...proof })).rejects.toMatchObject({ code: "factory_command_event_invalid" });
+  });
+
   test("claims are tenant/project scoped and fenced by lease tokens", async () => {
     const delivery = await outbox.enqueue(start("lease"));
     const otherProject = new FactoryCommandOutbox(database, "tenant-one", "project-two", () => now);
