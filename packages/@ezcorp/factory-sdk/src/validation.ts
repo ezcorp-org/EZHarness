@@ -752,6 +752,14 @@ function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "ap
   return validDigest(resource.contextDigest, false) && decided === (resource.decidedBy !== undefined && resource.decidedAtMs !== undefined);
 }
 
+function validServiceCredentialToken(token: string): boolean {
+  if (!token.startsWith("ezkfsvc_")) return false;
+  const parts = token.slice(8).split(".");
+  return parts.length === 3 && parts.every(part => part.length > 0 && [...part].every(character =>
+    character >= "A" && character <= "Z" || character >= "a" && character <= "z"
+    || character >= "0" && character <= "9" || character === "_" || character === "-"));
+}
+
 function validVersion(resource: Extract<FactoryApiResponse, { kind: "version.summary" }>["resource"]): boolean {
   return validDigest(resource.definitionDigest, true)
     && validDigest(resource.compiledBlobDigest, false)
@@ -794,7 +802,7 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
       || resource.issuedAtMs % 1_000 !== 0 || resource.expiresAtMs % 1_000 !== 0 || resource.expiresAtMs <= resource.issuedAtMs) {
       return issue("API_CREDENTIAL_RESOURCE", "Service credential metadata is invalid.", ["resource"]);
     }
-    if (response.kind === "service-credential.issued" && !/^ezkfsvc_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(response.token)) {
+    if (response.kind === "service-credential.issued" && !validServiceCredentialToken(response.token)) {
       return issue("API_CREDENTIAL_TOKEN", "Issued service credential token is invalid.", ["token"]);
     }
   }

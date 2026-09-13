@@ -1248,8 +1248,8 @@ Review: `/tmp/factory-platform-evidence/assembled-platform-results.json` records
 ## Full backend regression after component integration
 
 - [x] Run the canonical backend suite at `3eeee3259`.
-- [ ] Fix five SDK expansion/repair regressions and verify every SDK test file.
-- [ ] Fix two bundled grant review failures and the Bun/Node/Python golden fixture failure.
+- [x] Fix five SDK expansion/repair regressions and verify every SDK test file.
+- [x] Fix two bundled grant review failures and the Bun/Node/Python golden fixture failure.
 - [ ] Repeat the canonical backend suite on the integrated corrections.
 
 Review: `/tmp/factory-platform-evidence/assembled-backend-3eeee3259.log` reports 26,078 passing tests and eight failures across five files. Focused component receipts did not cover those failures. Sol owns SDK corrections; Terra owns the bundled-review and Python corrections. Full regression remains open.
@@ -1279,7 +1279,7 @@ Review: `/tmp/factory-platform-evidence/root-c06-results.json` records five succ
 
 - [x] Integrate `433c1469c` as `cc9bb59ff`.
 - [x] Independently rerun both bundled review files and the complete Bun/Node/Python golden fixture file.
-- [ ] Integrate and verify the five SDK expansion/repair corrections.
+- [x] Integrate and verify the five SDK expansion/repair corrections.
 - [ ] Rerun the complete canonical backend suite.
 
 Review: `/tmp/factory-platform-evidence/root-backend-corrections.log` records all three complete focused files passing. A rejected review preserves its terminal human decision. Canonical bundled host-API grants retain the existing aggregate JSON size bound. An initial runner request starts its operation cursor at zero when no checkpoint exists.
@@ -1360,3 +1360,13 @@ Review: The run-grant adapter now snapshots its five used authority fields befor
 - [x] Pass PGlite/PostgreSQL, coverage, type, lint, boundary, and gate checks; record review.
 
 Review: the release authority store now derives a per-node current candidate only from an authenticated completed attempt, an exact settled operation journal, measured usage, and a verified immutable candidate-output object. Human trust binds the exact runner package and validator under a live `factory.trust` grant. Release control defaults to disabled and advances an explicit epoch. Candidate history is immutable, and its current pointer advances with a lifecycle-locked generation compare-and-swap. The shared PGlite suite passes 11 cases; the isolated PostgreSQL authority and schema run passes 13 cases with 1,486 assertions. Combined coverage passes 20 cases and measures release authority 169/169, its migration 24/24, artifacts 95/95, executions 224/224, and schema 1249/1249 executable lines. SDK builds, all four typecheck legs, lint, factory boundaries, and gate integrity pass. Evidence is under `/tmp/factory-platform-evidence/release-authority-*` and `tasks/factory/release-authority-GATES.md`.
+
+## Combined projection and backend review
+
+- [x] Verify the combined SDK expansion, repair and projection changes.
+- [x] Run all four type checks, lint and gate integrity after the readonly fixture correction.
+- [x] Run the full backend pool and reproduce its remaining deterministic-validator boundary failure.
+- [x] Replace the service token regular expression with bounded character checks and retain malformed-token rejection.
+- [ ] Verify the new authority and credential fixes on PostgreSQL/S3, then repeat full regression.
+
+Review: `root-projection-integration-results.json` records 155 SDK tests (1,101 assertions) and 20 PostgreSQL/S3 lifecycle/schema tests (1,431 assertions) passing at `55232b905`. It stopped on a readonly fixture type error. At corrected `618560260`, `root-projection-regression-results.json` records all four type checks, lint and gate integrity passing; the full backend pool reported 26,127 passes and one failure across 1,708 files. The actual module-graph CLI found a forbidden regular expression in service credential validation. `root-validator-boundary-green.log` records the replacement passing all 29 boundary and API schema cases, including malformed segments and non-base64url characters. Receipts are under `/tmp/factory-platform-evidence`. Full regression remains open until a complete passing run.

@@ -212,7 +212,10 @@ describe("factory product API schema", () => {
     expect(code(validateFactoryApiResponse({ ...draftPage, page: { items: Array(201).fill(draftSummary()) } }))).toBe("API_RESPONSE_SCHEMA");
     expect(code(validateFactoryApiResponse({ schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.export", format: "yaml", source: "界".repeat(5_600_000) }))).toBe("API_RESPONSE_BYTES");
     const credential = responses()[16] as Extract<FactoryApiResponse, { kind: "service-credential.issued" }>;
-    expect(code(validateFactoryApiResponse({ ...credential, token: "wrong" }))).toBe("API_CREDENTIAL_TOKEN");
+    for (const token of ["wrong", "ezkfsvc_a.b", "ezkfsvc_a.b.c.d", "ezkfsvc_.b.c", "ezkfsvc_a..c", "ezkfsvc_a.b.", "ezkfsvc_a.b.c=", "ezkfsvc_a.b.c+", "ezkfsvc_a.b.c/", "ezkfsvc_a.b.é", "ezkfsvc_a.b.c\n"]) {
+      expect(code(validateFactoryApiResponse({ ...credential, token }))).toBe("API_CREDENTIAL_TOKEN");
+    }
+    expect(validateFactoryApiResponse({ ...credential, token: "ezkfsvc_Az09_-.Az09_-.Az09_-" }).ok).toBe(true);
     expect(code(validateFactoryApiResponse({ ...credential, resource: { ...credential.resource, scopes: ["chat", "read"] } }))).toBe("API_CREDENTIAL_RESOURCE");
     expect(code(validateFactoryApiResponse({ ...credential, resource: { ...credential.resource, expiresAtMs: credential.resource.issuedAtMs } }))).toBe("API_CREDENTIAL_RESOURCE");
   });
