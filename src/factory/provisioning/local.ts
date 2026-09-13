@@ -25,7 +25,8 @@ function assertRequest(request: LocalInstallationRequest): void { if (!/^tenant-
 async function privateDirectory(path: string): Promise<FileHandle> {
   const uid = owner(); let directory = await open("/", constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); let reachedOwnedDirectory = false;
   try {
-    for (const component of resolve(path).split("/").filter(Boolean)) {
+    const components = resolve(path).split("/").filter(Boolean);
+    for (const [index, component] of components.entries()) {
       const anchored = `/proc/self/fd/${directory.fd}/${component}`;
       let child: FileHandle;
       try { child = await open(anchored, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
@@ -42,8 +43,11 @@ async function privateDirectory(path: string): Promise<FileHandle> {
         if (reachedOwnedDirectory || (status.mode & 0o022) !== 0) { await child.close(); throw new Error("Provisioner secret ancestor is writable by another user."); }
       } else {
         reachedOwnedDirectory = true;
-        // chmod happens only after O_NOFOLLOW open and fstat establish ownership.
-        if ((status.mode & 0o077) !== 0) await child.chmod(0o700);
+        // Only the requested task-owned leaf may be repaired. Ancestors are never changed.
+        if ((status.mode & 0o077) !== 0) {
+          if (index !== components.length - 1) { await child.close(); throw new Error("Provisioner secret ancestor is not private."); }
+          await child.chmod(0o700);
+        }
       }
       await directory.close(); directory = child;
     }
@@ -67,7 +71,11 @@ async function privateFile(directory: FileHandle, name: string, value?: string):
     if (!status.isFile() || status.uid !== owner() || (status.mode & 0o077) !== 0) throw new Error("Provisioner secret file must be private and owned by this user.");
   } finally { await handle.close(); }
 }
-async function readPrivate(directory: FileHandle, name: string): Promise<string> { await privateFile(directory, name); return readFile(`/proc/self/fd/${directory.fd}/${name}`, "utf8"); }
+async function readPrivate(directory: FileHandle, name: string): Promise<string> {
+  if (basename(name) !== name) throw new Error("Provisioner secret leaf is invalid.");
+  const handle = await open(`/proc/self/fd/${directory.fd}/${name}`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try { const status = await handle.stat(); if (!status.isFile() || status.uid !== owner() || (status.mode & 0o077) !== 0) throw new Error("Provisioner secret file must be private and owned by this user."); return handle.readFile("utf8"); } finally { await handle.close(); }
+}
 async function writePrivateJson(directory: FileHandle, name: string, value: unknown): Promise<void> { await privateFile(directory, name, `${JSON.stringify(value)}\n`); }
 async function writePrivateText(directory: FileHandle, name: string): Promise<void> { await privateFile(directory, name, `${secret()}\n`); }
 async function identity(path: string, tenantId: string): Promise<{ accessKey: string; secretKey: string }> { const config = JSON.parse(await readFile(path, "utf8")) as S3Config; const credential = config.identities.find((entry) => entry.name === tenantId)?.credentials[0]; if (!credential?.accessKey || !credential.secretKey) throw new Error(`Storage identity for ${tenantId} is unavailable.`); return { accessKey: credential.accessKey, secretKey: credential.secretKey }; }
@@ -134,7 +142,20 @@ export class LocalFactoryProvisioner {
   private ready(existing: InstallationRecord): LocalInstallation { return { tenantId: stored(existing, "tenant_id"), installationId: stored(existing, "installation_id"), productDatabase: stored(existing, "product_database"), productRole: stored(existing, "product_role"), temporalNamespace: stored(existing, "temporal_namespace"), secretBundlePath: stored(existing, "secret_bundle_path"), state: "ready" }; }
   private async verifyReady(existing: InstallationRecord): Promise<void> {
     const directory = stored(existing, "secret_bundle_path"), role = stored(existing, "product_role"), database = stored(existing, "product_database");
-    const secrets = await privateDirectory(directory); try { for (const file of ["installation.json", "product-database.json", "ordinary-storage.json", "archive-storage.json", "application-jwt-secret", "application-encryption-secret", "temporal.json", "temporal-token"]) await privateFile(secrets, file); } finally { await secrets.close(); }
+    const secrets = await privateDirectory(directory);
+    try {
+      for (const file of ["installation.json", "product-database.json", "ordinary-storage.json", "archive-storage.json", "application-jwt-secret", "application-encryption-secret", "temporal.json", "temporal-token"]) await privateFile(secrets, file);
+      const manifest = JSON.parse(await readPrivate(secrets, "installation.json")) as SecretBundle;
+      if (manifest.installationId !== stored(existing, "installation_id") || manifest.tenantId !== stored(existing, "tenant_id") || manifest.invitationId !== stored(existing, "invitation_id") || manifest.product.database !== database || manifest.product.role !== role || manifest.temporal.namespace !== stored(existing, "temporal_namespace")) throw new Error("Ready installation bundle does not match its persisted identity.");
+      const credentials = JSON.parse(await readPrivate(secrets, "product-database.json")) as { role: string; password: string };
+      if (credentials.role !== role || !/^[A-Za-z0-9_-]{43}$/.test(credentials.password)) throw new Error("Ready installation product credentials are invalid.");
+      const ordinary = JSON.parse(await readPrivate(secrets, "ordinary-storage.json")) as { accessKey?: string; secretKey?: string };
+      const archive = JSON.parse(await readPrivate(secrets, "archive-storage.json")) as { accessKey?: string; secretKey?: string };
+      const expectedOrdinary = await identity(this.options.ordinaryConfigPath, stored(existing, "tenant_id")); const expectedArchive = await identity(this.options.archiveConfigPath, stored(existing, "tenant_id"));
+      if (ordinary.accessKey !== expectedOrdinary.accessKey || ordinary.secretKey !== expectedOrdinary.secretKey || archive.accessKey !== expectedArchive.accessKey || archive.secretKey !== expectedArchive.secretKey) throw new Error("Ready installation storage credentials are invalid.");
+      const productUrl = new URL(this.options.productDatabaseAdminUrl); productUrl.pathname = `/${database}`; productUrl.username = role; productUrl.password = credentials.password;
+      const product = new SQL(productUrl.toString(), { max: 1 }); try { await product`SELECT current_database()`; } finally { await product.close(); }
+    } finally { await secrets.close(); }
     const roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean } | undefined;
     const databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string } | undefined;
     if (!roleRecord?.rolcanlogin || roleRecord.oid !== existing.role_oid || !databaseRecord || databaseRecord.oid !== existing.database_oid || databaseRecord.owner !== role) throw new Error("Ready installation lost verified product resources.");
