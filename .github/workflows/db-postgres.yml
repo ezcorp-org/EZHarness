@@ -97,6 +97,9 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+      - name: Prove factory assurance against real PostgreSQL
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/factory-assurance.test.ts
+
       - name: Measure factory provisioning against real PostgreSQL
         run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" COV_OUT=coverage-factory-provisioning bash scripts/factory-provisioning-coverage.sh
 
