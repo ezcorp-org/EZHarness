@@ -12,6 +12,7 @@ import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@e
 import { PodmanRunner, buildLimits, filesDigest } from "@ezcorp/extension-runner";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { provision } from "../../../packages/@ezcorp/extension-runner/tests/helpers";
+import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { FactoryPreparedPackageReceipt } from "../package-preparation";
 import type { PoolLease } from "../pool/ledger";
 import { migrate } from "../../db/migrate";
@@ -48,6 +49,7 @@ class ResponseLossRunner implements Runner {
 
 class MemoryLaunchStore implements FactoryAttemptLaunchStore {
   private intent: FactoryAttemptLaunchIntent | undefined;
+  private terminal: FactoryRunnerResult | undefined;
   constructor(private readonly initialState: FactoryAttemptLaunchState = "prepared") {}
   async prepare(value: typeof request, held: FactoryAttemptLease, receipt: FactoryPreparedPackageReceipt, devices?: FactoryAttemptDeviceAuthorization): Promise<FactoryAttemptLaunchIntent> {
     this.intent ??= { schemaVersion: "factory.attempt-launch.v1", request: value, requestDigest: factoryRunnerRequestDigest(value), lease: held, preparedPackage: receipt, workerId: factoryAttemptWorkerId(value.authority.attemptId), invocationId: factoryAttemptInvocationId(value.authority.attemptId, value.authority.candidateGeneration, value.authority.attemptNumber), devices: factoryAttemptDeviceGrant(value.authority.attemptId, held, devices), state: this.initialState };
@@ -55,6 +57,12 @@ class MemoryLaunchStore implements FactoryAttemptLaunchStore {
   }
   async claimStart(): Promise<{ readonly intent: FactoryAttemptLaunchIntent; readonly claimed: boolean }> { if (!this.intent) throw new Error("launch is missing"); if (this.intent.state !== "prepared") return { intent: this.intent, claimed: false }; this.intent = { ...this.intent, state: "launching" }; return { intent: this.intent, claimed: true }; }
   async state(_attemptId: string, state: FactoryAttemptLaunchState): Promise<void> { if (!this.intent) throw new Error("launch is missing"); this.intent = { ...this.intent, state }; }
+  async recordTerminal(_attemptId: string, result: FactoryRunnerResult): Promise<FactoryRunnerResult> {
+    if (this.terminal && canonicalJson(this.terminal) !== canonicalJson(result)) throw new Error("terminal result conflict");
+    this.terminal ??= JSON.parse(canonicalJson(result)) as FactoryRunnerResult;
+    return this.terminal;
+  }
+  async terminalResult(): Promise<FactoryRunnerResult | undefined> { return this.terminal; }
 }
 
 class RenewalFailureRunner implements Runner {

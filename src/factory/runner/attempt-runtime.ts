@@ -155,6 +155,34 @@ export interface FactoryAttemptLaunchStore {
   prepare(request: FactoryRunnerRequest, lease: FactoryAttemptLease, preparedPackage: FactoryPreparedPackageReceipt, devices?: FactoryAttemptDeviceAuthorization): Promise<FactoryAttemptLaunchIntent>;
   claimStart(attemptId: string): Promise<{ readonly intent: FactoryAttemptLaunchIntent; readonly claimed: boolean }>;
   state(attemptId: string, state: FactoryAttemptLaunchState): Promise<void>;
+  /**
+   * Durably records one terminal result before the runtime acknowledges it.
+   * It is idempotent by canonical result: a repeat of the same result returns
+   * the stored copy, and a different result for the same attempt is rejected.
+   */
+  recordTerminal(attemptId: string, result: FactoryRunnerResult): Promise<FactoryRunnerResult>;
+  /** The durable terminal result, if one was recorded. Recovery reads this instead of invoking again. */
+  terminalResult(attemptId: string): Promise<FactoryRunnerResult | undefined>;
+}
+
+/** Canonical digest of a terminal result. The same result always yields the same value. */
+export function factoryTerminalResultDigest(result: FactoryRunnerResult): string {
+  return `sha256:${createHash("sha256").update(canonicalJson(result)).digest("hex")}`;
+}
+
+function snapshotTerminalResult(result: FactoryRunnerResult): FactoryRunnerResult {
+  requireValid(validateFactoryRunnerResult(result), "Factory terminal result");
+  return Object.freeze(copy(result));
+}
+
+/** The paired-null CHECK on `factory_attempt_launches` guarantees a digest never outlives its result. */
+function storedTerminalResult(row: Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">): FactoryRunnerResult | undefined {
+  if (row.terminal_result_json === null || row.terminal_result_json === undefined) return undefined;
+  const parsed = copy(typeof row.terminal_result_json === "string" ? JSON.parse(row.terminal_result_json) as FactoryRunnerResult : row.terminal_result_json as FactoryRunnerResult);
+  requireValid(validateFactoryRunnerResult(parsed), "Stored factory terminal result");
+  const stored = Object.freeze(parsed);
+  if (factoryTerminalResultDigest(stored) !== row.terminal_result_digest) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory terminal result does not match its durable digest.");
+  return stored;
 }
 
 interface LaunchRow {
@@ -177,6 +205,8 @@ interface LaunchRow {
   invocation_id: string;
   device_grant_json: unknown;
   device_grant_digest: string | null;
+  terminal_result_json: unknown;
+  terminal_result_digest: string | null;
   state: FactoryAttemptLaunchState;
 }
 
@@ -324,6 +354,35 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
     if (!["prepared", "launching", "launched", "terminal", "uncertain"].includes(state)) throw new FactoryAttemptRuntimeError("invalid_launch", "Factory launch state is invalid.");
     await this.database.transaction(transaction => transaction.execute(sql`UPDATE factory_attempt_launches SET state=${state},updated_at=NOW() WHERE attempt_id=${attemptId}`));
   }
+
+  async recordTerminal(attemptId: string, result: FactoryRunnerResult): Promise<FactoryRunnerResult> {
+    opaque(attemptId, "attempt id");
+    const snapshot = snapshotTerminalResult(result);
+    const resultDigest = factoryTerminalResultDigest(snapshot);
+    return this.database.transaction(async transaction => {
+      const row = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
+      if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
+      const existing = storedTerminalResult(row);
+      if (existing) {
+        if (factoryTerminalResultDigest(existing) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory attempt already recorded a different terminal result.");
+        return existing;
+      }
+      await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
+      const saved = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
+      const durable = saved && storedTerminalResult(saved);
+      if (!durable || factoryTerminalResultDigest(durable) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory terminal result did not persist.");
+      return durable;
+    });
+  }
+
+  async terminalResult(attemptId: string): Promise<FactoryRunnerResult | undefined> {
+    opaque(attemptId, "attempt id");
+    return this.database.transaction(async transaction => {
+      const row = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
+      if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
+      return storedTerminalResult(row);
+    });
+  }
 }
 
 export interface IsolatedFactoryAttemptRuntimeOptions {
@@ -349,6 +408,8 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
 
   async open(request: FactoryRunnerRequest, lease: FactoryAttemptLease, preparedPackage: FactoryPreparedPackageReceipt, devices?: FactoryAttemptDeviceAuthorization): Promise<FactoryAttemptOpen> {
     const persisted = await this.options.launches.prepare(request, lease, preparedPackage, devices);
+    const recovered = await this.options.launches.terminalResult(persisted.request.authority.attemptId);
+    if (recovered) return this.replayed(persisted, recovered);
     const inspection = await this.options.runner.inspect(persisted.workerId);
     if (inspection.state === "running") return this.attached(persisted);
     if (inspection.state !== "unknown") {
@@ -412,7 +473,7 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
       invocationId: intent.invocationId,
       wait: async () => {
         void execution;
-        throw new FactoryAttemptRuntimeError("launch_uncertain", "Recovered factory workers require a durable terminal result before another invocation.");
+        return this.durableResult(intent, "Recovered factory workers require a durable terminal result before another invocation.");
       },
       stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason),
     });
@@ -422,12 +483,23 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
     return Object.freeze({ disposition: "started" as const, workerId: intent.workerId, invocationId: intent.invocationId, wait: async (signal?: AbortSignal) => this.wait(intent, execution, guestRequest, signal), stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
   }
 
+  /** A durable terminal result is authoritative, so recovery replays it without another guest. */
+  private replayed(intent: FactoryAttemptLaunchIntent, result: FactoryRunnerResult): FactoryAttemptOpen {
+    return Object.freeze({ disposition: "terminal" as const, workerId: intent.workerId, invocationId: intent.invocationId, wait: async () => result, stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
+  }
+
+  private async durableResult(intent: FactoryAttemptLaunchIntent, absent: string): Promise<FactoryRunnerResult> {
+    const recorded = await this.options.launches.terminalResult(intent.request.authority.attemptId);
+    if (!recorded) throw new FactoryAttemptRuntimeError("launch_uncertain", absent);
+    return recorded;
+  }
+
   private terminal(intent: FactoryAttemptLaunchIntent): FactoryAttemptOpen {
-    return Object.freeze({ disposition: "terminal", workerId: intent.workerId, invocationId: intent.invocationId, wait: async () => { throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory worker reached a terminal state without a canonical result."); }, stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
+    return Object.freeze({ disposition: "terminal", workerId: intent.workerId, invocationId: intent.invocationId, wait: async () => this.durableResult(intent, "Factory worker reached a terminal state without a canonical result."), stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
   }
 
   private uncertain(intent: FactoryAttemptLaunchIntent): FactoryAttemptOpen {
-    return Object.freeze({ disposition: "uncertain", workerId: intent.workerId, invocationId: intent.invocationId, wait: async () => { throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory worker start outcome is uncertain."); }, stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
+    return Object.freeze({ disposition: "uncertain", workerId: intent.workerId, invocationId: intent.invocationId, wait: async () => this.durableResult(intent, "Factory worker start outcome is uncertain."), stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
   }
 
   private async wait(intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, guestRequest: FactoryRunnerRequest, signal?: AbortSignal): Promise<FactoryRunnerResult> {
@@ -446,8 +518,11 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
       if (renewalFailure) throw new FactoryAttemptRuntimeError("lease_revoked", renewalFailure.message);
       requireValid(validateFactoryRunnerResult(value), "Factory guest result");
       const result = copy(value) as FactoryRunnerResult;
-      await this.stop(intent, result.status === "completed" ? "completed" : result.status === "failed" ? "failed" : "cancelled");
-      return result;
+      // Durable before acknowledged: a fresh supervisor reads this exact result
+      // instead of sending a second extension/invoke.
+      const durable = await this.options.launches.recordTerminal(intent.request.authority.attemptId, result);
+      await this.stop(intent, durable.status === "completed" ? "completed" : durable.status === "failed" ? "failed" : "cancelled");
+      return durable;
     } finally { clearInterval(timer); }
   }
 

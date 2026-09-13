@@ -22,7 +22,10 @@ export async function up(database: MigrationDb): Promise<void> {
     worker_id TEXT NOT NULL UNIQUE,
     invocation_id TEXT NOT NULL,
     device_grant_json JSONB NOT NULL DEFAULT '{"devices":[],"cdiDevices":[],"capabilities":[]}'::jsonb,
-    device_grant_digest TEXT CHECK (device_grant_digest IS NULL OR device_grant_digest ~ '^sha256:[0-9a-f]{64}$'),
+    device_grant_digest TEXT CONSTRAINT factory_attempt_launches_device_grant_digest_check CHECK (device_grant_digest IS NULL OR device_grant_digest ~ '^sha256:[0-9a-f]{64}$'),
+    terminal_result_json JSONB,
+    terminal_result_digest TEXT CONSTRAINT factory_attempt_launches_terminal_result_digest_check CHECK (terminal_result_digest IS NULL OR terminal_result_digest ~ '^sha256:[0-9a-f]{64}$'),
+    CONSTRAINT factory_attempt_launches_terminal_result_paired_check CHECK ((terminal_result_json IS NULL) = (terminal_result_digest IS NULL)),
     state TEXT NOT NULL CHECK (state IN ('prepared','launching','launched','terminal','uncertain')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -38,6 +41,16 @@ export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='factory_attempt_launches'::regclass AND conname='factory_attempt_launches_device_grant_digest_check') THEN
       ALTER TABLE factory_attempt_launches ADD CONSTRAINT factory_attempt_launches_device_grant_digest_check CHECK (device_grant_digest IS NULL OR device_grant_digest ~ '^sha256:[0-9a-f]{64}$');
+    END IF;
+  END $$`);
+  await database.execute(sql`ALTER TABLE factory_attempt_launches ADD COLUMN IF NOT EXISTS terminal_result_json JSONB`);
+  await database.execute(sql`ALTER TABLE factory_attempt_launches ADD COLUMN IF NOT EXISTS terminal_result_digest TEXT`);
+  await database.execute(sql`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='factory_attempt_launches'::regclass AND conname='factory_attempt_launches_terminal_result_digest_check') THEN
+      ALTER TABLE factory_attempt_launches ADD CONSTRAINT factory_attempt_launches_terminal_result_digest_check CHECK (terminal_result_digest IS NULL OR terminal_result_digest ~ '^sha256:[0-9a-f]{64}$');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='factory_attempt_launches'::regclass AND conname='factory_attempt_launches_terminal_result_paired_check') THEN
+      ALTER TABLE factory_attempt_launches ADD CONSTRAINT factory_attempt_launches_terminal_result_paired_check CHECK ((terminal_result_json IS NULL) = (terminal_result_digest IS NULL));
     END IF;
   END $$`);
   await database.execute(sql`ALTER TABLE factory_attempt_launches ADD COLUMN IF NOT EXISTS invocation_id TEXT`);
