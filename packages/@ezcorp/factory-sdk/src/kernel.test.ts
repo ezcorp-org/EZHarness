@@ -34,6 +34,15 @@ describe("factory kernel", () => {
     const settled = advanceKernel(graph, state, { kind: "usage-settled", id: "usage-1", atMs: 1, nodeId: "work", knownCostMicros: "12", unknownCostMicros: "3" });
     expect(settled.nextState.spentCostMicros).toBe("12");
     expect(settled.nextState.unknownCostMicros).toBe("3");
+    expect(advanceKernel(graph, settled.nextState, { kind: "usage-settled", id: "usage-1", atMs: 2, nodeId: "work", knownCostMicros: "99" }).nextState.spentCostMicros).toBe("12");
+  });
+
+  test("rejects malformed and negative recorded usage charges", () => {
+    const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
+    const state = createKernelState(graph, "usage-invalid", {}, 0);
+    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "negative", atMs: 1, nodeId: "work", knownCostMicros: "-1" })).toThrow("usage cost");
+    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "decimal", atMs: 1, nodeId: "work", knownCostMicros: "1.5" })).toThrow("usage cost");
+    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "unsafe", atMs: 1, nodeId: "work", knownCostMicros: "01" })).toThrow("usage cost");
   });
 
   test("uses stable command identities and independently advances a ready successor", () => {
