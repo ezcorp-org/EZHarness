@@ -28,6 +28,14 @@ describe("factory kernel", () => {
     expect(result.commands).toEqual([{ kind: "complete-run", id: "empty:run:complete-run:1", output: {} }]);
   });
 
+  test("records known and uncertain usage as persistent decimal ledger entries", () => {
+    const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
+    const state = createKernelState(graph, "usage", {}, 0);
+    const settled = advanceKernel(graph, state, { kind: "usage-settled", id: "usage-1", atMs: 1, nodeId: "work", knownCostMicros: "12", unknownCostMicros: "3" });
+    expect(settled.nextState.spentCostMicros).toBe("12");
+    expect(settled.nextState.unknownCostMicros).toBe("3");
+  });
+
   test("uses stable command identities and independently advances a ready successor", () => {
     const graph = compiled([
       { id: "first", kind: "task", runner },

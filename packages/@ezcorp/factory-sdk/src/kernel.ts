@@ -42,6 +42,8 @@ export function createKernelState(
     cancellationEpoch: 0,
     commandCounter: 0,
     eventSequence: 0,
+    spentCostMicros: "0",
+    unknownCostMicros: "0",
     nodes,
     scopes: { root: { id: "root", depth: 0, expandedNodeCount: factory.definition.graph.nodes.length, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: factory.definition.graph.nodes.map((node) => node.id), roots: factory.definition.graph.nodes.filter((node) => (node.dependsOn?.length ?? 0) === 0).map((node) => node.id) } },
     appliedEventIds: [],
@@ -95,6 +97,9 @@ export function advanceKernel(factory: CompiledFactory, state: KernelState, even
     case "attempt-stopped":
       next = applyStopped(factory, next, event, commands);
       break;
+    case "usage-settled":
+      next = applyUsage(factory, next, event, commands);
+      break;
     case "approval-decided":
       next = applyApproval(factory, next, event, commands);
       break;
@@ -106,6 +111,22 @@ export function advanceKernel(factory: CompiledFactory, state: KernelState, even
       break;
   }
   return finish(factory, next, commands);
+}
+
+function applyUsage(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "usage-settled" }>, commands: KernelCommand[]): KernelState {
+  const known = parseMicros(event.knownCostMicros);
+  const unknown = parseMicros(event.unknownCostMicros ?? "0");
+  if (known === undefined || unknown === undefined) throw new FactoryKernelError("usage cost must be a non-negative decimal integer");
+  let next = { ...state, spentCostMicros: (BigInt(state.spentCostMicros) + known).toString(), unknownCostMicros: (BigInt(state.unknownCostMicros) + unknown).toString() };
+  const loopId = loopAncestor(factory, event.nodeId);
+  const loop = loopId ? nodeFor(factory, loopId) : undefined;
+  const runtime = loopId ? next.nodes[loopId] : undefined;
+  if (!loopId || loop?.kind !== "loop" || !runtime?.loop) return next;
+  const updated = { ...runtime, loop: { ...runtime.loop, spentCostMicros: next.spentCostMicros, unknownCostMicros: next.unknownCostMicros } };
+  next = withNode(next, loopId, updated);
+  const limit = loop.budget?.maxCostMicros;
+  if (limit !== undefined && BigInt(next.spentCostMicros) + BigInt(next.unknownCostMicros) > BigInt(limit)) return beginStopping(next, "LOOP_BUDGET_EXHAUSTED", commands, false);
+  return next;
 }
 
 function applyAdmission(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "admission-result" }>, commands: KernelCommand[]): KernelState {
@@ -580,6 +601,7 @@ function progressLoop(factory: CompiledFactory, state: KernelState, nodeId: stri
   const until = evaluateExpression(parentNode.until, context);
   if (!until.ok || typeof until.value !== "boolean") return failNode(factory, state, parentNode, parentId, "LOOP_UNTIL_INVALID", "execution", commands);
   if (until.value) return activateReady(factory, withNode(state, parentId, { ...parent, status: "succeeded", output: result }), commands, successorsFor(factory, parentId));
+  if (parentNode.budget?.maxCostMicros !== undefined && BigInt(state.spentCostMicros) + BigInt(state.unknownCostMicros) >= BigInt(parentNode.budget.maxCostMicros)) return failNode(factory, state, parentNode, parentId, "LOOP_BUDGET_EXHAUSTED", "bound_exhausted", commands);
   const next = evaluateExpression(parentNode.nextInput, context);
   if (!next.ok || !validateValue(parentNode.carriedSchema, next.value).ok) return failNode(factory, state, parentNode, parentId, "LOOP_NEXT_INPUT_INVALID", "execution", commands);
   return startLoopIteration(factory, state, parentNode, parentId, parent, next.value, parent.loop.iteration + 1, commands);
@@ -595,6 +617,15 @@ function isCollectMapChild(factory: CompiledFactory, nodeId: string): boolean {
   const parentId = mapParent(nodeId);
   const parent = parentId ? nodeFor(factory, parentId) : undefined;
   return parent?.kind === "map" && parent.mode === "collect";
+}
+
+function loopAncestor(factory: CompiledFactory, nodeId: string): string | undefined {
+  const parentId = mapParent(nodeId);
+  return parentId && nodeFor(factory, parentId)?.kind === "loop" ? parentId : undefined;
+}
+
+function parseMicros(value: string): bigint | undefined {
+  return /^(?:0|[1-9][0-9]*)$/.test(value) ? BigInt(value) : undefined;
 }
 
 function nodeFor(factory: CompiledFactory, nodeId: string): FactoryNode | undefined {
