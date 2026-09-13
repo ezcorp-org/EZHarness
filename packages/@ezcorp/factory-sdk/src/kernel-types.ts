@@ -1,4 +1,19 @@
-import type { FactoryReference, JsonValue } from "./types.js";
+import type { CompiledPartition, FactoryBounds, FactoryGraph, FactoryReference, JsonValue, PortSchema } from "./types.js";
+
+/** Minimum immutable plan surface used by the deterministic execution kernel. */
+export interface KernelFactoryPlan {
+  readonly digest: string;
+  readonly definition: {
+    readonly inputPorts: Readonly<Record<string, PortSchema>>;
+    readonly outputPorts: Readonly<Record<string, PortSchema>>;
+    readonly bounds: FactoryBounds;
+    readonly graph: FactoryGraph;
+  };
+  readonly indexes: {
+    readonly successors: Readonly<Record<string, readonly string[]>>;
+  };
+  readonly partitions: readonly CompiledPartition[];
+}
 
 /** Runtime status for one expanded node instance. */
 export type KernelNodeStatus =
@@ -112,6 +127,15 @@ export interface KernelState {
   readonly appliedEventIds: readonly string[];
   readonly unresolvedUncertainNodeIds: readonly string[];
   readonly pendingRepair?: { readonly rootNodeId: string; readonly nodeIds: readonly string[]; readonly aggregateIds: readonly string[]; readonly reason: string };
+  readonly partition?: {
+    readonly id: string;
+    readonly completedEdges: Readonly<Record<string, string>>;
+    readonly externalOutputs: Readonly<Record<string, {
+      readonly output: JsonValue;
+      readonly candidateGeneration: number;
+      readonly terminalSequence: number;
+    }>>;
+  };
 }
 
 export interface KernelEventBase {
@@ -179,6 +203,16 @@ export type KernelEvent =
       readonly nodeId: string;
       readonly reason: string;
     })
+  | (KernelEventBase & {
+      readonly kind: "partition-node-completed";
+      readonly sourcePartitionId: string;
+      readonly targetPartitionId: string;
+      readonly sourceNodeId: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
+      readonly terminalSequence: number;
+      readonly output: JsonValue;
+    })
   | (KernelEventBase & { readonly kind: "cancel"; readonly reason: string });
 
 export type KernelCommand =
@@ -218,6 +252,17 @@ export type KernelCommand =
       readonly deadlineAtMs: number;
     }
   | {
+      readonly kind: "notify-partition";
+      readonly id: string;
+      readonly sourcePartitionId: string;
+      readonly targetPartitionId: string;
+      readonly sourceNodeId: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
+      readonly terminalSequence: number;
+      readonly output: JsonValue;
+    }
+  | {
       readonly kind: "request-acceptance";
       readonly id: string;
       readonly nodeId: string;
@@ -251,6 +296,7 @@ export type KernelCommand =
       readonly cancellationEpoch: number;
     }
   | { readonly kind: "complete-run"; readonly id: string; readonly output: JsonValue }
+  | { readonly kind: "complete-partition"; readonly id: string; readonly partitionId: string }
   | { readonly kind: "fail-run"; readonly id: string; readonly error: string }
   | { readonly kind: "cancel-run"; readonly id: string; readonly reason: string };
 

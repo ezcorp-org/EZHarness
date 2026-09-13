@@ -81,6 +81,8 @@ function eventsFor(
       return [{ kind: "timer-expired", id: eventId("timer"), atMs: command.deadlineAtMs, nodeId: command.nodeId, commandId: command.id }];
     case "cancel-node":
       return [{ kind: "attempt-stopped", id: eventId("stopped"), atMs: state.nowMs, nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt }];
+    case "notify-partition":
+    case "complete-partition":
     case "complete-run":
     case "fail-run":
     case "cancel-run":
