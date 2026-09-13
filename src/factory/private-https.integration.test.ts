@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { certificates, rawTls, type Certificates } from "../__tests__/helpers/factory-certificates";
-import { startFactoryPrivateHttps } from "./private-https";
+import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
+import { FACTORY_PRIVATE_MAX_ENVELOPE_BYTES, startFactoryPrivateHttps } from "./private-https";
 
 const directories: string[] = [];
 let certs: Certificates;
@@ -105,11 +106,31 @@ test("an extra request during accepted work closes the connection before any res
 });
 
 test("private transport limits reject unsafe configuration before opening a port", () => {
-  for (const maxResponseBytes of [0, 1.5, 1024 * 1024 + 1]) expect(() => startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, maxResponseBytes, async handle() { throw new Error("must not run"); } })).toThrow("Invalid private HTTPS limits");
-  for (const [maxBodyBytes, requestTimeoutMs] of [[0, 1], [1024 * 1024 + 1, 1], [1.5, 1], [1, 0], [1, 60_001], [1, 1.5]]) {
+  for (const maxResponseBytes of [0, 1.5, FACTORY_PRIVATE_MAX_ENVELOPE_BYTES + 1]) expect(() => startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, maxResponseBytes, async handle() { throw new Error("must not run"); } })).toThrow("Invalid private HTTPS limits");
+  for (const [maxBodyBytes, requestTimeoutMs] of [[0, 1], [FACTORY_PRIVATE_MAX_ENVELOPE_BYTES + 1, 1], [1.5, 1], [1, 0], [1, 60_001], [1, 1.5]]) {
     expect(() => startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, maxBodyBytes, requestTimeoutMs, async handle() { throw new Error("must not run"); } })).toThrow("Invalid private HTTPS limits");
   }
 });
+
+test("the exact envelope ceiling opens a port and a large body arrives whole", async () => {
+  const ceiling = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, maxBodyBytes: FACTORY_PRIVATE_MAX_ENVELOPE_BYTES, maxResponseBytes: FACTORY_PRIVATE_MAX_ENVELOPE_BYTES, async handle() { return { status: 200, body: Buffer.from("ok") }; } });
+  try { expect(ceiling.url).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/u); } finally { ceiling.stop(); }
+
+  const bodies: Buffer[] = [];
+  const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, maxBodyBytes: 4 * 1024 * 1024, maxResponseBytes: 4 * 1024 * 1024, async handle({ body, method, path }) { bodies.push(Buffer.from(body)); return { status: method === "PUT" && path === "/internal/factory/v1/large" ? 200 : 400, body, contentType: "application/octet-stream" }; } });
+  try {
+    const payload = Buffer.alloc(3 * 1024 * 1024);
+    for (let index = 0; index < payload.byteLength; index++) payload[index] = index % 251;
+    const received = await privateHttpsCall(`${server.url}/internal/factory/v1/large`, certs, { method: "PUT", body: payload, headers: { "content-type": "application/octet-stream" } });
+    expect(received.status).toBe(200);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.equals(payload)).toBe(true);
+    expect(received.body.equals(payload)).toBe(true);
+    const refused = await privateHttpsCall(`${server.url}/internal/factory/v1/large`, certs, { method: "PUT", body: Buffer.alloc(4 * 1024 * 1024 + 1), headers: { "content-type": "application/octet-stream" } });
+    expect(refused.status).toBe(413);
+    expect(bodies).toHaveLength(1);
+  } finally { server.stop(); }
+}, 30_000);
 
 test("a peer that keeps its write side open cannot retain a completed server connection", async () => {
   const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, requestTimeoutMs: 100, async handle() { return { status: 200, body: Buffer.from("complete") }; } });

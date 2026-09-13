@@ -9,8 +9,7 @@ import type { FactoryArtifactKind } from "./artifacts";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
-
-const MAX_ARTIFACT_BYTES = 16 * 1024 * 1024;
+import { assertFactoryArtifactReference, FACTORY_ARTIFACT_SHARED_MAX_BYTES, FactoryArtifactAccessError, isFactoryArtifactMediaType, unavailable } from "./artifact-materials";
 
 type ArtifactRecord = {
   readonly object_id: string;
@@ -81,19 +80,11 @@ export interface FactorySharedArtifact {
   readonly content: Uint8Array;
 }
 
-export class FactoryArtifactAccessError extends Error {
-  constructor(readonly code: string) {
-    super(code);
-    this.name = "FactoryArtifactAccessError";
-  }
-}
+export { FactoryArtifactAccessError, unavailable };
 
-function unavailable(): never { throw new FactoryArtifactAccessError("factory_artifact_unavailable"); }
-function validMediaType(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/u.test(value); }
 function reference(value: FactoryArtifactReference): FactoryArtifactReference {
-  if (!value || typeof value.artifactId !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.digest) || !Number.isSafeInteger(value.encodedBytes) || value.encodedBytes < 1 || value.encodedBytes > MAX_ARTIFACT_BYTES) throw new FactoryArtifactAccessError("factory_artifact_reference_invalid");
-  assertFactoryIdentity(value.artifactId);
-  return Object.freeze({ artifactId: value.artifactId, digest: value.digest, encodedBytes: value.encodedBytes });
+  try { return assertFactoryArtifactReference(value, FACTORY_ARTIFACT_SHARED_MAX_BYTES); }
+  catch { throw new FactoryArtifactAccessError("factory_artifact_reference_invalid"); }
 }
 function sealed(tenantId: string, input: Omit<FactoryArtifactReadGrant, "protectedDigest" | "revoked">): string {
   return `sha256:${digestObject({ tenantId, sourceProjectId: input.sourceProjectId, sourceRunId: input.sourceRunId, targetProjectId: input.targetProjectId, artifact: input.artifact, artifactKind: input.artifactKind, mediaType: input.mediaType, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision, storageVersion: input.storageVersion })}`;
@@ -101,7 +92,7 @@ function sealed(tenantId: string, input: Omit<FactoryArtifactReadGrant, "protect
 function asGrant(tenantId: string, row: GrantRecord): FactoryArtifactReadGrant {
   const artifact = reference({ artifactId: row.source_artifact_id, digest: row.artifact_digest, encodedBytes: Number(row.artifact_bytes) });
   const value: Omit<FactoryArtifactReadGrant, "protectedDigest" | "revoked"> = { sourceProjectId: row.source_project_id, sourceRunId: row.source_run_id, targetProjectId: row.target_project_id, artifact, artifactKind: row.artifact_kind, mediaType: row.media_type, issuerId: row.issuer_id, issuerGrantRevision: Number(row.issuer_grant_revision), storageVersion: row.storage_version };
-  if (!validMediaType(value.mediaType) || !value.artifactKind || value.artifactKind.length > 128 || !Number.isSafeInteger(value.issuerGrantRevision) || value.issuerGrantRevision < 1 || row.protected_digest !== sealed(tenantId, value)) unavailable();
+  if (!isFactoryArtifactMediaType(value.mediaType) || !value.artifactKind || value.artifactKind.length > 128 || !Number.isSafeInteger(value.issuerGrantRevision) || value.issuerGrantRevision < 1 || row.protected_digest !== sealed(tenantId, value)) unavailable();
   return { ...value, protectedDigest: row.protected_digest, revoked: row.revoked_at !== null };
 }
 
@@ -143,7 +134,7 @@ export class FactoryArtifactAccess {
     try {
       artifact = reference(artifactValue);
       assertFactoryIdentity(targetProjectId);
-      if (!validMediaType(mediaType)) unavailable();
+      if (!isFactoryArtifactMediaType(mediaType)) unavailable();
     } catch { unavailable(); }
     const found = rows<SharedGrantRecord>(await transaction.execute(sql`SELECT share.source_project_id, share.source_run_id, share.source_artifact_id, share.target_project_id,
       share.artifact_digest, share.artifact_bytes, share.artifact_kind, share.storage_version, share.media_type, share.issuer_id, share.issuer_grant_revision, share.protected_digest, share.revoked_at,
@@ -197,6 +188,6 @@ export class FactoryArtifactAccess {
 
   private input(input: FactoryArtifactReadGrantInput): void {
     assertFactoryIdentity(input.sourceProjectId, input.sourceRunId, input.targetProjectId);
-    if (input.sourceProjectId === input.targetProjectId || !validMediaType(input.mediaType)) throw new FactoryArtifactAccessError("factory_artifact_grant_invalid");
+    if (input.sourceProjectId === input.targetProjectId || !isFactoryArtifactMediaType(input.mediaType)) throw new FactoryArtifactAccessError("factory_artifact_grant_invalid");
   }
 }

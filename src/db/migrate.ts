@@ -3091,4 +3091,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryPackagePreparations(db);
   const { up: addFactoryProtectedCommandEffects } = await import("./migrations/add-factory-protected-command-effects");
   await addFactoryProtectedCommandEffects(db);
+  const { up: addFactoryArtifactMaterials } = await import("./migrations/add-factory-artifact-materials");
+  await addFactoryArtifactMaterials(db);
 }

@@ -576,3 +576,37 @@
 - Adding a wildcard threshold key without registering its producer in the canonical pipeline reds every local coverage run through the whole-tree dropout signal. A new runtime's coverage registration is not complete until the producer runs in `scripts/test-coverage.sh` as well as in CI; check which of the three modes should carry it, because a leg that needs a toolchain CI installs in one job must stay out of legs-only.
 
 - Derive a registration requirement from the artifacts on disk, not from a written list. Five PostgreSQL suites and thirty-four C13 reuse edges were missing precisely because both inventories were hand-kept; a check that re-derives them fails closed on the next omission instead of waiting for the next audit.
+
+## 2026-09-13 — Auxiliary artifact materials
+
+- An additive unique index is part of a table's contract. Before giving an existing table a new
+  row kind, check every unique index over it: a kind that fills none of the existing identity
+  slots collides with every other row of that kind and needs its own bounded dimension.
+- A repeat-safe migration must also be safe against later steps. A migration that drops and
+  re-adds a narrower CHECK on every boot rejects rows a later widening already admitted. Install
+  a narrowing constraint only when the database has not reached the later widening.
+- When one module must both own a shared validator and reuse another module's denial funnel, move
+  the funnel to the shared leaf and re-export it. A runtime import cycle is not the alternative to
+  a small move; it is a worse version of it.
+- Build the rejection list as thunks, not as an array of started promises. Awaiting them one at a
+  time afterwards leaves every rejection unhandled first, which in bun:test wedges the whole file
+  rather than failing one case.
+- Read a limit from its source text when a Node strip-only test cannot import the module that
+  defines it. A changed limit still fails the test, and no constant is duplicated.
+- Raising an envelope also raises the cost of how the body is buffered. Rejoining the whole
+  connection buffer on every packet is invisible at 1 MiB and quadratic at 8 MiB.
+- A per-test timeout inside a test's own signature is not raised by the runner's `--timeout`. When
+  such a test fails only under coverage on a loaded box, give it its own invocation rather than a
+  bigger budget.
+- Check a shared container's PID, not `podman ps`. Podman reported a dead PostgreSQL container as
+  up for ninety minutes while its PID was gone, `podman exec` failed, and its port refused.
+- Never reach for `git stash` to answer a question. A lint baseline is a `git show`/`git diff`
+  question; stashing touches a stack other sessions own.
+
+- An operation that is retried must return its first handle, not repeat its write. Composing
+  idempotent primitives does not make the composition idempotent: begin was idempotent and
+  writeChunk correctly refused a sealed material, so the replay failed until the composition
+  checked for the sealed record itself.
+- A generated JSON Schema with `additionalProperties: false` rejects a hand-built fixture that
+  carries one extra field. Copy the shape from the package's own valid fixture rather than
+  assembling it from the type.

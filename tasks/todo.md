@@ -2038,3 +2038,72 @@ RED. That is the designed fail-closed state.
 - [ ] Wave 2: W02, W03, W05, W06, W07, W08, W09.
 - [ ] Wave 3: W10–W12, W13, W14, W15–W17.
 - [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
+
+# W04 — Artifact materials and workspace checkpoint transport (2026-09-13)
+
+Worktree `.worktrees/w04-artifacts`, branch `wp/w04-artifact-materials`, from `integ/w00` at `c6ac529d2`.
+Owned surface: interface freeze section 7. Gates and receipts: `tasks/factory/w04-GATES.md`.
+
+## Wave-A type checkpoint — `8b486382a`
+
+- [x] `src/factory/artifact-materials.ts` with the frozen limits, types, service and reader
+      interfaces, and one `assertFactoryArtifactReference`.
+- [x] The three duplicate reference validators in `artifacts.ts`, `artifact-access.ts` and
+      `input-artifacts.ts` now call it (freeze correction 7).
+- [x] Migration 37 `add-factory-artifact-materials`, both tables, the `'material'` kind, the
+      `material_key` admission dimension, Drizzle models, and a restart-conformance case.
+- [x] `REQUIRED_SHARED_IMPORTS` row for `src/extensions/v4/blobs.ts`.
+
+## Service, gateway, journal — `1813bd4f8`, `b5e7e8794`
+
+- [x] `FactoryAttemptMaterials`: begin, writeChunk, seal, list, plus chunks and readChunk for
+      recovery, over the encrypted bound blob store.
+- [x] Two additive journal seams so the material path takes the same live fence as every effect.
+- [x] Gateway material routes with a chunk-sized private envelope and per-route byte bounds.
+- [x] `FactoryScopedMaterials`: read and readChunk, with every denial funneled to `unavailable()`.
+
+## Recovery and rejection
+
+- [x] Partial upload and workspace checkpoint recovery by identity, proven across a real restart.
+- [x] Rejects changed bytes, tampered chunk rows, tampered manifests, cross-scope reads, late
+      writes, stale epoch and reservation, duplicate names, missing versions, and unsafe paths.
+
+## Workspace checkpoints (C02.11)
+
+- [x] `FactoryWorkspaceCheckpoints` implements W01's widened seam structurally, storing each
+      checkpoint as one immutable material version under the reserved prefix.
+- [x] The returned cursor equals the operation index, which is what the SDK validator enforces.
+- [x] A replay returns the identical handle; changed bytes for the same operation are refused.
+
+## Proof — `4841bcfb4`
+
+- [x] Real PostgreSQL 16.14 and S3: 26 pass, 205 assertions, including two restart proofs.
+- [x] C08 64 KiB protobuf boundary stays green with the material-reference case added.
+- [x] Typecheck, lint, boundaries, gate integrity, new-file and patch coverage all exit 0.
+
+## Review
+
+The material service is one immutable record family beside the terminal candidate artifact, bound
+to tenant, project, run, attempt, operation, object name, and version. `begin` commits that row
+before any upload, so a crash mid-upload recovers by identity rather than by local state, and
+`chunks` tells a restarted writer exactly what landed. `seal` reads every chunk back, verifies
+each stored digest and the assembled digest, and only then stages one bounded chunk manifest as
+an ordinary artifact and issues its reference. There is no second manifest format and no
+unverified loader: seal and read share the same assemble-and-verify path.
+
+Three things were harder than the sketch suggested. A material fills none of the artifact
+admission index's identity slots, so it needed its own bounded dimension. The frozen `begin`
+signature receives no digest while the material row's digest column is NOT NULL, so an unsealed
+material carries a reserved value that seal replaces and a sealed row can never hold. Honouring
+both "the shared validator lives in the new leaf" and "material denials reuse `unavailable()`"
+required moving the denial funnel into that leaf and re-exporting it, because the alternative was
+a runtime import cycle.
+
+Two defects outside the sketch surfaced and were fixed. An earlier migration re-added its
+narrower artifact-kind check on every boot, so the second boot after a material row existed
+failed; the restart suite now reproduces that and proves the fix. The private transport rejoined
+its whole connection buffer on every packet, which is a quadratic copy at a chunk-sized envelope;
+it now joins the bounded header prefix and the body once.
+
+The shared proof PostgreSQL container died mid-package and was restored by its owner. The failing
+run is preserved in the receipts rather than deleted.
