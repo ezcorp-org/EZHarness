@@ -67,7 +67,7 @@ test("rebuilds the exact immutable v4 source into a fresh real Podman runner and
     const grants = new FactoryGrants(db, tenantId);
     await grants.set(admin, { projectId, principal: admin, action: "factory.trust", expectedRevision: 0, expiresAtMs: null });
     const repository = new DatabaseLifecycleRepository(db);
-    await repository.create({ installation: { id: release.installationId, ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: release.id, enabled: true }, workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: release }, approvals: {} });
+    await repository.create({ installation: { id: release.installationId, ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: release.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: release }, approvals: {} });
     const authority = new FactoryReleaseAuthorityStore(db, tenantId, grants, new NoRunLifecycle(), new FactoryExecutionJournal(db, async () => {}), new FactoryArtifacts(db, blobs, tenantId));
     await authority.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: reference, validatorTrustDigest: `sha256:${"b".repeat(64)}` }, "podman-trust");
     consumer = new PodmanRunner({ root: consumerRoot, ...await provision() });

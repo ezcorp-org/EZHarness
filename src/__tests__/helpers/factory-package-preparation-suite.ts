@@ -53,7 +53,7 @@ test("prepares an exact active v4 release outside the factory transaction and fe
   const artifactDigest = digestObject(artifacts);
   const repo = new DatabaseLifecycleRepository(database);
   const current = release(sourceDigest, artifactDigest);
-  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: current.id, enabled: true }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
+  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
   const journal = new FactoryExecutionJournal(database, async () => {});
   const authority = new FactoryReleaseAuthorityStore(database, tenantId, grants, new PackageLifecycle(), journal, new FactoryArtifacts(database, blobs, tenantId));
   await authority.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: reference, validatorTrustDigest: `sha256:${"b".repeat(64)}` }, "publish-trust");
@@ -109,7 +109,7 @@ test("rejects tampered binding metadata before a runner build", async () => {
   const sourceDigest = await blobs.put(new TextEncoder().encode(canonicalJson(source)));
   const current = release(sourceDigest, digestObject(artifacts));
   const repo = new DatabaseLifecycleRepository(database);
-  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: current.id, enabled: true }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
+  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
   const authority = new FactoryReleaseAuthorityStore(database, tenantId, grants, new PackageLifecycle(), new FactoryExecutionJournal(database, async () => {}), new FactoryArtifacts(database, blobs, tenantId));
   await authority.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: reference, validatorTrustDigest: `sha256:${"b".repeat(64)}` }, "publish-trust");
   let builds = 0;
