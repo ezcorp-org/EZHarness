@@ -1610,3 +1610,13 @@ Review: `FactoryComputeAdmissions` now records one canonical request beside the 
 - [ ] Run owned coverage, SDK build, all canonical typechecks, lint, and integrity checks.
 
 Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.
+
+## C07 durable child runs and delegated budgets — Terra
+
+- [x] Inspect C03/F03 and the current command, lifecycle, and same-run budget models.
+- [ ] Add an immutable parent-command to child-run binding with scoped foreign keys and migration parity.
+- [ ] Create the pinned child run, lifecycle, root outbox, and bounded delegated budget in the parent command authority transaction.
+- [ ] Settle child spending into the reserved parent sub-envelope only after all child holds resolve.
+- [ ] Prove retries, restart, concurrent exhaustion, cancellation, repair, deadline, wrong definitions, PGlite, PostgreSQL/S3, coverage, types, and lint.
+
+Plan review: the parent command ID remains the only child-start authority. A child owns a separate logical run and root envelope, while the parent reserves exactly that envelope through a same-run child sub-envelope. Settlement transfers only verified child spending and returns unused allowance; no child receives fresh parent limits.
