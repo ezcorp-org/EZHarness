@@ -360,3 +360,19 @@ test("artifact map pages preserve absolute map.item values across windows", () =
   step = advanceKernel(graph, step.nextState, page("window-3", terminal, []));
   expect(step.nextState.nodes.map?.output).toEqual({ value: ["a!", "b!", "c!"] });
 });
+
+test("durable artifact ports do not require an inline placeholder while inline ports remain strict", () => {
+  const graph = compiled([], {}, {
+    payload: { type: "object", properties: { required: { type: "string", const: "authoritative" } }, required: ["required"] },
+  });
+  const artifact = { artifactId: "durable-payload", digest, encodedBytes: 70_000 };
+  const state = createKernelState(graph, "durable-required", {}, 0, {
+    schemaVersion: "factory.lazy-input.v1",
+    parameters: { payload: { kind: "artifact", artifact } },
+  });
+  expect(state.durableInput).toMatchObject({ parameters: { payload: { kind: "artifact", artifact } } });
+  expect(() => createKernelState(graph, "bad-inline", {}, 0, {
+    schemaVersion: "factory.lazy-input.v1",
+    parameters: { payload: { kind: "inline", value: {} } },
+  })).toThrow(FactoryKernelError);
+});

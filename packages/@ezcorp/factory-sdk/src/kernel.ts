@@ -1,4 +1,4 @@
-import { validateValue } from "./validation.js";
+import { validateDurableInputPorts, validateValue } from "./validation.js";
 import { evaluateExpression } from "./expressions.js";
 import { canonicalizeJson, isUnsignedDecimal, validateIJson } from "./canonical.js";
 import type { FactoryDurableInput } from "./types.js";
@@ -64,7 +64,11 @@ function createInitialState(
   partitionId?: string,
   durableInput?: FactoryDurableInput,
 ): KernelState {
-  validateRecord(factory.definition.inputPorts, input, "run input");
+  if (durableInput === undefined) validateRecord(factory.definition.inputPorts, input, "run input");
+  else {
+    const result = validateDurableInputPorts(factory.definition.inputPorts, input, durableInput);
+    if (!result.ok) throw new FactoryKernelError(result.issues[0]?.message ?? "durable run input is invalid");
+  }
   const nodes: Record<string, KernelNodeState> = Object.create(null) as Record<string, KernelNodeState>;
   for (const nodeId of nodeIds) {
     if (!factory.definition.graph.nodes.some((node) => node.id === nodeId)) throw new FactoryKernelError(`compiled partition contains unknown node ${nodeId}`);
