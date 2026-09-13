@@ -1997,6 +1997,42 @@ Review (W00): the integration revision is clean and every imported change has a 
 - [ ] W04a independent archive writer (after W04).
 - [ ] Sonnet validation of each package before integration; coordinator combined-integration run on the merged result.
 
+## W18 wave 1 — coverage and CI framework (branch `wp/w18-ci-coverage`)
+
+Scope is the FRAMEWORK AND REGISTRATION half. The final seven-lane enforcement
+gate runs after W13-W17 and is not claimed. Gates and receipts:
+`tasks/factory/w18-GATES.md`, `/tmp/factory-platform-evidence/w18/`.
+
+- [x] Inventory the seven exact C11 lanes against `ci.yml` and `db-postgres.yml`; add the four missing lane skeletons as real jobs whose producers fail closed.
+- [x] Make the inventory executable: `scripts/check-factory-lanes.ts` enforces job, exact check name, producers with comments stripped, artifacts, `if-no-files-found: error`, `needs:` edges, runner labels, and no `continue-on-error`.
+- [x] Register the five PostgreSQL suites the W00 audit found in no producer, and derive the requirement from the suites on disk so the next one fails closed (discrepancy 12).
+- [x] Give both guarded runner labels a consuming job that cannot queue behind an absent runner (discrepancy 17).
+- [x] Wire strict Python lint, strict types, standard-library test discovery, and coverage.py LCOV from the repository pins, in one script CI and local runs share.
+- [x] Register Python source in the coverage gates with its own producer tag, so no Bun leg can stand in for it.
+- [x] Add the `schema:generate` drift check (freeze open question 32).
+- [x] Complete the C13 reuse inventory: 46 real edges, 12 declared, 34 un-gated. The inventory now re-derives itself.
+- [x] Prove the boundary checker rejects deliberate violations of real declarations.
+- [x] Prove the type-only LCOV correction end to end, and that an enum, a value export, and a class still fail without coverage.
+- [x] Register the `factory-services` browser lane in every canonical consumer, retaining existing lane ownership and legacy coverage.
+- [x] Refresh the read-only GitHub inspection and prepare, without applying, the runner labels, secret names, and branch-protection change.
+- [x] Reproduce the full feature-diff coverage gaps with the canonical pipeline and record them as backlog, not as exclusions.
+- [ ] Hosted enforcement, a deliberate lane failure blocking the candidate, and a green full feature diff. Deferred to the final gate after W13-W17.
+
+Review (W18 wave 1): every added producer runs locally and is named in a
+workflow file, and every deliberate violation is rejected. Three findings are
+recorded rather than worked around. The C13 inventory was 26% complete, so 34
+reuse relationships could have been dropped without any check noticing. A
+malformed generated schema crashes the Python runner instead of returning its
+rejection envelope, because `jsonschema.exceptions.SchemaError` is not a
+`ValueError`; that is W02's source and W18 did not add a test asserting the
+defect. The W00 recheck logs overstated the coverage gap because they came from
+focused producers: a canonical merge of the full host pool, all nine legs, and
+the new Python producer cuts 41 new-file and 75 patch violations to 21 and 17,
+and 11 of the remaining 21 are missing-producer rather than missing-coverage.
+All results here are LOCAL. No required check is registered, no runner exists,
+and no secret is provisioned, so the three labelled lanes are expected to be
+RED. That is the designed fail-closed state.
+
 ## Later waves
 
 - [ ] Wave 2: W02, W03, W05, W06, W07, W08, W09.
