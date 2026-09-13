@@ -25,7 +25,7 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
     } },
     journal: { before: async item => { events.push(`before:${item.operationId}`); }, after: async item => { events.push(`after:${item.operationId}`); }, checkpointWorkspace: async () => {} },
   };
-  const result = await runNativeFactoryRunner(request, {
+  const options = {
     execution: () => execution,
     conversation: () => ({ conversationId: "factory-conversation", userMessage: "make output" }),
     executor: { executeFactoryAttempt: async call => {
@@ -34,14 +34,17 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
       await stream.result();
       return { id: "native-run", agentName: "chat", status: "success", startedAt: 1, finishedAt: 2, inputTokens: 1, outputTokens: 1, logs: [], result: { success: true, output: { fullText: "done" } } };
     } },
-    journal: { operations: async () => [operation], journalCursor: async () => 5 },
+    journal: { operations: async () => [operation], journalCursor: async () => 5, usage: async () => operation.usage! },
     artifacts: { output: async () => ({ artifactId: "output", digest: pinned, encodedBytes: 4 }), checkpoint: async () => checkpoint },
-  });
+  };
+  const result = await runNativeFactoryRunner(request, options);
   expect(result).toMatchObject({ status: "completed", journalCursor: 5, operations: [operation], output: { artifactId: "output" }, workspaceCheckpoint: checkpoint });
   expect(events).toEqual(["before:run:node:0:5", "broker:run:node:0:5", "after:run:node:0:5"]);
+  await expect(runNativeFactoryRunner(request, { ...options, executor: { executeFactoryAttempt: async () => ({ id: "cancelled", agentName: "chat", status: "cancelled" as const, startedAt: 1, logs: [] }) } })).resolves.toMatchObject({ status: "cancelled", journalCursor: 5 });
+  await expect(runNativeFactoryRunner(request, { ...options, executor: { executeFactoryAttempt: async () => ({ id: "failed", agentName: "chat", status: "error" as const, startedAt: 1, logs: [], result: { success: false, output: null, error: "broker failed" } }) } })).resolves.toMatchObject({ status: "failed", error: { code: "FACTORY_AGENT_FAILED" } });
   await expect(runNativeFactoryRunner(request, {
     execution: () => ({ ...execution, attempt: { ...execution.attempt, runId: "forged" } }), conversation: () => ({ conversationId: "factory-conversation", userMessage: "make output" }),
-    executor: { executeFactoryAttempt: async () => { throw new Error("must not execute forged request"); } }, journal: { operations: async () => [operation], journalCursor: async () => 5 },
+    executor: { executeFactoryAttempt: async () => { throw new Error("must not execute forged request"); } }, journal: { operations: async () => [operation], journalCursor: async () => 5, usage: async () => operation.usage! },
     artifacts: { output: async () => ({ artifactId: "output", digest: pinned, encodedBytes: 4 }), checkpoint: async () => checkpoint },
   })).rejects.toThrow("does not match the signed runner request");
   await expect(runNativeFactoryRunner({}, {} as any)).rejects.toThrow("RUNNER_REQUEST_SCHEMA");

@@ -45,6 +45,15 @@ export interface FactoryJournalOperationStatus {
   result?: JsonValue;
 }
 
+/** Durable evidence used to reconstruct a C02 result without replaying effects. */
+export interface FactoryJournalOperationEvidence extends FactoryJournalOperation {
+  state: FactoryOperationState;
+  resultDigest?: string;
+  providerReceiptDigest?: string;
+  usage?: JsonValue;
+  workspaceCheckpoint?: JsonValue;
+}
+
 /** Runs under the journal row locks immediately before an effect can dispatch. */
 export type FactoryAttemptAuthorizer = (database: MigrationDb, authority: FactoryAttemptAuthority) => Promise<void>;
 
@@ -154,6 +163,26 @@ export class FactoryExecutionJournal {
       if (!stored) throw new Error("Factory operation is unavailable to this tenant.");
       if (stored.state === "completed") return { state: stored.state, result: this.storedJson(stored.result_json) as JsonValue };
       return { state: stored.state };
+    });
+  }
+
+  /** Ordered durable evidence for a completed runner result. This is read-only. */
+  async operations(authority: FactoryAttemptAuthority): Promise<FactoryJournalOperationEvidence[]> {
+    assertIdentity(authority);
+    return this.db.transaction(async (database) => {
+      await this.lockRunFence(database, authority);
+      const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id, operation_index, kind, state, request_digest, result_digest, provider_receipt_digest, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} ORDER BY operation_index ASC`));
+      return stored.map((operation) => ({
+        operationId: operation.operation_id,
+        operationIndex: Number(operation.operation_index),
+        kind: operation.kind,
+        state: operation.state,
+        requestDigest: operation.request_digest,
+        ...(operation.result_digest === null ? {} : { resultDigest: operation.result_digest }),
+        ...(operation.provider_receipt_digest === null ? {} : { providerReceiptDigest: operation.provider_receipt_digest }),
+        ...(operation.usage_json === null ? {} : { usage: this.storedJson(operation.usage_json) as JsonValue }),
+        ...(operation.workspace_checkpoint === null ? {} : { workspaceCheckpoint: this.storedJson(operation.workspace_checkpoint) as JsonValue }),
+      }));
     });
   }
 
