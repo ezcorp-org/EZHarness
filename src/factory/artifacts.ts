@@ -102,7 +102,10 @@ export class FactoryArtifacts {
   }
 
   async load(identityValue: FactoryArtifactScope, object: ImmutableObjectReference, kinds: readonly FactoryArtifactKind[], interpreterScoped = false): Promise<{ reference: ImmutableObjectReference; kind: FactoryArtifactKind; definitionDigest: string | null; sourceSequence: number | null; pageIndex: number | null; candidateNodeInstanceId: string | null; candidateGeneration: number | null; content: Uint8Array }> {
-    return this.database.transaction(transaction => this.loadInTransaction(transaction, identityValue, object, kinds, interpreterScoped));
+    const identitySnapshot = { ...identityValue };
+    const objectSnapshot = { ...object };
+    const kindsSnapshot = [...kinds];
+    return this.database.transaction(transaction => this.loadInTransaction(transaction, identitySnapshot, objectSnapshot, kindsSnapshot, interpreterScoped));
   }
 
   /** Reads and digest-verifies a reference while the caller holds its product locks. */

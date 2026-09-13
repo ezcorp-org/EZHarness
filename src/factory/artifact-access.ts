@@ -76,6 +76,8 @@ export interface FactoryArtifactReadGrant extends FactoryArtifactReadGrantInput 
 export interface FactorySharedArtifact {
   readonly artifact: FactoryArtifactReference;
   readonly mediaType: string;
+  /** Sealed grant metadata, checked against the locked artifact row before bytes load. */
+  readonly storageVersion: string;
   readonly content: Uint8Array;
 }
 
@@ -158,7 +160,7 @@ export class FactoryArtifactAccess {
     try {
       const loaded = await this.artifacts.loadInTransaction(transaction, { tenantId: this.tenantId, projectId: grant.sourceProjectId, logicalRunId: grant.sourceRunId, interpreterId: "root" }, { objectId: grant.artifact.artifactId, digest: grant.artifact.digest, encodedBytes: grant.artifact.encodedBytes }, [host.artifact_kind as FactoryArtifactKind]);
       if (loaded.reference.objectId !== grant.artifact.artifactId || loaded.reference.digest !== grant.artifact.digest || loaded.reference.encodedBytes !== grant.artifact.encodedBytes || loaded.kind !== host.artifact_kind || loaded.content.byteLength !== grant.artifact.encodedBytes || `sha256:${digestBytes(loaded.content)}` !== grant.artifact.digest) unavailable();
-      return { artifact: grant.artifact, mediaType: grant.mediaType, content: Uint8Array.from(loaded.content) };
+      return { artifact: grant.artifact, mediaType: grant.mediaType, storageVersion: host.host_storage_version, content: Uint8Array.from(loaded.content) };
     } catch { unavailable(); }
   }
 

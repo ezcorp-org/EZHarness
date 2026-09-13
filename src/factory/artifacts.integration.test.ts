@@ -17,7 +17,9 @@ import { persistTransition } from "../../packages/@ezcorp/factory-orchestrator/s
 import { FileBlobStore } from "../extensions/v4/blobs";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
+import type { TransactionalDb } from "../db/migrations/types";
 import { FactoryArtifacts } from "./artifacts";
+import type { FactoryArtifactKind } from "./artifacts";
 import { artifactJson } from "./artifacts";
 import { createFactoryArtifactActivities } from "./artifact-activities";
 import { FactoryDefinitionArtifacts } from "./definition-artifacts";
@@ -41,8 +43,33 @@ async function fixture() {
   const artifacts = new FactoryArtifacts(db, new FileBlobStore(root), "artifact-tenant");
   const definitions = new FactoryDefinitionArtifacts(artifacts);
   const transitions = new FactoryTransitionArtifacts(artifacts);
-  return { db, artifacts, definitions, transitions, identity: { tenantId: "artifact-tenant", projectId: "artifact-project", logicalRunId: "artifact-run", interpreterId: "interpreter-a" } };
+  return { db, root, artifacts, definitions, transitions, identity: { tenantId: "artifact-tenant", projectId: "artifact-project", logicalRunId: "artifact-run", interpreterId: "interpreter-a" } };
 }
+
+test("public artifact load snapshots mutable authority before its held database transaction", async () => {
+  const { db, root, artifacts, identity } = await fixture();
+  const content = new TextEncoder().encode("snapshot artifact read");
+  const stored = await artifacts.stage(identity, "execution_manifest", content, { definitionDigest: `sha256:${"a".repeat(64)}`, interpreterScoped: false });
+  let entered!: () => void;
+  const enteredTransaction = new Promise<void>(resolve => { entered = resolve; });
+  let release!: () => void;
+  const resume = new Promise<void>(resolve => { release = resolve; });
+  const heldDatabase: TransactionalDb = {
+    execute: query => db.execute(query),
+    transaction: work => db.transaction(async transaction => { entered(); await resume; return work(transaction); }),
+  };
+  const reader = new FactoryArtifacts(heldDatabase, new FileBlobStore(root), identity.tenantId);
+  const mutableIdentity = { ...identity };
+  const mutableReference = { ...stored };
+  const mutableKinds: FactoryArtifactKind[] = ["execution_manifest"];
+  const pending = reader.load(mutableIdentity, mutableReference, mutableKinds, false);
+  await enteredTransaction;
+  mutableIdentity.projectId = "foreign-project";
+  mutableReference.digest = `sha256:${"0".repeat(64)}`;
+  mutableKinds[0] = "transition_manifest";
+  release();
+  expect(await pending).toMatchObject({ reference: stored, kind: "execution_manifest", content });
+});
 
 test("host-issued definition references load exact canonical compiler bytes through the Node reader", async () => {
   const { artifacts, definitions, identity } = await fixture();
