@@ -5,6 +5,7 @@ import type { TransactionalDb } from "../db/migrations/types";
 import { factoryAttemptAuthority, FactoryAttemptQueueError, type ClaimedFactoryAttempt, type FactoryAttemptQueue } from "./attempt-queue";
 import { FACTORY_ATTEMPT_TOKEN_MAX_SECONDS, signFactoryAttemptToken } from "./attempt-token";
 import type { FactoryTaskCompletionReceipt, FactoryTaskCompletions } from "./task-completions";
+import type { FactoryTaskOutcomeReceipt, FactoryTaskOutcomes } from "./task-outcomes";
 import type { TrustedFactoryRunner, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 export interface FactoryAttemptDispatcherOptions {
@@ -18,6 +19,7 @@ export interface FactoryAttemptDispatcherOptions {
 export type FactoryAttemptDispatchResult =
   | { readonly kind: "idle" }
   | { readonly kind: "completed"; readonly attemptId: string; readonly recovered: boolean; readonly receipt: FactoryTaskCompletionReceipt }
+  | { readonly kind: "failed" | "cancelled" | "outcome_unknown"; readonly attemptId: string; readonly recovered: boolean; readonly receipt: FactoryTaskOutcomeReceipt }
   | { readonly kind: "failed" | "cancelled" | "outcome_unknown" | "retry"; readonly attemptId: string };
 
 type FactoryAttemptTokenSigner = typeof signFactoryAttemptToken;
@@ -43,6 +45,7 @@ export class FactoryAttemptDispatcher {
     private readonly queue: FactoryAttemptQueue,
     private readonly runner: TrustedFactoryRunner,
     private readonly completions: Pick<FactoryTaskCompletions, "completeInTransaction" | "readInTransaction">,
+    private readonly outcomes: Pick<FactoryTaskOutcomes, "recordInTransaction" | "readInTransaction">,
     private readonly readiness: FactoryDispatchReadiness,
     private readonly readinessDisposition: FactoryReadinessDisposition,
     options: FactoryAttemptDispatcherOptions,
@@ -61,10 +64,10 @@ export class FactoryAttemptDispatcher {
   }
 
   async dispatchOne(): Promise<FactoryAttemptDispatchResult> {
-    const historical = await this.recoverCompleted();
+    const historical = await this.recoverTerminal();
     if (historical) return historical;
     const claim = await this.queue.claim(this.leaseMs);
-    if (!claim) return await this.recoverCompleted() ?? { kind: "idle" };
+    if (!claim) return await this.recoverTerminal() ?? { kind: "idle" };
 
     try {
       const prior = await this.recoverClaim(claim);
@@ -101,9 +104,7 @@ export class FactoryAttemptDispatcher {
       return this.markUnknown(claim, "runner_outcome_unknown");
     }
     if (!validateFactoryRunnerResult(result).ok) return this.markUnknown(claim, "runner_result_invalid");
-    if (result.status === "failed") return this.markUnknown(claim, "runner_failed_unsettled", "failed");
-    if (result.status === "cancelled") return this.markUnknown(claim, "runner_cancelled_unsettled", "cancelled");
-    if (result.status === "uncertain") return this.markUnknown(claim, "runner_outcome_uncertain");
+    if (result.status !== "completed") return this.persistOutcome(claim, result);
 
     try {
       const receipt = await this.database.transaction(async transaction => {
@@ -119,30 +120,54 @@ export class FactoryAttemptDispatcher {
     }
   }
 
-  private async recoverClaim(claim: ClaimedFactoryAttempt): Promise<Extract<FactoryAttemptDispatchResult, { kind: "completed" }> | undefined> {
+  private async recoverClaim(claim: ClaimedFactoryAttempt): Promise<Exclude<FactoryAttemptDispatchResult, { kind: "idle" | "retry" } | { kind: "outcome_unknown"; receipt?: never }> | undefined> {
     return this.database.transaction(async transaction => {
       const receipt = await this.completions.readInTransaction(transaction, this.service, claim.delivery.reference.command);
-      if (!receipt) return undefined;
+      const outcome = receipt ? undefined : await this.outcomes.readInTransaction(transaction, this.service, claim.delivery.reference.command);
+      if (!receipt && !outcome) return undefined;
       const current = await this.queue.readInTransaction(transaction, claim.delivery.projectId, claim.delivery.id);
       if (!current) throw new FactoryAttemptQueueError("factory_attempt_not_found");
       if (current.state === "leased") await this.queue.settleInTransaction(transaction, claim, "delivered");
       else if (current.state === "outcome_unknown") await this.queue.recoverDeliveredInTransaction(transaction, current);
       else if (current.state !== "delivered") throw new FactoryAttemptQueueError("factory_attempt_recovery_invalid");
-      return { kind: "completed", attemptId: claim.delivery.id, recovered: true, receipt };
+      return receipt
+        ? { kind: "completed", attemptId: claim.delivery.id, recovered: true, receipt }
+        : { kind: outcome!.resultStatus === "uncertain" ? "outcome_unknown" : outcome!.resultStatus, attemptId: claim.delivery.id, recovered: true, receipt: outcome! };
     });
   }
 
-  private async recoverCompleted(): Promise<Extract<FactoryAttemptDispatchResult, { kind: "completed" }> | undefined> {
-    for (const delivery of await this.queue.completionCandidates()) {
+  private async recoverTerminal(): Promise<Exclude<FactoryAttemptDispatchResult, { kind: "idle" | "retry" } | { kind: "outcome_unknown"; receipt?: never }> | undefined> {
+    for (const delivery of [...await this.queue.completionCandidates(), ...await this.queue.outcomeCandidates()]) {
       const recovered = await this.database.transaction(async transaction => {
         const receipt = await this.completions.readInTransaction(transaction, this.service, delivery.reference.command);
-        if (!receipt) return undefined;
+        const outcome = receipt ? undefined : await this.outcomes.readInTransaction(transaction, this.service, delivery.reference.command);
+        if (!receipt && !outcome) return undefined;
         await this.queue.recoverDeliveredInTransaction(transaction, delivery);
-        return { kind: "completed" as const, attemptId: delivery.id, recovered: true, receipt };
+        return receipt
+          ? { kind: "completed" as const, attemptId: delivery.id, recovered: true, receipt }
+          : { kind: outcome!.resultStatus === "uncertain" ? "outcome_unknown" as const : outcome!.resultStatus, attemptId: delivery.id, recovered: true, receipt: outcome! };
       });
       if (recovered) return recovered;
     }
     return undefined;
+  }
+
+  private async persistOutcome(claim: ClaimedFactoryAttempt, result: Exclude<FactoryRunnerResult, { status: "completed" }>): Promise<FactoryAttemptDispatchResult> {
+    try {
+      const receipt = await this.database.transaction(async transaction => {
+        const recorded = await this.outcomes.recordInTransaction(transaction, this.service, claim.delivery.reference.command, result);
+        const current = await this.queue.readInTransaction(transaction, claim.delivery.projectId, claim.delivery.id);
+        if (current?.state === "leased" && current.leaseToken === claim.delivery.leaseToken) await this.queue.settleInTransaction(transaction, claim, "delivered");
+        else if (current?.state === "outcome_unknown") await this.queue.recoverDeliveredInTransaction(transaction, current);
+        else throw new FactoryAttemptQueueError("factory_attempt_recovery_invalid");
+        return recorded;
+      });
+      return { kind: result.status === "uncertain" ? "outcome_unknown" : result.status, attemptId: claim.delivery.id, recovered: false, receipt };
+    } catch {
+      const recovered = await this.recoverClaim(claim).catch(() => undefined);
+      if (recovered) return recovered;
+      return this.markUnknown(claim, "outcome_commit_unknown");
+    }
   }
 
   private async markUnknown(claim: ClaimedFactoryAttempt, failureCode: string, kind: "failed" | "cancelled" | "outcome_unknown" = "outcome_unknown"): Promise<FactoryAttemptDispatchResult> {

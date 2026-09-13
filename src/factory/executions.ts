@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { lockFactoryScope } from "./locks";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
-import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { validateFactoryRunnerResult, type FactoryMeasuredUsage, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import type { FactoryRunnerRequest, FactoryRunnerRequestIdentity } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -92,6 +92,15 @@ export interface FactoryExecutionTerminalFact {
   readonly executionEpoch: number;
   readonly cancellationEpoch: number;
   readonly terminalFactDigest: string;
+}
+
+/** Exact journal proof shared by successful and non-successful terminal adapters. */
+export interface FactoryExecutionResultEvidence {
+  readonly resultJson: string;
+  readonly terminalResultDigest: string;
+  readonly evidenceDigest: string;
+  readonly operations: readonly FactoryJournalOperationEvidence[];
+  readonly journalCursor: number;
 }
 
 /** Durable evidence used to reconstruct a C02 result without replaying effects. */
@@ -301,7 +310,7 @@ export class FactoryExecutionJournal {
     if (!validation.ok || result.status !== "completed" || result.usage.kind !== "measured") throw new Error(`Factory terminal result is invalid: ${validation.ok ? "not_completed" : validation.issues[0]?.code ?? "unknown"}.`);
     const attempt = await this.lockTerminalCompletion(database, authority);
     if (!attempt) throw new Error("Factory terminal attempt is unavailable.");
-    const { resultJson, terminalResultDigest, terminalFactDigest } = await this.verifyCompletedEvidence(database, authority, result, artifacts, attempt);
+    const { resultJson, terminalResultDigest, terminalFactDigest } = await this.verifyCompletedEvidence(database, authority, result, artifacts);
     await database.execute(sql`INSERT INTO factory_execution_terminals (tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_id,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest) VALUES (${authority.tenantId},${authority.projectId},${authority.runId},${authority.nodeInstanceId},${authority.candidateGeneration},${authority.attemptId},${authority.requestDigest},${result.resultDigest},${terminalResultDigest},${resultJson},${result.output.artifactId},${result.output.digest},${result.output.encodedBytes},${authority.executionEpoch},${authority.cancellationEpoch},${terminalFactDigest}) ON CONFLICT (attempt_id) DO NOTHING`);
     const saved = releaseRows<{ tenant_id: string; project_id: string; run_id: string; node_instance_id: string; candidate_generation: number | string; request_digest: string; result_digest: string; terminal_result_digest: string; result_json: string; output_artifact_id: string; output_digest: string; output_bytes: number | string; execution_epoch: number | string; cancellation_epoch: number | string; terminal_fact_digest: string }>(await database.execute(sql`SELECT tenant_id,project_id,run_id,node_instance_id,candidate_generation,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest FROM factory_execution_terminals WHERE attempt_id=${authority.attemptId} FOR SHARE`))[0];
     if (!saved || saved.terminal_fact_digest !== terminalFactDigest || saved.result_json !== resultJson || saved.output_digest !== result.output.digest) throw new Error("Factory terminal fact conflicts with durable evidence.");
@@ -322,7 +331,7 @@ export class FactoryExecutionJournal {
     const parsed: unknown = JSON.parse(row.result_json);
     if (!validateFactoryRunnerResult(parsed).ok || (parsed as FactoryRunnerResult).status !== "completed") throw new Error("Factory terminal receipt is corrupt.");
     const result = parsed as Extract<FactoryRunnerResult, { status: "completed" }>;
-    const checked = await this.verifyCompletedEvidence(database, authority, result, artifacts, attempt);
+    const checked = await this.verifyCompletedEvidence(database, authority, result, artifacts);
     const terminal: FactoryExecutionTerminalFact = { attemptId: authority.attemptId, tenantId: row.tenant_id, projectId: row.project_id, runId: row.run_id, nodeInstanceId: row.node_instance_id, candidateGeneration: Number(row.candidate_generation), candidateDigest: row.output_digest, requestDigest: row.request_digest, resultDigest: row.result_digest, terminalResultDigest: row.terminal_result_digest, outputArtifactId: row.output_artifact_id, outputBytes: Number(row.output_bytes), executionEpoch: Number(row.execution_epoch), cancellationEpoch: Number(row.cancellation_epoch), terminalFactDigest: row.terminal_fact_digest };
     const expected: FactoryExecutionTerminalFact = { attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, candidateDigest: result.output.digest, requestDigest: authority.requestDigest, resultDigest: result.resultDigest, terminalResultDigest: checked.terminalResultDigest, outputArtifactId: result.output.artifactId, outputBytes: result.output.encodedBytes, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch, terminalFactDigest: checked.terminalFactDigest };
     const createdAtMs = new Date(row.created_at).getTime();
@@ -330,21 +339,38 @@ export class FactoryExecutionJournal {
     return { terminal, result, createdAtMs };
   }
 
-  private async verifyCompletedEvidence(database: MigrationDb, authority: FactoryAttemptAuthority, result: Extract<FactoryRunnerResult, { status: "completed" }>, artifacts: FactoryArtifacts, attempt: { request_hash: string; request_json: unknown }) {
-    const requestIdentity = this.storedJson(attempt.request_json) as { runner?: unknown };
-    if (digestObject(requestIdentity) !== attempt.request_hash || attempt.request_hash !== authority.requestDigest || !requestIdentity.runner) throw new Error("Factory terminal request identity is corrupt.");
-    const evidence = await this.operationEvidenceInTransaction(database, authority.attemptId);
-    if (evidence.journalCursor !== result.journalCursor || canonicalJson(evidence.operations) !== canonicalJson(result.operations) || evidence.operations.some(operation => operation.state === "prepared" || operation.state === "dispatched" || operation.state === "uncertain" || operation.usage === undefined || (operation.usage as { kind?: string }).kind !== "measured")) throw new Error("Factory terminal result does not match settled journal evidence.");
-    const measured = evidence.operations.map(operation => operation.usage as { inputTokens: number; outputTokens: number; computeMs: number; costMicros: string });
-    const aggregate = { kind: "measured", inputTokens: measured.reduce((sum, usage) => sum + usage.inputTokens, 0), outputTokens: measured.reduce((sum, usage) => sum + usage.outputTokens, 0), computeMs: measured.reduce((sum, usage) => sum + usage.computeMs, 0), costMicros: measured.reduce((sum, usage) => sum + BigInt(usage.costMicros), 0n).toString() };
-    if (canonicalJson(aggregate) !== canonicalJson(result.usage) || result.output.digest !== `sha256:${result.resultDigest}`) throw new Error("Factory terminal result does not match measured usage or output digest.");
+  private async verifyCompletedEvidence(database: MigrationDb, authority: FactoryAttemptAuthority, result: Extract<FactoryRunnerResult, { status: "completed" }>, artifacts: FactoryArtifacts) {
+    const evidence = await this.verifyRunnerResultInTransaction(database, authority, result);
+    if (evidence.operations.some(operation => operation.state === "prepared" || operation.state === "dispatched" || operation.state === "uncertain" || operation.usage === undefined || (operation.usage as { kind?: string }).kind !== "measured") || result.output.digest !== `sha256:${result.resultDigest}`) throw new Error("Factory terminal result does not match measured usage or output digest.");
     const output = await artifacts.loadInTransaction(database, { tenantId: authority.tenantId, projectId: authority.projectId, logicalRunId: authority.runId }, { objectId: result.output.artifactId, digest: result.output.digest, encodedBytes: result.output.encodedBytes }, ["candidate_output"]);
     if (output.reference.digest !== result.output.digest || output.reference.encodedBytes !== result.output.encodedBytes || output.candidateNodeInstanceId !== authority.nodeInstanceId || output.candidateGeneration !== authority.candidateGeneration) throw new Error("Factory terminal output is unavailable.");
     artifactJson.parse(output.content);
-    const resultJson = canonicalJson(result);
-    const terminalResultDigest = `sha256:${digestObject(result)}`;
+    const { resultJson, terminalResultDigest } = evidence;
     const terminalFactDigest = `sha256:${digestObject({ attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, requestDigest: authority.requestDigest, resultDigest: result.resultDigest, terminalResultDigest, output: result.output, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch })}`;
     return { resultJson, terminalResultDigest, terminalFactDigest };
+  }
+
+  /** Verify a canonical runner result against the immutable request and operation journal. */
+  async verifyRunnerResultInTransaction(database: MigrationDb, value: FactoryAttemptAuthority, valueResult: FactoryRunnerResult): Promise<FactoryExecutionResultEvidence> {
+    const authority = snapshotAuthority(value);
+    const result = JSON.parse(canonicalJson(valueResult)) as FactoryRunnerResult;
+    const validation = validateFactoryRunnerResult(result);
+    if (!validation.ok) throw new Error(`Factory terminal result is invalid: ${validation.issues[0]?.code ?? "unknown"}.`);
+    const attempt = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND deadline_at=${authority.deadlineAt} FOR SHARE`))[0];
+    if (!attempt) throw new Error("Factory terminal receipt is unavailable.");
+    durableRunnerRequest(this.storedJson(attempt.request_json), attempt.request_hash);
+    const evidence = await this.operationEvidenceInTransaction(database, authority.attemptId);
+    if (evidence.journalCursor !== result.journalCursor || canonicalJson(evidence.operations) !== canonicalJson(result.operations) || evidence.operations.some(operation => operation.state === "prepared" || operation.state === "dispatched")) throw new Error("Factory terminal result does not match settled journal evidence.");
+    if (result.usage?.kind === "measured") {
+      const measured = result.operations.map(operation => operation.usage).filter((usage): usage is FactoryMeasuredUsage => usage?.kind === "measured");
+      if (measured.length !== result.operations.length) throw new Error("Factory terminal result does not match measured usage or output digest.");
+      const aggregate = { kind: "measured", inputTokens: measured.reduce((sum, usage) => sum + usage.inputTokens, 0), outputTokens: measured.reduce((sum, usage) => sum + usage.outputTokens, 0), computeMs: measured.reduce((sum, usage) => sum + usage.computeMs, 0), costMicros: measured.reduce((sum, usage) => sum + BigInt(usage.costMicros), 0n).toString() };
+      if (canonicalJson(aggregate) !== canonicalJson(result.usage)) throw new Error("Factory terminal result does not match measured usage or output digest.");
+    }
+    const resultJson = canonicalJson(result);
+    const terminalResultDigest = `sha256:${digestObject(result)}`;
+    const evidenceDigest = `sha256:${digestObject({ authority: { ...authority, deadlineAt: authority.deadlineAt.getTime() }, requestDigest: authority.requestDigest, terminalResultDigest, journalCursor: evidence.journalCursor, operations: evidence.operations })}`;
+    return Object.freeze({ resultJson, terminalResultDigest, evidenceDigest, operations: Object.freeze(evidence.operations), journalCursor: evidence.journalCursor });
   }
 
   /** Read operation facts and their committed cursor under the same attempt lock. */

@@ -3083,6 +3083,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryReleaseAuthority(db);
   const { up: addFactoryTaskCompletions } = await import("./migrations/add-factory-task-completions");
   await addFactoryTaskCompletions(db);
+  const { up: addFactoryTaskOutcomes } = await import("./migrations/add-factory-task-outcomes");
+  await addFactoryTaskOutcomes(db);
   const { up: addFactoryValidatorMaterials } = await import("./migrations/add-factory-validator-materials");
   await addFactoryValidatorMaterials(db);
   const { up: addFactoryPackagePreparations } = await import("./migrations/add-factory-package-preparations");

@@ -186,6 +186,8 @@
   "src/factory/private-commands.ts": 100,
   "src/factory/task-completions.ts": 100,
   "src/db/migrations/add-factory-task-completions.ts": 100,
+  "src/factory/task-outcomes.ts": 100,
+  "src/db/migrations/add-factory-task-outcomes.ts": 100,
   "src/factory/validator-materials.ts": 100,
   "src/db/migrations/add-factory-validator-materials.ts": 100,
   "src/factory/compute-admissions.ts": 100,

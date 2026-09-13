@@ -136,6 +136,7 @@ export class FactoryTaskExecutionAdmission {
       const resolution = snapshot(await this.runnerPolicy.resolveInTransaction(transaction, { reference, command: context.command, context, initiator: context.initiator, compute }));
       const stored = await this.attemptQueue.readStoredInTransaction(transaction, reference.projectId, context.command.id);
       if (stored) {
+        if (stored.delivery.reference.reservationId !== reservationId) throw new FactoryTaskExecutionAdmissionError("factory_task_execution_conflict");
         const expected = durableRequest(context, compute, resolution, stored.request.authority.nextOperationIndex, timestamp);
         if (expected.digest !== stored.delivery.reference.requestDigest || !sameRequest(expected.request, stored.request)) throw new FactoryTaskExecutionAdmissionError("factory_task_execution_conflict");
         return Object.freeze({ reservationId, delivery: stored.delivery, request: stored.request });
@@ -145,7 +146,7 @@ export class FactoryTaskExecutionAdmission {
         nodeInstanceId: context.command.nodeId, candidateGeneration: context.command.candidateGeneration, executionEpoch: context.fence.executionEpoch,
       });
       const admitted = durableRequest(context, compute, resolution, nextOperationIndex, timestamp);
-      const delivery = await this.attemptQueue.enqueueDurableInTransaction(transaction, authorityInput(context, admitted.request, admitted.digest), reference);
+      const delivery = await this.attemptQueue.enqueueDurableInTransaction(transaction, authorityInput(context, admitted.request, admitted.digest), reference, reservationId);
       return Object.freeze({ reservationId, delivery, request: admitted.request });
     });
   }

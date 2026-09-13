@@ -26,6 +26,8 @@ export interface FactoryAttemptReference {
   readonly cancellationEpoch: number;
   readonly requestDigest: string;
   readonly deadlineAtMs: number;
+  /** Exact product compute reservation. It is authority, not a runner credential. */
+  readonly reservationId: string;
   /** Exact product command that admitted this attempt. */
   readonly command: TrustedFactoryCommandReference;
 }
@@ -90,13 +92,13 @@ function commandReference(value: TrustedFactoryCommandReference, authority: Fact
   return Object.freeze({ tenantId: value.tenantId, projectId: value.projectId, logicalRunId: value.logicalRunId, interpreterId: value.interpreterId, commandId: value.commandId });
 }
 
-function referenceFor(authority: FactoryAttemptAuthority, command: TrustedFactoryCommandReference): FactoryAttemptReference {
-  identity(authority.attemptId, authority.tenantId, authority.projectId, authority.runId, authority.nodeInstanceId);
+function referenceFor(authority: FactoryAttemptAuthority, command: TrustedFactoryCommandReference, reservationId: string): FactoryAttemptReference {
+  identity(authority.attemptId, authority.tenantId, authority.projectId, authority.runId, authority.nodeInstanceId, reservationId);
   for (const value of [authority.candidateGeneration, authority.attemptNumber, authority.grantRevision, authority.reservationGeneration, authority.executionEpoch, authority.cancellationEpoch]) counter(value);
   if (!/^[a-f0-9]{64}$/.test(authority.requestDigest) || !(authority.deadlineAt instanceof Date)) throw new FactoryAttemptQueueError("factory_attempt_reference_invalid");
   const deadlineAtMs = authority.deadlineAt.getTime();
   counter(deadlineAtMs, true);
-  return Object.freeze({ attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptNumber: authority.attemptNumber, grantRevision: authority.grantRevision, reservationGeneration: authority.reservationGeneration, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch, requestDigest: authority.requestDigest, deadlineAtMs, command: commandReference(command, authority) });
+  return Object.freeze({ attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptNumber: authority.attemptNumber, grantRevision: authority.grantRevision, reservationGeneration: authority.reservationGeneration, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch, requestDigest: authority.requestDigest, deadlineAtMs, reservationId, command: commandReference(command, authority) });
 }
 
 export function factoryAttemptAuthority(reference: FactoryAttemptReference): FactoryAttemptAuthority {
@@ -130,7 +132,7 @@ function safeInteger(value: number | string, minimum: number): number {
 function decode(row: AttemptRow): FactoryAttemptDelivery {
   try {
     const rawReference = storedJson(row.reference_json) as FactoryAttemptReference;
-    const reference = referenceFor({ ...rawReference, deadlineAt: new Date(rawReference.deadlineAtMs) }, rawReference.command);
+    const reference = referenceFor({ ...rawReference, deadlineAt: new Date(rawReference.deadlineAtMs) }, rawReference.command, rawReference.reservationId);
     identity(row.tenant_id, row.project_id, row.run_id, row.attempt_id, row.deduplication_id);
     const attempts = safeInteger(row.attempts, 0);
     const maxAttempts = safeInteger(row.max_attempts, 1);
@@ -214,21 +216,21 @@ export class FactoryAttemptQueue {
     identity(tenantId);
   }
 
-  async enqueue(input: FactoryAttemptAdmission, command: TrustedFactoryCommandReference): Promise<FactoryAttemptDelivery> {
+  async enqueue(input: FactoryAttemptAdmission, command: TrustedFactoryCommandReference, reservationId: string): Promise<FactoryAttemptDelivery> {
     const snapshot = snapshotAdmission(input);
     const binding = commandReference(command, snapshot);
-    return this.database.transaction(transaction => this.enqueueSnapshotInTransaction(transaction, snapshot, binding, this.now()));
+    return this.database.transaction(transaction => this.enqueueSnapshotInTransaction(transaction, snapshot, binding, reservationId, this.now()));
   }
 
-  async enqueueInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission, command: TrustedFactoryCommandReference): Promise<FactoryAttemptDelivery> {
+  async enqueueInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission, command: TrustedFactoryCommandReference, reservationId: string): Promise<FactoryAttemptDelivery> {
     const snapshot = snapshotAdmission(input);
-    return this.enqueueSnapshotInTransaction(transaction, snapshot, commandReference(command, snapshot), this.now(), false);
+    return this.enqueueSnapshotInTransaction(transaction, snapshot, commandReference(command, snapshot), reservationId, this.now(), false);
   }
 
   /** Enqueue an identity that never contained an ephemeral bearer token. */
-  async enqueueDurableInTransaction(transaction: MigrationDb, input: FactoryDurableAttemptAdmission, command: TrustedFactoryCommandReference): Promise<FactoryAttemptDelivery> {
+  async enqueueDurableInTransaction(transaction: MigrationDb, input: FactoryDurableAttemptAdmission, command: TrustedFactoryCommandReference, reservationId: string): Promise<FactoryAttemptDelivery> {
     const snapshot = snapshotAdmission(input);
-    return this.enqueueSnapshotInTransaction(transaction, snapshot, commandReference(command, snapshot), this.now(), true);
+    return this.enqueueSnapshotInTransaction(transaction, snapshot, commandReference(command, snapshot), reservationId, this.now(), true);
   }
 
   async claim(leaseMs = 60_000): Promise<ClaimedFactoryAttempt | null> {
@@ -296,6 +298,16 @@ export class FactoryAttemptQueue {
     return Object.freeze(candidates.map(decode));
   }
 
+  /** Bounded non-success outcomes whose queue acknowledgement may have been lost. */
+  async outcomeCandidates(limit = CLAIM_SCAN_LIMIT): Promise<readonly FactoryAttemptDelivery[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new FactoryAttemptQueueError("factory_attempt_scan_invalid");
+    const candidates = rows<AttemptRow>(await this.database.execute(sql`SELECT queue.* FROM factory_attempt_queue queue JOIN factory_task_outcomes outcome
+      ON outcome.attempt_id=queue.attempt_id AND outcome.tenant_id=queue.tenant_id AND outcome.project_id=queue.project_id AND outcome.run_id=queue.run_id
+      WHERE queue.tenant_id=${this.tenantId} AND queue.state IN ('queued','leased','outcome_unknown')
+      ORDER BY queue.updated_at,queue.project_id,queue.attempt_id LIMIT ${limit}`));
+    return Object.freeze(candidates.map(decode));
+  }
+
   async read(projectId: string, attemptId: string): Promise<FactoryAttemptDelivery | null> {
     return this.readInTransaction(this.database, projectId, attemptId);
   }
@@ -315,9 +327,19 @@ export class FactoryAttemptQueue {
     return Object.freeze({ delivery, request });
   }
 
-  private async enqueueSnapshotInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission | FactoryDurableAttemptAdmission, command: TrustedFactoryCommandReference, now: number, durable = false): Promise<FactoryAttemptDelivery> {
+  /** Peek identity, lock its run/execution authority, then lock and recheck the queue row. */
+  async readAuthorizedStoredInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<StoredFactoryAttempt | null> {
+    const candidate = await this.readInTransaction(transaction, projectId, attemptId);
+    if (!candidate) return null;
+    const request = await this.journal.requestInTransaction(transaction, factoryAttemptAuthority(candidate.reference));
+    const delivery = await new FactoryAttemptStore(transaction, this.tenantId, projectId).findById(scope(this.tenantId, projectId), attemptId);
+    if (!delivery || delivery.inputHash !== candidate.inputHash) throw new FactoryAttemptQueueError("factory_attempt_corrupt");
+    return Object.freeze({ delivery, request });
+  }
+
+  private async enqueueSnapshotInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission | FactoryDurableAttemptAdmission, command: TrustedFactoryCommandReference, reservationId: string, now: number, durable = false): Promise<FactoryAttemptDelivery> {
     if (input.tenantId !== this.tenantId) throw new FactoryAttemptQueueError("factory_attempt_scope_mismatch");
-    const reference = referenceFor(input, command);
+    const reference = referenceFor(input, command, reservationId);
     const admitted = durable
       ? await this.journal.admitDurableInTransaction(transaction, input as FactoryDurableAttemptAdmission)
       : await this.journal.admitInTransaction(transaction, input as FactoryAttemptAdmission);
