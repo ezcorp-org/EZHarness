@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { compileFactory } from "./compiler";
-import { advanceKernel, assertKernelContinuationState, createKernelState } from "./kernel";
+import { advanceKernel, assertKernelContinuationState, createKernelState, currentEffectCommandMatches } from "./kernel";
 import { referenceCatalogV1, referenceCodeV1 } from "./references";
 import type { CompiledFactory, FactoryDefinition, FactoryReference, KernelCommand, KernelState } from "./index";
 
@@ -110,4 +110,28 @@ test("replan rejects another factory and ordinary repair keeps the current child
   const missing = advanceKernel(factory, current.state, { kind: "replan", id: "missing", atMs: 1, nodeId: "missing", reason: "missing", replacement: original });
   expect(missing.nextState.pendingRepair).toBeUndefined();
   expect(missing.commands).toEqual([]);
+});
+
+test("protected effect comparison rejects state that can no longer resolve its sealed input", () => {
+  const definition = structuredClone(referenceCodeV1);
+  definition.inputPorts = { candidate: stringPort, evidence: stringPort };
+  definition.outputPorts = {};
+  definition.graph = {
+    nodes: [{
+      id: "accept",
+      kind: "acceptance",
+      contract: definition.acceptance.id,
+      candidate: { kind: "ref", root: "input", name: "candidate" },
+      evidence: { kind: "ref", root: "input", name: "evidence" },
+      outputPorts: { acceptedCandidate: stringPort },
+    }],
+    outputs: {},
+  };
+  const factory = compiled(definition);
+  const started = advanceKernel(factory, createKernelState(factory, "protected-input-corrupt", { candidate: "candidate", evidence: "evidence" }, 0), { kind: "start", id: "start", atMs: 0 });
+  const command = started.commands.find(value => value.kind === "request-acceptance");
+  if (command?.kind !== "request-acceptance") throw new Error("acceptance command is missing");
+
+  expect(currentEffectCommandMatches(factory, started.nextState, command)).toBe(true);
+  expect(currentEffectCommandMatches(factory, { ...started.nextState, input: {} }, command)).toBe(false);
 });

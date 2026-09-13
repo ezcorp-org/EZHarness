@@ -523,3 +523,8 @@
 
 - Before extending a shared authority module, compare it with the current integration head. Reuse its stored command entry, source sequence, command digest, and ancestor validation. Do not reconstruct an origin query that the integrated module already supplies.
 - A partition command must bind the requested interpreter ID to its declared source partition, in addition to validating the loaded state partition and compiled edge.
+
+## Repository test commands
+
+- Read the root package scripts before invoking a focused web test. This repository has no `test:web` script; run `test:component` from `web` and pass paths relative to that working directory.
+- When light checks run in parallel, wait for every producer to close before applying even a small lint fix. Rerun every check whose source snapshot changed.

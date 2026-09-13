@@ -1,4 +1,4 @@
-import { validateDurableInputPorts, validateValue, type CompiledFactory, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
+import { validateDurableInputPorts, validateValue, type CompiledFactory, type FactoryRunStartBody, type JsonValue, type PortSchema } from "@ezcorp/factory-sdk";
 import type { MigrationDb } from "../db/migrations/types";
 import type { FactoryDefinitionKey } from "./definitions";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
@@ -17,10 +17,19 @@ export class FactoryRunInputs {
     const projectId = key.projectId;
     const ports = structuredClone(compiled.definition.inputPorts);
     const parameters = JSON.parse(encodeFactoryPayload(input)) as FactoryRunStartBody["parameters"];
-    const inline: Record<string, JsonValue> = Object.create(null);
-    for (const [name, value] of Object.entries(parameters)) if (value.kind === "inline") inline[name] = value.value;
-    if (!validateDurableInputPorts(ports, inline, { schemaVersion: "factory.lazy-input.v1", parameters }).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
     await this.grants.authorizeInTransaction(transaction, principal, projectId, "factory.run");
+    const resolved = await this.resolveNodeInTransaction(transaction, projectId, parameters, ports);
+    const inline = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value.kind === "inline").map(([name]) => [name, resolved[name]!])) as Record<string, JsonValue>;
+    return { kind: "factory.run-resolved-parameters", input: inline };
+  };
+
+  /** Resolves every exact node input for a sealed repair after the caller authorizes the run. */
+  async resolveNodeInTransaction(transaction: MigrationDb, projectId: string, input: FactoryRunStartBody["parameters"], portsValue: Readonly<Record<string, PortSchema>>): Promise<Readonly<Record<string, JsonValue>>> {
+    const ports = structuredClone(portsValue);
+    const parameters = JSON.parse(encodeFactoryPayload(input)) as FactoryRunStartBody["parameters"];
+    const values: Record<string, JsonValue> = Object.create(null);
+    for (const [name, value] of Object.entries(parameters)) if (value.kind === "inline") values[name] = value.value;
+    if (!validateDurableInputPorts(ports, values, { schemaVersion: "factory.lazy-input.v1", parameters }).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
     for (const [name, value] of Object.entries(parameters)) {
       if (value.kind !== "artifact") continue;
       const loaded = await this.artifacts.loadInTransaction(transaction, projectId, value.artifact).catch(error => {
@@ -28,7 +37,8 @@ export class FactoryRunInputs {
         throw error;
       });
       if (!validateValue(ports[name]!, loaded.value).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
+      values[name] = loaded.value;
     }
-    return { kind: "factory.run-resolved-parameters", input: inline };
-  };
+    return values;
+  }
 }
