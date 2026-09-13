@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { digestBytes, S3BlobStore } from "../extensions/v4/blobs";
 import type { BlobStore } from "../extensions/v4/types";
-import type { TransactionalDb } from "../db/migrations/types";
+import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryIdentity, ImmutableObjectReference } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
@@ -31,6 +31,12 @@ export class FactoryArtifacts {
   constructor(readonly database: TransactionalDb, private readonly blobs: BlobStore, private readonly tenantId: string) { assertFactoryIdentity(tenantId); }
 
   async stage(identityValue: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId" | "interpreterId">, kind: FactoryArtifactKind, content: Uint8Array, options: { definitionDigest?: string; sourceSequence?: number; pageIndex?: number; interpreterScoped?: boolean } = {}): Promise<ImmutableObjectReference> {
+    const snapshot = { identity: { ...identityValue }, kind, content: Uint8Array.from(content), options: { ...options } };
+    return this.database.transaction(transaction => this.stageInTransaction(transaction, snapshot.identity, snapshot.kind, snapshot.content, snapshot.options));
+  }
+
+  /** Stages a reference within the caller's durable product transaction. */
+  async stageInTransaction(transaction: MigrationDb, identityValue: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId" | "interpreterId">, kind: FactoryArtifactKind, content: Uint8Array, options: { definitionDigest?: string; sourceSequence?: number; pageIndex?: number; interpreterScoped?: boolean } = {}): Promise<ImmutableObjectReference> {
     identityValue = { ...identityValue };
     content = Uint8Array.from(content);
     options = { ...options };
@@ -44,23 +50,21 @@ export class FactoryArtifacts {
     const rawDigest = digestBytes(content);
     const artifactDigest = digest(rawDigest);
     if (options.definitionDigest !== undefined && !/^sha256:[a-f0-9]{64}$/.test(options.definitionDigest)) throw new FactoryArtifactError("factory_artifact_digest_invalid");
-    return this.database.transaction(async transaction => {
-      const existing = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} AND interpreter_id IS NOT DISTINCT FROM ${interpreterId} AND kind=${kind} AND source_sequence IS NOT DISTINCT FROM ${sequence} AND page_index IS NOT DISTINCT FROM ${index} FOR SHARE`))[0];
-      if (existing) {
-        if (existing.digest !== artifactDigest || existing.definition_digest !== (options.definitionDigest ?? null) || Number(existing.encoded_bytes) !== content.byteLength) throw new FactoryArtifactError("factory_artifact_conflict");
-        await this.verify(existing);
-        return reference(existing);
-      }
-      const stored = await this.blobs.put(content);
-      if (stored !== rawDigest) throw new FactoryArtifactError("factory_artifact_corrupt");
-      const storageVersion = this.blobs instanceof S3BlobStore ? await this.blobs.version(rawDigest) : rawDigest;
-      const row: ArtifactRow = { object_id: `factory-artifact-${randomUUID()}`, tenant_id: identityValue.tenantId, project_id: identityValue.projectId, run_id: identityValue.logicalRunId, interpreter_id: interpreterId, kind, definition_digest: options.definitionDigest ?? null, source_sequence: sequence, page_index: index, digest: artifactDigest, blob_digest: rawDigest, storage_version: storageVersion, encoded_bytes: content.byteLength };
-      await transaction.execute(sql`INSERT INTO factory_artifacts(object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes) VALUES (${row.object_id}, ${row.tenant_id}, ${row.project_id}, ${row.run_id}, ${row.interpreter_id}, ${row.kind}, ${row.definition_digest}, ${row.source_sequence}, ${row.page_index}, ${row.digest}, ${row.blob_digest}, ${row.storage_version}, ${row.encoded_bytes}) ON CONFLICT DO NOTHING`);
-      const admitted = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} AND interpreter_id IS NOT DISTINCT FROM ${interpreterId} AND kind=${kind} AND source_sequence IS NOT DISTINCT FROM ${sequence} AND page_index IS NOT DISTINCT FROM ${index} FOR SHARE`))[0];
-      if (!admitted) throw new FactoryArtifactError("factory_artifact_admission_failed");
-      if (admitted.digest !== artifactDigest || admitted.definition_digest !== (options.definitionDigest ?? null) || Number(admitted.encoded_bytes) !== content.byteLength) throw new FactoryArtifactError("factory_artifact_conflict");
-      return reference(admitted);
-    });
+    const existing = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} AND interpreter_id IS NOT DISTINCT FROM ${interpreterId} AND kind=${kind} AND source_sequence IS NOT DISTINCT FROM ${sequence} AND page_index IS NOT DISTINCT FROM ${index} FOR SHARE`))[0];
+    if (existing) {
+      if (existing.digest !== artifactDigest || existing.definition_digest !== (options.definitionDigest ?? null) || Number(existing.encoded_bytes) !== content.byteLength) throw new FactoryArtifactError("factory_artifact_conflict");
+      await this.verify(existing);
+      return reference(existing);
+    }
+    const stored = await this.blobs.put(content);
+    if (stored !== rawDigest) throw new FactoryArtifactError("factory_artifact_corrupt");
+    const storageVersion = this.blobs instanceof S3BlobStore ? await this.blobs.version(rawDigest) : rawDigest;
+    const row: ArtifactRow = { object_id: `factory-artifact-${randomUUID()}`, tenant_id: identityValue.tenantId, project_id: identityValue.projectId, run_id: identityValue.logicalRunId, interpreter_id: interpreterId, kind, definition_digest: options.definitionDigest ?? null, source_sequence: sequence, page_index: index, digest: artifactDigest, blob_digest: rawDigest, storage_version: storageVersion, encoded_bytes: content.byteLength };
+    await transaction.execute(sql`INSERT INTO factory_artifacts(object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes) VALUES (${row.object_id}, ${row.tenant_id}, ${row.project_id}, ${row.run_id}, ${row.interpreter_id}, ${row.kind}, ${row.definition_digest}, ${row.source_sequence}, ${row.page_index}, ${row.digest}, ${row.blob_digest}, ${row.storage_version}, ${row.encoded_bytes}) ON CONFLICT DO NOTHING`);
+    const admitted = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} AND interpreter_id IS NOT DISTINCT FROM ${interpreterId} AND kind=${kind} AND source_sequence IS NOT DISTINCT FROM ${sequence} AND page_index IS NOT DISTINCT FROM ${index} FOR SHARE`))[0];
+    if (!admitted) throw new FactoryArtifactError("factory_artifact_admission_failed");
+    if (admitted.digest !== artifactDigest || admitted.definition_digest !== (options.definitionDigest ?? null) || Number(admitted.encoded_bytes) !== content.byteLength) throw new FactoryArtifactError("factory_artifact_conflict");
+    return reference(admitted);
   }
 
   async load(identityValue: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId" | "interpreterId">, object: ImmutableObjectReference, kinds: readonly FactoryArtifactKind[], interpreterScoped = false): Promise<{ reference: ImmutableObjectReference; kind: FactoryArtifactKind; definitionDigest: string | null; sourceSequence: number | null; pageIndex: number | null; content: Uint8Array }> {

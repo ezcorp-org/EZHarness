@@ -2,9 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { sql } from "drizzle-orm";
 import { S3BlobStore, s3ObjectKey } from "../../src/extensions/v4/blobs";
-import { FactoryArtifacts } from "../../src/factory/artifacts";
+import { artifactJson, FactoryArtifacts } from "../../src/factory/artifacts";
+import { createFactoryArtifactActivities } from "../../src/factory/artifact-activities";
+import { FactoryDefinitionArtifacts } from "../../src/factory/definition-artifacts";
+import { FactoryInbox } from "../../src/factory/inbox";
+import { FactoryTransitionArtifacts } from "../../src/factory/transition-artifacts";
+import { persistTransition } from "../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 import { setupFactoryPostgres } from "./helpers/factory-test-database";
 
 const closes: Array<() => Promise<void>> = [];
@@ -55,5 +61,57 @@ test("twelve concurrent PostgreSQL admissions converge and changed bytes fail", 
   await expect(artifacts.stage(identity, "definition_page", new TextEncoder().encode("changed page"), options)).rejects.toMatchObject({ code: "factory_artifact_conflict" });
   const rows = await database.execute(sql`SELECT object_id FROM factory_artifacts WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} AND kind='definition_page' AND page_index=7`) as unknown as { rows?: unknown[] } | unknown[];
   expect(Array.isArray(rows) ? rows : rows.rows).toHaveLength(1);
+  client.destroy();
+});
+
+test("PostgreSQL outer rollback leaves no staged reference or accepted factory fact", async () => {
+  const { database, client, blobs, identity } = await fixture();
+  const artifacts = new FactoryArtifacts(database, blobs, identity.tenantId);
+  const pending = { ...identity, logicalRunId: `rolled-back-${randomUUID()}` };
+  await expect(database.transaction(async transaction => {
+    await transaction.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES (${pending.tenantId}, ${pending.projectId}, ${pending.logicalRunId}, ${`sha256:${"a".repeat(64)}`}, 'test', 1, 'request', '{}')`);
+    await artifacts.stageInTransaction(transaction, pending, "execution_manifest", new TextEncoder().encode("pending"), { definitionDigest: `sha256:${"a".repeat(64)}`, interpreterScoped: false });
+    throw new Error("force outer rollback");
+  })).rejects.toThrow("force outer rollback");
+  const references = await database.execute(sql`SELECT object_id FROM factory_artifacts WHERE tenant_id=${pending.tenantId} AND project_id=${pending.projectId} AND run_id=${pending.logicalRunId}`) as unknown as { rows?: unknown[] } | unknown[];
+  const runs = await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${pending.tenantId} AND project_id=${pending.projectId} AND run_id=${pending.logicalRunId}`) as unknown as { rows?: unknown[] } | unknown[];
+  const outbox = await database.execute(sql`SELECT id FROM factory_command_outbox WHERE tenant_id=${pending.tenantId} AND project_id=${pending.projectId} AND logical_run_id=${pending.logicalRunId}`) as unknown as { rows?: unknown[] } | unknown[];
+  expect(Array.isArray(references) ? references : references.rows).toEqual([]);
+  expect(Array.isArray(runs) ? runs : runs.rows).toEqual([]);
+  expect(Array.isArray(outbox) ? outbox : outbox.rows).toEqual([]);
+  client.destroy();
+});
+
+test("PostgreSQL and S3 commit paged Node transitions with exact inbox receipts", async () => {
+  const { database, client, blobs, identity } = await fixture();
+  const artifacts = new FactoryArtifacts(database, blobs, identity.tenantId);
+  const definitions = new FactoryDefinitionArtifacts(artifacts);
+  const transitions = new FactoryTransitionArtifacts(artifacts);
+  const activity = createFactoryArtifactActivities(definitions, transitions);
+  const inbox = new FactoryInbox(database, identity.tenantId);
+  const event: Extract<KernelEvent, { kind: "cancel" }> = { id: "accepted-event", kind: "cancel", atMs: 1, reason: "x" };
+  const delivery = await inbox.enqueue({ projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId }, event);
+  const command = delivery.command as { eventSequence: number; eventHash: string };
+  await persistTransition(identity, 1, event, { padding: "x".repeat(40 * 1024) } as never, [], { sequence: command.eventSequence, eventId: event.id, eventHash: command.eventHash }, activity);
+  const key = { projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId };
+  expect(await inbox.confirmApplied(key, { inboxSequence: command.eventSequence, eventId: event.id, eventHash: command.eventHash })).toBe(true);
+  const rows = await database.execute(sql`SELECT kind, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} ORDER BY kind`) as unknown as { rows?: Array<{ kind: string; encoded_bytes: number }> } | Array<{ kind: string; encoded_bytes: number }>;
+  const references = (Array.isArray(rows) ? rows : rows.rows)!;
+  expect(references.filter(reference => reference.kind === "transition_page")).toHaveLength(2);
+  expect(references.find(reference => reference.kind === "transition_manifest")!.encoded_bytes).toBeLessThanOrEqual(32 * 1024);
+
+  const missing: Extract<KernelEvent, { kind: "cancel" }> = { id: "never-enqueued", kind: "cancel", atMs: 2, reason: "x" };
+  const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 2, event: missing, nextState: {}, commands: [] }));
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 2, index: 0, content, encodedBytes: artifactJson.bytes(content).byteLength });
+  const finalized = await transitions.finalizeTransitionArtifact({ ...identity, sourceSequence: 2, encodedBytes: page.encodedBytes, eventId: missing.id, pages: [page] });
+  const badRecord = { ...identity, sourceSequence: 2, eventId: missing.id, eventHash: finalized.eventHash, inboxSequence: command.eventSequence, artifactManifest: finalized.manifest };
+  await expect(transitions.recordTransition(badRecord)).rejects.toMatchObject({ code: "factory_inbox_applied_conflict" });
+  const auditRows = await database.execute(sql`SELECT source_sequence FROM factory_audit_batches WHERE tenant_id=${identity.tenantId} AND run_id=${identity.logicalRunId}`) as unknown as { rows?: unknown[] } | unknown[];
+  expect(Array.isArray(auditRows) ? auditRows : auditRows.rows).toHaveLength(1);
+  const sourceRows = await database.execute(sql`SELECT payload FROM factory_audit_batches WHERE tenant_id=${identity.tenantId} AND run_id=${identity.logicalRunId}`) as unknown as { rows?: Array<{ payload: string }> } | Array<{ payload: string }>;
+  const source = (Array.isArray(sourceRows) ? sourceRows : sourceRows.rows)![0]!;
+  const record = { ...identity, sourceSequence: 1, eventId: event.id, eventHash: command.eventHash, inboxSequence: command.eventSequence, artifactManifest: JSON.parse(source.payload).artifactManifest };
+  await Promise.all([transitions.recordTransition(record), transitions.recordTransition(record)]);
+  expect(await inbox.confirmApplied(key, { inboxSequence: command.eventSequence, eventId: event.id, eventHash: command.eventHash })).toBe(true);
   client.destroy();
 });

@@ -14,6 +14,9 @@ export const MAX_DEFINITION_BYTES = 16 * 1024 * 1024;
 export const MAX_PAGE_BYTES = 32 * 1024;
 export const MAX_DEFINITION_PAGES = MAX_DEFINITION_BYTES / MAX_PAGE_BYTES;
 export const MAX_COMMAND_BATCH_BYTES = 512 * 1024;
+/** One persisted transition contains at most one bounded command batch and state payload. */
+export const MAX_TRANSITION_ARTIFACT_BYTES = MAX_COMMAND_BATCH_BYTES + MAX_ACTIVITY_PAYLOAD_BYTES;
+export const MAX_TRANSITION_PAGES = Math.ceil(MAX_TRANSITION_ARTIFACT_BYTES / MAX_PAGE_BYTES);
 export const MAX_INFLIGHT_COMMANDS = 32;
 
 export interface ImmutableObjectReference {

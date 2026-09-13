@@ -84,15 +84,19 @@ export class FactoryInbox {
   /** The caller stages and verifies immutable transition artifacts before this commit. */
   async commitTransition(request: FactoryAuditInput): Promise<void> {
     const input = JSON.parse(encodeFactoryPayload(request)) as FactoryAuditInput;
-    return this.database.transaction(async transaction => {
-      const proof = appliedIdentity(input.payload);
-      const batch = await this.records.appendAuditInTransaction(transaction, input);
-      if (!proof) return;
-      const row = await this.find(transaction, input, proof.eventId);
-      if (!row || decode(row).inboxSequence !== proof.inboxSequence || row.event_hash !== proof.eventHash) throw new FactoryInboxError("factory_inbox_applied_conflict");
-      if (row.applied_source_sequence !== null && (Number(row.applied_source_sequence) !== input.sourceSequence || row.applied_digest !== batch.digest)) throw new FactoryInboxError("factory_inbox_applied_conflict");
-      await transaction.execute(sql`UPDATE factory_inbox_events SET applied_source_sequence=${input.sourceSequence}, applied_digest=${batch.digest} WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND run_id=${input.runId} AND interpreter_id=${input.interpreterId} AND event_id=${proof.eventId}`);
-    });
+    return this.database.transaction(transaction => this.commitTransitionInTransaction(transaction, input));
+  }
+
+  /** Commits the canonical audit batch and its exact inbox receipt together. */
+  async commitTransitionInTransaction(transaction: MigrationDb, request: FactoryAuditInput): Promise<void> {
+    const input = JSON.parse(encodeFactoryPayload(request)) as FactoryAuditInput;
+    const proof = appliedIdentity(input.payload);
+    const batch = await this.records.appendAuditInTransaction(transaction, input);
+    if (!proof) return;
+    const row = await this.find(transaction, input, proof.eventId);
+    if (!row || decode(row).inboxSequence !== proof.inboxSequence || row.event_hash !== proof.eventHash) throw new FactoryInboxError("factory_inbox_applied_conflict");
+    if (row.applied_source_sequence !== null && (Number(row.applied_source_sequence) !== input.sourceSequence || row.applied_digest !== batch.digest)) throw new FactoryInboxError("factory_inbox_applied_conflict");
+    await transaction.execute(sql`UPDATE factory_inbox_events SET applied_source_sequence=${input.sourceSequence}, applied_digest=${batch.digest} WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND run_id=${input.runId} AND interpreter_id=${input.interpreterId} AND event_id=${proof.eventId}`);
   }
 
   async confirmApplied(key: FactoryInboxKey, proof: FactoryInboxIdentity): Promise<boolean> {

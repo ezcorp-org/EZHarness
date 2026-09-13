@@ -3,6 +3,7 @@ import type { CompiledFactory, CompiledExecutionManifest, CompiledPartitionArtif
 import type { FactoryDefinitionPage, FactoryDefinitionPageReference, FactoryDefinitionSource, FactoryIdentity, FactoryManifestPage, FactoryPartitionReference, ImmutableObjectReference } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { FACTORY_ARTIFACT_MAX_BYTES, FactoryArtifactError, artifactJson } from "./artifacts";
 import type { FactoryArtifacts } from "./artifacts";
+import type { MigrationDb } from "../db/migrations/types";
 
 function split(content: string): readonly string[] {
   const all = new TextEncoder().encode(content);
@@ -24,17 +25,24 @@ export class FactoryDefinitionArtifacts {
   constructor(private readonly artifacts: FactoryArtifacts) {}
 
   async stageDefinition(compiled: CompiledFactory, identity: FactoryIdentity): Promise<FactoryDefinitionSource> {
-    const content = canonicalizeJson(JSON.parse(JSON.stringify(compiled)) as JsonValue);
+    const snapshot = JSON.parse(JSON.stringify({ compiled, identity })) as { compiled: CompiledFactory; identity: FactoryIdentity };
+    return this.artifacts.database.transaction(transaction => this.stageDefinitionInTransaction(transaction, snapshot.compiled, snapshot.identity));
+  }
+
+  /** Stages a definition after the caller has created its run in this transaction. */
+  async stageDefinitionInTransaction(transaction: MigrationDb, compiled: CompiledFactory, identity: FactoryIdentity): Promise<FactoryDefinitionSource> {
+    const snapshot = JSON.parse(JSON.stringify({ compiled, identity })) as { compiled: CompiledFactory; identity: FactoryIdentity };
+    const content = canonicalizeJson(snapshot.compiled as unknown as JsonValue);
     const encoded = artifactJson.bytes(content);
-    if (encoded.byteLength > 16 * 1024 * 1024 || !/^sha256:[0-9a-f]{64}$/.test(compiled.digest)) throw new FactoryArtifactError("factory_definition_invalid");
+    if (encoded.byteLength > 16 * 1024 * 1024 || !/^sha256:[0-9a-f]{64}$/.test(snapshot.compiled.digest)) throw new FactoryArtifactError("factory_definition_invalid");
     const pages = [] as Array<{ index: number; reference: ImmutableObjectReference }>;
     for (const [index, page] of split(content).entries()) {
-      const reference = await this.artifacts.stage(identity, "definition_page", artifactJson.bytes(page), { definitionDigest: compiled.digest, pageIndex: index, interpreterScoped: false });
+      const reference = await this.artifacts.stageInTransaction(transaction, snapshot.identity, "definition_page", artifactJson.bytes(page), { definitionDigest: snapshot.compiled.digest, pageIndex: index, interpreterScoped: false });
       pages.push({ index, reference });
     }
     const references = pages.map(({ index, reference }) => ({ ...reference, index }));
-    const manifest = await this.stageManifestChain(identity, compiled.digest, encoded.byteLength, references);
-    return { definitionDigest: compiled.digest, definitionEncodedBytes: encoded.byteLength, manifest };
+    const manifest = await this.stageManifestChain(transaction, snapshot.identity, snapshot.compiled.digest, encoded.byteLength, references);
+    return { definitionDigest: snapshot.compiled.digest, definitionEncodedBytes: encoded.byteLength, manifest };
   }
 
   async loadManifestPage(identity: FactoryIdentity, source: FactoryDefinitionSource, page: ImmutableObjectReference): Promise<FactoryManifestPage> {
@@ -75,7 +83,7 @@ export class FactoryDefinitionArtifacts {
 
   private partitionSlot(id: string): number { let hash = 0; for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0; return hash; }
 
-  private async stageManifestChain(identity: FactoryIdentity, definitionDigest: string, definitionEncodedBytes: number, references: Array<ImmutableObjectReference & { index: number }>): Promise<ImmutableObjectReference> {
+  private async stageManifestChain(transaction: MigrationDb, identity: FactoryIdentity, definitionDigest: string, definitionEncodedBytes: number, references: Array<ImmutableObjectReference & { index: number }>): Promise<ImmutableObjectReference> {
     let next: ImmutableObjectReference | undefined;
     for (let end = references.length; end > 0;) {
       let start = end - 1;
@@ -89,7 +97,7 @@ export class FactoryDefinitionArtifacts {
       }
       if (!candidate) throw new FactoryArtifactError("factory_manifest_too_large");
       const pageStart = Math.max(0, start);
-      next = await this.artifacts.stage(identity, "definition_manifest", candidate, { definitionDigest, pageIndex: pageStart, interpreterScoped: false });
+      next = await this.artifacts.stageInTransaction(transaction, identity, "definition_manifest", candidate, { definitionDigest, pageIndex: pageStart, interpreterScoped: false });
       end = pageStart;
     }
     if (!next) throw new FactoryArtifactError("factory_definition_invalid");

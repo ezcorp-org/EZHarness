@@ -1072,3 +1072,13 @@ Pending.
 - [x] Run the actual PostgreSQL pool/provisioning producers, native adapter coverage, all four typecheck legs and lint on frozen source.
 
 Review: `/tmp/factory-platform-evidence/terminal-pool-provisioning-results.json` records every exit as zero. Native adapter, pool service/token/HTTPS server and local provisioner have full measured line coverage. These component receipts do not complete application wiring or the full platform gates.
+## Factory artifact transaction and paged-transition seams
+
+- [x] Add transaction-aware artifact and definition staging with one durable run transaction.
+- [x] Bound paged transition artifacts by the C08 aggregate command limit while retaining 32 KiB pages and manifests.
+- [x] Commit transition audit and an exact inbox receipt in one transaction.
+- [x] Prove rollback, corruption and receipt denial on PGlite and real PostgreSQL/S3; run required checks.
+
+### Review
+
+`stageInTransaction` and `stageDefinitionInTransaction` preserve the factory-run foreign key without an inner commit. A 576 KiB C08 transition cap now contains one command batch plus one state payload, while every page and manifest remains at most 32 KiB. Transition recording delegates to `FactoryInbox.commitTransitionInTransaction`, so the audit and exact inbox receipt either commit together or both roll back. PGlite and PostgreSQL/S3 proofs cover forced outer rollback, 40 KiB activity-produced transitions, corruption, index/length/identity/event-digest denial, wrong inbox identity, and concurrent retries. Typecheck, lint, package Node tests, and focused measured coverage pass.
