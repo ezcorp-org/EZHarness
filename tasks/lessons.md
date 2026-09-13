@@ -1,5 +1,7 @@
 # Lessons
 
+- Seal every persisted field that controls a protected decision, including its scope, revision, and approving authority. Recompute the canonical seal before acceptance and before a later effect claim; a semantic source digest alone cannot detect authority or policy-row tampering.
+
 - Keep definition list rows bounded. Persist compact semantic and resource metadata when a bounded source is saved; do not load or compile up to 200 full 16 MiB sources for one list request. Snapshot mutable request input before an authorization await.
 
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.

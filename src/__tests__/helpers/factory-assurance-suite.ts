@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
@@ -40,6 +41,7 @@ beforeAll(async () => {
   const records = new FactoryRecords(fixture.db, tenantId); await records.bindInstallation();
   await fixture.db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${projectId}, 'Assurance', '/tmp/assurance')`); await records.bindProject(projectId);
   await fixture.db.execute(sql`INSERT INTO users (id, email, password_hash, name, role) VALUES (${admin.id}, 'admin@example.test', 'x', 'admin', 'admin')`);
+  await fixture.db.execute(sql`INSERT INTO users (id, email, password_hash, name, role) VALUES ('tampered-approval-authority', 'tampered@example.test', 'x', 'tampered', 'member')`);
   await fixture.db.execute(sql`INSERT INTO project_members (id, project_id, user_id, role) VALUES ('assurance-member', ${projectId}, ${admin.id}, 'owner')`);
   await records.createRun({ projectId, runId: candidate.runId, definitionDigest: digest("d"), interpreterBuild: "factory-v1", executionEpoch: 1, input: {}, principalId: admin.id }, async () => {});
   grants = new FactoryGrants(fixture.db, tenantId, () => now);
@@ -52,6 +54,16 @@ beforeAll(async () => {
 afterAll(async () => { await fixture?.close(); });
 
 async function contract() { await assurance.approveContract(admin, { projectId, contractId: "contract", revision: 1, contractDigest: digest("d"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }, { id: "review", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "all", claimIds: ["tests", "review"], minimumPasses: 2, requireAllDecisive: true }] }); }
+
+async function rejectAudit(work: () => Promise<void>): Promise<void> {
+  await fixture.db.execute(sql`CREATE FUNCTION reject_factory_assurance_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'factory assurance audit unavailable'; END $$`);
+  await fixture.db.execute(sql`CREATE TRIGGER reject_factory_assurance_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_factory_assurance_audit()`);
+  try { await work(); }
+  finally {
+    await fixture.db.execute(sql`DROP TRIGGER reject_factory_assurance_audit ON audit_log`);
+    await fixture.db.execute(sql`DROP FUNCTION reject_factory_assurance_audit()`);
+  }
+}
 
 test("configured validator evidence binds exact candidate and human-trusted contract", async () => {
   await contract();
@@ -70,6 +82,55 @@ test("fresh mandatory claims and exact approval context are consumed once", asyn
   const result = await Promise.allSettled([fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, consumption)), fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, consumption))]);
   expect(result.filter(item => item.status === "fulfilled")).toHaveLength(1); expect(result.filter(item => item.status === "rejected")).toHaveLength(1);
   await expect(fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...request, approvalId: approval.approvalId, requester: admin, runId: candidate.runId }))).rejects.toBeInstanceOf(FactoryAssuranceError);
+  expect(rows<{ action: string }>(await fixture.db.execute(sql`SELECT action FROM audit_log WHERE target IN (${request.operationId}, ${approval.approvalId}) ORDER BY action`)).map(row => row.action)).toEqual(["factory.assurance.approval.consumed", "factory.assurance.approval.decided", "factory.assurance.approval.requested"]);
+});
+
+test("sealed contract facts reject tampering before acceptance and after approval", async () => {
+  await assurance.approveContract(admin, { projectId, contractId: "sealed-before-accept", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }, { id: "review", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "required", claimIds: ["tests", "review"], minimumPasses: 2, requireAllDecisive: true }] });
+  await fixture.db.execute(sql`UPDATE factory_acceptance_contracts SET mandatory_claims=${JSON.stringify([{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }])} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND contract_id='sealed-before-accept'`);
+  expect(rows(await fixture.db.execute(sql`SELECT contract_digest FROM factory_acceptance_contracts WHERE tenant_id=${tenantId} AND project_id=${projectId} AND contract_id='sealed-before-accept'`))).toEqual([{ contract_digest: digest("f") }]);
+  await expect(assurance.accept({ ...candidate, contractId: "sealed-before-accept", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_corrupt" });
+
+  await assurance.approveContract(admin, { projectId, contractId: "sealed-after-approval", revision: 1, contractDigest: digest("e"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }, { id: "review", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "required", claimIds: ["tests", "review"], minimumPasses: 2, requireAllDecisive: true }] });
+  const decision = await assurance.accept({ ...candidate, contractId: "sealed-after-approval", revision: 1 });
+  const request = { projectId, operationId: "sealed-after-approval-release", decisionId: decision.decisionId, destinationDigest: digest("a"), expectedGeneration: 4, expiresAtMs: now + 500 };
+  const approval = await assurance.requestApproval(admin, request); await assurance.decideApproval(admin, projectId, approval.approvalId, true);
+  await fixture.db.execute(sql`UPDATE factory_acceptance_contracts SET approved_by='tampered-approval-authority' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND contract_id='sealed-after-approval'`);
+  expect(rows(await fixture.db.execute(sql`SELECT contract_digest FROM factory_acceptance_contracts WHERE tenant_id=${tenantId} AND project_id=${projectId} AND contract_id='sealed-after-approval'`))).toEqual([{ contract_digest: digest("e") }]);
+  await expect(fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...request, approvalId: approval.approvalId, requester: admin, runId: candidate.runId }))).rejects.toMatchObject({ code: "factory_assurance_corrupt" });
+  expect(rows(await fixture.db.execute(sql`SELECT status FROM factory_release_approvals WHERE tenant_id=${tenantId} AND project_id=${projectId} AND approval_id=${approval.approvalId}`))).toEqual([{ status: "approved" }]);
+});
+
+test("acceptance rechecks the current protected gateway evidence and every mandatory claim", async () => {
+  const currentCandidate = { ...candidate, candidateGeneration: 41 };
+  const original = trusted;
+  trusted = { ...trusted, ...currentCandidate };
+  await assurance.captureEvidence({ ...currentCandidate, validatorId: trusted.validatorId });
+  await assurance.approveContract(admin, { projectId, contractId: "current-candidate", revision: 1, contractDigest: digest("a"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }, { id: "review", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "subset", claimIds: ["tests"], minimumPasses: 1, requireAllDecisive: true }] });
+  trusted = { ...trusted, environmentDigest: digest("d") };
+  await expect(assurance.accept({ ...currentCandidate, contractId: "current-candidate", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_stale" });
+  const mandatoryCandidate = { ...candidate, candidateGeneration: 42 };
+  trusted = { ...original, ...mandatoryCandidate, claims: [{ id: "tests", passed: true, decisive: true }, { id: "review", passed: false, decisive: true }] };
+  await assurance.captureEvidence({ ...mandatoryCandidate, validatorId: trusted.validatorId });
+  await assurance.approveContract(admin, { projectId, contractId: "mandatory-not-alternative", revision: 1, contractDigest: digest("b"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }, { id: "review", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "subset", claimIds: ["tests"], minimumPasses: 1, requireAllDecisive: true }] });
+  await expect(assurance.accept({ ...mandatoryCandidate, contractId: "mandatory-not-alternative", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_claim_failed" });
+  trusted = original;
+});
+
+test("each approval audit fault rolls back its product fact", async () => {
+  const decision = await assurance.accept({ ...candidate, contractId: "contract", revision: 1 });
+  const request = (operationId: string) => ({ projectId, operationId, decisionId: decision.decisionId, destinationDigest: digest("b"), expectedGeneration: 4, expiresAtMs: now + 500 });
+  const requestFault = request("audit-request-fault");
+  await expect(rejectAudit(async () => { await assurance.requestApproval(admin, requestFault); })).rejects.toThrow();
+  expect(rows(await fixture.db.execute(sql`SELECT approval_id FROM factory_release_approvals WHERE operation_id=${requestFault.operationId}`))).toHaveLength(0);
+
+  const decisionFault = request("audit-decision-fault"); const pending = await assurance.requestApproval(admin, decisionFault);
+  await expect(rejectAudit(async () => { await assurance.decideApproval(admin, projectId, pending.approvalId, true); })).rejects.toThrow();
+  expect(rows(await fixture.db.execute(sql`SELECT status FROM factory_release_approvals WHERE approval_id=${pending.approvalId}`))).toEqual([{ status: "pending" }]);
+
+  const consumeFault = request("audit-consume-fault"); const approved = await assurance.requestApproval(admin, consumeFault); await assurance.decideApproval(admin, projectId, approved.approvalId, true);
+  await expect(rejectAudit(async () => { await fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...consumeFault, approvalId: approved.approvalId, requester: admin, runId: candidate.runId })); })).rejects.toThrow();
+  expect(rows(await fixture.db.execute(sql`SELECT status, consumed_at FROM factory_release_approvals WHERE approval_id=${approved.approvalId}`))).toEqual([{ status: "approved", consumed_at: null }]);
 });
 
 test("forged validator provenance, stale evidence, and corrupt validator locks fail closed", async () => {

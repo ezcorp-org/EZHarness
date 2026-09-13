@@ -1,5 +1,14 @@
 # Extension v4 independent validation
 
+## Factory assurance integrity — 2026-09-13
+
+- [x] Bind every persisted contract field and the approving authority into a canonical protected snapshot.
+- [x] Revalidate that snapshot and current gateway evidence at acceptance and release consumption.
+- [x] Write approval request, decision, and consumption audit facts in their owning transactions.
+- [ ] Prove direct pre-accept and post-approval tampering, plus audit write faults, fail closed on PGlite and PostgreSQL.
+- [ ] Run static checks, coverage, and real PostgreSQL proof; record the review.
+
+
 - [x] Fetch PR and latest main; preserve original worktrees.
 - [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
 - [x] Complete clean/reused installs, package suites, backend, web, static, and coverage runs.
