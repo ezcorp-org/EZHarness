@@ -345,6 +345,10 @@ const MODULE_PATHS = [
   // which imports the REAL EmbedWorker).
   "../../extensions/embed-worker",
   "../../extensions/mcp-sandbox",
+  // Factory shell tests replace boot policy and host capability discovery.
+  // Restore both real modules before another suite checks isolation.
+  "../../factory/boot",
+  "../../extensions/sandbox/capability-probe",
   // mcp-sandbox-require-sandbox.test.ts substitutes the Stage 2 proxy with a
   // host-safe fake. Restore the real proxy after the suite so a later MCP
   // test cannot inherit its fake listener or token state.
