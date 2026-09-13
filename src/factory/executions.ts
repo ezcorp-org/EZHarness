@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { lockFactoryScope } from "./locks";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
@@ -192,11 +193,16 @@ export class FactoryExecutionJournal {
 
   /** Ordered durable evidence for a completed runner result. This is read-only. */
   async operations(authority: FactoryAttemptAuthority): Promise<FactoryJournalOperationEvidence[]> {
+    return (await this.evidence(authority)).operations;
+  }
+
+  /** Read operation facts and their committed cursor under the same attempt lock. */
+  async evidence(authority: FactoryAttemptAuthority): Promise<{ operations: FactoryJournalOperationEvidence[]; journalCursor: number }> {
     authority = snapshotAuthority(authority);
     return this.db.transaction(async (database) => {
       await this.lockScopedRead(database, authority);
       const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id, operation_index, kind, state, request_digest, result_digest, provider_receipt_digest, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} ORDER BY operation_index ASC`));
-      return stored.map((operation) => ({
+      const operations = stored.map((operation) => ({
         operationId: operation.operation_id,
         operationIndex: Number(operation.operation_index),
         kind: operation.kind,
@@ -207,6 +213,10 @@ export class FactoryExecutionJournal {
         ...(operation.usage_json === null ? {} : { usage: this.storedJson(operation.usage_json) as JsonValue }),
         ...(operation.workspace_checkpoint === null ? {} : { workspaceCheckpoint: this.storedJson(operation.workspace_checkpoint) as JsonValue }),
       }));
+      const row = releaseRows<{ journal_cursor: number | string }>(await database.execute(sql`SELECT journal_cursor FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0]!;
+      const journalCursor = Number(row.journal_cursor);
+      if (!Number.isSafeInteger(journalCursor) || journalCursor < -1) throw new Error("Factory journal cursor is corrupt.");
+      return { operations, journalCursor };
     });
   }
 
@@ -301,19 +311,10 @@ export class FactoryExecutionJournal {
     // Every Factory product transaction follows this order. Project authority
     // comes first, then the installation epoch, then the run; rows below a
     // run (lifecycle, budget, journal) are locked only after this fence.
-    await this.lockProjectScope(database, authority);
-    await this.lockInstallationFence(database, authority);
+    const installation = await lockFactoryScope(database, authority.tenantId, authority.projectId);
+    if (installation?.executionEpoch !== authority.executionEpoch) throw new Error("Factory run epoch is stale or unavailable.");
     const run = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND execution_epoch=${authority.executionEpoch} FOR UPDATE`));
     if (!run.length) throw new Error("Factory run epoch is stale or unavailable.");
   }
 
-  private async lockProjectScope(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
-    const project = releaseRows(await database.execute(sql`SELECT project_id FROM factory_projects WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} FOR SHARE`));
-    if (!project.length) throw new Error("Factory run epoch is stale or unavailable.");
-  }
-
-  private async lockInstallationFence(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
-    const installation = releaseRows(await database.execute(sql`SELECT tenant_id FROM factory_installation WHERE tenant_id=${authority.tenantId} AND execution_epoch=${authority.executionEpoch} FOR SHARE`));
-    if (!installation.length) throw new Error("Factory run epoch is stale or unavailable.");
-  }
 }

@@ -144,9 +144,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("every attempt admission checks current epochs, grant revision and bounded deadline", async () => {
     const run = await start(); const key = runKey(run.runId);
-    const authority = { tenantId, ...key, attemptId: "attempt", nodeInstanceId: "node", candidateGeneration: 0, attemptNumber: 1, grantRevision: body.grantRevision, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, deadlineAt: new Date(now + 10) };
+    const authority = { tenantId, ...key, attemptId: "attempt", nodeInstanceId: "node", candidateGeneration: 0, attemptNumber: 1, grantRevision: body.grantRevision, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(now + 10) };
     const check = (value = authority) => fixture.db.transaction(tx => lifecycle.authorizeAttemptInTransaction(tx, value));
     await check();
+    const fence = await fixture.db.transaction(tx => lifecycle.authorizeRunInTransaction(tx, key));
+    expect(fence).toEqual({ tenantId, ...key, executionEpoch: 1, cancellationEpoch: 0, grantRevision: body.grantRevision, revision: 1, deadlineAtMs: now + duration, definitionDigest: body.definitionDigest, status: "queued" });
+    expect(Object.isFrozen(fence)).toBe(true);
     await expect(check({ ...authority, tenantId: "foreign" })).rejects.toMatchObject({ code: "factory_scope_mismatch" });
     for (const changed of [{ executionEpoch: 2 }, { cancellationEpoch: 1 }, { grantRevision: 999 }, { deadlineAt: new Date(now + duration + 1) }, { deadlineAt: new Date(now) }, { deadlineAt: new Date(Number.NaN) }]) await expect(check({ ...authority, ...changed })).rejects.toMatchObject({ code: "factory_run_fence_changed" });
     await fixture.db.execute(sql`UPDATE factory_installation SET execution_epoch=2`);
@@ -155,6 +158,15 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await check();
     await lifecycle.cancel(principal, key, 1, "cancel-attempt");
     await expect(check()).rejects.toMatchObject({ code: "factory_run_stopped" });
+  });
+
+  test("trusted fence reads reject corrupt durable identity and unsafe counters", async () => {
+    const run = await start(); const key = runKey(run.runId);
+    for (const change of [sql`revision=9007199254740992`, sql`cancellation_epoch=9007199254740992`, sql`definition_digest=${`sha256:${"e".repeat(64)}`}`]) {
+      await fixture.db.execute(sql`UPDATE factory_run_lifecycle SET ${change} WHERE run_id=${run.runId}`);
+      await expect(fixture.db.transaction(tx => lifecycle.authorizeRunInTransaction(tx, key))).rejects.toMatchObject({ code: "factory_run_corrupt" });
+      await fixture.db.execute(sql`UPDATE factory_run_lifecycle SET revision=1, cancellation_epoch=0, definition_digest=${body.definitionDigest} WHERE run_id=${run.runId}`);
+    }
   });
 
   test("input, version, scope, terminal state, counters and deadline checks fail closed", async () => {

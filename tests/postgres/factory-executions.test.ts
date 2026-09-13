@@ -10,6 +10,7 @@ import { __test } from "../../src/db/connection";
 import { releaseRows } from "../../src/db/queries/extension-releases";
 import * as schema from "../../src/db/schema";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../src/factory/executions";
+import { nativeFactoryJournal } from "../../src/factory/runner/native";
 
 const url = process.env.FACTORY_TEST_POSTGRES_URL;
 if (!url) throw new Error("FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL conformance.");
@@ -79,6 +80,22 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     expect(outcomes.filter(outcome => outcome.status === "fulfilled")).toHaveLength(1);
     expect(outcomes.filter(outcome => outcome.status === "rejected")).toHaveLength(1);
     expect(releaseRows(await db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id = 'racing-attempt'`))).toHaveLength(1);
+  });
+
+  test("native results read a single durable operation and cursor snapshot", async () => {
+    const attempt = admission(authority({ attemptId: "native-snapshot-attempt", nodeInstanceId: "native-snapshot-node" }));
+    await journal.admit(attempt);
+    const operation = operationFor(attempt, 0);
+    await journal.prepare(attempt, operation);
+    await journal.dispatch(attempt, operation.operationId);
+    const usage = { kind: "measured", inputTokens: 1, outputTokens: 2, computeMs: 3, costMicros: "4" };
+    await journal.settle(attempt, operation.operationId, "completed", { resultDigest: "a".repeat(64), result: { output: "done" }, usage, workspaceCheckpoint: { artifactId: "checkpoint", digest: `sha256:${"b".repeat(64)}`, encodedBytes: 4, journalCursor: 0 } });
+    const snapshot = await nativeFactoryJournal(journal).snapshot(attempt.request);
+    expect(snapshot).toMatchObject({ journalCursor: 0, usage, operations: [{ ...operation, state: "completed" }] });
+    await expect(journal.evidence({ ...attempt, requestDigest: "b".repeat(64) })).rejects.toThrow("unavailable");
+    await db.execute(sql`UPDATE factory_executions SET journal_cursor=9007199254740992 WHERE attempt_id=${attempt.attemptId}`);
+    await expect(journal.evidence(attempt)).rejects.toThrow("Factory journal cursor is corrupt");
+    await db.execute(sql`UPDATE factory_executions SET journal_cursor=0 WHERE attempt_id=${attempt.attemptId}`);
   });
 
   test("out-of-order results cannot advance the cursor across an unfinished operation", async () => {

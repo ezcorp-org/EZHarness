@@ -18,6 +18,18 @@ import { FactoryCommandOutbox } from "./outbox";
 import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type FactoryRunKey } from "./records";
 
 interface LifecycleRow { factory_id: string; factory_version: string; definition_digest: string; grant_revision: string | number; revision: string | number; cancellation_epoch: string | number; status: FactoryRunDetails["status"]; deadline_ms: string | number; parameters_json: string; parameters_digest: string; output_json: string | null; error_json: string | null; created_ms: string | number; updated_ms: string | number }
+export interface FactoryRunFence {
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly executionEpoch: number;
+  readonly cancellationEpoch: number;
+  readonly grantRevision: number;
+  readonly revision: number;
+  readonly deadlineAtMs: number;
+  readonly definitionDigest: string;
+  readonly status: FactoryRunDetails["status"];
+}
 export interface FactoryRunLifecycleOptions {
   readonly definitions: FactoryDefinitions;
   readonly grants: FactoryGrants;
@@ -115,22 +127,29 @@ export class FactoryRunLifecycle {
   }
 
   readonly authorizeAdmissionInTransaction: FactoryBudgetAdmission = async (transaction, key) => {
+    await this.authorizeRunInTransaction(transaction, key);
+  };
+
+  /** Trusted service boundary: lock the durable run and recheck its live authority. */
+  async authorizeRunInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunFence> {
+    key = { projectId: key.projectId, runId: key.runId };
     const row = await this.row(transaction, key, true);
     const request = await this.records.readRunRequestInTransaction(transaction, key);
     const installation = rows<{ execution_epoch: number }>(await transaction.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id=${this.tenantId}`))[0];
     if (!installation || installation.execution_epoch !== request.executionEpoch) throw new FactoryRunLifecycleError("factory_run_fence_changed");
+    const fence = Object.freeze({ tenantId: this.tenantId, ...key, executionEpoch: request.executionEpoch, cancellationEpoch: Number(row.cancellation_epoch), grantRevision: Number(row.grant_revision), revision: Number(row.revision), deadlineAtMs: Number(row.deadline_ms), definitionDigest: row.definition_digest, status: row.status });
+    if (![fence.revision, fence.grantRevision, fence.deadlineAtMs].every(value => Number.isSafeInteger(value) && value > 0) || !Number.isSafeInteger(fence.cancellationEpoch) || fence.cancellationEpoch < 0 || fence.definitionDigest !== request.definitionDigest) throw new FactoryRunLifecycleError("factory_run_corrupt");
     if (!["queued", "running", "waiting"].includes(row.status) || Number(row.deadline_ms) <= this.now()) throw new FactoryRunLifecycleError("factory_run_stopped");
     const kind = request.principalKind ?? "user";
     await this.options.grants.authorizeInTransaction(transaction, { kind, id: request.principalId, authentication: kind === "user" ? "api-key" : "service" }, key.projectId, "factory.run", Number(row.grant_revision));
-  };
+    return fence;
+  }
 
-  readonly authorizeAttemptInTransaction = async (transaction: MigrationDb, authority: FactoryAttemptAuthority & { readonly cancellationEpoch: number }): Promise<void> => {
+  readonly authorizeAttemptInTransaction = async (transaction: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> => {
     authority = { ...authority, deadlineAt: new Date(authority.deadlineAt) };
     if (authority.tenantId !== this.tenantId) throw new FactoryRunLifecycleError("factory_scope_mismatch");
-    await this.authorizeAdmissionInTransaction(transaction, authority);
-    const row = await this.row(transaction, authority);
-    const request = await this.records.readRunRequestInTransaction(transaction, authority);
-    if (authority.cancellationEpoch !== Number(row.cancellation_epoch) || authority.executionEpoch !== request.executionEpoch || authority.grantRevision !== Number(row.grant_revision) || !Number.isSafeInteger(authority.deadlineAt.getTime()) || authority.deadlineAt.getTime() <= this.now() || authority.deadlineAt.getTime() > Number(row.deadline_ms)) throw new FactoryRunLifecycleError("factory_run_fence_changed");
+    const fence = await this.authorizeRunInTransaction(transaction, { projectId: authority.projectId, runId: authority.runId });
+    if (authority.cancellationEpoch !== fence.cancellationEpoch || authority.executionEpoch !== fence.executionEpoch || authority.grantRevision !== fence.grantRevision || !Number.isSafeInteger(authority.deadlineAt.getTime()) || authority.deadlineAt.getTime() <= this.now() || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new FactoryRunLifecycleError("factory_run_fence_changed");
   };
 
   private async row(transaction: MigrationDb, key: FactoryRunKey, lock = false): Promise<LifecycleRow> {

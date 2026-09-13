@@ -106,6 +106,12 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
   await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
+  const snapshot = await journal.evidence(attempt);
+  expect(snapshot.journalCursor).toBe(1);
+  expect(snapshot.operations.map(item => item.operationIndex)).toEqual([0, 1]);
+  await db.execute(sql`UPDATE factory_executions SET journal_cursor=9007199254740992 WHERE attempt_id=${attempt.attemptId}`);
+  await expect(journal.evidence(attempt)).rejects.toThrow("Factory journal cursor is corrupt");
+  await db.execute(sql`UPDATE factory_executions SET journal_cursor=1 WHERE attempt_id=${attempt.attemptId}`);
   await expect(journal.prepare({ ...attempt, cancellationEpoch: 1 }, operation(2))).rejects.toThrow("stale, cancelled, or expired");
 
   const second = operation(2);

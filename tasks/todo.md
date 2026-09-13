@@ -1008,3 +1008,13 @@ Additional integration check: model every new factory database table in schema.t
 - [x] Validate full types, lint and measured coverage before application wiring.
 
 Component review: 51 PGlite/store tests pass with 380 assertions. The same actual PostgreSQL suites pass 44 tests with 334 assertions. Run lifecycle104/104, locks7/7, budgets172/172, records140/140, mutations34/34, transport26/26 and the additive migration5/5 measured lines pass. All four type sections and focused lint pass. The canonical factory test set passes137/137; the real Temporal producer passes with all11 orchestrator sources at100%. This proves the component revision, not application boot, browser integration, GPU isolation or the full platform.
+
+## Factory integrated storage and runner review
+
+- [x] Integrate definition/grant API, runner authority, product models, C12 provisioning, pool service and credential refresher commits.
+- [x] Fix schema parity and shared transaction lock order; prove against real PostgreSQL.
+- [x] Fix the native journal cursor defect with one scoped durable snapshot.
+- [ ] Connect actual runtime services and run routes; finish artifact staging/receipt seams and protected assurance review fixes.
+- [ ] Verify empty-operation cancelled/failed runner outputs, local provisioning/pool canonical producers, full app regression and coverage after composition.
+
+Review: integration source and focused tests/types/lint pass; full platform gates remain open. The source worktree was frozen for every producer. Existing application data and original worktree remain untouched.

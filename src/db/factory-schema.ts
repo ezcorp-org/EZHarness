@@ -234,6 +234,7 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     sourceDigest: text("source_digest").notNull(),
     sourceJson: text("source_json").notNull(),
     requiredResourcesJson: text("required_resources_json").notNull().default("[]"),
+    requirementsComplete: boolean("requirements_complete").notNull().default(false),
     validationDiagnosticCount: integer("validation_diagnostic_count").notNull().default(1),
     archived: boolean("archived").notNull().default(false),
     createdAt: createdAtColumn(),
@@ -243,6 +244,7 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
     check("factory_drafts_revision_check", sql`${table.revision} > 0`),
     check("factory_drafts_validation_diagnostic_count_check", sql`${table.validationDiagnosticCount} >= 0`),
+    check("factory_drafts_required_resources_bytes", sql`octet_length(${table.requiredResourcesJson}) <= 65536`),
   ]);
 
   const factoryVersions = pgTable("factory_versions", {
@@ -260,6 +262,34 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     foreignKey({ columns: [table.tenantId, table.projectId, table.factoryId], foreignColumns: [factoryDrafts.tenantId, factoryDrafts.projectId, factoryDrafts.factoryId] }).onDelete("restrict"),
     check("factory_versions_draft_revision_check", sql`${table.draftRevision} > 0`),
     check("factory_versions_compiled_bytes_check", sql`${table.compiledBytes} > 0`),
+  ]);
+
+  const factoryRunLifecycle = pgTable("factory_run_lifecycle", {
+    ...tenantProjectRunColumns(),
+    factoryId: text("factory_id").notNull(),
+    factoryVersion: text("factory_version").notNull(),
+    definitionDigest: text("definition_digest").notNull(),
+    grantRevision: bigint("grant_revision", { mode: "number" }).notNull(),
+    revision: bigint("revision", { mode: "number" }).notNull().default(1),
+    cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull().default(0),
+    status: text("status").notNull(),
+    deadlineMs: bigint("deadline_ms", { mode: "number" }).notNull(),
+    parametersJson: text("parameters_json").notNull(),
+    parametersDigest: text("parameters_digest").notNull(),
+    outputJson: text("output_json"),
+    errorJson: text("error_json"),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.factoryId, table.factoryVersion], foreignColumns: [factoryVersions.tenantId, factoryVersions.projectId, factoryVersions.factoryId, factoryVersions.version] }).onDelete("restrict"),
+    index("idx_factory_run_lifecycle_list").on(table.tenantId, table.projectId, table.factoryId, table.runId),
+    check("factory_run_lifecycle_grant_revision_check", sql`${table.grantRevision} > 0`),
+    check("factory_run_lifecycle_revision_check", sql`${table.revision} > 0`),
+    check("factory_run_lifecycle_cancellation_epoch_check", sql`${table.cancellationEpoch} >= 0`),
+    check("factory_run_lifecycle_deadline_ms_check", sql`${table.deadlineMs} > 0`),
+    check("factory_run_lifecycle_status_check", sql`${table.status} IN ('queued','running','waiting','succeeded','failed','cancelling','cancelled','uncertain')`),
   ]);
 
   const factoryExecutions = pgTable("factory_executions", {
@@ -336,6 +366,7 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     factoryMutationReceipts,
     factoryDrafts,
     factoryVersions,
+    factoryRunLifecycle,
     factoryExecutions,
     factoryExecutionOperationCursors,
     factoryExecutionOperations,

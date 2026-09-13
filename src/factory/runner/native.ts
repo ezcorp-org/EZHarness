@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { digestObject as digest } from "../../extensions/v4/blobs";
 import type { AgentRun } from "../../types";
 import type { FactoryArtifactReference, FactoryCheckpointReference, FactoryRunnerOperationResult, FactoryRunnerRequest, FactoryRunnerResult, FactoryUsage } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
@@ -8,9 +9,7 @@ import type { FactoryExecutionContext } from "../../runtime/factory-execution";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority } from "../executions";
 
 export interface NativeFactoryJournal {
-  operations(request: FactoryRunnerRequest): Promise<readonly FactoryRunnerOperationResult[]>;
-  journalCursor(request: FactoryRunnerRequest): Promise<number>;
-  usage(request: FactoryRunnerRequest): Promise<FactoryUsage>;
+  snapshot(request: FactoryRunnerRequest): Promise<{ readonly operations: readonly FactoryRunnerOperationResult[]; readonly journalCursor: number; readonly usage: FactoryUsage }>;
 }
 
 export interface NativeFactoryArtifacts {
@@ -38,13 +37,12 @@ export function nativeFactoryJournal(journal: FactoryExecutionJournal): NativeFa
     deadlineAt: new Date(request.authority.deadlineAtMs),
   });
   return {
-    async operations(request) {
-      const operations = (await journal.operations(authority(request))) as FactoryRunnerOperationResult[];
-      requireValid(validateFactoryRunnerResult({ schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: -1, operations }), "Durable runner operations");
-      return operations;
+    async snapshot(request) {
+      const evidence = await journal.evidence(authority(request));
+      const operations = evidence.operations as FactoryRunnerOperationResult[];
+      requireValid(validateFactoryRunnerResult({ schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: evidence.journalCursor, operations }), "Durable runner operations");
+      return { operations, journalCursor: evidence.journalCursor, usage: operationUsage(operations) };
     },
-    async journalCursor(request) { return (await journal.status(authority(request))).journalCursor; },
-    async usage(request) { return operationUsage(await journal.operations(authority(request)) as FactoryRunnerOperationResult[]); },
   };
 }
 
@@ -66,7 +64,7 @@ function requireValid(result: { ok: boolean; issues?: readonly { code: string; m
  */
 export async function runNativeFactoryRunner(value: unknown, options: NativeFactoryRunnerOptions): Promise<FactoryRunnerResult> {
   requireValid(validateFactoryRunnerRequest(value), "Factory runner request");
-  const request = value as FactoryRunnerRequest;
+  const request = JSON.parse(canonicalJson(value)) as FactoryRunnerRequest;
   const execution = options.execution(request);
   if (execution.attempt.requestDigest !== factoryRunnerRequestDigest(request)
     || execution.attempt.attemptToken !== request.broker.attemptToken
@@ -79,7 +77,7 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
     throw new Error("Factory execution does not match the signed runner request.");
   }
   const run = await options.executor.executeFactoryAttempt({ ...options.conversation(request), execution });
-  const [journalCursor, operations, usage] = await Promise.all([options.journal.journalCursor(request), options.journal.operations(request), options.journal.usage(request)]);
+  const { journalCursor, operations, usage } = await options.journal.snapshot(request);
   if (run.status === "cancelled") {
     const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor, operations: [...operations], usage };
     requireValid(validateFactoryRunnerResult(result), "Factory runner result");
@@ -93,19 +91,17 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
     return result;
   }
   const [output, workspaceCheckpoint] = await Promise.all([options.artifacts.output(request, run), options.artifacts.checkpoint(request, run)]);
+  // Agent output contains optional undefined fields; its wire form omits them.
+  const outputValue = JSON.parse(JSON.stringify(run.result?.output ?? null));
   const result: FactoryRunnerResult = {
     schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor,
-    operations: [...operations], resultDigest: digest(run.result?.output ?? null), output, usage, workspaceCheckpoint,
+    operations: [...operations], resultDigest: digest(outputValue), output, usage, workspaceCheckpoint,
   };
   requireValid(validateFactoryRunnerResult(result), "Factory runner result");
   return result;
 }
 
 export type { FactoryUsage };
-
-function digest(value: unknown): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
 
 function operationUsage(operations: readonly FactoryRunnerOperationResult[]): FactoryUsage {
   const usage = operations.map(operation => operation.usage).filter((value): value is FactoryUsage => value !== undefined);
