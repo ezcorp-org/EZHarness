@@ -1,5 +1,6 @@
 import { FACTORY_LIMITS, type CompiledFactory, type JsonValue } from "@ezcorp/factory-sdk/types";
 import { firstValidationIssue, validateCompiledFactory } from "@ezcorp/factory-sdk/validation";
+import { decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { MAX_ACTIVITY_PAYLOAD_BYTES, MAX_COMMAND_BATCH_BYTES, MAX_DEFINITION_PAGES, MAX_PAGE_BYTES } from "./contracts.ts";
 import type {
@@ -81,9 +82,9 @@ export function validateManifestPage(page: FactoryManifestPage): void {
 }
 
 export function validateLoadedDefinitionPage(page: FactoryDefinitionPage, reference: FactoryDefinitionPageReference): void {
-  if (typeof page !== "object" || page === null || typeof page.content !== "string") throw new Error("loaded factory definition page is invalid");
+  if (typeof page !== "object" || page === null || typeof page.contentBase64 !== "string") throw new Error("loaded factory definition page is invalid");
   if (page.index !== reference.index || page.objectId !== reference.objectId || page.digest !== reference.digest) throw new Error("loaded factory definition page identity does not match its immutable reference");
-  if (new TextEncoder().encode(page.content).byteLength !== reference.encodedBytes) throw new Error("loaded factory definition page byte count does not match its immutable reference");
+  if (decodeFactoryPageBase64(page.contentBase64).byteLength !== reference.encodedBytes) throw new Error("loaded factory definition page byte count does not match its immutable reference");
 }
 
 export function validateWorkflowInput(input: FactoryWorkflowInput): void {

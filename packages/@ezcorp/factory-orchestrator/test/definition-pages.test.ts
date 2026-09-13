@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { loadCompiledFactory } from "../src/definition-pages.ts";
 
 const digest = (character) => `sha256:${character.repeat(64)}`;
@@ -21,7 +22,7 @@ function fixture() {
   ]);
   const reader = {
     loadManifestPage: async ({ page }) => structuredClone(manifests.get(page.objectId)),
-    loadDefinitionPage: async ({ page }) => ({ index: page.index, objectId: page.objectId, digest: page.digest, content: chunks[page.index] }),
+    loadDefinitionPage: async ({ page }) => ({ index: page.index, objectId: page.objectId, digest: page.digest, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(chunks[page.index])) }),
   };
   return { chunks, content, definitionDigest, manifests, next, pages, reader, root, source };
 }
@@ -75,7 +76,7 @@ describe("paged compiled factory loading", () => {
     await assert.rejects(loadCompiledFactory(identity, byteDrift.source, byteDrift.reader), /byte count/);
 
     const invalid = fixture();
-    invalid.reader.loadDefinitionPage = async ({ page }) => ({ index: page.index, objectId: page.objectId, digest: page.digest, content: page.index === 0 ? "{".repeat(page.encodedBytes) : "x".repeat(page.encodedBytes) });
+    invalid.reader.loadDefinitionPage = async ({ page }) => ({ index: page.index, objectId: page.objectId, digest: page.digest, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(page.index === 0 ? "{".repeat(page.encodedBytes) : "x".repeat(page.encodedBytes))) });
     await assert.rejects(loadCompiledFactory(identity, invalid.source, invalid.reader), /valid JSON/);
 
     for (const parsed of [null, [], { digest: digest("f") }]) {
@@ -86,7 +87,7 @@ describe("paged compiled factory loading", () => {
       wrong.manifests.get(wrong.root.objectId).definitionEncodedBytes = page.encodedBytes;
       wrong.manifests.get(wrong.root.objectId).pages = [page];
       wrong.manifests.get(wrong.root.objectId).next = undefined;
-      wrong.reader.loadDefinitionPage = async () => ({ index: 0, objectId: page.objectId, digest: page.digest, content });
+      wrong.reader.loadDefinitionPage = async () => ({ index: 0, objectId: page.objectId, digest: page.digest, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(content)) });
       await assert.rejects(loadCompiledFactory(identity, wrong.source, wrong.reader), /digest/);
     }
   });

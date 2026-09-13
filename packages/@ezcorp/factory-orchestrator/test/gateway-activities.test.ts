@@ -9,6 +9,7 @@ import type { TLSSocket } from "node:tls";
 import { after, before, describe, it } from "node:test";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { createGatewayFactoryActivities, type GatewayTlsSecretPaths } from "../src/gateway-activities.ts";
+import { createGatewayFactoryCommandQueue } from "../src/queue-client.ts";
 
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 let directory = "";
@@ -18,6 +19,7 @@ let server: Server;
 let mode = "normal";
 let expectedClientCn = "factory-orchestrator";
 let expectedToken = "gateway-token";
+let queueClaimBody: unknown;
 let paths: GatewayTlsSecretPaths;
 const calls = [];
 const definitionDigest = sha256("compiled-definition");
@@ -35,7 +37,9 @@ const transitionManifestValue = { schemaVersion: "factory.transition-manifest.v1
 const transitionManifestBody = Buffer.from(JSON.stringify(transitionManifestValue));
 const finalizedTransition = { manifest: { objectId: "transition-manifest", digest: sha256(transitionManifestBody), encodedBytes: transitionManifestBody.byteLength }, eventHash: transitionManifestValue.eventHash };
 const transitionManifest = { ...transitionManifestValue, self: finalizedTransition.manifest };
-const loadedTransitionPage = { ...transitionPage, content: "page" };
+const loadedTransitionPage = { ...transitionPage, contentBase64: Buffer.from("page").toString("base64") };
+const adversarialPageBody = Buffer.from(`${"\\\"".repeat(16_384)}`);
+const adversarialPage = { index: 0, objectId: "adversarial-page", digest: sha256(adversarialPageBody), encodedBytes: adversarialPageBody.byteLength };
 
 function openssl(...args) {
   execFileSync("openssl", args, { cwd: directory, stdio: "ignore" });
@@ -85,15 +89,23 @@ before(async () => {
     const peer = (request.socket as TLSSocket).getPeerCertificate();
     if (peer.subject?.CN !== expectedClientCn) { response.writeHead(403).end(); return; }
     if (request.headers.authorization !== `Bearer ${expectedToken}`) { response.writeHead(401).end(); return; }
-    if (request.url === "/internal/factory/v1/definitions/resolve") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-resolve" ? { ...source, definitionDigest: sha256("wrong") } : source));
+    if (request.url === "/internal/factory/v1/outbox/claim") queueClaimBody === undefined ? response.writeHead(204).end() : response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(queueClaimBody));
+    else if (request.url === "/internal/factory/v1/outbox/settle") response.writeHead(204).end();
+    else if (request.url === "/internal/factory/v1/outbox/confirm-inbox") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ confirmed: mode !== "wrong-confirmation" ? true : "yes" }));
+    else if (request.url === "/internal/factory/v1/definitions/resolve") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-resolve" ? { ...source, definitionDigest: sha256("wrong") } : source));
     else if (request.url === "/internal/factory/v1/definitions/manifest") response.writeHead(200, { "content-type": "application/json" }).end(manifestBody);
-    else if (request.url === "/internal/factory/v1/definitions/page") response.writeHead(200, { "content-type": "application/json" }).end(definitionBody);
+    else if (request.url === "/internal/factory/v1/definitions/page") response.writeHead(200, { "content-type": "application/octet-stream" }).end(mode === "adversarial-page" ? adversarialPageBody : definitionBody);
     else if (request.url === "/internal/factory/v1/definitions/execution-manifest") response.writeHead(200, { "content-type": "application/json" }).end(executionManifestBody);
     else if (request.url === "/internal/factory/v1/definitions/partition") response.writeHead(200, { "content-type": "application/json" }).end(partitionBody);
-    else if (request.url === "/internal/factory/v1/transitions/1/pages/0") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-transition-page" ? { ...transitionPage, index: 1 } : transitionPage));
+    else if (request.url === "/internal/factory/v1/transitions/1/pages/0") {
+      const value = JSON.parse(body.toString("utf8"));
+      const raw = Buffer.from(value.contentBase64, "base64");
+      const page = { index: value.index, objectId: mode === "adversarial-page" ? "adversarial-page" : transitionPage.objectId, digest: sha256(raw), encodedBytes: raw.byteLength };
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-transition-page" ? { ...page, index: 1 } : page));
+    }
     else if (request.url === "/internal/factory/v1/transitions/1/finalize") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-transition-finalize" ? { ...finalizedTransition, eventHash: "wrong" } : finalizedTransition));
     else if (request.url === "/internal/factory/v1/transitions/1/manifest") response.writeHead(200, { "content-type": "application/json" }).end(transitionManifestBody);
-    else if (request.url === "/internal/factory/v1/transitions/1/page") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(loadedTransitionPage));
+    else if (request.url === "/internal/factory/v1/transitions/1/page") response.writeHead(200, { "content-type": "application/octet-stream" }).end(mode === "adversarial-page" ? adversarialPageBody : "page");
     else if (request.url === "/internal/factory/v1/transitions") response.writeHead(204).end();
     else if (request.url?.includes("/cancel")) response.writeHead(204).end();
     else response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ kind: "admission-result", id: "event", atMs: 1, nodeId: "node", commandId: "command", candidateGeneration: 0, granted: true }));
@@ -122,10 +134,10 @@ describe("authenticated factory gateway activities", () => {
     const environment = new MockActivityEnvironment();
     assert.deepEqual(await activity(environment, activities.resolveFactory, { ...identity, factory: { id: "child", version: "1", digest: definitionDigest } }), source);
     assert.deepEqual(await activity(environment, activities.loadManifestPage, { ...identity, definition: source, page: manifest }), { ...JSON.parse(manifestBody), self: manifest });
-    assert.deepEqual(await activity(environment, activities.loadDefinitionPage, { ...identity, definitionDigest, page: definitionPage }), { index: 0, objectId: definitionPage.objectId, digest: definitionPage.digest, content: definitionBody.toString() });
+    assert.deepEqual(await activity(environment, activities.loadDefinitionPage, { ...identity, definitionDigest, page: definitionPage }), { index: 0, objectId: definitionPage.objectId, digest: definitionPage.digest, contentBase64: definitionBody.toString("base64") });
     assert.deepEqual(await activity(environment, activities.loadExecutionManifest, { ...identity, definitionDigest, manifest: executionManifest }), JSON.parse(executionManifestBody));
     assert.deepEqual(await activity(environment, activities.loadPartitionArtifact, { ...identity, definitionDigest, partition }), JSON.parse(partitionBody));
-    assert.deepEqual(await activity(environment, activities.stageTransitionPage, { ...identity, sourceSequence: 1, index: 0, content: "page", encodedBytes: 4 }), transitionPage);
+    assert.deepEqual(await activity(environment, activities.stageTransitionPage, { ...identity, sourceSequence: 1, index: 0, contentBase64: Buffer.from("page").toString("base64"), encodedBytes: 4 }), transitionPage);
     assert.deepEqual(await activity(environment, activities.finalizeTransitionArtifact, { ...identity, sourceSequence: 1, encodedBytes: 4, eventId: "start", pages: [transitionPage] }), finalizedTransition);
     assert.deepEqual(await activity(environment, activities.loadTransitionManifest, { ...identity, sourceSequence: 1, manifest: finalizedTransition.manifest }), transitionManifest);
     assert.deepEqual(await activity(environment, activities.loadTransitionPage, { ...identity, sourceSequence: 1, page: transitionPage }), loadedTransitionPage);
@@ -174,6 +186,20 @@ describe("authenticated factory gateway activities", () => {
     assert.equal(calls.at(-1)?.authorization, "Bearer gateway-token-rotated");
   });
 
+  it("keeps a fully escaped 32 KiB page below the 64 KiB activity boundary", async () => {
+    mode = "adversarial-page";
+    const activities = await createGatewayFactoryActivities({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
+    const environment = new MockActivityEnvironment();
+    const loaded = await activity(environment, activities.loadDefinitionPage, { ...identity, definitionDigest, page: adversarialPage });
+    assert.deepEqual(Buffer.from(loaded.contentBase64, "base64"), adversarialPageBody);
+    assert.ok(Buffer.byteLength(JSON.stringify(loaded)) < 64 * 1024);
+    const request = { ...identity, sourceSequence: 1, index: 0, contentBase64: adversarialPageBody.toString("base64"), encodedBytes: adversarialPageBody.byteLength };
+    assert.ok(Buffer.byteLength(JSON.stringify(request)) < 64 * 1024);
+    assert.deepEqual(await activity(environment, activities.stageTransitionPage, request), adversarialPage);
+    assert.deepEqual(await activity(environment, activities.loadTransitionPage, { ...identity, sourceSequence: 1, page: adversarialPage }), { ...adversarialPage, contentBase64: adversarialPageBody.toString("base64") });
+    mode = "normal";
+  });
+
   it("rejects no client certificate, an untrusted CA, and a hostname mismatch", async () => {
     mode = "normal";
     const environment = new MockActivityEnvironment();
@@ -202,7 +228,7 @@ describe("authenticated factory gateway activities", () => {
     await assert.rejects(activity(new MockActivityEnvironment(), activities.loadExecutionManifest, { ...identity, definitionDigest, manifest: { ...executionManifest, digest: sha256("wrong") } }), /immutable reference/);
     await assert.rejects(activity(new MockActivityEnvironment(), activities.loadPartitionArtifact, { ...identity, definitionDigest, partition: { ...partition, digest: sha256("wrong") } }), /immutable reference/);
     mode = "wrong-transition-page";
-    await assert.rejects(activity(new MockActivityEnvironment(), activities.stageTransitionPage, { ...identity, sourceSequence: 1, index: 0, content: "page", encodedBytes: 4 }), /mismatched/);
+    await assert.rejects(activity(new MockActivityEnvironment(), activities.stageTransitionPage, { ...identity, sourceSequence: 1, index: 0, contentBase64: Buffer.from("page").toString("base64"), encodedBytes: 4 }), /mismatched/);
     mode = "wrong-transition-finalize";
     await assert.rejects(activity(new MockActivityEnvironment(), activities.finalizeTransitionArtifact, { ...identity, sourceSequence: 1, encodedBytes: 4, eventId: "start", pages: [transitionPage] }), /event digest/);
     mode = "large";
@@ -216,5 +242,60 @@ describe("authenticated factory gateway activities", () => {
     cancelled.cancel();
     await assert.rejects(pending, /abort|cancel/i);
     mode = "normal";
+  });
+});
+
+describe("authenticated factory command queue", () => {
+  const command = { commandId: "command", requestId: "command", tenantId: "tenant", projectId: "project", logicalRunId: "run", workflowId: "tenant/run", kind: "decision", interpreterId: "root", body: {} } as const;
+
+  it("claims, settles, and confirms through the installation-scoped private routes", async () => {
+    mode = "normal";
+    expectedClientCn = "factory-orchestrator";
+    expectedToken = "gateway-token";
+    queueClaimBody = { claimToken: "claim-token", command };
+    calls.length = 0;
+    const queue = await createGatewayFactoryCommandQueue({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
+    const claim = await queue.claim();
+    assert.deepEqual(claim, queueClaimBody);
+    assert.ok(claim);
+    await queue.settle(claim, "outcome_unknown", "TEMPORAL_UNAVAILABLE");
+    assert.equal(await queue.confirmInboxIdentity(command), true);
+    assert.deepEqual(calls.map((call) => call.path), [
+      "/internal/factory/v1/outbox/claim", "/internal/factory/v1/outbox/settle", "/internal/factory/v1/outbox/confirm-inbox",
+    ]);
+    assert.deepEqual(JSON.parse(calls[1].body.toString()), { claim, outcome: "outcome_unknown", errorCode: "TEMPORAL_UNAVAILABLE" });
+    await queue.settle(claim, "delivered");
+    assert.deepEqual(JSON.parse(calls.at(-1).body.toString()), { claim, outcome: "delivered" });
+  });
+
+  it("carries a legal near-64 KiB command inside the larger private envelope", async () => {
+    mode = "normal";
+    const queue = await createGatewayFactoryCommandQueue({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
+    const fixedBytes = Buffer.byteLength(JSON.stringify({ ...command, body: { value: "" } }));
+    const nearLimit = { ...command, body: { value: "x".repeat(64 * 1024 - fixedBytes) } };
+    assert.equal(Buffer.byteLength(JSON.stringify(nearLimit)), 64 * 1024);
+    queueClaimBody = { claimToken: "00000000-0000-4000-8000-000000000000", command: nearLimit };
+    const claim = await queue.claim();
+    assert.ok(claim);
+    await queue.settle(claim, "delivered");
+    assert.ok(Buffer.byteLength(calls.at(-1).body) > 64 * 1024);
+    queueClaimBody = undefined;
+  });
+
+  it("returns an empty claim and rejects malformed command or confirmation responses", async () => {
+    mode = "normal";
+    queueClaimBody = undefined;
+    const queue = await createGatewayFactoryCommandQueue({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
+    assert.equal(await queue.claim(), null);
+    const invalid = [null, {}, { claimToken: "", command }, { claimToken: "x".repeat(513), command }, { claimToken: "claim", command: null }, { claimToken: "claim", command: { ...command, commandId: "" } }, { claimToken: "claim", command: { ...command, kind: "wrong" } }, { claimToken: "claim", command: { ...command, interpreterId: "" } }, { claimToken: "claim", command: { ...command, body: undefined } }, { claimToken: "claim", command: { ...command, body: "x".repeat(65_536) } }];
+    for (queueClaimBody of invalid) await assert.rejects(queue.claim(), /invalid|65536 bytes/);
+    mode = "invalid-json";
+    await assert.rejects(queue.claim(), /invalid factory claim JSON/);
+    mode = "wrong-confirmation";
+    await assert.rejects(queue.confirmInboxIdentity(command), /invalid inbox confirmation/);
+    await assert.rejects(queue.settle({ claimToken: "x".repeat(4_000), command }, "outcome_unknown", "x".repeat(513)), /invalid factory settlement error code/);
+    await assert.rejects(queue.settle({ claimToken: "\\".repeat(4_000), command: { ...command, body: { value: "x".repeat(64 * 1024) } } }, "outcome_unknown"), /settlement exceeds/);
+    mode = "normal";
+    queueClaimBody = undefined;
   });
 });

@@ -29,27 +29,30 @@ export interface GatewayTlsSecretPaths {
   readonly serviceTokenPath: string;
 }
 
-export interface GatewayActivitiesOptions {
+export interface GatewayTransportOptions {
   readonly baseUrl: string;
   readonly tls: GatewayTlsSecretPaths;
   readonly serverName?: string;
   readonly requestTimeoutMs?: number;
+}
+
+export interface GatewayActivitiesOptions extends GatewayTransportOptions {
   readonly heartbeatIntervalMs?: number;
 }
 
-interface GatewayResponse {
+export interface GatewayResponse {
   readonly statusCode: number;
   readonly headers: IncomingHttpHeaders;
   readonly body: Buffer;
 }
 
-interface GatewayTransport {
-  request(method: "GET" | "POST" | "PUT", path: string, body: unknown, responseLimit: number, signal: AbortSignal): Promise<GatewayResponse>;
+export interface GatewayTransport {
+  request(method: "GET" | "POST" | "PUT", path: string, body?: unknown, responseLimit?: number, signal?: AbortSignal): Promise<GatewayResponse>;
 }
 
-function encoded(value: unknown): Buffer {
+function encoded(value: unknown, limit: number): Buffer {
   const body = Buffer.from(JSON.stringify(value));
-  if (body.byteLength > MAX_ACTIVITY_PAYLOAD_BYTES) throw new Error(`factory gateway request exceeds ${MAX_ACTIVITY_PAYLOAD_BYTES} bytes`);
+  if (body.byteLength > limit) throw new Error(`factory gateway request exceeds ${limit} bytes`);
   return body;
 }
 
@@ -88,8 +91,8 @@ function createTransport(
   timeoutMs: number,
 ): GatewayTransport {
   return {
-    request(method, path, value, responseLimit, signal) {
-      const body = value === undefined ? undefined : encoded(value);
+    request(method, path, value, responseLimit = MAX_ACTIVITY_PAYLOAD_BYTES, signal) {
+      const body = value === undefined ? undefined : encoded(value, responseLimit);
       return new Promise((resolve, reject) => {
         const url = new URL(path, endpoint);
         const options: RequestOptions = {
@@ -99,7 +102,7 @@ function createTransport(
           key: credentials.privateKey,
           rejectUnauthorized: true,
           servername: serverName,
-          signal,
+          ...(signal ? { signal } : {}),
           headers: {
             accept: "application/json",
             authorization: `Bearer ${credentials.token}`,
@@ -137,17 +140,27 @@ async function loadCredentials(paths: GatewayTlsSecretPaths): Promise<{ ca: Buff
   return { ca, certificate, privateKey, token };
 }
 
-export async function createGatewayFactoryActivities(options: GatewayActivitiesOptions): Promise<FactoryActivities> {
+/** Shared private HTTPS client. It reloads every credential before each request. */
+export async function createGatewayTransport(options: GatewayTransportOptions): Promise<GatewayTransport> {
   const endpoint = new URL(options.baseUrl);
   if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error("factory gateway requires a plain private HTTPS origin");
   await loadCredentials(options.tls);
+  return {
+    async request(method, path, body, responseLimit = MAX_ACTIVITY_PAYLOAD_BYTES, signal): Promise<GatewayResponse> {
+      const credentials = await loadCredentials(options.tls);
+      const transport = createTransport(endpoint, credentials, options.serverName ?? endpoint.hostname, options.requestTimeoutMs ?? 30_000);
+      return requireSuccess(await transport.request(method, path, body, responseLimit, signal));
+    },
+  };
+}
+
+export async function createGatewayFactoryActivities(options: GatewayActivitiesOptions): Promise<FactoryActivities> {
+  const transport = await createGatewayTransport(options);
   const request = async (method: "GET" | "POST" | "PUT", path: string, body?: unknown, limit = MAX_ACTIVITY_PAYLOAD_BYTES): Promise<GatewayResponse> => {
     const context = Context.current();
     const heartbeat = setInterval(() => context.heartbeat(), options.heartbeatIntervalMs ?? 5_000);
     try {
-      const credentials = await loadCredentials(options.tls);
-      const transport = createTransport(endpoint, credentials, options.serverName ?? endpoint.hostname, options.requestTimeoutMs ?? 30_000);
-      return requireSuccess(await transport.request(method, path, body, limit, context.cancellationSignal));
+      return await transport.request(method, path, body, limit, context.cancellationSignal);
     } finally {
       clearInterval(heartbeat);
     }
@@ -197,7 +210,7 @@ export async function createGatewayFactoryActivities(options: GatewayActivitiesO
     async loadDefinitionPage(value): Promise<FactoryDefinitionPage> {
       const response = await request("POST", "/internal/factory/v1/definitions/page", value, MAX_PAGE_BYTES);
       assertObjectBytes(response.body, value.page);
-      return { index: value.page.index, objectId: value.page.objectId, digest: value.page.digest, content: response.body.toString("utf8") };
+      return { index: value.page.index, objectId: value.page.objectId, digest: value.page.digest, contentBase64: response.body.toString("base64") };
     },
     async loadExecutionManifest(value): Promise<CompiledExecutionManifest> {
       const response = await request("POST", "/internal/factory/v1/definitions/execution-manifest", value, MAX_PAGE_BYTES);
@@ -215,8 +228,9 @@ export async function createGatewayFactoryActivities(options: GatewayActivitiesO
       return { ...parseJson<Omit<FactoryTransitionManifest, "self">>(response), self: value.manifest };
     },
     async loadTransitionPage(value): Promise<FactoryTransitionPage> {
-      const response = await request("POST", `/internal/factory/v1/transitions/${value.sourceSequence}/page`, value);
-      return parseJson<FactoryTransitionPage>(response);
+      const response = await request("POST", `/internal/factory/v1/transitions/${value.sourceSequence}/page`, value, MAX_PAGE_BYTES);
+      assertObjectBytes(response.body, value.page);
+      return { ...value.page, contentBase64: response.body.toString("base64") };
     },
   };
 }

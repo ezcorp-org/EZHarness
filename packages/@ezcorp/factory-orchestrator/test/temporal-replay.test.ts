@@ -11,6 +11,7 @@ import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
 import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact } from "@ezcorp/factory-sdk";
+import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
 import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import type { FactoryWorkflowResult } from "../src/contracts.ts";
@@ -86,8 +87,9 @@ function definitionActivities(...factories) {
   return {
     stageTransitionPage: async (request) => {
       const key = `${request.logicalRunId}:${request.interpreterId}:${request.sourceSequence}:${request.index}`;
-      transitionPages.set(key, request.content);
-      return { index: request.index, objectId: `transition:${key}`, digest: hash(request.content), encodedBytes: request.encodedBytes };
+      const content = Buffer.from(request.contentBase64, "base64").toString("utf8");
+      transitionPages.set(key, content);
+      return { index: request.index, objectId: `transition:${key}`, digest: hash(content), encodedBytes: request.encodedBytes };
     },
     finalizeTransitionArtifact: async (request) => {
       const content = request.pages.map((page) => transitionPages.get(`${request.logicalRunId}:${request.interpreterId}:${request.sourceSequence}:${page.index}`)).join("");
@@ -114,7 +116,7 @@ function definitionActivities(...factories) {
     loadDefinitionPage: async ({ definitionDigest, page }) => {
       const item = find(definitionDigest);
       if (!item) throw new Error("unknown definition page");
-      return { index: page.index, objectId: page.objectId, digest: page.digest, content: item.content };
+      return { index: page.index, objectId: page.objectId, digest: page.digest, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(item.content)) };
     },
     loadExecutionManifest: async ({ definitionDigest }) => {
       const item = find(definitionDigest);
@@ -134,7 +136,7 @@ function definitionActivities(...factories) {
     loadTransitionPage: async ({ logicalRunId, interpreterId, sourceSequence, page }) => {
       const content = transitionPages.get(`${logicalRunId}:${interpreterId}:${sourceSequence}:${page.index}`);
       if (content === undefined) throw new Error("unknown transition page");
-      return { ...page, content };
+      return { ...page, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(content)) };
     },
   };
 }

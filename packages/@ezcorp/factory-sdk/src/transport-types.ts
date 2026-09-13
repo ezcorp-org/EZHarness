@@ -1,5 +1,10 @@
 import type { JsonValue } from "./types.js";
 
+/** A command is also a Temporal signal or start payload, so it keeps the C08 wire bound. */
+export const FACTORY_TRANSPORT_COMMAND_BYTES_LIMIT = 64 * 1024;
+/** Private HTTP adds a claim token and settlement metadata outside the Temporal payload. */
+export const MAX_TRANSPORT_ENVELOPE_BYTES = FACTORY_TRANSPORT_COMMAND_BYTES_LIMIT + 4 * 1024;
+
 /** Pure durable command contract shared by Bun producers and the Node dispatcher. */
 export interface FactoryTransportCommand {
   readonly commandId: string;

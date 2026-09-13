@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, it } from "node:test";
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
+import { decodeFactoryPageBase64, encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { loadTransitionArtifact, persistTransition, splitTransitionContent } from "../src/transition-pages.ts";
 
 const digest = (content: string) => `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -23,7 +24,7 @@ function storedTransition(overrides = {}) {
   const manifest = { objectId: "transition-manifest", digest: digest(manifestContent), encodedBytes: Buffer.byteLength(manifestContent) };
   const reader = {
     async loadTransitionManifest() { return { ...manifestValue, self: manifest }; },
-    async loadTransitionPage({ page }) { return { ...page, content: parts[page.index] }; },
+    async loadTransitionPage({ page }) { return { ...page, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(parts[page.index])) }; },
     ...overrides,
   };
   return { artifact, content, manifest, manifestValue, pages, parts, reader };
@@ -36,8 +37,9 @@ function writer(overrides = {}) {
     contents,
     records,
     async stageTransitionPage(request) {
-      contents[request.index] = request.content;
-      return { index: request.index, objectId: `page-${request.index}`, digest: digest(request.content), encodedBytes: request.encodedBytes };
+      const content = new TextDecoder().decode(decodeFactoryPageBase64(request.contentBase64));
+      contents[request.index] = content;
+      return { index: request.index, objectId: `page-${request.index}`, digest: digest(content), encodedBytes: request.encodedBytes };
     },
     async finalizeTransitionArtifact(request) {
       const artifact = JSON.parse(contents.join(""));
@@ -116,17 +118,18 @@ describe("transition paging", () => {
   it("rejects altered page identity, bytes, digest, total size, JSON, canonical form, scope, and event", async () => {
     const stored = storedTransition();
     const readWith = (page) => ({ ...stored.reader, async loadTransitionPage() { return page; } });
-    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], index: 1, content: stored.parts[0] })), /staged content/);
-    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], objectId: "other", content: stored.parts[0] })), /identity/);
-    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], content: `${stored.parts[0]}x` })), /bytes/);
+    const encodedPart = encodeFactoryPageBase64(new TextEncoder().encode(stored.parts[0]));
+    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], index: 1, contentBase64: encodedPart })), /staged content/);
+    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], objectId: "other", contentBase64: encodedPart })), /identity/);
+    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(`${stored.parts[0]}x`)) })), /bytes/);
     const sameLengthMutation = `${stored.parts[0].slice(0, -1)} `;
-    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], content: sameLengthMutation })), /bytes/);
+    await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, readWith({ ...stored.pages[0], contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(sameLengthMutation)) })), /bytes/);
     const wrongTotal = { ...stored.reader, async loadTransitionManifest() { return { ...stored.manifestValue, self: stored.manifest, encodedBytes: stored.manifestValue.encodedBytes + 1 }; } };
     await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, wrongTotal), /byte count does not match/);
     const replacement = (content) => {
       const page = { index: 0, objectId: "replacement", digest: digest(content), encodedBytes: Buffer.byteLength(content) };
       const manifest = { ...stored.manifestValue, self: stored.manifest, encodedBytes: page.encodedBytes, pages: [page] };
-      return { manifest, reader: { async loadTransitionManifest() { return manifest; }, async loadTransitionPage() { return { ...page, content }; } } };
+      return { manifest, reader: { async loadTransitionManifest() { return manifest; }, async loadTransitionPage() { return { ...page, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode(content)) }; } } };
     };
     const invalid = replacement("{");
     await assert.rejects(loadTransitionArtifact(identity, 9, stored.manifest, invalid.reader), /valid JSON/);

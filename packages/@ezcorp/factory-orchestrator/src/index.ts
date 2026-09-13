@@ -4,6 +4,7 @@ export * from "./dispatcher.ts";
 export * from "./gateway-activities.ts";
 export * from "./inbox.ts";
 export * from "./partition-plan.ts";
+export * from "./queue-client.ts";
 export * from "./transition-pages.ts";
 export * from "./validation.ts";
 export * from "./worker.ts";
