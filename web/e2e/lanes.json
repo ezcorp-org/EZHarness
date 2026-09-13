@@ -111,6 +111,7 @@
       "web/e2e/dev-badge.spec.ts",
       "web/e2e/extension-author-failure-cards.spec.ts",
       "web/e2e/extension-author-heading.spec.ts",
+      "web/e2e/extension-author-installations.spec.ts",
       "web/e2e/extension-disable-hides-hub-page.spec.ts",
       "web/e2e/extension-secret-settings.spec.ts",
       "web/e2e/extensions-audit-retention-note.spec.ts",

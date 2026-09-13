@@ -58,6 +58,16 @@ export function unavailableWorkflowAccess(): WorkflowAccessModule {
 // it causes minimal stubs (like { insert: ... }) to leak across files.
 const MODULE_PATHS = [
   "../../extensions/bundled-bootstrap",
+  // bundled-source-registration.test.ts stubs the boot-time conversation
+  // wiring reconcile so that DB-free suite stays DB-free. A leaked stub
+  // would make `ensureBundledExtensions()` a silent no-op for every later
+  // file — the reconcile is what wires a conversation created while a
+  // bundled extension was disabled, so the leak reads as "the wiring
+  // never happened". Safe to snapshot: its whole static import graph
+  // (db/connection, db/queries/{conversation-extensions,extensions},
+  // db/schema, logger) is already eagerly imported by this list, so the
+  // entry adds no new preload work.
+  "../../extensions/auto-wire-bundled",
   "../../extensions/project-access",
   "../../extensions/project-git-broker",
   "../../extensions/project-pull-request-broker",

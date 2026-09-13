@@ -38,6 +38,14 @@ export function getConfiguredExtensionRunner(): RunnerClient {
   }
 }
 
+// Answers the same question as getConfiguredExtensionRunner without throwing, so
+// a caller can branch on host settings. It reuses that validation rather than
+// restating it; a RunnerClient opens nothing until its first call.
+export function isExtensionRunnerConfigured(): boolean {
+  try { getConfiguredExtensionRunner(); return true; }
+  catch { return false; }
+}
+
 export function createLazyExtensionRunner(resolve: () => Runner = getConfiguredExtensionRunner): Runner {
   return {
     async build(input) { return resolve().build(input); },

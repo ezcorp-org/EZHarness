@@ -123,7 +123,7 @@ describe("memory: write", () => {
     expect(prov.extensionId).toBe(extensionId); // NOT evil-ext
   });
 
-  test("injectionEligible defaults FALSE on extension write", async () => {
+  test("write sets the owner and eligibility COLUMNS, not just provenance", async () => {
     const resp = await handlePiMemory(
       { jsonrpc: "2.0", id: 2, method: "ezcorp/memory",
         params: { action: "write", input: { content: "x", category: "preferences" } } },
@@ -132,7 +132,12 @@ describe("memory: write", () => {
     );
     const memId = (resp.result as { memory: { id: string } }).memory.id;
     const rows = await getTestDb().select().from(memories).where(eq(memories.id, memId));
+    // Locked: extension-authored memories never auto-inject.
     expect(rows[0]!.injectionEligible).toBe(false);
+    // Direct attribution to the acting user, so the row stays that user's
+    // even after its source conversation is deleted (`on delete set null`
+    // would otherwise strand it as unattributable).
+    expect(rows[0]!.userId).toBe(userId);
   });
 
   test("category not in allowlist → -32001", async () => {

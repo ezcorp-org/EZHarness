@@ -53,11 +53,26 @@ const {
   dedupLockKey,
 } = await import("../memory/dedup");
 const { searchMemories } = await import("../db/queries/memories");
+// The mocked embedder above — seeding a row the dedup query must MATCH
+// means computing its vector with the same function the helper uses.
+const { generateEmbedding } = await import("../memory/embeddings");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
-const { users } = await import("../db/schema");
-const { sql } = await import("drizzle-orm");
+const { users, memories } = await import("../db/schema");
+const { sql, eq } = await import("drizzle-orm");
+
+/** Read the owner + eligibility COLUMNS (not provenance JSON) for one row. */
+async function readColumns(memoryId: string): Promise<{
+  userId: string | null;
+  injectionEligible: boolean;
+}> {
+  const rows = await getDb()
+    .select({ userId: memories.userId, injectionEligible: memories.injectionEligible })
+    .from(memories)
+    .where(eq(memories.id, memoryId));
+  return rows[0]!;
+}
 
 const OWNER_A = "dedup-user-a";
 const OWNER_B = "dedup-user-b";
@@ -170,6 +185,115 @@ describe("dedupAndWriteMemory — UPDATE branch (similar existing)", () => {
     // Total rows in projectA still 1 — no duplicates.
     const rows = await searchMemories({ projectId: projectAId });
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("dedupAndWriteMemory — owner and eligibility COLUMNS", () => {
+  // These assert the real `memories.user_id` / `memories.injection_eligible`
+  // columns, never provenance JSON. Retrieval filters on the columns:
+  // `hybridSearch` reads `injection_eligible`, and it only falls back to the
+  // source conversation's owner while `user_id` is null — a fallback that
+  // dies with the conversation (`on delete set null`), stranding the row as
+  // unattributable.
+
+  test("INSERT stamps the source conversation's owner into user_id", async () => {
+    const result = await dedupAndWriteMemory({
+      fact: { content: "Owner column fact", category: "preferences", confidence: "high", messageIds: ["m1"] },
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+
+    expect(result.action).toBe("inserted");
+    expect((await readColumns(result.memoryId)).userId).toBe(OWNER_A);
+  });
+
+  test("INSERT from an unowned conversation stores user_id null", async () => {
+    const result = await dedupAndWriteMemory({
+      fact: { content: "Unowned owner-column fact", category: "technical", confidence: "medium", messageIds: [] },
+      conversationId: conversationUnownedId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+
+    expect(result.action).toBe("inserted");
+    expect((await readColumns(result.memoryId)).userId).toBeNull();
+  });
+
+  test("INSERT writes injectionEligible when the caller supplies it", async () => {
+    const ineligible = await dedupAndWriteMemory({
+      fact: { content: "Ineligible fact", category: "technical", confidence: "medium", messageIds: [] },
+      conversationId: conversationAId,
+      projectId: projectAId,
+      injectionEligible: false,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(ineligible.action).toBe("inserted");
+    expect((await readColumns(ineligible.memoryId)).injectionEligible).toBe(false);
+
+    // An explicit `true` is a distinct path from omitting the field, so
+    // assert it rather than leaning on the column default.
+    const eligible = await dedupAndWriteMemory({
+      fact: { content: "Explicitly eligible fact", category: "biographical", confidence: "high", messageIds: [] },
+      conversationId: conversationAId,
+      projectId: projectAId,
+      injectionEligible: true,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(eligible.action).toBe("inserted");
+    expect((await readColumns(eligible.memoryId)).injectionEligible).toBe(true);
+  });
+
+  test("INSERT omits injectionEligible when unset, so the column default (true) applies", async () => {
+    // The host extraction pipeline never passes the field; its rows must
+    // stay injectable exactly as before the column was written here.
+    const result = await dedupAndWriteMemory({
+      fact: { content: "Default eligibility fact", category: "preferences", confidence: "high", messageIds: [] },
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+
+    expect(result.action).toBe("inserted");
+    expect((await readColumns(result.memoryId)).injectionEligible).toBe(true);
+  });
+
+  test("UPDATE leaves user_id and injection_eligible untouched", async () => {
+    // A legacy row: unattributed (`user_id` null, owned only through its
+    // conversation) and taken OUT of injection by its owner. The dedup hit
+    // below asks for the opposite of both. Neither may move — eligibility is
+    // the owner's setting, and re-attributing the row is not this path's job.
+    const fact = {
+      content: "Existing row the update branch must not re-stamp",
+      category: "preferences" as const,
+      confidence: "high" as const,
+      messageIds: ["m1"],
+    };
+    const [seeded] = await getDb().insert(memories).values({
+      content: fact.content,
+      category: fact.category,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      confidence: "high",
+      embedding: await generateEmbedding(fact.content),
+      userId: null,
+      injectionEligible: false,
+      provenance: legacyExtractionProvenance("created", fact, conversationAId) as never,
+    }).returning({ id: memories.id });
+
+    const result = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      injectionEligible: true,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+
+    expect(result.action).toBe("updated");
+    expect(result.memoryId).toBe(seeded!.id);
+    const after = await readColumns(seeded!.id);
+    expect(after.userId).toBeNull();
+    expect(after.injectionEligible).toBe(false);
   });
 });
 

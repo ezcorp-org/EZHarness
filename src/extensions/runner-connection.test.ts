@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLazyExtensionRunner, getConfiguredExtensionRunner } from "./runner-connection";
+import { createLazyExtensionRunner, getConfiguredExtensionRunner, isExtensionRunnerConfigured } from "./runner-connection";
 import { RunnerClient } from "@ezcorp/extension-runner";
 import type { Runner } from "@ezcorp/extension-contract";
 
@@ -88,4 +88,36 @@ test("lazy runner forwards every operation and resolves the current connection e
   await runner.build(input); await runner.start(input, reverse); await runner.cancel("id"); await runner.inspect("id"); await runner.collectArtifacts("digest");
   expect(calls).toEqual([["build", input], ["start", input, reverse], ["cancel", "id"], ["inspect", "id"], ["collectArtifacts", "digest"]]);
   expect(resolutions).toBe(5);
+});
+
+test("the configuration probe reports host settings as a boolean instead of throwing", () => {
+  const names = ["EZCORP_EXTENSION_RUNNER_SOCKET", "EZCORP_EXTENSION_RUNNER_TOKEN", "EZCORP_EXTENSION_RUNNER_TOKEN_FILE"];
+  const previous = names.map((name) => process.env[name]);
+  const directory = mkdtempSync(join(tmpdir(), "runner-probe-"));
+  const tokenFile = join(directory, "token");
+  const socket = "/tmp/runner-probe.sock";
+  const token = "a".repeat(32);
+  const apply = (settings: Record<string, string | undefined>) => { for (const name of names) { const value = settings[name]; if (value === undefined) delete process.env[name]; else process.env[name] = value; } };
+  try {
+    writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
+    for (const settings of [
+      {},
+      { EZCORP_EXTENSION_RUNNER_TOKEN: token },
+      { EZCORP_EXTENSION_RUNNER_SOCKET: "relative/socket", EZCORP_EXTENSION_RUNNER_TOKEN: token },
+      { EZCORP_EXTENSION_RUNNER_SOCKET: socket },
+    ]) {
+      apply(settings);
+      expect(isExtensionRunnerConfigured()).toBe(false);
+    }
+    for (const settings of [
+      { EZCORP_EXTENSION_RUNNER_SOCKET: socket, EZCORP_EXTENSION_RUNNER_TOKEN: token },
+      { EZCORP_EXTENSION_RUNNER_SOCKET: socket, EZCORP_EXTENSION_RUNNER_TOKEN_FILE: tokenFile },
+    ]) {
+      apply(settings);
+      expect(isExtensionRunnerConfigured()).toBe(true);
+    }
+  } finally {
+    names.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
