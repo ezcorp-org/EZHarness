@@ -32,6 +32,7 @@ const renewedLease: PoolLease = { ...lease, tenantId: request.authority.tenantId
 const prepared: FactoryPreparedPackageReceipt = { projectId: request.authority.projectId, reference: request.runner, trustRevision: 1, packageTrustDigest: digest, releaseDigest: digest, sourceDigest: digest, artifactDigest: raw, imageDigest: digest, manifestDigest: digest, evidenceDigest: digest, buildIdentity: "build-runtime", receiptDigest: digest };
 const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const signStopReceipt = async (receipt: FactoryUnsignedPhysicalStopReceipt) => signFactoryPhysicalStopReceipt(receipt, "test-host-key", hostKeys.privateKey);
+const dispatchReadiness = { assertDispatchReady: async () => prepared };
 
 class ResponseLossRunner implements Runner {
   starts = 0;
@@ -97,14 +98,14 @@ test("a durable launch intent attaches after start response loss and never start
     await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${request.authority.attemptId},${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${request.authority.nodeInstanceId},2,3,4,5,6,0,${new Date(request.authority.deadlineAtMs)},${digest},'{}','admitted')`);
     const runner = new ResponseLossRunner();
     const pool = { acknowledgeStart: async () => renewedLease, renew: async () => renewedLease };
-    const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("response-loss runner does not call the broker"); } }, signStopReceipt, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-attempt-token" });
+    const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("response-loss runner does not call the broker"); } }, signStopReceipt, readiness: dispatchReadiness, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-attempt-token" });
     const opened = await runtime.open(request, lease, prepared);
     expect(opened.disposition).toBe("attached");
     expect(runner.starts).toBe(1);
     expect(runner.attaches).toBe(1);
     expect(runner.acknowledgements[0]?.context.token).toBe("fresh-attempt-token");
     await expect(opened.wait()).rejects.toThrow("durable terminal result");
-    const restarted = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("response-loss runner does not call the broker"); } }, signStopReceipt, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-recovery-token" });
+    const restarted = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("response-loss runner does not call the broker"); } }, signStopReceipt, readiness: dispatchReadiness, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-recovery-token" });
     const recovered = await restarted.open(request, lease, prepared);
     expect(recovered.disposition).toBe("attached");
     expect(runner.starts).toBe(1);
@@ -121,7 +122,7 @@ test("a durable launch intent attaches after start response loss and never start
 test("a failed five-second renewal physically stops the guest and presents its signed receipt", async () => {
   const runner = new RenewalFailureRunner();
   const receipts: FactoryPhysicalStopReceipt[] = [];
-  const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new MemoryLaunchStore(), pool: { acknowledgeStart: async () => renewedLease, renew: async () => { throw new Error("pool renewal revoked"); } }, broker: { invoke: async () => { throw new Error("renewal runner does not call the broker"); } }, signStopReceipt, presentStopReceipt: async receipt => { receipts.push(receipt); }, mintAttemptToken: async () => "fresh-renewal-token" });
+  const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new MemoryLaunchStore(), pool: { acknowledgeStart: async () => renewedLease, renew: async () => { throw new Error("pool renewal revoked"); } }, broker: { invoke: async () => { throw new Error("renewal runner does not call the broker"); } }, signStopReceipt, readiness: dispatchReadiness, presentStopReceipt: async receipt => { receipts.push(receipt); }, mintAttemptToken: async () => "fresh-renewal-token" });
   const opened = await runtime.open(request, lease, prepared);
   await expect(opened.wait()).rejects.toThrow("pool renewal revoked");
   expect(await runner.inspect(opened.workerId)).toMatchObject({ state: "cancelled" });
@@ -130,7 +131,7 @@ test("a failed five-second renewal physically stops the guest and presents its s
 
 test("terminal and uncertain recovery states cannot execute another worker", async () => {
   const pool = { acknowledgeStart: async () => renewedLease, renew: async () => renewedLease };
-  const options = { pool, broker: { invoke: async () => { throw new Error("recovery must not invoke a broker"); } }, signStopReceipt, presentStopReceipt: async () => {}, mintAttemptToken: async () => "recovery-token" };
+  const options = { pool, broker: { invoke: async () => { throw new Error("recovery must not invoke a broker"); } }, signStopReceipt, readiness: dispatchReadiness, presentStopReceipt: async () => {}, mintAttemptToken: async () => "recovery-token" };
   const terminal = await new IsolatedFactoryAttemptRuntime({ ...options, runner: new TerminalRunner(), launches: new MemoryLaunchStore() }).open(request, lease, prepared);
   expect(terminal.disposition).toBe("terminal");
   await expect(terminal.wait()).rejects.toThrow("terminal state");
@@ -152,7 +153,7 @@ test("concurrent open calls have one durable start winner and the other caller o
     await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${request.authority.attemptId},${request.authority.tenantId},${request.authority.projectId},${request.authority.runId},${request.authority.nodeInstanceId},2,3,4,5,6,0,${new Date(request.authority.deadlineAtMs)},${digest},'{}','admitted')`);
     const runner = new ResponseLossRunner();
     const pool = { acknowledgeStart: async () => renewedLease, renew: async () => renewedLease };
-    const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("concurrent recovery does not invoke the broker"); } }, signStopReceipt, presentStopReceipt: async () => {}, mintAttemptToken: async () => "concurrent-token" });
+    const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async () => { throw new Error("concurrent recovery does not invoke the broker"); } }, signStopReceipt, readiness: dispatchReadiness, presentStopReceipt: async () => {}, mintAttemptToken: async () => "concurrent-token" });
     const [first, second] = await Promise.all([runtime.open(request, lease, prepared), runtime.open(request, lease, prepared)]);
     expect([first.disposition, second.disposition].sort()).toEqual(["attached", "attached"]);
     expect(runner.starts).toBe(1);
@@ -195,7 +196,7 @@ test("a fresh isolated Bun guest receives only the minted attempt token and retu
     const guestPrepared = { ...prepared, artifactDigest: build.artifactDigest };
     const pool = { acknowledgeStart: async () => renewedLease, renew: async () => renewedLease };
     const brokerInputs: unknown[] = [];
-    const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async (_request, input) => { brokerInputs.push(input); return { accepted: true }; } }, signStopReceipt, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-isolated-attempt-token" });
+    const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async (_request, input) => { brokerInputs.push(input); return { accepted: true }; } }, signStopReceipt, readiness: dispatchReadiness, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-isolated-attempt-token" });
     const opened = await runtime.open(request, lease, guestPrepared);
     expect(opened.disposition).toBe("started");
     expect(await opened.wait()).toEqual({ schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: 0, operations: [] });

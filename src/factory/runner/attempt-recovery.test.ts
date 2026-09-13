@@ -5,6 +5,7 @@ import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@e
 import type { FactoryRunnerRequest, FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { generateKeyPairSync } from "node:crypto";
 import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, type FactoryLaunchFixture } from "../../__tests__/helpers/factory-attempt-launch-fixture";
+import type { FactoryRunnerDispatchReadiness } from "../package-preparation";
 import type { PoolLease } from "../pool/ledger";
 import { FactoryDatabaseAttemptLaunchStore, IsolatedFactoryAttemptRuntime, factoryTerminalResultDigest, signFactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-runtime";
 
@@ -58,7 +59,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { await fixture.close(); });
 
-function runtime(runner: Runner, options: { presentStopReceipt?: () => Promise<void>; broker?: () => Promise<unknown> } = {}): IsolatedFactoryAttemptRuntime {
+function runtime(runner: Runner, options: { presentStopReceipt?: () => Promise<void>; broker?: () => Promise<unknown>; readiness?: FactoryRunnerDispatchReadiness; onMint?: () => void } = {}): IsolatedFactoryAttemptRuntime {
   return new IsolatedFactoryAttemptRuntime({
     runner,
     launches: new FactoryDatabaseAttemptLaunchStore(fixture.db),
@@ -66,7 +67,8 @@ function runtime(runner: Runner, options: { presentStopReceipt?: () => Promise<v
     broker: { invoke: options.broker ?? (async () => { throw new Error("recovery must not reach the broker"); }) },
     signStopReceipt,
     presentStopReceipt: options.presentStopReceipt ?? (async () => {}),
-    mintAttemptToken: async () => "minted-attempt-token",
+    readiness: options.readiness ?? { assertDispatchReady: async () => factoryLaunchPackage(request) },
+    mintAttemptToken: async () => { options.onMint?.(); return "minted-attempt-token"; },
   });
 }
 
@@ -179,4 +181,61 @@ test("recording or reading a terminal result for an absent launch intent fails c
   await expect(store.terminalResult("attempt-absent")).rejects.toThrow("launch intent is missing");
   await expect(store.recordTerminal("attempt-absent", factoryLaunchCompletedResult())).rejects.toThrow("launch intent is missing");
   await expect(store.recordTerminal(request.authority.attemptId, { schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: 0, operations: [] } as unknown as FactoryRunnerResult)).rejects.toThrow("Factory terminal result is invalid");
+});
+
+test("a package revoked between the durable claim and the token mint denies the launch", async () => {
+  const runner = new CountingRunner(factoryLaunchCompletedResult());
+  let minted = false;
+  const denied = runtime(runner, {
+    readiness: { assertDispatchReady: async () => { throw new Error("factory_package_not_prepared"); } },
+    onMint: () => { minted = true; },
+  });
+  await expect(denied.open(request, factoryLaunchLease, factoryLaunchPackage(request))).rejects.toThrow("factory_package_not_prepared");
+  expect(minted).toBe(false);
+  expect(runner.starts).toBe(0);
+  expect(runner.invocations).toBe(0);
+});
+
+test("a readiness receipt that no longer matches the persisted package denies the launch", async () => {
+  const runner = new CountingRunner(factoryLaunchCompletedResult());
+  let minted = false;
+  const drifted = runtime(runner, {
+    readiness: { assertDispatchReady: async () => ({ ...factoryLaunchPackage(request), artifactDigest: "f".repeat(64) }) },
+    onMint: () => { minted = true; },
+  });
+  await expect(drifted.open(request, factoryLaunchLease, factoryLaunchPackage(request))).rejects.toThrow("changed before the attempt token was minted");
+  expect(minted).toBe(false);
+  expect(runner.starts).toBe(0);
+});
+
+test("a guest control frame is answered only when it carries the started worker and invocation", async () => {
+  const completed = factoryLaunchCompletedResult("frames");
+  const brokerInputs: unknown[] = [];
+  let reverse: ((method: string, input: unknown) => Promise<unknown>) | undefined;
+  let started: StartRequest | undefined;
+  const capturing: Runner = {
+    build: async () => { throw new Error("unused"); },
+    collectArtifacts: async () => { throw new Error("unused"); },
+    inspect: async (id) => ({ id, state: started ? "running" : "unknown", diagnostics: [] }),
+    cancel: async () => {},
+    start: async (input, rpc) => {
+      started = input;
+      reverse = rpc;
+      return { workerId: input.workerId, request: async () => completed, close: async () => {}, onNotification: () => () => {} };
+    },
+  };
+  const opened = await runtime(capturing, { broker: async () => { brokerInputs.push("invoked"); return { accepted: true }; } }).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(opened.disposition).toBe("started");
+  const context = started!.context;
+  expect(context.invocationId).toBe(opened.invocationId);
+  expect(context.workerId).toBe(opened.workerId);
+
+  expect(await reverse!("factory.broker", { context, input: { kind: "model" } })).toEqual({ accepted: true });
+  await expect(reverse!("factory.tool", { context, input: {} })).rejects.toThrow("capability is denied");
+  await expect(reverse!("factory.broker", { context: { ...context, invocationId: "other-invocation" }, input: {} })).rejects.toThrow("does not match its worker, invocation, and attempt");
+  await expect(reverse!("factory.broker", { context: { ...context, workerId: "other-worker" }, input: {} })).rejects.toThrow("does not match its worker, invocation, and attempt");
+  await expect(reverse!("factory.broker", { input: {} })).rejects.toThrow("does not match its worker, invocation, and attempt");
+  await expect(reverse!("factory.broker", { context })).rejects.toThrow("has no input");
+  await expect(reverse!("factory.broker", [1, 2])).rejects.toThrow("control frame is invalid");
+  expect(brokerInputs).toEqual(["invoked"]);
 });

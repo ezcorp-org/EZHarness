@@ -3,6 +3,7 @@ import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { executionLimits } from "@ezcorp/extension-runner";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority, FactoryJournalOperation } from "../executions";
+import { FACTORY_GUEST_TOOL_METHOD, factoryGuestFrameInput } from "./guest-frames";
 
 export interface FactoryWorkspaceCheckpoint {
   checkpoint(input: { operationId: string; result: JsonValue }): Promise<JsonValue>;
@@ -39,13 +40,6 @@ function context(input: FactoryToolInvocation) {
   const workerId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}`).slice(0, 48)}`;
   const invocationId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}:invocation`).slice(0, 48)}`;
   return { workerId, invocationId, releaseId: input.artifactDigest, principalId: input.authority.tenantId, scopeId: input.authority.projectId, token: `factory-runner:${input.authority.attemptId}`, deadline: input.authority.deadlineAt.getTime() };
-}
-
-function reverseEnvelope(value: unknown, expected: ReturnType<typeof context>): JsonValue {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Factory runner sent an invalid tool envelope.");
-  const envelope = value as { context?: unknown; input?: unknown };
-  if (canonicalJson(envelope.context) !== canonicalJson(expected) || envelope.input === undefined) throw new Error("Factory runner tool context does not match its attempt.");
-  return envelope.input as JsonValue;
 }
 
 /**
@@ -96,8 +90,7 @@ export class FactoryRunnerSupervisor {
 
   private reverse(input: FactoryToolInvocation, invocation: ReturnType<typeof context>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {
     return async (method, raw) => {
-      if (method !== "factory.tool") throw new Error("Factory runner capability is denied.");
-      const authorizedInput = reverseEnvelope(raw, invocation);
+      const authorizedInput = factoryGuestFrameInput(method, raw, invocation, FACTORY_GUEST_TOOL_METHOD);
       if (canonicalJson(authorizedInput) !== canonicalJson(input.toolInput)) throw new Error("Factory runner tool input does not match its prepared operation.");
       await this.options.authorizeAttempt(input.authority);
       const claim = await this.options.journal.dispatch(input.authority, operationEntry.operationId);

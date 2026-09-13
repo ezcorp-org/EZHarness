@@ -1,6 +1,6 @@
 import { createHash, sign, type KeyLike } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
+import type { InvocationContext, Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { configuredRunnerDevices, executionLimits } from "@ezcorp/extension-runner";
 import type { FactoryRunnerRequest, FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
@@ -11,6 +11,7 @@ import { releaseRows } from "../../db/queries/extension-releases";
 import type { FactoryPreparedPackageReceipt, FactoryRunnerDispatchReadiness } from "../package-preparation";
 import type { PoolAdmissionClient } from "../pool/client";
 import type { TrustedFactoryRunner } from "../trusted-command-gateway";
+import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
 
 const RENEW_INTERVAL_MS = 5_000;
 const MAX_DEVICES = 16;
@@ -396,6 +397,8 @@ export interface IsolatedFactoryAttemptRuntimeOptions {
   readonly signStopReceipt: (receipt: FactoryUnsignedPhysicalStopReceipt) => Promise<{ readonly hostKeyId: string; readonly hostSignature: string }>;
   /** The host supervisor presents this signed fact to the pool's physical-stop endpoint. */
   readonly presentStopReceipt: (receipt: FactoryPhysicalStopReceipt) => Promise<void>;
+  /** Revalidated after the durable claim and before every token mint. */
+  readonly readiness: FactoryRunnerDispatchReadiness;
   readonly now?: () => number;
 }
 
@@ -428,15 +431,17 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
       return this.uncertain(claim.intent);
     }
     const claimed = claim.intent;
+    await this.assertReady(claimed);
     const token = await this.options.mintAttemptToken(claimed.request);
     opaque(token, "attempt token");
     const guestRequest = copy({ ...claimed.request, broker: { ...claimed.request.broker, attemptToken: token } });
+    const start = this.startRequest(claimed, guestRequest);
     try {
-      const execution = await this.options.runner.start(this.startRequest(claimed, guestRequest), this.reverse(claimed));
+      const execution = await this.options.runner.start(start, this.reverse(claimed, start.context));
       this.active.set(claimed.request.authority.attemptId, execution);
       await this.options.pool.acknowledgeStart(this.fence(claimed.lease));
       await this.options.launches.state(claimed.request.authority.attemptId, "launched");
-      return this.opened(claimed, execution, guestRequest);
+      return this.opened(claimed, execution, guestRequest, start.context);
     } catch (error) {
       const after = await this.options.runner.inspect(claimed.workerId);
       if (after.state === "running") return this.attached(claimed);
@@ -445,11 +450,10 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
     }
   }
 
-  private reverse(intent: FactoryAttemptLaunchIntent): (method: string, input: unknown) => Promise<unknown> {
+  private reverse(intent: FactoryAttemptLaunchIntent, context: InvocationContext): (method: string, input: unknown) => Promise<unknown> {
     return async (method, input) => {
-      if (method !== "factory.broker") throw new FactoryAttemptRuntimeError("invalid_launch", "Isolated factory guests have no host capability.");
-      if (!input || typeof input !== "object" || Array.isArray(input) || !Object.hasOwn(input, "input")) throw new FactoryAttemptRuntimeError("invalid_launch", "Factory guest broker envelope is invalid.");
-      return this.options.broker.invoke(intent.request, copy((input as { input: unknown }).input));
+      const bound = factoryGuestFrameInput(method, input, context, FACTORY_GUEST_BROKER_METHOD);
+      return this.options.broker.invoke(intent.request, copy(bound));
     };
   }
 
@@ -462,8 +466,10 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
 
   private async attached(intent: FactoryAttemptLaunchIntent): Promise<FactoryAttemptOpen> {
     if (!this.options.runner.attach) throw new FactoryAttemptRuntimeError("launch_uncertain", "A live factory worker cannot be reattached.");
+    await this.assertReady(intent);
     const token = await this.options.mintAttemptToken(intent.request);
-    const execution = await this.options.runner.attach(this.startRequest(intent, copy({ ...intent.request, broker: { ...intent.request.broker, attemptToken: token } })), this.reverse(intent));
+    const start = this.startRequest(intent, copy({ ...intent.request, broker: { ...intent.request.broker, attemptToken: token } }));
+    const execution = await this.options.runner.attach(start, this.reverse(intent, start.context));
     this.active.set(intent.request.authority.attemptId, execution);
     await this.options.pool.acknowledgeStart(this.fence(intent.lease));
     await this.options.launches.state(intent.request.authority.attemptId, "launched");
@@ -479,8 +485,18 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
     });
   }
 
-  private opened(intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, guestRequest: FactoryRunnerRequest): FactoryAttemptOpen {
-    return Object.freeze({ disposition: "started" as const, workerId: intent.workerId, invocationId: intent.invocationId, wait: async (signal?: AbortSignal) => this.wait(intent, execution, guestRequest, signal), stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
+  private opened(intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, guestRequest: FactoryRunnerRequest, context: InvocationContext): FactoryAttemptOpen {
+    return Object.freeze({ disposition: "started" as const, workerId: intent.workerId, invocationId: intent.invocationId, wait: async (signal?: AbortSignal) => this.wait(intent, execution, guestRequest, context, signal), stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
+  }
+
+  /**
+   * Package readiness is revalidated after the durable claim and immediately
+   * before the short-lived attempt token is minted, so a revocation inside that
+   * window denies the launch instead of reaching the guest.
+   */
+  private async assertReady(intent: FactoryAttemptLaunchIntent): Promise<void> {
+    const receipt = await this.options.readiness.assertDispatchReady(intent.request);
+    if (receipt.receiptDigest !== intent.preparedPackage.receiptDigest || receipt.artifactDigest !== intent.preparedPackage.artifactDigest || canonicalJson(receipt.reference) !== canonicalJson(intent.preparedPackage.reference)) throw new FactoryAttemptRuntimeError("invalid_launch", "Prepared package changed before the attempt token was minted.");
   }
 
   /** A durable terminal result is authoritative, so recovery replays it without another guest. */
@@ -502,7 +518,7 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
     return Object.freeze({ disposition: "uncertain", workerId: intent.workerId, invocationId: intent.invocationId, wait: async () => this.durableResult(intent, "Factory worker start outcome is uncertain."), stop: async (reason: FactoryPhysicalStopReason) => this.stop(intent, reason) });
   }
 
-  private async wait(intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, guestRequest: FactoryRunnerRequest, signal?: AbortSignal): Promise<FactoryRunnerResult> {
+  private async wait(intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, guestRequest: FactoryRunnerRequest, context: InvocationContext, signal?: AbortSignal): Promise<FactoryRunnerResult> {
     if (signal?.aborted) throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory attempt wait was cancelled before its guest returned.");
     let renewalFailure: Error | undefined;
     const timer = setInterval(() => {
@@ -514,7 +530,7 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
       });
     }, RENEW_INTERVAL_MS);
     try {
-      const value = await execution.request("extension/invoke", { name: intent.request.runner.export, input: guestRequest, context: this.startRequest(intent, guestRequest).context });
+      const value = await execution.request("extension/invoke", { name: intent.request.runner.export, input: guestRequest, context });
       if (renewalFailure) throw new FactoryAttemptRuntimeError("lease_revoked", renewalFailure.message);
       requireValid(validateFactoryRunnerResult(value), "Factory guest result");
       const result = copy(value) as FactoryRunnerResult;
