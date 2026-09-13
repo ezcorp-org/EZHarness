@@ -1,8 +1,8 @@
 /** Real browser gestures must save the complete extension order in the database. */
 import AxeBuilder from "@axe-core/playwright";
-import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page, TestInfo } from "@playwright/test";
 import { test as base, expect } from "./fixtures/hydration.js";
-import { dragMouse, dragTouch } from "./fixtures/gestures.js";
+import { dragMouse, dragTouch, stableBoundingBox } from "./fixtures/gestures.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 
 interface AgentFixture { id: string; name: string; extensions: string[] }
@@ -63,39 +63,49 @@ async function saveAndReload(page: Page, request: APIRequestContext, agent: Agen
 	await expect.poll(() => order(page)).toEqual(expected);
 }
 async function chipPoint(chip: Locator): Promise<{ x: number; y: number }> {
-	const box = await chip.boundingBox();
-	if (!box) throw new Error("Selected extension chip is not measurable");
+	// `stableBoundingBox`, not `boundingBox`: the webfont swap re-wraps this row
+	// and a native press has no actionability re-check to save it.
+	const box = await stableBoundingBox(chip);
 	// Stay over the label: the remove button has its own pointer behavior.
 	return { x: box.x + 8, y: box.y + box.height / 2 };
 }
 
-test("mouse reorder survives Save, database read, and page reload @evidence", async ({ page, request, agent }, testInfo) => {
-	await openAgent(page, agent);
+type DragGesture = typeof dragMouse;
+
+/** Drag the last chip onto the first one and confirm the live preview before release. */
+async function dragLastChipToFront(page: Page, agent: AgentFixture, drag: DragGesture): Promise<void> {
 	const from = await chipPoint(chips(page).nth(2));
 	const to = await chipPoint(chips(page).nth(0));
-	await dragMouse(page, from, to, async () => {
+	await drag(page, from, to, async () => {
+		// Name the chip the gesture actually picked up. A press that lands on a
+		// neighbour still produces a ghost, so without this the only symptom is
+		// an order that never changes — five seconds later, and about the wrong
+		// chip.
+		await expect(page.locator("#dnd-action-dragged-el")).toHaveAttribute("data-chip-id", agent.extensions[2]!);
 		await expect.poll(async () => (await order(page)).slice(1)).toEqual(agent.extensions.slice(0, 2));
 	});
+}
+
+/** Persist the dragged order, prove it round-trips, and attach the shots. */
+async function saveReorderWithEvidence(page: Page, request: APIRequestContext, agent: AgentFixture, testInfo: TestInfo): Promise<void> {
 	await saveAndReload(page, request, agent, [agent.extensions[2]!, agent.extensions[0]!, agent.extensions[1]!]);
 	await captureEvidence(page, testInfo, "agent-header-after-reorder");
 	await page.getByTestId("selected-extension-chips").scrollIntoViewIfNeeded();
 	await captureEvidence(page, testInfo, "saved-extension-order");
+}
+
+test("mouse reorder survives Save, database read, and page reload @evidence", async ({ page, request, agent }, testInfo) => {
+	await openAgent(page, agent);
+	await dragLastChipToFront(page, agent, dragMouse);
+	await saveReorderWithEvidence(page, request, agent, testInfo);
 });
 
 test.describe("touch", () => {
 	test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
 	test("finger drag saves the exact new order @evidence", async ({ page, request, agent }, testInfo) => {
 		await openAgent(page, agent);
-
-		const from = await chipPoint(chips(page).nth(2));
-		const to = await chipPoint(chips(page).nth(0));
-		await dragTouch(page, from, to, async () => {
-			await expect.poll(async () => (await order(page)).slice(1)).toEqual(agent.extensions.slice(0, 2));
-		});
-		await saveAndReload(page, request, agent, [agent.extensions[2]!, agent.extensions[0]!, agent.extensions[1]!]);
-		await captureEvidence(page, testInfo, "agent-header-after-reorder");
-		await page.getByTestId("selected-extension-chips").scrollIntoViewIfNeeded();
-		await captureEvidence(page, testInfo, "saved-extension-order");
+		await dragLastChipToFront(page, agent, dragTouch);
+		await saveReorderWithEvidence(page, request, agent, testInfo);
 	});
 });
 

@@ -4,6 +4,20 @@ import { describe, test, expect, vi, beforeEach } from "vitest";
 import { SHADOW_ITEM_MARKER_PROPERTY_NAME, SHADOW_PLACEHOLDER_ITEM_ID } from "svelte-dnd-action";
 import ExtensionSearchPicker from "../ExtensionSearchPicker.svelte";
 
+// Record what the chip row asks svelte-dnd-action for, while still running the
+// real action so every other case keeps its fidelity.
+const { dndzoneOptions } = vi.hoisted(() => ({ dndzoneOptions: [] as Array<Record<string, unknown>> }));
+vi.mock("svelte-dnd-action", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("svelte-dnd-action")>();
+	return {
+		...actual,
+		dndzone: (node: HTMLElement, options: Record<string, unknown>) => {
+			dndzoneOptions.push(options);
+			return actual.dndzone(node, options as never);
+		},
+	};
+});
+
 beforeEach(() => {
 	// The picker fetches `/api/extensions` on mount to populate the
 	// extension list. Stub fetch so the chip-row tests don't depend on
@@ -79,6 +93,20 @@ describe("ExtensionSearchPicker drag-reorder", () => {
 			}),
 		);
 		expect(onchange).toHaveBeenCalledWith(["ext-b", "ext-a", "ext-c"]);
+	});
+
+	test("drop index follows the cursor, not the drag ghost's centre", async () => {
+		dndzoneOptions.length = 0;
+		render(ExtensionSearchPicker, { selected: ["ext-a", "ext-b", "ext-c"], onchange: vi.fn() });
+		await screen.findByTestId("selected-extension-chips");
+		// The library default resolves the drop index from the centre of its drag
+		// ghost. A chip here is as wide as an extension name and the row wraps, so
+		// that centre can come to rest a whole line away from the pointer and the
+		// index stops following it. The option has no DOM footprint, so this is
+		// the only cheap place to keep it from being dropped; the e2e drag in
+		// web/e2e/chip-reorder.spec.ts is its behavioural gate.
+		expect(dndzoneOptions.length).toBeGreaterThan(0);
+		for (const options of dndzoneOptions) expect(options.useCursorForDetection).toBe(true);
 	});
 
 	test("aria-label hints keyboard activation (Space + arrows)", async () => {
