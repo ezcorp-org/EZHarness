@@ -4,7 +4,7 @@ import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
-import { FactoryAssurance, FactoryAssuranceError, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
+import { FactoryAssurance, FactoryAssuranceClaimError, FactoryAssuranceError, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
 
 interface Fixture { readonly db: TransactionalDb; close(): Promise<void> }
 export function factoryAssuranceConformance(createFixture: () => Promise<Fixture>): void {
@@ -105,6 +105,55 @@ test("an optional protected claim may fail when the quorum still passes", async 
     claimGroups: [{ id: "two-of-three", claimIds: ["first", "second", "third"], minimumPasses: 2, requireAllDecisive: true }],
   }, mutationKey("optional-quorum"));
   await expect(fixture.db.transaction(transaction => quorum.acceptCurrentInTransaction(transaction, quorumCandidate, "optional-quorum"))).resolves.toMatchObject({ candidateGeneration: 40, candidateDigest: trusted.candidateDigest });
+});
+
+test("a semantic failure names every claim and group a bounded repair must fix", async () => {
+  const failing = { ...candidate, candidateGeneration: 41 };
+  const evidence = ["alpha", "beta", "gamma"].map((id): FactoryTrustedEvidence => ({
+    ...trusted, ...failing, validatorId: id,
+    artifact: { ...trusted.artifact, artifactId: `failing-${id}` },
+    claims: [{ id, passed: id === "alpha", decisive: id !== "gamma" }],
+    issuedAtMs: id === "beta" ? now - 10_000 : now - 1,
+  }));
+  const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
+    async assertContractInTransaction() {},
+    async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) {
+      const found = evidence.find(item => item.validatorId === validatorId);
+      if (found) return structuredClone(found);
+      throw new Error("validator is not assigned");
+    },
+    async resolveCurrentEvidenceInTransaction(_transaction, _tenant, _key, validatorIds) {
+      return evidence.filter(item => validatorIds.includes(item.validatorId)).map(item => structuredClone(item));
+    },
+  };
+  const strict = new FactoryAssurance(fixture.db, tenantId, grants, gateway, new ReleaseFenceReader(), gateway, () => now);
+  await strict.approveContract(admin, {
+    projectId, contractId: "semantic-failure", revision: 1, contractDigest: digest("9"), validatorLockDigest: trusted.validatorLockDigest,
+    mandatoryClaims: [
+      { id: "alpha", validatorId: "alpha", freshnessMs: 100 },
+      { id: "beta", validatorId: "beta", freshnessMs: 100 },
+      { id: "gamma", validatorId: "gamma", freshnessMs: 100 },
+      { id: "omitted", validatorId: "alpha", freshnessMs: 100 },
+    ],
+    claimGroups: [{ id: "all-decisive", claimIds: ["alpha", "gamma"], minimumPasses: 1, requireAllDecisive: true }],
+  }, mutationKey("semantic-failure"));
+
+  const failure = await fixture.db.transaction(transaction => strict.acceptCurrentInTransaction(transaction, failing, "semantic-failure")).then(() => undefined, (error: unknown) => error);
+  expect(failure).toBeInstanceOf(FactoryAssuranceClaimError);
+  const claimError = failure as FactoryAssuranceClaimError;
+  expect(claimError.code).toBe("factory_assurance_claim_failed");
+  // Every required claim is reported at once: a stale report, a real FAIL, and one the assigned
+  // validator never reported. Neither INCONCLUSIVE form satisfies its claim.
+  expect(claimError.failures).toEqual([
+    { claimId: "beta", validatorId: "beta", verdict: "INCONCLUSIVE", reasonCode: "claim_stale" },
+    { claimId: "gamma", validatorId: "gamma", verdict: "FAIL", reasonCode: "claim_failed" },
+    { claimId: "omitted", validatorId: "alpha", verdict: "INCONCLUSIVE", reasonCode: "claim_missing" },
+  ]);
+  expect(claimError.groupFailures).toEqual([{ groupId: "all-decisive", passes: 1, minimumPasses: 1 }]);
+  expect(claimError.candidateDigest).toBe(trusted.candidateDigest);
+  expect(claimError.contractDigest).toBe(digest("9"));
+  expect(claimError.evidenceSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(rows(await fixture.db.execute(sql`SELECT decision_id FROM factory_acceptance_decisions WHERE tenant_id=${tenantId} AND contract_id='semantic-failure'`))).toEqual([]);
 });
 
 test("human contract and approval receipts are stable, conflict-aware, and reauthorize cached reads", async () => {

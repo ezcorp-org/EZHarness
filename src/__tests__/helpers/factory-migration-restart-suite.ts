@@ -189,6 +189,28 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     expect(await sealed("not-a-digest", digest("7"), 1, null, null)).toBeInstanceOf(Error);
   });
 
+  test("repeated migration keeps the protected decision column and backfills only acceptance receipts", async () => {
+    const db = fixture.db;
+    const decisionChecks = async () => rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_protected_command_effects'::regclass AND contype='c' AND conname LIKE '%decision%' ORDER BY conname`));
+    const before = await decisionChecks();
+    const beforeOids = rows(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_protected_command_effects'::regclass AND contype='c' ORDER BY conname`));
+    expect(before).toHaveLength(2);
+    const insert = (kind: string, decision: string | null) => db.transaction(async tx => {
+      await tx.execute(sql`CREATE TEMP TABLE effect_probe (LIKE factory_protected_command_effects INCLUDING CONSTRAINTS INCLUDING DEFAULTS) ON COMMIT DROP`);
+      await tx.execute(sql`INSERT INTO effect_probe (tenant_id,project_id,run_id,interpreter_id,command_id,kind,command_digest,receipt_json,receipt_digest,decision) VALUES ('t','p','r','i','c',${kind},${`sha256:${"1".repeat(64)}`},'{}',${`sha256:${"2".repeat(64)}`},${decision})`);
+    }).then(() => null, (error: unknown) => error);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      expect(await decisionChecks()).toEqual(before);
+      expect(rows(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_protected_command_effects'::regclass AND contype='c' ORDER BY conname`))).toEqual(beforeOids);
+      expect(await insert("request-acceptance", "accepted")).toBeNull();
+      expect(await insert("request-acceptance", "rejected")).toBeNull();
+      expect(await insert("request-release", null)).toBeNull();
+      expect(await insert("request-acceptance", "approved")).toBeInstanceOf(Error);
+      expect(await insert("request-release", "accepted")).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

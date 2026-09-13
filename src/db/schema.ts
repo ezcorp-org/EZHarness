@@ -3168,8 +3168,10 @@ export const factoryCommandApprovals = pgTable("factory_command_approvals", {
 
 export const factoryProtectedCommandEffects = pgTable("factory_protected_command_effects", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
-  kind: text("kind").notNull().$type<"request-acceptance" | "request-release">(), commandDigest: text("command_digest").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  kind: text("kind").notNull().$type<"request-acceptance" | "request-release">(), commandDigest: text("command_digest").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), decision: text("decision").$type<"accepted" | "rejected">(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"),
+  check("factory_protected_command_effects_decision_check", sql`${table.decision} IS NULL OR ${table.decision} IN ('accepted', 'rejected')`),
+  check("factory_protected_command_effects_decision_kind_check", sql`${table.kind} = 'request-acceptance' OR ${table.decision} IS NULL`),
 ]);

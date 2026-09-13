@@ -457,7 +457,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await fixture.db.transaction(transaction => task.queue.recoverDeliveredInTransaction(transaction, completionDelivery));
   });
 
-  test("protected acceptance and release use exact completed, trusted, and committed facts", async () => {
+  /**
+   * Builds one whole protected acceptance: a completed candidate, a pinned validator runtime, a
+   * human-approved contract, and a bound validator attempt whose report carries `passed`.
+   *
+   * Both the accepted and the rejected path need every one of those facts, so they share this
+   * rather than keeping two copies that could drift apart.
+   */
+  async function protectedAcceptance(passed: boolean) {
     const candidateRunner = referenceCodeV1.graph.nodes.find(node => node.id === "snapshot-repository");
     const releaseNode = referenceCodeV1.graph.nodes.find(node => node.id === "github-pr-release");
     const claim = referenceCodeV1.acceptance.claims[0]!;
@@ -491,8 +498,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const runtime = { runner: claim.validator, resources: { maxComputeMs: 1_000 }, brokerAudience: "trusted-validator", environmentDigest: `sha256:${"8".repeat(64)}`, configurationDigest: claim.validator.configurationDigest!, maxEvidenceAgeMs: 60_000 };
     const validators = new FactoryTrustedValidators(fixture.db, tenantId, lifecycle, completed.task.journal, completed.artifacts, releaseAuthority, [runtime]);
     const material = await fixture.db.transaction(transaction => validators.registerMaterialInTransaction(transaction, projectId, completed.task.compiled));
-    await releaseAuthority.publishTrust(principal, { projectId, expectedRevision: 0, packageLock: candidateRunner.runner, validatorTrustDigest: material.validatorLockDigest }, `protected-trust-${sequence}`);
-    await releaseAuthority.setReleaseEnabled(principal, projectId, true, 0, `protected-enable-${sequence}`);
+    // Trust and release enablement are per project, so a second fixture in the same project
+    // advances the current revision and epoch rather than assuming it is the first.
+    const currentTrust = rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_release_trust_current WHERE tenant_id=${tenantId} AND project_id=${projectId}`))[0];
+    await releaseAuthority.publishTrust(principal, { projectId, expectedRevision: Number(currentTrust?.revision ?? 0), packageLock: candidateRunner.runner, validatorTrustDigest: material.validatorLockDigest }, `protected-trust-${sequence}`);
+    const currentControl = rows<{ enabled: boolean; enable_epoch: number | string }>(await fixture.db.execute(sql`SELECT enabled, enable_epoch FROM factory_release_controls WHERE tenant_id=${tenantId} AND project_id=${projectId}`))[0];
+    if (!currentControl?.enabled) await releaseAuthority.setReleaseEnabled(principal, projectId, true, Number(currentControl?.enable_epoch ?? 0), `protected-enable-${sequence}`);
     await fixture.db.transaction(transaction => releaseAuthority.completeCurrentCandidateInTransaction(transaction, { authority: completed.authority, result: completed.result, expectedCurrentGeneration: null }));
 
     const candidateKey = { projectId, runId: completed.task.run.runId, nodeInstanceId: completed.task.dispatch.nodeId, candidateGeneration: 0 };
@@ -504,7 +515,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await fixture.db.transaction(transaction => validators.bindAttemptInTransaction(transaction, { candidate: candidateKey, validatorId: claim.id, authority: validatorAdmission }));
     await fixture.db.transaction(async transaction => {
       const { artifactJson } = await import("../../factory/artifacts");
-      const output = await completed.artifacts.stageCandidateOutputInTransaction(transaction, completed.task.identity, validatorAdmission.nodeInstanceId, 0, artifactJson.canonical({ schemaVersion: "factory.validator-result.v1", claims: [{ id: claim.id, passed: true, decisive: true }] }));
+      const output = await completed.artifacts.stageCandidateOutputInTransaction(transaction, completed.task.identity, validatorAdmission.nodeInstanceId, 0, artifactJson.canonical({ schemaVersion: "factory.validator-result.v1", claims: [{ id: claim.id, passed, decisive: true }] }));
       const result: Extract<FactoryRunnerResult, { status: "completed" }> = { schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: -1, operations: [], resultDigest: output.digest.slice(7), output, usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" }, workspaceCheckpoint: { ...output, journalCursor: -1 } };
       await completed.task.journal.recordCompletedTerminalInTransaction(transaction, validatorAdmission, result, completed.artifacts);
     });
@@ -521,6 +532,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       { async writeImmutable(_tenant, operationId, name, bytes) { const key = `${operationId}/${name}`; archive.set(key, bytes.slice()); return { key, digest: `sha256:${digestBytes(bytes)}` }; }, async read(reference) { const bytes = archive.get(reference.key); if (!bytes) throw new Error("archive is missing"); return bytes.slice(); } },
       { async proveStopped() { return false; } }, Date.now);
     const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [factorySynchronousReleaseProfile({ adapter: releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: "result" }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } })]);
+    return { effects, completed, acceptanceReference, acceptanceCommand, candidateAdvanced, candidate, releaseNode, releaseAuthority, assurance, releases, claim };
+  }
+
+  test("protected acceptance and release use exact completed, trusted, and committed facts", async () => {
+    const { effects, completed, acceptanceReference, acceptanceCommand, candidateAdvanced, candidate, releaseNode, releaseAuthority, assurance, releases } = await protectedAcceptance(true);
     const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
     expect(await effects.requestAcceptance(completed.task.service, acceptanceReference)).toEqual(accepted);
     expect(accepted).toMatchObject({ nodeId: "accept", commandId: acceptanceCommand.id, output: { acceptedCandidate: candidate } });
@@ -543,6 +559,32 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await expect(effects.requestAcceptance({ ...completed.task.service, subject: "foreign-service" }, acceptanceReference)).rejects.toThrow();
     await fixture.db.execute(sql`UPDATE factory_protected_command_effects SET receipt_digest=${`sha256:${"0".repeat(64)}`} WHERE command_id=${acceptanceCommand.id}`);
     await expect(effects.requestAcceptance(completed.task.service, acceptanceReference)).rejects.toMatchObject({ code: "factory_protected_effect_corrupt" });
+  });
+
+  test("a failing required claim becomes a durable rejection and a kernel failure, never a thrown activity", async () => {
+    const { effects, completed, acceptanceReference, acceptanceCommand, candidateAdvanced, claim } = await protectedAcceptance(false);
+    const rejected = await effects.requestAcceptance(completed.task.service, acceptanceReference);
+    expect(rejected).toMatchObject({ kind: "node-failed", nodeId: "accept", commandId: acceptanceCommand.id, failureKind: "acceptance_rejected", error: "factory_assurance_claim_failed" });
+    // The same command replays to the same durable fact instead of running the contract again.
+    expect(await effects.requestAcceptance(completed.task.service, acceptanceReference)).toEqual(rejected);
+
+    const stored = rows<{ decision: string; receipt_json: string }>(await fixture.db.execute(sql`SELECT decision, receipt_json FROM factory_protected_command_effects WHERE run_id=${completed.task.run.runId} AND command_id=${acceptanceCommand.id}`));
+    expect(stored.map(row => row.decision)).toEqual(["rejected"]);
+    const receipt = JSON.parse(stored[0]!.receipt_json) as { outcome: string; failures: { claimId: string; validatorId: string; verdict: string; reasonCode: string }[]; groupFailures: unknown[]; candidateDigest: string };
+    expect(receipt.outcome).toBe("rejected");
+    expect(receipt.failures).toEqual([{ claimId: claim.id, validatorId: claim.id, verdict: "FAIL", reasonCode: "claim_failed" }]);
+    expect(receipt.groupFailures).toEqual([]);
+    expect(receipt.candidateDigest).toBe(completed.result.output.digest);
+    // No acceptance decision exists, so nothing downstream can claim release authority.
+    expect(rows(await fixture.db.execute(sql`SELECT decision_id FROM factory_acceptance_decisions WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId}`))).toEqual([]);
+
+    // The rejection reaches the kernel as an ordinary node failure and never as a success.
+    const advanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, rejected);
+    expect(advanced.nextState.nodes.accept?.status).not.toBe("succeeded");
+    // MEASURED, and W06's to close: today the kernel answers this event with a cancel-node for the
+    // acceptance node, which has no physical attempt to cancel. The plan forbids that. W06 owns
+    // kernel.ts and adds the remediation wait; this records the exact command it must stop emitting.
+    expect(advanced.commands.filter(command => command.kind === "cancel-node").map(command => command.kind === "cancel-node" ? command.nodeId : "")).toEqual(["accept"]);
   });
 
   test("attempt dispatcher mints one fresh authority and atomically commits a successful result", async () => {
