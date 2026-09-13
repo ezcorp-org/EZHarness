@@ -25,6 +25,7 @@
 import { request, type APIRequestContext } from "@playwright/test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { waitForBundledBootstrap } from "./fixtures/bundled-bootstrap.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const STORAGE_STATE_PATH = path.join(__dirname, ".real-auth.json");
@@ -102,6 +103,12 @@ export default async function globalSetup(): Promise<void> {
     }
 
     await apiRequest.storageState({ path: STORAGE_STATE_PATH });
+
+    // Creating the administrator above is what starts the server's bundled
+    // bootstrap: every bundled extension is built through the ONE isolated
+    // runner, and any spec that builds meanwhile queues behind that chain.
+    // Wait for a quiet runner here, once, so no spec pays for it.
+    await waitForBundledBootstrap(apiRequest, baseURL);
   } finally {
     await apiRequest.dispose();
   }

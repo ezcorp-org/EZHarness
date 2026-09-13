@@ -8,7 +8,7 @@
 import type { Page, Request, Route, TestInfo } from "@playwright/test";
 import { test, expect, waitForHydration } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
-import { buildWorkspace, extensionClient, requestRelease, waitForExtensionBuild, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { activateApprovedRelease, buildWorkspace, extensionClient, requestRelease, waitForExtensionBuild, type CreatedWorkspace } from "../fixtures/extension-v4";
 import {
   invokeExtensionToolFromComposer,
   selectExtensionMention,
@@ -487,8 +487,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await captureEvidence(page, testInfo, "extension-lifecycle-review-desktop", { fullPage: true });
     await page.getByLabel("I reviewed this release and its permissions.").check();
     await approve.click();
-    await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+    await activateApprovedRelease(page);
 
     // This is deterministic test setup only. It creates an owned empty chat;
     // extension creation, source editing, build, approval, activation, and
@@ -613,8 +612,7 @@ test("human UI creates, approves, uses, scopes, disables, re-enables, and uninst
     await requestApprovalAfterReload.click();
     await page.getByLabel("I reviewed this release and its permissions.").check();
     await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
-    await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+    await activateApprovedRelease(page);
 
     await page.goto(`/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(page, name, { text: reenabledExpected });
@@ -723,8 +721,7 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     await requestApproval.click();
     await page.getByLabel("I reviewed this release and its permissions.").check();
     await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
-    await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+    await activateApprovedRelease(page);
 
     const seeded = await request.post("/api/__test/seed", { data: { title: "Browser build recovery" } });
     expect(seeded.status(), await seeded.text()).toBe(201);
@@ -765,8 +762,7 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     const repairedApproval = page.locator(".approval").filter({ hasText: repairedDigest });
     await repairedApproval.getByLabel("I reviewed this release and its permissions.").check();
     await repairedApproval.getByRole("button", { name: "Approve exact release", exact: true }).click();
-    await repairedApproval.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+    await activateApprovedRelease(page, repairedApproval);
 
     await navigateWithRuntimeEventTeardown(page, browserObserver, `/project/${projectId}/chat/${conversationId}`);
     await invokeExtensionToolFromComposer(page, name, { text: repairedOutput });
@@ -802,8 +798,7 @@ test("same-session stale tabs cannot replace a new active release or restore an 
     await navigateWithRuntimeEventTeardown(page, pageObserver, created.openUrl);
     await page.getByLabel("I reviewed this release and its permissions.").check();
     await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
-    await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+    await activateApprovedRelease(page);
 
     // B approves R2 while R1 is active and retains the rendered R2 activation.
     // A then activates separately-approved R3, so B's R2 action is stale.
