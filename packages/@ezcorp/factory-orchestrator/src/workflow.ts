@@ -130,8 +130,13 @@ function workflowIdentity(input: FactoryWorkflowInput): FactoryIdentity {
   return { tenantId: input.tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, interpreterId: input.interpreterId };
 }
 
+function durableInputJson(value: FactoryWorkflowInput["durableInput"]): JsonValue {
+  // Both sources were schema-validated before this comparison; this preserves a canonical transport snapshot.
+  return (value ?? null) as unknown as JsonValue;
+}
+
 function assertDurableInputContinuity(input: FactoryWorkflowInput, state: KernelState): void {
-  if (canonicalizeJson(state.durableInput ?? null) !== canonicalizeJson(input.durableInput ?? null)) {
+  if (canonicalizeJson(durableInputJson(state.durableInput)) !== canonicalizeJson(durableInputJson(input.durableInput))) {
     throw workflowFailure(new Error("continuation durable input does not match workflow input"), "FACTORY_INPUT_INVALID");
   }
 }
