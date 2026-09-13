@@ -965,4 +965,12 @@ export async function bootSpawnFlaggedBundledExtensions(
 export async function ensureBundledExtensions(): Promise<void> {
   const { stageBundledExtensionSources } = await import("./bundled-bootstrap");
   await stageBundledExtensionSources(resolveBundledExtensions());
+  // Conversations created while an auto-wire bundled extension was
+  // disabled carry no `conversation_extensions` row, so the dispatcher
+  // drops every `run:complete` for them — permanently, because the
+  // create-time hook only fires once. Reconciling on every boot closes
+  // that gap without a one-time migration. The helper never throws:
+  // boot must not fail on a wiring miss.
+  const { reconcileBundledConversationWiring } = await import("./auto-wire-bundled");
+  await reconcileBundledConversationWiring();
 }
