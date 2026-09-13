@@ -302,3 +302,95 @@ test("a denial while reattaching a live guest records durable uncertainty instea
   expect(runner.attaches).toBe(0);
   expect(await launchState(request.authority.attemptId)).toBe("uncertain");
 });
+
+/** A runner whose inspect can be made to fail or hang under test control. */
+class InspectFaultRunner implements Runner {
+  cancels = 0;
+  starts = 0;
+  mode: "running" | "throw" | "hang" | "cancelled" = "running";
+  private release: ((value: RunnerInspection) => void) | undefined;
+  constructor(private readonly result: FactoryRunnerResult) {}
+  async build(): Promise<never> { throw new Error("build is not part of this test"); }
+  async collectArtifacts(): Promise<never> { throw new Error("artifact collection is not part of this test"); }
+  private readonly started = new Set<string>();
+  async start(input: StartRequest): Promise<RunnerExecution> {
+    this.starts += 1;
+    this.started.add(input.workerId);
+    return { workerId: input.workerId, request: async () => this.result, close: async () => {}, onNotification: () => () => {} };
+  }
+  async cancel(): Promise<void> { this.cancels += 1; }
+  async inspect(id: string): Promise<RunnerInspection> {
+    if (this.mode === "throw") throw new Error("podman inspect transport failed");
+    if (this.mode === "hang") return new Promise<RunnerInspection>(resolve => { this.release = resolve; });
+    if (!this.started.has(id)) return { id, state: "unknown", diagnostics: [] };
+    return { id, state: this.mode === "cancelled" ? "cancelled" : "running", diagnostics: [] };
+  }
+  /** Ends a held inspect with a state the caller chooses. */
+  settleHang(state: RunnerInspection["state"]): void { this.release?.({ id: "held", state, diagnostics: [] }); this.release = undefined; }
+  get held(): boolean { return this.release !== undefined; }
+}
+
+test("an inspect transport failure is never read as physical absence", async () => {
+  const runner = new InspectFaultRunner(factoryLaunchCompletedResult("inspect-fail"));
+  const receipts: unknown[] = [];
+  const live = runtime(runner, { presentStopReceipt: async () => { receipts.push("presented"); } });
+  const opened = await live.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(opened.disposition).toBe("started");
+
+  runner.mode = "throw";
+  await expect(opened.stop("cancelled")).rejects.toThrow("podman inspect transport failed");
+  // A failed observation proves nothing: no signed receipt, and the launch is
+  // not recorded terminal on the strength of an API error.
+  expect(receipts).toEqual([]);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+  expect(runner.cancels).toBe(1);
+});
+
+test("a worker still running after cancel is uncertain, not stopped", async () => {
+  const runner = new InspectFaultRunner(factoryLaunchCompletedResult("still-running"));
+  const receipts: unknown[] = [];
+  const live = runtime(runner, { presentStopReceipt: async () => { receipts.push("presented"); } });
+  const opened = await live.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  await expect(opened.stop("cancelled")).rejects.toThrow("absence is not physically confirmed");
+  expect(receipts).toEqual([]);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+});
+
+test("a hanging inspect yields no receipt until it returns a real terminal observation", async () => {
+  const runner = new InspectFaultRunner(factoryLaunchCompletedResult("inspect-hang"));
+  const receipts: unknown[] = [];
+  const live = runtime(runner, { presentStopReceipt: async () => { receipts.push("presented"); } });
+  const opened = await live.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+
+  runner.mode = "hang";
+  const stopping = opened.stop("cancelled").then(() => "resolved", error => (error as Error).message);
+  // Drain the microtask queue so the stop has certainly reached the held inspect.
+  while (!runner.held) await Promise.resolve();
+  expect(receipts).toEqual([]);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+
+  // A held observation that finally reports "running" still refuses to settle.
+  runner.settleHang("running");
+  expect(await stopping).toContain("absence is not physically confirmed");
+  expect(receipts).toEqual([]);
+});
+
+test("a stale device grant is rejected when its holding lease no longer matches", async () => {
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  const intent = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(intent.devices.holderGeneration).toBe(factoryLaunchLease.holderGeneration);
+
+  // The grant seals its holder generation and host, so moving either recomputes
+  // a different digest than the one stored beside it.
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET holder_generation=${factoryLaunchLease.holderGeneration + 1} WHERE attempt_id=${request.authority.attemptId}`);
+  await expect(store.terminalResult(request.authority.attemptId)).resolves.toBeUndefined();
+  await expect(store.claimStart(request.authority.attemptId)).rejects.toThrow("device grant digest is invalid");
+
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET holder_generation=${factoryLaunchLease.holderGeneration}, host_id='other-host' WHERE attempt_id=${request.authority.attemptId}`);
+  await expect(store.claimStart(request.authority.attemptId)).rejects.toThrow("device grant digest is invalid");
+
+  // Injecting devices into the stored facts cannot launder them either: the
+  // digest seals the device lists alongside the lease that authorized them.
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET host_id=${factoryLaunchLease.hostId}, device_grant_json=${canonicalJson({ devices: ["/dev/kfd"], cdiDevices: [], capabilities: ["compute", "utility"] })}::jsonb WHERE attempt_id=${request.authority.attemptId}`);
+  await expect(store.claimStart(request.authority.attemptId)).rejects.toThrow("device grant digest is invalid");
+});
