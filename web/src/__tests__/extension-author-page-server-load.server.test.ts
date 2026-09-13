@@ -1,9 +1,10 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn(), listProjects: vi.fn(), getExtensionProjectBinding: vi.fn(), checkProjectRole: vi.fn(), getExtension: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn(), listProjects: vi.fn(), getExtensionProjectBinding: vi.fn(), checkProjectRole: vi.fn(), getExtension: vi.fn(), getExtensionsByIds: vi.fn(), getReleaseNamesByInstallationIds: vi.fn() }));
 vi.mock("$lib/server/extensions/control-actor", () => ({ resolveControlActor: async (user: { id: string }, kind: string) => ({ principalId: user.id, scope: "global", kind }) }));
 vi.mock("$server/db/queries/projects", () => mocks);
 vi.mock("$server/db/queries/extensions", () => mocks);
+vi.mock("$server/db/queries/extension-releases", () => mocks);
 vi.mock("$server/extensions/project-binding", () => mocks);
 vi.mock("$server/auth/middleware", () => ({ checkProjectRole: mocks.checkProjectRole, requireAuth: (locals: { user?: { id: string } }) => { if (!locals.user) throw new Response("Unauthorized", { status: 401 }); return locals.user; } }));
 vi.mock("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => mocks }));
@@ -13,7 +14,7 @@ function event(query = "", authenticated = true) {
   return { url: new URL(`http://localhost/extensions/author${query}`), locals: { user: authenticated ? { id: "owner", role: "admin" } : undefined, authMethod: "session" } } as Parameters<typeof load>[0];
 }
 
-beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); mocks.listProjects.mockResolvedValue([]); mocks.getExtensionProjectBinding.mockResolvedValue(null); mocks.getExtension.mockResolvedValue(null); });
+beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); mocks.listProjects.mockResolvedValue([]); mocks.getExtensionProjectBinding.mockResolvedValue(null); mocks.getExtension.mockResolvedValue(null); mocks.getExtensionsByIds.mockResolvedValue(new Map()); mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map()); });
 
 test("requires authentication before listing workspaces", async () => {
   await expect(load(event("", false))).rejects.toMatchObject({ status: 401 });
@@ -99,4 +100,18 @@ test("a bundled installation without a release still names itself from its legac
   mocks.inspect.mockResolvedValue({ installation: { id: "installation", ownerId: "owner", activeReleaseId: null }, workspaces: {}, releases: {} });
   mocks.getExtension.mockResolvedValue({ name: "lessons-distiller" });
   expect(await load(event("?installation=installation"))).toMatchObject({ extensionName: "lessons-distiller", breadcrumbTail: "lessons-distiller" });
+});
+
+test("the list names every installation it can and leaves the rest unnamed", async () => {
+  mocks.list.mockResolvedValue([{ id: "named", status: "active" }, { id: "nameless", status: "disabled" }]);
+  mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map([["named", "memory-extractor"]]));
+  expect(await load(event())).toMatchObject({ installations: [{ id: "named", status: "active", name: "memory-extractor" }, { id: "nameless", status: "disabled", name: null }] });
+  expect(mocks.getReleaseNamesByInstallationIds).toHaveBeenCalledWith(["named", "nameless"]);
+});
+
+test("a selected installation carries the name the heading already resolved", async () => {
+  const release = { id: "release", manifest: { name: "memory-extractor" }, createdAt: "2026-01-01" };
+  mocks.inspect.mockResolvedValue({ installation: { id: "installation", ownerId: "owner", activeReleaseId: "release" }, workspaces: {}, releases: { release } });
+  expect(await load(event("?installation=installation"))).toMatchObject({ installations: [{ id: "installation", name: "memory-extractor" }] });
+  expect(mocks.getReleaseNamesByInstallationIds).not.toHaveBeenCalled();
 });
