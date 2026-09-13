@@ -205,6 +205,7 @@
   "src/factory/run-grants.ts": 100,
   "src/factory/execution-gateway.ts": 100,
   "src/factory/runner/supervisor.ts": 100,
+  "src/factory/runner/native.ts": 100,
   "src/db/migrations/add-factory-grants.ts": 100,
   "src/factory/outbox.ts": 100,
   "src/factory/pool/index.ts": 100,
