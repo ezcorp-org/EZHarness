@@ -1277,3 +1277,12 @@ Review: `/tmp/factory-platform-evidence/root-backend-corrections.log` records al
 - [ ] Connect the concrete committed-command policy and production startup.
 
 Review: `/tmp/factory-platform-evidence/private-service-final-results.json` records all seven successful producers. The combined component suite passes 52 cases/409 assertions. PostgreSQL/S3 passes 20 cases/180 assertions. Every measured line is hit for private service94/94, HTTPS70/70, outbox173/173, queue adapter26/26, artifact store81/81, definition store73/73 and transition store79/79. The actual Node producer measures queue client67/67, gateway236/236 and both paged readers completely. This closes the private transport and storage composition leaf; its injected command executor is still awaiting the concrete committed-command policy, and full platform readiness remains open.
+
+## Root private service integration checks
+
+- [x] Run the exact expanded CI command against PostgreSQL and Compose S3 on the integrated source.
+- [x] Verify complete schema references and the production Node queue client within that lane.
+- [x] Repair both newly merged command-index fixtures to use canonical base64 page DTOs.
+- [x] Run the complete artifact test file and all four type checks, lint and gate integrity.
+
+Review: `root-private-integration-results.json` records the SDK build, 48 PostgreSQL/S3 cases (348 assertions), and two schema cases (1,231 assertions) passing at `1e9aea5a7`. Its type check correctly rejected two stale test fixtures. The correction is `5b982efde`; `root-private-page-fixtures.log` records all 12 artifact cases passing. `root-private-static-results.json` records all four type checks, lint and gate integrity passing at that correction. Receipts are in `/tmp/factory-platform-evidence`. These checks do not prove concrete command execution or production readiness.
