@@ -197,8 +197,8 @@ function applyPartitionCompletion(
       ...state.partition.externalOutputs,
       [event.sourceNodeId]: {
         status: event.outcome,
-        output: event.output === undefined ? undefined : snapshotValue(event.output),
-        error: event.error,
+        ...(event.output === undefined ? {} : { output: snapshotValue(event.output) }),
+        ...(event.error === undefined ? {} : { error: event.error }),
         candidateGeneration: event.candidateGeneration,
         terminalSequence: event.terminalSequence,
       },
@@ -236,8 +236,8 @@ function emitPartitionNotifications(
       candidateGeneration: runtime.candidateGeneration,
       terminalSequence: runtime.terminalSequence!,
       outcome: status as "succeeded" | "failed" | "skipped" | "cancelled",
-      output: runtime.output,
-      error: runtime.error,
+      ...(runtime.output === undefined ? {} : { output: runtime.output }),
+      ...(runtime.error === undefined ? {} : { error: runtime.error }),
     });
   }
   return next;
