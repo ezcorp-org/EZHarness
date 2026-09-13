@@ -1554,6 +1554,6 @@ Plan review: a private command ID is the only request authority; the reader vali
 
 - [x] Validate durable artifact descriptors and inline values separately, so required artifact ports do not need placeholder JSON in lifecycle or kernel state.
 - [x] Define the authority callback contract and match a stored lazy command to the current committed pending state.
-- [ ] Add a DB-transactional `lazy-commands.ts` adapter that maps only verified reader output to bounded kernel events.
-- [ ] Prove PGlite, PostgreSQL/S3, and private HTTPS generic-command behavior including stale, cancelled, substituted, version, and oversized denials.
+- [x] Add a DB-transactional `lazy-commands.ts` adapter that maps only verified reader output to bounded kernel events.
+- [x] Prove PGlite, PostgreSQL/S3, and private HTTPS generic-command behavior including stale, cancelled, substituted, version, and oversized denials.
 - [ ] Run owned coverage, SDK build, all canonical typechecks, lint, and integrity checks.
