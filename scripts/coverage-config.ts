@@ -242,6 +242,7 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/components/ez/EzPanel.svelte",
   "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte",
   // Direct Vitest utility suites own these browser-safe factory helpers.
+  "web/src/lib/factory/FactoryReleaseInbox.svelte",
   "web/src/lib/factory/client.ts",
   "web/src/lib/factory/download.ts",
   "web/src/lib/factory/layout.ts",

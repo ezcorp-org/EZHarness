@@ -784,6 +784,11 @@ function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "ap
   return validDigest(resource.contextDigest, false) && decided === (resource.decidedBy !== undefined && resource.decidedAtMs !== undefined);
 }
 
+function validReleaseNotification(resource: Extract<FactoryApiResponse, { kind: "release.notification.page" }>["page"]["items"][number]): boolean {
+  if (resource.kind === "approval_requested") return validDigest(resource.contextDigest, false) && safeCounter(resource.expiresAtMs, 1);
+  return safeCounter(resource.dispatchGeneration, 1) && boundedText(resource.outcomeCode);
+}
+
 function validServiceCredentialToken(token: string): boolean {
   if (!token.startsWith("ezkfsvc_")) return false;
   const parts = token.slice(8).split(".");
@@ -858,6 +863,7 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
   if (response.kind === "release.contract.resource" && (!validDigest(response.resource.contractDigest, true) || !validDigest(response.resource.validatorLockDigest, true))) return issue("API_RELEASE_CONTRACT_DIGEST", "Release contract response contains an invalid digest.", ["resource"]);
   if (response.kind === "release.operation.resource" && !validReleaseOperation(response.resource)) return issue("API_RELEASE_OPERATION", "Release operation response contains invalid protected coordinates.", ["resource"]);
   if (response.kind === "release.approval.resource" && !validDigest(response.resource.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Release approval response contains an invalid context digest.", ["resource", "contextDigest"]);
+  if (response.kind === "release.notification.page" && response.page.items.some(item => !validReleaseNotification(item))) return issue("API_RELEASE_NOTIFICATION", "Release notification page contains invalid authority or outcome details.", ["page", "items"]);
   if (response.kind === "release.policy.resource" && !response.resource.revoked && !validDigest(response.resource.contractDigest, true)) return issue("API_RELEASE_POLICY", "Release policy response contains an invalid contract digest.", ["resource", "contractDigest"]);
   if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
   if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);

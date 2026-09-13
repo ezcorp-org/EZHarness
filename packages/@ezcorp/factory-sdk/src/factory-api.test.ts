@@ -65,6 +65,7 @@ function requests(): FactoryApiRequest[] {
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "release.policy.put", path: { ...project, policyId: "policy-1" }, preconditions: { ...preconditions, expectedRevision: 0 }, body: releasePolicy },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "release.policy.delete", path: { ...project, policyId: "policy-1" }, preconditions },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "release.reconcile", path: { ...project, operationId: "operation-1" }, preconditions, body: { action: "keep_uncertain", reason: "Provider outcome remains unknown", providerEvidence: { checkedAt: 1 } } },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "release.notification.list", path: project, query: { limit: 50, cursor: "notification-1" } },
   ];
   return values.map((request) => "preconditions" in request
     ? { ...request, preconditions: { ...request.preconditions, payloadDigest: factoryApiPayloadDigest(request) } } as FactoryApiRequest
@@ -108,6 +109,11 @@ function responses(): FactoryApiResponse[] {
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.operation.resource", resource: releaseOperation },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.approval.resource", resource: { approvalId: "approval-1", operationId: "operation-1", contextDigest: sourceDigest, status: "pending", expiresAtMs: 2_000_000_000_000 } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.policy.resource", resource: { policyId: "policy-1", revision: 1, revoked: false, ...releasePolicy } },
+    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.notification.page", page: { items: [
+      { notificationId: "notification-1", operationId: "operation-1", createdAtMs: 1, kind: "approval_requested", approvalId: "approval-1", contextDigest: sourceDigest, expiresAtMs: 2_000_000_000_000 },
+      { notificationId: "notification-2", operationId: "operation-2", createdAtMs: 2, kind: "release_uncertain", dispatchGeneration: 1, outcomeCode: "provider_response_unknown" },
+      { notificationId: "notification-3", operationId: "operation-3", createdAtMs: 3, kind: "release_settled", dispatchGeneration: 1, outcomeCode: "confirmed" },
+    ] } },
   ];
 }
 
@@ -259,5 +265,8 @@ describe("factory product API schema", () => {
     expect(validateFactoryApiResponse({ ...releaseOperation, resource: { ...releaseOperation.resource, receipt: { provider: "s3", account: "tenant-1", object: "releases/output.json", requestDigest: `sha256:${compiledBlobDigest}`, operationId: "operation-1", dispatchGeneration: 1, providerReceiptId: "receipt-1", version: "v1", effectDigest: `sha256:${sourceDigest}` } } })).toEqual({ ok: true });
     expect(code(validateFactoryApiResponse({ ...releaseOperation, resource: { ...releaseOperation.resource, requestDigest: `sha256:${"A".repeat(64)}` } }))).toBe("API_RELEASE_OPERATION");
     expect(code(validateFactoryApiResponse({ ...releaseOperation, resource: { ...releaseOperation.resource, senderToken: "leaked" } }))).toBe("API_RESPONSE_SCHEMA");
+    const notifications = responses()[24] as Extract<FactoryApiResponse, { kind: "release.notification.page" }>;
+    expect(code(validateFactoryApiResponse({ ...notifications, page: { items: [{ ...notifications.page.items[0]!, contextDigest: "A".repeat(64) }] } }))).toBe("API_RELEASE_NOTIFICATION");
+    expect(code(validateFactoryApiResponse({ ...notifications, page: { items: [{ ...notifications.page.items[1]!, dispatchGeneration: 0 }] } }))).toBe("API_RESPONSE_SCHEMA");
   });
 });

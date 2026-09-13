@@ -309,6 +309,10 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
       const result = await releaseOperations(application).decideApproval(principal, request.path.projectId, request.path.approvalId, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.approval.resource", resource: result };
     }
+    case "release.notification.list": {
+      const page = await releaseOperations(application).listNotifications(principal, request.path.projectId, request.query);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.notification.page", page: apiPage(page.items, page.nextCursor) };
+    }
     case "release.policy.put": {
       const result = await releaseOperations(application).putPolicy(principal, request.path.projectId, request.path.policyId, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.policy.resource", resource: result };

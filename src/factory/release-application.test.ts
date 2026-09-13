@@ -12,7 +12,7 @@ const operation = { tenantId, projectId, operationId: "operation-1", runId: "run
 function fixture() {
   const grants = { tenantId, authorize: mock(async () => ({ revision: 1, expiresAtMs: null })) };
   const assurance = { tenantId, approveContract: mock(async () => {}), decideApproval: mock(async () => {}) };
-  const releases = { tenantId, prepare: mock(async () => operation), inspect: mock(async () => operation), requestApproval: mock(async () => ({ approvalId: "approval-1", contextDigest: "a".repeat(64) })), createPolicy: mock(async () => {}), revokePolicy: mock(async () => {}), reconcile: mock(async () => operation) };
+  const releases = { tenantId, prepare: mock(async () => operation), inspect: mock(async () => operation), requestApproval: mock(async () => ({ approvalId: "approval-1", contextDigest: "a".repeat(64) })), deliverNextNotification: mock(async () => null), listDeliveredNotifications: mock(async () => ({ items: [], nextCursor: null })), createPolicy: mock(async () => {}), revokePolicy: mock(async () => {}), reconcile: mock(async () => operation) };
   const provider = {} as FactoryReleaseProvider;
   const providers = { resolve: mock(async () => provider) };
   return { grants, assurance, releases, provider, providers, application: new FactoryReleaseApplication(tenantId, grants as unknown as FactoryGrants, assurance as unknown as FactoryAssurance, releases as unknown as FactoryReleases, providers) };
@@ -27,6 +27,10 @@ test("release application forwards exact public preconditions into durable store
   expect(prepared).toBe(operation);
   await f.application.requestApproval(actor, projectId, operation.operationId, { expiresAtMs: operation.deadlineMs }, 1, "approval-key");
   expect(f.releases.requestApproval).toHaveBeenCalledWith(actor, projectId, operation.operationId, operation.deadlineMs, 1, "approval-key");
+  expect(await f.application.listNotifications(actor, projectId, { limit: 25 })).toEqual({ items: [], nextCursor: null });
+  expect(f.releases.listDeliveredNotifications).toHaveBeenCalledWith(actor, projectId, { limit: 25 });
+  expect(await f.application.notifications.deliverNext(projectId)).toBeNull();
+  expect(f.releases.deliverNextNotification).toHaveBeenCalledWith(projectId);
   await expect(f.application.decideApproval(actor, projectId, "approval-1", { contextDigest: "a".repeat(64), decision: "approved" }, 1, "decision-key")).rejects.toMatchObject({ code: "factory_release_precondition" });
   await f.application.decideApproval(actor, projectId, "approval-1", { contextDigest: "a".repeat(64), decision: "denied" }, 0, "decision-key");
   expect(f.assurance.decideApproval).toHaveBeenCalledWith(actor, projectId, "approval-1", "a".repeat(64), false, "decision-key");

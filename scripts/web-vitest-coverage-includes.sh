@@ -10,6 +10,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/factories/_shared.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/contracts/[[]contractId]/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/approvals/[[]approvalId]/+server.ts"
+    "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/notifications/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/policies/[[]policyId]/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/releases/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/releases/[[]operationId]/+server.ts"

@@ -15,6 +15,7 @@ import type {
 	FactoryReleasePrepareBody,
 	FactoryReleaseOperationResource,
 	FactoryReleaseApprovalResource,
+	FactoryReleaseNotificationResource,
 	FactoryReleasePolicyBody,
 	FactoryReleasePolicyResource,
 	FactoryReleaseReconciliationBody,
@@ -243,6 +244,11 @@ export class FactoryApiClient {
 		return expectKind(await this.read(path, this.mutationInit("decide-release-approval:" + approvalId, 0, { contextDigest, decision }, "PUT")), "release.approval.resource").resource;
 	}
 
+	async listReleaseNotifications(projectId: string, query: { readonly limit?: number; readonly cursor?: string } = {}): Promise<{ readonly items: readonly FactoryReleaseNotificationResource[]; readonly nextCursor: string | null }> {
+		const response = expectKind(await this.read(this.release(projectId) + "/notifications" + queryString(query)), "release.notification.page");
+		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
+	}
+
 	async putReleasePolicy(projectId: string, policyId: string, body: FactoryReleasePolicyBody): Promise<FactoryReleasePolicyResource> {
 		const path = this.release(projectId) + "/policies/" + encoded(policyId);
 		return expectKind(await this.read(path, this.mutationInit("put-release-policy:" + policyId, 0, body, "PUT")), "release.policy.resource").resource;
@@ -266,8 +272,10 @@ export type FactoryAuthoringApi = Pick<FactoryApiClient,
 
 export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
 	"publishReleaseTrust" | "revokeReleaseTrust" | "setReleaseEnabled" | "putReleaseContract" | "prepareRelease" | "getRelease" |
-	"requestReleaseApproval" | "decideReleaseApproval" | "putReleasePolicy" | "deleteReleasePolicy" | "reconcileRelease"
+	"requestReleaseApproval" | "decideReleaseApproval" | "listReleaseNotifications" | "putReleasePolicy" | "deleteReleasePolicy" | "reconcileRelease"
 >;
+
+export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval">;
 
 export function blankFactory(factoryId: string): FactoryDefinition {
 	return {

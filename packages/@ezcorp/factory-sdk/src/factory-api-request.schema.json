@@ -1339,6 +1339,32 @@
         {
           "additionalProperties": false,
           "properties": {
+            "kind": {
+              "const": "release.notification.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "body": {
               "$ref": "#/definitions/FactoryReleasePolicyBody"
             },
