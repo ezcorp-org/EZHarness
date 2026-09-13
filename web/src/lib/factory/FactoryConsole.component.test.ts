@@ -166,7 +166,7 @@ describe("FactoryConsole", () => {
 	test("surfaces list, create, and import failures", async () => {
 		const listFailure = api({ listDrafts: vi.fn(async () => { throw new Error("draft list unavailable"); }) });
 		let view = renderConsole(listFailure);
-		await screen.findByText("draft list unavailable");
+		expect(await screen.findByText("draft list unavailable")).toBeVisible();
 		view.unmount();
 
 		const createFailure = api({ createDraft: vi.fn(async () => { throw new Error("create refused"); }) });
@@ -174,7 +174,7 @@ describe("FactoryConsole", () => {
 		await screen.findByText(source().id);
 		await fireEvent.input(screen.getByLabelText("New factory ID"), { target: { value: "new-one" } });
 		await fireEvent.click(screen.getByRole("button", { name: "Create factory" }));
-		await screen.findByText("create refused");
+		expect(await screen.findByText("create refused")).toBeVisible();
 		view.unmount();
 
 		const importFailure = api({ importDraft: vi.fn(async () => { throw new Error("import refused"); }) });
@@ -184,7 +184,7 @@ describe("FactoryConsole", () => {
 		Object.defineProperty(file, "text", { value: async () => "schemaVersion: factory.v1" });
 		const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
 		await fireEvent.change(fileInput, { target: { files: [file] } });
-		await screen.findByText("import refused");
+		expect(await screen.findByText("import refused")).toBeVisible();
 	});
 
 	test("surfaces save, export, archive, and duplicate-node failures", async () => {
@@ -197,18 +197,18 @@ describe("FactoryConsole", () => {
 		await openDraft();
 		await makeDirty();
 		await fireEvent.click(screen.getByRole("button", { name: "Save" }));
-		await screen.findByText("save refused");
+		expect(await screen.findByText("save refused")).toBeVisible();
 		await fireEvent.click(screen.getByRole("button", { name: "JSON" }));
-		await screen.findByText("export refused");
+		expect(await screen.findByText("export refused")).toBeVisible();
 		await fireEvent.click(screen.getByRole("button", { name: "Archive draft" }));
-		await screen.findByText("archive refused");
+		expect(await screen.findByText("archive refused")).toBeVisible();
 
 		await fireEvent.click(screen.getByRole("button", { name: "Graph" }));
 		await fireEvent.input(screen.getByLabelText("New node ID"), { target: { value: "collect" } });
 		await fireEvent.click(screen.getByRole("button", { name: "Add node" }));
 		await fireEvent.input(screen.getByLabelText("New node ID"), { target: { value: "collect" } });
 		await fireEvent.click(screen.getByRole("button", { name: "Add node" }));
-		await screen.findByText("Node IDs must be unique in this graph.");
+		expect(await screen.findByText("Node IDs must be unique in this graph.")).toBeVisible();
 	});
 
 	test("loads the server side of a conflict and handles first-publication review", async () => {
@@ -238,7 +238,7 @@ describe("FactoryConsole", () => {
 		const view = renderConsole(reviewFailure);
 		await openDraft();
 		await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-		await screen.findByText("version list unavailable");
+		expect(await screen.findByText("version list unavailable")).toBeVisible();
 		view.unmount();
 
 		const publishFailure = api({ publishVersion: vi.fn(async () => { throw new Error("publication refused"); }) });
@@ -248,6 +248,6 @@ describe("FactoryConsole", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 		const dialog = await screen.findByRole("dialog", { name: "Review version 0.1.0" });
 		await fireEvent.click(within(dialog).getByRole("button", { name: "Publish 0.1.0" }));
-		await screen.findByText("publication refused");
+		expect(await screen.findByText("publication refused")).toBeVisible();
 	});
 });
