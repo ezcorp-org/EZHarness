@@ -27,6 +27,27 @@ export interface FactoryApplicationOptions {
 
 let configuredApplication: FactoryApplication | null = null;
 
+function immutableSet<T>(values: Iterable<T>): ReadonlySet<T> {
+  const stored = new Set(values);
+  const view: ReadonlySet<T> = {
+    get size() { return stored.size; },
+    has: value => stored.has(value),
+    entries: () => stored.entries(),
+    keys: () => stored.keys(),
+    values: () => stored.values(),
+    forEach(callback, thisArg) { stored.forEach(value => { callback.call(thisArg, value, value, view); }); },
+    [Symbol.iterator]: () => stored[Symbol.iterator](),
+    union: other => stored.union(other),
+    intersection: other => stored.intersection(other),
+    difference: other => stored.difference(other),
+    symmetricDifference: other => stored.symmetricDifference(other),
+    isSubsetOf: other => stored.isSubsetOf(other),
+    isSupersetOf: other => stored.isSupersetOf(other),
+    isDisjointFrom: other => stored.isDisjointFrom(other),
+  };
+  return Object.freeze(view);
+}
+
 /** Compose the HTTP-facing stores only from already-probed, trusted services. */
 export function createFactoryApplication(options: FactoryApplicationOptions): FactoryApplication {
   assertFactoryIdentity(options.tenantId);
@@ -41,7 +62,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
     tenantId: options.tenantId,
     grants,
     definitions: new FactoryDefinitions(options.database, options.tenantId, grants, options.blobs),
-    availableResourceClasses: resources as ReadonlySet<string>,
+    availableResourceClasses: immutableSet(resources),
   });
 }
 

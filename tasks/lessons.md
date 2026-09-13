@@ -377,3 +377,5 @@
 - Apply all C08 byte limits to audit activities too. Canonicalize a transition once, stage bounded immutable pages, finalize their manifest, and commit only the compact event identity and artifact reference before effects.
 - Derive root and partition Temporal workflow IDs with one shared helper. Keep the stored root workflow identity separate from the explicit target interpreter so delivery and reconciliation address the same child.
 - Restrict partition repair traversal to nodes present in the active kernel state. A full compiled successor index includes foreign partitions; a non-null assertion can turn a valid source repair into a workflow failure.
+- Snapshot caller-owned principals, resource keys, and mutation bodies before the first asynchronous authorization step. A caller can otherwise change the authority check, idempotency hash, or eventual write target while the operation waits.
+- Register shared authorization wrappers in the scope-enforcement scan when routes delegate their complete gate. A shared gate is safe only when the guard test recognizes and verifies its use.

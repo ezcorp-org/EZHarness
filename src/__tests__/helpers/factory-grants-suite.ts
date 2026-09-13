@@ -79,6 +79,74 @@ test("grant metadata pages are scoped, filtered, cursor-bound, and durably idemp
   expect(await grants.read(member, key)).toMatchObject({ revision: 2, revoked: true });
 });
 
+test("grant operations snapshot caller-owned authority and targets before authorization waits", async () => {
+  const targetA: FactoryPrincipal = { kind: "user", id: "grant-race-a", authentication: "session" };
+  const targetB: FactoryPrincipal = { kind: "user", id: "grant-race-b", authentication: "session" };
+  for (const principal of [targetA, targetB]) {
+    await fixture.db.execute(sql`INSERT INTO users (id, email, password_hash, name, role) VALUES (${principal.id}, ${`${principal.id}@example.test`}, 'not-a-login', ${principal.id}, 'member')`);
+    await fixture.db.execute(sql`INSERT INTO project_members (id, project_id, user_id, role) VALUES (${`member-${principal.id}`}, 'grant-project', ${principal.id}, 'member')`);
+  }
+  await grants.set(admin, { projectId: "grant-project", principal: owner, action: "factory.approve", expectedRevision: 0, expiresAtMs: null });
+
+  const originalAuthorize = grants.authorizeInTransaction.bind(grants);
+  let release = () => {};
+  let reached = Promise.resolve();
+  function holdNextAuthorization(): void {
+    reached = new Promise<void>(resolve => {
+      let unblock!: () => void;
+      const blocked = new Promise<void>(resume => { unblock = resume; });
+      release = unblock;
+      grants.authorizeInTransaction = async (...args) => {
+        resolve();
+        await blocked;
+        grants.authorizeInTransaction = originalAuthorize;
+        return originalAuthorize(...args);
+      };
+    });
+  }
+
+  try {
+    const mutableActor = { ...owner };
+    const mutableTarget = { ...targetA };
+    const mutableUpdate = { projectId: "grant-project", principal: mutableTarget, action: "factory.approve" as "factory.approve" | "factory.operate", expectedRevision: 0, expiresAtMs: null };
+    holdNextAuthorization();
+    const setting = grants.set(mutableActor, mutableUpdate, "grant-snapshot-race");
+    await reached;
+    mutableActor.id = targetB.id;
+    mutableTarget.id = targetB.id;
+    mutableUpdate.action = "factory.operate";
+    release();
+    expect(await setting).toEqual({ revision: 1, expiresAtMs: null });
+    expect(await grants.read(targetA, { projectId: "grant-project", principal: targetA, action: "factory.approve" })).toMatchObject({ principalId: targetA.id, action: "factory.approve", issuerId: owner.id });
+    await expect(grants.read(targetB, { projectId: "grant-project", principal: targetB, action: "factory.operate" })).rejects.toMatchObject({ code: "factory_grant_not_found" });
+
+    const mutableReader = { ...targetA };
+    const mutableKey = { projectId: "grant-project", principal: { ...targetA }, action: "factory.approve" as const };
+    holdNextAuthorization();
+    const reading = grants.read(mutableReader, mutableKey);
+    await reached;
+    mutableReader.id = "not-a-member";
+    mutableKey.principal.id = targetB.id;
+    release();
+    expect(await reading).toMatchObject({ principalId: targetA.id, action: "factory.approve" });
+
+    const mutableLister = { ...targetA };
+    const mutableOptions = { principalKind: "user" as "user" | "service", action: "factory.approve" as "factory.approve" | "factory.run", limit: 10 };
+    holdNextAuthorization();
+    const listing = grants.list(mutableLister, "grant-project", mutableOptions);
+    await reached;
+    mutableLister.id = "not-a-member";
+    mutableOptions.principalKind = "service";
+    mutableOptions.action = "factory.run";
+    mutableOptions.limit = 1;
+    release();
+    expect((await listing).items.some(item => item.principalId === targetA.id && item.action === "factory.approve")).toBe(true);
+  } finally {
+    release();
+    grants.authorizeInTransaction = originalAuthorize;
+  }
+});
+
 test("owners cannot issue a wider action or a longer expiry than their current grant", async () => {
   const key = { projectId: "grant-project", principal: member, action: "factory.author" as const };
   await expect(grants.set(owner, { ...key, expectedRevision: 0, expiresAtMs: null })).rejects.toMatchObject({ code: "factory_forbidden" });

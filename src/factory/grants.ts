@@ -31,6 +31,18 @@ export interface FactoryGrantRecord {
 export interface FactoryGrantListOptions { readonly cursor?: string; readonly limit?: number; readonly principalKind?: FactoryPrincipal["kind"]; readonly action?: FactoryAction }
 type GrantRow = { principal_kind?: string; principal_id?: string; action?: string; revision: string | number; expires_ms: string | number | null; revoked_at: unknown; issuer_id: string; updated_ms?: string | number };
 
+function snapshotPrincipal(principal: FactoryPrincipal): FactoryPrincipal {
+  return Object.freeze({ kind: principal.kind, id: principal.id, authentication: principal.authentication });
+}
+
+function snapshotKey(key: FactoryGrantKey): FactoryGrantKey {
+  return Object.freeze({ projectId: key.projectId, principal: snapshotPrincipal(key.principal), action: key.action });
+}
+
+function snapshotUpdate(update: FactoryGrantUpdate): FactoryGrantUpdate {
+  return Object.freeze({ ...snapshotKey(update), expectedRevision: update.expectedRevision, expiresAtMs: update.expiresAtMs });
+}
+
 export class FactoryGrantError extends Error {
   constructor(readonly code: string) { super(code); this.name = "FactoryGrantError"; }
 }
@@ -40,10 +52,12 @@ export class FactoryGrants {
   constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly now: () => number = Date.now) { assertFactoryIdentity(tenantId); }
 
   authorize(principal: FactoryPrincipal, projectId: string, action: FactoryAction | "read", expectedRevision?: number): Promise<FactoryGrantRevision> {
-    return this.database.transaction(transaction => this.authorizeInTransaction(transaction, principal, projectId, action, expectedRevision));
+    const currentPrincipal = snapshotPrincipal(principal);
+    return this.database.transaction(transaction => this.authorizeInTransaction(transaction, currentPrincipal, projectId, action, expectedRevision));
   }
 
   async authorizeInTransaction(transaction: MigrationDb, principal: FactoryPrincipal, projectId: string, action: FactoryAction | "read", expectedRevision?: number): Promise<FactoryGrantRevision> {
+    principal = snapshotPrincipal(principal);
     await this.lockProject(transaction, projectId);
     const currentPrincipal = await this.livePrincipal(transaction, principal, projectId, true);
     if (action === "read") return { revision: 0, expiresAtMs: null };
@@ -58,14 +72,17 @@ export class FactoryGrants {
   }
 
   set(actor: FactoryPrincipal, update: FactoryGrantUpdate, idempotencyKey?: string): Promise<FactoryGrantRevision> {
-    return this.mutate(actor, update, false, idempotencyKey);
+    return this.mutate(snapshotPrincipal(actor), snapshotUpdate(update), false, idempotencyKey);
   }
 
   revoke(actor: FactoryPrincipal, update: FactoryGrantKey & { readonly expectedRevision: number }, idempotencyKey?: string): Promise<FactoryGrantRevision> {
-    return this.mutate(actor, { ...update, expiresAtMs: null }, true, idempotencyKey);
+    const key = snapshotKey(update);
+    return this.mutate(snapshotPrincipal(actor), { ...key, expectedRevision: update.expectedRevision, expiresAtMs: null }, true, idempotencyKey);
   }
 
   async read(actor: FactoryPrincipal, key: FactoryGrantKey): Promise<FactoryGrantRecord> {
+    actor = snapshotPrincipal(actor);
+    key = snapshotKey(key);
     return this.database.transaction(async transaction => {
       await this.authorizeInTransaction(transaction, actor, key.projectId, "read");
       const row = await this.find(transaction, key);
@@ -75,6 +92,8 @@ export class FactoryGrants {
   }
 
   async list(actor: FactoryPrincipal, projectId: string, options: FactoryGrantListOptions = {}): Promise<{ items: readonly FactoryGrantRecord[]; nextCursor: string | null }> {
+    actor = snapshotPrincipal(actor);
+    options = Object.freeze({ cursor: options.cursor, limit: options.limit, principalKind: options.principalKind, action: options.action });
     const limit = options.limit ?? 50;
     const principalKind = options.principalKind;
     const action = options.action;
@@ -97,6 +116,8 @@ export class FactoryGrants {
   }
 
   private async mutate(actor: FactoryPrincipal, update: FactoryGrantUpdate, revoke: boolean, idempotencyKey?: string): Promise<FactoryGrantRevision> {
+    actor = snapshotPrincipal(actor);
+    update = snapshotUpdate(update);
     this.action(update.action);
     if (!revoke && update.principal.kind === "service" && update.expiresAtMs === null) throw new FactoryGrantError("factory_grant_invalid");
     if (actor.kind !== "user" || actor.authentication !== "session") throw new FactoryGrantError("factory_human_required");

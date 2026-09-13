@@ -17,6 +17,27 @@ describe("factory application composition", () => {
     inventory.add("gpu");
     expect(application.availableResourceClasses.has("cpu")).toBe(true);
     expect(application.availableResourceClasses.has("gpu")).toBe(false);
+    expect(application.availableResourceClasses.size).toBe(1);
+    expect([...application.availableResourceClasses]).toEqual(["cpu"]);
+    expect([...application.availableResourceClasses.entries()]).toEqual([["cpu", "cpu"]]);
+    expect([...application.availableResourceClasses.keys()]).toEqual(["cpu"]);
+    expect([...application.availableResourceClasses.values()]).toEqual(["cpu"]);
+    const visited: string[] = [];
+    application.availableResourceClasses.forEach(function(this: string[], value, key, set) {
+      expect(this).toBe(visited);
+      expect(key).toBe(value);
+      expect(set).toBe(application.availableResourceClasses);
+      this.push(value);
+    }, visited);
+    expect(visited).toEqual(["cpu"]);
+    expect([...application.availableResourceClasses.union(new Set(["gpu"]))]).toEqual(["cpu", "gpu"]);
+    expect([...application.availableResourceClasses.intersection(new Set(["cpu", "gpu"]))]).toEqual(["cpu"]);
+    expect([...application.availableResourceClasses.difference(new Set(["cpu"]))]).toEqual([]);
+    expect([...application.availableResourceClasses.symmetricDifference(new Set(["gpu"]))]).toEqual(["cpu", "gpu"]);
+    expect(application.availableResourceClasses.isSubsetOf(new Set(["cpu", "gpu"]))).toBe(true);
+    expect(application.availableResourceClasses.isSupersetOf(new Set(["cpu"]))).toBe(true);
+    expect(application.availableResourceClasses.isDisjointFrom(new Set(["gpu"]))).toBe(true);
+    expect((application.availableResourceClasses as Set<string>).add).toBeUndefined();
     expect(Object.isFrozen(application)).toBe(true);
     expect(application.definitions.tenantId).toBe("tenant-1");
     expect(application.grants.tenantId).toBe("tenant-1");

@@ -1018,3 +1018,48 @@ Component review: 51 PGlite/store tests pass with 380 assertions. The same actua
 - [ ] Verify empty-operation cancelled/failed runner outputs, local provisioning/pool canonical producers, full app regression and coverage after composition.
 
 Review: integration source and focused tests/types/lint pass; full platform gates remain open. The source worktree was frozen for every producer. Existing application data and original worktree remain untouched.
+# Factory definition and grant HTTP API — 2026-09-13
+
+- [ ] Confirm the small application registry contract with the root integrator.
+- [ ] Compose the real definition/grant stores and trusted resource inventory.
+- [ ] Add scoped grant listing and definition availability metadata.
+- [ ] Build one shared SDK-validated factory HTTP handler.
+- [ ] Add draft, immutable version, and grant routes with exact C01/C09 gates.
+- [ ] Register every route and update OpenAPI/client/session parity.
+- [ ] Add store, route, and real-auth journey tests.
+- [ ] Run frozen installs, SDK build, focused checks, all four typecheck legs, lint, full tests, and coverage.
+- [ ] Record final review and immutable commit proofs.
+
+Plan review: Root owns application boot and service probes. This leaf owns only the small configured registry and definition/grant HTTP surface. The routes use SDK request/response types, schemas, and canonical digest helpers. They use the real stores and current authenticated identity. Feature-off returns 404 before application lookup; feature-on without a configured application returns 503.
+
+## Review
+
+Pending.
+
+# Factory grant input snapshots — 2026-09-13
+
+- [x] Reproduce caller mutation while grant authorization is waiting.
+- [x] Snapshot principals, keys, updates, and list options before the first await.
+- [x] Hide the trusted resource inventory behind a runtime-immutable ReadonlySet.
+- [x] Run focused store tests, typecheck, lint, and measured coverage.
+- [x] Commit the bounded correction separately for integration.
+
+## Review
+
+Grant operations now freeze flat copies of every caller-owned authority and target before any database or authorization wait. The race test mutates the actor, target, action, read key, and list filter while authorization is held, and proves that the checked and written coordinates remain the originals. The application exposes an encapsulated ReadonlySet with the complete current Set read API and no mutation methods. Four-leg typecheck, focused lint, 14 tests with 100 assertions, and 100 percent line coverage for grants (156/156) and application (67/67) pass.
+
+# Factory authoring console — 2026-09-13
+
+- [ ] Pin Svelte Flow and ELK and enforce their factory-only import boundary.
+- [ ] Add one strict SDK-backed browser client for draft list, create, import, export, save, validate, and publish.
+- [ ] Add pure graph projection/editing and deterministic ELK layout wrappers.
+- [ ] Build the responsive `/factories` authoring console and navigation entry.
+- [ ] Cover validation diagnostics, revision conflicts, keyboard editing, and immutable version publication.
+- [ ] Add component, route, manifest, and Playwright evidence tests for wide, narrow, light, dark, reduced-motion, and long-label states.
+- [ ] Inspect captured evidence and fix visible defects.
+- [ ] Run frozen installs, SDK build, typechecks, lint, focused/full tests, browser checks, and 100 percent owned-source coverage.
+- [ ] Record the final review and immutable commit proofs.
+
+## Review
+
+Pending.
