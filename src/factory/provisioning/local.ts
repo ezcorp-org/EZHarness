@@ -1,8 +1,9 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, readFile, type FileHandle } from "node:fs/promises";
+import { open, readFile, type FileHandle } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { SQL } from "bun";
+import { privateDirectory, readPrivateBounded } from "../private-files";
 
 export interface LocalInstallationRequest { tenantId: string; hostname: string; administratorEmail: string }
 export interface TemporalNamespaces { create(input: { tenantId: string; namespace: string; secretDirectory: string }): Promise<void> }
@@ -19,43 +20,7 @@ const localName = (prefix: string, tenantId: string) => `${prefix}_${createHash(
 const secret = () => randomBytes(32).toString("base64url");
 const resourceMarker = (kind: "role" | "database", record: InstallationRecord): string => kind === "role" ? `factory-provisioner-role:${stored(record, "installation_id")}:${stored(record, "role_plan")}:${stored(record, "database_plan")}` : `factory-provisioner-database:${stored(record, "installation_id")}:${stored(record, "database_plan")}`;
 const stored = (record: Record<string, string | undefined>, field: string): string => { const value = record[field]; if (!value) throw new Error(`Installation record has no ${field}.`); return value; };
-const owner = (): number => { const uid = process.getuid?.(); if (uid === undefined) throw new Error("Local secret storage requires a POSIX owner."); return uid; };
 function assertRequest(request: LocalInstallationRequest): void { if (!/^tenant-\d{2}$/.test(request.tenantId)) throw new Error("Local provisioner requires a generated tenant-XX identity."); if (!/^[a-z0-9][a-z0-9.-]{0,252}$/.test(request.hostname)) throw new Error("Installation hostname is malformed."); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.administratorEmail)) throw new Error("First administrator email is malformed."); }
-
-/** Opens each ancestor by descriptor. Foreign ancestors must be non-writable; once a user-owned directory is reached, every child must be user-owned and private. */
-async function privateDirectory(path: string): Promise<FileHandle> {
-  const uid = owner(); let directory = await open("/", constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); let reachedOwnedDirectory = false;
-  try {
-    const components = resolve(path).split("/").filter(Boolean);
-    for (const [index, component] of components.entries()) {
-      const anchored = `/proc/self/fd/${directory.fd}/${component}`;
-      let child: FileHandle;
-      try { child = await open(anchored, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        const parent = await directory.stat();
-        if (parent.uid !== uid || !reachedOwnedDirectory) throw new Error("Provisioner secret directory has no private owned parent.");
-        await mkdir(anchored, { mode: 0o700 });
-        child = await open(anchored, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-      }
-      const status = await child.stat();
-      if (!status.isDirectory()) { await child.close(); throw new Error("Provisioner secret path is not a directory."); }
-      if (status.uid !== uid) {
-        if (reachedOwnedDirectory || (status.mode & 0o022) !== 0) { await child.close(); throw new Error("Provisioner secret ancestor is writable by another user."); }
-      } else {
-        reachedOwnedDirectory = true;
-        // Only the requested task-owned leaf may be repaired. Ancestors are never changed.
-        if ((status.mode & 0o077) !== 0) {
-          if (index !== components.length - 1) { await child.close(); throw new Error("Provisioner secret ancestor is not private."); }
-          await child.chmod(0o700);
-        }
-      }
-      await directory.close(); directory = child;
-    }
-    if (!reachedOwnedDirectory) throw new Error("Provisioner secret directory is not owned by this user.");
-    return directory;
-  } catch (error) { await directory.close(); throw error; }
-}
 async function privateFile(directory: FileHandle, name: string, value?: string): Promise<void> {
   if (basename(name) !== name) throw new Error("Provisioner secret leaf is invalid.");
   const path = `/proc/self/fd/${directory.fd}/${name}`;
@@ -69,14 +34,10 @@ async function privateFile(directory: FileHandle, name: string, value?: string):
   }
   try {
     const status = await handle.stat();
-    if (!status.isFile() || status.uid !== owner() || (status.mode & 0o077) !== 0) throw new Error("Provisioner secret file must be private and owned by this user.");
+    if (!status.isFile() || status.uid !== process.getuid?.() || (status.mode & 0o077) !== 0) throw new Error("Provisioner secret file must be private and owned by this user.");
   } finally { await handle.close(); }
 }
-async function readPrivate(directory: FileHandle, name: string): Promise<string> {
-  if (basename(name) !== name) throw new Error("Provisioner secret leaf is invalid.");
-  const handle = await open(`/proc/self/fd/${directory.fd}/${name}`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  try { const status = await handle.stat(); if (!status.isFile() || status.uid !== owner() || (status.mode & 0o077) !== 0) throw new Error("Provisioner secret file must be private and owned by this user."); return handle.readFile("utf8"); } finally { await handle.close(); }
-}
+async function readPrivate(directory: FileHandle, name: string): Promise<string> { return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateBounded(directory, name, 64 * 1024)); }
 async function writePrivateJson(directory: FileHandle, name: string, value: unknown): Promise<void> { await privateFile(directory, name, `${JSON.stringify(value)}\n`); }
 async function writePrivateText(directory: FileHandle, name: string): Promise<void> { await privateFile(directory, name, `${secret()}\n`); }
 async function identity(path: string, tenantId: string): Promise<{ accessKey: string; secretKey: string }> { const config = JSON.parse(await readFile(path, "utf8")) as S3Config; const credential = config.identities.find((entry) => entry.name === tenantId)?.credentials[0]; if (!credential?.accessKey || !credential.secretKey) throw new Error(`Storage identity for ${tenantId} is unavailable.`); return { accessKey: credential.accessKey, secretKey: credential.secretKey }; }
@@ -111,7 +72,7 @@ export class LocalFactoryProvisioner {
       const persisted = existing;
       if (!persisted || persisted.hostname !== request.hostname || persisted.administrator_email !== request.administratorEmail || persisted.product_database !== database || persisted.product_role !== role || persisted.temporal_namespace !== namespace || persisted.secret_bundle_path !== directory) throw new Error("Concurrent provisioning record conflicts with its deterministic tenant resources.");
       const stableInstallationId = stored(persisted, "installation_id"), stableInvitationId = stored(persisted, "invitation_id");
-      const secrets = await privateDirectory(directory);
+      const secrets = await privateDirectory(directory, { createLeaf: true, repairOwnedLeaf: true });
       try {
         const files = { bundle: "installation.json", product: "product-database.json", ordinary: "ordinary-storage.json", archive: "archive-storage.json", jwt: "application-jwt-secret", encryption: "application-encryption-secret", temporal: "temporal.json" } as const;
         await writePrivateJson(secrets, files.product, { role, password: secret() }); await writePrivateJson(secrets, files.ordinary, await identity(this.options.ordinaryConfigPath, request.tenantId)); await writePrivateJson(secrets, files.archive, await identity(this.options.archiveConfigPath, request.tenantId)); await writePrivateText(secrets, files.jwt); await writePrivateText(secrets, files.encryption);

@@ -1,6 +1,7 @@
 import type { FactoryAvailability, FactoryDefinition } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { BlobStore } from "../extensions/v4/types";
+import type { BoundBlobStore } from "./encryption";
 import { assertFactoryIdentity } from "./records";
 import { factoryDefinitionRequirements, FactoryDefinitions, type FactoryDraftMetadata } from "./definitions";
 import { configureProjectCreationParticipant } from "../db/queries/projects";
@@ -25,7 +26,7 @@ export interface FactoryApplication {
 export interface FactoryApplicationOptions {
   readonly database: TransactionalDb;
   readonly tenantId: string;
-  readonly blobs: BlobStore;
+  readonly blobs: BlobStore | BoundBlobStore;
   readonly runOptions: Omit<FactoryRunLifecycleOptions, "definitions" | "grants" | "stageDefinitionInTransaction">;
   readonly grants?: FactoryGrants;
   readonly availableResourceClasses: Iterable<string>;
