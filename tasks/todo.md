@@ -1305,10 +1305,13 @@ Review: Root and web frozen installs, the SDK build, the production web build, a
 
 ## C02 attempt token purpose
 
-- [ ] Reproduce a user-shaped token being accepted through the real mTLS execution gateway.
-- [ ] Sign and verify exact attempt claims with the shared installation HMAC envelope and a separate token purpose.
-- [ ] Reject user, public service, preview, malformed, foreign, expired and path-mismatched credentials before admission.
-- [ ] Preserve deadline-fenced effects and authenticated status/cancel after an attempt deadline.
-- [ ] Verify the actual Node client, measured gateway/token coverage, existing authentication regressions, all four type checks and lint.
+- [x] Reproduce a user-shaped token being accepted through the real mTLS execution gateway.
+- [x] Sign and verify exact attempt claims with the shared installation HMAC envelope and a separate token purpose.
+- [x] Reject user, public service, preview, malformed, foreign, expired and path-mismatched credentials before admission.
+- [x] Preserve deadline-fenced effects and authenticated status/cancel after an attempt deadline.
+- [x] Verify the actual Node client, measured gateway/token coverage, existing authentication regressions, all four type checks and lint.
 
 Plan review: the accepted C02 HTTPS operations are the test boundary. The token binds every existing journal authority coordinate and canonical request digest. It carries no user role or email. A short-lived control token may inspect or cancel an expired attempt; the journal continues to deny new effects and terminal advancement. Reuse the C01 HMAC envelope and the existing Node HTTPS fixture.
+
+
+Review: `attempt-token-purpose-red.log` retains the real Node-to-Bun mTLS reproduction: a user-shaped credential admitted work with HTTP 201. The dedicated attempt codec rejects that credential. `root-auth-integration-results.json` records eight successful producers at `d84359f84`, including root/web frozen installs, SDK build, 58 real PostgreSQL/S3 cases with 1,745 assertions, 24 authentication/schema cases, all four type checks, lint and gate integrity. The gateway also proves signed conflicting submissions return 409 and that expired attempts retain authenticated status/cancellation while new admission fails. Both the token codec and gateway have complete measured lines (31/31 and 28/28). These are private authentication and database integration proofs; concrete execution composition and production readiness remain open.
