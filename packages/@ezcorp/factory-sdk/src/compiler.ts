@@ -761,6 +761,9 @@ export function compileFactory(input: unknown): CompileResult {
     partitions,
     pages,
   };
+  if (new TextEncoder().encode(canonicalizeJson(factory as unknown as JsonValue)).byteLength > FACTORY_LIMITS.maxDefinitionBytes) {
+    return { ok: false, diagnostics: [diagnostic("PAYLOAD_COMPILED_IR", "Compiled IR exceeds 16 MiB.", [])] };
+  }
   return { ok: true, factory: deepFreeze(factory) };
 }
 

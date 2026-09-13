@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { FactoryAuthoringError, defineFactory } from "./authoring";
+import { canonicalizeJson } from "./canonical";
 import { compileFactory } from "./compiler";
 import { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references";
 import { FACTORY_LIMITS } from "./types";
-import type { FactoryDefinition, FactoryGraph, FactoryNode, FactoryReference } from "./types";
+import type { FactoryDefinition, FactoryGraph, FactoryNode, FactoryReference, JsonValue } from "./types";
 
 function clone(definition: FactoryDefinition = referenceCodeV1): FactoryDefinition {
   return structuredClone(definition);
@@ -416,6 +417,23 @@ describe("factory compiler", () => {
     (definition.inputPorts.request as { description?: string }).description = "x".repeat(16 * 1024 * 1024);
     expect(codes(definition)).toContain("BOUND_DEFINITION_BYTES");
   });
+
+  test("rejects compiled IR expansion above the definition byte limit", () => {
+    const definition = clone();
+    const implementation = structuredClone((node(definition, "snapshot-repository") as Extract<FactoryNode, { kind: "task" }>).runner);
+    const outputSchema = structuredClone(definition.outputPorts.receipt!);
+    const padding = "x".repeat(14_000);
+    definition.graph.nodes = Array.from({ length: 650 }, (_, index): FactoryNode => ({
+      id: `large-${index}`,
+      kind: "task",
+      runner: implementation,
+      outputPorts: { receipt: { ...outputSchema, description: padding } },
+      effects: ["read"],
+    }));
+    definition.graph.outputs = { receipt: { kind: "ref", root: "node", name: "large-649", path: ["receipt"] } };
+    expect(new TextEncoder().encode(canonicalizeJson(definition as unknown as JsonValue)).byteLength).toBeLessThan(FACTORY_LIMITS.maxDefinitionBytes);
+    expect(codes(definition)).toContain("PAYLOAD_COMPILED_IR");
+  }, 30_000);
 
   test("partitions the maximum 10,000-node static graph without recursion", () => {
     const definition = clone();
