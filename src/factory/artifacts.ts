@@ -101,10 +101,9 @@ export class FactoryArtifacts {
 
   private async verify(row: ArtifactRow): Promise<Uint8Array> {
     if (!/^sha256:[a-f0-9]{64}$/.test(row.digest) || !row.storage_version || !Number.isSafeInteger(Number(row.encoded_bytes))) throw new FactoryArtifactError("factory_artifact_corrupt");
-    const stored = supportsVersions(this.blobs) ? await this.blobs.getVersion(row.blob_digest, row.storage_version) : await this.blobs.get(row.blob_digest);
     const content = supportsBoundBlobs(this.blobs)
       ? (supportsBoundVersions(this.blobs) ? await this.blobs.getVersion({ tenantId: row.tenant_id, objectId: row.object_id }, row.blob_digest, row.storage_version) : await this.blobs.getBound({ tenantId: row.tenant_id, objectId: row.object_id }, row.blob_digest))
-      : stored;
+      : (supportsVersions(this.blobs) ? await this.blobs.getVersion(row.blob_digest, row.storage_version) : await this.blobs.get(row.blob_digest));
     if (content.byteLength !== Number(row.encoded_bytes) || digestBytes(content) !== row.digest.slice("sha256:".length)) throw new FactoryArtifactError("factory_artifact_corrupt");
     return content;
   }
