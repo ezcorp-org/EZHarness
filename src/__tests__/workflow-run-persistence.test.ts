@@ -46,6 +46,12 @@ const {
 const { WorkflowExecutor, WorkflowSuspendedError } = await import(
   "../runtime/workflow-executor"
 );
+const {
+  factoryIdempotencyKey,
+  idempotencyInputDigest,
+  isBoundedIdempotencyKey,
+  isFactoryIdempotencyKey,
+} = await import("../idempotency");
 const { workflowDefinitionHash } = await import("../runtime/workflow-definition-hash");
 const {
   expireWorkflowApproval,
@@ -1019,6 +1025,256 @@ describe("WorkflowExecutor persistence", () => {
     // The LIVE run still saw the real value — redaction is a storage
     // concern and must not change what the graph computed on.
     expect(run.result?.output).toEqual({ token: "sk-aaaaaaaaaaaaaaaaaaaaaa" });
+  });
+});
+
+describe("factory caller idempotency", () => {
+  const definition: WorkflowDefinition = {
+    name: "factory-idempotent-legacy",
+    description: "",
+    steps: [{ name: "effect", kind: "tool", tool: "demo__x" }],
+  };
+
+  test("an exact canonical retry returns the first run and dispatches once", async () => {
+    let dispatches = 0;
+    const acknowledged: string[] = [];
+    const executor = makeExecutor({
+      toolHandler: () => {
+        dispatches += 1;
+        return ok("done");
+      },
+    });
+    const key = `factory:exact-${crypto.randomUUID()}`;
+
+    const first = await executor.runWorkflow(
+      definition,
+      { alpha: 1, nested: { left: true, right: false } },
+      undefined,
+      "user-1",
+      undefined,
+      { idempotencyKey: key, onRunCreated: (run) => acknowledged.push(run.id) },
+    );
+    const retry = await executor.runWorkflow(
+      definition,
+      { nested: { right: false, left: true }, alpha: 1 },
+      undefined,
+      "user-1",
+      undefined,
+      { idempotencyKey: key, onRunCreated: (run) => acknowledged.push(run.id) },
+    );
+
+    expect(first.status).toBe("success");
+    expect(retry).toMatchObject({ id: first.id, status: "success", result: first.result });
+    expect(dispatches).toBe(1);
+    expect(acknowledged).toEqual([first.id, first.id]);
+  });
+
+  test("shares the v4 bound and canonical digest rule", () => {
+    const longest = factoryIdempotencyKey("x".repeat(192));
+    expect(longest).toHaveLength(200);
+    expect(isBoundedIdempotencyKey(longest)).toBe(true);
+    expect(isFactoryIdempotencyKey(longest)).toBe(true);
+    expect(isFactoryIdempotencyKey("nested:parent:step#0")).toBe(false);
+    expect(isFactoryIdempotencyKey("factory:")).toBe(false);
+    expect(isBoundedIdempotencyKey("bad\u0000key")).toBe(false);
+    expect(() => factoryIdempotencyKey("")).toThrow("bounded idempotency key");
+    expect(() => factoryIdempotencyKey("x".repeat(193))).toThrow(
+      "bounded idempotency key",
+    );
+    expect(idempotencyInputDigest({ z: 1, a: 2 })).toBe(
+      idempotencyInputDigest({ a: 2, z: 1 }),
+    );
+    expect(idempotencyInputDigest({ a: 2 })).not.toBe(
+      idempotencyInputDigest({ a: 3 }),
+    );
+  });
+
+  test("requires persistence for a factory caller key", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const executor = new WorkflowExecutor(
+      new AgentExecutor(loadAgentsStatic([]), bus),
+      bus,
+    );
+    await expect(
+      executor.runWorkflow(definition, {}, undefined, undefined, undefined, {
+        idempotencyKey: `factory:no-db-${crypto.randomUUID()}`,
+      }),
+    ).rejects.toThrow("requires durable workflow persistence");
+    await expect(
+      makeExecutor({}).runWorkflow(definition, {}, undefined, "user-1", undefined, {
+        idempotencyKey: "factory:",
+      }),
+    ).rejects.toMatchObject({ name: "InvalidIdempotencyKeyError" });
+  });
+
+  test("concurrent exact starts converge on one unique row and one dispatch", async () => {
+    let dispatches = 0;
+    const handler = () => {
+      dispatches += 1;
+      return ok("once");
+    };
+    const firstExecutor = makeExecutor({ toolHandler: handler });
+    const secondExecutor = makeExecutor({ toolHandler: handler });
+    const key = `factory:race-${crypto.randomUUID()}`;
+
+    const [first, second] = await Promise.all([
+      firstExecutor.runWorkflow(definition, { stable: true }, undefined, "user-1", undefined, {
+        idempotencyKey: key,
+      }),
+      secondExecutor.runWorkflow(definition, { stable: true }, undefined, "user-1", undefined, {
+        idempotencyKey: key,
+      }),
+    ]);
+
+    expect(first.id).toBe(second.id);
+    expect(dispatches).toBe(1);
+    const rows = (await db.execute(
+      sql`SELECT id FROM workflow_runs WHERE workflow_name = ${definition.name} AND idempotency_key = ${key}`,
+    )) as Rows<IdRow>;
+    expect(rows.rows).toHaveLength(1);
+  });
+
+  test("reusing a caller key with different input is an idempotency conflict", async () => {
+    let dispatches = 0;
+    const executor = makeExecutor({
+      toolHandler: () => {
+        dispatches += 1;
+        return ok("done");
+      },
+    });
+    const key = `factory:conflict-${crypto.randomUUID()}`;
+    await executor.runWorkflow(definition, { version: 1 }, undefined, "user-1", undefined, {
+      idempotencyKey: key,
+    });
+
+    await expect(
+      executor.runWorkflow(definition, { version: 2 }, undefined, "user-1", undefined, {
+        idempotencyKey: key,
+      }),
+    ).rejects.toMatchObject({
+      name: "WorkflowIdempotencyConflictError",
+      code: "idempotency_conflict",
+    });
+    expect(dispatches).toBe(1);
+  });
+
+  test("the digest binds reuse to the initiating authority", async () => {
+    const executor = makeExecutor({});
+    const key = `factory:authority-${crypto.randomUUID()}`;
+    await executor.runWorkflow(definition, { stable: true }, undefined, "user-1", undefined, {
+      idempotencyKey: key,
+    });
+
+    await expect(
+      executor.runWorkflow(definition, { stable: true }, undefined, "another-user", undefined, {
+        idempotencyKey: key,
+      }),
+    ).rejects.toMatchObject({ code: "idempotency_conflict" });
+  });
+
+  test("a retry after a crash finds the journaled start and does not dispatch", async () => {
+    const runId = crypto.randomUUID();
+    const key = `factory:crash-${crypto.randomUUID()}`;
+    const input = { artifact: "sha256:abc" };
+    await insertWorkflowRun({
+      id: runId,
+      workflowName: definition.name,
+      input,
+      userId: "user-1",
+      startedAt: new Date(Date.now() - 10_000),
+      idempotencyKey: key,
+    });
+    let dispatches = 0;
+    const executor = makeExecutor({
+      toolHandler: () => {
+        dispatches += 1;
+        return ok("unexpected");
+      },
+    });
+
+    const retry = await executor.runWorkflow(
+      definition,
+      input,
+      undefined,
+      "user-1",
+      undefined,
+      { idempotencyKey: key },
+    );
+
+    expect(retry).toMatchObject({ id: runId, status: "running" });
+    expect(dispatches).toBe(0);
+    const rows = (await db.execute(
+      sql`SELECT id FROM workflow_runs WHERE workflow_name = ${definition.name} AND idempotency_key = ${key}`,
+    )) as Rows<IdRow>;
+    expect(rows.rows.map((row) => row.id)).toEqual([runId]);
+  });
+
+  test("a real persistence failure is not reported as an idempotency conflict", async () => {
+    let dispatches = 0;
+    const executor = makeExecutor({
+      toolHandler: () => {
+        dispatches += 1;
+        return ok("unexpected");
+      },
+    });
+    const run = await executor.runWorkflow(
+      definition,
+      {},
+      `missing-project-${crypto.randomUUID()}`,
+      "user-1",
+      undefined,
+      { idempotencyKey: `factory:db-error-${crypto.randomUUID()}` },
+    );
+
+    expect(run.result).toMatchObject({
+      success: false,
+      error: { code: "run-persistence-failed" },
+    });
+    expect(dispatches).toBe(0);
+  });
+});
+
+describe("periodic workflow orphan recovery", () => {
+  test("one host-maintenance tick resolves boundary and in-batch orphans without restart", async () => {
+    const base = Date.now();
+    let now = base;
+    const startedAt = new Date(base + 60_000);
+    const { HostMaintenanceDaemon } = await import("../extensions/host-maintenance-daemon");
+    const daemon = new HostMaintenanceDaemon({
+      skipLockfile: true,
+      now: () => now,
+    });
+    const boundaryId = crypto.randomUUID();
+    const inBatchId = crypto.randomUUID();
+    const liveId = crypto.randomUUID();
+    for (const id of [boundaryId, inBatchId, liveId]) {
+      await insertWorkflowRun({
+        id,
+        workflowName: `maintenance-${id}`,
+        input: {},
+        startedAt,
+      });
+    }
+    await db.execute(
+      sql`UPDATE workflow_runs SET lease_expires_at = ${new Date(base)} WHERE id IN (${boundaryId}, ${inBatchId})`,
+    );
+    await db.execute(
+      sql`UPDATE workflow_runs SET run_phase = 'in-batch' WHERE id = ${inBatchId}`,
+    );
+    now = base + 120_000;
+    const outcome = await daemon.tickOnce();
+
+    expect(outcome.workflowOrphans).toBeGreaterThanOrEqual(2);
+    expect(await getWorkflowRunRow(boundaryId)).toMatchObject({
+      status: "suspended",
+      resumable: true,
+      suspendedReason: "orphaned-resumable",
+    });
+    expect(await getWorkflowRunRow(inBatchId)).toMatchObject({
+      status: "error",
+      resumable: false,
+    });
+    expect(await getWorkflowRunRow(liveId)).toMatchObject({ status: "running" });
   });
 });
 

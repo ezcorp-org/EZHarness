@@ -54,6 +54,7 @@ import {
   findWorkflowRunByIdempotencyKey,
   getWorkflowRunRow,
   insertWorkflowRun,
+  listWorkflowStepRunRows,
   loadStepResults,
   markWorkflowRunInBatch,
   readWorkflowRunDelegationBudget,
@@ -64,6 +65,12 @@ import {
   workflowRunNestingDepth,
   type TerminalWorkflowRunStatus,
 } from "../db/queries/workflow-runs";
+import { isUniqueViolation } from "../db/unique-violation";
+import {
+  InvalidIdempotencyKeyError,
+  idempotencyInputDigest,
+  isFactoryIdempotencyKey,
+} from "../idempotency";
 import {
   upsertWorkflowStepIteration,
   type WorkflowStepIterationUpsert,
@@ -129,6 +136,15 @@ export class WorkflowCursorWriteError extends Error {
         `${cause instanceof Error ? cause.message : String(cause)}`,
     );
     this.name = "WorkflowCursorWriteError";
+  }
+}
+
+export class WorkflowIdempotencyConflictError extends Error {
+  readonly code = "idempotency_conflict";
+
+  constructor() {
+    super("This key already identifies a different workflow run.");
+    this.name = "WorkflowIdempotencyConflictError";
   }
 }
 
@@ -341,6 +357,9 @@ export interface WorkflowRunOptions {
    * {@link PendingPermissionGate}.
    */
   pendingPermissions?: PendingPermissionGate;
+  /** Called after a new durable row is confirmed, or an existing keyed
+   * run is found. The async HTTP route uses this boundary for its 202. */
+  onRunCreated?: (run: WorkflowRun) => void;
 }
 
 /**
@@ -735,6 +754,52 @@ export class WorkflowExecutor {
     throw new WorkflowSuspendedError(opts.prevStepName ?? "<boundary>", "budget-exceeded");
   }
 
+  private async findFactoryRun(
+    workflowName: string,
+    idempotencyKey: string,
+    input: Record<string, unknown>,
+    projectId: string | undefined,
+    userId: string | undefined,
+  ): Promise<WorkflowRun | undefined> {
+    const existing = await findWorkflowRunByIdempotencyKey(workflowName, idempotencyKey);
+    if (!existing) return undefined;
+    const requestedDigest = idempotencyInputDigest({
+      input,
+      projectId: projectId ?? null,
+      userId: userId ?? null,
+    });
+    const existingDigest = idempotencyInputDigest({
+      input: existing.input,
+      projectId: existing.projectId,
+      userId: existing.userId,
+    });
+    if (requestedDigest !== existingDigest) throw new WorkflowIdempotencyConflictError();
+
+    const steps = (await listWorkflowStepRunRows(existing.id)).map((row): WorkflowStepRun => ({
+      stepName: row.stepName,
+      runId: row.runId ?? "",
+      status: row.status,
+      ...(row.iterations === null ? {} : { iterations: row.iterations }),
+      ...(row.provider === null ? {} : { provider: row.provider }),
+      ...(row.model === null ? {} : { model: row.model }),
+      ...(row.attempt === null ? {} : { attempt: row.attempt }),
+      ...(row.inputTokens === null ? {} : { inputTokens: row.inputTokens }),
+      ...(row.outputTokens === null ? {} : { outputTokens: row.outputTokens }),
+      ...(row.errorCode === null ? {} : { errorCode: row.errorCode }),
+      ...(row.skippedReason === null ? {} : { skippedReason: row.skippedReason }),
+    }));
+    return {
+      id: existing.id,
+      workflowName,
+      ...(existing.projectId === null ? {} : { projectId: existing.projectId }),
+      status: existing.status,
+      startedAt: existing.startedAt.getTime(),
+      ...(existing.finishedAt === null ? {} : { finishedAt: existing.finishedAt.getTime() }),
+      steps,
+      ...(existing.result === null ? {} : { result: existing.result }),
+    };
+  }
+
   async runWorkflow(
     workflow: WorkflowDefinition,
     input: Record<string, unknown>,
@@ -824,6 +889,14 @@ export class WorkflowExecutor {
       parentResolver?: HostWorkflowParentResolver;
     },
   ): Promise<WorkflowRun> {
+    const idempotencyKey = opts?.idempotencyKey;
+    const usesFactoryKey = idempotencyKey?.startsWith("factory:") === true;
+    if (usesFactoryKey && !isFactoryIdempotencyKey(idempotencyKey)) {
+      throw new InvalidIdempotencyKeyError();
+    }
+    if (usesFactoryKey && !this.persist) {
+      throw new Error("Factory idempotency requires durable workflow persistence.");
+    }
     const workflowRun: WorkflowRun = {
       id: opts?.runId ?? crypto.randomUUID(),
       workflowName: workflow.name,
@@ -839,10 +912,36 @@ export class WorkflowExecutor {
       throw new Error("Workflow release authority is no longer available");
     }
 
+    if (usesFactoryKey) {
+      try {
+        const existing = await this.findFactoryRun(
+          workflow.name,
+          idempotencyKey,
+          input,
+          projectId,
+          userId,
+        );
+        if (existing) {
+          opts?.onRunCreated?.(existing);
+          return existing;
+        }
+      } catch (error) {
+        if (error instanceof WorkflowIdempotencyConflictError) throw error;
+        return this.refuseWorkflow(
+          workflowRun,
+          "run-persistence-failed",
+          "Workflow could not start because its durable run record was not confirmed",
+          userId,
+          "start-refusal",
+          false,
+        );
+      }
+    }
+
     // `userId` scopes workflow:* SSE delivery to the initiating user
     // (fail-closed filter — see sse-conversation-filter.ts). CLI runs
     // have no user and are observed via stdout/DB, not SSE.
-    this.bus.emit("workflow:start", { workflowRun, userId });
+    if (!usesFactoryKey) this.bus.emit("workflow:start", { workflowRun, userId });
 
     // Durable mirror. Written up-front (status `running`) so a crash
     // mid-run leaves a row the boot sweep can drain, rather than no
@@ -925,10 +1024,31 @@ export class WorkflowExecutor {
       });
     };
     try {
-      await persistStart.call(this, "insert", insertRun);
-    } catch {
+      if (usesFactoryKey) await insertRun();
+      else await persistStart.call(this, "insert", insertRun);
+    } catch (error) {
+      if (usesFactoryKey && isUniqueViolation(error)) {
+        try {
+          const existing = await this.findFactoryRun(
+            workflow.name,
+            idempotencyKey,
+            input,
+            projectId,
+            userId,
+          );
+          if (existing) {
+            opts?.onRunCreated?.(existing);
+            return existing;
+          }
+        } catch (lookupError) {
+          if (lookupError instanceof WorkflowIdempotencyConflictError) throw lookupError;
+        }
+      }
       return this.refuseWorkflow(workflowRun, "run-persistence-failed", "Workflow could not start because its durable run record was not confirmed", userId, "start-refusal", false);
     }
+
+    if (usesFactoryKey) this.bus.emit("workflow:start", { workflowRun, userId });
+    opts?.onRunCreated?.(workflowRun);
 
     if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }, undefined, parentResolver)) {
       return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");

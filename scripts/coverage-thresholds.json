@@ -308,6 +308,7 @@
   "src/db/session-storage.ts": 100,
   "src/db/session-backfill.ts": 100,
   "src/db/unique-violation.ts": 100,
+  "src/idempotency.ts": 100,
   "src/db/session-sync.ts": 100,
   "src/db/queries/conversation-metadata.ts": 100,
   "src/db/queries/message-embed-outbox.ts": 100,

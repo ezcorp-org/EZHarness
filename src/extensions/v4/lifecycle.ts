@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { assertJson, ContractError, validateManifest, validateWire, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { RunnerError } from "@ezcorp/extension-runner";
 import { digestObject, getFiles, putFiles, validatePath } from "./blobs";
+import { idempotencyInputDigest, isBoundedIdempotencyKey } from "../../idempotency";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleActor, type LifecycleApproval, type LifecycleDependencies, type LifecycleOperation, type LifecycleRelease, type WorkspaceRecord } from "./types";
 
 // The runner has no cross-process capacity event. Retain retryable backpressure
@@ -70,8 +71,8 @@ export class ExtensionLifecycle {
   }
 
   private newOperation(kind: LifecycleOperation["kind"], key: string, input: unknown): LifecycleOperation {
-    if (!key || key.length > 200 || [...key].some((character) => character.charCodeAt(0) < 32)) throw new LifecycleError("invalid_idempotency_key", "Provide a bounded idempotency key.");
-    const operation: LifecycleOperation = { id: randomUUID(), kind, state: "queued", idempotencyKey: key, inputDigest: digestObject(input), diagnostics: [], events: [], createdAt: this.timestamp(), updatedAt: this.timestamp() };
+    if (!isBoundedIdempotencyKey(key)) throw new LifecycleError("invalid_idempotency_key", "Provide a bounded idempotency key.");
+    const operation: LifecycleOperation = { id: randomUUID(), kind, state: "queued", idempotencyKey: key, inputDigest: idempotencyInputDigest(input), diagnostics: [], events: [], createdAt: this.timestamp(), updatedAt: this.timestamp() };
     this.transition(operation, kind === "build" ? "queued" : "awaiting_approval");
     return operation;
   }

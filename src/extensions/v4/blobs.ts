@@ -5,6 +5,7 @@ import { resolve, join } from "node:path";
 import { AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CreateMultipartUploadCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, UploadPartCommand } from "@aws-sdk/client-s3";
 import { canonicalJson, validateArtifactFiles, validateWorkspaceFiles, validateWorkspacePath, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { LifecycleError, type BlobStore } from "./types";
+import { idempotencyInputDigest } from "../../idempotency";
 
 export { canonicalJson } from "@ezcorp/extension-contract";
 
@@ -203,7 +204,7 @@ export class S3BlobStore implements BlobStore {
 }
 
 export function digestObject(value: unknown): string {
-  return digestBytes(new TextEncoder().encode(canonicalJson(value)));
+  return idempotencyInputDigest(value);
 }
 
 export function validatePath(path: string): void {

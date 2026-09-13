@@ -919,3 +919,14 @@ Pending implementation and measured verification.
 - [ ] Record exact scale, duration, hardware and remaining launch evidence.
 
 Local test review: SeaweedFS ordinary and archive services run with separate file mounts and volumes, loopback-only ports, bounded resources, and 10 credential identities each. All 20 identity round trips and cross-tenant read/write/delete denials pass, as do conditional single/multipart races, version reads and restart persistence. Initial 20-volume capacity failed on the fourth tenant; the corrected 100-volume profile passes. GPU: RX7900XTX, 25,753,026,560 bytes VRAM, ROCm7.14.60850/PyTorch2.12.0. GPU workloads are trusted local fixtures, not ten provisioned tenant installations or the F05 package-isolation proof.
+## Factory stage 2b — legacy workflow reconciliation
+
+- [x] Add failing end-to-end reproductions for caller retry dedupe, changed-input conflict, crash retry, and non-unique persistence failure.
+- [x] Share the v4 bounded idempotency-key and canonical digest rules; add the `factory:` caller namespace at the public start route.
+- [x] Resolve exact retries before dispatch and classify only a real unique violation as an idempotency race.
+- [x] Add the existing orphan recovery sweep to each host-maintenance tick and prove boundary and in-batch runs resolve without restart.
+- [x] Run focused tests, changed-source 100% coverage, lint, and typecheck; review the final diff for the exact three C10 changes.
+
+### Review
+
+The public route now stores `Idempotency-Key` as a bounded `factory:` key. The executor compares a canonical input and authority digest before dispatch, returns the existing durable run for an exact retry, and returns a typed conflict for changed input. A keyed async 202 waits only for durable creation or lookup and returns that run's actual ID. The host daemon runs the existing orphan classifier each tick with the boot cutoff and current lease time. Focused backend, route, v4, daemon, type, lint, and 100% new-source/route coverage checks pass.
