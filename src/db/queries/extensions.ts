@@ -306,6 +306,28 @@ export async function getExtensionsByNames(names: string[]): Promise<Map<string,
 }
 
 /**
+ * Batch-fetch extensions by id. Returns a Map<id, extension>; missing ids are
+ * simply absent (no throw). Empty input → empty map WITHOUT a round-trip.
+ *
+ * The id sibling of `getExtensionsByNames`, and deliberately WITHOUT its
+ * `installedExtensionPredicate()`: this is the batch form of `getExtension(id)`,
+ * whose one caller (`resolveInstallationName`) names a v4 installation from the
+ * legacy row it shares an id with. An uninstalled installation still has a page
+ * and still deserves its name, so filtering uninstalled rows here would make the
+ * batch resolver disagree with the single one for exactly those installations.
+ */
+export async function getExtensionsByIds(ids: string[]): Promise<Map<string, Extension>> {
+  const out = new Map<string, Extension>();
+  if (ids.length === 0) return out;
+  const rows = await getDb()
+    .select()
+    .from(extensions)
+    .where(inArray(extensions.id, [...new Set(ids)]));
+  for (const row of rows) out.set(row.id, row);
+  return out;
+}
+
+/**
  * Owner-scoped lookup for the "modify my extension" flow. Mirrors the
  * `ez_drafts` `getDraft(id,userId)` opacity contract: returns the row
  * ONLY when it is owned by `userId`, an admin has flipped `modifiable`
