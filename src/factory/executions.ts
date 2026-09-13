@@ -225,8 +225,7 @@ export class FactoryExecutionJournal {
     result = JSON.parse(canonicalJson(result)) as FactoryRunnerResult;
     const validation = validateFactoryRunnerResult(result);
     if (!validation.ok || result.status !== "completed" || result.usage.kind !== "measured") throw new Error(`Factory terminal result is invalid: ${validation.ok ? "not_completed" : validation.issues[0]?.code ?? "unknown"}.`);
-    await this.lockLive(database, authority);
-    const attempt = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId} FOR UPDATE`))[0];
+    const attempt = await this.lockTerminalCompletion(database, authority);
     if (!attempt) throw new Error("Factory terminal attempt is unavailable.");
     const requestIdentity = this.storedJson(attempt.request_json) as { runner?: unknown };
     if (digestObject(requestIdentity) !== attempt.request_hash || attempt.request_hash !== authority.requestDigest || !requestIdentity.runner) throw new Error("Factory terminal request identity is corrupt.");
@@ -243,6 +242,8 @@ export class FactoryExecutionJournal {
     await database.execute(sql`INSERT INTO factory_execution_terminals (tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_id,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest) VALUES (${authority.tenantId},${authority.projectId},${authority.runId},${authority.nodeInstanceId},${authority.candidateGeneration},${authority.attemptId},${authority.requestDigest},${result.resultDigest},${terminalResultDigest},${resultJson},${result.output.artifactId},${result.output.digest},${result.output.encodedBytes},${authority.executionEpoch},${authority.cancellationEpoch},${terminalFactDigest}) ON CONFLICT (attempt_id) DO NOTHING`);
     const saved = releaseRows<{ tenant_id: string; project_id: string; run_id: string; node_instance_id: string; candidate_generation: number | string; request_digest: string; result_digest: string; terminal_result_digest: string; result_json: string; output_artifact_id: string; output_digest: string; output_bytes: number | string; execution_epoch: number | string; cancellation_epoch: number | string; terminal_fact_digest: string }>(await database.execute(sql`SELECT tenant_id,project_id,run_id,node_instance_id,candidate_generation,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest FROM factory_execution_terminals WHERE attempt_id=${authority.attemptId} FOR SHARE`))[0];
     if (!saved || saved.terminal_fact_digest !== terminalFactDigest || saved.result_json !== resultJson || saved.output_digest !== result.output.digest) throw new Error("Factory terminal fact conflicts with durable evidence.");
+    const completed = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='completed',updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND status IN ('admitted','running') RETURNING attempt_id`));
+    if (attempt.status !== "completed" && completed.length !== 1) throw new Error("Factory terminal attempt is stale, cancelled, or expired.");
     await insertTransactionalAuditEntry(database, `factory-execution-terminal:${authority.attemptId}`, null, "factory.execution.terminal.completed", authority.runId, { tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptId: authority.attemptId, terminalFactDigest });
     return { attemptId: authority.attemptId, tenantId: saved.tenant_id, projectId: saved.project_id, runId: saved.run_id, nodeInstanceId: saved.node_instance_id, candidateGeneration: Number(saved.candidate_generation), candidateDigest: saved.output_digest, requestDigest: saved.request_digest, resultDigest: saved.result_digest, terminalResultDigest: saved.terminal_result_digest, outputArtifactId: saved.output_artifact_id, outputBytes: Number(saved.output_bytes), executionEpoch: Number(saved.execution_epoch), cancellationEpoch: Number(saved.cancellation_epoch), terminalFactDigest: saved.terminal_fact_digest };
   }
@@ -344,6 +345,14 @@ export class FactoryExecutionJournal {
     await this.authorizeInTransaction(database, authority);
     const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
     if (!locked.length) throw new Error("Factory attempt is stale, cancelled, or expired.");
+  }
+
+  private async lockTerminalCompletion(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<{ request_hash: string; request_json: unknown; status: string }> {
+    await this.lockRunFence(database, authority);
+    await this.authorizeInTransaction(database, authority);
+    const attempt = releaseRows<{ request_hash: string; request_json: unknown; status: string }>(await database.execute(sql`SELECT request_hash,request_json,status FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND deadline_at>NOW() FOR UPDATE`))[0];
+    if (!attempt || !["admitted", "running", "completed"].includes(attempt.status)) throw new Error("Factory terminal attempt is stale, cancelled, or expired.");
+    return attempt;
   }
 
   private async lockScopedRead(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {

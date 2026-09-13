@@ -3,6 +3,8 @@ import type { MigrationDb } from "./types";
 
 /** Durable terminal, trust, enablement, and current-candidate facts for C04 authority. */
 export async function up(database: MigrationDb): Promise<void> {
+  await database.execute(sql`ALTER TABLE factory_executions DROP CONSTRAINT IF EXISTS factory_executions_status_check`);
+  await database.execute(sql`ALTER TABLE factory_executions ADD CONSTRAINT factory_executions_status_check CHECK (status IN ('admitted','running','completed','cancel_accepted','stopped','failed'))`);
   await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_kind_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_encoded_bytes_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts ADD COLUMN IF NOT EXISTS candidate_node_instance_id TEXT`);

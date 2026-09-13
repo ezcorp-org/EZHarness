@@ -138,6 +138,18 @@ test("enablement is explicit, epoch fenced, and first-write races have one winne
   await expect(authorityStore.setReleaseEnabled(admin, projectId, true, 1, "enable-no-change")).rejects.toMatchObject({ code: "factory_release_control_conflict" });
 });
 
+test("trust and release control mutations reject a tampered current seal", async () => {
+  const trust = rows<{ protected_digest: string }>(await database.execute(sql`SELECT protected_digest FROM factory_release_trust_revisions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND revision=1`))[0]!;
+  await database.execute(sql`UPDATE factory_release_trust_revisions SET protected_digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND revision=1`);
+  await expect(authorityStore.publishTrust(admin, { projectId, expectedRevision: 1, packageLock: { ...packageLock, version: "1.2.4" }, validatorTrustDigest }, "trust-over-tamper")).rejects.toMatchObject({ code: "factory_release_trust_corrupt" });
+  await database.execute(sql`UPDATE factory_release_trust_revisions SET protected_digest=${trust.protected_digest} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND revision=1`);
+
+  const control = rows<{ protected_digest: string }>(await database.execute(sql`SELECT protected_digest FROM factory_release_controls WHERE tenant_id=${tenantId} AND project_id=${projectId}`))[0]!;
+  await database.execute(sql`UPDATE factory_release_controls SET protected_digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
+  await expect(authorityStore.setReleaseEnabled(admin, projectId, false, 1, "control-over-tamper")).rejects.toMatchObject({ code: "factory_release_control_corrupt" });
+  await database.execute(sql`UPDATE factory_release_controls SET protected_digest=${control.protected_digest} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
+});
+
 test("terminal completion binds exact durable request, settled evidence, measured usage, and output bytes", async () => {
   const unresolved = await admit(10, "node-unresolved");
   const operation = { operationId: `${runId}:node-unresolved:10:0`, operationIndex: 0, kind: "model" as const, requestDigest: "c".repeat(64) };
@@ -159,6 +171,8 @@ test("terminal completion binds exact durable request, settled evidence, measure
     return authorityStore.completeCurrentCandidateInTransaction(transaction, { authority: measured, result: completedResult(output, [operationResult], operationUsage), expectedCurrentGeneration: null });
   });
   expect(committed).toMatchObject({ candidateGeneration: 11, candidateDigest: `sha256:${raw(outputBytes("measured"))}`, pointerRevision: 1 });
+  await expect(journal.prepare(measured, { ...measuredOperation, operationId: `${runId}:node-measured:11:1`, operationIndex: 1 })).rejects.toThrow("stale, cancelled, or expired");
+  await expect(journal.dispatch(measured, measuredOperation.operationId)).rejects.toThrow("stale, cancelled, or expired");
 });
 
 test("candidate slots separate nodes and generations and deny a foreign-node terminal", async () => {

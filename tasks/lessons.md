@@ -451,3 +451,5 @@
 - A candidate artifact slot needs its own node-instance and generation columns. Do not reuse interpreter identity or transition sequence fields for candidate identity.
 
 - In tool orchestration, check each shell exit code before dependent staging or commit calls. A failed conflict-resolution script must stop the sequence.
+- Validate the current protected row before advancing any authority revision or epoch. A correct expected counter must never launder a damaged prior seal.
+- A successful terminal fact must close the attempt's effect journal. Preserve exact terminal replay through its own verified path, and reject every later prepare or dispatch.
