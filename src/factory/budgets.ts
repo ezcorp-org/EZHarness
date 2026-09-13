@@ -115,20 +115,24 @@ export class FactoryBudgets {
   }
 
   async markRunning(key: FactoryBudgetReservationKey, allocation: FactoryComputeAllocation): Promise<void> {
+    const snapshot = JSON.parse(encodeFactoryPayload({ key, allocation })) as { key: FactoryBudgetReservationKey; allocation: FactoryComputeAllocation };
+    await this.database.transaction(transaction => this.markRunningInTransaction(transaction, snapshot.key, snapshot.allocation));
+  }
+
+  async markRunningInTransaction(transaction: MigrationDb, key: FactoryBudgetReservationKey, allocation: FactoryComputeAllocation): Promise<void> {
+    const requested = { projectId: key.projectId, runId: key.runId, reservationId: key.reservationId };
     assertFactoryIdentity(allocation.allocationToken);
     counter(allocation.reservationGeneration);
     if (allocation.reservationGeneration === 0) throw new FactoryBudgetError("factory_budget_invalid");
     const encoded = encodeFactoryPayload(allocation);
-    await this.database.transaction(async transaction => {
-      await this.lockRun(transaction, key);
-      await this.authorizeAdmission(transaction, key);
-      const row = (await this.reservation(transaction, key))!;
-      if (row.state === "running" && row.compute_allocation === encoded) return;
-      if (row.state !== "held") throw new FactoryBudgetError("factory_budget_conflict");
-      this.assertAvailable((await this.envelope(transaction, { ...key, envelopeId: row.envelope_id }))!, zero);
-      await transaction.execute(sql`UPDATE factory_budget_reservations SET state='running', compute_allocation=${encoded} WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId}`);
-      await this.audit(transaction, key, "running", key.reservationId, { allocationDigest: digestObject(JSON.parse(encoded)) });
-    });
+    await this.lockRun(transaction, requested);
+    await this.authorizeAdmission(transaction, requested);
+    const row = (await this.reservation(transaction, requested))!;
+    if (row.state === "running" && row.compute_allocation === encoded) return;
+    if (row.state !== "held") throw new FactoryBudgetError("factory_budget_conflict");
+    this.assertAvailable((await this.envelope(transaction, { ...requested, envelopeId: row.envelope_id }))!, zero);
+    await transaction.execute(sql`UPDATE factory_budget_reservations SET state='running', compute_allocation=${encoded} WHERE tenant_id=${this.tenantId} AND project_id=${requested.projectId} AND run_id=${requested.runId} AND reservation_id=${requested.reservationId}`);
+    await this.audit(transaction, requested, "running", requested.reservationId, { allocationDigest: digestObject(JSON.parse(encoded)) });
   }
 
   async markUncertain(key: FactoryBudgetReservationKey, reason: string): Promise<void> {
