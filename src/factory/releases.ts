@@ -12,6 +12,8 @@ import { FactoryGrantError, type FactoryAction, type FactoryGrants, type Factory
 import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 import { protectFactoryCommandApproval } from "./assurance-commands";
+import { FactoryCommandAuthorityError, type FactoryCommandAuthority, type FactoryCurrentApprovalFence } from "./command-authority";
+import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_TEXT = 512;
 const MAX_REQUEST_BYTES = 1024 * 1024;
@@ -82,6 +84,11 @@ export interface FactoryReleaseAuthority {
 /** The composition implementation takes canonical project, installation, run, and lifecycle locks before it returns. */
 export interface FactoryReleaseAuthorityReader {
   lockCurrentInTransaction(transaction: MigrationDb, tenantId: string, projectId: string, runId: string, nodeInstanceId: string): Promise<FactoryReleaseAuthority>;
+}
+
+export interface FactoryCommandApprovalCurrentAuthority {
+  readonly authority: FactoryCommandAuthority;
+  readonly service: TrustedFactoryServiceIdentity;
 }
 
 /** The provider-specific implementation checks the live destination and reserves the exact expected version in the same product transaction. */
@@ -231,8 +238,6 @@ type NotificationProjectionRow = NotificationRow & {
   command_execution_epoch: number | string | null;
   command_cancellation_epoch: number | string | null;
   command_protected_digest: string | null;
-  current_source_sequence: number | string | null;
-  current_source_digest: string | null;
   lifecycle_status: string | null;
   lifecycle_deadline_ms: number | string | null;
   lifecycle_cancellation_epoch: number | string | null;
@@ -392,10 +397,15 @@ export class FactoryReleases {
     private readonly senderFence: FactorySenderFence,
     private readonly now: () => number = Date.now,
     private readonly reconciliationProofTimeoutMs = 10_000,
+    private readonly commandApprovalCurrent?: FactoryCommandApprovalCurrentAuthority,
   ) {
     assertFactoryIdentity(tenantId);
     if (grants.tenantId !== tenantId || assurance.tenantId !== tenantId) throw new FactoryReleaseError("factory_release_scope");
     count(reconciliationProofTimeoutMs, true);
+    if (commandApprovalCurrent) {
+      if (commandApprovalCurrent.authority.tenantId !== tenantId || commandApprovalCurrent.service.tenantId !== tenantId) throw new FactoryReleaseError("factory_release_scope");
+      commandApprovalCurrent.authority.assertService(commandApprovalCurrent.service);
+    }
     this.mutations = new FactoryMutations(database, tenantId, grants);
   }
 
@@ -601,8 +611,6 @@ export class FactoryReleases {
           ca.deadline_at_ms AS command_deadline_at_ms,ca.status AS command_status,ca.source_sequence AS command_source_sequence,ca.source_digest AS command_source_digest,
           ca.candidate_generation AS command_candidate_generation,ca.attempt AS command_attempt,ca.definition_digest AS command_definition_digest,
           ca.execution_epoch AS command_execution_epoch,ca.cancellation_epoch AS command_cancellation_epoch,ca.protected_digest AS command_protected_digest,
-          (SELECT h.source_sequence FROM factory_audit_batches h WHERE h.tenant_id=ca.tenant_id AND h.project_id=ca.project_id AND h.run_id=ca.run_id AND h.interpreter_id=ca.interpreter_id ORDER BY h.source_sequence DESC LIMIT 1) AS current_source_sequence,
-          (SELECT h.digest FROM factory_audit_batches h WHERE h.tenant_id=ca.tenant_id AND h.project_id=ca.project_id AND h.run_id=ca.run_id AND h.interpreter_id=ca.interpreter_id ORDER BY h.source_sequence DESC LIMIT 1) AS current_source_digest,
           l.status AS lifecycle_status,l.deadline_ms AS lifecycle_deadline_ms,l.cancellation_epoch AS lifecycle_cancellation_epoch,
           i.execution_epoch AS installation_execution_epoch
         FROM factory_notifications n
@@ -625,7 +633,7 @@ export class FactoryReleases {
         if (notification.id !== row.notification_id) throw new FactoryReleaseError("factory_notification_corrupt");
         const payload = notificationPayload(notification.payload);
         if (notification.kind === "command_approval_requested") {
-          if (notification.approvalId !== row.command_approval_id || payload.approvalId !== row.command_approval_id || row.command_status !== "pending" || Number(row.command_deadline_at_ms) <= readAt || Number(row.command_source_sequence) !== Number(row.current_source_sequence) || row.command_source_digest !== row.current_source_digest || Number(row.command_execution_epoch) !== Number(row.installation_execution_epoch) || Number(row.command_cancellation_epoch) !== Number(row.lifecycle_cancellation_epoch) || !["queued", "running", "waiting"].includes(row.lifecycle_status ?? "") || Number(row.lifecycle_deadline_ms) <= readAt) continue;
+          if (notification.approvalId !== row.command_approval_id || payload.approvalId !== row.command_approval_id || row.command_status !== "pending" || Number(row.command_deadline_at_ms) <= readAt || Number(row.command_execution_epoch) !== Number(row.installation_execution_epoch) || Number(row.command_cancellation_epoch) !== Number(row.lifecycle_cancellation_epoch) || !["queued", "running", "waiting"].includes(row.lifecycle_status ?? "") || Number(row.lifecycle_deadline_ms) <= readAt) continue;
           const allowed = row.command_actor_scope === "operator" ? permitted.has("factory.approve") : row.command_actor_scope === "owner" ? permitted.has("factory.approve") && row.command_initiator_kind === "user" && row.command_initiator_id === actor.id : row.command_actor_scope === "tenant-contract-admin" ? permitted.has("factory.approve") && permitted.has("factory.trust") : false;
           if (!allowed) continue;
           let context: JsonValue, choices: unknown;
@@ -633,6 +641,10 @@ export class FactoryReleases {
           if (!Array.isArray(choices) || choices.length < 1 || choices.some(value => typeof value !== "string") || !row.command_run_id || !row.command_interpreter_id || !row.command_id || !row.command_node_instance_id || !row.command_context_digest || !row.command_source_digest || !row.command_definition_digest || !row.command_initiator_kind || !row.command_initiator_id || !row.command_actor_scope || !row.command_protected_digest || !/^[a-f0-9]{64}$/.test(row.command_context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
           const sealed = protectFactoryCommandApproval({ tenantId: this.tenantId, projectId, runId: row.command_run_id, interpreterId: row.command_interpreter_id, commandId: row.command_id, sourceSequence: Number(row.command_source_sequence), sourceDigest: row.command_source_digest, nodeInstanceId: row.command_node_instance_id, candidateGeneration: Number(row.command_candidate_generation), attempt: Number(row.command_attempt), initiator: { kind: row.command_initiator_kind, id: row.command_initiator_id }, actorScope: row.command_actor_scope, choices, context, deadlineAtMs: Number(row.command_deadline_at_ms), definitionDigest: row.command_definition_digest, executionEpoch: Number(row.command_execution_epoch), cancellationEpoch: Number(row.command_cancellation_epoch) });
           if (sealed.contextDigest !== row.command_context_digest || sealed.protectedDigest !== row.command_protected_digest) throw new FactoryReleaseError("factory_notification_corrupt");
+          if (!this.commandApprovalCurrent) throw new FactoryReleaseError("factory_command_approval_authority_unavailable");
+          const expected: FactoryCurrentApprovalFence = { nodeInstanceId: row.command_node_instance_id, candidateGeneration: Number(row.command_candidate_generation), attempt: Number(row.command_attempt), definitionDigest: row.command_definition_digest, executionEpoch: Number(row.command_execution_epoch), cancellationEpoch: Number(row.command_cancellation_epoch), initiator: { kind: row.command_initiator_kind, id: row.command_initiator_id }, actorScope: row.command_actor_scope, choices, context, deadlineAtMs: Number(row.command_deadline_at_ms) };
+          try { await this.commandApprovalCurrent.authority.assertCurrentApprovalInTransaction(transaction, this.commandApprovalCurrent.service, { tenantId: this.tenantId, projectId, logicalRunId: row.command_run_id, interpreterId: row.command_interpreter_id, commandId: row.command_id }, expected); }
+          catch (error) { if (error instanceof FactoryCommandAuthorityError && error.code === "factory_command_stale") continue; throw error; }
           items.push({ notificationId: notification.id, createdAtMs: notification.createdAt, kind: notification.kind, approvalId: row.command_approval_id, runId: row.command_run_id, commandId: row.command_id, nodeInstanceId: row.command_node_instance_id, contextDigest: row.command_context_digest, context, choices, actorScope: row.command_actor_scope!, expiresAtMs: Number(row.command_deadline_at_ms) });
           continue;
         }

@@ -43,6 +43,20 @@ export interface FactoryAuthorizedApprovalCommand extends Omit<FactoryAuthorized
   readonly attempt: KernelAttempt;
 }
 
+export type FactoryCurrentApprovalFence = Readonly<{
+  nodeInstanceId: string;
+  candidateGeneration: number;
+  attempt: number;
+  definitionDigest: string;
+  executionEpoch: number;
+  cancellationEpoch: number;
+  initiator: { kind: FactoryPrincipal["kind"]; id: string };
+  actorScope: ApprovalNode["actorScope"];
+  choices: readonly string[];
+  context: import("@ezcorp/factory-sdk").JsonValue;
+  deadlineAtMs: number;
+}>;
+
 export class FactoryCommandAuthorityError extends Error {
   constructor(readonly code: "factory_command_forbidden" | "factory_command_stale" | "factory_command_corrupt") { super(code); this.name = "FactoryCommandAuthorityError"; }
 }
@@ -101,6 +115,26 @@ export class FactoryCommandAuthority {
 
   withCurrentApprovalInTransaction<Result>(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: ApprovalWork<Result>): Promise<Result> {
     return this.approval(service, value, work, transaction);
+  }
+
+  /** Checks a stored human approval against the current waiting attempt, even if unrelated transitions advanced the interpreter head. */
+  assertCurrentApprovalInTransaction(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, expected: FactoryCurrentApprovalFence): Promise<void> {
+    return this.withCurrentApprovalInTransaction(transaction, service, value, async (_database, current) => {
+      const actual: FactoryCurrentApprovalFence = {
+        nodeInstanceId: current.command.nodeId,
+        candidateGeneration: current.attempt.candidateGeneration,
+        attempt: current.attempt.attempt,
+        definitionDigest: current.compiled.digest,
+        executionEpoch: current.fence.executionEpoch,
+        cancellationEpoch: current.fence.cancellationEpoch,
+        initiator: { kind: current.initiator.kind, id: current.initiator.id },
+        actorScope: current.command.actorScope,
+        choices: current.command.choices,
+        context: current.command.context,
+        deadlineAtMs: current.command.deadlineAtMs,
+      };
+      if (digestObject(actual) !== digestObject(expected)) throw new FactoryCommandAuthorityError("factory_command_stale");
+    });
   }
 
   private approval<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: ApprovalWork<Result>, transaction?: MigrationDb): Promise<Result> {

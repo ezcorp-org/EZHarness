@@ -84,7 +84,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     if (command?.kind !== "request-approval") throw new Error("missing approval command");
     const reference = { ...current.identity, commandId: command.id };
     await persistTransition(current.identity, 1, current.event, current.first.nextState, current.first.commands, undefined, current.activities);
-    const releases = new FactoryReleases(fixture.db, tenantId, grants, { tenantId } as never, {} as never, {} as never, {} as never, {} as never, {} as never, () => now);
+    const releases = new FactoryReleases(fixture.db, tenantId, grants, { tenantId } as never, {} as never, {} as never, {} as never, {} as never, {} as never, () => now, 10_000, { authority: current.authority, service: { tenantId, subject: "orchestration" } });
     const approvals = new FactoryAssuranceCommands(fixture.db, tenantId, grants, current.authority, new FactoryInbox(fixture.db, tenantId, () => now), releases, { tenantId, subject: "orchestration" }, () => now);
     expect(await approvals.execute(reference)).toBeNull();
     expect((await releases.deliverNextNotification(projectId))?.kind).toBe("command_approval_requested");
@@ -427,6 +427,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(rows(await fixture.db.execute(sql`SELECT notification_id FROM factory_notifications WHERE payload::jsonb->>'approvalId' IS NOT NULL AND payload::jsonb->>'approvalId' LIKE 'factory-command-approval:%'`))).toHaveLength(1);
     expect(item).toMatchObject({ kind: "command_approval_requested", commandId: command.id, nodeInstanceId: command.nodeId, choices: ["ship", "hold"], context: { subject: "candidate-7" }, actorScope: "operator" });
 
+    const harmless = { kind: "repair", id: `unrelated-progress:${run.runId}`, atMs: now, nodeId: "missing-node", reason: "unrelated progress" } as const;
+    const advanced = advanceKernel(compiled, first.nextState, harmless);
+    await persistTransition(identity, 2, harmless, advanced.nextState, advanced.commands, undefined, activities);
+    expect((await releases.listDeliveredNotifications(principal, projectId, { limit: 200 })).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(true);
+
     await fixture.db.execute(sql`UPDATE factory_run_lifecycle SET cancellation_epoch=cancellation_epoch+1 WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId}`);
     expect((await releases.listDeliveredNotifications(principal, projectId, { limit: 200 })).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(false);
     await fixture.db.execute(sql`UPDATE factory_run_lifecycle SET cancellation_epoch=cancellation_epoch-1 WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId}`);
@@ -462,8 +467,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const inbox = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE run_id=${run.runId} AND interpreter_id='root'`));
     expect(inbox.map(row => JSON.parse(row.payload))).toEqual([decided]);
     expect(rows(await fixture.db.execute(sql`SELECT id FROM factory_command_outbox WHERE logical_run_id=${run.runId} AND payload::jsonb#>>'{command,kind}'='decision'`))).toHaveLength(1);
-    const next = advanceKernel(compiled, first.nextState, decided!);
-    await persistTransition(identity, 2, decided!, next.nextState, next.commands, undefined, activities);
+    const next = advanceKernel(compiled, advanced.nextState, decided!);
+    await persistTransition(identity, 3, decided!, next.nextState, next.commands, undefined, activities);
     expect(await approvals.execute(reference)).toEqual(decided);
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
   });
