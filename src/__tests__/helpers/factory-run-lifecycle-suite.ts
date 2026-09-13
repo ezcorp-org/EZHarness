@@ -107,7 +107,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   };
   const completedTask = async (customValue?: JsonValue) => {
     const task = await dispatchedTask();
-    const policy: FactoryTaskRunnerPolicy = { async resolveInTransaction(_transaction, input) { return { grants: input.context.node.capabilities ?? [], tools: [], brokerAudience: "factory-broker" }; } };
+    const taskNode = task.compiled.indexes.nodeById[task.dispatch.nodeId];
+    if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");
+    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: taskNode.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: taskNode.capabilities ?? [], tools: [] }], "factory-broker");
     const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
     const admitted = await execution.admit(task.service, task.dispatchReference);
     const { FactoryTaskCompletions } = await import("../../factory/task-completions");

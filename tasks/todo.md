@@ -1701,3 +1701,11 @@ Plan review: test the public completion boundary with a published factory, admit
 - [ ] Record exact evidence and review the completed leaf.
 
 Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product and registration 47 passed / 421 assertions; PostgreSQL/S3 plus schema parity 46 passed / 2,090 assertions. SDK build, all four typechecks, lint (zero errors / eight existing infos), gate integrity, and boundaries passed. Both database producers report task-completions 79/79 lines and 18/18 functions, migration 4/4 and 2/2; shared command authority 88/88 and 26/26, artifacts 106/106 and 28/28, input artifacts 39/39 and 7/7. Source snapshot and exact results: `/tmp/factory-platform-evidence/root-task-completion-final-source.json` and `root-task-completion-final-integration-results.json`. Committed patch/new-file coverage and parent integration remain pending.
+
+## Parent integration — native policy, child runs, successful completion
+
+- [x] Preserve the first combined-suite failure and reproduce it in the lifecycle lane.
+- [x] Use the concrete native policy in the shared completion fixture.
+- [ ] Finish combined PostgreSQL/S3, types, static checks, Node orchestration, and coverage.
+
+Review checkpoint: combined source `965deee9e` failed because the completion fixture omitted the now-required native resource resolution. This also left an unprojected fixture run before the fairness test. The corrected fixture uses `FactoryNativeRunnerPolicy`; the lifecycle lane passes 30 tests / 323 assertions with no failures. Both logs are retained under `/tmp/factory-platform-evidence/root-child-completion-*`.
