@@ -78,7 +78,7 @@ export interface FactoryReleaseAuthority {
 
 /** The composition implementation takes canonical project, installation, run, and lifecycle locks before it returns. */
 export interface FactoryReleaseAuthorityReader {
-  lockCurrentInTransaction(transaction: MigrationDb, tenantId: string, projectId: string, runId: string): Promise<FactoryReleaseAuthority>;
+  lockCurrentInTransaction(transaction: MigrationDb, tenantId: string, projectId: string, runId: string, nodeInstanceId: string): Promise<FactoryReleaseAuthority>;
 }
 
 /** The provider-specific implementation checks the live destination and reserves the exact expected version in the same product transaction. */
@@ -325,7 +325,7 @@ export class FactoryReleases {
     validateRequest(input, this.now());
     const operation = await this.database.transaction(async transaction => {
       await this.grants.authorizeInTransaction(transaction, requester, input.projectId, "factory.release");
-      const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, input.projectId, input.runId);
+      const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, input.projectId, input.runId, input.nodeInstanceId);
       const accepted = await this.assurance.assertAcceptedReleaseInTransaction(transaction, input);
       this.assertCurrent(input, current, accepted);
       const material = canonical(await this.materials.readPinnedInTransaction(transaction, this.tenantId, accepted));
@@ -395,7 +395,7 @@ export class FactoryReleases {
     return this.database.transaction(async transaction => {
       const observed = await this.readInTransaction(transaction, projectId, operationId, "none");
       if (!observed) throw new FactoryReleaseError("factory_release_not_claimable");
-      const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, projectId, observed.runId);
+      const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, projectId, observed.runId, observed.nodeInstanceId);
       const operation = await this.readInTransaction(transaction, projectId, operationId, "update");
       if (operation?.state !== "pending" || !operation.archiveReady || !operation.intentArchive || !operation.materialArchive || operation.deadlineMs <= this.now()) throw new FactoryReleaseError("factory_release_not_claimable");
       if (operation.runId !== observed.runId || operation.requestDigest !== observed.requestDigest || operation.materialDigest !== observed.materialDigest) throw new FactoryReleaseError("factory_release_stale");
