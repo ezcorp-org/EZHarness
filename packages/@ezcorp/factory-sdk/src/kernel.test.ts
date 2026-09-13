@@ -288,7 +288,7 @@ test("artifact input fields wait for an exact bounded result before activation",
   const started = advanceKernel(graph, createKernelState(graph, "lazy", { data: { label: "placeholder" } }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
   const read = started.commands.find(command => command.kind === "read-input-value");
   expect(read).toMatchObject({ name: "data", path: ["label"], artifact });
-  if (!read || read.kind !== "read-input-value") throw new Error("lazy input read was not emitted");
+  if (read?.kind !== "read-input-value") throw new Error("lazy input read was not emitted");
   expect(() => advanceKernel(graph, started.nextState, event("wrong", { kind: "input-value-read", commandId: read.id, nodeId: read.nodeId, candidateGeneration: read.candidateGeneration, cancellationEpoch: read.cancellationEpoch, name: "data", artifact: { ...artifact, digest: `sha256:${"0".repeat(64)}` }, path: ["label"], storageVersion: "v1", mediaType: "application/json", value: "ok" }))).toThrow(FactoryKernelError);
   const loaded = advanceKernel(graph, started.nextState, event("loaded", { kind: "input-value-read", commandId: read.id, nodeId: read.nodeId, candidateGeneration: read.candidateGeneration, cancellationEpoch: read.cancellationEpoch, name: "data", artifact, path: ["label"], storageVersion: "v1", mediaType: "application/json", value: "ok" }));
   expect(loaded.commands).toContainEqual(expect.objectContaining({ kind: "request-admission", nodeId: "work" }));
