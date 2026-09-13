@@ -1,14 +1,14 @@
-import { validateValue } from "./validation";
-import { evaluateExpression } from "./expressions";
-import { isUnsignedDecimal } from "./canonical";
+import { validateValue } from "./validation.js";
+import { evaluateExpression } from "./expressions.js";
+import { isUnsignedDecimal } from "./canonical.js";
 import type {
   AdvanceResult,
   KernelCommand,
   KernelEvent,
   KernelNodeState,
   KernelState,
-} from "./kernel-types";
-import type { CompiledFactory, FactoryNode, JsonValue, ValueReference, ValueSource } from "./types";
+} from "./kernel-types.js";
+import type { CompiledFactory, FactoryNode, JsonValue, ValueReference, ValueSource } from "./types.js";
 
 const DEFAULT_RUN_DEADLINE_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_RUN_DEADLINE_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -77,18 +77,23 @@ export function advanceKernel(factory: CompiledFactory, state: KernelState, even
     return finish(factory, next, commands);
   }
   if (event.kind === "timer-expired" && event.nodeId === undefined) {
-    next = beginStopping(next, "RUN_DEADLINE_EXPIRED", commands, true);
+    if (event.commandId !== next.runTimerId || event.atMs < next.runDeadlineAtMs) return { nextState: next, commands };
+    next = beginStopping(next, "RUN_DEADLINE_EXPIRED", commands, false);
     return finish(factory, next, commands);
   }
-  if (event.atMs >= next.runDeadlineAtMs) {
-    next = beginStopping(next, "RUN_DEADLINE_EXPIRED", commands, true);
-    return finish(factory, next, commands);
+  if (event.atMs >= next.runDeadlineAtMs && next.status !== "stopping") {
+    next = beginStopping(next, "RUN_DEADLINE_EXPIRED", commands, false);
   }
 
   switch (event.kind) {
     case "start":
       if (next.status === "created") {
         next = { ...next, status: "running" };
+        if (factory.definition.graph.nodes.length > 0) {
+          const timer = commandFor(next, "start-timer");
+          next = { ...timer.state, runTimerId: timer.id };
+          commands.push({ kind: "start-timer", id: timer.id, deadlineAtMs: next.runDeadlineAtMs });
+        }
         next = activateReady(factory, next, commands);
       }
       break;
@@ -177,9 +182,7 @@ function applyAdmission(factory: CompiledFactory, state: KernelState, event: Ext
     attempt: attempt.attempt, input, deadlineAtMs, cancellationEpoch: state.cancellationEpoch,
   });
   const dispatched = { ...command.state, nodes: { ...command.state.nodes, [event.nodeId]: running } };
-  const timer = commandFor(dispatched, "start-timer", event.nodeId);
-  commands.push({ kind: "start-timer", id: timer.id, nodeId: event.nodeId, deadlineAtMs });
-  return timer.state;
+  return scheduleTimer(dispatched, event.nodeId, deadlineAtMs, "deadline", commands);
 }
 
 function applyResult(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "node-result" }>, commands: KernelCommand[]): KernelState {
@@ -205,19 +208,19 @@ function applyStopped(factory: CompiledFactory, state: KernelState, event: Extra
   const node = nodeFor(factory, event.nodeId);
   if (!runtime || !node || runtime.candidateGeneration !== event.candidateGeneration) return state;
   const attempt = runtime.attempts.find((candidate) => candidate.commandId === event.commandId && candidate.attempt === event.attempt);
-  if (!attempt || attempt.stopped) return state;
+  if (!attempt || (attempt.stopped && (!attempt.uncertain || event.uncertain !== false))) return state;
   const attempts = runtime.attempts.map((candidate) => candidate === attempt ? { ...candidate, stopped: true, uncertain: event.uncertain ?? false } : candidate);
   let next = withNode(state, event.nodeId, { ...runtime, attempts });
   if (event.uncertain) {
     next = { ...next, unresolvedUncertainNodeIds: distinct(next.unresolvedUncertainNodeIds.concat(event.nodeId)) };
     return next;
   }
+  next = { ...next, unresolvedUncertainNodeIds: next.unresolvedUncertainNodeIds.filter(id => id !== event.nodeId || attempts.some(candidate => candidate.uncertain)) };
+  if (runtime.discarded || state.status === "stopping") return withNode(next, event.nodeId, { ...next.nodes[event.nodeId]!, status: runtime.discarded || state.stopKind === "cancelled" ? "cancelled" : "failed", timer: undefined });
   if (runtime.status === "stopping" && retryAllowed(node, runtime)) {
     const delay = retryDelay(node, runtime.nextAttempt);
-    const timer = commandFor(next, "start-timer", event.nodeId);
-    next = withNode(timer.state, event.nodeId, { ...timer.state.nodes[event.nodeId]!, status: "retry_wait", nextAttempt: runtime.nextAttempt + 1 });
-    commands.push({ kind: "start-timer", id: timer.id, nodeId: event.nodeId, deadlineAtMs: next.nowMs + delay });
-    return next;
+    next = withNode(next, event.nodeId, { ...next.nodes[event.nodeId]!, status: "retry_wait", nextAttempt: runtime.nextAttempt + 1 });
+    return scheduleTimer(next, event.nodeId, next.nowMs + delay, "retry", commands);
   }
   if (runtime.status === "stopping") return failNode(factory, next, node, event.nodeId, runtime.error ?? "NODE_FAILED", "execution", commands);
   return next;
@@ -235,7 +238,7 @@ function stopFailedAttempt(state: KernelState, nodeId: string, error: string, co
 function applyApproval(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "approval-decided" }>, commands: KernelCommand[]): KernelState {
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
-  if (!node || node.kind !== "approval" || !runtime || runtime.status !== "waiting") return state;
+  if (node?.kind !== "approval" || !runtime || runtime.status !== "waiting") return state;
   const pending = runtime.attempts.at(-1);
   if (!pending || pending.commandId !== event.commandId || event.atMs > pending.deadlineAtMs) return state;
   if (!node.choices.includes(event.choice)) return state;
@@ -247,16 +250,21 @@ function applyApproval(factory: CompiledFactory, state: KernelState, event: Extr
 }
 
 function applyTimer(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "timer-expired" }>, commands: KernelCommand[]): KernelState {
-  if (!event.nodeId) return state;
+  if (!event.nodeId || state.status === "stopping") return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
-  if (!node || !runtime) return state;
-  if (runtime.status === "retry_wait") return dispatchReady(factory, state, node, event.nodeId, commands);
-  if (runtime.status === "waiting") {
-    if (node.kind === "approval") return failNode(factory, state, node, event.nodeId, "APPROVAL_EXPIRED", "approval_expired", commands);
-    return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
-  }
-  return state;
+  if (!node || !runtime?.timer || runtime.timer.id !== event.commandId || event.atMs < runtime.timer.deadlineAtMs) return state;
+  if (runtime.status === "retry_wait" && runtime.timer.purpose === "retry") return dispatchReady(factory, withNode(state, event.nodeId, { ...runtime, timer: undefined }), node, event.nodeId, commands);
+  if (runtime.status !== "running" && runtime.status !== "waiting" && runtime.status !== "reserved") return state;
+  if (node.kind === "loop") return failNode(factory, state, node, event.nodeId, "LOOP_BOUND_EXHAUSTED", "bound_exhausted", commands);
+  if (node.kind === "approval") return failNode(factory, state, node, event.nodeId, "APPROVAL_EXPIRED", "approval_expired", commands);
+  return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
+}
+
+function scheduleTimer(state: KernelState, nodeId: string, deadlineAtMs: number, purpose: "deadline" | "retry", commands: KernelCommand[]): KernelState {
+  const timer = commandFor(state, "start-timer", nodeId);
+  commands.push({ kind: "start-timer", id: timer.id, nodeId, deadlineAtMs });
+  return withNode(timer.state, nodeId, { ...timer.state.nodes[nodeId]!, timer: { id: timer.id, deadlineAtMs, purpose } });
 }
 
 function applyRepair(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "repair" }>, commands: KernelCommand[]): KernelState {
@@ -331,7 +339,7 @@ function dispatchReady(factory: CompiledFactory, state: KernelState, node: Facto
     const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
     const waiting = { ...runtime, status: "waiting" as const, attempts: runtime.attempts.concat(attempt), waitingReason: "approval" as const, waitingDeadlineAtMs: deadlineAtMs };
     commands.push({ kind: "request-approval", id: command.id, nodeId, choices: node.choices, context: resolveValue(node.context, state), actorScope: node.actorScope, deadlineAtMs });
-    return withNode(command.state, nodeId, waiting);
+    return scheduleTimer(withNode(command.state, nodeId, waiting), nodeId, deadlineAtMs, "deadline", commands);
   }
   if (node.kind === "subfactory") return dispatchChild(state, node, nodeId, commands);
   if (node.kind === "acceptance") return dispatchAcceptance(state, node, nodeId, commands);
@@ -376,24 +384,45 @@ function dispatchRelease(state: KernelState, node: Extract<FactoryNode, { kind: 
 }
 
 function settleJoin(factory: CompiledFactory, state: KernelState, node: Extract<FactoryNode, { kind: "join" }>, nodeId: string, commands: KernelCommand[]): KernelState {
-  const outcomes = node.predecessors.map((predecessor) => [predecessor, state.nodes[predecessor]] as const);
-  const terminal = (candidate: KernelNodeState | undefined) => candidate?.status === "succeeded" || candidate?.status === "failed" || candidate?.status === "skipped" || candidate?.status === "cancelled";
+  const scope = nodeId.slice(0, nodeId.lastIndexOf("/") + 1);
+  const outcomes = node.predecessors.map((predecessor) => [`${scope}${predecessor}`, state.nodes[`${scope}${predecessor}`]] as const);
   const eligible = node.eligibleOutcomes ?? ["succeeded"];
-  const winners = outcomes.filter(([, runtime]) => runtime && eligible.includes(toJoinOutcome(runtime.status))).filter(([, runtime]) => terminal(runtime));
+  const winners = outcomes.filter(([, runtime]) => runtime && terminalStatus(runtime.status) && eligible.includes(toJoinOutcome(runtime.status)));
+  const quorum = node.mode === "all" ? outcomes.length : node.mode === "any" ? 1 : node.quorum ?? 0;
   if (node.mode === "all") {
-    if (!outcomes.every(([, runtime]) => terminal(runtime))) return state;
-    if (outcomes.some(([, runtime]) => runtime?.status !== "succeeded")) return failNode(factory, state, node, nodeId, "REQUIRED_PREDECESSOR_FAILED", "execution", commands);
+    if (!outcomes.every(([, runtime]) => runtime && terminalStatus(runtime.status))) return state;
+    if (outcomes.some(([, runtime]) => runtime?.status !== "succeeded" && runtime?.status !== "skipped")) return failNode(factory, state, node, nodeId, "REQUIRED_PREDECESSOR_FAILED", "execution", commands);
   } else {
-    const quorum = node.mode === "any" ? 1 : node.quorum ?? 0;
     if (quorum <= 0) return failNode(factory, state, node, nodeId, "INVALID_QUORUM", "bound_exhausted", commands);
     if (winners.length < quorum) {
-      const remaining = outcomes.filter(([, runtime]) => !terminal(runtime)).length;
+      const remaining = outcomes.filter(([, runtime]) => !runtime || !terminalStatus(runtime.status)).length;
       if (winners.length + remaining < quorum) return failNode(factory, state, node, nodeId, "QUORUM_UNREACHABLE", "execution", commands);
       return state;
     }
   }
-  const selected = winners.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([id, runtime]) => ({ id, output: runtime!.output ?? null }));
-  return activateReady(factory, withNode(state, nodeId, { ...state.nodes[nodeId]!, status: "succeeded", output: selected }), commands, successorsFor(factory, nodeId));
+  const selected = winners.sort(([left, a], [right, b]) => (a!.terminalSequence ?? 0) - (b!.terminalSequence ?? 0) || (left < right ? -1 : left > right ? 1 : 0)).slice(0, quorum);
+  let next = withNode(state, nodeId, { ...state.nodes[nodeId]!, status: "succeeded", output: selected.map(([id, runtime]) => ({ id, output: runtime!.output ?? null })) });
+  if (node.mode !== "all") {
+    const selectedIds = selected.map(([id]) => id);
+    for (const [loserId] of outcomes) {
+      if (selectedIds.includes(loserId)) continue;
+      for (const [id, runtime] of Object.entries(next.nodes)) {
+        if (id !== loserId && !id.startsWith(`${loserId}/`)) continue;
+        if (terminalStatus(runtime.status)) continue;
+        next = withNode(next, id, { ...runtime, discarded: true, status: runtime.attempts.some(attempt => !attempt.stopped) ? "stopping" : "cancelled", timer: undefined });
+        for (const attempt of runtime.attempts.filter(attempt => !attempt.stopped)) {
+          const cancel = commandFor(next, "cancel-node", id);
+          next = cancel.state;
+          commands.push({ kind: "cancel-node", id: cancel.id, nodeId: id, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, attemptCommandId: attempt.commandId, cancellationEpoch: next.cancellationEpoch });
+        }
+      }
+    }
+  }
+  return activateReady(factory, next, commands, successorsFor(factory, nodeId));
+}
+
+function terminalStatus(status: KernelNodeState["status"]): boolean {
+  return status === "succeeded" || status === "failed" || status === "skipped" || status === "cancelled";
 }
 
 function isReady(state: KernelState, node: FactoryNode, instanceId: string): boolean {
@@ -419,10 +448,13 @@ function failNode(factory: CompiledFactory, state: KernelState, node: FactoryNod
 
 function beginStopping(state: KernelState, reason: string, commands: KernelCommand[], cancelled: boolean): KernelState {
   if (state.status === "stopping") return state;
-  let next: KernelState = { ...state, status: "stopping", cancellationEpoch: state.cancellationEpoch + (cancelled ? 1 : 0) };
+  let next: KernelState = { ...state, status: "stopping", stopReason: reason, stopKind: cancelled ? "cancelled" : "failed", cancellationEpoch: state.cancellationEpoch + 1 };
   for (const [nodeId, runtime] of Object.entries(next.nodes)) {
     const active = runtime.attempts.filter((attempt) => !attempt.stopped);
-    if (active.length === 0) continue;
+    if (active.length === 0) {
+      if (!["succeeded", "failed", "skipped", "cancelled"].includes(runtime.status)) next = withNode(next, nodeId, { ...runtime, status: cancelled ? "cancelled" : "failed", error: runtime.error ?? reason, timer: undefined });
+      continue;
+    }
     const stopping = { ...runtime, status: "stopping" as const, error: runtime.error ?? reason };
     next = withNode(next, nodeId, stopping);
     for (const attempt of active) {
@@ -442,17 +474,18 @@ function beginStopping(state: KernelState, reason: string, commands: KernelComma
 function finish(factory: CompiledFactory, state: KernelState, commands: KernelCommand[]): AdvanceResult {
   if (state.status === "stopping") {
     if (Object.values(state.nodes).some((node) => node.attempts.some((attempt) => !attempt.stopped) || node.attempts.some((attempt) => attempt.uncertain))) return { nextState: state, commands };
-    const failed = Object.values(state.nodes).some((node) => node.status === "failed");
-    const cancelled = state.cancellationEpoch > 0;
+    const cancelled = state.stopKind === "cancelled";
+    const failed = state.stopKind !== "completed" && !cancelled;
     const next = { ...state, status: cancelled ? "cancelled" as const : failed ? "failed" as const : "completed" as const };
     const command = commandFor(next, cancelled ? "cancel-run" : failed ? "fail-run" : "complete-run");
     if (command.kind === "complete-run") commands.push({ kind: "complete-run", id: command.id, output: graphOutput(factory, command.state) });
-    else if (command.kind === "fail-run") commands.push({ kind: "fail-run", id: command.id, error: "GRAPH_FAILED" });
-    else commands.push({ kind: "cancel-run", id: command.id, reason: "CANCELLED" });
+    else if (command.kind === "fail-run") commands.push({ kind: "fail-run", id: command.id, error: state.stopReason ?? "GRAPH_FAILED" });
+    else commands.push({ kind: "cancel-run", id: command.id, reason: state.stopReason ?? "CANCELLED" });
     return { nextState: command.state, commands };
   }
   const nodes = Object.entries(state.nodes).filter(([id, runtime]) => !(runtime.status === "failed" && isCollectMapChild(factory, id))).map(([, runtime]) => runtime);
-  if (nodes.every((node) => node.status === "succeeded" || node.status === "skipped")) {
+  if (nodes.every((node) => node.status === "succeeded" || node.status === "skipped" || node.discarded)) {
+    if (nodes.some(node => node.attempts.some(attempt => !attempt.stopped || attempt.uncertain))) return { nextState: { ...state, status: "stopping", stopKind: "completed" }, commands };
     const done = { ...state, status: "completed" as const };
     const command = commandFor(done, "complete-run");
     commands.push({ kind: "complete-run", id: command.id, output: graphOutput(factory, command.state) });
@@ -467,7 +500,8 @@ function commandFor<T extends KernelCommand["kind"]>(state: KernelState, kind: T
 }
 
 function withNode(state: KernelState, nodeId: string, runtime: KernelNodeState): KernelState {
-  return { ...state, nodes: { ...state.nodes, [nodeId]: runtime } };
+  const terminalSequence = terminalStatus(runtime.status) ? runtime.terminalSequence ?? state.eventSequence : undefined;
+  return { ...state, nodes: { ...state.nodes, [nodeId]: { ...runtime, terminalSequence } } };
 }
 
 function rememberEvent(state: KernelState, eventId: string): KernelState {
@@ -551,9 +585,9 @@ function graphOutput(factory: CompiledFactory, state: KernelState): JsonValue {
 
 function completeScopeIfReady(factory: CompiledFactory, state: KernelState, nodeId: string, commands: KernelCommand[]): KernelState {
   const scope = Object.values(state.scopes).find((candidate) => candidate.nodeIds.includes(nodeId));
-  if (!scope || !scope.parentNodeId || !scope.nodeIds.every((id) => state.nodes[id]?.status === "succeeded")) return state;
+  if (!scope?.parentNodeId || !scope.nodeIds.every((id) => state.nodes[id]?.status === "succeeded")) return state;
   const parent = state.nodes[scope.parentNodeId];
-  if (!parent || parent.status !== "waiting") return state;
+  if (parent?.status !== "waiting") return state;
   const output: Record<string, JsonValue> = {};
   for (const id of scope.nodeIds) output[id.slice(id.lastIndexOf("/") + 1)] = state.nodes[id]!.output ?? null;
   const complete = withNode(state, scope.parentNodeId, { ...parent, status: "succeeded", output });
@@ -571,7 +605,7 @@ function progressMap(factory: CompiledFactory, state: KernelState, nodeId: strin
   const item = Number(nodeId.slice(itemStart, itemEnd));
   const parentNode = nodeFor(factory, parentId);
   const parent = state.nodes[parentId];
-  if (!parentNode || parentNode.kind !== "map" || !parent?.map || !Number.isSafeInteger(item)) return state;
+  if (parentNode?.kind !== "map" || !parent?.map || !Number.isSafeInteger(item)) return state;
   const prefix = `${parentId}/items/${item}/`;
   const members = Object.keys(state.nodes).filter((id) => id.startsWith(prefix));
   if (members.length === 0 || !members.every((id) => state.nodes[id]?.status === "succeeded" || state.nodes[id]?.status === "failed" || state.nodes[id]?.status === "cancelled")) return state;
@@ -600,7 +634,7 @@ function progressMap(factory: CompiledFactory, state: KernelState, nodeId: strin
 
 function startLoopIteration(factory: CompiledFactory, state: KernelState, node: Extract<FactoryNode, { kind: "loop" }>, nodeId: string, runtime: KernelNodeState, carried: JsonValue, iteration: number, commands: KernelCommand[]): KernelState {
   if (!validateValue(node.carriedSchema, carried).ok) return failNode(factory, state, node, nodeId, "LOOP_INPUT_INVALID", "execution", commands);
-  if (iteration >= node.maxIterations || state.nowMs - (runtime.loop?.startedAtMs ?? state.nowMs) > node.maxElapsedMs) return failNode(factory, state, node, nodeId, "LOOP_BOUND_EXHAUSTED", "bound_exhausted", commands);
+  if (iteration >= node.maxIterations || state.nowMs - (runtime.loop?.startedAtMs ?? state.nowMs) >= node.maxElapsedMs) return failNode(factory, state, node, nodeId, "LOOP_BOUND_EXHAUSTED", "bound_exhausted", commands);
   const prefix = `${nodeId}/items/${iteration}`;
   const nodes: Record<string, KernelNodeState> = { ...state.nodes };
   const roots: string[] = [];
@@ -612,7 +646,9 @@ function startLoopIteration(factory: CompiledFactory, state: KernelState, node: 
   const scopeId = `${nodeId}/items/${iteration}`;
   const loop = { iteration, carried, startedAtMs: runtime.loop?.startedAtMs ?? state.nowMs, spentCostMicros: runtime.loop?.spentCostMicros ?? "0", unknownCostMicros: runtime.loop?.unknownCostMicros ?? "0" };
   const next = { ...state, nodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, expandedNodeCount: node.body.nodes.length, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: node.body.nodes.map((child) => `${prefix}/${child.id}`), roots } } };
-  return activateReady(factory, withNode(next, nodeId, { ...runtime, status: "waiting", loop, waitingReason: "external_reconciliation" }), commands, roots);
+  let waiting = withNode(next, nodeId, { ...runtime, status: "waiting", loop, waitingReason: "external_reconciliation" });
+  if (iteration === 0) waiting = scheduleTimer(waiting, nodeId, Math.min(state.runDeadlineAtMs, loop.startedAtMs + node.maxElapsedMs), "deadline", commands);
+  return activateReady(factory, waiting, commands, roots);
 }
 
 function progressLoop(factory: CompiledFactory, state: KernelState, nodeId: string, commands: KernelCommand[]): KernelState {
@@ -695,7 +731,7 @@ function successorsFor(factory: CompiledFactory, nodeId: string): readonly strin
   let graph = factory.definition.graph;
   for (let index = 0; index < parts.length; index += 2) {
     const branch = graph.nodes.find((candidate) => candidate.id === parts[index]);
-    if (!branch || branch.kind !== "branch") return [];
+    if (branch?.kind !== "branch") return [];
     graph = branch[parts[index + 1] as "then" | "else"];
   }
   return graph.nodes.filter((candidate) => (candidate.dependsOn ?? []).includes(node.id)).map((candidate) => `${scope}/${candidate.id}`);

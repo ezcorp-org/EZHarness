@@ -1,4 +1,4 @@
-import type { FactoryReference, JsonValue } from "./types";
+import type { FactoryReference, JsonValue } from "./types.js";
 
 /** Runtime status for one expanded node instance. */
 export type KernelNodeStatus =
@@ -55,10 +55,13 @@ export interface KernelNodeState {
   readonly nextAttempt: number;
   readonly output?: JsonValue;
   readonly error?: string;
+  readonly terminalSequence?: number;
+  readonly discarded?: boolean;
   readonly attempts: readonly KernelAttempt[];
   readonly selected?: "then" | "else";
   readonly waitingReason?: "approval" | "admission" | "remediation" | "external_reconciliation";
   readonly waitingDeadlineAtMs?: number;
+  readonly timer?: { readonly id: string; readonly deadlineAtMs: number; readonly purpose: "deadline" | "retry" };
   /** Persistent control facts; never reset by task retry or continuation. */
   readonly map?: {
     readonly snapshot: readonly JsonValue[];
@@ -91,6 +94,9 @@ export interface KernelState {
   readonly input: JsonValue;
   readonly status: KernelRunStatus;
   readonly runDeadlineAtMs: number;
+  readonly runTimerId?: string;
+  readonly stopReason?: string;
+  readonly stopKind?: "failed" | "cancelled" | "completed";
   readonly nowMs: number;
   readonly cancellationEpoch: number;
   readonly commandCounter: number;

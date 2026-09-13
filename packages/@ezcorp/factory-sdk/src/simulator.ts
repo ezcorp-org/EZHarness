@@ -1,6 +1,6 @@
-import { advanceKernel, createKernelState } from "./kernel";
-import type { KernelCommand, KernelEvent, KernelState } from "./kernel-types";
-import type { CompiledFactory, FactoryNode, JsonValue } from "./types";
+import { advanceKernel, createKernelState } from "./kernel.js";
+import type { KernelCommand, KernelEvent, KernelState } from "./kernel-types.js";
+import type { CompiledFactory, FactoryNode, JsonValue } from "./types.js";
 
 export type SimulatedOutcome =
   | { readonly kind: "success"; readonly output: JsonValue }
@@ -35,7 +35,7 @@ export function simulateFactory(
   const commands: KernelCommand[] = [];
   const pending: KernelEvent[] = [{ kind: "start", id: eventId("start"), atMs: state.nowMs }];
 
-  while (pending.length > 0) {
+  while (pending.length > 0 && state.status !== "completed" && state.status !== "failed" && state.status !== "cancelled") {
     const event = pending.shift()!;
     events.push(event);
     const advanced = advanceKernel(factory, state, event);
