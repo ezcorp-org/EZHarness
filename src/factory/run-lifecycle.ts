@@ -1,6 +1,6 @@
 import { lockFactoryScope } from "./locks";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
-import { validateValue } from "@ezcorp/factory-sdk/validation";
+import { validateDurableInputPorts, validateValue } from "@ezcorp/factory-sdk/validation";
 import type { BudgetBounds, CompiledFactory, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue } from "@ezcorp/factory-sdk";
 import type { FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { sql } from "drizzle-orm";
@@ -36,6 +36,12 @@ export interface FactoryRunFence {
   readonly deadlineAtMs: number;
   readonly definitionDigest: string;
   readonly status: FactoryRunDetails["status"];
+}
+
+/** Projection status and revision can advance without changing execution authority. */
+export type FactoryExecutionFence = Omit<FactoryRunFence, "revision" | "status">;
+export function factoryExecutionFence(fence: FactoryExecutionFence): FactoryExecutionFence {
+  return { tenantId: fence.tenantId, projectId: fence.projectId, runId: fence.runId, executionEpoch: fence.executionEpoch, cancellationEpoch: fence.cancellationEpoch, grantRevision: fence.grantRevision, deadlineAtMs: fence.deadlineAtMs, definitionDigest: fence.definitionDigest };
 }
 export interface FactoryRunProjectionState {
   readonly status: FactoryRunDetails["status"];
@@ -99,11 +105,13 @@ export class FactoryRunLifecycle {
       if (version.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
       if (compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_interpreter_unavailable");
       const resolved = await this.options.resolveParameters(transaction, principal, key, body.parameters);
-      const input = typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && (resolved as { kind?: unknown }).kind === "factory.run-resolved-parameters"
-        ? (resolved as FactoryResolvedParameters).input
-        : resolved as JsonValue;
+      const resolvedDescriptor = typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && (resolved as { kind?: unknown }).kind === "factory.run-resolved-parameters";
+      const input = resolvedDescriptor ? (resolved as FactoryResolvedParameters).input : resolved as JsonValue;
       const ports = compiled.definition.inputPorts;
-      if (typeof input !== "object" || input === null || Array.isArray(input) || Object.keys(input).some(name => !Object.hasOwn(ports, name)) || Object.entries(ports).some(([name, schema]) => !Object.hasOwn(input, name) || !validateValue(schema, input[name]!).ok)) throw new FactoryRunLifecycleError("factory_input_invalid");
+      const durable = resolvedDescriptor ? { schemaVersion: "factory.lazy-input.v1" as const, parameters: body.parameters } : undefined;
+      if (durable !== undefined) {
+        if (!validateDurableInputPorts(ports, input, durable).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
+      } else if (typeof input !== "object" || input === null || Array.isArray(input) || Object.keys(input).some(name => !Object.hasOwn(ports, name)) || Object.entries(ports).some(([name, schema]) => !Object.hasOwn(input, name) || !validateValue(schema, input[name]!).ok)) throw new FactoryRunLifecycleError("factory_input_invalid");
       const startedAtMs = this.now();
       const deadlineAtMs = startedAtMs + createCompiledExecutionManifest(compiled).bounds.runDeadlineMs;
       if (!Number.isSafeInteger(startedAtMs) || startedAtMs < 0 || !Number.isSafeInteger(deadlineAtMs)) throw new FactoryRunLifecycleError("factory_deadline_invalid");
@@ -228,7 +236,7 @@ export class FactoryRunLifecycle {
   };
 
   /** Private command admission uses the exact published plan and the live initiator. */
-  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory }> {
+  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {
     key = { projectId: key.projectId, runId: key.runId };
     const fence = await this.authorizeRunInTransaction(transaction, key);
     const row = await this.row(transaction, key);
@@ -236,7 +244,7 @@ export class FactoryRunLifecycle {
     const principal = initiator(request);
     const { compiled } = await this.options.definitions.readVersionInTransaction(transaction, principal, { projectId: key.projectId, factoryId: row.factory_id }, row.factory_version);
     if (compiled.digest !== fence.definitionDigest || compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_definition_conflict");
-    return { fence, compiled };
+    return { fence, compiled, initiator: principal };
   }
 
   private async authorizeCancellation(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryRunKey): Promise<void> {

@@ -97,6 +97,17 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
+      - name: Measure recoverable compute admission against PostgreSQL and pool HTTPS
+        env:
+          COV_OUT: coverage-factory-compute-admissions
+        run: bash scripts/factory-compute-admissions-coverage.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-compute-admissions
+          path: coverage-factory-compute-admissions/lcov.info
+          retention-days: 3
+          if-no-files-found: error
+
       - name: Prove factory assurance against real PostgreSQL
         run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/factory-assurance.test.ts
 
@@ -136,6 +147,7 @@ jobs:
           ./tests/postgres/factory-artifacts.test.ts
           ./tests/postgres/factory-artifact-access.test.ts
           ./tests/postgres/factory-lazy-input.test.ts
+          ./tests/postgres/factory-lazy-commands.test.ts
           ./tests/postgres/factory-boot.test.ts
           ./tests/postgres/factory-run-lifecycle-s3.test.ts
           ./tests/postgres/factory-definitions.test.ts
@@ -143,6 +155,7 @@ jobs:
           ./tests/postgres/factory-releases.test.ts
           ./tests/postgres/factory-release-authority.test.ts
           ./tests/postgres/factory-executions.test.ts
+          ./tests/postgres/factory-attempt-queue.test.ts
           ./tests/postgres/factory-execution-gateway.test.ts
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts

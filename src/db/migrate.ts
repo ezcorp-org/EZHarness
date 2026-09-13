@@ -11,6 +11,7 @@ import { up as upClaimOwnerlessKbFilesOnce } from "./migrations/claim-ownerless-
 import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
 import { up as upRelativizeBundledInstallPaths } from "./migrations/relativize-bundled-install-paths";
 import { up as upFactoryExecutions } from "./migrations/add-factory-executions";
+import { up as upFactoryAttemptQueue } from "./migrations/add-factory-attempt-queue";
 import type { MigrateDb } from "./migrations/types";
 // Value import is safe: `project-root.ts` depends only on `../logger` and
 // node builtins. It used to live in `../extensions/bundled.ts`, which
@@ -3033,6 +3034,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryServiceCredentials(db);
   const { up: addFactoryBudgets } = await import("./migrations/add-factory-budgets");
   await addFactoryBudgets(db);
+  const { up: addFactoryComputeAdmissions } = await import("./migrations/add-factory-compute-admissions");
+  await addFactoryComputeAdmissions(db);
   const { up: addFactoryDefinitions } = await import("./migrations/add-factory-definitions");
   await addFactoryDefinitions(db);
   const { up: addFactoryRunLifecycle } = await import("./migrations/add-factory-run-lifecycle");
@@ -3067,6 +3070,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
   }
   await db.execute(sql`UPDATE modes SET allowed_tools = array_remove(array_remove(allowed_tools, 'extension-author/create_extension'), 'extension-author__create_extension') WHERE slug = 'ez'`);
   await upFactoryExecutions(db);
+  await upFactoryAttemptQueue(db);
   const { up: addFactoryReleaseAuthority } = await import("./migrations/add-factory-release-authority");
   await addFactoryReleaseAuthority(db);
 }

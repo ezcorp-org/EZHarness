@@ -1550,6 +1550,31 @@ Review: only the current committed run-child attempt can resolve its exact compi
 
 Plan review: a private command ID is the only request authority; the reader validates the durable artifact binding within the same run transaction.
 
+# Factory release notification delivery (2026-09-13)
+
+- [x] Reproduce the durable notification's absence from the in-app factory console.
+- [x] Add a delivery adapter that reuses the existing durable queue and exposes only delivered actionable items.
+- [x] Recheck current human grants and underlying approval/operation state in scoped release queries.
+- [x] Add the session-only SDK/API/browser read path and route decisions through the existing assurance endpoint.
+- [x] Add the factory console inbox with duplicate-safe approval and uncertain-release rendering.
+- [x] Prove delivery, restart deduplication, foreign/revoked denial, real assurance decisions, and UI behavior.
+- [x] Pass focused coverage, e2e, builds, all four typechecks, lint, boundaries, and patch coverage.
+- [x] Commit an immutable notification-delivery checkpoint and record proof paths.
+
+## Review
+
+- Factory approval, uncertain-release, and settled-release notifications now use the existing durable release queue as the in-app inbox. Delivery is one atomic queued-to-delivered transaction. Reads authorize the current session user and load a bounded current-state projection in one transaction. Pending and uncertain items disappear when they stop being actionable; settled items remain completion receipts for principals with `factory.release`.
+- The factory page shows the inbox and sends approval decisions through the existing assurance API. It exposes no archive, sender, provider-evidence, or pinned-material details. Restart delivery and browser merging retain one item per durable notification identity.
+- PGlite passes 19 cases with 120 assertions, and isolated PostgreSQL passes 14 cases with 92 assertions. Focused SDK, web, OpenAPI, route, browser evidence, coverage, builds, all four type checks, lint, boundaries, patch coverage, and gate integrity pass. Proof paths and exact measured-line counts are in `tasks/factory/release-notification-delivery-GATES.md`.
+
+## Committed human approval authority — root
+
+- [ ] Prove exact current approval scope, choices, attempt, deadline and durable initiator through published lifecycle records.
+- [ ] Provide the same current check inside the caller's decision transaction.
+- [ ] Expose the verified compiled plan and durable initiator for runner policy without a second lookup.
+- [ ] Verify PGlite/PostgreSQL, coverage and static checks.
+
+Plan review: request authority comes from the committed interpreter. A later human decision separately requires current explicit factory.approve and the declared actor scope; its store writes the correlated event through the existing inbox in the same transaction.
 ## Atomic terminal budget receipts — root
 
 - [x] Prove settlement and envelope closure roll back with their enclosing receipt transaction.
@@ -1560,3 +1585,37 @@ Plan review: a private command ID is the only request authority; the reader vali
 Plan review: terminal journal and child completion must commit measured usage, release the hold and publish the completion receipt together. These entry points preserve existing trusted-receipt and unknown-hold rules.
 
 Review: settlement and envelope closure now accept the caller transaction, while public calls reuse those same implementations and capture caller-owned scope/usage before awaiting. A failed terminal receipt rolls both settlement and child-to-parent spent transfer back; exact retry settles once after revocation, and unresolved usage retains its hold. PGlite and PostgreSQL each pass 11 tests / 64 assertions. Budget coverage is 178/178 lines and 54/54 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-terminal-budget-source.json` and `root-terminal-budget-integration-results.json`.
+## Factory product compute-admission dispatcher
+
+- [x] Add canonical, scoped compute-admission persistence and migration/schema parity.
+- [x] Enlist the exact request inside the task budget transaction through a stable public seam.
+- [x] Claim fair due work without holding product locks during pool HTTPS calls.
+- [x] Recover queued and lost responses only by replaying the exact original pool request.
+- [x] Commit a confirmed allocation, running budget, stable admission event, and inbox delivery atomically.
+- [x] Cancel remote allocations after authority loss while retaining the product budget hold.
+- [x] Prove terminal receipt replay, competing polls, corruption fences, and foreign service denial.
+- [x] Run actual PostgreSQL and pool HTTPS recovery tests, coverage, schema parity, builds, types, lint, boundaries, and gate integrity.
+- [x] Record review and create an immutable checkpoint.
+
+Plan review: the product row is enlisted with the held budget before the pool command becomes visible. A short committed poll lease protects fair selection, but every HTTP call runs without a database lock. Only an exact request replay can recover an admitted token. The first admitted commit uses command authority, then locks budget, compute state, and inbox in that order. A stored terminal receipt needs only the trusted installation service check because the kernel is expected to advance after admission.
+
+Review: `FactoryComputeAdmissions` now records one canonical request beside the held product budget, drains the installation pool outbox into a fair durable poll queue, and replays only that exact request to recover a token-bearing lease. The admitted commit rechecks the current command, marks the budget running, stores stable response/event bytes, and enqueues the inbox decision in one transaction. Authority loss cancels known remote allocations while retaining the hold; uncertain cancellation remains recoverable. The transaction-bound admitted reader locks budget before compute state and verifies the stored token and generation before runner admission. The final producer passes 33 tests with 231 assertions across focused PGlite, isolated PostgreSQL, actual Bun mTLS, and actual command authority. Owned coverage is 306/306 lines; the dispatcher also measures 68/68 functions. PostgreSQL schema parity passes two tests with 1,638 assertions. All four typecheck legs, lint, boundaries, gate integrity, and registration tests pass. Coverage is at `/tmp/factory-compute-admissions-final/lcov.info`.
+
+## Task-to-compute transaction wiring — root
+
+- [ ] Prove task admission can be dispatched without a separate manual enlist transaction.
+- [ ] Require the concrete compute admission store in task admission and enlist before outbox enqueue.
+- [ ] Prove outbox/enlist failures roll back the budget and all compute facts.
+- [ ] Validate the combined approval, attempt queue, compute, notification and repaired Node changes.
+
+Plan review: there must be no configuration path that creates a held task budget and pool outbox entry without its recoverable compute row.
+
+## C07 authoritative lazy command execution — Terra
+
+- [x] Validate durable artifact descriptors and inline values separately, so required artifact ports do not need placeholder JSON in lifecycle or kernel state.
+- [x] Define the authority callback contract and match a stored lazy command to the current committed pending state.
+- [x] Add a DB-transactional `lazy-commands.ts` adapter that maps only verified reader output to bounded kernel events.
+- [x] Prove PGlite, PostgreSQL/S3, and private HTTPS generic-command behavior including stale, cancelled, substituted, version, and oversized denials.
+- [ ] Run owned coverage, SDK build, all canonical typechecks, lint, and integrity checks.
+
+Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.

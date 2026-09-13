@@ -60,7 +60,7 @@ function published(source: FactoryDefinition = historicalDefinition()): FactoryV
 	};
 }
 
-async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean } = {}): Promise<{
+async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean; releaseInbox?: boolean } = {}): Promise<{
 	requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }>;
 	failNext(operation: FailureOperation): void;
 	conflictNext(): void;
@@ -70,6 +70,11 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 	const prior = published();
 	const requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }> = [];
 	const failures = new Set<FailureOperation>();
+	let releaseInbox = options.releaseInbox ? [
+		{ notificationId: "notification-approval", operationId: "factory-release:catalog", createdAtMs: 3, kind: "approval_requested", approvalId: "approval-catalog", contextDigest: digest, expiresAtMs: 2_000_000_000_000 },
+		{ notificationId: "notification-uncertain", operationId: "factory-release:unknown", createdAtMs: 2, kind: "release_uncertain", dispatchGeneration: 2, outcomeCode: "provider_response_unknown" },
+		{ notificationId: "notification-settled", operationId: "factory-release:complete", createdAtMs: 1, kind: "release_settled", dispatchGeneration: 1, outcomeCode: "confirmed" },
+	] : [];
 	await page.route("**/api/factories/**", async route => {
 		const request = route.request();
 		const url = new URL(request.url());
@@ -82,6 +87,14 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		const reject = (operation: FailureOperation): ReturnType<typeof respond> | null => failures.delete(operation)
 			? respond(envelope({ kind: "error", error: { code: "factory_unavailable", message: operation + " unavailable", retryable: true } }), 503)
 			: null;
+
+		if (url.pathname.endsWith("/release/notifications") && method === "GET") {
+			return respond(envelope({ kind: "release.notification.page", page: { items: releaseInbox } }));
+		}
+		if (url.pathname.endsWith("/release/approvals/approval-catalog") && method === "PUT") {
+			releaseInbox = releaseInbox.filter(item => item.notificationId !== "notification-approval");
+			return respond(envelope({ kind: "release.approval.resource", resource: { approvalId: "approval-catalog", operationId: "factory-release:catalog", contextDigest: digest, status: "approved" } }));
+		}
 
 		if (url.pathname.endsWith("/validate") && method === "POST") {
 			const rejection = reject("validate");
@@ -163,6 +176,26 @@ async function openConsole(page: Page): Promise<void> {
 }
 
 test.describe("factory authoring console", () => {
+	test("shows the current-authorized release inbox and records an exact decision @evidence", async ({ page, mockApi }, testInfo) => {
+		await page.addInitScript(() => localStorage.setItem("ezcorp-theme", "light"));
+		await page.setViewportSize({ width: 1440, height: 980 });
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		const mocked = await routeFactoryApi(page, { releaseInbox: true });
+		await page.goto("/factories");
+		await expect(page.getByRole("heading", { name: "Release inbox" })).toBeVisible();
+		await expect(page.getByText("Release approval requested")).toBeVisible();
+		await expect(page.getByText("Release outcome uncertain")).toBeVisible();
+		await expect(page.getByText("Release completed")).toBeVisible();
+		await captureEvidence(page, testInfo, "factory-release-inbox-authorized", { fullPage: true });
+		const approval = page.locator("article", { hasText: "Release approval requested" });
+		await approval.getByRole("button", { name: "Approve" }).click();
+		await expect(page.getByText("factory-release:catalog")).toHaveCount(0);
+		const decision = mocked.requests.find(item => item.path.endsWith("/release/approvals/approval-catalog"));
+		expect(decision?.method).toBe("PUT");
+		expect(decision?.headers["if-match"]).toBe("0");
+		expect(decision?.body).toEqual({ contextDigest: digest, decision: "approved" });
+	});
+
 	test("authors with the real graph library, shows diagnostics, and exports @evidence", async ({ page, mockApi }, testInfo) => {
 		await page.addInitScript(() => localStorage.setItem("ezcorp-theme", "light"));
 		await page.setViewportSize({ width: 1440, height: 980 });

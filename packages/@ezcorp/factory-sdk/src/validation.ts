@@ -20,6 +20,7 @@ import {
   type FactoryRunnerRequest,
   type FactoryRunnerResult,
   type FactoryTransportValue,
+  type FactoryDurableInput,
   type FactoryUsage,
   type JsonValue,
   type PortSchema,
@@ -692,6 +693,27 @@ function validateApiPath(request: FactoryApiRequest): ValidationResult {
   return { ok: true };
 }
 
+/** Validates durable artifact descriptors without materializing artifact bytes into kernel state. */
+export function validateDurableInputPorts(ports: Readonly<Record<string, PortSchema>>, input: JsonValue, durable: FactoryDurableInput): ValidationResult {
+  if (!isRecord(input) || !validateIJson(input).ok || encodedBytes(input) > FACTORY_LIMITS.maxInlineValueBytes) return issue("DURABLE_INPUT", "Durable input placeholders must be bounded I-JSON objects.", ["input"]);
+  if (!isRecord(durable) || durable.schemaVersion !== "factory.lazy-input.v1" || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
+  for (const name of Object.keys(input)) if (!own(ports, name)) return issue("DURABLE_INPUT", "Durable input contains an undeclared port.", ["input", name]);
+  for (const [name, transport] of Object.entries(durable.parameters)) {
+    if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength) || !own(ports, name) || !isRecord(transport)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter is invalid.", ["durableInput", "parameters", name]);
+    const schema = ports[name]!;
+    if (transport.kind === "inline") {
+      if (!own(transport, "value") || !validateIJson(transport.value).ok || !own(input, name) || !jsonEqual(input[name]!, transport.value as JsonValue) || !validateValue(schema, transport.value as JsonValue).ok) return issue("DURABLE_INLINE", "Inline durable input must match its port schema and placeholder.", ["durableInput", "parameters", name]);
+      continue;
+    }
+    if (transport.kind !== "artifact" || !own(transport, "artifact") || !isRecord(transport.artifact)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter kind is invalid.", ["durableInput", "parameters", name]);
+    const reference = transport.artifact as FactoryArtifactReference;
+    const artifact = validateArtifactReference(reference, ["durableInput", "parameters", name, "artifact"]);
+    if (!artifact.ok || reference.encodedBytes < 1 || reference.encodedBytes > FACTORY_LIMITS.maxDefinitionBytes) return artifact.ok ? issue("DURABLE_ARTIFACT", "Durable artifact byte count is invalid.", ["durableInput", "parameters", name, "artifact", "encodedBytes"]) : artifact;
+  }
+  for (const name of Object.keys(ports)) if (!own(durable.parameters, name)) return issue("DURABLE_DESCRIPTOR", "Durable input misses a declared port.", ["durableInput", "parameters", name]);
+  return { ok: true };
+}
+
 function validateApiTransportValues(parameters: Readonly<Record<string, FactoryTransportValue>>, path: readonly (string | number)[] = ["body", "parameters"]): ValidationResult {
   for (const [name, transport] of Object.entries(parameters)) {
     if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_PARAMETER_NAME", "Parameter names must be nonempty bounded values.", [...path, name]);
@@ -784,6 +806,11 @@ function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "ap
   return validDigest(resource.contextDigest, false) && decided === (resource.decidedBy !== undefined && resource.decidedAtMs !== undefined);
 }
 
+function validReleaseNotification(resource: Extract<FactoryApiResponse, { kind: "release.notification.page" }>["page"]["items"][number]): boolean {
+  if (resource.kind === "approval_requested") return validDigest(resource.contextDigest, false) && safeCounter(resource.expiresAtMs, 1);
+  return safeCounter(resource.dispatchGeneration, 1) && boundedText(resource.outcomeCode);
+}
+
 function validServiceCredentialToken(token: string): boolean {
   if (!token.startsWith("ezkfsvc_")) return false;
   const parts = token.slice(8).split(".");
@@ -858,6 +885,7 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
   if (response.kind === "release.contract.resource" && (!validDigest(response.resource.contractDigest, true) || !validDigest(response.resource.validatorLockDigest, true))) return issue("API_RELEASE_CONTRACT_DIGEST", "Release contract response contains an invalid digest.", ["resource"]);
   if (response.kind === "release.operation.resource" && !validReleaseOperation(response.resource)) return issue("API_RELEASE_OPERATION", "Release operation response contains invalid protected coordinates.", ["resource"]);
   if (response.kind === "release.approval.resource" && !validDigest(response.resource.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Release approval response contains an invalid context digest.", ["resource", "contextDigest"]);
+  if (response.kind === "release.notification.page" && response.page.items.some(item => !validReleaseNotification(item))) return issue("API_RELEASE_NOTIFICATION", "Release notification page contains invalid authority or outcome details.", ["page", "items"]);
   if (response.kind === "release.policy.resource" && !response.resource.revoked && !validDigest(response.resource.contractDigest, true)) return issue("API_RELEASE_POLICY", "Release policy response contains an invalid contract digest.", ["resource", "contractDigest"]);
   if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
   if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);

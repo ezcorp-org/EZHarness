@@ -1,6 +1,7 @@
 import type { FactoryReleaseApprovalDecisionBody, FactoryReleaseContractBody, FactoryReleasePolicyBody, FactoryReleasePrepareBody, FactoryReleaseReconciliationBody } from "@ezcorp/factory-sdk";
 import type { FactoryAssurance } from "./assurance";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
+import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryReleaseError, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases } from "./releases";
 
 export interface FactoryReleaseProviderResolver {
@@ -10,6 +11,7 @@ export interface FactoryReleaseProviderResolver {
 /** Public application seam over the durable stores. Provider selection always uses the persisted destination. */
 export class FactoryReleaseApplication {
   private readonly providers: FactoryReleaseProviderResolver;
+  readonly notifications: FactoryNotificationDelivery;
   constructor(
     readonly tenantId: string,
     private readonly grants: FactoryGrants,
@@ -19,6 +21,7 @@ export class FactoryReleaseApplication {
   ) {
     if (grants.tenantId !== tenantId || assurance.tenantId !== tenantId || releases.tenantId !== tenantId) throw new FactoryReleaseError("factory_release_scope");
     this.providers = Object.freeze({ resolve: providers.resolve.bind(providers) });
+    this.notifications = new FactoryNotificationDelivery(releases);
   }
 
   async putContract(actor: FactoryPrincipal, projectId: string, contractId: string, body: FactoryReleaseContractBody, expectedRevision: number, idempotencyKey: string) {
@@ -34,6 +37,10 @@ export class FactoryReleaseApplication {
   async inspect(actor: FactoryPrincipal, projectId: string, operationId: string) {
     await this.grants.authorize(actor, projectId, "factory.release");
     return this.releases.inspect(projectId, operationId);
+  }
+
+  listNotifications(actor: FactoryPrincipal, projectId: string, options?: Parameters<FactoryNotificationDelivery["listForHuman"]>[2]) {
+    return this.notifications.listForHuman(actor, projectId, options);
   }
 
   async requestApproval(actor: FactoryPrincipal, projectId: string, operationId: string, body: { readonly expiresAtMs: number }, expectedGeneration: number, idempotencyKey: string) {

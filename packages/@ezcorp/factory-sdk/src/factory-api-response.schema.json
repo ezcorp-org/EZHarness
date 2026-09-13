@@ -595,6 +595,27 @@
       ],
       "type": "object"
     },
+    "FactoryApiPage<FactoryReleaseNotificationResource>": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/FactoryReleaseNotificationResource"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "nextCursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
     "FactoryApiPage<FactoryRunSummary>": {
       "additionalProperties": false,
       "properties": {
@@ -1119,6 +1140,28 @@
             "schemaVersion",
             "kind",
             "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.notification.page",
+              "type": "string"
+            },
+            "page": {
+              "$ref": "#/definitions/FactoryApiPage%3CFactoryReleaseNotificationResource%3E"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "page"
           ],
           "type": "object"
         },
@@ -1940,6 +1983,105 @@
         "object"
       ],
       "type": "object"
+    },
+    "FactoryReleaseNotificationResource": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "approvalId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "contextDigest": {
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "createdAtMs": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "number"
+            },
+            "expiresAtMs": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "number"
+            },
+            "kind": {
+              "const": "approval_requested",
+              "type": "string"
+            },
+            "notificationId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "operationId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "approvalId",
+            "contextDigest",
+            "createdAtMs",
+            "expiresAtMs",
+            "kind",
+            "notificationId",
+            "operationId"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "createdAtMs": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "number"
+            },
+            "dispatchGeneration": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "number"
+            },
+            "kind": {
+              "enum": [
+                "release_uncertain",
+                "release_settled"
+              ],
+              "type": "string"
+            },
+            "notificationId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "operationId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "outcomeCode": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "createdAtMs",
+            "dispatchGeneration",
+            "kind",
+            "notificationId",
+            "operationId",
+            "outcomeCode"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FactoryReleaseOperationResource": {
       "additionalProperties": false,

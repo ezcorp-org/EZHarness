@@ -7,7 +7,7 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import { DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, type DurableDeliveryRecord, type DurableDeliveryStore } from "../delivery-queue/durable-delivery-queue";
 import { digestBytes, digestObject } from "../extensions/v4/blobs";
 import type { FactoryAcceptedRelease, FactoryAssurance } from "./assurance";
-import type { FactoryGrants, FactoryPrincipal } from "./grants";
+import { FactoryGrantError, type FactoryAction, type FactoryGrants, type FactoryPrincipal } from "./grants";
 import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 
@@ -176,6 +176,14 @@ export interface FactoryNotification extends DurableDeliveryRecord {
   readonly payload: unknown;
 }
 
+export type FactoryVisibleReleaseNotification =
+  | { readonly notificationId: string; readonly operationId: string; readonly createdAtMs: number; readonly kind: "approval_requested"; readonly approvalId: string; readonly contextDigest: string; readonly expiresAtMs: number }
+  | { readonly notificationId: string; readonly operationId: string; readonly createdAtMs: number; readonly kind: "release_uncertain"; readonly dispatchGeneration: number; readonly outcomeCode: string }
+  | { readonly notificationId: string; readonly operationId: string; readonly createdAtMs: number; readonly kind: "release_settled"; readonly dispatchGeneration: number; readonly outcomeCode: string };
+
+export interface FactoryNotificationListOptions { readonly cursor?: string; readonly limit?: number }
+export interface FactoryNotificationPage { readonly items: readonly FactoryVisibleReleaseNotification[]; readonly nextCursor: string | null }
+
 type OperationRow = {
   tenant_id: string; project_id: string; operation_id: string; run_id: string; node_instance_id: string; candidate_generation: number | string; candidate_digest: string;
   decision_id: string; contract_digest: string; execution_epoch: number | string; cancellation_epoch: number | string; release_enable_epoch: number | string;
@@ -186,6 +194,17 @@ type OperationRow = {
 };
 
 type NotificationRow = { payload: string; state: FactoryNotification["state"]; input_hash: string };
+type NotificationProjectionRow = NotificationRow & {
+  notification_id: string;
+  operation_state: FactoryReleaseState | null;
+  dispatch_generation: number | string | null;
+  outcome_code: string | null;
+  receipt_json: string | null;
+  approval_id: string | null;
+  context_digest: string | null;
+  approval_expires_at_ms: number | string | null;
+  approval_status: "pending" | "approved" | "rejected" | "consumed" | "revoked" | null;
+};
 
 export class FactoryReleaseError extends Error {
   constructor(readonly code: string, message = code) { super(message); this.name = "FactoryReleaseError"; }
@@ -283,8 +302,21 @@ function notificationScope(tenantId: string, projectId: string): string { return
 
 function decodeNotification(row: NotificationRow, tenantId: string, projectId: string): FactoryNotification {
   const notification = JSON.parse(row.payload) as FactoryNotification;
-  if (notification.tenantId !== tenantId || notification.projectId !== projectId || notification.inputHash !== row.input_hash || durableInputHash({ kind: notification.kind, operationId: notification.operationId, payload: notification.payload }) !== row.input_hash) throw new FactoryReleaseError("factory_notification_corrupt");
+  if (notification.tenantId !== tenantId || notification.projectId !== projectId || !["approval_requested", "release_uncertain", "release_settled"].includes(notification.kind) || notification.inputHash !== row.input_hash || durableInputHash({ kind: notification.kind, operationId: notification.operationId, payload: notification.payload }) !== row.input_hash) throw new FactoryReleaseError("factory_notification_corrupt");
+  try {
+    text(notification.id, notification.deduplicationId, notification.operationId);
+    count(notification.attempts); count(notification.maxAttempts, true); count(notification.availableAt); count(notification.leaseUntil); count(notification.createdAt);
+  } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
   return { ...notification, state: row.state };
+}
+
+function deniedGrant(error: unknown): boolean {
+  return error instanceof FactoryGrantError && (error.code === "factory_forbidden" || error.code === "factory_human_required");
+}
+
+function notificationPayload(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new FactoryReleaseError("factory_notification_corrupt");
+  return value as Record<string, unknown>;
 }
 
 function notificationStore(database: MigrationDb, tenantId: string, projectId: string): DurableDeliveryStore<FactoryNotification> {
@@ -487,6 +519,78 @@ export class FactoryReleases {
   async settleNotification(projectId: string, notification: FactoryNotification, outcome: "delivered" | "retry" | "outcome_unknown", code?: string): Promise<FactoryNotification> { text(projectId); return this.database.transaction(transaction => notificationQueue.settle(notificationStore(transaction, this.tenantId, projectId), notificationScope(this.tenantId, projectId), notification, this.now(), outcome, code)); }
   async inspectNotification(projectId: string, notificationId: string): Promise<FactoryNotification | null> { text(projectId, notificationId); return notificationQueue.inspect(notificationStore(this.database, this.tenantId, projectId), notificationScope(this.tenantId, projectId), notificationId); }
   async dispatchNotification(projectId: string, handler: (notification: FactoryNotification) => Promise<void>): Promise<FactoryNotification | null> { return dispatchDurableDelivery(() => this.claimNotification(projectId), (notification, outcome, code) => this.settleNotification(projectId, notification, outcome, code), handler, () => null); }
+
+  /** The transaction itself is the local inbox delivery boundary; no external acknowledgement is involved. */
+  async deliverNextNotification(projectId: string): Promise<FactoryNotification | null> {
+    text(projectId);
+    return this.database.transaction(async transaction => {
+      const store = notificationStore(transaction, this.tenantId, projectId);
+      const deliveredAt = this.now();
+      const claimed = await notificationQueue.claim(store, notificationScope(this.tenantId, projectId), deliveredAt, 60_000);
+      return claimed ? notificationQueue.settle(store, notificationScope(this.tenantId, projectId), claimed, deliveredAt, "delivered") : null;
+    });
+  }
+
+  /** Current category authorization and the bounded inbox projection share one product transaction. */
+  async listDeliveredNotifications(actor: FactoryPrincipal, projectId: string, options: FactoryNotificationListOptions = {}): Promise<FactoryNotificationPage> {
+    [actor, projectId, options] = canonical([actor, projectId, options]);
+    text(projectId); if (options.cursor !== undefined) text(options.cursor);
+    const limit = options.limit ?? 50;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new FactoryReleaseError("factory_page_invalid");
+    if (actor.kind !== "user" || actor.authentication !== "session") return { items: [], nextCursor: null };
+    return this.database.transaction(async transaction => {
+      const readAt = this.now();
+      const permitted = new Set<FactoryAction>();
+      for (const action of ["factory.approve", "factory.operate", "factory.release"] as const) {
+        try { await this.grants.authorizeInTransaction(transaction, actor, projectId, action); permitted.add(action); }
+        catch (error) { if (!deniedGrant(error)) throw error; }
+      }
+      if (!permitted.size) return { items: [], nextCursor: null };
+      const cursor = options.cursor ?? "";
+      const found = rows<NotificationProjectionRow>(await transaction.execute(sql`
+        SELECT n.notification_id,n.payload,n.state,n.input_hash,
+          o.state AS operation_state,o.dispatch_generation,o.outcome_code,o.receipt_json,
+          a.approval_id,a.context_digest,a.expires_at_ms AS approval_expires_at_ms,a.status AS approval_status
+        FROM factory_notifications n
+        LEFT JOIN factory_release_operations o
+          ON o.tenant_id=n.tenant_id AND o.project_id=n.project_id AND o.operation_id=n.payload::jsonb->>'operationId'
+        LEFT JOIN factory_release_approvals a
+          ON a.tenant_id=n.tenant_id AND a.project_id=n.project_id AND a.operation_id=o.operation_id
+          AND a.approval_id=n.payload::jsonb#>>'{payload,approvalId}'
+        WHERE n.tenant_id=${this.tenantId} AND n.project_id=${projectId} AND n.state='delivered' AND n.notification_id>${cursor}
+        ORDER BY n.notification_id LIMIT ${limit + 1}`));
+      const selected = found.slice(0, limit);
+      const items: FactoryVisibleReleaseNotification[] = [];
+      for (const row of selected) {
+        const notification = decodeNotification(row, this.tenantId, projectId);
+        if (notification.id !== row.notification_id || row.operation_state === null) throw new FactoryReleaseError("factory_notification_corrupt");
+        const payload = notificationPayload(notification.payload);
+        if (notification.kind === "approval_requested") {
+          if (!permitted.has("factory.approve") || row.operation_state !== "pending" || row.approval_status !== "pending" || Number(row.approval_expires_at_ms) <= readAt) continue;
+          if (typeof payload.approvalId !== "string" || payload.approvalId !== row.approval_id || payload.expiresAtMs !== Number(row.approval_expires_at_ms) || !row.context_digest || !/^[a-f0-9]{64}$/.test(row.context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
+          items.push({ notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: notification.kind, approvalId: row.approval_id, contextDigest: row.context_digest, expiresAtMs: Number(row.approval_expires_at_ms) });
+          continue;
+        }
+        const generation = Number(row.dispatch_generation);
+        if (!Number.isSafeInteger(generation) || generation < 1 || payload.dispatchGeneration !== generation || typeof row.outcome_code !== "string") {
+          if (notification.kind === "release_uncertain" && row.operation_state !== "uncertain" || notification.kind === "release_settled" && row.operation_state !== "succeeded") continue;
+          throw new FactoryReleaseError("factory_notification_corrupt");
+        }
+        if (notification.kind === "release_uncertain") {
+          if (!permitted.has("factory.operate") || row.operation_state !== "uncertain") continue;
+          if (payload.code !== row.outcome_code) throw new FactoryReleaseError("factory_notification_corrupt");
+          items.push({ notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: notification.kind, dispatchGeneration: generation, outcomeCode: row.outcome_code });
+          continue;
+        }
+        if (!permitted.has("factory.release") || row.operation_state !== "succeeded") continue;
+        let receipt: { providerReceiptId?: unknown };
+        try { receipt = JSON.parse(row.receipt_json ?? "null") as { providerReceiptId?: unknown }; } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
+        if (!receipt || typeof receipt.providerReceiptId !== "string" || payload.providerReceiptId !== receipt.providerReceiptId) throw new FactoryReleaseError("factory_notification_corrupt");
+        items.push({ notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: notification.kind, dispatchGeneration: generation, outcomeCode: row.outcome_code });
+      }
+      return { items, nextCursor: found.length > limit ? selected[selected.length - 1]!.notification_id : null };
+    });
+  }
 
   async inspect(projectId: string, operationId: string): Promise<FactoryReleaseOperation | null> { text(projectId, operationId); return this.readInTransaction(this.database, projectId, operationId, "none"); }
 
