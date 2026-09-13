@@ -1,4 +1,4 @@
-import type { FactoryCheckpointReference, FactoryModelPin, FactoryRunnerRequest, FactoryRunnerRequestIdentity, FactoryToolDeclaration, JsonValue } from "@ezcorp/factory-sdk";
+import type { FactoryCheckpointReference, FactoryModelPin, FactoryRunnerRequest, FactoryRunnerRequestIdentity, FactoryToolDeclaration, JsonValue, ResourceBounds } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerRequest } from "@ezcorp/factory-sdk/validation";
 import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import type { MigrationDb } from "../db/migrations/types";
@@ -13,6 +13,7 @@ import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } fr
 
 export interface FactoryTaskRunnerResolution {
   readonly grants: readonly string[];
+  readonly resources: ResourceBounds;
   readonly model?: FactoryModelPin;
   readonly tools: readonly FactoryToolDeclaration[];
   readonly brokerAudience: string;
@@ -97,7 +98,7 @@ function durableRequest(context: FactoryAuthorizedCommand, compute: FactoryCompu
     runner: context.node.runner,
     input: { kind: "inline", value: context.command.input as JsonValue },
     grants: [...resolution.grants],
-    resources: context.node.resources ?? {},
+    resources: resolution.resources,
     ...(resolution.model === undefined ? {} : { model: resolution.model }),
     tools: [...resolution.tools],
     broker: { audience: resolution.brokerAudience, attemptToken: "durable-admission-validation" },
