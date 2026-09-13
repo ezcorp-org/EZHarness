@@ -14,17 +14,22 @@ class Wraps implements InstallationKeyWrapStore {
 
 function provider(id: string): StaticMasterKeyProvider { return new StaticMasterKeyProvider({ id, bytes: new Uint8Array(32).fill(id.charCodeAt(0)) }); }
 
-it("uses the real Node Temporal PayloadCodec contract for round-trip, rotation, and tamper rejection", async () => {
+it("uses the real Node Temporal PayloadCodec context for factory workflow and partition identities", async () => {
   const wraps = new Wraps();
   const key = await InstallationDataKey.loadOrCreate("install", wraps, provider("old"));
-  const codec: PayloadCodec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(key, "history"), "tenant", "workflow");
-  const payload: Payload = defaultPayloadConverter.toPayload({ approved: true, nested: [1, 2] });
-  const encoded = await codec.encode([payload]);
+  const codec: PayloadCodec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(key, "history"), "tenant");
+  const context = { type: "workflow" as const, namespace: "factory-tenant", workflowId: `tenant/logical-run-${"x".repeat(300)}` };
+  const payload: Payload = defaultPayloadConverter.toPayload({ approved: true, nested: [1, 2] }, context);
+  const encoded = await codec.encode([payload], context);
   assert.notDeepEqual(encoded[0]!.data, payload.data);
-  const decoded = (await codec.decode(encoded))[0]!;
+  const decoded = (await codec.decode(encoded, context))[0]!;
   assert.deepEqual(decoded.metadata, payload.metadata);
-  assert.deepEqual(defaultPayloadConverter.fromPayload(decoded), { approved: true, nested: [1, 2] });
-  await assert.rejects(() => codec.decode([{ ...encoded[0]!, data: createHash("sha256").update(encoded[0]!.data!).digest() }]), { code: "factory_decryption_failed" });
+  assert.deepEqual(defaultPayloadConverter.fromPayload(decoded, context), { approved: true, nested: [1, 2] });
+  const partition = { ...context, workflowId: `${context.workflowId}/partitions/interpreter-7` };
+  assert.deepEqual(defaultPayloadConverter.fromPayload((await codec.decode(await codec.encode([payload], partition), partition))[0]!, partition), { approved: true, nested: [1, 2] });
+  await assert.rejects(() => codec.decode(encoded, partition), { code: "factory_decryption_failed" });
+  await assert.rejects(() => codec.decode([{ ...encoded[0]!, data: createHash("sha256").update(encoded[0]!.data!).digest() }], context), { code: "factory_decryption_failed" });
   const rotated = await key.rotate(wraps, provider("new"));
-  assert.ok(new EncryptedRecordCodec(rotated, "history").decode({ tenantId: "tenant", objectId: "workflow:0" }, encoded[0]!.data!).byteLength > 0);
+  const rewrapped: PayloadCodec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(rotated, "history"), "tenant");
+  assert.deepEqual(defaultPayloadConverter.fromPayload((await rewrapped.decode(encoded, context))[0]!, context), { approved: true, nested: [1, 2] });
 });

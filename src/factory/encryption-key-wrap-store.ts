@@ -15,7 +15,7 @@ export class DatabaseInstallationKeyWrapStore implements InstallationKeyWrapStor
   }
 
   async save(value: InstallationKeyWrap): Promise<void> {
-    if (!value.installationId || !value.masterKeyId || value.wrappedDataKey.byteLength < 82 || !Number.isSafeInteger(value.wrapVersion) || value.wrapVersion < 1) throw new FactoryEncryptionError("factory_key_invalid");
+    if (!value.installationId || !value.masterKeyId || value.wrappedDataKey.byteLength < 80 || !Number.isSafeInteger(value.wrapVersion) || value.wrapVersion < 1) throw new FactoryEncryptionError("factory_key_invalid");
     await this.database.execute(sql`INSERT INTO factory_installation_key_wraps(installation_id, wrap_version, master_key_id, wrapped_data_key) VALUES (${value.installationId}, ${value.wrapVersion}, ${value.masterKeyId}, ${Buffer.from(value.wrappedDataKey)}) ON CONFLICT (installation_id, wrap_version) DO NOTHING`);
   }
 }

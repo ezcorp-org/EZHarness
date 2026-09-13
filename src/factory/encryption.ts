@@ -1,19 +1,29 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { BlobStore } from "../extensions/v4/types";
+import { privateDirectory, readPrivate } from "./private-files.ts";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
 const TAG_BYTES = 16;
 const DATA_KEY_BYTES = 32;
 const FORMAT = "factory.encrypted.v1";
+const TEMPORAL_ENVELOPE_VERSION = 1;
+const TEMPORAL_CRYPTO_OVERHEAD = Buffer.byteLength(FORMAT) + IV_BYTES + TAG_BYTES;
+export const FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT = 64 * 1024;
 
 export type EncryptedPayloadKind = "history" | "archive" | "snapshot" | "backup" | "blob";
 /** Structural copy of Temporal's PayloadCodec so this Bun-owned module never imports the Node SDK. */
 export interface TemporalPayload { readonly metadata?: Record<string, Uint8Array> | null; readonly data?: Uint8Array | null; }
-export interface TemporalPayloadCodec { encode(payloads: TemporalPayload[]): Promise<TemporalPayload[]>; decode(payloads: TemporalPayload[]): Promise<TemporalPayload[]>; }
+export interface TemporalSerializationContext {
+  readonly type: "workflow" | "activity";
+  readonly namespace: string;
+  readonly workflowId?: string;
+  readonly activityId?: string;
+  readonly isLocal?: boolean;
+}
+export interface TemporalPayloadCodec { encode(payloads: TemporalPayload[], context?: TemporalSerializationContext): Promise<TemporalPayload[]>; decode(payloads: TemporalPayload[], context?: TemporalSerializationContext): Promise<TemporalPayload[]>; }
 
 export interface EncryptionBinding {
   readonly installationId: string;
@@ -46,7 +56,7 @@ export interface InstallationKeyWrapStore {
 }
 
 export class FactoryEncryptionError extends Error {
-  readonly code: "factory_key_missing" | "factory_key_unsafe" | "factory_key_invalid" | "factory_decryption_failed" | "factory_encryption_binding_invalid";
+  readonly code: "factory_key_missing" | "factory_key_unsafe" | "factory_key_invalid" | "factory_key_conflict" | "factory_payload_too_large" | "factory_decryption_failed" | "factory_encryption_binding_invalid";
   constructor(code: FactoryEncryptionError["code"]) {
     super(code);
     this.code = code;
@@ -105,24 +115,19 @@ export class StaticMasterKeyProvider implements MasterKeyProvider {
 /** Strict self-hosted master-key reader. The path must be a non-symlink private file with exactly 32 raw bytes. */
 export async function readOperatorMasterKey(path: string, id: string, grantableRoots: readonly string[]): Promise<MasterKey> {
   requireId(id);
-  let canonical: string;
   try {
-    if ((await lstat(path)).isSymbolicLink()) throw new FactoryEncryptionError("factory_key_unsafe");
-    canonical = await realpath(path);
+    const requested = resolve(path);
+    const roots = await Promise.all(grantableRoots.map(async root => realpath(resolve(root)).catch(() => resolve(root))));
+    if (roots.some(root => requested === root || requested.startsWith(root.endsWith(sep) ? root : `${root}${sep}`))) throw new FactoryEncryptionError("factory_key_unsafe");
+    const directory = await privateDirectory(resolve(requested, ".."));
+    try {
+      return { id, bytes: await readPrivate(directory, requested.slice(requested.lastIndexOf(sep) + 1), DATA_KEY_BYTES) };
+    } finally { await directory.close(); }
   } catch (error) {
     if (error instanceof FactoryEncryptionError) throw error;
-    throw new FactoryEncryptionError("factory_key_missing");
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new FactoryEncryptionError("factory_key_missing");
+    throw new FactoryEncryptionError("factory_key_unsafe");
   }
-  try {
-    const roots = await Promise.all(grantableRoots.map(root => realpath(resolve(root))));
-    if (roots.some(root => canonical === root || canonical.startsWith(root.endsWith(sep) ? root : `${root}${sep}`))) throw new FactoryEncryptionError("factory_key_unsafe");
-    const handle = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try {
-      const [stat, bytes] = await Promise.all([handle.stat(), handle.readFile()]);
-      if (!stat.isFile() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 || bytes.byteLength !== DATA_KEY_BYTES) throw new FactoryEncryptionError("factory_key_unsafe");
-      return { id, bytes };
-    } finally { await handle.close(); }
-  } catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_key_unsafe"); }
 }
 
 export class InstallationDataKey {
@@ -156,9 +161,15 @@ export class InstallationDataKey {
   }
   async rotate(wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
     const master = await masters.current(); key(master.bytes);
-    const wrapVersion = this.wrapVersion + 1;
-    await wraps.save({ installationId: this.installationId, wrapVersion, masterKeyId: master.id, wrappedDataKey: encryptBytes(this.value, master.bytes, wrapBinding(this.installationId, wrapVersion, master.id)) });
-    return new InstallationDataKey(this.installationId, this.value, wrapVersion);
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const rows = await wraps.load(this.installationId);
+      const wrapVersion = Math.max(this.wrapVersion, ...rows.map(row => row.wrapVersion)) + 1;
+      const candidate = { installationId: this.installationId, wrapVersion, masterKeyId: master.id, wrappedDataKey: encryptBytes(this.value, master.bytes, wrapBinding(this.installationId, wrapVersion, master.id)) };
+      await wraps.save(candidate);
+      const persisted = (await wraps.load(this.installationId)).find(row => row.wrapVersion === wrapVersion);
+      if (persisted && persisted.masterKeyId === candidate.masterKeyId && Buffer.from(persisted.wrappedDataKey).equals(Buffer.from(candidate.wrappedDataKey))) return new InstallationDataKey(this.installationId, this.value, wrapVersion);
+    }
+    throw new FactoryEncryptionError("factory_key_conflict");
   }
   encrypt(bytes: Uint8Array, binding: Omit<EncryptionBinding, "installationId" | "version">): Uint8Array { return encryptBytes(bytes, this.value, { ...binding, installationId: this.installationId, version: this.dataKeyVersion }); }
   decrypt(bytes: Uint8Array, binding: Omit<EncryptionBinding, "installationId" | "version">): Uint8Array { return decryptBytes(bytes, this.value, { ...binding, installationId: this.installationId, version: this.dataKeyVersion }); }
@@ -198,15 +209,70 @@ export class EncryptedRecordCodec {
   decode(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, bytes: Uint8Array): Uint8Array { return this.dataKey.decrypt(bytes, { ...binding, payloadKind: this.kind }); }
 }
 
-/** Node-compatible Temporal codec. It binds every payload to one workflow object identity. */
+function temporalObjectId(context: TemporalSerializationContext | undefined): string {
+  if (!context || (context.type !== "workflow" && context.type !== "activity") || typeof context.namespace !== "string" || context.namespace.length === 0) throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+  if (context.type === "workflow" && (typeof context.workflowId !== "string" || context.workflowId.length === 0)) throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+  if (context.type === "activity" && context.workflowId !== undefined && typeof context.workflowId !== "string") throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+  if (context.type === "activity" && context.activityId !== undefined && typeof context.activityId !== "string") throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+  if (context.type === "activity" && typeof context.isLocal !== "boolean") throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+  if (context.type === "activity" && !context.workflowId && !context.activityId) throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+  const identity = context.type === "workflow"
+    ? ["workflow", context.namespace, context.workflowId]
+    : ["activity", context.namespace, context.workflowId ?? null, context.activityId ?? null, context.isLocal];
+  return `temporal:${createHash("sha256").update(JSON.stringify(identity)).digest("base64url")}`;
+}
+
+function temporalEnvelope(payload: TemporalPayload): Buffer {
+  const metadata = Object.entries(payload.metadata ?? {});
+  if (metadata.length > 0xffff) throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+  const data = Buffer.from(payload.data ?? []);
+  const chunks = [Buffer.allocUnsafe(7)];
+  chunks[0]!.writeUInt8(TEMPORAL_ENVELOPE_VERSION, 0);
+  chunks[0]!.writeUInt16BE(metadata.length, 1);
+  chunks[0]!.writeUInt32BE(data.byteLength, 3);
+  for (const [name, value] of metadata) {
+    const key = Buffer.from(name), bytes = Buffer.from(value);
+    if (key.byteLength > 0xffff) throw new FactoryEncryptionError("factory_encryption_binding_invalid");
+    const header = Buffer.allocUnsafe(6); header.writeUInt16BE(key.byteLength, 0); header.writeUInt32BE(bytes.byteLength, 2);
+    chunks.push(header, key, bytes);
+  }
+  chunks.push(data);
+  return Buffer.concat(chunks);
+}
+
+function temporalPayload(envelope: Uint8Array): TemporalPayload {
+  const bytes = Buffer.from(envelope);
+  if (bytes.byteLength < 7 || bytes.readUInt8(0) !== TEMPORAL_ENVELOPE_VERSION) throw new FactoryEncryptionError("factory_decryption_failed");
+  const count = bytes.readUInt16BE(1), dataLength = bytes.readUInt32BE(3); let offset = 7;
+  const metadata: Record<string, Uint8Array> = {};
+  for (let index = 0; index < count; index += 1) {
+    if (offset + 6 > bytes.byteLength) throw new FactoryEncryptionError("factory_decryption_failed");
+    const keyLength = bytes.readUInt16BE(offset), valueLength = bytes.readUInt32BE(offset + 2); offset += 6;
+    if (offset + keyLength + valueLength > bytes.byteLength) throw new FactoryEncryptionError("factory_decryption_failed");
+    const key = bytes.subarray(offset, offset + keyLength).toString(); offset += keyLength;
+    if (!key || Object.hasOwn(metadata, key)) throw new FactoryEncryptionError("factory_decryption_failed");
+    metadata[key] = Uint8Array.from(bytes.subarray(offset, offset + valueLength)); offset += valueLength;
+  }
+  if (offset + dataLength !== bytes.byteLength) throw new FactoryEncryptionError("factory_decryption_failed");
+  return { metadata, data: Uint8Array.from(bytes.subarray(offset)) };
+}
+
+/** Exact post-codec byte count, including the fixed authenticated-encryption envelope. */
+export function factoryTemporalPayloadWireBytes(payload: TemporalPayload): number { return temporalEnvelope(payload).byteLength + TEMPORAL_CRYPTO_OVERHEAD; }
+
+/** Exact raw-data allowance for these metadata values under the C08 64 KiB wire bound. */
+export function factoryTemporalPayloadDataBytesLimit(metadata: TemporalPayload["metadata"]): number {
+  return Math.max(0, FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT - factoryTemporalPayloadWireBytes({ metadata, data: new Uint8Array() }));
+}
+
+/** Node-compatible Temporal codec. It binds each payload to the SDK-provided serialization context. */
 export class FactoryTemporalPayloadCodec implements TemporalPayloadCodec {
   private readonly records: EncryptedRecordCodec;
   private readonly tenantId: string;
-  private readonly workflowId: string;
-  constructor(records: EncryptedRecordCodec, tenantId: string, workflowId: string) { this.records = records; this.tenantId = tenantId; this.workflowId = workflowId; }
-  async encode(payloads: TemporalPayload[]): Promise<TemporalPayload[]> { return payloads.map((payload, index) => ({ metadata: { encoding: Buffer.from("binary/factory-encrypted") }, data: this.records.encode({ tenantId: this.tenantId, objectId: `${this.workflowId}:${index}` }, Buffer.from(JSON.stringify({ metadata: Object.fromEntries(Object.entries(payload.metadata ?? {}).map(([name, value]) => [name, Buffer.from(value).toString("base64")])), data: Buffer.from(payload.data ?? []).toString("base64") }))) })); }
-  async decode(payloads: TemporalPayload[]): Promise<TemporalPayload[]> { return payloads.map((payload, index) => {
+  constructor(records: EncryptedRecordCodec, tenantId: string) { this.records = records; this.tenantId = tenantId; }
+  async encode(payloads: TemporalPayload[], context?: TemporalSerializationContext): Promise<TemporalPayload[]> { const objectId = temporalObjectId(context); return payloads.map((payload, index) => { if (factoryTemporalPayloadWireBytes(payload) > FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT) throw new FactoryEncryptionError("factory_payload_too_large"); return { metadata: { encoding: Buffer.from("binary/factory-encrypted") }, data: this.records.encode({ tenantId: this.tenantId, objectId: `${objectId}:${index}` }, temporalEnvelope(payload)) }; }); }
+  async decode(payloads: TemporalPayload[], context?: TemporalSerializationContext): Promise<TemporalPayload[]> { const objectId = temporalObjectId(context); return payloads.map((payload, index) => {
     if (Buffer.from(payload.metadata?.encoding ?? []).toString() !== "binary/factory-encrypted") throw new FactoryEncryptionError("factory_decryption_failed");
-    try { const value = JSON.parse(Buffer.from(this.records.decode({ tenantId: this.tenantId, objectId: `${this.workflowId}:${index}` }, payload.data ?? new Uint8Array())).toString()) as { metadata: Record<string, string>; data: string }; return { metadata: Object.fromEntries(Object.entries(value.metadata).map(([name, encoded]) => [name, Uint8Array.from(Buffer.from(encoded, "base64"))])), data: Uint8Array.from(Buffer.from(value.data, "base64")) }; } catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_decryption_failed"); }
+    try { return temporalPayload(this.records.decode({ tenantId: this.tenantId, objectId: `${objectId}:${index}` }, payload.data ?? new Uint8Array())); } catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_decryption_failed"); }
   }); }
 }

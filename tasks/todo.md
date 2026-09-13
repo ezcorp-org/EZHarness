@@ -8,6 +8,14 @@
 - [ ] Prove direct pre-accept and post-approval tampering, plus audit write faults, fail closed on PGlite and PostgreSQL.
 - [ ] Run static checks, coverage, and real PostgreSQL proof; record the review.
 
+## Factory C06 encryption leaf — Terra
+
+- [x] Read keys through descriptor-anchored private paths with bounded reads.
+- [x] Make concurrent different-master rotations report persisted versions only.
+- [x] Bind Temporal payloads from SDK serialization context with a bounded digest.
+- [x] Prove local PostgreSQL/S3 behavior and static checks; record receipts.
+
+Review: descriptor tests reject an actual FIFO and a symlinked parent. The real PostgreSQL race persists distinct-master versions before either caller reports success, then restarts with `second-master`. Real local S3 preserves the versioned ciphertext object through rotation. Focused Bun source coverage has 100% lines for `encryption.ts` and `private-files.ts`; the real PostgreSQL producer has 100% lines for `encryption-key-wrap-store.ts`. Four typecheck legs, lint, and the Node 24 Temporal codec contract pass. Production worker wiring remains with the verification leaf.
 
 - [x] Fetch PR and latest main; preserve original worktrees.
 - [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
@@ -1139,3 +1147,22 @@ Review: `/tmp/factory-platform-evidence/run-api-results.json` has six successful
 Plan review: reuse the existing member upsert and grant mutation path. Register factory initialization at application composition. New projects receive author, publish, run and operate only; human consent and trust remain explicit.
 
 Review: `/tmp/factory-platform-evidence/project-creation-results.json` records all four producers at exit0. The focused PGlite/application/regression cases and real PostgreSQL cases pass, including the historical audit upgrade. All four type-check legs and lint pass. Every changed executable line is measured; complete owned files include grants166/166, application79/79, member queries65/65 and the new migration4/4. Existing project queries and audit redaction cases also pass. This closes the project-creation transaction leaf, not factory-enabled production startup or the full platform gates.
+### Follow-up: collision-free partition slots
+
+- [ ] Reproduce PostgreSQL signed-index overflow and a deterministic partition-ID hash collision.
+- [ ] Replace the hash-derived SQL page index with a collision-free scoped partition identity, model the additive schema, and cover migration.
+- [ ] Prove concurrent PostgreSQL staging, foreign scope denial, typecheck, lint, and coverage.
+
+### CI storage producer leaf
+
+- [ ] Provision the ordinary Compose-backed store with generated job-local credentials in `db-postgres.yml`.
+- [ ] Run required factory artifact/lifecycle PostgreSQL producer under its explicit S3 and Postgres references.
+- [ ] Prove workflow syntax and local Compose startup/test command shape.
+
+### CI storage producer leaf review
+
+- [x] Provision the ordinary Compose-backed store with generated job-local credentials in `db-postgres.yml`.
+- [x] Run required factory artifact/lifecycle PostgreSQL producer under its explicit S3 and Postgres references.
+- [x] Prove workflow syntax and local Compose startup/test command shape.
+
+Review: `71700a687` reuses the strict local storage provisioner in the required external PostgreSQL job. It runs explicit artifact and lifecycle test files under coverage and always removes the Compose profile. `actionlint` passes. The lifecycle filename is supplied by root commit `e577b7778`; this CI commit must follow that integration.

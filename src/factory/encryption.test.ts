@@ -1,11 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmod, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
-import { EncryptedBlobStore, EncryptedRecordCodec, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption";
-import { DatabaseInstallationKeyWrapStore } from "./encryption-key-wrap-store";
-import { up as addFactoryInstallationKeyWraps } from "../db/migrations/add-factory-installation-key-wraps";
+import { EncryptedBlobStore, EncryptedRecordCodec, FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, factoryTemporalPayloadDataBytesLimit, factoryTemporalPayloadWireBytes, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption";
 
 const digest = (value: Uint8Array) => createHash("sha256").update(value).digest("hex");
 class Wraps implements InstallationKeyWrapStore {
@@ -42,7 +39,7 @@ describe("factory C06 encryption", () => {
     const wraps = new Wraps(); const first = await InstallationDataKey.loadOrCreate("install", wraps, new StaticMasterKeyProvider(master("a")));
     const codec = new EncryptedRecordCodec(first, "archive"); const encrypted = codec.encode({ tenantId: "tenant", objectId: "object" }, Buffer.from("archive"));
     const rotated = await first.rotate(wraps, new StaticMasterKeyProvider(master("b"), [master("a"), master("b")]));
-    expect(encrypted).toEqual(encrypted);
+    expect(encrypted).not.toEqual(Buffer.from("archive"));
     expect(rotated.wrapVersion).toBe(2);
     const recovered = await InstallationDataKey.loadOrCreate("install", wraps, new StaticMasterKeyProvider(master("b"), [master("b")]));
     expect(new EncryptedRecordCodec(recovered, "archive").decode({ tenantId: "tenant", objectId: "object" }, encrypted)).toEqual(Buffer.from("archive"));
@@ -72,39 +69,40 @@ describe("factory C06 encryption", () => {
     expect(await fallback.getVersion({ tenantId: "tenant", objectId: "object" }, fallbackBound, "ignored")).toEqual(Buffer.from("fallback"));
   });
 
-  test("persists only encrypted wraps through the PostgreSQL repository seam", async () => {
-    const calls: unknown[] = [];
-    const database = { async execute(query: unknown) { calls.push(query); return { rows: [{ installation_id: "install", wrap_version: "2", master_key_id: "master", wrapped_data_key: new Uint8Array(82) }] }; }, transaction: async <T>(work: (value: never) => Promise<T>) => work(undefined as never) };
-    const store = new DatabaseInstallationKeyWrapStore(database);
-    expect(await store.load("install")).toMatchObject([{ installationId: "install", wrapVersion: 2, masterKeyId: "master" }]);
-    await store.save({ installationId: "install", wrapVersion: 1, masterKeyId: "master", wrappedDataKey: new Uint8Array(82) });
-    expect(calls).toHaveLength(2);
-    await expect(store.save({ installationId: "install", wrapVersion: 0, masterKeyId: "master", wrappedDataKey: new Uint8Array(82) })).rejects.toMatchObject({ code: "factory_key_invalid" });
-    const arrayStore = new DatabaseInstallationKeyWrapStore({ ...database, async execute() { return [{ installation_id: "install", wrap_version: 1, master_key_id: "master", wrapped_data_key: new Uint8Array(82) }]; } });
-    expect(await arrayStore.load("install")).toHaveLength(1);
-  });
-
-  test("creates the encrypted-wrap PostgreSQL ledger without master material", async () => {
-    let calls = 0;
-    await addFactoryInstallationKeyWraps({ async execute() { calls += 1; } });
-    expect(calls).toBe(1);
-  });
-
-  test("is structurally compatible with Node Temporal payload codecs and authenticates payload positions", async () => {
+  test("requires an SDK serialization context and binds long factory workflow identities", async () => {
     const data = await InstallationDataKey.loadOrCreate("install", new Wraps(), new StaticMasterKeyProvider(master("a")));
-    const codec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(data, "history"), "tenant", "workflow");
-    const encoded = await codec.encode([{ metadata: { encoding: Buffer.from("json/plain") }, data: Buffer.from("payload") }]);
+    const codec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(data, "history"), "tenant");
+    const context = { type: "workflow" as const, namespace: "factory-tenant", workflowId: `tenant/${"logical-run-".repeat(32)}` };
+    const payload = { metadata: { encoding: Buffer.from("json/plain") }, data: Buffer.from(JSON.stringify({ command: "start_run", workflowId: context.workflowId, body: { source: "client" } })) };
+    const encoded = await codec.encode([payload], context);
     expect(encoded[0]!.metadata?.encoding).toEqual(Buffer.from("binary/factory-encrypted"));
-    expect((await codec.decode(encoded))[0]!.data).toEqual(Buffer.from("payload"));
-    await expect(codec.decode([{ ...encoded[0]!, data: randomBytes(encoded[0]!.data!.byteLength) }])).rejects.toMatchObject({ code: "factory_decryption_failed" });
+    expect(JSON.parse(Buffer.from((await codec.decode(encoded, context))[0]!.data!).toString())).toEqual({ command: "start_run", workflowId: context.workflowId, body: { source: "client" } });
+    await expect(codec.decode(encoded, { ...context, workflowId: "tenant/other-run" })).rejects.toMatchObject({ code: "factory_decryption_failed" });
+    const activity = { type: "activity" as const, namespace: context.namespace, workflowId: context.workflowId, activityId: "partition-notification", isLocal: false };
+    expect(JSON.parse(Buffer.from((await codec.decode(await codec.encode([payload], activity), activity))[0]!.data!).toString())).toEqual({ command: "start_run", workflowId: context.workflowId, body: { source: "client" } });
+    await expect(codec.encode([payload])).rejects.toMatchObject({ code: "factory_encryption_binding_invalid" });
+    await expect(codec.decode([{ ...encoded[0]!, data: randomBytes(encoded[0]!.data!.byteLength) }], context)).rejects.toMatchObject({ code: "factory_decryption_failed" });
   });
 
-  test("reads only a private raw operator key file", async () => {
-    const root = await mkdtemp(join(tmpdir(), "factory-master-")); const path = join(root, "master");
+  test("uses the exact compact-envelope C08 payload allowance", async () => {
+    const data = await InstallationDataKey.loadOrCreate("install", new Wraps(), new StaticMasterKeyProvider(master("a")));
+    const codec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(data, "history"), "tenant");
+    const metadata = { encoding: Buffer.from("json/plain") }, context = { type: "workflow" as const, namespace: "factory-tenant", workflowId: "tenant/logical-run" };
+    const bytes = factoryTemporalPayloadDataBytesLimit(metadata), maximum = { metadata, data: new Uint8Array(bytes) };
+    expect(factoryTemporalPayloadWireBytes(maximum)).toBe(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+    expect((await codec.encode([maximum], context))[0]!.data).toHaveLength(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+    await expect(codec.encode([{ metadata, data: new Uint8Array(bytes + 1) }], context)).rejects.toMatchObject({ code: "factory_payload_too_large" });
+  });
+
+  test("reads only an owned private raw operator key file through its directory descriptor", async () => {
+    const root = await mkdtemp(join(`/run/user/${process.getuid?.()}`, "factory-master-")); await chmod(root, 0o700); const path = join(root, "master");
     await writeFile(path, randomBytes(32), { mode: 0o600 }); expect((await readOperatorMasterKey(path, "operator-1", [])).bytes).toHaveLength(32);
     await chmod(path, 0o644); await expect(readOperatorMasterKey(path, "operator-1", [])).rejects.toMatchObject({ code: "factory_key_unsafe" });
     await chmod(path, 0o600); await expect(readOperatorMasterKey(path, "operator-1", [root])).rejects.toMatchObject({ code: "factory_key_unsafe" });
     const linked = join(root, "linked"); await symlink(path, linked); await expect(readOperatorMasterKey(linked, "operator-1", [])).rejects.toMatchObject({ code: "factory_key_unsafe" });
+    const privateDirectory = join(root, "private"); await mkdir(privateDirectory, { mode: 0o700 }); await chmod(privateDirectory, 0o700); await writeFile(join(privateDirectory, "master"), randomBytes(32), { mode: 0o600 });
+    const parentLink = join(root, "linked-parent"); await symlink(privateDirectory, parentLink); await expect(readOperatorMasterKey(join(parentLink, "master"), "operator-1", [])).rejects.toMatchObject({ code: "factory_key_unsafe" });
+    const fifo = join(root, "fifo"); const fifoProcess = Bun.spawn(["mkfifo", fifo]); expect(await fifoProcess.exited).toBe(0); await expect(readOperatorMasterKey(fifo, "operator-1", [])).rejects.toMatchObject({ code: "factory_key_unsafe" });
     await expect(readOperatorMasterKey(join(root, "missing"), "operator-1", [])).rejects.toMatchObject({ code: "factory_key_missing" });
   });
 });
