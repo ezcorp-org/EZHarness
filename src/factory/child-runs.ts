@@ -15,7 +15,7 @@ export interface FactoryChildRunRequest extends TrustedFactoryCommandReference {
   readonly factory: FactoryReference;
 }
 
-interface ChildBindingRow {
+export interface FactoryChildBindingRow {
   parent_run_id: string;
   parent_interpreter_id: string;
   parent_command_id: string;
@@ -28,6 +28,7 @@ interface ChildBindingRow {
   child_factory_version: string;
   child_definition_digest: string;
   definition_json: string;
+  started_ms: number | string;
   parent_execution_epoch: number | string;
   parent_cancellation_epoch: number | string;
   parent_grant_revision: number | string;
@@ -53,7 +54,7 @@ function envelopeId(parentRunId: string, interpreterId: string, commandId: strin
   return `child-envelope:${digestObject({ parentRunId, interpreterId, commandId }).slice("sha256:".length)}`;
 }
 
-function bindingFact(row: Omit<ChildBindingRow, "binding_digest" | "state">): object {
+function bindingFact(row: Omit<FactoryChildBindingRow, "binding_digest" | "state">): object {
   return {
     parentRunId: row.parent_run_id,
     parentInterpreterId: row.parent_interpreter_id,
@@ -67,11 +68,24 @@ function bindingFact(row: Omit<ChildBindingRow, "binding_digest" | "state">): ob
     childFactoryVersion: row.child_factory_version,
     childDefinitionDigest: row.child_definition_digest,
     definition: JSON.parse(row.definition_json),
+    startedAtMs: Number(row.started_ms),
     parentExecutionEpoch: Number(row.parent_execution_epoch),
     parentCancellationEpoch: Number(row.parent_cancellation_epoch),
     parentGrantRevision: Number(row.parent_grant_revision),
     deadlineAtMs: Number(row.deadline_ms),
   };
+}
+
+/** Verifies every sealed child binding fact before any consumer trusts its inherited clock or definition. */
+export function verifyFactoryChildBinding(row: FactoryChildBindingRow): { readonly definition: FactoryDefinitionSource; readonly startedAtMs: number } {
+  try {
+    assertFactoryIdentity(row.parent_run_id, row.parent_interpreter_id, row.parent_command_id, row.child_run_id, row.parent_envelope_id, row.child_envelope_id, row.child_factory_id, row.child_factory_version);
+    const startedAtMs = Number(row.started_ms);
+    if (!Number.isSafeInteger(Number(row.parent_source_sequence)) || Number(row.parent_source_sequence) < 1 || !/^sha256:[a-f0-9]{64}$/.test(row.parent_command_digest) || !/^sha256:[a-f0-9]{64}$/.test(row.child_definition_digest) || !Number.isSafeInteger(startedAtMs) || startedAtMs < 0 || !Number.isSafeInteger(Number(row.parent_execution_epoch)) || Number(row.parent_execution_epoch) < 1 || !Number.isSafeInteger(Number(row.parent_cancellation_epoch)) || Number(row.parent_cancellation_epoch) < 0 || !Number.isSafeInteger(Number(row.parent_grant_revision)) || Number(row.parent_grant_revision) < 1 || !Number.isSafeInteger(Number(row.deadline_ms)) || Number(row.deadline_ms) < 1) throw new Error("invalid binding");
+    const source = definition(JSON.parse(row.definition_json));
+    if (source.definitionDigest !== row.child_definition_digest || `sha256:${digestObject(bindingFact(row))}` !== row.binding_digest) throw new Error("binding mismatch");
+    return { definition: source, startedAtMs };
+  } catch { throw new FactoryChildRunError("factory_child_corrupt"); }
 }
 
 /** Durable child receipt. Parent command authority admits once; retries return its sealed source. */
@@ -157,33 +171,30 @@ export class FactoryChildRuns {
       childFactoryVersion: command.factory.version,
       childDefinitionDigest: receipt.definitionDigest,
       definition: source,
+      startedAtMs,
       parentExecutionEpoch: context.fence.executionEpoch,
       parentCancellationEpoch: context.fence.cancellationEpoch,
       parentGrantRevision: context.fence.grantRevision,
       deadlineAtMs: receipt.deadlineAtMs,
     };
     const digest = `sha256:${digestObject(fact)}`;
-    await transaction.execute(sql`INSERT INTO factory_child_runs (tenant_id,project_id,parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state) VALUES (${this.tenantId},${input.projectId},${input.logicalRunId},${input.interpreterId},${input.commandId},${context.sourceSequence},${context.commandDigest},${childRunId},${parentEnvelopeId},'root',${command.factory.id},${command.factory.version},${receipt.definitionDigest},${encodeFactoryPayload(source)},${context.fence.executionEpoch},${context.fence.cancellationEpoch},${context.fence.grantRevision},${receipt.deadlineAtMs},${digest},'open')`);
+    await transaction.execute(sql`INSERT INTO factory_child_runs (tenant_id,project_id,parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state) VALUES (${this.tenantId},${input.projectId},${input.logicalRunId},${input.interpreterId},${input.commandId},${context.sourceSequence},${context.commandDigest},${childRunId},${parentEnvelopeId},'root',${command.factory.id},${command.factory.version},${receipt.definitionDigest},${encodeFactoryPayload(source)},${startedAtMs},${context.fence.executionEpoch},${context.fence.cancellationEpoch},${context.fence.grantRevision},${receipt.deadlineAtMs},${digest},'open')`);
     return source;
   }
 
-  private async binding(transaction: MigrationDb, input: Pick<FactoryChildRunRequest, "projectId" | "logicalRunId" | "interpreterId" | "commandId">, lock: boolean): Promise<ChildBindingRow | null> {
-    const result = rows<ChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND parent_run_id=${input.logicalRunId} AND parent_interpreter_id=${input.interpreterId} AND parent_command_id=${input.commandId} ${lock ? sql`FOR UPDATE` : sql``}`));
+  private async binding(transaction: MigrationDb, input: Pick<FactoryChildRunRequest, "projectId" | "logicalRunId" | "interpreterId" | "commandId">, lock: boolean): Promise<FactoryChildBindingRow | null> {
+    const result = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND parent_run_id=${input.logicalRunId} AND parent_interpreter_id=${input.interpreterId} AND parent_command_id=${input.commandId} ${lock ? sql`FOR UPDATE` : sql``}`));
     return result[0] ?? null;
   }
 
-  private async bindingByChild(transaction: MigrationDb, projectId: string, childRunId: string, lock: boolean): Promise<ChildBindingRow | null> {
-    const found = rows<ChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${childRunId} ${lock ? sql`FOR UPDATE` : sql``}`));
+  private async bindingByChild(transaction: MigrationDb, projectId: string, childRunId: string, lock: boolean): Promise<FactoryChildBindingRow | null> {
+    const found = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${childRunId} ${lock ? sql`FOR UPDATE` : sql``}`));
     return found[0] ?? null;
   }
 
-  private receipt(row: ChildBindingRow, expected: FactoryReference): FactoryDefinitionSource {
-    try {
-      assertFactoryIdentity(row.parent_run_id, row.parent_interpreter_id, row.parent_command_id, row.child_run_id, row.parent_envelope_id, row.child_envelope_id, row.child_factory_id, row.child_factory_version);
-      if (!Number.isSafeInteger(Number(row.parent_source_sequence)) || Number(row.parent_source_sequence) < 1 || !/^sha256:[a-f0-9]{64}$/.test(row.parent_command_digest) || !/^sha256:[a-f0-9]{64}$/.test(row.child_definition_digest) || !Number.isSafeInteger(Number(row.parent_execution_epoch)) || Number(row.parent_execution_epoch) < 1 || !Number.isSafeInteger(Number(row.parent_cancellation_epoch)) || Number(row.parent_cancellation_epoch) < 0 || !Number.isSafeInteger(Number(row.parent_grant_revision)) || Number(row.parent_grant_revision) < 1 || !Number.isSafeInteger(Number(row.deadline_ms)) || Number(row.deadline_ms) < 1) throw new Error("invalid binding");
-      const source = definition(JSON.parse(row.definition_json));
-      if (row.child_factory_id !== expected.id || row.child_factory_version !== expected.version || row.child_definition_digest !== expected.digest || source.definitionDigest !== expected.digest || `sha256:${digestObject(bindingFact(row))}` !== row.binding_digest) throw new Error("binding mismatch");
-      return source;
-    } catch { throw new FactoryChildRunError("factory_child_corrupt"); }
+  private receipt(row: FactoryChildBindingRow, expected: FactoryReference): FactoryDefinitionSource {
+    const verified = verifyFactoryChildBinding(row);
+    if (row.child_factory_id !== expected.id || row.child_factory_version !== expected.version || row.child_definition_digest !== expected.digest || verified.definition.definitionDigest !== expected.digest) throw new FactoryChildRunError("factory_child_corrupt");
+    return verified.definition;
   }
 }

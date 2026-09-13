@@ -11,6 +11,7 @@ import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryAttemptAuthority } from "./executions";
 import type { FactoryDefinitions, FactoryDefinitionKey } from "./definitions";
 import { FactoryGrantError, type FactoryGrants, type FactoryPrincipal } from "./grants";
+import { verifyFactoryChildBinding, type FactoryChildBindingRow } from "./child-runs";
 import { FactoryBudgets, type FactoryBudgetAdmission } from "./budgets";
 import { FactoryMutations } from "./mutations";
 import { FactoryInbox } from "./inbox";
@@ -293,7 +294,13 @@ export class FactoryRunLifecycle {
   /** Root start outbox is the sealed source of the workflow's original clock. */
   async readWorkflowStartedAtInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<number> {
     const command = await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).findRunCommandInTransaction(transaction, key.runId, "start_run");
-    if (command?.command.kind !== "start_run" || !command.command.body || typeof command.command.body !== "object" || Array.isArray(command.command.body)) throw new FactoryRunLifecycleError("factory_run_corrupt");
+    if (!command) {
+      const inherited = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.runId}`))[0];
+      if (!inherited) throw new FactoryRunLifecycleError("factory_run_corrupt");
+      try { return verifyFactoryChildBinding(inherited).startedAtMs; }
+      catch { throw new FactoryRunLifecycleError("factory_run_corrupt"); }
+    }
+    if (command.command.kind !== "start_run" || !command.command.body || typeof command.command.body !== "object" || Array.isArray(command.command.body)) throw new FactoryRunLifecycleError("factory_run_corrupt");
     const body = command.command.body as Record<string, unknown>;
     const startedAtMs = body.startedAtMs;
     if (command.command.logicalRunId !== key.runId || body.tenantId !== this.tenantId || body.projectId !== key.projectId || body.logicalRunId !== key.runId || !Number.isSafeInteger(startedAtMs) || (startedAtMs as number) < 0) throw new FactoryRunLifecycleError("factory_run_corrupt");

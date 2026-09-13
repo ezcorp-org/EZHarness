@@ -57,17 +57,19 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
     return new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, profiles, admissions, () => now);
   };
-  const committedInterpreter = async (runId: string, definitionKey = key, request = body, runLifecycle = lifecycle, resolvedInput?: JsonValue) => {
+  const committedInterpreter = async (runId: string, definitionKey = key, request = body, runLifecycle = lifecycle, resolvedInput?: JsonValue, clock = now) => {
     const identity = { tenantId, projectId, logicalRunId: runId, interpreterId: "root" };
     const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
     const transitions = new FactoryTransitionArtifacts(artifacts);
     const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
     const { compiled } = await definitions.readVersion(principal, definitionKey, request.factoryVersion);
     const input = resolvedInput ?? Object.fromEntries(Object.entries(request.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null]));
-    const event = { kind: "start", id: "authority-start", atMs: now } as const;
-    const first = advanceKernel(compiled, createKernelState(compiled, runId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: request.parameters }), event);
+    const event = { kind: "start", id: "authority-start", atMs: clock } as const;
+    const { fence } = await fixture.db.transaction(transaction => runLifecycle.readExecutionPlanInTransaction(transaction, { projectId, runId }));
+    const created = createKernelState(compiled, runId, input, clock, { schemaVersion: "factory.lazy-input.v1", parameters: request.parameters });
+    const first = advanceKernel(compiled, { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, fence.deadlineAtMs) }, event);
     const admission = first.commands.find(command => command.kind === "request-admission")!;
-    const authority = new FactoryCommandAuthority(fixture.db, tenantId, runLifecycle, transitions, ["orchestration"], () => now);
+    const authority = new FactoryCommandAuthority(fixture.db, tenantId, runLifecycle, transitions, ["orchestration"], () => clock);
     return { identity, transitions, activities, compiled, event, first, admission, authority };
   };
   beforeAll(async () => {
@@ -338,9 +340,16 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await children.resolve(service, reference)).toEqual(staged);
     expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" } });
     expect(await lifecycle.budgets.inspect({ projectId, runId: childRunId, envelopeId: "root" })).toMatchObject({ limits: { tokens: "100" } });
+    const childStartedAtMs = await fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: childRunId }));
+    const childCommitted = await committedInterpreter(childRunId, key, body, lifecycle, undefined, childStartedAtMs);
+    const childAdmission = childCommitted.first.commands.find(value => value.kind === "request-admission");
+    expect(childAdmission?.kind).toBe("request-admission");
+    if (childAdmission?.kind !== "request-admission") throw new Error("missing child admission");
+    await persistTransition(childCommitted.identity, 1, childCommitted.event, childCommitted.first.nextState, childCommitted.first.commands, undefined, childCommitted.activities);
+    await expect(childCommitted.authority.withCurrent(service, { ...childCommitted.identity, commandId: childAdmission.id }, async () => "child-work")).resolves.toBe("child-work");
     const childIdentity = { tenantId, projectId, logicalRunId: childRunId, interpreterId: "root" };
-    await persistTransition(childIdentity, 1, { id: "child-complete", kind: "cancel", atMs: now, reason: "settlement" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "child-terminal", output: {} }], undefined, activities);
-    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(childRunId));
+    await persistTransition(childIdentity, 2, { id: "child-complete", kind: "cancel", atMs: now, reason: "settlement" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "child-terminal", output: {} }], undefined, activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(childRunId), 8);
     await children.settle(service, { projectId, childRunId });
     expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`))).toEqual([{ state: "settled" }]);
     expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "0" }, spent: { tokens: "0" } });
