@@ -13,7 +13,7 @@ Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at
 - [x] G1: One concurrent claimant launches one physical attempt, with stable worker and invocation identities committed before the guest starts.
   CHECK: bun test --timeout 120000 ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts
   EXPECT: exit 0; the losing claimant attaches and never starts a second guest
-  EVIDENCE: `logs/final-focused-suites.json`, 60 pass / 0 fail. `factoryAttemptInvocationId` is reproducible from attempt, candidate generation, and attempt number, stored NOT NULL under `uq_factory_attempt_launches_invocation`.
+  EVIDENCE: `logs/final-focused-suites.json`, 66 pass / 0 fail, 234 assertions. `factoryAttemptInvocationId` is reproducible from attempt, candidate generation, and attempt number, stored NOT NULL under `uq_factory_attempt_launches_invocation`.
 
 - [x] G2: The intent binds the canonical request digest, the full identity tuple, worker and invocation IDs, the lease fence, and the complete prepared package receipt; readiness is revalidated immediately before the token mint.
   CHECK: bun test --timeout 120000 ./src/factory/runner/attempt-recovery.test.ts
@@ -38,7 +38,7 @@ Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at
 - [x] G6: Recovery of transcript, cursor, tool results, and pinned model configuration from durable records, on a supervisor that does not hold the original local directory.
   CHECK: flock ... bun test --timeout 180000 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts; bun test ./src/factory/runner/attempt-recovery.test.ts
   EXPECT: exit 0 on both
-  EVIDENCE: `logs/final-podman-suite.json` reconnects from a second supervisor process after SIGKILL. `logs/final-focused-suites.json` replays the durable `journalCursor`, every operation result, `workspaceCheckpoint`, and the pinned `runner.model` and `runner.configurationDigest`. Workspace bytes remain W04's material service behind the existing artifact-store seam.
+  EVIDENCE: `logs/final-podman-suite-run1.json` and `-run2.json` reconnects from a second supervisor process after SIGKILL. `logs/final-focused-suites.json` replays the durable `journalCursor`, every operation result, `workspaceCheckpoint`, and the pinned `runner.model` and `runner.configurationDigest`. Workspace bytes remain W04's material service behind the existing artifact-store seam.
 
 - [x] G7: One real model or tool operation through Node, the Bun gateway, and an isolated guest, with the shared executor's broker transport and journal hooks intact.
   CHECK: flock ... bun test --timeout 300000 ./src/factory/runner/attempt-runtime.integration.test.ts
@@ -48,12 +48,12 @@ Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at
 - [x] G8: The crash matrix kills the gateway, guest, and supervisor around each journal and result boundary with no duplicate invocation or external effect.
   CHECK: both suites above
   EXPECT: exit 0
-  EVIDENCE: gateway-side crashes in `logs/final-focused-suites.json`; a real SIGKILLed supervisor in `logs/final-podman-suite.json`. One start and one invocation throughout.
+  EVIDENCE: gateway-side crashes in `logs/final-focused-suites.json`; a real SIGKILLed supervisor in `logs/final-podman-suite-run1.json` and `-run2.json`. One start and one invocation throughout.
 
 - [x] G9: Both recovery topologies: a restarted or moved gateway reconnects to the same host supervisor, and replacement follows only a signed physical-stop receipt with fencing.
   CHECK: flock ... bun test ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts; ./src/factory/runner/attempt-runtime.integration.test.ts
   EXPECT: exit 0 on both
-  EVIDENCE: `logs/final-podman-suite.json` reconnects a second supervisor to the same host guest. `logs/final-attempt-runtime-integration.json` verifies the RSA signature over the canonical unsigned facts and its digest, and `stopPhysical` refuses to call a worker absent until a terminal runtime observation confirms it.
+  EVIDENCE: `logs/final-podman-suite-run1.json` and `-run2.json` reconnects a second supervisor to the same host guest. `logs/final-attempt-runtime-integration.json` verifies the RSA signature over the canonical unsigned facts and its digest, and `stopPhysical` refuses to call a worker absent until a terminal runtime observation confirms it.
 
 - [ ] G10: The real subprocess test: start the guest, SIGKILL its owning supervisor, count exactly one labelled container, attach from a new supervisor without cleanup, then remove every owned resource.
   CHECK: flock ... bun test --timeout 180000 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts
