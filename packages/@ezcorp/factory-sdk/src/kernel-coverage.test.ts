@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { compileFactory } from "./compiler";
 import { referenceCodeV1 } from "./references.js";
-import { advanceKernel, createKernelState, FactoryKernelError } from "./kernel";
+import { advanceKernel, createKernelState, FactoryKernelError, nodeFor } from "./kernel";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, KernelState } from "./index";
 
 const digest = "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe";
@@ -134,4 +134,61 @@ test("an unrequested stopped callback fences a late completion without fabricati
   });
   expect(late.nextState.nodes.work?.output).toBeUndefined();
   expect(late.commands).toEqual([]);
+});
+
+test("a reconciliation callback clears the exact uncertain attempt", () => {
+  const factory = compiled([{ id: "work", kind: "task", runner }]);
+  let state = start(factory, "uncertain-reconciliation");
+  state = admit(factory, state, "work");
+  const attempt = state.nodes.work!.attempts.at(-1)!;
+  state = advanceKernel(factory, state, {
+    kind: "attempt-stopped", id: "uncertain", atMs: 1, nodeId: "work", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, uncertain: true,
+  }).nextState;
+  expect(state.unresolvedUncertainNodeIds).toEqual(["work"]);
+  const reconciled = advanceKernel(factory, state, {
+    kind: "attempt-stopped", id: "reconciled", atMs: 2, nodeId: "work", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, uncertain: false,
+  });
+  expect(reconciled.nextState.unresolvedUncertainNodeIds).toEqual([]);
+  expect(reconciled.nextState.nodes.work?.attempts.at(-1)?.uncertain).toBe(false);
+});
+
+test("an empty typed map emits an empty array for every declared output", () => {
+  const map: Extract<FactoryNode, { kind: "map" }> = {
+    id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items" }, itemSchema: string, mode: "all", maxItems: 1, maxConcurrency: 1,
+    outputPorts: { result: { type: "array", items: string } },
+    body: {
+      nodes: [{ id: "work", kind: "task", runner, outputPorts: { result: string } }],
+      outputs: { result: { kind: "ref", root: "node", name: "work", path: ["result"] } },
+    },
+  };
+  const definition: FactoryDefinition = {
+    schemaVersion: "factory.v1", id: "empty-typed-map", version: "1", interpreterCompatibility: "1",
+    inputPorts: { items: { type: "array", items: string } }, outputPorts: {}, graph: { nodes: [map], outputs: {} }, acceptance: referenceCodeV1.acceptance,
+    packages: [...referenceCodeV1.packages, { name: runner.package, version: runner.version, digest }], capabilities: [], effects: ["none"],
+    bounds: { maxExpandedNodes: 100, maxScopeDepth: 16 },
+  };
+  const result = compileFactory(definition);
+  if (!result.ok) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.code).join(", "));
+  const state = advanceKernel(result.factory, createKernelState(result.factory, "empty-typed-map", { items: [] }, 0), { kind: "start", id: "start", atMs: 0 }).nextState;
+  expect(state.status).toBe("completed");
+  expect(state.nodes.map?.output).toEqual({ result: [] });
+});
+
+test("repair ignores a valid branch node that was never selected", () => {
+  const factory = compiled([
+    {
+      id: "branch", kind: "branch", condition: { kind: "literal", value: true },
+      then: { nodes: [], outputs: {} },
+      else: { nodes: [{ id: "hidden", kind: "task", runner }], outputs: {} },
+    },
+    { id: "hold", kind: "task", runner },
+  ]);
+  const state = start(factory, "unselected-repair");
+  expect(nodeFor(factory, "branch/else/hidden")?.id).toBe("hidden");
+  expect(nodeFor(factory, "branch/invalid/hidden")).toBeUndefined();
+  const ignored = advanceKernel(factory, state, { kind: "repair", id: "repair-hidden", atMs: 1, nodeId: "branch/else/hidden", reason: "not selected" });
+  expect(ignored.nextState.nodes["branch/else/hidden"]).toBeUndefined();
+  expect(ignored.commands).toEqual([]);
 });
