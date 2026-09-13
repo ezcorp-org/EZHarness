@@ -243,7 +243,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   });
 
   test("compute admission commits only under the actual current command authority", async () => {
-    const { run, identity, transitions, authority, admissions, journal, queue, service, reserved, lease, dispatch, dispatchReference } = await dispatchedTask();
+    const { run, transitions, authority, admissions, journal, queue, service, reserved, lease, dispatch, dispatchReference } = await dispatchedTask();
     const resolutions: Array<{ initiator: FactoryPrincipal; allocationToken: string }> = [];
     let audience = "factory-broker";
     const policy: FactoryTaskRunnerPolicy = { async resolveInTransaction(_transaction, input) {
