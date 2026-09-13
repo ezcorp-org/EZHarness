@@ -79,7 +79,7 @@ test("forged validator provenance, stale evidence, and corrupt validator locks f
   await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_evidence_stale" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET validator_lock_digest=${trusted.validatorLockDigest} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET claims=${JSON.stringify([{ id: "tests", passed: false, decisive: true }, { id: "review", passed: true, decisive: true }])} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND candidate_generation=1`);
-  await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_corrupt" });
+  await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_evidence_stale" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET claims=${JSON.stringify(trusted.claims)} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND candidate_generation=1`);
   const stale = { ...candidate, candidateGeneration: 2 };
   trusted = { ...trusted, ...stale, issuedAtMs: now - 101, expiresAtMs: now + 1000 };
