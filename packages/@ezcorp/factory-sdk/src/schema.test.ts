@@ -8,6 +8,8 @@ import {
   factoryDefinitionJsonSchema,
   factoryRunnerRequestJsonSchema,
   factoryRunnerResultJsonSchema,
+  factoryApiRequestJsonSchema,
+  factoryApiResponseJsonSchema,
   isFactoryDefinition,
 } from "./schema";
 import { referenceCodeV1 } from "./references";
@@ -21,6 +23,8 @@ describe("generated definition schema", () => {
       ["CompiledPartitionArtifact", "urn:ezcorp:factory:partition:v1", compiledPartitionArtifactJsonSchema],
       ["FactoryRunnerRequest", "urn:ezcorp:factory:runner-request:v1", factoryRunnerRequestJsonSchema],
       ["FactoryRunnerResult", "urn:ezcorp:factory:runner-result:v1", factoryRunnerResultJsonSchema],
+      ["FactoryApiRequest", "urn:ezcorp:factory:api-request:v1", factoryApiRequestJsonSchema],
+      ["FactoryApiResponse", "urn:ezcorp:factory:api-response:v1", factoryApiResponseJsonSchema],
     ] as const;
     for (const [type, id, checkedIn] of schemas) {
       const generated = createGenerator({

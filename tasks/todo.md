@@ -972,3 +972,15 @@ Review: tasks/factory/budgets.md has store evidence; tasks/factory/GATES.md rema
 Review: This is a component leaf of the complete platform plan. The root integration worktree remains fixed for its active application regression run. All work here is owned by the root, on a separate branch.
 
 Component review: canonical types pass in all four sections. Nine conformance cases cover saves/publish races, JSON/YAML round trips, archive, current access, corruption and rollback. PGlite source coverage: definitions150/150, mutation receipts34/34, additive migration8/8. Real PostgreSQL also runs the shared suite. API routes and real browser proof remain unchecked.
+## Factory SDK product API contracts
+
+- [x] Define strict request types for draft, version, run, approval, and grant surfaces with trusted path identity outside bodies.
+- [x] Require canonical payload digests, bounded idempotency keys, and safe expected revisions on every mutation.
+- [x] Define strict resource, page, export, validation, durable receipt, and error responses with pinned version artifact references.
+- [x] Generate request and response JSON Schemas from the authoritative SDK type source and export pure predicates and validators.
+- [x] Test every request and response variant plus unknown properties, tenancy injection, mismatched identity, unsafe bounds, invalid digests, and oversized values.
+- [x] Prove package build, lint, native Node ESM imports, schema regeneration, and 100% measured owned-source lines.
+
+### Review
+
+The API envelope separates trusted route identity and header-derived preconditions from strict bodies. Tenant identity is absent. Draft definitions can be structurally valid while compiler diagnostics still report incomplete graph semantics. Published resources pin definition, compiled IR, and lock artifacts. Run start and repair/replan accept typed inline or immutable artifact parameters and stay under the durable 64 KiB command limit. The canonical SDK run passed 93 tests with 100% measured lines in compiler, schema, types, and validation.

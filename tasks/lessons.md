@@ -363,3 +363,8 @@
 ## 2026-09-12 — Ambiguous delivery reconciliation
 
 - A high-water inbox sequence cannot prove that a specific event was applied. Reconcile an uncertain delivery only from the exact event ID and hash in the live inbox or an immutable product tombstone; otherwise retain `outcome_unknown`.
+
+## Factory compiler output invariants
+
+- A compiler success must pass its own public compiled-artifact validator. Test materialized defaults against shorter enclosing bounds, including nested control graphs.
+- Enforce size limits on the final canonical artifact as well as its source and pages. Derived indexes can duplicate enough source data to cross the compiled IR limit.

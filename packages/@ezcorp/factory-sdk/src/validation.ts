@@ -1,6 +1,6 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 import { validateExpression } from "./expressions.js";
-import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
 import {
   FACTORY_LIMITS,
   type CompiledExecutionManifest,
@@ -11,11 +11,14 @@ import {
   type CompiledPartitionInboundEdge,
   type CompiledPartitionOutboundEdge,
   type FactoryArtifactReference,
+  type FactoryApiRequest,
+  type FactoryApiResponse,
   type FactoryGraph,
   type FactoryNode,
   type FactoryRunnerOperationResult,
   type FactoryRunnerRequest,
   type FactoryRunnerResult,
+  type FactoryTransportValue,
   type FactoryUsage,
   type JsonValue,
   type PortSchema,
@@ -658,5 +661,120 @@ export function validateFactoryRunnerResult(value: unknown): ValidationResult {
   } else if (result.status === "failed") {
     if (!validDigest(result.resultDigest, false) || !boundedText(result.error.code) || !boundedText(result.error.message, 4_096)) return issue("RUNNER_FAILURE", "Failed result needs a digest and structured bounded error.", ["error"]);
   } else if (result.status === "uncertain" && (!validDigest(result.providerReceiptDigest, false) || result.resultDigest !== undefined && !validDigest(result.resultDigest, false))) return issue("RUNNER_UNCERTAIN", "Uncertain result receipt or result digest is invalid.", ["providerReceiptDigest"]);
+  return { ok: true };
+}
+
+function validateApiPreconditions(request: Extract<FactoryApiRequest, { preconditions: unknown }>): ValidationResult {
+  const { idempotencyKey, expectedRevision } = request.preconditions;
+  if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
+  if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
+  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set";
+  if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
+  if ((request.kind === "draft.create" || request.kind === "draft.import") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Draft creation and import require revision 0.", ["preconditions", "expectedRevision"]);
+  return { ok: true };
+}
+
+function validateApiPath(request: FactoryApiRequest): ValidationResult {
+  for (const [key, value] of Object.entries(request.path)) {
+    if ((key.endsWith("Id") || key === "version") && (!boundedText(value as string, FACTORY_LIMITS.maxApiIdentifierLength) || (value as string).includes("\0"))) return issue("API_PATH_IDENTITY", "Path identity must be nonempty, bounded, and free of control characters.", ["path", key]);
+  }
+  return { ok: true };
+}
+
+function validateApiTransportValues(parameters: Readonly<Record<string, FactoryTransportValue>>, path: readonly (string | number)[] = ["body", "parameters"]): ValidationResult {
+  for (const [name, transport] of Object.entries(parameters)) {
+    if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_PARAMETER_NAME", "Parameter names must be nonempty bounded values.", [...path, name]);
+    if (transport.kind === "inline") {
+      if (encodedBytes(transport.value) > FACTORY_LIMITS.maxInlineValueBytes) return issue("API_PARAMETER_BYTES", "Inline parameter exceeds 64 KiB.", [...path, name]);
+    } else {
+      const artifact = validateArtifactReference(transport.artifact, [...path, name, "artifact"]);
+      if (!artifact.ok) return artifact;
+    }
+  }
+  return { ok: true };
+}
+
+/** Strict, workflow-safe validation for trusted C09 route inputs. */
+export function validateFactoryApiRequest(value: unknown): ValidationResult {
+  if (!isFactoryApiRequest(value)) return issue("API_REQUEST_SCHEMA", "Value does not match the generated FactoryApiRequest schema.", []);
+  const request = value as FactoryApiRequest;
+  const path = validateApiPath(request);
+  if (!path.ok) return path;
+  if ("query" in request) {
+    const query = request.query as { cursor?: string; search?: string };
+    if ((query.cursor !== undefined && !boundedText(query.cursor, 2_048)) || (query.search !== undefined && !boundedText(query.search, FACTORY_LIMITS.maxApiIdentifierLength))) return issue("API_QUERY", "Cursor and search values must be bounded and free of control characters.", ["query"]);
+  }
+  if ("preconditions" in request) {
+    const preconditions = validateApiPreconditions(request);
+    if (!preconditions.ok) return preconditions;
+  }
+  if ((request.kind === "draft.update" || request.kind === "draft.validate") && request.body.definition.id !== request.path.factoryId) return issue("API_FACTORY_ID", "The definition ID must match the trusted factory path.", ["body", "definition", "id"]);
+  if ((request.kind === "draft.create" || request.kind === "draft.update" || request.kind === "draft.validate") && encodedBytes(request.body.definition as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_DEFINITION_BYTES", "Factory definition exceeds 16 MiB.", ["body", "definition"]);
+  if (request.kind === "draft.import" && new TextEncoder().encode(request.body.source).byteLength > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_IMPORT_BYTES", "Imported source exceeds 16 MiB.", ["body", "source"]);
+  if (request.kind === "run.start") {
+    if (!validDigest(request.body.definitionDigest, false)) return issue("API_DEFINITION_DIGEST", "Run start needs a lowercase sha256 definition digest.", ["body", "definitionDigest"]);
+    if (!boundedText(request.body.factoryVersion, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_VERSION", "Run start needs a bounded factory version.", ["body", "factoryVersion"]);
+    const parameters = validateApiTransportValues(request.body.parameters);
+    if (!parameters.ok) return parameters;
+    if (encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_RUN_START_BYTES", "Run start exceeds the 64 KiB durable command bound.", []);
+  }
+  if (request.kind === "run.control" && request.body.action !== "cancel") {
+    const parameters = validateApiTransportValues(request.body.parameters, ["body", "parameters"]);
+    if (!parameters.ok) return parameters;
+  }
+  if (request.kind === "run.control" && encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_CONTROL_BYTES", "Run control exceeds the 64 KiB durable command bound.", []);
+  if (request.kind === "approval.decide" && !validDigest(request.body.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Approval decision needs a lowercase sha256 context digest.", ["body", "contextDigest"]);
+  if (request.kind === "grant.set" && request.path.principalKind === "service" && request.body.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grants require an expiry.", ["body", "expiresAtMs"]);
+  return { ok: true };
+}
+
+function validDraftSummary(resource: { availability: string; availabilityReason?: string; definitionDigest: string }): boolean {
+  return validDigest(resource.definitionDigest, false)
+    && (resource.availability === "unavailable" ? boundedText(resource.availabilityReason ?? "", 2_048) : resource.availabilityReason === undefined);
+}
+
+function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "approval.resource" }>["resource"]): boolean {
+  const decided = resource.status === "approved" || resource.status === "denied";
+  return validDigest(resource.contextDigest, false) && decided === (resource.decidedBy !== undefined && resource.decidedAtMs !== undefined);
+}
+
+function validVersion(resource: Extract<FactoryApiResponse, { kind: "version.summary" }>["resource"]): boolean {
+  return validDigest(resource.definitionDigest, false)
+    && validDigest(resource.compiledDigest, false)
+    && validateArtifactReference(resource.definitionArtifact, ["resource", "definitionArtifact"]).ok
+    && validateArtifactReference(resource.compiledArtifact, ["resource", "compiledArtifact"]).ok
+    && validateArtifactReference(resource.lockArtifact, ["resource", "lockArtifact"]).ok;
+}
+
+/** Strict, workflow-safe validation for C09 route responses. */
+export function validateFactoryApiResponse(value: unknown): ValidationResult {
+  if (!isFactoryApiResponse(value)) return issue("API_RESPONSE_SCHEMA", "Value does not match the generated FactoryApiResponse schema.", []);
+  const response = value as FactoryApiResponse;
+  if (response.kind === "draft.summary" || response.kind === "draft.details") {
+    if (!validDraftSummary(response.resource)) return issue("API_DRAFT_RESOURCE", "Draft digest or availability detail is invalid.", ["resource"]);
+    if (response.kind === "draft.details" && response.resource.definition.id !== response.resource.factoryId) return issue("API_FACTORY_ID", "Draft definition ID must match its resource ID.", ["resource", "definition", "id"]);
+  }
+  if (response.kind === "draft.page" && response.page.items.some((item) => !validDraftSummary(item))) return issue("API_DRAFT_RESOURCE", "Draft page contains an invalid digest or availability detail.", ["page", "items"]);
+  if (response.kind === "version.summary" && !validVersion(response.resource)) return issue("API_VERSION_DIGEST", "Published version digests and artifacts must be valid.", ["resource"]);
+  if (response.kind === "version.page" && response.page.items.some((item) => !validVersion(item))) return issue("API_VERSION_DIGEST", "Published version page contains an invalid digest or artifact.", ["page", "items"]);
+  if (response.kind === "run.details" && !validDigest(response.resource.definitionDigest, false)) return issue("API_RUN_DIGEST", "Run definition digest must be lowercase sha256.", ["resource", "definitionDigest"]);
+  if (response.kind === "run.details") {
+    const parameters = validateApiTransportValues(response.resource.parameters, ["resource", "parameters"]);
+    if (!parameters.ok) return parameters;
+    if (response.resource.output !== undefined) {
+      const output = validateApiTransportValues({ output: response.resource.output }, ["resource"]);
+      if (!output.ok) return output;
+    }
+  }
+  if (response.kind === "run.page" && response.page.items.some((item) => !validDigest(item.definitionDigest, false))) return issue("API_RUN_DIGEST", "Run page contains an invalid definition digest.", ["page", "items"]);
+  if (response.kind === "approval.resource") {
+    if (!validApprovalResource(response.resource)) return issue("API_APPROVAL_RESOURCE", "Approval context and decision evidence are inconsistent.", ["resource"]);
+  }
+  if (response.kind === "approval.page" && response.page.items.some((item) => !validApprovalResource(item))) return issue("API_APPROVAL_RESOURCE", "Approval page contains inconsistent context or decision evidence.", ["page", "items"]);
+  if (response.kind === "grant.resource" && response.resource.principalKind === "service" && response.resource.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grant resources require an expiry.", ["resource", "expiresAtMs"]);
+  if (response.kind === "grant.page" && response.page.items.some((item) => item.principalKind === "service" && item.expiresAtMs === null)) return issue("API_GRANT_EXPIRY", "Service grant page contains a missing expiry.", ["page", "items"]);
+  if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
+  if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);
+  if (encodedBytes(response as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_RESPONSE_BYTES", "Factory API response exceeds 16 MiB.", []);
   return { ok: true };
 }

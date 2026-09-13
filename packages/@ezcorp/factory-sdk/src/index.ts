@@ -1,6 +1,6 @@
 export type * from "./types.js";
-export { FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION, FACTORY_IR_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_PARTITION_SCHEMA_VERSION, FACTORY_RUNNER_REQUEST_SCHEMA_VERSION, FACTORY_RUNNER_RESULT_SCHEMA_VERSION, FACTORY_SCHEMA_VERSION } from "./types.js";
-export { compiledExecutionManifestJsonSchema, compiledFactoryJsonSchema, compiledPartitionArtifactJsonSchema, factoryDefinitionJsonSchema, factoryRunnerRequestJsonSchema, factoryRunnerResultJsonSchema, isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryDefinition, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
+export { FACTORY_API_REQUEST_SCHEMA_VERSION, FACTORY_API_RESPONSE_SCHEMA_VERSION, FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION, FACTORY_IR_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_PARTITION_SCHEMA_VERSION, FACTORY_RUNNER_REQUEST_SCHEMA_VERSION, FACTORY_RUNNER_RESULT_SCHEMA_VERSION, FACTORY_SCHEMA_VERSION } from "./types.js";
+export { compiledExecutionManifestJsonSchema, compiledFactoryJsonSchema, compiledPartitionArtifactJsonSchema, factoryApiRequestJsonSchema, factoryApiResponseJsonSchema, factoryDefinitionJsonSchema, factoryRunnerRequestJsonSchema, factoryRunnerResultJsonSchema, isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryDefinition, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
 export { evaluateExpression, validateExpression } from "./expressions.js";
 export { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 export { FactoryParseError, parseFactoryJson, parseFactoryYaml, parseIJson, parseIYaml } from "./parse.js";
@@ -8,7 +8,7 @@ export { compileFactory, createCompiledExecutionManifest, createCompiledPartitio
 export type { CompiledFactoryPageBytes } from "./compiler.js";
 export { defineFactory, FactoryAuthoringError } from "./authoring.js";
 export { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";
-export { firstValidationIssue, isSchemaContained, resolveSchemaReference, validateCompiledExecutionManifest, validateCompiledFactory, validateCompiledPartitionArtifact, validateFactoryRunnerRequest, validateFactoryRunnerResult, validatePortSchema, validateValue } from "./validation.js";
+export { firstValidationIssue, isSchemaContained, resolveSchemaReference, validateCompiledExecutionManifest, validateCompiledFactory, validateCompiledPartitionArtifact, validateFactoryApiRequest, validateFactoryApiResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult, validatePortSchema, validateValue } from "./validation.js";
 export type * from "./kernel-types.js";
 export { FactoryKernelError, advanceKernel, createKernelState } from "./kernel.js";
 export { simulateFactory } from "./simulator.js";

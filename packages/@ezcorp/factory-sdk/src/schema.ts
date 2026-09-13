@@ -4,8 +4,10 @@ import compiledExecutionManifestJsonSchema from "./compiled-execution-manifest.s
 import compiledPartitionArtifactJsonSchema from "./compiled-partition-artifact.schema.json" with { type: "json" };
 import factoryRunnerRequestJsonSchema from "./factory-runner-request.schema.json" with { type: "json" };
 import factoryRunnerResultJsonSchema from "./factory-runner-result.schema.json" with { type: "json" };
+import factoryApiRequestJsonSchema from "./factory-api-request.schema.json" with { type: "json" };
+import factoryApiResponseJsonSchema from "./factory-api-response.schema.json" with { type: "json" };
 import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
-import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "./types.js";
+import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryApiRequest, FactoryApiResponse, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "./types.js";
 
 export {
   compiledFactoryJsonSchema,
@@ -14,6 +16,8 @@ export {
   factoryDefinitionJsonSchema,
   factoryRunnerRequestJsonSchema,
   factoryRunnerResultJsonSchema,
+  factoryApiRequestJsonSchema,
+  factoryApiResponseJsonSchema,
 };
 
 type SchemaObject = Readonly<Record<string, unknown>>;
@@ -24,7 +28,7 @@ function own(object: object, key: PropertyKey): boolean {
 
 function resolveReference(root: SchemaObject, reference: string): SchemaObject | undefined {
   if (!reference.startsWith("#/definitions/")) return undefined;
-  const name = reference.slice(14);
+  const name = decodeURIComponent(reference.slice(14));
   const definitions = root.definitions;
   if (!definitions || typeof definitions !== "object" || Array.isArray(definitions) || !own(definitions, name)) return undefined;
   const target = (definitions as Record<string, unknown>)[name];
@@ -46,6 +50,7 @@ function validate(schema: SchemaObject, root: SchemaObject, value: unknown): boo
   }
   if (Array.isArray(schema.anyOf) && !schema.anyOf.some((candidate) => candidate && typeof candidate === "object" && validate(candidate as SchemaObject, root, value))) return false;
   if (typeof schema.type === "string" && !typeMatches(schema.type, value)) return false;
+  if (Array.isArray(schema.type) && !schema.type.some((candidate) => typeof candidate === "string" && typeMatches(candidate, value))) return false;
   if (schema.const !== undefined && !jsonEqual(schema.const as JsonValue, value as JsonValue)) return false;
   if (Array.isArray(schema.enum) && !schema.enum.some((candidate) => jsonEqual(candidate as JsonValue, value as JsonValue))) return false;
   if (Array.isArray(value)) {
@@ -104,4 +109,12 @@ export function isFactoryRunnerRequest(value: unknown): value is FactoryRunnerRe
 
 export function isFactoryRunnerResult(value: unknown): value is FactoryRunnerResult {
   return matchesGeneratedSchema(factoryRunnerResultJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryApiRequest(value: unknown): value is FactoryApiRequest {
+  return matchesGeneratedSchema(factoryApiRequestJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryApiResponse(value: unknown): value is FactoryApiResponse {
+  return matchesGeneratedSchema(factoryApiResponseJsonSchema as SchemaObject, value);
 }

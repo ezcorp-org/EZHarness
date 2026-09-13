@@ -7,6 +7,8 @@ export const FACTORY_RUNNER_REQUEST_SCHEMA_VERSION = "factory.runner.request.v1"
 export const FACTORY_RUNNER_RESULT_SCHEMA_VERSION = "factory.runner.result.v1" as const;
 export const FACTORY_PARTITION_SCHEMA_VERSION = "factory.partition.v1" as const;
 export const FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION = "factory.execution-manifest.v1" as const;
+export const FACTORY_API_REQUEST_SCHEMA_VERSION = "factory.api.request.v1" as const;
+export const FACTORY_API_RESPONSE_SCHEMA_VERSION = "factory.api.response.v1" as const;
 export const FACTORY_LIMITS = Object.freeze({
   maxDefinitionBytes: 16 * 1024 * 1024,
   maxInlineValueBytes: 64 * 1024,
@@ -25,6 +27,10 @@ export const FACTORY_LIMITS = Object.freeze({
   maximumNodeDeadlineMs: 24 * 60 * 60 * 1_000,
   maximumApprovalWaitMs: 24 * 60 * 60 * 1_000,
   maxWireBytes: 64 * 1024,
+  maxApiIdentifierLength: 512,
+  maxApiIdempotencyKeyLength: 200,
+  defaultApiListLimit: 50,
+  maximumApiListLimit: 200,
 });
 
 export type PortSchemaType =
@@ -570,3 +576,327 @@ export type ExpressionResult =
 export type CompileResult =
   | { readonly ok: true; readonly factory: CompiledFactory }
   | { readonly ok: false; readonly diagnostics: readonly CompilerDiagnostic[] };
+
+/** Exact product permissions. Runtime authority remains a separate product fact. */
+export type FactoryAction =
+  | "factory.author"
+  | "factory.publish"
+  | "factory.run"
+  | "factory.operate"
+  | "factory.approve"
+  | "factory.release"
+  | "factory.trust";
+
+export type FactoryAvailability = "available" | "unavailable";
+export type FactoryPrincipalKind = "user" | "service";
+export type FactoryRunStatus = "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled" | "uncertain";
+
+export interface FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly projectId: string;
+}
+
+export interface FactoryDraftPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly factoryId: string;
+}
+
+export interface FactoryVersionPath extends FactoryDraftPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly version: string;
+}
+
+export interface FactoryRunPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly runId: string;
+}
+
+export interface FactoryApprovalPath extends FactoryRunPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly approvalId: string;
+}
+
+export interface FactoryGrantPath extends FactoryProjectPath {
+  readonly principalKind: FactoryPrincipalKind;
+  /** @minLength 1 @maxLength 512 */
+  readonly principalId: string;
+  readonly action: FactoryAction;
+}
+
+/** Values sourced from Idempotency-Key and If-Match, outside the JSON body. */
+export interface FactoryMutationPreconditions {
+  /** @minLength 1 @maxLength 200 */
+  readonly idempotencyKey: string;
+  /** Canonical path/query/body digest computed by the shared route wrapper. @minLength 64 @maxLength 64 */
+  readonly payloadDigest: string;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly expectedRevision: number;
+}
+
+export interface FactoryListQuery {
+  /** @minimum 1 @maximum 200 */
+  readonly limit?: number;
+  /** @minLength 1 @maxLength 2048 */
+  readonly cursor?: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly search?: string;
+}
+
+export interface FactoryDefinitionListQuery extends FactoryListQuery {
+  readonly availability?: FactoryAvailability;
+  readonly archived?: boolean;
+}
+
+export interface FactoryRunListQuery extends FactoryListQuery {
+  readonly status?: FactoryRunStatus;
+  /** @minLength 1 @maxLength 512 */
+  readonly factoryId?: string;
+}
+
+export interface FactoryGrantListQuery extends FactoryListQuery {
+  readonly principalKind?: FactoryPrincipalKind;
+  readonly action?: FactoryAction;
+}
+
+export interface FactoryDefinitionBody {
+  readonly definition: FactoryDefinition;
+}
+
+export interface FactoryImportBody {
+  readonly format: "json" | "yaml";
+  /** @minLength 1 @maxLength 16777216 */
+  readonly source: string;
+}
+
+export interface FactoryExportQuery {
+  readonly format: "json" | "yaml";
+}
+
+export interface FactoryPublishBody {
+  /** @minLength 1 @maxLength 512 */
+  readonly version: string;
+}
+
+/** Parameters are named factory input ports. Large values use artifact handles. */
+export interface FactoryRunStartBody {
+  /** @minLength 1 @maxLength 512 */
+  readonly factoryVersion: string;
+  /** @minLength 64 @maxLength 64 */
+  readonly definitionDigest: string;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly grantRevision: number;
+  readonly parameters: Readonly<Record<string, FactoryTransportValue>>;
+}
+
+export interface FactoryRunCancelBody {
+  readonly action: "cancel";
+  /** @minLength 1 @maxLength 2048 */
+  readonly reason?: string;
+}
+
+export interface FactoryRunRevisionBody {
+  readonly action: "repair" | "replan";
+  /** @minLength 1 @maxLength 2048 */
+  readonly reason?: string;
+  readonly parameters: Readonly<Record<string, FactoryTransportValue>>;
+}
+
+export type FactoryRunControlBody = FactoryRunCancelBody | FactoryRunRevisionBody;
+
+export interface FactoryApprovalDecisionBody {
+  readonly decision: "approved" | "denied";
+  /** @minLength 64 @maxLength 64 */
+  readonly contextDigest: string;
+  /** @minLength 1 @maxLength 2048 */
+  readonly reason?: string;
+}
+
+export interface FactoryGrantSetBody {
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly expiresAtMs: number | null;
+}
+
+/**
+ * Canonical C09 route input. `path` is populated from trusted routing state.
+ * Tenant identity is intentionally absent, and resource identity never appears
+ * in a request body.
+ */
+export type FactoryApiRequest =
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.create"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryDefinitionBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.update"; readonly path: FactoryDraftPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryDefinitionBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.delete"; readonly path: FactoryDraftPath; readonly preconditions: FactoryMutationPreconditions }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.get"; readonly path: FactoryDraftPath }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.list"; readonly path: FactoryProjectPath; readonly query: FactoryDefinitionListQuery }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.import"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryImportBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.export"; readonly path: FactoryDraftPath; readonly query: FactoryExportQuery }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "draft.validate"; readonly path: FactoryDraftPath; readonly body: FactoryDefinitionBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "version.publish"; readonly path: FactoryDraftPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryPublishBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "version.get"; readonly path: FactoryVersionPath }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "version.list"; readonly path: FactoryDraftPath; readonly query: FactoryListQuery }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "run.start"; readonly path: FactoryDraftPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryRunStartBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "run.get"; readonly path: FactoryRunPath }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "run.list"; readonly path: FactoryProjectPath; readonly query: FactoryRunListQuery }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "run.control"; readonly path: FactoryRunPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryRunControlBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "approval.get"; readonly path: FactoryApprovalPath }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "approval.list"; readonly path: FactoryProjectPath; readonly query: FactoryListQuery }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "approval.decide"; readonly path: FactoryApprovalPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryApprovalDecisionBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.list"; readonly path: FactoryProjectPath; readonly query: FactoryGrantListQuery }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.set"; readonly path: FactoryGrantPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryGrantSetBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.revoke"; readonly path: FactoryGrantPath; readonly preconditions: FactoryMutationPreconditions };
+
+export interface FactoryDraftSummary {
+  /** @minLength 1 @maxLength 512 */
+  readonly factoryId: string;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly revision: number;
+  readonly archived: boolean;
+  readonly availability: FactoryAvailability;
+  /** @minLength 1 @maxLength 2048 */
+  readonly availabilityReason?: string;
+  /** @minLength 64 @maxLength 64 */
+  readonly definitionDigest: string;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly updatedAtMs: number;
+}
+
+export interface FactoryDraftDetails extends FactoryDraftSummary {
+  readonly definition: FactoryDefinition;
+}
+
+export interface FactoryVersionSummary {
+  /** @minLength 1 @maxLength 512 */
+  readonly factoryId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly version: string;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly sourceRevision: number;
+  /** @minLength 64 @maxLength 64 */
+  readonly definitionDigest: string;
+  /** @minLength 64 @maxLength 64 */
+  readonly compiledDigest: string;
+  readonly definitionArtifact: FactoryArtifactReference;
+  readonly compiledArtifact: FactoryArtifactReference;
+  readonly lockArtifact: FactoryArtifactReference;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly publishedAtMs: number;
+}
+
+export interface FactoryRunSummary {
+  /** @minLength 1 @maxLength 512 */
+  readonly runId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly factoryId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly factoryVersion: string;
+  /** @minLength 64 @maxLength 64 */
+  readonly definitionDigest: string;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly grantRevision: number;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly revision: number;
+  readonly status: FactoryRunStatus;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly createdAtMs: number;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly updatedAtMs: number;
+}
+
+export interface FactoryRunDetails extends FactoryRunSummary {
+  readonly parameters: Readonly<Record<string, FactoryTransportValue>>;
+  readonly output?: FactoryTransportValue;
+  readonly error?: FactoryRunError;
+}
+
+export interface FactoryRunError {
+  /** @minLength 1 @maxLength 512 */
+  readonly code: string;
+  /** @minLength 1 @maxLength 4096 */
+  readonly message: string;
+}
+
+export interface FactoryApprovalResource {
+  /** @minLength 1 @maxLength 512 */
+  readonly approvalId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly runId: string;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly revision: number;
+  /** @minLength 64 @maxLength 64 */
+  readonly contextDigest: string;
+  readonly status: "pending" | "approved" | "denied" | "expired";
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly expiresAtMs: number;
+  /** @minLength 1 @maxLength 512 */
+  readonly decidedBy?: string;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly decidedAtMs?: number;
+}
+
+export interface FactoryGrantResource {
+  readonly principalKind: FactoryPrincipalKind;
+  /** @minLength 1 @maxLength 512 */
+  readonly principalId: string;
+  readonly action: FactoryAction;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly revision: number;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly expiresAtMs: number | null;
+  readonly revoked: boolean;
+}
+
+export interface FactoryDurableReceipt {
+  /** @minLength 1 @maxLength 512 */
+  readonly resourceId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly commandId: string;
+  /** @minLength 1 @maxLength 2048 */
+  readonly statusUrl: string;
+}
+
+export interface FactoryApiError {
+  /** @minLength 1 @maxLength 512 */
+  readonly code: string;
+  /** @minLength 1 @maxLength 4096 */
+  readonly message: string;
+  readonly retryable: boolean;
+  /** Present on a failed If-Match without exposing another project. @minimum 0 @maximum 9007199254740991 */
+  readonly currentRevision?: number;
+  /** @maxItems 10000 */
+  readonly issues?: readonly ValidationIssue[];
+}
+
+export interface FactoryApiPage<T> {
+  /** @maxItems 200 */
+  readonly items: readonly T[];
+  /** @minLength 1 @maxLength 2048 */
+  readonly nextCursor?: string;
+}
+
+export type FactoryApiResponse =
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "draft.summary"; readonly resource: FactoryDraftSummary }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "draft.details"; readonly resource: FactoryDraftDetails }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "draft.page"; readonly page: FactoryApiPage<FactoryDraftSummary> }
+  | {
+    readonly schemaVersion: "factory.api.response.v1";
+    readonly kind: "draft.export";
+    readonly format: "json" | "yaml";
+    /** @maxLength 16777216 */
+    readonly source: string;
+  }
+  | {
+    readonly schemaVersion: "factory.api.response.v1";
+    readonly kind: "draft.validation";
+    readonly valid: boolean;
+    /** @maxItems 10000 */
+    readonly diagnostics: readonly CompilerDiagnostic[];
+  }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "version.summary"; readonly resource: FactoryVersionSummary }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "version.page"; readonly page: FactoryApiPage<FactoryVersionSummary> }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "run.details"; readonly resource: FactoryRunDetails }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "run.page"; readonly page: FactoryApiPage<FactoryRunSummary> }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "approval.resource"; readonly resource: FactoryApprovalResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "approval.page"; readonly page: FactoryApiPage<FactoryApprovalResource> }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "grant.resource"; readonly resource: FactoryGrantResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "grant.page"; readonly page: FactoryApiPage<FactoryGrantResource> }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "mutation.accepted"; readonly receipt: FactoryDurableReceipt }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "error"; readonly error: FactoryApiError };
