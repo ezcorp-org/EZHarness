@@ -156,7 +156,8 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
       next = applyInputValue(factory, next, event, commands);
       break;
     case "input-page-read":
-      throw new FactoryKernelError("lazy input pages are not attached to a map command");
+      next = applyInputPage(factory, next, event, commands);
+      break;
     case "timer-expired":
       next = applyTimer(factory, next, event, commands);
       break;
@@ -186,6 +187,21 @@ function applyInputValue(factory: KernelFactoryPlan, state: KernelState, event: 
   const lazyInput = { versions: { ...state.lazyInput!.versions, [key]: event.storageVersion }, values: { ...state.lazyInput!.values, [lazyKey(event.name, event.path)]: snapshotValue(event.value) }, pending: { ...state.lazyInput!.pending } };
   delete (lazyInput.pending as Record<string, unknown>)[event.commandId];
   return activateReady(factory, withNode({ ...state, lazyInput }, pending.nodeId, { ...state.nodes[pending.nodeId]!, status: "blocked", waitingReason: undefined, waitingDeadlineAtMs: undefined }), commands, [pending.nodeId]);
+}
+
+function applyInputPage(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { readonly kind: "input-page-read" }>, commands: KernelCommand[]): KernelState {
+  const pending = state.lazyInput?.pending[event.commandId];
+  if (pending?.kind !== "page" || pending.nodeId !== event.nodeId || pending.candidateGeneration !== event.candidateGeneration || pending.cancellationEpoch !== event.cancellationEpoch || pending.name !== event.name || pending.cursor !== event.cursor || pending.maxItems !== event.maxItems || artifactKey(pending.artifact) !== artifactKey(event.artifact) || lazyKey(pending.name, pending.path) !== lazyKey(event.name, event.path) || event.mediaType !== "application/json" || event.items.length > pending.maxItems) throw new FactoryKernelError("lazy input page does not match its pending command");
+  if (new TextEncoder().encode(canonicalizeJson(event.items as JsonValue)).byteLength > pending.maxBytes) throw new FactoryKernelError("lazy input page exceeds its bound");
+  const key = artifactKey(event.artifact); const bound = state.lazyInput!.versions[key];
+  if (bound !== undefined && bound !== event.storageVersion) throw new FactoryKernelError("lazy input storage version changed");
+  const pendingEntries = { ...state.lazyInput!.pending }; delete (pendingEntries as Record<string, unknown>)[event.commandId];
+  const lazyInput = { ...state.lazyInput!, versions: { ...state.lazyInput!.versions, [key]: event.storageVersion }, pending: pendingEntries };
+  const runtime = state.nodes[pending.nodeId];
+  if (!runtime?.map) throw new FactoryKernelError("lazy input page has no waiting map");
+  const map = { ...runtime.map, snapshot: event.items.map(snapshotValue), itemCount: event.nextCursor ?? event.cursor + event.items.length, pageOffset: event.cursor, nextCursor: event.nextCursor, lazy: { name: pending.name, artifact: pending.artifact, path: pending.path, storageVersion: event.storageVersion } };
+  if (event.items.length === 0 && event.nextCursor === undefined) return completeControl(factory, withNode({ ...state, lazyInput }, pending.nodeId, { ...runtime, map }), pending.nodeId, Object.fromEntries(Object.keys(nodeFor(factory, pending.nodeId)?.outputPorts ?? {}).map(name => [name, []])), commands);
+  return fillMapWindow(factory, withNode({ ...state, lazyInput }, pending.nodeId, { ...runtime, map }), nodeFor(factory, pending.nodeId) as Extract<FactoryNode, { kind: "map" }>, pending.nodeId, commands);
 }
 
 function partitionEdgeKey(sourcePartitionId: string, sourceNodeId: string, nodeId: string): string {
@@ -586,6 +602,8 @@ function activateReady(factory: KernelFactoryPlan, state: KernelState, commands:
 }
 
 function dispatchReady(factory: KernelFactoryPlan, state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
+  const page = node.kind === "map" ? requestArtifactMapPage(state, node, nodeId, commands) : state;
+  if (page !== state) return page;
   const pending = requestArtifactInputs(state, node, nodeId, commands);
   if (pending !== state) return pending;
   const runtime = state.nodes[nodeId]!;
@@ -966,10 +984,24 @@ function hydrateArtifactReferences(value: unknown, state: KernelState): unknown 
   if (Array.isArray(value)) return value.map(item => hydrateArtifactReferences(item, state));
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, hydrateArtifactReferences(item, state)]));
 }
+function requestArtifactMapPage(state: KernelState, node: Extract<FactoryNode, { kind: "map" }>, nodeId: string, commands: KernelCommand[]): KernelState {
+  const collection = node.collection;
+  if (collection.kind !== "ref" || collection.root !== "input") return state;
+  const path = collection.path ?? [];
+  const artifact = artifactInput(state, collection.name);
+  if (!artifact || !state.lazyInput) return state;
+  const command = commandFor(state, "read-input-page", nodeId);
+  const expectedStorageVersion = state.lazyInput.versions[artifactKey(artifact)];
+  const pending = { kind: "page" as const, nodeId, candidateGeneration: state.nodes[nodeId]!.candidateGeneration, cancellationEpoch: state.cancellationEpoch, name: collection.name, artifact, path, cursor: 0, maxItems: 32, maxBytes: 32 * 1024, ...(expectedStorageVersion === undefined ? {} : { expectedStorageVersion }) };
+  const lazyInput = { ...command.state.lazyInput!, pending: { ...command.state.lazyInput!.pending, [command.id]: pending } };
+  commands.push({ kind: "read-input-page", id: command.id, nodeId, candidateGeneration: pending.candidateGeneration, cancellationEpoch: pending.cancellationEpoch, name: pending.name, artifact, path, cursor: 0, maxItems: 32, maxBytes: pending.maxBytes, ...(pending.expectedStorageVersion === undefined ? {} : { expectedStorageVersion: pending.expectedStorageVersion }) });
+  return withNode({ ...command.state, lazyInput }, nodeId, { ...command.state.nodes[nodeId]!, status: "waiting", waitingReason: "external_reconciliation", map: { snapshot: [], itemCount: 0, pageOffset: 0, nextCursor: 0, lazy: { name: collection.name, artifact, path, ...(expectedStorageVersion === undefined ? {} : { storageVersion: expectedStorageVersion }) }, completedIndexes: [], failedIndexes: [], outcomes: {} } });
+}
+
 function requestArtifactInputs(state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
   if (!state.durableInput || !state.lazyInput) return state;
   let next = state;
-  for (const reference of inputReferences(node)) {
+  for (const reference of inputReferences(node.kind === "map" ? { ...node, collection: { kind: "literal", value: null } } : node)) {
     const artifact = artifactInput(next, reference.name);
     if (!artifact || next.lazyInput!.values[lazyKey(reference.name, reference.path)] !== undefined) continue;
     if (Object.values(next.lazyInput!.pending).some(pending => pending.name === reference.name && lazyKey(pending.name, pending.path) === lazyKey(reference.name, reference.path))) continue;
