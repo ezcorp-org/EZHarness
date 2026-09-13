@@ -11,6 +11,7 @@ import { parsePoolDecision, type PoolAdmissionClient } from "./pool/client";
 import { normalizePoolResourceVector, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseStatus } from "./pool/ledger";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import { factoryTaskReservationId, type FactoryComputeAdmissionRequest } from "./task-admission";
+import { factoryExecutionFence } from "./run-lifecycle";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const POLL_INTERVAL_MS = 1_000;
@@ -142,7 +143,7 @@ function terminalResult(row: AdmissionRow, input: FactoryComputeAdmissionRequest
   if (row.state === "admitted" || row.state === "rejected") {
     const decision = decodeDecision(row);
     const event = decodeEvent(row);
-    if (decision.reservationId !== row.reservation_id || event.granted !== (row.state === "admitted") || event.commandId !== input.reference.commandId || !Number.isSafeInteger(event.atMs) || event.atMs < 0 || !Number.isSafeInteger(event.candidateGeneration) || event.candidateGeneration < 1) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
+    if (decision.reservationId !== row.reservation_id || event.granted !== (row.state === "admitted") || event.commandId !== input.reference.commandId || !Number.isSafeInteger(event.atMs) || event.atMs < 0 || !Number.isSafeInteger(event.candidateGeneration) || event.candidateGeneration < 0) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
     if (row.state === "admitted") {
       if (decision.status !== "admitted") throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
       try { assertDecisionBinding(decision, input); }
@@ -294,7 +295,7 @@ export class FactoryComputeAdmissions {
   }
 
   private assertContext(input: FactoryComputeAdmissionRequest, context: FactoryAuthorizedCommand): void {
-    if (context.command.kind !== "request-admission" || encodeFactoryPayload(context.fence) !== encodeFactoryPayload(input.fence) || factoryTaskReservationId(input.reference, context) !== input.request.reservationId || new Date(context.command.deadlineAtMs).toISOString() !== input.request.admissionDeadline) throw new FactoryComputeAdmissionError("factory_compute_admission_stale");
+    if (context.command.kind !== "request-admission" || encodeFactoryPayload(factoryExecutionFence(context.fence)) !== encodeFactoryPayload(factoryExecutionFence(input.fence)) || factoryTaskReservationId(input.reference, context) !== input.request.reservationId || new Date(context.command.deadlineAtMs).toISOString() !== input.request.admissionDeadline) throw new FactoryComputeAdmissionError("factory_compute_admission_stale");
   }
 
   private async commitDecision(service: TrustedFactoryServiceIdentity, claim: ClaimedAdmission, decision: PoolDecision): Promise<FactoryComputeAdmissionDispatchResult> {

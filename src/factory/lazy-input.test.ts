@@ -43,7 +43,7 @@ beforeAll(async () => {
     await fixture.db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES (${tenantId}, ${projectId})`);
     await fixture.db.execute(sql`INSERT INTO project_members(id, project_id, user_id, role) VALUES (${`lazy-member-${projectId}`}, ${projectId}, ${actor.id}, 'owner')`);
   }
-  await fixture.db.execute(sql`INSERT INTO factory_grants(tenant_id, project_id, principal_kind, principal_id, action, issuer_id, revision) VALUES (${tenantId}, ${sourceProjectId}, 'user', ${actor.id}, 'factory.operate', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.run', ${actor.id}, 1)`);
+  await fixture.db.execute(sql`INSERT INTO factory_grants(tenant_id, project_id, principal_kind, principal_id, action, issuer_id, revision) VALUES (${tenantId}, ${sourceProjectId}, 'user', ${actor.id}, 'factory.operate', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.run', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.author', ${actor.id}, 1), (${tenantId}, ${targetProjectId}, 'user', ${actor.id}, 'factory.publish', ${actor.id}, 1)`);
   await insertRun(sourceProjectId, sourceRunId, {});
   const root = await mkdtemp(join(tmpdir(), "factory-lazy-input-")); directories.push(root);
   artifacts = new FactoryArtifacts(fixture.db, new FileBlobStore(root), tenantId);
