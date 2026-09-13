@@ -99,6 +99,9 @@ test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches a
   } finally { child.kill("SIGKILL"); await child.exited; }
   const fresh = new ProbeObservingRunner({ root });
   try {
+    // The kill and its pipe closure are observed facts, not elapsed time: the
+    // child has exited above. The guest's stdin is a FIFO its in-guest shim
+    // holds O_RDWR, so losing the supervisor cannot reach it as end-of-input.
     expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
     const _attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
     // Recovery creates no container of its own: no probe, and so no sweep.
@@ -108,6 +111,33 @@ test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches a
     expect(await fresh.inspect(workerId)).toMatchObject({ state: "cancelled" });
     await expect(command("podman", ["inspect", `ez-v4-${createHash("sha256").update(`${root}:${workerId}`).digest("hex").slice(0, 32)}`])).rejects.toThrow();
   } finally { await fresh.close(); }
+}, 120_000);
+
+test("the superseded stdin channel is what used to kill the guest with its supervisor", async () => {
+  // Controlled fault for the case above. It reproduces the previous transport
+  // exactly: a detached container whose stdin is a `podman attach` stream held
+  // by a supervisor process. Killing that supervisor closes the stream, podman
+  // forwards the end-of-input, and the guest dies. Without the FIFO channel the
+  // preceding test's `running` assertion is a race, not a property.
+  const name = `ez-v4-stdin-fault-${randomUUID().slice(0, 12)}`;
+  const guest = 'process.stdin.on("data",()=>{});process.stdin.on("end",()=>process.exit(7));setInterval(()=>{},1000)';
+  await command("podman", ["run", "--detach", "-i", "--name", name, "--pull=never", "--network=none", "--entrypoint=/usr/local/bin/bun", (await import("../src")).DEFAULT_IMAGE, "-e", guest]);
+  try {
+    const holder = `const a=Bun.spawn(["podman","attach",${JSON.stringify(name)}],{stdin:"pipe",stdout:"pipe",stderr:"pipe"});console.log("HELD");await new Promise(()=>{});`;
+    const supervisor = Bun.spawn([process.execPath, "-e", holder], { stdout: "pipe", stderr: "pipe" });
+    await supervisor.stdout.getReader().read();
+    expect((await command("podman", ["inspect", "--format={{.State.Status}}", name])).trim()).toBe("running");
+    supervisor.kill("SIGKILL");
+    await supervisor.exited;
+    // Poll the container's own state, not a clock: it settles once podman has
+    // propagated the closed stream, and it settles on "exited", never "running".
+    let status = "running";
+    for (let attempt = 0; attempt < 40 && status === "running"; attempt++) {
+      status = (await command("podman", ["inspect", "--format={{.State.Status}}", name])).trim();
+    }
+    expect(status).toBe("exited");
+    expect((await command("podman", ["inspect", "--format={{.State.ExitCode}}", name])).trim()).toBe("7");
+  } finally { await command("podman", ["rm", "--force", "--time=0", "--ignore", name]); }
 }, 120_000);
 
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {

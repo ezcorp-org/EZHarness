@@ -1,8 +1,30 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { RunnerError, safeHostError } from "./core";
 
 export type ReverseRpc = (method: string, params: unknown) => Promise<unknown>;
 type Frame = { jsonrpc: "2.0"; id?: string | number; method?: string; params?: unknown; result?: unknown; error?: { code: number; message: string } };
+
+/**
+ * Exactly the members `FramedExecution` uses. A `ChildProcessWithoutNullStreams`
+ * satisfies it structurally, so the ordinary subprocess path is unchanged, and a
+ * detached guest can supply a transport whose lifetime is not a host process.
+ */
+export interface FramedStream {
+  on(event: "data", listener: (chunk: Buffer) => void): unknown;
+}
+export interface FramedSink {
+  readonly writableLength: number;
+  write(chunk: string): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+}
+export interface FramedTransport {
+  readonly stdout: FramedStream;
+  readonly stderr: FramedStream;
+  readonly stdin: FramedSink;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  on(event: "close", listener: (code: number | null) => void): unknown;
+  once(event: "close", listener: (code: number | null) => void): unknown;
+  kill(signal?: NodeJS.Signals): unknown;
+}
 
 export class FramedExecution {
   private buffer = Buffer.alloc(0);
@@ -17,7 +39,7 @@ export class FramedExecution {
   private received = 0;
   private logText = "";
   readonly exited: Promise<number | null>;
-  constructor(readonly workerId: string, private readonly child: ChildProcessWithoutNullStreams, private readonly reverse: ReverseRpc, private readonly terminate: () => Promise<void>, private readonly frameBytes: number, private readonly timeoutMs: number, private readonly beginRequest?: (method: string, params: unknown) => (() => void)) {
+  constructor(readonly workerId: string, private readonly child: FramedTransport, private readonly reverse: ReverseRpc, private readonly terminate: () => Promise<void>, private readonly frameBytes: number, private readonly timeoutMs: number, private readonly beginRequest?: (method: string, params: unknown) => (() => void)) {
     this.exited = new Promise<number | null>(resolve => child.once("close", resolve)).then(async code => { await this.stop(); return code; });
     child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));
     child.stderr.on("data", (chunk: Buffer) => { this.logs += chunk.byteLength; this.logText = (this.logText + chunk.toString()).slice(-8192); if (this.logs > this.frameBytes) this.fail(new RunnerError("output_limit", "Worker log limit exceeded")); });

@@ -5,12 +5,15 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerError, sha256, validateFiles } from "./core";
-import { FramedExecution, type ReverseRpc } from "./protocol";
+import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 
 export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834";
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
+const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));`;
+const CHANNEL_FIFOS = ["in", "out", "err"] as const;
+
 const builderProgram = `const result = await Bun.build({entrypoints:[process.argv[1]],target:"bun",format:"esm",packages:"bundle",minify:false,sourcemap:"none"}); if(!result.success){console.error(JSON.stringify(result.logs));process.exit(1);} console.log(JSON.stringify({code:await result.outputs[0].text()}));`;
 const testProgram = `const child=Bun.spawn([process.execPath,"test","--config=/dev/null",process.argv[1],"--timeout",process.argv[2],"--bail","--reporter=junit","--reporter-outfile=/tmp/feature-tests.xml"],{stdout:"inherit",stderr:"inherit"});const code=await child.exited;if(code!==0)process.exit(code);const report=await Bun.file('/tmp/feature-tests.xml').text();const root=report.match(/<testsuites\\b[^>]*>/)?.[0]??report.match(/<testsuite\\b[^>]*>/)?.[0]??'';const count=Number(root.match(/\\btests="(\\d+)"/)?.[1]);if(!count||/<skipped\\b|<failure\\b|<error\\b/.test(report)||/\\b(?:failures|errors|skipped)="[1-9]/.test(root)){console.error('Feature tests missing, skipped, or failed');process.exit(1)}`;
 
@@ -44,6 +47,7 @@ export class PodmanRunner implements Runner {
   private readonly operations = new Map<string, RunnerInspection>();
   private readonly containers = new Map<string, string>();
   private readonly executions = new Map<string, FramedExecution>();
+  private readonly channels = new Map<string, () => void>();
   private readonly deadlines = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly buildWorkers = new Map<string, string>();
@@ -127,19 +131,69 @@ export class PodmanRunner implements Runner {
   protected launch(id: string, limits: ResourceLimits, staged: string, args: string[], assignedDevices = false): ChildProcessWithoutNullStreams {
     return processSpawn(this.podman, [...this.args(id, limits, staged, assignedDevices), this.image, ...args]);
   }
-  /** Execution containers outlive the control client so a restarted supervisor can attach. */
-  private async launchDetached(id: string, limits: ResourceLimits, staged: string, args: string[]): Promise<ChildProcessWithoutNullStreams> {
-    const name = this.containerName(id);
-    await command(this.podman, [...this.args(id, limits, staged, true), "--detach", this.image, ...args]);
-    return processSpawn(this.podman, ["attach", name]);
+  private channelDirectory(id: string): string { return join(this.root, "channels", this.containerName(id)); }
+  /**
+   * Execution containers outlive every control client. The guest's stdin is a
+   * FIFO the in-guest shim holds `O_RDWR`, so a supervisor's death closes only
+   * its own descriptors; it can never reach the guest as end-of-input. This is
+   * what `podman attach` could not give us: its stream is the container's stdin,
+   * so a client's EOF always terminated the guest.
+   */
+  private async launchDetached(id: string, limits: ResourceLimits, staged: string): Promise<FramedTransport> {
+    const directory = this.channelDirectory(id);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await chmod(directory, 0o777);
+    for (const fifo of CHANNEL_FIFOS) {
+      const path = join(directory, fifo);
+      await rm(path, { force: true });
+      await command("mkfifo", ["-m", "666", path]);
+      await chmod(path, 0o666);
+    }
+    await command(this.podman, [...this.args(id, limits, staged, true, directory), "--detach", this.image, "-e", guestShim]);
+    return this.channelTransport(id);
+  }
+  /**
+   * Connects to a guest's channel. Opening `out` and `err` read-only settles as
+   * soon as the shim holds them, and their end-of-file is the guest's exit.
+   * `in` is opened read-write so this side never blocks and never signals a
+   * close to the guest.
+   */
+  private async channelTransport(id: string): Promise<FramedTransport> {
+    const directory = this.channelDirectory(id);
+    const [input, output, errors] = await Promise.all([open(join(directory, "in"), "r+"), open(join(directory, "out"), "r"), open(join(directory, "err"), "r")]);
+    const sink = input.createWriteStream();
+    const out = output.createReadStream();
+    const err = errors.createReadStream();
+    const closes: ((code: number | null) => void)[] = [];
+    const errored: ((error: Error) => void)[] = [];
+    let closed = false;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      for (const listener of closes) listener(null);
+      void Promise.allSettled([input.close(), output.close(), errors.close()]);
+    };
+    out.once("end", finish);
+    out.once("close", finish);
+    for (const stream of [sink, out, err]) stream.on("error", (error: Error) => { for (const listener of errored) listener(error); });
+    this.channels.set(id, finish);
+    const transport: FramedTransport = {
+      stdout: out,
+      stderr: err,
+      stdin: sink,
+      on(event: "error" | "close", listener: (value: never) => void) { (event === "close" ? closes : errored).push(listener as never); return transport; },
+      once(_event: "close", listener: (code: number | null) => void) { closes.push(listener); return transport; },
+      kill: () => { void command(this.podman, ["kill", "--signal=KILL", this.containerName(id)]).catch(() => undefined); },
+    };
+    return transport;
   }
   protected async run(id: string, limits: ResourceLimits, staged: string, args: string[], maximumBytes = limits.outputBytes): Promise<string> {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
   }
-  private args(id: string, limits: ResourceLimits, mount?: string, assignedDevices = false): string[] {
+  private args(id: string, limits: ResourceLimits, mount?: string, assignedDevices = false, channel?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), "--entrypoint=/usr/local/bin/bun", "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? ["--mount", `type=bind,src=${channel},dst=/channel,ro=false,relabel=private`] : []), "--entrypoint=/usr/local/bin/bun", "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
@@ -285,7 +339,7 @@ export class PodmanRunner implements Runner {
     const name = this.containerName(input.workerId);
     this.containers.set(input.workerId, name);
     this.operations.set(input.workerId, { id: input.workerId, state: "running", diagnostics: [] });
-    const child = processSpawn(this.podman, ["attach", name]);
+    const child = await this.channelTransport(input.workerId);
     const execution = new FramedExecution(input.workerId, child, async () => { throw new RunnerError("recovery_effect_denied", "Recovered workers cannot perform effects before durable result recovery"); }, () => this.remove(input.workerId), Math.min(limits.outputBytes, 1024 ** 2), limits.timeoutMs);
     this.executions.set(input.workerId, execution);
     void execution.exited.finally(() => { this.executions.delete(input.workerId); }).catch(() => undefined);
@@ -315,7 +369,7 @@ export class PodmanRunner implements Runner {
         await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
-      const child = await this.launchDetached(input.workerId, limits, stage, ["./.runner/extension.js"]);
+      const child = await this.launchDetached(input.workerId, limits, stage);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);
@@ -381,8 +435,10 @@ export class PodmanRunner implements Runner {
     this.ready = undefined;
   }
   protected async remove(id: string): Promise<void> {
+    this.channels.get(id)?.();
+    this.channels.delete(id);
     const name = this.containers.get(id);
-    if (!name) return;
+    if (!name) { await rm(this.channelDirectory(id), { recursive: true, force: true }); return; }
     this.containers.delete(id);
     try {
       const state = JSON.parse(await command(this.podman, ["inspect", "--format={{json .State}}", name]));
@@ -392,5 +448,6 @@ export class PodmanRunner implements Runner {
       }
     } catch {}
     try { await command(this.podman, ["rm", "--force", "--time=0", "--ignore", name]); } catch (error) { this.containers.set(id, name); throw error; }
+    await rm(this.channelDirectory(id), { recursive: true, force: true });
   }
 }
