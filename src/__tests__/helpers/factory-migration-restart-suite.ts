@@ -118,6 +118,42 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("repeated migration keeps the typed admission origin, its checks, and one identity per validator reservation", async () => {
+    const db = fixture.db;
+    const tenantId = "restart-tenant", projectId = "restart-project", runId = "restart-run";
+    const digest = (fill: string) => `sha256:${fill.repeat(64).slice(0, 64)}`;
+    const originJson = JSON.stringify({ schemaVersion: "factory.admission-origin.v1", kind: "protected-validator", acceptanceCommandId: "acceptance-1" });
+    const admission = (reservationId: string, originKind: string, originDigest: string | null) => db.execute(sql`INSERT INTO factory_compute_admissions(tenant_id,project_id,run_id,reservation_id,request_digest,request_json,state,next_poll_at,origin_kind,origin_json,origin_digest) VALUES (${tenantId},${projectId},${runId},${reservationId},${digest("1")},'{}','pending',0,${originKind},${originDigest === null ? null : originJson},${originDigest})`);
+    await db.execute(sql`INSERT INTO factory_budget_envelopes(tenant_id,project_id,run_id,envelope_id,request_digest,limits,allocated,spent,deadline_ms,state) VALUES (${tenantId},${projectId},${runId},'root',${digest("1")},'{}','{}','{}',1,'open')`);
+    for (const [reservationId, originKind] of [["reservation-task", "dispatch-node"], ["reservation-validator", "protected-validator"], ["reservation-validator-two", "protected-validator"]] as const) {
+      await db.execute(sql`INSERT INTO factory_budget_reservations(tenant_id,project_id,run_id,reservation_id,envelope_id,request_digest,amount,state,origin_kind) VALUES (${tenantId},${projectId},${runId},${reservationId},'root',${digest("1")},'{}','held',${originKind})`);
+    }
+    await admission("reservation-task", "dispatch-node", null);
+    await admission("reservation-validator", "protected-validator", digest("2"));
+
+    const originChecks = async () => rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid IN ('factory_compute_admissions'::regclass,'factory_budget_reservations'::regclass) AND contype='c' AND conname LIKE '%origin%' ORDER BY conname`));
+    const before = await originChecks();
+    const beforeOids = rows(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_compute_admissions'::regclass AND conname LIKE '%origin%' ORDER BY conname`));
+    expect(before).toHaveLength(6);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      expect(await originChecks()).toEqual(before);
+      expect(rows(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_compute_admissions'::regclass AND conname LIKE '%origin%' ORDER BY conname`))).toEqual(beforeOids);
+      expect(rows(await db.execute(sql`SELECT reservation_id,origin_kind,origin_digest FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND run_id=${runId} ORDER BY reservation_id`))).toEqual([
+        { reservation_id: "reservation-task", origin_kind: "dispatch-node", origin_digest: null },
+        { reservation_id: "reservation-validator", origin_kind: "protected-validator", origin_digest: digest("2") },
+      ]);
+      expect(rows(await db.execute(sql`SELECT DISTINCT origin_kind FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND reservation_id='reservation-task'`))).toEqual([{ origin_kind: "dispatch-node" }]);
+      // One admission per validator identity, and a body that does not match its kind is refused.
+      const repeated = await admission("reservation-validator-two", "protected-validator", digest("2")).then(() => null, (error: unknown) => error);
+      expect(repeated).toBeInstanceOf(Error);
+      const unsealed = await admission("reservation-validator-two", "protected-validator", null).then(() => null, (error: unknown) => error);
+      expect(unsealed).toBeInstanceOf(Error);
+      const forged = await db.execute(sql`INSERT INTO factory_compute_admissions(tenant_id,project_id,run_id,reservation_id,request_digest,request_json,state,next_poll_at,origin_kind,origin_json,origin_digest) VALUES (${tenantId},${projectId},${runId},'reservation-validator-two',${digest("1")},'{}','pending',0,'cancel-node',${originJson},${digest("3")})`).then(() => null, (error: unknown) => error);
+      expect(forged).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

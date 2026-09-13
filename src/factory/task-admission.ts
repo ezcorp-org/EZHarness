@@ -1,4 +1,5 @@
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
+import type { FactoryAdmissionOrigin } from "./admission-origin";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryBudgetAmount, FactoryBudgets } from "./budgets";
 import { FactoryCommandAuthorityError, type FactoryAuthorizedCommand, type FactoryCommandAuthority } from "./command-authority";
@@ -24,6 +25,8 @@ export interface FactoryComputeAdmissionRequest {
   readonly budget: FactoryBudgetAmount;
   readonly memoryBytes: number;
   readonly request: PoolAdmissionRequest;
+  /** Absent means `dispatch-node`. A protected validator names its claims instead. */
+  readonly origin?: FactoryAdmissionOrigin;
 }
 
 export interface FactoryTaskAdmissionReceipt {
