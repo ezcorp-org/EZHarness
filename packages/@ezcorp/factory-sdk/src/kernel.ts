@@ -152,6 +152,11 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
     case "approval-decided":
       next = applyApproval(factory, next, event, commands);
       break;
+    case "input-value-read":
+      next = applyInputValue(factory, next, event, commands);
+      break;
+    case "input-page-read":
+      throw new FactoryKernelError("lazy input pages are not attached to a map command");
     case "timer-expired":
       next = applyTimer(factory, next, event, commands);
       break;
@@ -169,6 +174,18 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
   next = refillWaitingMaps(factory, next, commands);
   next = emitPartitionNotifications(factory, state, next, commands);
   return finish(factory, next, commands);
+}
+
+function applyInputValue(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { readonly kind: "input-value-read" }>, commands: KernelCommand[]): KernelState {
+  const pending = state.lazyInput?.pending[event.commandId];
+  if (pending?.kind !== "value" || pending.nodeId !== event.nodeId || pending.candidateGeneration !== event.candidateGeneration || pending.cancellationEpoch !== event.cancellationEpoch || pending.name !== event.name || lazyKey(pending.name, pending.path) !== lazyKey(event.name, event.path) || artifactKey(pending.artifact) !== artifactKey(event.artifact) || event.mediaType !== "application/json") throw new FactoryKernelError("lazy input result does not match its pending command");
+  if (new TextEncoder().encode(canonicalizeJson(event.value)).byteLength > pending.maxBytes) throw new FactoryKernelError("lazy input result exceeds its bound");
+  const key = artifactKey(event.artifact);
+  const bound = state.lazyInput!.versions[key];
+  if (bound !== undefined && bound !== event.storageVersion) throw new FactoryKernelError("lazy input storage version changed");
+  const lazyInput = { versions: { ...state.lazyInput!.versions, [key]: event.storageVersion }, values: { ...state.lazyInput!.values, [lazyKey(event.name, event.path)]: snapshotValue(event.value) }, pending: { ...state.lazyInput!.pending } };
+  delete (lazyInput.pending as Record<string, unknown>)[event.commandId];
+  return activateReady(factory, { ...state, lazyInput }, commands, [pending.nodeId]);
 }
 
 function partitionEdgeKey(sourcePartitionId: string, sourceNodeId: string, nodeId: string): string {
@@ -569,6 +586,8 @@ function activateReady(factory: KernelFactoryPlan, state: KernelState, commands:
 }
 
 function dispatchReady(factory: KernelFactoryPlan, state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
+  const pending = requestArtifactInputs(state, node, nodeId, commands);
+  if (pending !== state) return pending;
   const runtime = state.nodes[nodeId]!;
   if (node.kind === "branch") {
     const evaluated = evaluateExpression(node.condition, expressionContext(state, nodeId));
@@ -915,8 +934,56 @@ function validateRecord(schemas: Readonly<Record<string, import("./types").PortS
   }
 }
 
+function lazyKey(name: string, path: readonly import("./types.js").ReferencePathSegment[]): string { return canonicalizeJson([name, path] as unknown as JsonValue); }
+function artifactKey(artifact: import("./types.js").FactoryArtifactReference): string { return `${artifact.artifactId}\u0000${artifact.digest}\u0000${artifact.encodedBytes}`; }
+function artifactInput(state: KernelState, name: string): import("./types.js").FactoryArtifactReference | undefined {
+  const value = state.durableInput?.parameters[name];
+  return value?.kind === "artifact" ? value.artifact : undefined;
+}
+function inputReferences(value: unknown, output: { readonly name: string; readonly path: readonly import("./types.js").ReferencePathSegment[] }[] = []): readonly { readonly name: string; readonly path: readonly import("./types.js").ReferencePathSegment[] }[] {
+  if (!value || typeof value !== "object") return output;
+  if (!Array.isArray(value) && (value as { kind?: unknown }).kind === "ref") {
+    const ref = value as { root?: unknown; name?: unknown; path?: unknown };
+    if (ref.root === "input" && typeof ref.name === "string" && (ref.path === undefined || Array.isArray(ref.path))) output.push({ name: ref.name, path: (ref.path ?? []) as readonly import("./types.js").ReferencePathSegment[] });
+  }
+  for (const child of Array.isArray(value) ? value : Object.values(value as Record<string, unknown>)) inputReferences(child, output);
+  return output;
+}
+function hydrateArtifactReferences(value: unknown, state: KernelState): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (!Array.isArray(value) && (value as { kind?: unknown }).kind === "ref") {
+    const ref = value as { root?: unknown; name?: unknown; path?: unknown };
+    if (ref.root === "input" && typeof ref.name === "string") {
+      const artifact = artifactInput(state, ref.name);
+      if (artifact) {
+        const path = (Array.isArray(ref.path) ? ref.path : []) as readonly import("./types.js").ReferencePathSegment[];
+        const cached = state.lazyInput?.values[lazyKey(ref.name, path)];
+        if (cached === undefined) throw new FactoryKernelError("artifact input is not yet loaded");
+        return { kind: "literal", value: cached };
+      }
+    }
+  }
+  if (Array.isArray(value)) return value.map(item => hydrateArtifactReferences(item, state));
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, hydrateArtifactReferences(item, state)]));
+}
+function requestArtifactInputs(state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
+  if (!state.durableInput || !state.lazyInput) return state;
+  let next = state;
+  for (const reference of inputReferences(node)) {
+    const artifact = artifactInput(next, reference.name);
+    if (!artifact || next.lazyInput!.values[lazyKey(reference.name, reference.path)] !== undefined) continue;
+    if (Object.values(next.lazyInput!.pending).some(pending => pending.name === reference.name && lazyKey(pending.name, pending.path) === lazyKey(reference.name, reference.path))) continue;
+    const command = commandFor(next, "read-input-value", nodeId);
+    const expectedStorageVersion = next.lazyInput!.versions[artifactKey(artifact)];
+    const pending = { kind: "value" as const, nodeId, candidateGeneration: next.nodes[nodeId]!.candidateGeneration, cancellationEpoch: next.cancellationEpoch, name: reference.name, artifact, path: reference.path, maxBytes: 32 * 1024, ...(expectedStorageVersion === undefined ? {} : { expectedStorageVersion }) };
+    next = { ...command.state, lazyInput: { ...command.state.lazyInput!, pending: { ...command.state.lazyInput!.pending, [command.id]: pending } } };
+    commands.push({ kind: "read-input-value", id: command.id, nodeId: pending.nodeId, candidateGeneration: pending.candidateGeneration, cancellationEpoch: pending.cancellationEpoch, name: pending.name, artifact: pending.artifact, path: pending.path, maxBytes: pending.maxBytes, ...(pending.expectedStorageVersion === undefined ? {} : { expectedStorageVersion: pending.expectedStorageVersion }) });
+  }
+  return next === state ? state : withNode(next, nodeId, { ...next.nodes[nodeId]!, status: "waiting", waitingReason: "external_reconciliation" });
+}
+
 function resolveValue(source: ValueSource, state: KernelState, nodeId = ""): JsonValue {
-  const result = evaluateExpression(source, expressionContext(state, nodeId));
+  const result = evaluateExpression(hydrateArtifactReferences(source, state) as ValueSource, expressionContext(state, nodeId));
   if (!result.ok) throw new FactoryKernelError(result.message);
   return result.value;
 }
