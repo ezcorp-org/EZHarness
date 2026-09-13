@@ -24,10 +24,11 @@ gate. The working tree was clean at every producer run.
   EXPECT: 5 pass, 0 fail; 0 unregistered suites
   EVIDENCE: `bdb1cca4a`. The gate derives the requirement from `tests/postgres/` on disk, so the next unregistered suite fails closed instead of waiting for an audit.
 
-- [ ] G3a: The five suites PASS against real PostgreSQL and real S3. NOT CLAIMED — infrastructure blocked.
-  CHECK: the five-file `bun test` with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR`
+- [x] G3a: The five suites PASS against real PostgreSQL and real S3.
+  CHECK: `bun test --timeout 180000 --coverage` over the five files with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR`, under the heavy lock
   EXPECT: exit 0
-  EVIDENCE: attempt at 2026-09-13T14:15:54-04:00 exited 1, `PostgresError: Connection closed` on all five. Retained at `/tmp/factory-platform-evidence/w18/postgres-five-suites.log`. See the blocker section below; the container runtime is down host-wide.
+  EVIDENCE: `/tmp/factory-platform-evidence/w18/postgres-five-suites.log` and `.meta` — exit 0, 40 pass / 0 fail / 269 assertions in 20.65 s, from clean committed source `6751f08b5` against `factory-platform-proof-postgres` on 127.0.0.1:46343 and both SeaweedFS servers. `bun scripts/verify-factory-storage.ts` passed first: 10 tenant identities across ordinary and archive storage.
+  HISTORY: the first attempt at 2026-09-13T14:15:54-04:00 exited 1 with `PostgresError: Connection closed` on all five, during the host outage described below. That receipt is retained as `postgres-five-suites-FAILED-oom-window.log`.
 
 - [x] G4: W00 discrepancy 17 — both guarded runner labels have a consuming job that cannot queue behind an absent runner.
   CHECK: `bun scripts/check-factory-lanes.ts` (its `unconsumedRunnerLabels` leg)
@@ -109,22 +110,24 @@ gate. The working tree was clean at every producer run.
 Base `2588c9f19edcae24273f4a2049eb3ac37bd6f920`. The W00 recheck logs
 (`docs/validation/factory/w00/w18-backlog-*`) came from FOCUSED producers and
 overstated the gap, so the list below is a canonical-pipeline reproduction from
-`9f663bce6`: the full host pool (`SHARD_INDEX=0 SHARD_TOTAL=1`, 1698 files), all
-nine coverage legs, the Web Vitest V8 leg (590 files / 7437 tests), the new
-Python producer, and the W00 staging merged LCOV, merged with
-`scripts/merge-lcov.ts` into 1871 source records.
+`79c589dfd` on a REPAIRED host: the full host pool (`SHARD_INDEX=0
+SHARD_TOTAL=1`, 1705 files, 25764 pass / 0 fail, exit 0), all nine coverage
+legs, the Web Vitest V8 leg (590 files / 7437 tests), the Python producer, the
+five real-PostgreSQL suites, and the W00 staging merged LCOV, merged with
+`scripts/merge-lcov.ts` into 1874 source records.
 
 | Producer set | new-file violations | patch violations |
 | --- | --- | --- |
 | W00 recheck logs (focused producers) | 41 | 75 |
 | W00 staging merged LCOV alone | 35 | 67 |
-| + full host pool, nine legs, Python producer | 21 | 17 |
-| + Web Vitest V8 leg (the reproduction) | 16 | 12 |
+| + host pool, nine legs, Python producer | 21 | 17 |
+| + Web Vitest V8 leg | 16 | 12 |
+| + repaired host pool, PostgreSQL suites, closure tests (final) | 16 | 12 |
 
-Receipts: `/tmp/factory-platform-evidence/w18/backlog-C-new-file.log` and
-`backlog-C-patch.log`, both exit 1. Half of the originally reported gap was
-producer absence, not missing tests. Nothing below is excluded and no threshold
-is lowered.
+Receipts: `/tmp/factory-platform-evidence/w18/backlog-final-new-file.log` and
+`backlog-final-patch.log`, both exit 1. More than half of the originally
+reported gap was producer absence, not missing tests. Nothing below is excluded
+and no threshold is lowered.
 
 ### Missing producer, not missing coverage (6 of the 16)
 
@@ -159,6 +162,11 @@ not stand in for either producer.
 `src/runtime/factory-execution.ts` (1), `src/runtime/tools/shell.ts` (1),
 `web/src/hooks.server.ts` (1).
 
+W18 closed the one entry it owned: the repaired host pool exposed two uncovered
+lines in `scripts/check-factory-boundaries.ts` (the recursion inside
+`localImportClosure`), and `79c589dfd` covers them with real multi-hop, cycle,
+and non-local-specifier cases. That file now measures 297/297.
+
 ### Python source outside the locked project (in no gate)
 
 `packages/@ezcorp/extension-runner/src/peer-gateway.py` (71 lines, fully
@@ -173,23 +181,27 @@ here instead of being pulled into a gate nothing can satisfy.
 which W02 owns. They are left out of the rule SELECTION rather than silenced
 with a per-file ignore.
 
-## Blocked: real PostgreSQL and real S3 proofs
+## Host outage during this package, and the reruns that replaced it
 
-The shared host's systemd user session for uid 1001 died. `/run/user/1001/bus`
-exists but refuses connections, so `crun` cannot delegate cgroups and podman
-cannot start ANY container. `factory-platform-proof-postgres` reports
-`Up 17 hours` from stale state while its recorded PID does not exist and
-nothing listens on its port; SeaweedFS has no process at all.
+A kernel OOM at 13:38 EDT, caused by an unrelated 20 GB run in another session,
+killed the per-user systemd manager and the PostgreSQL proof container's
+processes. While it was down, `/run/user/1001/bus` refused connections, `crun`
+could not delegate cgroups, podman started no container, and
+`factory-platform-proof-postgres` reported `Up 17 hours` from stale state while
+its recorded PID did not exist.
 
-The five newly registered PostgreSQL suites therefore could not be proven
-against the real engine. The attempt at 2026-09-13T14:15:54-04:00 exited 1 with
-`PostgresError: Connection closed` on all five within 747 ms, and a raw
-`new SQL(url)` probe outside `bun:test` fails identically, which rules out the
-test wiring. The failing receipt is retained at
-`/tmp/factory-platform-evidence/w18/postgres-five-suites.log` and `.meta`. G3's
-registration half is proven; its execution half is NOT claimed and is reported
-to the coordinator. The same failure accounts for 18 of the 24 failures in the
-canonical `bun run test:coverage` run.
+Three receipts were produced inside that window and are retained as history,
+each renamed with a `-FAILED-oom-window` suffix:
+
+| Receipt | What it recorded |
+| --- | --- |
+| `postgres-five-suites-FAILED-oom-window.log` | exit 1, `PostgresError: Connection closed` on all five suites in 747 ms |
+| `cov-host-FAILED-oom-window.log` | 22 host-pool failures, 18 of them `crun: sd-bus call: Access denied` |
+| `canonical-test-coverage.log` | the same 18 container failures plus the browser-receipt precondition |
+
+The coordinator repaired the host. Both affected producers were rerun under the
+heavy lock from the same clean commit and their receipts replaced; the numbers
+in the backlog table above are from the reruns.
 
 ## Defect routed to W02
 
