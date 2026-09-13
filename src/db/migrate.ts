@@ -3054,6 +3054,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryTransitionCommands(db);
   const { up: addFactoryChildRuns } = await import("./migrations/add-factory-child-runs");
   await addFactoryChildRuns(db);
+  const { up: bindFactoryChildDefinitionSource } = await import("./migrations/bind-factory-child-definition-source");
+  await bindFactoryChildDefinitionSource(db);
   const { up: addFactoryAssurance } = await import("./migrations/add-factory-assurance");
   await addFactoryAssurance(db);
   const { up: strengthenFactoryAssurance } = await import("./migrations/strengthen-factory-assurance");
