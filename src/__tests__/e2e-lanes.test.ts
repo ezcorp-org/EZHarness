@@ -266,7 +266,7 @@ describe("e2e lane manifest", () => {
     expect(block).toContain("EZCORP_FACTORY_STORAGE_SECRETS_DIR:?");
     expect(block).toContain("FACTORY_TEMPORAL_TEST_SERVER:?");
     expect(block).toContain("web/playwright.factory-services.config.ts");
-    expect(block).toContain('[ "${#args[@]}" -gt 0 ]');
+    expect(block).toMatch(/\[ "\$\{#args\[@\]\}" -gt 0 \]/);
   });
 
   test("the service lane is collected and aggregated through the same path as the mandatory five", async () => {
@@ -277,7 +277,7 @@ describe("e2e lane manifest", () => {
     expect([...localCoverage.matchAll(/^collect_lane\(\) \{$/gm)]).toHaveLength(1);
     expect([...localCoverage.matchAll(/collect_lane "\$lane" \|\| lane_status=1/g)]).toHaveLength(2);
     expect(localCoverage).toContain('archive_playwright_artifacts "$lane_output" "$lane"');
-    expect(localCoverage).toContain('export EZCORP_BROWSER_COVERAGE_SERVICE_LANES="${EZCORP_BROWSER_COVERAGE_SERVICE_LANES:-0}"');
+    expect(localCoverage).toMatch(/export EZCORP_BROWSER_COVERAGE_SERVICE_LANES="\$\{EZCORP_BROWSER_COVERAGE_SERVICE_LANES:-0\}"/);
   });
 
   test("there is no unwired browser backlog", () => {
