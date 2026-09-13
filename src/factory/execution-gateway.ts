@@ -1,6 +1,5 @@
 import { startFactoryPrivateHttps, type FactoryPrivateResponse } from "./private-https";
-import { verifyJWT } from "../auth/jwt";
-import type { JWTPayload } from "../auth/types";
+import { verifyFactoryAttemptToken } from "./attempt-token";
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority } from "./executions";
@@ -14,16 +13,6 @@ export interface FactoryGatewayOptions {
   tls: { key: string; cert: string; ca: string };
   hostname?: string;
   port?: number;
-}
-
-type Claims = JWTPayload & Record<string, unknown>;
-function identity(value: Claims, attemptId: string): FactoryAttemptAuthority | null {
-  const strings = ["attemptId", "tenantId", "projectId", "runId", "nodeInstanceId", "requestDigest"].map(key => value[key]);
-  const numbers = ["candidateGeneration", "attemptNumber", "grantRevision", "reservationGeneration", "executionEpoch", "cancellationEpoch"].map(key => value[key]);
-  const deadline = value.deadlineAt;
-  if (strings.some(value => typeof value !== "string" || !value) || numbers.some(value => !Number.isSafeInteger(value) || (value as number) < 0) || !Number.isSafeInteger(deadline) || (strings[0] as string) !== attemptId) return null;
-  if (!/^[a-f0-9]{64}$/.test(strings[5] as string)) return null;
-  return { attemptId, tenantId: strings[1] as string, projectId: strings[2] as string, runId: strings[3] as string, nodeInstanceId: strings[4] as string, requestDigest: strings[5] as string, candidateGeneration: numbers[0] as number, attemptNumber: numbers[1] as number, grantRevision: numbers[2] as number, reservationGeneration: numbers[3] as number, executionEpoch: numbers[4] as number, cancellationEpoch: numbers[5] as number, deadlineAt: new Date(deadline as number) };
 }
 
 function response(status: number, value: unknown): FactoryPrivateResponse {
@@ -40,9 +29,8 @@ export function startFactoryExecutionGateway(options: FactoryGatewayOptions): { 
         if (headers["x-ezcorp-factory-version"] !== "1" || (method !== "GET" && headers["content-type"] !== "application/json")) throw new Error("Gateway version or content type is invalid.");
         const request = body.byteLength ? JSON.parse(body.toString("utf8")) : {};
         const token = headers.authorization;
-        const claims = token?.startsWith("Bearer ") ? await verifyJWT(token.slice(7), options.jwtSecret, options.installationId) as Claims | null : null;
-        const attempt = match && claims ? identity(claims, decodeURIComponent(match[1]!)) : null;
-        if (!attempt || peerIdentity !== attempt.tenantId) return response(401, { error: "unauthorized" });
+        const attempt = token?.startsWith("Bearer ") ? await verifyFactoryAttemptToken(token.slice(7), options.jwtSecret, options.installationId) : null;
+        if (!match || !attempt || attempt.attemptId !== decodeURIComponent(match[1]!) || peerIdentity !== attempt.tenantId) return response(401, { error: "unauthorized" });
         if (method === "PUT" && !match![2]) {
           const runnerRequest = request as FactoryRunnerRequest;
           if (factoryRunnerRequestDigest(runnerRequest) !== attempt.requestDigest) throw new Error("Factory runner request does not match signed attempt.");
