@@ -8,7 +8,7 @@ import { extensionLogger } from "../logger";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
 import { getProjectRoot } from "./project-root";
 import { digestObject } from "./v4/blobs";
-import type { InstallationState, LifecycleActor } from "./v4/types";
+import type { LifecycleActor } from "./v4/types";
 
 const log = extensionLogger("bundled", "bootstrap");
 let buildQueue = Promise.resolve();
@@ -16,39 +16,6 @@ let buildQueue = Promise.resolve();
 export function bundledInstallationId(name: string): string {
   const digest = createHash("sha256").update(`ezcorp-first-party-v4:${name}`).digest("hex");
   return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
-}
-
-export interface BundledBootstrapStatus {
-  /** Bundled entries that have a live v4 installation record. */
-  staged: number;
-  /** Their build operations still queued, building or verifying. */
-  pending: number;
-}
-
-/** Reads the same repository `stageBundledExtensionSources` writes; injectable for tests. */
-export interface BundledStateReader { read(installationId: string): Promise<InstallationState | null> }
-
-/**
- * How far the boot-time bundled builds have got. Every staged entry chains an
- * isolated build through the single runner, so a real-server test lane that
- * builds while `pending > 0` queues behind that chain
- * (`GET /api/__test/bundled-bootstrap` lets the lane wait for a quiet runner
- * before any spec starts). Read-only; never triggers staging.
- */
-export async function bundledBootstrapStatus(
-  entries: readonly { name: string }[],
-  reader: BundledStateReader = new DatabaseLifecycleRepository(getDb()),
-  legacyIdFor: (name: string) => Promise<string | undefined> = async (name) => (await getExtensionByName(name))?.id,
-): Promise<BundledBootstrapStatus> {
-  let staged = 0;
-  let pending = 0;
-  for (const entry of entries) {
-    const state = await reader.read((await legacyIdFor(entry.name)) ?? bundledInstallationId(entry.name));
-    if (!state || state.installation.uninstalled) continue;
-    staged += 1;
-    pending += Object.values(state.operations).filter((operation) => operation.kind === "build" && ["queued", "building", "verifying"].includes(operation.state)).length;
-  }
-  return { staged, pending };
 }
 
 export async function stageBundledExtensionSources(entries: readonly { name: string; path: string }[]): Promise<void> {
