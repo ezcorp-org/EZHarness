@@ -35,13 +35,14 @@ function sourceSequence(value: number | undefined): number | null { if (value ==
 function pageIndex(value: number | undefined): number | null { if (value === undefined) return null; if (!Number.isSafeInteger(value) || value < 0) throw new FactoryArtifactError("factory_artifact_identity_invalid"); return value; }
 function identity(value: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId">): void { assertFactoryIdentity(value.tenantId, value.projectId, value.logicalRunId); }
 function reference(row: ArtifactRow): ImmutableObjectReference { return { objectId: row.object_id, digest: row.digest, encodedBytes: Number(row.encoded_bytes) }; }
-function supportsBoundBlobs(value: BlobStore): value is BoundBlobStore { return "putBound" in value && "getBound" in value; }
-function supportsVersions(value: BlobStore): value is BlobStore & { version(digest: string): Promise<string>; getVersion(digest: string, version: string): Promise<Uint8Array> } { return value instanceof S3BlobStore || ("version" in value && "getVersion" in value && typeof value.version === "function" && typeof value.getVersion === "function"); }
-function supportsBoundVersions(value: BlobStore): value is BoundBlobStore & { getVersion(binding: { tenantId: string; objectId: string }, digest: string, version: string): Promise<Uint8Array> } { return supportsBoundBlobs(value) && "getVersion" in value && typeof value.getVersion === "function"; }
+type ArtifactBlobStore = BlobStore | BoundBlobStore;
+function supportsBoundBlobs(value: ArtifactBlobStore): value is BoundBlobStore { return "putBound" in value && "getBound" in value; }
+function supportsVersions(value: ArtifactBlobStore): value is BlobStore & { version(digest: string): Promise<string>; getVersion(digest: string, version: string): Promise<Uint8Array> } { return value instanceof S3BlobStore || (!supportsBoundBlobs(value) && "version" in value && "getVersion" in value && typeof value.version === "function" && typeof value.getVersion === "function"); }
+function supportsBoundVersions(value: ArtifactBlobStore): value is BoundBlobStore & { version(digest: string): Promise<string>; getVersion(binding: { tenantId: string; objectId: string }, digest: string, version: string): Promise<Uint8Array> } { return supportsBoundBlobs(value) && "version" in value && "getVersion" in value && typeof value.version === "function" && typeof value.getVersion === "function"; }
 
 /** Product-side immutable pointers. Blob digests are never an authorization handle. */
 export class FactoryArtifacts {
-  constructor(readonly database: TransactionalDb, private readonly blobs: BlobStore, private readonly tenantId: string) { assertFactoryIdentity(tenantId); }
+  constructor(readonly database: TransactionalDb, private readonly blobs: ArtifactBlobStore, private readonly tenantId: string) { assertFactoryIdentity(tenantId); }
 
   async stage(identityValue: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId" | "interpreterId">, kind: FactoryArtifactKind, content: Uint8Array, options: FactoryArtifactStageOptions = {}): Promise<ImmutableObjectReference> {
     const snapshot = { identity: { ...identityValue }, kind, content: Uint8Array.from(content), options: { ...options } };
@@ -77,7 +78,7 @@ export class FactoryArtifacts {
       ? await this.blobs.putBound({ tenantId: identityValue.tenantId, objectId }, content)
       : await this.blobs.put(content);
     if (!/^[a-f0-9]{64}$/.test(stored)) throw new FactoryArtifactError("factory_artifact_corrupt");
-    const storageVersion = supportsVersions(this.blobs) ? await this.blobs.version(stored) : stored;
+    const storageVersion = supportsBoundVersions(this.blobs) ? await this.blobs.version(stored) : supportsVersions(this.blobs) ? await this.blobs.version(stored) : stored;
     const row: ArtifactRow = { object_id: objectId, tenant_id: identityValue.tenantId, project_id: identityValue.projectId, run_id: identityValue.logicalRunId, interpreter_id: interpreterId, kind, definition_digest: options.definitionDigest ?? null, source_sequence: sequence, page_index: index, partition_id: partitionId, digest: artifactDigest, blob_digest: stored, storage_version: storageVersion, encoded_bytes: content.byteLength };
     await transaction.execute(sql`INSERT INTO factory_artifacts(object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, partition_id, digest, blob_digest, storage_version, encoded_bytes) VALUES (${row.object_id}, ${row.tenant_id}, ${row.project_id}, ${row.run_id}, ${row.interpreter_id}, ${row.kind}, ${row.definition_digest}, ${row.source_sequence}, ${row.page_index}, ${row.partition_id}, ${row.digest}, ${row.blob_digest}, ${row.storage_version}, ${row.encoded_bytes}) ON CONFLICT DO NOTHING`);
     const admitted = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, partition_id, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} AND interpreter_id IS NOT DISTINCT FROM ${interpreterId} AND kind=${kind} AND source_sequence IS NOT DISTINCT FROM ${sequence} AND page_index IS NOT DISTINCT FROM ${index} AND partition_id IS NOT DISTINCT FROM ${partitionId} FOR SHARE`))[0];

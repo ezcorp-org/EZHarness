@@ -1,8 +1,8 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
-import { lstat, readFile } from "node:fs/promises";
-import { sql } from "drizzle-orm";
+import { constants } from "node:fs";
+import { lstat, open, realpath } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import type { BlobStore } from "../extensions/v4/types";
-import type { TransactionalDb } from "../db/migrations/types";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
@@ -12,7 +12,7 @@ const FORMAT = "factory.encrypted.v1";
 
 export type EncryptedPayloadKind = "history" | "archive" | "snapshot" | "backup" | "blob";
 /** Structural copy of Temporal's PayloadCodec so this Bun-owned module never imports the Node SDK. */
-export interface TemporalPayload { readonly metadata?: Record<string, Uint8Array>; readonly data?: Uint8Array; }
+export interface TemporalPayload { readonly metadata?: Record<string, Uint8Array> | null; readonly data?: Uint8Array | null; }
 export interface TemporalPayloadCodec { encode(payloads: TemporalPayload[]): Promise<TemporalPayload[]>; decode(payloads: TemporalPayload[]): Promise<TemporalPayload[]>; }
 
 export interface EncryptionBinding {
@@ -46,8 +46,10 @@ export interface InstallationKeyWrapStore {
 }
 
 export class FactoryEncryptionError extends Error {
-  constructor(readonly code: "factory_key_missing" | "factory_key_unsafe" | "factory_key_invalid" | "factory_decryption_failed" | "factory_encryption_binding_invalid") {
+  readonly code: "factory_key_missing" | "factory_key_unsafe" | "factory_key_invalid" | "factory_decryption_failed" | "factory_encryption_binding_invalid";
+  constructor(code: FactoryEncryptionError["code"]) {
     super(code);
+    this.code = code;
     this.name = "FactoryEncryptionError";
   }
 }
@@ -93,53 +95,64 @@ function wrapBinding(installationId: string, version: number, masterKeyId: strin
 
 /** Stable in-memory provider useful for injected KMS adapters and tests. */
 export class StaticMasterKeyProvider implements MasterKeyProvider {
-  constructor(private readonly active: MasterKey, private readonly keys: readonly MasterKey[] = [active]) { key(active.bytes); requireId(active.id); }
+  private readonly active: MasterKey;
+  private readonly keys: readonly MasterKey[];
+  constructor(active: MasterKey, keys: readonly MasterKey[] = [active]) { this.active = active; this.keys = keys; key(active.bytes); requireId(active.id); }
   async current(): Promise<MasterKey> { return this.active; }
   async get(id: string): Promise<MasterKey | undefined> { return this.keys.find(candidate => candidate.id === id); }
 }
 
 /** Strict self-hosted master-key reader. The path must be a non-symlink private file with exactly 32 raw bytes. */
-export async function readOperatorMasterKey(path: string, id: string): Promise<MasterKey> {
+export async function readOperatorMasterKey(path: string, id: string, grantableRoots: readonly string[]): Promise<MasterKey> {
   requireId(id);
-  let stat: Awaited<ReturnType<typeof lstat>>; let bytes: Uint8Array;
-  try { [stat, bytes] = await Promise.all([lstat(path), readFile(path)]); } catch { throw new FactoryEncryptionError("factory_key_missing"); }
-  if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0 || bytes.byteLength !== DATA_KEY_BYTES) throw new FactoryEncryptionError("factory_key_unsafe");
-  return { id, bytes };
-}
-
-/** PostgreSQL key-wrap ledger. It stores only encrypted data keys, never master material. */
-export class DatabaseInstallationKeyWrapStore implements InstallationKeyWrapStore {
-  constructor(private readonly database: TransactionalDb) {}
-  async load(installationId: string): Promise<readonly InstallationKeyWrap[]> {
-    requireId(installationId);
-    const result = await this.database.execute(sql`SELECT installation_id, wrap_version, master_key_id, wrapped_data_key FROM factory_installation_key_wraps WHERE installation_id=${installationId} ORDER BY wrap_version DESC`) as unknown as { rows?: Array<{ installation_id: string; wrap_version: number | string; master_key_id: string; wrapped_data_key: Uint8Array }> } | Array<{ installation_id: string; wrap_version: number | string; master_key_id: string; wrapped_data_key: Uint8Array }>;
-    const rows = Array.isArray(result) ? result : result.rows ?? [];
-    return rows.map(row => ({ installationId: row.installation_id, wrapVersion: Number(row.wrap_version), masterKeyId: row.master_key_id, wrappedDataKey: new Uint8Array(row.wrapped_data_key) }));
+  let canonical: string;
+  try {
+    if ((await lstat(path)).isSymbolicLink()) throw new FactoryEncryptionError("factory_key_unsafe");
+    canonical = await realpath(path);
+  } catch (error) {
+    if (error instanceof FactoryEncryptionError) throw error;
+    throw new FactoryEncryptionError("factory_key_missing");
   }
-  async save(value: InstallationKeyWrap): Promise<void> {
-    requireId(value.installationId); requireId(value.masterKeyId);
-    if (value.wrappedDataKey.byteLength < Buffer.byteLength(FORMAT) + IV_BYTES + TAG_BYTES + DATA_KEY_BYTES) throw new FactoryEncryptionError("factory_key_invalid");
-    if (!Number.isSafeInteger(value.wrapVersion) || value.wrapVersion < 1) throw new FactoryEncryptionError("factory_key_invalid");
-    await this.database.execute(sql`INSERT INTO factory_installation_key_wraps(installation_id, wrap_version, master_key_id, wrapped_data_key) VALUES (${value.installationId}, ${value.wrapVersion}, ${value.masterKeyId}, ${Buffer.from(value.wrappedDataKey)}) ON CONFLICT (installation_id, wrap_version) DO NOTHING`);
-  }
+  try {
+    const roots = await Promise.all(grantableRoots.map(root => realpath(resolve(root))));
+    if (roots.some(root => canonical === root || canonical.startsWith(root.endsWith(sep) ? root : `${root}${sep}`))) throw new FactoryEncryptionError("factory_key_unsafe");
+    const handle = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const [stat, bytes] = await Promise.all([handle.stat(), handle.readFile()]);
+      if (!stat.isFile() || stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0 || bytes.byteLength !== DATA_KEY_BYTES) throw new FactoryEncryptionError("factory_key_unsafe");
+      return { id, bytes };
+    } finally { await handle.close(); }
+  } catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_key_unsafe"); }
 }
 
 export class InstallationDataKey {
-  private constructor(readonly installationId: string, private readonly value: Uint8Array, readonly wrapVersion: number) {}
+  readonly installationId: string;
+  private readonly value: Uint8Array;
+  readonly wrapVersion: number;
+  /** Wrap rotation never changes the data-key encryption version or object bytes. */
+  readonly dataKeyVersion = 1;
+  private constructor(installationId: string, value: Uint8Array, wrapVersion: number) { this.installationId = installationId; this.value = value; this.wrapVersion = wrapVersion; }
   static async loadOrCreate(installationId: string, wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
     requireId(installationId);
+    const resolveExisting = async (existing: readonly InstallationKeyWrap[]): Promise<InstallationDataKey | undefined> => {
+      for (const candidate of existing) {
+        const master = await masters.get(candidate.masterKeyId);
+        if (!master) continue;
+        try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { /* try retained wrapping versions */ }
+      }
+      return undefined;
+    };
     const existing = await wraps.load(installationId);
-    for (const candidate of existing) {
-      const master = await masters.get(candidate.masterKeyId);
-      if (!master) continue;
-      try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { /* try retained wrapping versions */ }
-    }
+    const resolved = await resolveExisting(existing);
+    if (resolved) return resolved;
     if (existing.length > 0) throw new FactoryEncryptionError("factory_key_missing");
     const master = await masters.current(); key(master.bytes);
     const wrapVersion = 1;
     const dataKey = randomBytes(DATA_KEY_BYTES);
     await wraps.save({ installationId, wrapVersion, masterKeyId: master.id, wrappedDataKey: encryptBytes(dataKey, master.bytes, wrapBinding(installationId, wrapVersion, master.id)) });
-    return new InstallationDataKey(installationId, dataKey, wrapVersion);
+    const persisted = await resolveExisting(await wraps.load(installationId));
+    if (!persisted) throw new FactoryEncryptionError("factory_key_missing");
+    return persisted;
   }
   async rotate(wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
     const master = await masters.current(); key(master.bytes);
@@ -147,42 +160,53 @@ export class InstallationDataKey {
     await wraps.save({ installationId: this.installationId, wrapVersion, masterKeyId: master.id, wrappedDataKey: encryptBytes(this.value, master.bytes, wrapBinding(this.installationId, wrapVersion, master.id)) });
     return new InstallationDataKey(this.installationId, this.value, wrapVersion);
   }
-  encrypt(bytes: Uint8Array, binding: Omit<EncryptionBinding, "installationId" | "version">): Uint8Array { return encryptBytes(bytes, this.value, { ...binding, installationId: this.installationId, version: this.wrapVersion }); }
-  decrypt(bytes: Uint8Array, binding: Omit<EncryptionBinding, "installationId" | "version">): Uint8Array { return decryptBytes(bytes, this.value, { ...binding, installationId: this.installationId, version: this.wrapVersion }); }
+  encrypt(bytes: Uint8Array, binding: Omit<EncryptionBinding, "installationId" | "version">): Uint8Array { return encryptBytes(bytes, this.value, { ...binding, installationId: this.installationId, version: this.dataKeyVersion }); }
+  decrypt(bytes: Uint8Array, binding: Omit<EncryptionBinding, "installationId" | "version">): Uint8Array { return decryptBytes(bytes, this.value, { ...binding, installationId: this.installationId, version: this.dataKeyVersion }); }
 }
 
-export interface BoundBlobStore extends BlobStore {
+/** Explicit object-bound adapter. It deliberately is not BlobStore: BlobStore digests remain plaintext-content hashes. */
+export interface BoundBlobStore {
   putBound(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, bytes: Uint8Array): Promise<string>;
   getBound(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, digest: string): Promise<Uint8Array>;
 }
 
 /** Reuses v4 BlobStore/S3BlobStore; only the stored bytes are encrypted. */
 export class EncryptedBlobStore implements BoundBlobStore {
-  constructor(private readonly store: BlobStore, private readonly dataKey: InstallationDataKey, private readonly tenantId: string) { requireId(tenantId); }
-  async put(bytes: Uint8Array): Promise<string> { return this.store.put(this.dataKey.encrypt(bytes, { tenantId: this.tenantId, objectId: "unbound", payloadKind: "blob" })); }
-  async get(digest: string): Promise<Uint8Array> { return this.dataKey.decrypt(await this.store.get(digest), { tenantId: this.tenantId, objectId: "unbound", payloadKind: "blob" }); }
-  async putBound(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, bytes: Uint8Array): Promise<string> { return this.store.put(this.dataKey.encrypt(bytes, { ...binding, payloadKind: "blob" })); }
-  async getBound(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, digest: string): Promise<Uint8Array> { return this.dataKey.decrypt(await this.store.get(digest), { ...binding, payloadKind: "blob" }); }
+  private readonly store: BlobStore;
+  private readonly dataKey: InstallationDataKey;
+  private readonly tenantId: string;
+  constructor(store: BlobStore, dataKey: InstallationDataKey, tenantId: string) { this.store = store; this.dataKey = dataKey; this.tenantId = tenantId; requireId(tenantId); }
+  private bound(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">): Omit<EncryptionBinding, "installationId" | "version"> { if (binding.tenantId !== this.tenantId) throw new FactoryEncryptionError("factory_encryption_binding_invalid"); return { ...binding, payloadKind: "blob" }; }
+  async putBound(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, bytes: Uint8Array): Promise<string> { return this.store.put(this.dataKey.encrypt(bytes, this.bound(binding))); }
+  async getBound(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, digest: string): Promise<Uint8Array> { return this.dataKey.decrypt(await this.store.get(digest), this.bound(binding)); }
   async version(digest: string): Promise<string> {
     if (!("version" in this.store) || typeof this.store.version !== "function") return digest;
     return this.store.version(digest);
   }
   async getVersion(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, digest: string, version: string): Promise<Uint8Array> {
     if (!("getVersion" in this.store) || typeof this.store.getVersion !== "function") return this.getBound(binding, digest);
-    return this.dataKey.decrypt(await this.store.getVersion(digest, version), { ...binding, payloadKind: "blob" });
+    return this.dataKey.decrypt(await this.store.getVersion(digest, version), this.bound(binding));
   }
 }
 
 /** One adapter shape for C06 history, archive, snapshot, and backup records. */
 export class EncryptedRecordCodec {
-  constructor(private readonly dataKey: InstallationDataKey, private readonly kind: Exclude<EncryptedPayloadKind, "blob">) {}
+  private readonly dataKey: InstallationDataKey;
+  private readonly kind: Exclude<EncryptedPayloadKind, "blob">;
+  constructor(dataKey: InstallationDataKey, kind: Exclude<EncryptedPayloadKind, "blob">) { this.dataKey = dataKey; this.kind = kind; }
   encode(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, bytes: Uint8Array): Uint8Array { return this.dataKey.encrypt(bytes, { ...binding, payloadKind: this.kind }); }
   decode(binding: Omit<EncryptionBinding, "installationId" | "version" | "payloadKind">, bytes: Uint8Array): Uint8Array { return this.dataKey.decrypt(bytes, { ...binding, payloadKind: this.kind }); }
 }
 
 /** Node-compatible Temporal codec. It binds every payload to one workflow object identity. */
 export class FactoryTemporalPayloadCodec implements TemporalPayloadCodec {
-  constructor(private readonly records: EncryptedRecordCodec, private readonly tenantId: string, private readonly workflowId: string) {}
-  async encode(payloads: TemporalPayload[]): Promise<TemporalPayload[]> { return payloads.map((payload, index) => ({ metadata: { ...payload.metadata, encoding: Buffer.from("binary/factory-encrypted") }, data: this.records.encode({ tenantId: this.tenantId, objectId: `${this.workflowId}:${index}` }, payload.data ?? new Uint8Array()) })); }
-  async decode(payloads: TemporalPayload[]): Promise<TemporalPayload[]> { return payloads.map((payload, index) => ({ metadata: { ...payload.metadata, encoding: Buffer.from("binary/plain") }, data: this.records.decode({ tenantId: this.tenantId, objectId: `${this.workflowId}:${index}` }, payload.data ?? new Uint8Array()) })); }
+  private readonly records: EncryptedRecordCodec;
+  private readonly tenantId: string;
+  private readonly workflowId: string;
+  constructor(records: EncryptedRecordCodec, tenantId: string, workflowId: string) { this.records = records; this.tenantId = tenantId; this.workflowId = workflowId; }
+  async encode(payloads: TemporalPayload[]): Promise<TemporalPayload[]> { return payloads.map((payload, index) => ({ metadata: { encoding: Buffer.from("binary/factory-encrypted") }, data: this.records.encode({ tenantId: this.tenantId, objectId: `${this.workflowId}:${index}` }, Buffer.from(JSON.stringify({ metadata: Object.fromEntries(Object.entries(payload.metadata ?? {}).map(([name, value]) => [name, Buffer.from(value).toString("base64")])), data: Buffer.from(payload.data ?? []).toString("base64") }))) })); }
+  async decode(payloads: TemporalPayload[]): Promise<TemporalPayload[]> { return payloads.map((payload, index) => {
+    if (Buffer.from(payload.metadata?.encoding ?? []).toString() !== "binary/factory-encrypted") throw new FactoryEncryptionError("factory_decryption_failed");
+    try { const value = JSON.parse(Buffer.from(this.records.decode({ tenantId: this.tenantId, objectId: `${this.workflowId}:${index}` }, payload.data ?? new Uint8Array())).toString()) as { metadata: Record<string, string>; data: string }; return { metadata: Object.fromEntries(Object.entries(value.metadata).map(([name, encoded]) => [name, Uint8Array.from(Buffer.from(encoded, "base64"))])), data: Uint8Array.from(Buffer.from(value.data, "base64")) }; } catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_decryption_failed"); }
+  }); }
 }

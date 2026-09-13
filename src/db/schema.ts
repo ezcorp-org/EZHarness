@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, foreignKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, foreignKey, uniqueIndex, date, vector, customType } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { buildFactorySchema } from "./factory-schema";
 import type { PublishedExtensionRelease } from "@ezcorp/extension-contract";
@@ -14,6 +14,8 @@ import type {
 } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
+
+const factoryEncryptedBytes = customType<{ data: Uint8Array; driverData: Buffer }>({ dataType: () => "bytea" });
 // Tier vocabulary lives in the pure routing classifier (single source of
 // truth). Type-only import — erased at build, so it adds no runtime dep.
 import type { RoutingTier } from "../runtime/tier-classifier";
@@ -2945,3 +2947,12 @@ export const factoryAcceptanceDecisions = pgTable("factory_acceptance_decisions"
 export const factoryReleaseApprovals = pgTable("factory_release_approvals", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(), operationId: text("operation_id").notNull(), contextDigest: text("context_digest").notNull(), decisionId: text("decision_id").notNull(), principalId: text("principal_id").notNull().references(() => users.id, { onDelete: "restrict" }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), expectedGeneration: bigint("expected_generation", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), status: text("status").notNull().$type<"pending" | "approved" | "rejected" | "consumed" | "revoked">(), approvedBy: text("approved_by").references(() => users.id, { onDelete: "restrict" }), approvedGrantRevision: bigint("approved_grant_revision", { mode: "number" }), consumedAt: timestamp("consumed_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }), uniqueIndex("idx_factory_release_approvals_operation").on(table.tenantId, table.projectId, table.operationId), foreignKey({ columns: [table.tenantId, table.projectId, table.decisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict")]);
+
+/** Retained encrypted wraps for one installation data key; plaintext master keys never enter this schema. */
+export const factoryInstallationKeyWraps = pgTable("factory_installation_key_wraps", {
+  installationId: text("installation_id").notNull(),
+  wrapVersion: integer("wrap_version").notNull(),
+  masterKeyId: text("master_key_id").notNull(),
+  wrappedDataKey: factoryEncryptedBytes("wrapped_data_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.installationId, table.wrapVersion] })]);
