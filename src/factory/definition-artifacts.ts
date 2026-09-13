@@ -55,7 +55,7 @@ export class FactoryDefinitionArtifacts {
   }
 
   async stagePartition(value: CompiledPartitionArtifact, identity: FactoryIdentity, definitionDigest: string): Promise<FactoryPartitionReference> {
-    const reference = await this.artifacts.stage(identity, "partition", artifactJson.canonical(value), { definitionDigest, interpreterScoped: false });
+    const reference = await this.artifacts.stage(identity, "partition", artifactJson.canonical(value), { definitionDigest, pageIndex: this.partitionSlot(value.id), interpreterScoped: false });
     return { ...reference, partitionId: value.id };
   }
 
@@ -64,7 +64,7 @@ export class FactoryDefinitionArtifacts {
   }
 
   async loadPartition(identity: FactoryIdentity, definitionDigest: string, partition: FactoryPartitionReference): Promise<CompiledPartitionArtifact> {
-    return this.loadJson(identity, definitionDigest, partition, "partition") as Promise<CompiledPartitionArtifact>;
+    return this.loadJson(identity, definitionDigest, partition, "partition").then(value => { if ((value as { id?: unknown }).id !== partition.partitionId) throw new FactoryArtifactError("factory_definition_not_found"); return value as CompiledPartitionArtifact; });
   }
 
   private async loadJson(identity: FactoryIdentity, definitionDigest: string, reference: ImmutableObjectReference, kind: "execution_manifest" | "partition"): Promise<unknown> {
@@ -72,6 +72,8 @@ export class FactoryDefinitionArtifacts {
     if (loaded.definitionDigest !== definitionDigest) throw new FactoryArtifactError("factory_definition_not_found");
     try { return JSON.parse(artifactJson.text(loaded.content)); } catch { throw new FactoryArtifactError("factory_definition_corrupt"); }
   }
+
+  private partitionSlot(id: string): number { let hash = 0; for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0; return hash; }
 
   private async stageManifestChain(identity: FactoryIdentity, definitionDigest: string, definitionEncodedBytes: number, references: Array<ImmutableObjectReference & { index: number }>): Promise<ImmutableObjectReference> {
     let next: ImmutableObjectReference | undefined;

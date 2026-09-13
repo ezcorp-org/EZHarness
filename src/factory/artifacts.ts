@@ -28,13 +28,14 @@ function reference(row: ArtifactRow): ImmutableObjectReference { return { object
 
 /** Product-side immutable pointers. Blob digests are never an authorization handle. */
 export class FactoryArtifacts {
-  constructor(readonly database: TransactionalDb, private readonly blobs: BlobStore) {}
+  constructor(readonly database: TransactionalDb, private readonly blobs: BlobStore, private readonly tenantId: string) { assertFactoryIdentity(tenantId); }
 
   async stage(identityValue: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId" | "interpreterId">, kind: FactoryArtifactKind, content: Uint8Array, options: { definitionDigest?: string; sourceSequence?: number; pageIndex?: number; interpreterScoped?: boolean } = {}): Promise<ImmutableObjectReference> {
     identityValue = { ...identityValue };
     content = Uint8Array.from(content);
     options = { ...options };
     identity(identityValue);
+    if (identityValue.tenantId !== this.tenantId) throw new FactoryArtifactError("factory_artifact_tenant_denied");
     bounded(content);
     const sequence = sourceSequence(options.sourceSequence);
     const index = pageIndex(options.pageIndex);
@@ -64,6 +65,7 @@ export class FactoryArtifacts {
     object = { ...object };
     kinds = [...kinds];
     identity(identityValue);
+    if (identityValue.tenantId !== this.tenantId) throw new FactoryArtifactError("factory_artifact_tenant_denied");
     if (!object?.objectId || !/^sha256:[0-9a-f]{64}$/.test(object.digest) || !Number.isSafeInteger(object.encodedBytes) || object.encodedBytes < 1 || object.encodedBytes > FACTORY_ARTIFACT_MAX_BYTES) throw new FactoryArtifactError("factory_artifact_reference_invalid");
     const row = releaseRows<ArtifactRow>(await this.database.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE object_id=${object.objectId} AND tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} ${interpreterScoped ? sql`AND interpreter_id=${identityValue.interpreterId}` : sql``} FOR SHARE`))[0];
     if (!row || !kinds.includes(row.kind) || row.digest !== object.digest || Number(row.encoded_bytes) !== object.encodedBytes) throw new FactoryArtifactError("factory_artifact_not_found");

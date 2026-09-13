@@ -29,7 +29,7 @@ async function fixture() {
 
 test("PostgreSQL scoped S3 references retain original bytes and reject foreign and changed version records", async () => {
   const { database, client, blobs, identity, prefix } = await fixture();
-  const artifacts = new FactoryArtifacts(database, blobs);
+  const artifacts = new FactoryArtifacts(database, blobs, "artifact-tenant");
   const content = new TextEncoder().encode("immutable artifact bytes");
   const reference = await artifacts.stage(identity, "execution_manifest", content, { definitionDigest: `sha256:${"a".repeat(64)}`, interpreterScoped: false });
   expect(await artifacts.load(identity, reference, ["execution_manifest"])).toMatchObject({ content });

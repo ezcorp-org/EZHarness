@@ -31,7 +31,7 @@ async function fixture() {
   await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('artifact-tenant', 'artifact-project')`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('artifact-tenant', 'artifact-project', 'artifact-run', ${`sha256:${"a".repeat(64)}`}, 'test', 1, 'request', '{}')`);
   const root = await mkdtemp(join(tmpdir(), "factory-artifacts-")); directories.push(root);
-  const artifacts = new FactoryArtifacts(db, new FileBlobStore(root));
+  const artifacts = new FactoryArtifacts(db, new FileBlobStore(root), "artifact-tenant");
   const definitions = new FactoryDefinitionArtifacts(artifacts);
   const transitions = new FactoryTransitionArtifacts(artifacts);
   return { db, artifacts, definitions, transitions, identity: { tenantId: "artifact-tenant", projectId: "artifact-project", logicalRunId: "artifact-run", interpreterId: "interpreter-a" } };
@@ -64,6 +64,9 @@ test("execution manifests and partitions keep their definition scope", async () 
   expect(await definitions.loadExecutionManifest(identity, definitionDigest, execution) as unknown).toEqual({ partitionId: "partition-a" });
   expect(await definitions.loadPartition(identity, definitionDigest, partition) as unknown).toEqual({ id: "partition-a" });
   await expect(definitions.loadPartition(identity, `sha256:${"d".repeat(64)}`, partition)).rejects.toMatchObject({ code: "factory_definition_not_found" });
+  const second = await definitions.stagePartition({ id: "partition-b" } as never, identity, definitionDigest);
+  expect((await definitions.loadPartition(identity, definitionDigest, second) as unknown as { id: string }).id).toBe("partition-b");
+  await expect(definitions.loadPartition({ ...identity, tenantId: "foreign-tenant" }, definitionDigest, second)).rejects.toMatchObject({ code: "factory_artifact_tenant_denied" });
 });
 
 test("transition pages finalize before the existing compact Factory audit stream records them", async () => {
