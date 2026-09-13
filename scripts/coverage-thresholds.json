@@ -210,6 +210,7 @@
   "src/factory/runner/native.ts": 100,
   "src/db/migrations/add-factory-grants.ts": 100,
   "src/factory/outbox.ts": 100,
+  "src/factory/provisioning/local.ts": 100,
   "src/factory/pool/index.ts": 100,
   "src/factory/pool/ledger.ts": 100,
   "src/db/migrations/add-factory-records.ts": 100,

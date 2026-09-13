@@ -1,4 +1,4 @@
-import { createSign, randomBytes } from "node:crypto";
+import { createHash, createSign, randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { SQL } from "bun";
@@ -34,10 +34,11 @@ const role = (await admin`SELECT 1 FROM pg_roles WHERE rolname = ${controlRole}`
 if (!role) await admin.unsafe(`CREATE ROLE "${controlRole}" LOGIN PASSWORD '${controlPassword}'`);
 const database = (await admin`SELECT 1 FROM pg_database WHERE datname = ${controlDatabase}`)[0];
 if (!database) await admin.unsafe(`CREATE DATABASE "${controlDatabase}" OWNER "${controlRole}"`);
-await admin.close();
 const controlUrl = new URL(productAdminUrl); controlUrl.pathname = `/${controlDatabase}`; controlUrl.username = controlRole; controlUrl.password = controlPassword;
+let failTenantTenOnce = true;
 const temporal = {
   async create({ tenantId, namespace, secretDirectory }) {
+    if (tenantId === "tenant-10" && failTenantTenOnce) { failTenantTenOnce = false; throw new Error("Injected Temporal registration interruption."); }
     const control = await connection("factory-control", ["admin:temporal-system"]);
     try { await control.workflowService.registerNamespace({ namespace, workflowExecutionRetentionPeriod: { seconds: 86_400 } }); }
     catch (error) { if (error.code !== 6) throw error; }
@@ -50,9 +51,23 @@ const temporal = {
   },
 };
 const provisioner = new LocalFactoryProvisioner({ controlDatabaseUrl: controlUrl.toString(), productDatabaseAdminUrl: productAdminUrl, ordinaryConfigPath, archiveConfigPath, secretsRoot: join(proofRoot, "installations"), temporal });
+const request = tenantId => ({ tenantId, hostname: `${tenantId}.factory.local`, administratorEmail: `${tenantId}@example.test` });
 const tenants = Array.from({ length: 10 }, (_, index) => `tenant-${String(index + 1).padStart(2, "0")}`);
-const first = [];
-for (const tenantId of tenants) first.push(await provisioner.provision({ tenantId, hostname: `${tenantId}.factory.local`, administratorEmail: `${tenantId}@example.test` }));
+const concurrent = await Promise.all([provisioner.provision(request("tenant-01")), provisioner.provision(request("tenant-01"))]);
+if (concurrent[0].installationId !== concurrent[1].installationId) throw new Error("Concurrent tenant provisioning changed the installation identity.");
+try { await provisioner.provision({ ...request("tenant-01"), hostname: "conflict.factory.local" }); throw new Error("Changed request was accepted."); }
+catch (error) { if (error.message === "Changed request was accepted.") throw error; }
+const foreignRole = `factory_role_${createHash("sha256").update("tenant-10").digest("hex").slice(0, 20)}`;
+await admin.unsafe(`CREATE ROLE "${foreignRole}" LOGIN`);
+try { await provisioner.provision(request("tenant-10")); throw new Error("Foreign product role was adopted."); }
+catch (error) { if (error.message === "Foreign product role was adopted.") throw error; }
+await admin.unsafe(`DROP ROLE "${foreignRole}"`);
+await admin.close();
+const first = [concurrent[0]];
+for (const tenantId of tenants.slice(1, -1)) first.push(await provisioner.provision(request(tenantId)));
+try { await provisioner.provision(request("tenant-10")); throw new Error("Temporal interruption was accepted."); }
+catch (error) { if (error.message === "Temporal interruption was accepted.") throw error; }
+first.push(await provisioner.provision(request("tenant-10")));
 const replay = [];
 for (const tenantId of tenants) replay.push(await provisioner.provision({ tenantId, hostname: `${tenantId}.factory.local`, administratorEmail: `${tenantId}@example.test` }));
 if (first.some((installation, index) => installation.installationId !== replay[index].installationId)) throw new Error("Provisioning replay changed an installation identity.");
@@ -63,11 +78,11 @@ for (const [index, row] of rows.entries()) {
   const manifest = JSON.parse(await readFile(join(row.secret_bundle_path, "installation.json"), "utf8"));
   const credentials = JSON.parse(await readFile(manifest.product.credentialsPath, "utf8"));
   const tenantUrl = new URL(productAdminUrl); tenantUrl.pathname = `/${row.product_database}`; tenantUrl.username = row.product_role; tenantUrl.password = credentials.password;
-  const tenantDatabase = new SQL(tenantUrl.toString(), { max: 1 }); await tenantDatabase`SELECT current_database()`; await tenantDatabase.close();
+  const tenantDatabase = new SQL(tenantUrl.toString(), { max: 1 }); await tenantDatabase`SELECT current_database()`; await tenantDatabase.unsafe("CREATE TABLE IF NOT EXISTS factory_provisioning_proof (id integer PRIMARY KEY)"); await tenantDatabase`INSERT INTO factory_provisioning_proof(id) VALUES (1) ON CONFLICT DO NOTHING`; await tenantDatabase.close();
   const foreignUrl = new URL(tenantUrl); foreignUrl.pathname = `/${rows[(index + 1) % rows.length].product_database}`;
   const foreignDatabase = new SQL(foreignUrl.toString(), { max: 1 }); try { await foreignDatabase`SELECT 1`; throw new Error("Tenant database isolation failed."); } catch (error) { if ((error).message === "Tenant database isolation failed.") throw error; } finally { await foreignDatabase.close(); }
   const tenantTemporal = await connection(row.tenant_id, [`admin:${row.temporal_namespace}`]); await tenantTemporal.workflowService.describeNamespace({ namespace: row.temporal_namespace }); await tenantTemporal.close();
 }
 await control.close(); await provisioner.close();
-console.log(`provisioned ${rows.length} isolated installations with replay-safe control state and tenant database/Temporal login proof`);
+console.log(`provisioned ${rows.length} isolated installations with concurrent, recovery, database migration, and Temporal login proof`);
 console.log(`secret bundle root reference: ${basename(proofRoot)}/installations`);
