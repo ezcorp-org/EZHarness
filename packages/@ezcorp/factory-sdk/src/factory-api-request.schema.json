@@ -1653,8 +1653,8 @@
       "description": "Parameters are named factory input ports. Large values use artifact handles.",
       "properties": {
         "definitionDigest": {
-          "maxLength": 64,
-          "minLength": 64,
+          "maxLength": 71,
+          "minLength": 71,
           "type": "string"
         },
         "factoryVersion": {

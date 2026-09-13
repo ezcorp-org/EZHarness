@@ -20,6 +20,8 @@ import {
   type FactoryDefinition,
   type FactoryGraph,
   type FactoryNode,
+  type FactoryRunnerRequest,
+  type FactoryRunnerRequestIdentity,
   type Expression,
   type JsonValue,
   type PortSchema,
@@ -27,7 +29,7 @@ import {
   type BudgetBounds,
   type ValidationResult,
 } from "./types.js";
-import { isSchemaContained, resolveSchemaReference, validateCompiledFactory, validatePortSchema, validateValue } from "./validation.js";
+import { isSchemaContained, resolveSchemaReference, validateCompiledFactory, validateFactoryRunnerRequest, validatePortSchema, validateValue } from "./validation.js";
 
 const DIGEST_PREFIX = "sha256:";
 
@@ -37,6 +39,21 @@ function own(object: object, key: PropertyKey): boolean {
 
 function sha256(value: string): string {
   return `${DIGEST_PREFIX}${createHash("sha256").update(value).digest("hex")}`;
+}
+
+/** Canonical durable request identity with only the ephemeral signed token removed. */
+export function factoryRunnerRequestIdentity(request: FactoryRunnerRequest): FactoryRunnerRequestIdentity {
+  const validation = validateFactoryRunnerRequest(request);
+  if (!validation.ok) throw new TypeError(validation.issues[0]?.message ?? "Invalid factory runner request.");
+  const { attemptToken: _attemptToken, ...broker } = request.broker;
+  const identity = { ...request, broker } as FactoryRunnerRequestIdentity;
+  return deepFreeze(JSON.parse(canonicalizeJson(identity as unknown as JsonValue)) as FactoryRunnerRequestIdentity);
+}
+
+/** Raw lowercase sha256 of the canonical durable runner request identity. */
+export function factoryRunnerRequestDigest(request: FactoryRunnerRequest): string {
+  const identity = factoryRunnerRequestIdentity(request);
+  return createHash("sha256").update(canonicalizeJson(identity as unknown as JsonValue)).digest("hex");
 }
 
 function validDigest(value: string): boolean {

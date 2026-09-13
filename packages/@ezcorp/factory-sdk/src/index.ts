@@ -4,7 +4,7 @@ export { compiledExecutionManifestJsonSchema, compiledFactoryJsonSchema, compile
 export { evaluateExpression, validateExpression } from "./expressions.js";
 export { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 export { FactoryParseError, parseFactoryJson, parseFactoryYaml, parseIJson, parseIYaml } from "./parse.js";
-export { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, verifyCompiledFactoryArtifact } from "./compiler.js";
+export { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, factoryRunnerRequestDigest, factoryRunnerRequestIdentity, verifyCompiledFactoryArtifact } from "./compiler.js";
 export type { CompiledFactoryPageBytes } from "./compiler.js";
 export { defineFactory, FactoryAuthoringError } from "./authoring.js";
 export { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";

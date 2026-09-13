@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { canonicalizeJson } from "./canonical";
-import { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, verifyCompiledFactoryArtifact, type CompiledFactoryPageBytes } from "./compiler";
+import { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, factoryRunnerRequestDigest, factoryRunnerRequestIdentity, verifyCompiledFactoryArtifact, type CompiledFactoryPageBytes } from "./compiler";
 import { referenceDataV1, referenceFactories } from "./references";
 import type {
   CompiledFactory,
@@ -282,6 +282,47 @@ describe("compiled artifact validation", () => {
     const corrupted = { ...bytes, [factory.pages[0]!.id]: bytes[factory.pages[0]!.id]!.slice() };
     corrupted[factory.pages[0]!.id]![0] ^= 1;
     expect(code(verifyCompiledFactoryArtifact(factory, corrupted))).toBe("COMPILED_PAGE_BYTES");
+  });
+});
+
+describe("runner request canonical identity", () => {
+  test("excludes only the attempt token and hashes every durable request field", () => {
+    const original = request();
+    const identity = factoryRunnerRequestIdentity(original);
+    expect(Object.hasOwn(identity.broker, "attemptToken")).toBe(false);
+    expect(identity.broker).toEqual({ audience: original.broker.audience });
+    expect(Object.isFrozen(identity)).toBe(true);
+    expect(Object.isFrozen(identity.authority)).toBe(true);
+    const baseline = factoryRunnerRequestDigest(original);
+    expect(baseline).toHaveLength(64);
+    expect(factoryRunnerRequestDigest({ ...original, broker: { ...original.broker, attemptToken: "rotated-token" } })).toBe(baseline);
+
+    const mutations: Array<(candidate: FactoryRunnerRequest) => void> = [
+      (candidate) => { (candidate.authority as { attemptId: string }).attemptId = "attempt-2"; },
+      (candidate) => { (candidate.runner as { export: string }).export = "resume"; },
+      (candidate) => { (candidate.input as { value: JsonValue }).value = { changed: true }; },
+      (candidate) => { (candidate.grants as string[]).push("tool:write"); },
+      (candidate) => { (candidate.resources as { maxTokens: number }).maxTokens = 201; },
+      (candidate) => { (candidate.model!.configuration as Record<string, JsonValue>).temperature = 1; },
+      (candidate) => { (candidate.model!.policy as Record<string, JsonValue>).retries = 2; },
+      (candidate) => { (candidate.tools[0] as { description: string }).description = "Read another value"; },
+      (candidate) => { (candidate.broker as { audience: string }).audience = "installation-2"; },
+      (candidate) => {
+        (candidate as { checkpoint?: unknown }).checkpoint = { artifactId: "checkpoint-1", digest: prefixedDigest, encodedBytes: 1, journalCursor: 0 };
+        (candidate.authority as { nextOperationIndex: number }).nextOperationIndex = 1;
+      },
+    ];
+    for (const mutate of mutations) {
+      const candidate = clone(original);
+      mutate(candidate);
+      expect(factoryRunnerRequestDigest(candidate)).not.toBe(baseline);
+    }
+    const reordered = clone(original);
+    (reordered.model as { configuration: Record<string, JsonValue> }).configuration = { z: 1, a: 2 };
+    const ordered = clone(reordered);
+    (ordered.model as { configuration: Record<string, JsonValue> }).configuration = { a: 2, z: 1 };
+    expect(factoryRunnerRequestDigest(reordered)).toBe(factoryRunnerRequestDigest(ordered));
+    expect(() => factoryRunnerRequestIdentity({ ...original, broker: { ...original.broker, attemptToken: "" } })).toThrow("Broker authority");
   });
 });
 

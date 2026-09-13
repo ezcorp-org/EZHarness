@@ -1427,8 +1427,8 @@
           "type": "number"
         },
         "definitionDigest": {
-          "maxLength": 64,
-          "minLength": 64,
+          "maxLength": 71,
+          "minLength": 71,
           "type": "string"
         },
         "error": {
@@ -1532,8 +1532,8 @@
           "type": "number"
         },
         "definitionDigest": {
-          "maxLength": 64,
-          "minLength": 64,
+          "maxLength": 71,
+          "minLength": 71,
           "type": "string"
         },
         "factoryId": {
@@ -1635,8 +1635,8 @@
           "type": "number"
         },
         "definitionDigest": {
-          "maxLength": 64,
-          "minLength": 64,
+          "maxLength": 71,
+          "minLength": 71,
           "type": "string"
         },
         "draftRevision": {

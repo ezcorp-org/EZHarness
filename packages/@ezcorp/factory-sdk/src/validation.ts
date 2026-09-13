@@ -712,7 +712,7 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
   if ((request.kind === "draft.create" || request.kind === "draft.update" || request.kind === "draft.validate") && encodedBytes(request.body.source as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_DEFINITION_BYTES", "Factory definition exceeds 16 MiB.", ["body", "source"]);
   if (request.kind === "draft.import" && new TextEncoder().encode(request.body.source).byteLength > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_IMPORT_BYTES", "Imported source exceeds 16 MiB.", ["body", "source"]);
   if (request.kind === "run.start") {
-    if (!validDigest(request.body.definitionDigest, false)) return issue("API_DEFINITION_DIGEST", "Run start needs a lowercase sha256 definition digest.", ["body", "definitionDigest"]);
+    if (!validDigest(request.body.definitionDigest, true)) return issue("API_DEFINITION_DIGEST", "Run start needs a prefixed lowercase sha256 definition digest.", ["body", "definitionDigest"]);
     if (!boundedText(request.body.factoryVersion, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_VERSION", "Run start needs a bounded factory version.", ["body", "factoryVersion"]);
     const parameters = validateApiTransportValues(request.body.parameters);
     if (!parameters.ok) return parameters;
@@ -739,7 +739,7 @@ function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "ap
 }
 
 function validVersion(resource: Extract<FactoryApiResponse, { kind: "version.summary" }>["resource"]): boolean {
-  return validDigest(resource.definitionDigest, false)
+  return validDigest(resource.definitionDigest, true)
     && validDigest(resource.compiledBlobDigest, false)
     && safeCounter(resource.compiledBytes, 1)
     && resource.compiledBytes <= FACTORY_LIMITS.maxDefinitionBytes;
@@ -756,7 +756,7 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
   if (response.kind === "draft.page" && response.page.items.some((item) => !validDraftSummary(item))) return issue("API_DRAFT_RESOURCE", "Draft page contains an invalid digest or availability detail.", ["page", "items"]);
   if (response.kind === "version.summary" && !validVersion(response.resource)) return issue("API_VERSION_DIGEST", "Published version digests and artifacts must be valid.", ["resource"]);
   if (response.kind === "version.page" && response.page.items.some((item) => !validVersion(item))) return issue("API_VERSION_DIGEST", "Published version page contains an invalid digest or artifact.", ["page", "items"]);
-  if (response.kind === "run.details" && !validDigest(response.resource.definitionDigest, false)) return issue("API_RUN_DIGEST", "Run definition digest must be lowercase sha256.", ["resource", "definitionDigest"]);
+  if (response.kind === "run.details" && !validDigest(response.resource.definitionDigest, true)) return issue("API_RUN_DIGEST", "Run definition digest must be prefixed lowercase sha256.", ["resource", "definitionDigest"]);
   if (response.kind === "run.details") {
     const parameters = validateApiTransportValues(response.resource.parameters, ["resource", "parameters"]);
     if (!parameters.ok) return parameters;
@@ -765,7 +765,7 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
       if (!output.ok) return output;
     }
   }
-  if (response.kind === "run.page" && response.page.items.some((item) => !validDigest(item.definitionDigest, false))) return issue("API_RUN_DIGEST", "Run page contains an invalid definition digest.", ["page", "items"]);
+  if (response.kind === "run.page" && response.page.items.some((item) => !validDigest(item.definitionDigest, true))) return issue("API_RUN_DIGEST", "Run page contains an invalid definition digest.", ["page", "items"]);
   if (response.kind === "approval.resource") {
     if (!validApprovalResource(response.resource)) return issue("API_APPROVAL_RESOURCE", "Approval context and decision evidence are inconsistent.", ["resource"]);
   }

@@ -465,6 +465,11 @@ export interface FactoryRunnerRequest {
   readonly checkpoint?: FactoryCheckpointReference;
 }
 
+/** Durable attempt identity. The signed transport token is intentionally absent. */
+export type FactoryRunnerRequestIdentity = Omit<FactoryRunnerRequest, "broker"> & {
+  readonly broker: Omit<FactoryBrokerTransport, "attemptToken">;
+};
+
 export interface FactoryMeasuredUsage {
   readonly kind: "measured";
   readonly inputTokens: number;
@@ -681,7 +686,7 @@ export interface FactoryPublishBody {
 export interface FactoryRunStartBody {
   /** @minLength 1 @maxLength 512 */
   readonly factoryVersion: string;
-  /** @minLength 64 @maxLength 64 */
+  /** @minLength 71 @maxLength 71 */
   readonly definitionDigest: string;
   /** @minimum 1 @maximum 9007199254740991 */
   readonly grantRevision: number;
@@ -770,7 +775,7 @@ export interface FactoryVersionSummary {
   readonly version: string;
   /** @minimum 1 @maximum 9007199254740991 */
   readonly draftRevision: number;
-  /** @minLength 64 @maxLength 64 */
+  /** @minLength 71 @maxLength 71 */
   readonly definitionDigest: string;
   /** @minLength 64 @maxLength 64 */
   readonly compiledBlobDigest: string;
@@ -787,7 +792,7 @@ export interface FactoryRunSummary {
   readonly factoryId: string;
   /** @minLength 1 @maxLength 512 */
   readonly factoryVersion: string;
-  /** @minLength 64 @maxLength 64 */
+  /** @minLength 71 @maxLength 71 */
   readonly definitionDigest: string;
   /** @minimum 1 @maximum 9007199254740991 */
   readonly grantRevision: number;
