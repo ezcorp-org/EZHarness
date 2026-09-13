@@ -105,7 +105,18 @@ test("an extra request during accepted work closes the connection before any res
 });
 
 test("private transport limits reject unsafe configuration before opening a port", () => {
+  for (const maxResponseBytes of [0, 1.5, 1024 * 1024 + 1]) expect(() => startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, maxResponseBytes, async handle() { throw new Error("must not run"); } })).toThrow("Invalid private HTTPS limits");
   for (const [maxBodyBytes, requestTimeoutMs] of [[0, 1], [1024 * 1024 + 1, 1], [1.5, 1], [1, 0], [1, 60_001], [1, 1.5]]) {
     expect(() => startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, maxBodyBytes, requestTimeoutMs, async handle() { throw new Error("must not run"); } })).toThrow("Invalid private HTTPS limits");
   }
+});
+
+test("a peer that keeps its write side open cannot retain a completed server connection", async () => {
+  const server = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, requestTimeoutMs: 100, async handle() { return { status: 200, body: Buffer.from("complete") }; } });
+  try {
+    const child = Bun.spawn(["node", new URL("../__tests__/helpers/factory-node-half-close.mjs", import.meta.url).pathname], { stdin: new Blob([JSON.stringify({ url: server.url, ca: certs.ca, cert: certs.clientCert, key: certs.clientKey })]), stdout: "pipe", stderr: "pipe" });
+    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    expect(code, stderr).toBe(0);
+    expect(JSON.parse(stdout)).toEqual({ received: true, closedByServer: true });
+  } finally { server.stop(); }
 });

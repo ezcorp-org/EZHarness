@@ -1,3 +1,4 @@
+import { encodeFactoryPageBase64, decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { afterEach, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
@@ -133,7 +134,7 @@ test("the Node transition activity keeps large transitions paged and rejects cor
   expect(loadedManifest.self).toEqual(manifest);
   expect(loadedManifest.pages).toHaveLength(2);
   const loadedPages = await Promise.all(loadedManifest.pages.map(page => activity.loadTransitionPage({ ...identity, sourceSequence: 1, page })));
-  const restored = JSON.parse(loadedPages.map(page => page.content).join(""));
+  const restored = JSON.parse(loadedPages.map(page => new TextDecoder("utf-8", { fatal: true }).decode(decodeFactoryPageBase64(page.contentBase64))).join(""));
   expect(restored).toMatchObject({ schemaVersion: "factory.transition.v1", sourceSequence: 1, event, nextState: { padding: "x".repeat(40 * 1024) } });
   await expect(activity.loadTransitionManifest({ ...identity, sourceSequence: 2, manifest })).rejects.toMatchObject({ code: "factory_transition_not_found" });
   await expect(activity.loadTransitionManifest({ ...identity, projectId: "foreign-project", sourceSequence: 1, manifest })).rejects.toMatchObject({ code: "factory_artifact_not_found" });
@@ -142,7 +143,7 @@ test("the Node transition activity keeps large transitions paged and rejects cor
 
   const invalidEvent: Extract<KernelEvent, { kind: "cancel" }> = { id: "invalid-event", kind: "cancel", atMs: 2, reason: "x" };
   const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 2, event: invalidEvent, nextState: {}, commands: [] }));
-  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 2, index: 0, content, encodedBytes: artifactJson.bytes(content).byteLength });
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 2, index: 0, contentBase64: encodeFactoryPageBase64(artifactJson.bytes(content)), encodedBytes: artifactJson.bytes(content).byteLength });
   const request = { ...identity, sourceSequence: 2, encodedBytes: page.encodedBytes, eventId: invalidEvent.id, pages: [page] };
   await expect(transitions.finalizeTransitionArtifact({ ...request, pages: [{ ...page, index: 1 }] })).rejects.toMatchObject({ code: "factory_transition_invalid" });
   await expect(transitions.finalizeTransitionArtifact({ ...request, pages: [{ ...page, encodedBytes: page.encodedBytes - 1 }] })).rejects.toMatchObject({ code: "factory_artifact_not_found" });
@@ -169,7 +170,7 @@ test("transition recording commits its exact inbox receipt or rolls back the aud
 
   const missing: Extract<KernelEvent, { kind: "cancel" }> = { id: "never-enqueued", kind: "cancel", atMs: 2, reason: "x" };
   const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 2, event: missing, nextState: {}, commands: [] }));
-  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 2, index: 0, content, encodedBytes: artifactJson.bytes(content).byteLength });
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 2, index: 0, contentBase64: encodeFactoryPageBase64(artifactJson.bytes(content)), encodedBytes: artifactJson.bytes(content).byteLength });
   const finalized = await transitions.finalizeTransitionArtifact({ ...identity, sourceSequence: 2, encodedBytes: page.encodedBytes, eventId: missing.id, pages: [page] });
   await expect(transitions.recordTransition({ ...identity, sourceSequence: 2, eventId: missing.id, eventHash: finalized.eventHash, inboxSequence: command.eventSequence, artifactManifest: finalized.manifest })).rejects.toMatchObject({ code: "factory_inbox_applied_conflict" });
   const rows = await db.execute(sql`SELECT source_sequence FROM factory_audit_batches WHERE run_id=${identity.logicalRunId}`) as unknown as { rows?: unknown[] } | unknown[];

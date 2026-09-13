@@ -3,7 +3,7 @@ import { request } from "node:https";
 
 const input = JSON.parse(readFileSync(0, "utf8"));
 const response = await new Promise((resolve, reject) => {
-  const body = Buffer.from(input.body, "base64");
+  const body = Buffer.from(input.body ?? "", "base64");
   const req = request(input.url, {
     method: input.method, ca: input.ca, cert: input.cert, key: input.key,
     servername: "localhost", rejectUnauthorized: true,

@@ -19,6 +19,7 @@ export interface FactoryPrivateHttpsOptions {
   readonly hostname?: string;
   readonly port?: number;
   readonly maxBodyBytes?: number;
+  readonly maxResponseBytes?: number;
   readonly requestTimeoutMs?: number;
   handle(request: FactoryPrivateRequest): Promise<FactoryPrivateResponse>;
 }
@@ -28,13 +29,13 @@ type Connection = {
   output?: Buffer; offset: number; timer?: ReturnType<typeof setTimeout>;
 };
 const MAX_HEADER_BYTES = 16 * 1024;
-const MAX_RESPONSE_BYTES = 64 * 1024;
 
 /** One bounded request per private mTLS connection; peer identity comes only from TLS. */
 export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): { url: string; stop(): void } {
   const maxBody = options.maxBodyBytes ?? 64 * 1024;
+  const maxResponse = options.maxResponseBytes ?? 64 * 1024;
   const timeout = options.requestTimeoutMs ?? 15_000;
-  if (!Number.isSafeInteger(maxBody) || maxBody < 1 || maxBody > 1024 * 1024 || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Invalid private HTTPS limits.");
+  if (!Number.isSafeInteger(maxBody) || maxBody < 1 || maxBody > 1024 * 1024 || !Number.isSafeInteger(maxResponse) || maxResponse < 1 || maxResponse > 1024 * 1024 || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Invalid private HTTPS limits.");
   function flush(socket: Bun.Socket<Connection>): void {
     const state = socket.data;
     if (state.closed || !state.output) return;
@@ -46,7 +47,7 @@ export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): {
     const state = socket.data;
     if (state.closed || state.output) return;
     clearTimeout(state.timer);
-    if (!Number.isSafeInteger(response.status) || response.status < 200 || response.status > 599 || response.body.byteLength > MAX_RESPONSE_BYTES || (response.contentType !== undefined && response.contentType !== "application/json" && response.contentType !== "application/octet-stream")) {
+    if (!Number.isSafeInteger(response.status) || response.status < 200 || response.status > 599 || response.body.byteLength > maxResponse || (response.contentType !== undefined && response.contentType !== "application/json" && response.contentType !== "application/octet-stream")) {
       response = { status: 500, body: Buffer.from('{"error":"invalid_response"}') };
     }
     const header = `HTTP/1.1 ${response.status} ${STATUS_CODES[response.status] ?? "Result"}\r\ncontent-type: ${response.contentType ?? "application/json"}\r\ncontent-length: ${response.body.byteLength}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n`;

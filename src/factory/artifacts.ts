@@ -1,3 +1,4 @@
+import { FACTORY_PAGE_BYTES_LIMIT } from "@ezcorp/factory-sdk/page-bytes";
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
@@ -9,7 +10,7 @@ import { releaseRows } from "../db/queries/extension-releases";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryIdentity, ImmutableObjectReference } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 
-export const FACTORY_ARTIFACT_MAX_BYTES = 32 * 1024;
+export const FACTORY_ARTIFACT_MAX_BYTES = FACTORY_PAGE_BYTES_LIMIT;
 export type FactoryArtifactKind = "definition_page" | "definition_manifest" | "transition_page" | "transition_manifest" | "execution_manifest" | "partition";
 
 export interface FactoryArtifactStageOptions {

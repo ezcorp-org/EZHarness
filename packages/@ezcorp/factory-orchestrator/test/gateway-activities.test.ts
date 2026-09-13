@@ -91,7 +91,7 @@ before(async () => {
     if (request.headers.authorization !== `Bearer ${expectedToken}`) { response.writeHead(401).end(); return; }
     if (request.url === "/internal/factory/v1/outbox/claim") queueClaimBody === undefined ? response.writeHead(204).end() : response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(queueClaimBody));
     else if (request.url === "/internal/factory/v1/outbox/settle") response.writeHead(204).end();
-    else if (request.url === "/internal/factory/v1/outbox/confirm-inbox") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ confirmed: mode !== "wrong-confirmation" ? true : "yes" }));
+    else if (request.url === "/internal/factory/v1/outbox/confirm-inbox") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode !== "wrong-confirmation" ? true : "yes"));
     else if (request.url === "/internal/factory/v1/definitions/resolve") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-resolve" ? { ...source, definitionDigest: sha256("wrong") } : source));
     else if (request.url === "/internal/factory/v1/definitions/manifest") response.writeHead(200, { "content-type": "application/json" }).end(manifestBody);
     else if (request.url === "/internal/factory/v1/definitions/page") response.writeHead(200, { "content-type": "application/octet-stream" }).end(mode === "adversarial-page" ? adversarialPageBody : definitionBody);
@@ -287,7 +287,9 @@ describe("authenticated factory command queue", () => {
     queueClaimBody = undefined;
     const queue = await createGatewayFactoryCommandQueue({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
     assert.equal(await queue.claim(), null);
-    const invalid = [null, {}, { claimToken: "", command }, { claimToken: "x".repeat(513), command }, { claimToken: "claim", command: null }, { claimToken: "claim", command: { ...command, commandId: "" } }, { claimToken: "claim", command: { ...command, kind: "wrong" } }, { claimToken: "claim", command: { ...command, interpreterId: "" } }, { claimToken: "claim", command: { ...command, body: undefined } }, { claimToken: "claim", command: { ...command, body: "x".repeat(65_536) } }];
+    queueClaimBody = null;
+    assert.equal(await queue.claim(), null);
+    const invalid = [{}, { claimToken: "", command }, { claimToken: "x".repeat(513), command }, { claimToken: "claim", command: null }, { claimToken: "claim", command: { ...command, commandId: "" } }, { claimToken: "claim", command: { ...command, kind: "wrong" } }, { claimToken: "claim", command: { ...command, interpreterId: "" } }, { claimToken: "claim", command: { ...command, body: undefined } }, { claimToken: "claim", command: { ...command, body: "x".repeat(65_536) } }];
     for (queueClaimBody of invalid) await assert.rejects(queue.claim(), /invalid|65536 bytes/);
     mode = "invalid-json";
     await assert.rejects(queue.claim(), /invalid factory claim JSON/);

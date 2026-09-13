@@ -6,7 +6,7 @@ import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { durableInputHash } from "../../delivery-queue/durable-delivery-queue";
 import { FactoryInbox, type FactoryInboxKey, type FactoryInboxIdentity } from "../../factory/inbox";
-import { FactoryCommandOutbox } from "../../factory/outbox";
+import { FactoryCommandOutbox, FactoryInstallationCommandOutbox } from "../../factory/outbox";
 import { FactoryTransportQueue } from "../../factory/transport-queue";
 import { FactoryRecords, type FactoryAuditInput } from "../../factory/records";
 
@@ -184,6 +184,40 @@ export function factoryInboxConformance(create: () => Promise<{ db: Transactiona
       await expect(queue.claim()).rejects.toMatchObject({ code: "factory_command_transport_invalid" });
       await fixture.db.execute(sql`UPDATE factory_command_outbox SET payload=jsonb_set(payload::jsonb, '{command,body}', '{"changed":true}'::jsonb)::text WHERE id=${malformed.id}`);
       await expect(outbox.inspect(malformed.id)).rejects.toMatchObject({ code: "factory_command_corrupt" });
+    });
+
+    test("one installation dispatcher claims across projects while preserving destination, tenant and lease fences", async () => {
+      await fixture.db.execute(sql`UPDATE factory_command_outbox SET state='delivered'`);
+      const keys = [] as FactoryInboxKey[];
+      for (const projectId of ["installation-one", "installation-two"]) {
+        await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},${projectId},${`/tmp/${projectId}`})`);
+        await records.bindProject(projectId);
+        const key = { projectId, runId: `${projectId}-run`, interpreterId: "root" };
+        await records.createRun({ ...key, definitionDigest: `sha256:${"a".repeat(64)}`, interpreterBuild: "v1", executionEpoch: 1, input: {}, principalId: "inbox-human" }, async () => {});
+        keys.push(key);
+        await inbox.enqueue(key, event(projectId));
+        await new FactoryCommandOutbox(fixture.db, inbox.tenantId, projectId, () => 10, "pool").enqueue({ kind: "compute_admission", projectId, logicalRunId: key.runId, reservationId: projectId, body: {} });
+      }
+      let now = 10;
+      const outbox = new FactoryInstallationCommandOutbox(fixture.db, inbox.tenantId, () => now);
+      const queue = new FactoryTransportQueue(outbox, inbox);
+      const claims = await Promise.all([queue.claim(), queue.claim()]);
+      expect(new Set(claims.map(claim => claim!.command.projectId))).toEqual(new Set(keys.map(key => key.projectId)));
+      expect(await queue.claim()).toBeNull();
+      expect(await new FactoryTransportQueue(new FactoryInstallationCommandOutbox(fixture.db, "foreign"), new FactoryInbox(fixture.db, "foreign")).claim()).toBeNull();
+      for (const claim of claims) {
+        expect(claim!.command.kind).toBe("decision");
+        await expect(queue.settle({ ...claim!, command: { ...claim!.command, projectId: "foreign" } }, "delivered")).rejects.toThrow("factory_command_conflict");
+        await expect(outbox.settle({ tenantId: "foreign" } as never, "delivered")).rejects.toThrow("factory_command_scope_mismatch");
+        expect(await queue.confirmInboxIdentity(claim!.command)).toBe(false);
+      }
+      await queue.settle(claims[0]!, "delivered");
+      now += 60_001;
+      expect(await queue.claim()).toBeNull();
+      await expect(queue.settle(claims[1]!, "delivered")).rejects.toMatchObject({ code: "delivery_lease_lost" });
+      expect((await outbox.inspect(claims[1]!.command.commandId, claims[1]!.command.projectId))?.state).toBe("outcome_unknown");
+      const pool = new FactoryInstallationCommandOutbox(fixture.db, inbox.tenantId, () => now, "pool");
+      expect((await pool.claim())?.command.kind).toBe("compute_admission");
     });
 
     test("scope, wire limits and unsafe counters fail before accepted work", async () => {

@@ -1,3 +1,4 @@
+import { encodeFactoryPageBase64, decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
@@ -114,14 +115,14 @@ test("PostgreSQL and S3 commit paged Node transitions with exact inbox receipts"
   const manifest = JSON.parse((Array.isArray(storedAudit) ? storedAudit : storedAudit.rows)![0]!.payload).artifactManifest;
   const loadedManifest = await activity.loadTransitionManifest({ ...identity, sourceSequence: 1, manifest });
   const loadedPages = await Promise.all(loadedManifest.pages.map(page => activity.loadTransitionPage({ ...identity, sourceSequence: 1, page })));
-  expect(JSON.parse(loadedPages.map(page => page.content).join(""))).toMatchObject({ schemaVersion: "factory.transition.v1", sourceSequence: 1, event, nextState: { padding: "x".repeat(40 * 1024) } });
+  expect(JSON.parse(loadedPages.map(page => new TextDecoder("utf-8", { fatal: true }).decode(decodeFactoryPageBase64(page.contentBase64))).join(""))).toMatchObject({ schemaVersion: "factory.transition.v1", sourceSequence: 1, event, nextState: { padding: "x".repeat(40 * 1024) } });
   await expect(activity.loadTransitionManifest({ ...identity, sourceSequence: 2, manifest })).rejects.toMatchObject({ code: "factory_transition_not_found" });
   await expect(activity.loadTransitionPage({ ...identity, sourceSequence: 2, page: loadedManifest.pages[0]! })).rejects.toMatchObject({ code: "factory_transition_not_found" });
   await expect(activity.loadTransitionManifest({ ...identity, projectId: "foreign-project", sourceSequence: 1, manifest })).rejects.toMatchObject({ code: "factory_artifact_not_found" });
 
   const missing: Extract<KernelEvent, { kind: "cancel" }> = { id: "never-enqueued", kind: "cancel", atMs: 2, reason: "x" };
   const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 2, event: missing, nextState: {}, commands: [] }));
-  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 2, index: 0, content, encodedBytes: artifactJson.bytes(content).byteLength });
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 2, index: 0, contentBase64: encodeFactoryPageBase64(artifactJson.bytes(content)), encodedBytes: artifactJson.bytes(content).byteLength });
   const finalized = await transitions.finalizeTransitionArtifact({ ...identity, sourceSequence: 2, encodedBytes: page.encodedBytes, eventId: missing.id, pages: [page] });
   const badRecord = { ...identity, sourceSequence: 2, eventId: missing.id, eventHash: finalized.eventHash, inboxSequence: command.eventSequence, artifactManifest: finalized.manifest };
   await expect(transitions.recordTransition(badRecord)).rejects.toMatchObject({ code: "factory_inbox_applied_conflict" });
