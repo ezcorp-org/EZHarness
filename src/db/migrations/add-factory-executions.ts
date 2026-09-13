@@ -3,19 +3,6 @@ import type { MigrationDb } from "./types";
 
 /** Durable C02 identity and journal records. All DDL is additive and rerunnable. */
 export async function up(database: MigrationDb): Promise<void> {
-  await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_tenants (tenant_id TEXT PRIMARY KEY, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW())`);
-  await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_project_scopes (
-    tenant_id TEXT NOT NULL REFERENCES factory_tenants(tenant_id) ON DELETE CASCADE,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    PRIMARY KEY (tenant_id, project_id)
-  )`);
-  await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_run_scopes (
-    tenant_id TEXT NOT NULL,
-    project_id TEXT NOT NULL,
-    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
-    PRIMARY KEY (tenant_id, project_id, run_id),
-    FOREIGN KEY (tenant_id, project_id) REFERENCES factory_project_scopes(tenant_id, project_id) ON DELETE CASCADE
-  )`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_executions (
     attempt_id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,
@@ -31,12 +18,12 @@ export async function up(database: MigrationDb): Promise<void> {
     request_hash TEXT NOT NULL,
     request_json JSONB NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('admitted', 'running', 'cancel_accepted', 'stopped', 'failed')),
-    journal_cursor BIGINT NOT NULL DEFAULT 0,
+    journal_cursor BIGINT NOT NULL DEFAULT -1,
     cancel_accepted_at TIMESTAMP WITH TIME ZONE,
     stopped_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    FOREIGN KEY (tenant_id, project_id, run_id) REFERENCES factory_run_scopes(tenant_id, project_id, run_id) ON DELETE RESTRICT
+    FOREIGN KEY (tenant_id, project_id, run_id) REFERENCES factory_runs(tenant_id, project_id, run_id) ON DELETE RESTRICT
   )`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_execution_operations (
     attempt_id TEXT NOT NULL REFERENCES factory_executions(attempt_id) ON DELETE CASCADE,
