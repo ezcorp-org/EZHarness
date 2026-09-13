@@ -45,6 +45,14 @@ describe("factory kernel", () => {
     expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "unsafe", atMs: 1, nodeId: "work", knownCostMicros: "01" })).toThrow("usage cost");
   });
 
+  test("rejects a settlement for a nonexistent node without changing the run ledger", () => {
+    const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
+    const initial = createKernelState(graph, "usage-fence", {}, 0);
+    const settled = advanceKernel(graph, initial, { kind: "usage-settled", id: "unknown-node", atMs: 1, nodeId: "does-not-exist", knownCostMicros: "7" });
+    expect(settled.nextState.spentCostMicros).toBe("0");
+    expect(settled.nextState.unknownCostMicros).toBe("0");
+  });
+
   test("uses stable command identities and independently advances a ready successor", () => {
     const graph = compiled([
       { id: "first", kind: "task", runner },
