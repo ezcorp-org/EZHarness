@@ -1,3 +1,4 @@
+import { encodeFactoryPageBase64, decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import { MAX_PAGE_BYTES, MAX_TRANSITION_ARTIFACT_BYTES, MAX_TRANSITION_PAGES, type FactoryIdentity, type FactoryTransitionManifest, type FactoryTransitionPage, type FinalizedTransitionArtifact, type ImmutableObjectReference, type TransitionArtifact, type TransitionArtifactRequest, type TransitionPageReference, type TransitionPageRequest, type TransitionRecord } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
@@ -33,13 +34,15 @@ export class FactoryTransitionArtifacts {
     if (!validSequence(request.sourceSequence) || !pageReference(request.page)) throw new FactoryArtifactError("factory_transition_invalid");
     const loaded = await this.artifacts.load(request, request.page, ["transition_page"], true);
     if (loaded.sourceSequence !== request.sourceSequence || loaded.pageIndex !== request.page.index || !sameReference(loaded.reference, request.page)) throw new FactoryArtifactError("factory_transition_not_found");
-    try { return { ...loaded.reference, index: request.page.index, content: artifactJson.text(loaded.content) }; }
+    try { return { ...loaded.reference, index: request.page.index, contentBase64: encodeFactoryPageBase64(loaded.content) }; }
     catch { throw new FactoryArtifactError("factory_transition_corrupt"); }
   }
 
   async stageTransitionPage(request: TransitionPageRequest): Promise<TransitionPageReference> {
     request = JSON.parse(encodeFactoryPayload(request)) as TransitionPageRequest;
-    const content = artifactJson.bytes(request.content);
+    if (!Number.isSafeInteger(request.index) || request.index < 0 || request.index >= MAX_TRANSITION_PAGES) throw new FactoryArtifactError("factory_transition_invalid");
+    let content: Uint8Array;
+    try { content = decodeFactoryPageBase64(request.contentBase64); } catch { throw new FactoryArtifactError("factory_transition_invalid"); }
     if (content.byteLength !== request.encodedBytes || content.byteLength > MAX_PAGE_BYTES || content.byteLength > FACTORY_ARTIFACT_MAX_BYTES) throw new FactoryArtifactError("factory_transition_invalid");
     const reference = await this.artifacts.stage(request, "transition_page", content, { sourceSequence: request.sourceSequence, pageIndex: request.index, interpreterScoped: true });
     return { ...reference, index: request.index };

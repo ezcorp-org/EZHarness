@@ -54,6 +54,9 @@ The Node.js Temporal worker contains only the trusted kernel and orchestration a
 
 Use versioned JSON over private HTTPS with mutual TLS. A certificate identifies the caller service and tenant; the signed attempt token also binds project, run, node instance, candidate generation, attempt, grant revision, resource reservation, deadline, and execution epoch. Certificate/token mismatch fails before work starts. Python and Bun consume the same generated JSON schemas; integer usage counters stay within the shared safe range and monetary amounts use decimal integer strings.
 
+The installation outbox endpoint returns HTTP 200 with a claimed command or JSON `null`; settlement returns 204, and inbox confirmation returns a JSON boolean. Its private HTTP envelope permits 68 KiB so a 64 KiB stored command can carry a lease token and settlement metadata. The C08 encoded Temporal payload limit remains 64 KiB. Definition and transition activity page DTOs use canonical `contentBase64`; their private HTTP page reads return the exact raw immutable bytes, with the original digest and byte count.
+
+
 | Internal operation | Contract |
 | --- | --- |
 | `PUT /internal/factory/v1/executions/{attemptId}` | Idempotent submit with canonical request hash; same ID/different hash returns 409; acknowledge only after durable admission record |

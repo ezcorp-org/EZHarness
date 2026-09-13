@@ -39,3 +39,22 @@ export async function rawTls(url: string, certificates: Certificates, chunks: st
   });
 }
 
+
+async function nodeFixture<Result>(filename: string, input: unknown, label: string): Promise<Result> {
+  const child = Bun.spawn(["node", new URL(filename, import.meta.url).pathname], { stdin: new Blob([JSON.stringify(input)]), stdout: "pipe", stderr: "pipe" });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  if (code !== 0) throw new Error(`${label} failed: ${stderr}`);
+  return JSON.parse(stdout);
+}
+
+/** Run the actual Node HTTP stack; secret inputs travel only on stdin. */
+export async function nodeHttpsRequest(url: string, certs: Certificates, options: { method?: string; body?: unknown; token?: string; certificate?: "client" | "foreign" | "none"; headers?: Record<string, string> } = {}): Promise<{ status: number; body: Buffer }> {
+  const certificate = options.certificate ?? "client";
+  const received = await nodeFixture<{ status: number; body: string }>("./factory-node-https-client.mjs", { url, method: options.method ?? "POST", ...(options.body === undefined ? {} : { body: Buffer.from(JSON.stringify(options.body)).toString("base64") }), ca: certs.ca, cert: certificate === "client" ? certs.clientCert : certificate === "foreign" ? certs.foreignCert : undefined, key: certificate === "client" ? certs.clientKey : certificate === "foreign" ? certs.foreignKey : undefined, headers: { "content-type": "application/json", "x-ezcorp-factory-version": "1", ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }), ...options.headers } }, "Node HTTPS client");
+  return { status: received.status, body: Buffer.from(received.body, "base64") };
+}
+
+/** Exercise the production Node queue client against the live Bun service. */
+export async function nodeFactoryQueueCycle(url: string, certs: Certificates, token: string): Promise<{ command: unknown; confirmed: boolean; empty: unknown }> {
+  return nodeFixture("./factory-node-queue-client.mjs", { url, ca: certs.ca, cert: certs.clientCert, key: certs.clientKey, token }, "Node queue client");
+}

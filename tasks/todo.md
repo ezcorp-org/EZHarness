@@ -1177,11 +1177,25 @@ Review: `71700a687` reuses the strict local storage provisioner in the required 
 ## Private factory HTTPS transport
 
 - [x] Prove the C02 private Node-to-Bun mTLS request boundary through actual sockets.
-- [ ] Reuse bounded framing for the attempt gateway and orchestration service, with exact response bytes and peer identity.
+- [x] Reuse bounded framing for the attempt gateway and orchestration service, with exact response bytes and peer identity.
 - [x] Reject malformed, oversized, duplicate, unauthenticated and stalled requests; drain/close owned sockets.
-- [ ] Add purpose-scoped service authentication, queue and stored artifact routes.
+- [x] Add purpose-scoped service authentication, queue and stored artifact routes.
 - [ ] Verify real Node/PostgreSQL/S3 composition, coverage, types, lint and production boot.
 
 Plan review: the accepted C02 contract specifies the private HTTPS boundary under test. Existing runner-attempt authorization remains in its handler. The shared transport supplies only the verified certificate and bounded bytes, and cannot derive authority from a request body.
 
 Transport review: seven socket tests and 70 assertions pass, including a real Node client, mTLS denial, exact 64 KiB response bytes, fragmented framing, extra-request termination and bounded failures. Shared transport and attempt gateway measure 70/70 and36/36 executable lines. All four type checks and lint pass after installing both root and web locked dependencies. Receipts are `/tmp/factory-platform-evidence/private-https-final-focused.log`, `private-https-final-coverage/lcov.info`, `private-https-types-with-web.log`, and `private-https-lint-corrected.log`. Purpose-scoped orchestration routes and full production startup remain open.
+
+
+## Private service integration review
+
+- [x] Authenticate every private route with the bound client certificate and separate RS256 issuer, audience, subject and orchestration scope.
+- [x] Claim installation commands across project queues and retain stored-byte and lease checks.
+- [x] Serve exact immutable definition/transition bytes; carry page bytes safely through bounded activity DTOs.
+- [x] Forward only scoped command references to the trusted product policy.
+- [x] Reproduce and fix a legal 64 KiB command's HTTP envelope failure, route aliases and internal error-code disclosure.
+- [x] Run the production Node queue client against Bun/PostgreSQL/S3 and fix empty-queue and inbox-confirmation mismatches.
+- [x] Measure the changed server and Node sources, and run all four type checks, lint and gate integrity.
+- [ ] Connect the concrete committed-command policy and production startup.
+
+Review: `/tmp/factory-platform-evidence/private-service-final-results.json` records all seven successful producers. The combined component suite passes 52 cases/409 assertions. PostgreSQL/S3 passes 20 cases/180 assertions. Every measured line is hit for private service94/94, HTTPS70/70, outbox173/173, queue adapter26/26, artifact store81/81, definition store73/73 and transition store79/79. The actual Node producer measures queue client67/67, gateway236/236 and both paged readers completely. This closes the private transport and storage composition leaf; its injected command executor is still awaiting the concrete committed-command policy, and full platform readiness remains open.

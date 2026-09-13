@@ -1,3 +1,4 @@
+import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { CompiledFactory, CompiledExecutionManifest, CompiledPartitionArtifact, JsonValue } from "@ezcorp/factory-sdk";
 import type { FactoryDefinitionPage, FactoryDefinitionPageReference, FactoryDefinitionSource, FactoryIdentity, FactoryManifestPage, FactoryPartitionReference, ImmutableObjectReference } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
@@ -55,7 +56,7 @@ export class FactoryDefinitionArtifacts {
   async loadDefinitionPage(identity: FactoryIdentity, definitionDigest: string, page: FactoryDefinitionPageReference): Promise<FactoryDefinitionPage> {
     const loaded = await this.artifacts.load(identity, page, ["definition_page"]);
     if (loaded.definitionDigest !== definitionDigest || loaded.pageIndex !== page.index) throw new FactoryArtifactError("factory_definition_not_found");
-    return { index: page.index, objectId: loaded.reference.objectId, digest: loaded.reference.digest, content: artifactJson.text(loaded.content) };
+    return { index: page.index, objectId: loaded.reference.objectId, digest: loaded.reference.digest, contentBase64: encodeFactoryPageBase64(loaded.content) };
   }
 
   async stageExecutionManifest(value: CompiledExecutionManifest, identity: FactoryIdentity, definitionDigest: string): Promise<ImmutableObjectReference> {

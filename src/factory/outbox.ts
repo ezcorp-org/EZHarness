@@ -1,10 +1,11 @@
+import { FACTORY_TRANSPORT_COMMAND_BYTES_LIMIT } from "@ezcorp/factory-sdk/transport-types";
 import { assertJson, canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, type DurableDeliveryRecord, type DurableDeliveryStore } from "../delivery-queue/durable-delivery-queue";
 
-const MAX_COMMAND_BYTES = 64 * 1024;
+const MAX_COMMAND_BYTES = FACTORY_TRANSPORT_COMMAND_BYTES_LIMIT;
 
 interface FactoryCommandBase {
   readonly projectId: string;
@@ -74,6 +75,11 @@ function decode(row: CommandRow, tenantId: string, projectId: string): FactoryCo
   return { ...delivery, state: row.state, inputHash: row.input_hash };
 }
 
+function eligibleCommands(destination: "temporal" | "pool", now: number) {
+  return sql`((payload::jsonb->'command'->>'kind' = 'compute_admission') = ${destination === "pool"})
+    AND ((state = 'queued' AND available_at <= ${now}) OR (state = 'leased' AND lease_until <= ${now}))`;
+}
+
 class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery> {
   private readonly scope: string;
 
@@ -104,8 +110,7 @@ class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery
     this.assertScope(scope);
     const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
       WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId}
-        AND ((payload::jsonb->'command'->>'kind' = 'compute_admission') = ${this.destination === 'pool'})
-        AND ((state = 'queued' AND available_at <= ${now}) OR (state = 'leased' AND lease_until <= ${now}))
+        AND ${eligibleCommands(this.destination, now)}
       ORDER BY available_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`));
     return result[0] ? decode(result[0], this.tenantId, this.projectId) : null;
   }
@@ -209,7 +214,11 @@ export class FactoryCommandOutbox {
   }
 
   async claim(leaseMs = 60_000): Promise<FactoryCommandDelivery | null> {
-    return this.database.transaction(transaction => stateMachine.claim(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, this.now(), leaseMs));
+    return this.database.transaction(transaction => this.claimInTransaction(transaction, leaseMs));
+  }
+
+  async claimInTransaction(transaction: MigrationDb, leaseMs = 60_000): Promise<FactoryCommandDelivery | null> {
+    return stateMachine.claim(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, this.now(), leaseMs);
   }
 
   async settle(delivery: FactoryCommandDelivery, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryCommandDelivery> {
@@ -240,6 +249,27 @@ export class FactoryCommandOutbox {
   async dispatch(handler: (delivery: FactoryCommandDelivery) => Promise<void>): Promise<FactoryCommandDelivery | null> {
     return dispatchDurableDelivery(() => this.claim(), (delivery, outcome, code) => this.settle(delivery, outcome, code), handler, error => error instanceof FactoryRetryableCommandError ? error.code : null);
   }
+}
+
+/** One installation dispatcher claims existing project queues without accepting a tenant selector. */
+export class FactoryInstallationCommandOutbox {
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly now: () => number = Date.now, private readonly destination: "temporal" | "pool" = "temporal") { identity(tenantId); }
+
+  async claim(): Promise<FactoryCommandDelivery | null> {
+    return this.database.transaction(async transaction => {
+      const candidate = rows<{ project_id: string }>(await transaction.execute(sql`SELECT project_id FROM factory_command_outbox WHERE tenant_id=${this.tenantId} AND ${eligibleCommands(this.destination, this.now())} ORDER BY available_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`))[0];
+      return candidate ? this.project(candidate.project_id).claimInTransaction(transaction) : null;
+    });
+  }
+
+  async inspect(commandId: string, projectId: string): Promise<FactoryCommandDelivery | null> { return this.project(projectId).inspect(commandId); }
+
+  async settle(delivery: FactoryCommandDelivery, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryCommandDelivery> {
+    if (delivery.tenantId !== this.tenantId) throw new FactoryOutboxError("factory_command_scope_mismatch");
+    return this.project(delivery.projectId).settle(delivery, outcome, failureCode);
+  }
+
+  private project(projectId: string): FactoryCommandOutbox { return new FactoryCommandOutbox(this.database, this.tenantId, projectId, this.now, this.destination); }
 }
 
 export class FactoryRetryableCommandError extends Error {

@@ -47,7 +47,9 @@ export async function createGatewayFactoryCommandQueue(options: GatewayTransport
   return {
     async claim(): Promise<ClaimedFactoryCommand | null> {
       const response = await transport.request("POST", "/internal/factory/v1/outbox/claim", {}, MAX_TRANSPORT_ENVELOPE_BYTES);
-      return response.statusCode === 204 || response.body.byteLength === 0 ? null : parseClaim(json(response, "factory claim"));
+      if (response.statusCode === 204 || response.body.byteLength === 0) return null;
+      const claim = json(response, "factory claim");
+      return claim === null ? null : parseClaim(claim);
     },
     async settle(claim, outcome, errorCode): Promise<void> {
       if (errorCode !== undefined) boundedText(errorCode, "factory settlement error code");
@@ -57,9 +59,9 @@ export async function createGatewayFactoryCommandQueue(options: GatewayTransport
     },
     async confirmInboxIdentity(command): Promise<boolean> {
       const response = await transport.request("POST", "/internal/factory/v1/outbox/confirm-inbox", { command }, MAX_TRANSPORT_ENVELOPE_BYTES);
-      const result = record(json(response, "inbox confirmation"), "inbox confirmation");
-      if (typeof result.confirmed !== "boolean") throw new Error("factory gateway returned an invalid inbox confirmation");
-      return result.confirmed;
+      const result = json(response, "inbox confirmation");
+      if (typeof result !== "boolean") throw new Error("factory gateway returned an invalid inbox confirmation");
+      return result;
     },
   };
 }
