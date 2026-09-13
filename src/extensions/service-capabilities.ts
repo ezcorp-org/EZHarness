@@ -1,6 +1,7 @@
 import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/connection";
+import { SERVICE_ACCOUNT_IS_LIVE_SQL } from "../db/schema";
 import type { MigrationDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
 import { firstMissingCapability, grantsToCapabilitySet, type CapabilitySet } from "./capability-types";
@@ -19,7 +20,7 @@ export async function assertServiceCapabilities(proof: ServiceInvocation, extens
   const targetScope = target.installation.scope;
   if (target.installation.ownerId !== proof.consenterId || (target.installation.scope !== "global" && target.installation.scope !== `project:${proof.projectId}`)) throw new Error("Service cannot access this extension installation");
   if (canonicalJson([...new Set(target.installation.grants)].sort()) !== canonicalJson(requestedReleaseGrants(target.release.manifest))) throw new Error("Target release grants are no longer approved");
-  const service = releaseRows<{ scopes: string[]; projectId: string | null }>(await database.execute(sql`SELECT scopes, project_id AS "projectId" FROM service_accounts WHERE id=${proof.serviceId} AND enabled=true FOR SHARE`))[0];
+  const service = releaseRows<{ scopes: string[]; projectId: string | null }>(await database.execute(sql`SELECT scopes, project_id AS "projectId" FROM service_accounts WHERE id=${proof.serviceId} AND ${SERVICE_ACCOUNT_IS_LIVE_SQL} FOR SHARE`))[0];
   const delegation = releaseRows<{ capabilities: Array<{ kind: string; value: string | null }> }>(await database.execute(sql`SELECT capability_set AS capabilities FROM workflow_delegations WHERE id=${proof.delegationId} AND owner_kind='service' AND owner_service_account_id=${proof.serviceId} AND consented_by_user_id=${proof.consenterId} AND enabled=true AND revoked_at IS NULL FOR SHARE`))[0];
   if (!service || !delegation || (service.projectId !== null && service.projectId !== proof.projectId)) throw new Error("Service delegation is no longer active");
   if (options.rbacScope && !service.scopes.includes(options.rbacScope)) throw new Error("Service lacks the declared extension RBAC scope");

@@ -1,6 +1,7 @@
 import type { AuthUser, JWTPayload } from "./types";
 import { getSetting, upsertSetting } from "../db/queries/settings";
 import { encrypt, decrypt } from "../providers/encryption";
+import { factoryBootConfig } from "../factory/boot";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -33,10 +34,26 @@ async function importKey(secret: string): Promise<CryptoKey> {
   );
 }
 
+async function installationId(secret: string, supplied?: string): Promise<string> {
+  const configured = supplied ?? process.env.EZCORP_INSTALLATION_ID;
+  if (configured?.trim()) return configured;
+
+  if (factoryBootConfig.enabled) {
+    throw new Error("Factory JWT requires EZCORP_INSTALLATION_ID.");
+  }
+
+  // Self-hosted installations may not yet have a provisioned identifier. A
+  // one-way value derived from their distinct JWT secret still binds tokens to
+  // that installation without disclosing the secret in the token.
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(secret));
+  return `local:${base64UrlEncode(new Uint8Array(digest))}`;
+}
+
 export async function signJWT(
   payload: AuthUser,
   secret: string,
-  expiresInSeconds: number = 30 * 24 * 3600
+  expiresInSeconds: number = 30 * 24 * 3600,
+  installation?: string,
 ): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
@@ -48,8 +65,11 @@ export async function signJWT(
   const jtiBytes = new Uint8Array(16);
   crypto.getRandomValues(jtiBytes);
   const jti = Array.from(jtiBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  const audience = await installationId(secret, installation);
   const fullPayload: JWTPayload = {
     ...payload,
+    iss: audience,
+    aud: audience,
     iat: now,
     exp: now + expiresInSeconds,
     jti,
@@ -65,7 +85,11 @@ export async function signJWT(
   return `${signingInput}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
 
-export async function verifyJWT(token: string, secret: string): Promise<JWTPayload | null> {
+export async function verifyJWT(
+  token: string,
+  secret: string,
+  installation?: string,
+): Promise<JWTPayload | null> {
   const parts = token.split(".");
   if (parts.length !== 3) return null;
 
@@ -80,7 +104,12 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
     if (!valid) return null;
 
     const payload: JWTPayload = JSON.parse(decoder.decode(base64UrlDecode(payloadB64)));
-    if (payload.exp < Math.floor(Date.now() / 1000)) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (!Number.isSafeInteger(payload.iat) || !Number.isSafeInteger(payload.exp) || payload.exp <= now) {
+      return null;
+    }
+    const expectedInstallation = await installationId(secret, installation);
+    if (payload.iss !== expectedInstallation || payload.aud !== expectedInstallation) return null;
 
     return payload;
   } catch {

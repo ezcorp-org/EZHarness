@@ -25,6 +25,7 @@ import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul
 import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
 import { composePostgresHint } from "./compose-db-hint";
 import { embeddedDatabasePath } from "./data-path";
+import { assertFactoryBootReadiness } from "../factory/boot";
 const log = logger.child("db");
 
 const DB_PATH = embeddedDatabasePath();
@@ -812,6 +813,10 @@ async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sq
 }
 
 async function init(): Promise<void> {
+  // The factory flag is captured by factory/boot at process startup. Check
+  // before opening either driver so a flag-on PGlite install cannot create or
+  // migrate a database and then silently run without factory dependencies.
+  assertFactoryBootReadiness(DATABASE_URL);
   if (DATABASE_URL) {
     await initPostgres();
   } else {

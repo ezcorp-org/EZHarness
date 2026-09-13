@@ -154,7 +154,7 @@ try {
       assert.equal(await readWorkflowAuthorityMembership("owner", "project", transaction), true);
     }, () => authorityPeer.unsafe("DELETE FROM project_members WHERE user_id='owner' AND project_id='project'"));
     assert.equal(await readWorkflowAuthorityMembership("owner", "project", driver), false);
-    await client.unsafe("CREATE TABLE service_accounts(id TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT true,project_id TEXT); CREATE TABLE workflow_delegations(id TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT true,revoked_at TIMESTAMPTZ,owner_kind TEXT,owner_user_id TEXT,owner_service_account_id TEXT,workflow_name TEXT,project_id TEXT,extension_id TEXT,consented_by_user_id TEXT); CREATE TABLE workflow_runs(id TEXT PRIMARY KEY,status TEXT,user_id TEXT,run_as_kind TEXT,run_as TEXT,delegation_id TEXT,project_id TEXT,workflow_name TEXT,definition_hash TEXT,parent_run_id TEXT)");
+    await client.unsafe("CREATE TABLE service_accounts(id TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT true,expires_at TIMESTAMPTZ,project_id TEXT); CREATE TABLE workflow_delegations(id TEXT PRIMARY KEY,enabled BOOLEAN NOT NULL DEFAULT true,revoked_at TIMESTAMPTZ,owner_kind TEXT,owner_user_id TEXT,owner_service_account_id TEXT,workflow_name TEXT,project_id TEXT,extension_id TEXT,consented_by_user_id TEXT); CREATE TABLE workflow_runs(id TEXT PRIMARY KEY,status TEXT,user_id TEXT,run_as_kind TEXT,run_as TEXT,delegation_id TEXT,project_id TEXT,workflow_name TEXT,definition_hash TEXT,parent_run_id TEXT)");
     await upDelegationRelease(driver);
     await upDelegationRelease(driver);
     await repository.transact(installation.id, state => { state.installation.acknowledgedGeneration = state.installation.generation; });

@@ -637,6 +637,9 @@ export const serviceAccounts = pgTable("service_accounts", {
   index("idx_service_accounts_created_by").on(table.createdByUserId),
 ]);
 
+/** The SQL-level definition used wherever a service principal authorizes work. */
+export const SERVICE_ACCOUNT_IS_LIVE_SQL = sql`enabled = true AND (expires_at IS NULL OR expires_at > now())`;
+
 export type ServiceAccountRow = typeof serviceAccounts.$inferSelect;
 export type NewServiceAccountRow = typeof serviceAccounts.$inferInsert;
 

@@ -12,6 +12,8 @@ import {
   DEFAULT_RUNTIME_RO_DIRS,
   runtimeExecRoDirs,
 } from "../../extensions/sandbox/landlock";
+import { factoryBootConfig } from "../../factory/boot";
+import { isSensitiveEnvironmentEntry } from "../../extensions/sensitive-environment";
 
 const log = logger.child("shell-tool");
 
@@ -58,8 +60,8 @@ export interface ShellPreviewWiring {
  * exclusion (never granted). Omitted by callers without a per-run context;
  * the shell tool then behaves exactly as before (jail off).
  *
- * Fail-safe: a jail-build error logs + falls back to the unjailed spawn — a
- * host that can't jail behaves as before, never a hard failure.
+ * Factory-enabled boots require a jail. Other installs preserve the legacy
+ * fail-safe fallback for a missing or failed jail.
  */
 export interface ShellSandboxWiring {
   /** The per-run writable workspace (the ONLY rw host path in the jail).
@@ -82,9 +84,15 @@ export function resolveShellSandbox(
   command: string,
   sandbox: ShellSandboxWiring | undefined,
 ): { argv: string[]; env: Record<string, string> } | null {
-  if (!sandbox) return null;
+  if (!sandbox) {
+    if (factoryBootConfig.requireSandbox) throw new Error("Required shell sandbox wiring is unavailable.");
+    return null;
+  }
   const tier = getSandboxTier();
-  if (tier === "advisory") return null;
+  if (tier === "advisory") {
+    if (factoryBootConfig.requireSandbox) throw new Error("Required shell sandbox isolation is unavailable.");
+    return null;
+  }
   try {
     mkdirSync(sandbox.workspaceDir, { recursive: true });
     const built = buildSandboxArgv({
@@ -102,6 +110,9 @@ export function resolveShellSandbox(
     });
     return { argv: built.argv, env: built.env };
   } catch (err) {
+    if (factoryBootConfig.requireSandbox) {
+      throw new Error(`Required shell sandbox isolation is unavailable: ${(err as Error).message}`);
+    }
     log.warn("shell sandbox skipped (jail build failed)", {
       error: (err as Error).message,
     });
@@ -109,12 +120,10 @@ export function resolveShellSandbox(
   }
 }
 
-const SENSITIVE_ENV_PATTERNS = /SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY/i;
-
 function sanitizeEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERNS.test(key)) {
+    if (!isSensitiveEnvironmentEntry(key, value)) {
       env[key] = value;
     }
   }

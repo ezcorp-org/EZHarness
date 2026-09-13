@@ -11,6 +11,7 @@ import { hashPassword, verifyPassword } from "../auth/password";
 import type { AuthUser } from "../auth/types";
 
 const SECRET = "test-secret-please-do-not-use-in-prod-aaaaaaaa";
+const FOREIGN_SECRET = "other-installation-secret-please-do-not-use-in-prod";
 
 const SAMPLE_USER: AuthUser = {
 	id: "u-1",
@@ -18,6 +19,24 @@ const SAMPLE_USER: AuthUser = {
 	name: "Tester",
 	role: "member",
 };
+
+function base64UrlEncode(value: string | Uint8Array): string {
+	const binary = typeof value === "string" ? value : String.fromCharCode(...value);
+	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodePayload(token: string): Record<string, unknown> {
+	const encoded = token.split(".")[1]!;
+	return JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+}
+
+async function signPayload(header: string, payload: Record<string, unknown>): Promise<string> {
+	const body = base64UrlEncode(JSON.stringify(payload));
+	const input = `${header}.${body}`;
+	const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+	const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(input)));
+	return `${input}.${base64UrlEncode(bytes)}`;
+}
 
 describe("signJWT / verifyJWT round-trip", () => {
 	test("verify recovers the same payload signJWT signed", async () => {
@@ -36,6 +55,36 @@ describe("signJWT / verifyJWT round-trip", () => {
 	test("verify with the wrong secret returns null", async () => {
 		const token = await signJWT(SAMPLE_USER, SECRET);
 		expect(await verifyJWT(token, SECRET + "wrong")).toBeNull();
+	});
+
+	test("two installation secrets cannot verify each other's tokens", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET);
+		expect(await verifyJWT(token, FOREIGN_SECRET)).toBeNull();
+		expect(await verifyJWT(await signJWT(SAMPLE_USER, FOREIGN_SECRET), FOREIGN_SECRET)).not.toBeNull();
+	});
+
+	test("rejects a token with foreign issuer and audience even when its signature is valid", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET, 60, "installation-a");
+		expect(await verifyJWT(token, SECRET, "installation-b")).toBeNull();
+	});
+
+	test("rejects signed tokens with missing, foreign, or invalid required claims", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET, 60, "installation-a");
+		const [header] = token.split(".") as [string, string, string];
+		const payload = decodePayload(token);
+		for (const missing of ["iss", "aud", "iat", "exp"]) {
+			const candidate = { ...payload };
+			delete candidate[missing];
+			expect(await verifyJWT(await signPayload(header, candidate), SECRET, "installation-a")).toBeNull();
+		}
+		for (const candidate of [
+			{ ...payload, iss: "foreign-installation" },
+			{ ...payload, aud: "foreign-installation" },
+			{ ...payload, iat: "not-a-number" },
+			{ ...payload, exp: 1.5 },
+		]) {
+			expect(await verifyJWT(await signPayload(header, candidate), SECRET, "installation-a")).toBeNull();
+		}
 	});
 
 	test("verify with a tampered payload returns null", async () => {

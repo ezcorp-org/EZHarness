@@ -121,6 +121,24 @@ describe("migrate() — fresh DB + idempotent re-run", () => {
     expect(rIdx.filter((i) => i === "idx_extension_rbac_grants_scope")).toHaveLength(1);
   });
 
+  test("service account expiry is additive, nullable, and preserved across a rerun", async () => {
+    const columns = await pglite.query<{ column_name: string; is_nullable: string }>(
+      "SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'service_accounts' AND column_name = 'expires_at'",
+    );
+    expect(columns.rows).toEqual([{ column_name: "expires_at", is_nullable: "YES" }]);
+    await pglite.query(
+      "INSERT INTO users (id, email, password_hash, name, role, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING",
+      ["expiry-owner", "expiry@x.test", "hash", "Expiry", "admin", "active"],
+    );
+    await pglite.query(
+      "INSERT INTO service_accounts (id, name, created_by_user_id, max_tokens_per_day) VALUES ($1, $2, $3, $4)",
+      ["expiry-legacy", "expiry-legacy", "expiry-owner", 10],
+    );
+    await migrate(db);
+    const rows = await pglite.query<{ expires_at: string | null }>("SELECT expires_at FROM service_accounts WHERE id = 'expiry-legacy'");
+    expect(rows.rows[0]!.expires_at).toBeNull();
+  });
+
   test("legacy DB (old unique dedupe index + a per-column duplicate active card) migrates to the swapped index", async () => {
     // Rewind the proposals table to the LEGACY state: the once-ever
     // UNIQUE(dedupe_key) index present, the partial active index absent.

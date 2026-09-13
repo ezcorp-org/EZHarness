@@ -62,6 +62,7 @@
 // purpose (Bun.CryptoHasher fast path).
 import { logger } from "../logger";
 import { redactUrlSecretsInToken } from "./mcp-secret-redaction";
+import { SENSITIVE_ENVIRONMENT_PATTERN } from "./sensitive-environment";
 
 const log = logger.child("audit-redaction");
 
@@ -136,14 +137,13 @@ const VALUE_PATTERNS: ReadonlyArray<RegExp> = [
 
 // ── Key-pattern regex (case-insensitive, applied to property names) ──
 //
-// Mirrors `SENSITIVE_ENV_PATTERNS` at `src/runtime/tools/shell.ts:14`
+// Mirrors the shared classifier used by shell and install permissions.
 // plus the canonical credential-bearing HTTP header names.
 const SENSITIVE_KEY_PATTERN =
   /^(?:authorization|x-api-key|openai-organization|openai-project|cookie|set-cookie|proxy-authorization)$/i;
-const SENSITIVE_ENV_KEY_PATTERN = /SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY/i;
 
 function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEY_PATTERN.test(key) || SENSITIVE_ENV_KEY_PATTERN.test(key);
+  return SENSITIVE_KEY_PATTERN.test(key) || SENSITIVE_ENVIRONMENT_PATTERN.test(key);
 }
 
 /**

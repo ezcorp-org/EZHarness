@@ -8,6 +8,7 @@ export { workflowDelegationReleaseBinding } from "./workflow-scope";
 import { readWorkflowAuthorityUser, readWorkflowAuthorityMembership } from "../db/queries/workflow-authority";
 import { getWorkflowDelegation } from "../db/queries/workflow-delegations";
 import { findLiveServiceAccount } from "../db/queries/service-accounts";
+import { SERVICE_ACCOUNT_IS_LIVE_SQL } from "../db/schema";
 import type { MigrationDb } from "../db/migrations/types";
 import { sql } from "drizzle-orm";
 import { releaseRows } from "../db/queries/extension-releases";
@@ -24,7 +25,7 @@ async function canExecuteInProject(principalId: string, projectId: string | null
 }
 
 async function readService(serviceId: string, database?: MigrationDb) {
-  return database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND enabled=true FOR SHARE`))[0] : findLiveServiceAccount(serviceId);
+  return database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND ${SERVICE_ACCOUNT_IS_LIVE_SQL} FOR SHARE`))[0] : findLiveServiceAccount(serviceId);
 }
 
 export async function workflowReleaseCanConsentService(entry: CachedWorkflow, serviceId: string, consenterId: string | null, projectId?: string | null, database?: MigrationDb): Promise<boolean> {

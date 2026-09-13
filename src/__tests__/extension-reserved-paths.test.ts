@@ -33,6 +33,7 @@ import type { ExtensionPermissions } from "../extensions/types";
 
 let projectRoot: string;
 let installDir: string;
+let externalSecretsDir: string;
 const savedEnv: Record<string, string | undefined> = {};
 
 // A covering grant: `$CWD` expands to the project root, so it nominally
@@ -53,6 +54,9 @@ beforeAll(() => {
   mkdirSync(join(projectRoot, ".ezcorp", "data"), { recursive: true });
   mkdirSync(join(projectRoot, ".ezcorp", "backups"), { recursive: true });
   writeFileSync(join(projectRoot, ".ezcorp", "data", "ezcorp-db"), "secret");
+  writeFileSync(join(projectRoot, ".pi-secret"), "master key");
+  writeFileSync(join(projectRoot, ".pi-salt"), "salt");
+  writeFileSync(join(projectRoot, ".env"), "PRIVATE=value");
 
   // NOT reserved: the extension store (legit read+write) ...
   mkdirSync(join(projectRoot, ".ezcorp", "extension-data", "file-organizer"), {
@@ -69,10 +73,13 @@ beforeAll(() => {
   // An install dir OUTSIDE the project root so the implicit install-dir
   // allow never accidentally covers (or shadows) the reserved compare.
   installDir = realpathSync(mkdtempSync(join(tmpdir(), "ezcorp-install-")));
+  externalSecretsDir = realpathSync(mkdtempSync(join(tmpdir(), "ezcorp-operator-secrets-")));
+  writeFileSync(join(externalSecretsDir, "operator.key"), "operator secret");
 
   savedEnv.EZCORP_PROJECT_ROOT = process.env.EZCORP_PROJECT_ROOT;
   savedEnv.EZCORP_DB_PATH = process.env.EZCORP_DB_PATH;
   savedEnv.DATABASE_URL = process.env.DATABASE_URL;
+  savedEnv.EZCORP_SECRETS_DIR = process.env.EZCORP_SECRETS_DIR;
   process.env.EZCORP_PROJECT_ROOT = projectRoot;
   // Keep getDbMaskDirs() out of the picture for THIS root (no on-disk DB
   // at the default path under tmp); the `.ezcorp/data` reservation is
@@ -81,6 +88,7 @@ beforeAll(() => {
   // so the DB-path branch is also exercised.
   delete process.env.DATABASE_URL;
   process.env.EZCORP_DB_PATH = join(projectRoot, ".ezcorp", "data");
+  process.env.EZCORP_SECRETS_DIR = externalSecretsDir;
   __resetProjectRootCacheForTests();
 });
 
@@ -92,6 +100,7 @@ afterAll(() => {
   __resetProjectRootCacheForTests();
   rmSync(projectRoot, { recursive: true, force: true });
   rmSync(installDir, { recursive: true, force: true });
+  rmSync(externalSecretsDir, { recursive: true, force: true });
 });
 
 describe("isReservedSensitivePath", () => {
@@ -103,6 +112,24 @@ describe("isReservedSensitivePath", () => {
     expect(
       await isReservedSensitivePath(join(projectRoot, ".ezcorp", "data", "ezcorp-db")),
     ).toBe(true);
+  });
+
+  test("master-key files and .env are reserved under a covering grant", async () => {
+    for (const name of [".pi-secret", ".pi-salt", ".env"]) {
+      expect(await isReservedSensitivePath(join(projectRoot, name))).toBe(true);
+      const result = await checkFilesystemPermission(join(projectRoot, name), coveringGrant, installDir, "read");
+      expect(result.allowed).toBe(false);
+    }
+  });
+
+  test("the configured operator secrets directory is reserved under an explicit grant", async () => {
+    const secret = join(externalSecretsDir, "operator.key");
+    expect(await isReservedSensitivePath(secret)).toBe(true);
+    const result = await checkFilesystemPermission(secret, {
+      filesystem: [externalSecretsDir],
+      grantedAt: {},
+    }, installDir, "read");
+    expect(result.allowed).toBe(false);
   });
 
   test("the segment-boundary sibling .ezcorp/data-export is NOT reserved", async () => {

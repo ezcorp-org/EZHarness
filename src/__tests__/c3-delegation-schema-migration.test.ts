@@ -805,6 +805,7 @@ describe("C3 migration — worst realistic pre-state", () => {
           scopes JSONB NOT NULL DEFAULT '[]',
           max_tokens_per_day INTEGER NOT NULL,
           enabled BOOLEAN NOT NULL DEFAULT TRUE,
+          expires_at TIMESTAMP WITH TIME ZONE,
           disabled_reason TEXT,
           created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
           updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
