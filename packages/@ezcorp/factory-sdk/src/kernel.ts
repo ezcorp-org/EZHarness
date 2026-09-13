@@ -141,7 +141,7 @@ function applyResult(factory: CompiledFactory, state: KernelState, event: Extrac
   const attempts = runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt);
   const next = withNode(state, event.nodeId, { ...runtime, status: "succeeded", output: event.output, error: undefined, attempts });
   const progressed = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
-  return progressMap(factory, completeScopeIfReady(factory, progressed, event.nodeId, commands), event.nodeId, commands);
+  return progressLoop(factory, progressMap(factory, completeScopeIfReady(factory, progressed, event.nodeId, commands), event.nodeId, commands), event.nodeId, commands);
 }
 
 function applyFailure(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "node-failed" }>, commands: KernelCommand[]): KernelState {
@@ -275,6 +275,7 @@ function dispatchReady(factory: CompiledFactory, state: KernelState, node: Facto
     const scoped = { ...state, nodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, expandedNodeCount: scopeIds.length, spentCostMicros: "0", unknownCostMicros: "0", nodeIds: scopeIds, roots } } };
     return activateReady(factory, withNode(scoped, nodeId, { ...runtime, status: "waiting", map: { snapshot: collection, itemCount: collection.length, completedIndexes: [], failedIndexes: [], outcomes: Array.from({ length: collection.length }) }, waitingReason: "external_reconciliation" }), commands, roots);
   }
+  if (node.kind === "loop") return startLoopIteration(factory, state, node, nodeId, runtime, resolveValue(node.initialInput, state), 0, commands);
   if (node.kind === "approval") {
     const deadlineAtMs = Math.min(nodeDeadline(state, node), state.nowMs + Math.min(node.expiresInMs, 24 * 60 * 60 * 1_000));
     const command = commandFor(state, "request-approval", nodeId);
@@ -486,11 +487,11 @@ function resolveReference(reference: ValueReference, state: KernelState): JsonVa
   return value;
 }
 
-function expressionContext(state: KernelState): { readonly inputs: Readonly<Record<string, JsonValue>>; readonly nodes: Readonly<Record<string, JsonValue>> } {
+function expressionContext(state: KernelState, loop?: Readonly<Record<string, JsonValue>>): { readonly inputs: Readonly<Record<string, JsonValue>>; readonly nodes: Readonly<Record<string, JsonValue>>; readonly loop?: Readonly<Record<string, JsonValue>> } {
   const inputs = isRecord(state.input) ? state.input : {};
   const nodes: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
   for (const [id, runtime] of Object.entries(state.nodes)) if (runtime.output !== undefined) nodes[id] = runtime.output;
-  return { inputs, nodes };
+  return { inputs, nodes, loop };
 }
 
 function graphOutput(factory: CompiledFactory, state: KernelState): JsonValue {
@@ -546,6 +547,42 @@ function progressMap(factory: CompiledFactory, state: KernelState, nodeId: strin
     activeItems.add(nextItem);
   }
   return next;
+}
+
+function startLoopIteration(factory: CompiledFactory, state: KernelState, node: Extract<FactoryNode, { kind: "loop" }>, nodeId: string, runtime: KernelNodeState, carried: JsonValue, iteration: number, commands: KernelCommand[]): KernelState {
+  if (!validateValue(node.carriedSchema, carried).ok) return failNode(factory, state, node, nodeId, "LOOP_INPUT_INVALID", "execution", commands);
+  if (iteration >= node.maxIterations || state.nowMs - (runtime.loop?.startedAtMs ?? state.nowMs) > node.maxElapsedMs) return failNode(factory, state, node, nodeId, "LOOP_BOUND_EXHAUSTED", "bound_exhausted", commands);
+  const prefix = `${nodeId}/items/${iteration}`;
+  const nodes: Record<string, KernelNodeState> = { ...state.nodes };
+  const roots: string[] = [];
+  for (const child of node.body.nodes) {
+    const id = `${prefix}/${child.id}`;
+    nodes[id] = { status: "blocked", candidateGeneration: 0, nextAttempt: 1, attempts: [] };
+    if ((child.dependsOn?.length ?? 0) === 0) roots.push(id);
+  }
+  const scopeId = `${nodeId}/items/${iteration}`;
+  const loop = { iteration, carried, startedAtMs: runtime.loop?.startedAtMs ?? state.nowMs, spentCostMicros: runtime.loop?.spentCostMicros ?? "0", unknownCostMicros: runtime.loop?.unknownCostMicros ?? "0" };
+  const next = { ...state, nodes, scopes: { ...state.scopes, [scopeId]: { id: scopeId, parentNodeId: nodeId, depth: 1, expandedNodeCount: node.body.nodes.length, spentCostMicros: loop.spentCostMicros, unknownCostMicros: loop.unknownCostMicros, nodeIds: node.body.nodes.map((child) => `${prefix}/${child.id}`), roots } } };
+  return activateReady(factory, withNode(next, nodeId, { ...runtime, status: "waiting", loop, waitingReason: "external_reconciliation" }), commands, roots);
+}
+
+function progressLoop(factory: CompiledFactory, state: KernelState, nodeId: string, commands: KernelCommand[]): KernelState {
+  const parentId = mapParent(nodeId);
+  const parentNode = parentId ? nodeFor(factory, parentId) : undefined;
+  const parent = parentId ? state.nodes[parentId] : undefined;
+  if (!parentId || !parent || parentNode?.kind !== "loop" || !parent.loop) return state;
+  const prefix = `${parentId}/items/${parent.loop.iteration}/`;
+  const members = Object.keys(state.nodes).filter((id) => id.startsWith(prefix));
+  if (members.length === 0 || !members.every((id) => state.nodes[id]?.status === "succeeded")) return state;
+  const result = state.nodes[members.at(-1)!]!.output ?? null;
+  if (!validateValue(parentNode.resultSchema, result).ok) return failNode(factory, state, parentNode, parentId, "LOOP_RESULT_INVALID", "execution", commands);
+  const context = expressionContext(state, { carried: parent.loop.carried, result, iteration: parent.loop.iteration });
+  const until = evaluateExpression(parentNode.until, context);
+  if (!until.ok || typeof until.value !== "boolean") return failNode(factory, state, parentNode, parentId, "LOOP_UNTIL_INVALID", "execution", commands);
+  if (until.value) return activateReady(factory, withNode(state, parentId, { ...parent, status: "succeeded", output: result }), commands, successorsFor(factory, parentId));
+  const next = evaluateExpression(parentNode.nextInput, context);
+  if (!next.ok || !validateValue(parentNode.carriedSchema, next.value).ok) return failNode(factory, state, parentNode, parentId, "LOOP_NEXT_INPUT_INVALID", "execution", commands);
+  return startLoopIteration(factory, state, parentNode, parentId, parent, next.value, parent.loop.iteration + 1, commands);
 }
 
 function mapParent(nodeId: string): string | undefined {
