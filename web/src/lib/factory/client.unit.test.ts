@@ -30,6 +30,7 @@ const releaseBody = { runId: "run-1", nodeInstanceId: "node-1", candidateGenerat
 const releaseOperation = { operationId: "operation/one", runId: releaseBody.runId, nodeInstanceId: releaseBody.nodeInstanceId, candidateGeneration: releaseBody.candidateGeneration, decisionId: releaseBody.decisionId, candidateDigest: releaseBody.candidateDigest, action: releaseBody.action, destination: releaseBody.destination, estimatedSpendMicros: releaseBody.estimatedSpendMicros, deadlineMs: releaseBody.deadlineMs, contractDigest: "sha256:" + compiledDigest, executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1, destinationDigest: "sha256:" + digest, requestDigest: "sha256:" + compiledDigest, state: "pending" as const, dispatchGeneration: 0, dispatchStarted: false, archiveReady: true };
 const releaseContract = { contractId: "contract/one", revision: 1, contractDigest: "sha256:" + digest, validatorLockDigest: "sha256:" + compiledDigest, mandatoryClaims: [], claimGroups: [] };
 const releaseApproval = { approvalId: "approval/one", operationId: releaseOperation.operationId, contextDigest: digest, status: "pending" as const, expiresAtMs: releaseBody.deadlineMs };
+const commandApproval = { approvalId: "command/one", runId: "run/one", commandId: "command/one", nodeInstanceId: "review", revision: 1 as const, contextDigest: digest, status: "answered" as const, choices: ["ship", "hold"], context: { subject: "candidate" }, actorScope: "operator" as const, expiresAtMs: releaseBody.deadlineMs, choice: "ship", decidedBy: "user-1", decidedAtMs: 1 };
 const releaseNotification = { notificationId: "notification/one", operationId: releaseOperation.operationId, createdAtMs: 1, kind: "approval_requested" as const, approvalId: releaseApproval.approvalId, contextDigest: digest, expiresAtMs: releaseBody.deadlineMs };
 const releasePolicy = { policyId: "policy/one", revision: 1 as const, revoked: false as const, principalKind: "service" as const, principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "releases/", contractDigest: "sha256:" + digest, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: releaseBody.deadlineMs };
 
@@ -69,6 +70,8 @@ function response(kind: FactoryApiResponse["kind"]): FactoryApiResponse {
 			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseOperation };
 		case "release.approval.resource":
 			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseApproval };
+		case "approval.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: commandApproval };
 		case "release.notification.page":
 			return { schemaVersion: "factory.api.response.v1", kind, page: { items: [releaseNotification], nextCursor: "notification/next" } };
 		case "release.policy.resource":
@@ -90,6 +93,7 @@ describe("FactoryApiClient", () => {
 			if (path.includes("/release/contracts/")) return api(response("release.contract.resource"));
 			if (path.includes("/release/notifications")) return api(response("release.notification.page"));
 			if (path.includes("/release/approvals/")) return api(response("release.approval.resource"));
+			if (path.includes("/runs/") && path.includes("/approvals/")) return api(response("approval.resource"));
 			if (path.includes("/release/policies/")) return api(response("release.policy.resource"));
 			if (path.endsWith("/approvals")) return api(response("release.approval.resource"));
 			if (path.endsWith("/reconciliations")) return api(response("release.operation.resource"));
@@ -116,6 +120,7 @@ describe("FactoryApiClient", () => {
 		expect(await client.getRelease("project/one", "operation/one")).toEqual(releaseOperation);
 		expect(await client.requestReleaseApproval("project/one", "operation/one", releaseBody.deadlineMs, 0)).toEqual(releaseApproval);
 		expect(await client.decideReleaseApproval("project/one", "approval/one", digest, "approved")).toEqual(releaseApproval);
+		expect(await client.decideCommandApproval("project/one", "run/one", "command/one", digest, "ship")).toEqual(commandApproval);
 		expect(await client.listReleaseNotifications("project/one", { limit: 25, cursor: "notification/zero" })).toEqual({ items: [releaseNotification], nextCursor: "notification/next" });
 		expect(await client.putReleasePolicy("project/one", "policy/one", releasePolicy)).toEqual(releasePolicy);
 		expect(await client.deleteReleasePolicy("project/one", "policy/one", 1)).toEqual(releasePolicy);
@@ -126,14 +131,17 @@ describe("FactoryApiClient", () => {
 			"/api/factories/projects/project%2Fone/releases/operation%2Fone",
 			"/api/factories/projects/project%2Fone/releases/operation%2Fone/approvals",
 			"/api/factories/projects/project%2Fone/release/approvals/approval%2Fone",
+			"/api/factories/projects/project%2Fone/runs/run%2Fone/approvals/command%2Fone",
 			"/api/factories/projects/project%2Fone/release/notifications?limit=25&cursor=notification%2Fzero",
 			"/api/factories/projects/project%2Fone/release/policies/policy%2Fone",
 			"/api/factories/projects/project%2Fone/release/policies/policy%2Fone",
 			"/api/factories/projects/project%2Fone/releases/operation%2Fone/reconciliations",
 		]);
 		expect(new Headers(calls[3]!.init?.headers).get("If-Match")).toBe("0");
-		expect(new Headers(calls[8]!.init?.headers).get("If-Match")).toBe("1");
-		expect(calls[7]!.init?.method).toBe("DELETE");
+		expect(new Headers(calls[9]!.init?.headers).get("If-Match")).toBe("1");
+		expect(new Headers(calls[5]!.init?.headers).get("If-Match")).toBe("0");
+		expect(calls[5]!.init?.body).toBe(JSON.stringify({ contextDigest: digest, choice: "ship" }));
+		expect(calls[8]!.init?.method).toBe("DELETE");
 	});
 
 	test("routes every authoring operation with encoded identity and mutation preconditions", async () => {

@@ -3033,3 +3033,22 @@ export const factoryReleaseReconciliations = pgTable("factory_release_reconcilia
 export const factoryNotifications = pgTable("factory_notifications", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), notificationId: text("notification_id").notNull(), deduplicationId: text("deduplication_id").notNull(), inputHash: text("input_hash").notNull(), state: text("state").notNull().$type<"queued" | "leased" | "delivered" | "cancelled" | "dead_letter" | "outcome_unknown">(), availableAt: bigint("available_at", { mode: "number" }).notNull(), leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0), payload: text("payload").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.notificationId] }), uniqueIndex("idx_factory_notifications_deduplication").on(table.tenantId, table.projectId, table.deduplicationId), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
+
+export const factoryCommandApprovals = pgTable("factory_command_approvals", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(),
+  runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  sourceSequence: bigint("source_sequence", { mode: "number" }).notNull(), sourceDigest: text("source_digest").notNull(),
+  nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), attempt: bigint("attempt", { mode: "number" }).notNull(),
+  definitionDigest: text("definition_digest").notNull(), executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull(),
+  initiatorKind: text("initiator_kind").notNull().$type<"user" | "service">(), initiatorId: text("initiator_id").notNull(), actorScope: text("actor_scope").notNull().$type<"owner" | "operator" | "tenant-contract-admin">(),
+  choicesJson: text("choices_json").notNull(), contextJson: text("context_json").notNull(), deadlineAtMs: bigint("deadline_at_ms", { mode: "number" }).notNull(),
+  contextDigest: text("context_digest").notNull(), protectedDigest: text("protected_digest").notNull(), status: text("status").notNull().$type<"pending" | "answered">(), choice: text("choice"),
+  decidedBy: text("decided_by").references(() => users.id, { onDelete: "restrict" }), decidedApproveRevision: bigint("decided_approve_revision", { mode: "number" }), decidedTrustRevision: bigint("decided_trust_revision", { mode: "number" }), decidedAtMs: bigint("decided_at_ms", { mode: "number" }),
+  eventJson: text("event_json"), eventDigest: text("event_digest"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }),
+  uniqueIndex("factory_command_approvals_command_key").on(table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId),
+  index("idx_factory_command_approvals_pending").on(table.tenantId, table.projectId, table.status, table.deadlineAtMs, table.approvalId),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.sourceSequence], foreignColumns: [factoryAuditBatches.tenantId, factoryAuditBatches.projectId, factoryAuditBatches.runId, factoryAuditBatches.interpreterId, factoryAuditBatches.sourceSequence] }).onDelete("restrict"),
+]);

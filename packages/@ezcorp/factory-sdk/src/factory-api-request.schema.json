@@ -1454,16 +1454,15 @@
     "FactoryApprovalDecisionBody": {
       "additionalProperties": false,
       "properties": {
+        "choice": {
+          "description": "Must equal one of the exact choices in the protected approval request.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
         "contextDigest": {
           "maxLength": 64,
           "minLength": 64,
-          "type": "string"
-        },
-        "decision": {
-          "enum": [
-            "approved",
-            "denied"
-          ],
           "type": "string"
         },
         "reason": {
@@ -1473,7 +1472,7 @@
         }
       },
       "required": [
-        "decision",
+        "choice",
         "contextDigest"
       ],
       "type": "object"

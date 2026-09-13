@@ -13,6 +13,7 @@ import { FactoryServiceCredentials } from "./service-credentials";
 import { FactoryExecutionJournal } from "./executions";
 import { FactoryReleaseAuthorityStore } from "./release-authority";
 import type { FactoryReleaseApplication } from "./release-application";
+import type { FactoryAssuranceCommands } from "./assurance-commands";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -29,6 +30,7 @@ export interface FactoryApplication {
   readonly journal: FactoryExecutionJournal;
   readonly releaseAuthority: FactoryReleaseAuthorityStore;
   readonly releaseOperations?: FactoryReleaseApplication;
+  readonly commandApprovals?: FactoryAssuranceCommands;
   readonly availableResourceClasses: ReadonlySet<string>;
 }
 
@@ -40,6 +42,7 @@ export interface FactoryApplicationOptions {
   readonly grants?: FactoryGrants;
   readonly availableResourceClasses: Iterable<string>;
   readonly createReleaseOperations?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority">>) => FactoryReleaseApplication;
+  readonly createCommandApprovals?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority" | "releaseOperations">>) => FactoryAssuranceCommands;
 }
 
 let configuredApplication: FactoryApplication | null = null;
@@ -88,6 +91,9 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   const releaseOperations = options.createReleaseOperations?.(Object.freeze({ tenantId: options.tenantId, grants, runs, artifacts, journal, releaseAuthority }));
   if (releaseOperations && releaseOperations.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
   if (releaseOperations) Object.freeze(releaseOperations);
+  const commandApprovals = options.createCommandApprovals?.(Object.freeze({ tenantId: options.tenantId, grants, runs, artifacts, journal, releaseAuthority, ...(releaseOperations ? { releaseOperations } : {}) }));
+  if (commandApprovals && commandApprovals.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
+  if (commandApprovals) Object.freeze(commandApprovals);
   return Object.freeze({
     tenantId: options.tenantId,
     grants,
@@ -98,6 +104,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
     journal,
     releaseAuthority,
     ...(releaseOperations ? { releaseOperations } : {}),
+    ...(commandApprovals ? { commandApprovals } : {}),
     availableResourceClasses: immutableSet(resources),
   });
 }

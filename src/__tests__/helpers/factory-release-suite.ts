@@ -252,7 +252,7 @@ test("durable release notifications form one current-authorized human inbox", as
   const replay = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
   expect(new Set(replay.items.map(item => item.notificationId)).size).toBe(replay.items.length);
   for (const target of [approvalOperation, uncertainOperation, settledOperation]) {
-    expect(replay.items.filter(item => item.operationId === target.operationId)).toHaveLength(1);
+    expect(replay.items.filter(item => item.kind !== "command_approval_requested" && item.operationId === target.operationId)).toHaveLength(1);
   }
 
   await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('release-foreign','foreign-release@example.test','x','foreign','user')`);
@@ -264,24 +264,24 @@ test("durable release notifications form one current-authorized human inbox", as
 
   await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.release", expectedRevision: 1 });
   let scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
-  expect(scoped.items.some(item => item.operationId === settledOperation.operationId)).toBe(false);
-  expect(scoped.items.some(item => item.operationId === approvalOperation.operationId)).toBe(true);
+  expect(scoped.items.some(item => item.kind !== "command_approval_requested" && item.operationId === settledOperation.operationId)).toBe(false);
+  expect(scoped.items.some(item => item.kind !== "command_approval_requested" && item.operationId === approvalOperation.operationId)).toBe(true);
   await grants.set(admin, { projectId, principal: reviewer, action: "factory.release", expectedRevision: 2, expiresAtMs: null });
 
   await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.operate", expectedRevision: 1 });
   scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
-  expect(scoped.items.some(item => item.operationId === uncertainOperation.operationId)).toBe(false);
-  expect(scoped.items.some(item => item.operationId === settledOperation.operationId)).toBe(true);
+  expect(scoped.items.some(item => item.kind !== "command_approval_requested" && item.operationId === uncertainOperation.operationId)).toBe(false);
+  expect(scoped.items.some(item => item.kind !== "command_approval_requested" && item.operationId === settledOperation.operationId)).toBe(true);
   await grants.set(admin, { projectId, principal: reviewer, action: "factory.operate", expectedRevision: 2, expiresAtMs: null });
 
   await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.approve", expectedRevision: 1 });
   scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
-  expect(scoped.items.some(item => item.operationId === approvalOperation.operationId)).toBe(false);
+  expect(scoped.items.some(item => item.kind !== "command_approval_requested" && item.operationId === approvalOperation.operationId)).toBe(false);
   await expect(application.decideApproval(reviewer, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("revoked-inbox-decision"))).rejects.toThrow("factory_forbidden");
   await grants.set(admin, { projectId, principal: reviewer, action: "factory.approve", expectedRevision: 2, expiresAtMs: null });
 
   await application.decideApproval(reviewer, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("inbox-decision"));
-  expect((await restarted.listForHuman(reviewer, projectId, { limit: 200 })).items.some(item => item.operationId === approvalOperation.operationId)).toBe(false);
+  expect((await restarted.listForHuman(reviewer, projectId, { limit: 200 })).items.some(item => item.kind !== "command_approval_requested" && item.operationId === approvalOperation.operationId)).toBe(false);
 
   const sealed = rows<{ notification_id: string; input_hash: string }>(await database.execute(sql`SELECT notification_id,input_hash FROM factory_notifications WHERE payload::jsonb->>'operationId'=${settledOperation.operationId}`))[0]!;
   await database.execute(sql`UPDATE factory_notifications SET input_hash=${digest("0")} WHERE notification_id=${sealed.notification_id}`);

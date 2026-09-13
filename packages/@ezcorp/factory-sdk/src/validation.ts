@@ -679,9 +679,9 @@ function validateApiPreconditions(request: Extract<FactoryApiRequest, { precondi
   const { idempotencyKey, expectedRevision } = request.preconditions;
   if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
   if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
-  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "service-credential.issue" || request.kind === "release.trust.publish" || request.kind === "release.control.set" || request.kind === "release.contract.put" || request.kind === "release.prepare" || request.kind === "release.approval.request" || request.kind === "release.approval.decide" || request.kind === "release.policy.put";
+  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "approval.decide" || request.kind === "service-credential.issue" || request.kind === "release.trust.publish" || request.kind === "release.control.set" || request.kind === "release.contract.put" || request.kind === "release.prepare" || request.kind === "release.approval.request" || request.kind === "release.approval.decide" || request.kind === "release.policy.put";
   if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
-  if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start" || request.kind === "release.prepare" || request.kind === "release.approval.decide" || request.kind === "release.policy.put") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation or pending-state mutation requires revision 0.", ["preconditions", "expectedRevision"]);
+  if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start" || request.kind === "approval.decide" || request.kind === "release.prepare" || request.kind === "release.approval.decide" || request.kind === "release.policy.put") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation or pending-state mutation requires revision 0.", ["preconditions", "expectedRevision"]);
   return { ok: true };
 }
 
@@ -735,7 +735,7 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     if (!parameters.ok) return parameters;
   }
   if (request.kind === "run.control" && encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_CONTROL_BYTES", "Run control exceeds the 64 KiB durable command bound.", []);
-  if (request.kind === "approval.decide" && !validDigest(request.body.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Approval decision needs a lowercase sha256 context digest.", ["body", "contextDigest"]);
+  if (request.kind === "approval.decide" && (!validDigest(request.body.contextDigest, false) || !boundedText(request.body.choice))) return issue("API_CONTEXT_DIGEST", "Approval decision needs a bounded exact choice and lowercase sha256 context digest.", ["body"]);
   if (request.kind === "grant.set" && request.path.principalKind === "service" && request.body.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grants require an expiry.", ["body", "expiresAtMs"]);
   if (request.kind === "service-credential.issue") {
     const order = ["read", "write", "chat"] as const;
@@ -780,12 +780,13 @@ function validDraftSummary(resource: { availability: string; availabilityReason?
 }
 
 function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "approval.resource" }>["resource"]): boolean {
-  const decided = resource.status === "approved" || resource.status === "denied";
-  return validDigest(resource.contextDigest, false) && decided === (resource.decidedBy !== undefined && resource.decidedAtMs !== undefined);
+  const decided = resource.status === "answered";
+  return validDigest(resource.contextDigest, false) && resource.choices.length > 0 && resource.choices.length <= 100 && resource.choices.every(choice => boundedText(choice)) && decided === (resource.decidedBy !== undefined && resource.decidedAtMs !== undefined && resource.choice !== undefined) && (!decided || resource.choices.includes(resource.choice!));
 }
 
 function validReleaseNotification(resource: Extract<FactoryApiResponse, { kind: "release.notification.page" }>["page"]["items"][number]): boolean {
   if (resource.kind === "approval_requested") return validDigest(resource.contextDigest, false) && safeCounter(resource.expiresAtMs, 1);
+  if (resource.kind === "command_approval_requested") return validDigest(resource.contextDigest, false) && safeCounter(resource.expiresAtMs, 1) && resource.choices.length > 0 && resource.choices.length <= 100 && resource.choices.every(choice => boundedText(choice));
   return safeCounter(resource.dispatchGeneration, 1) && boundedText(resource.outcomeCode);
 }
 

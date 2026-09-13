@@ -71,6 +71,7 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 	const requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }> = [];
 	const failures = new Set<FailureOperation>();
 	let releaseInbox = options.releaseInbox ? [
+		{ notificationId: "notification-command", createdAtMs: 4, kind: "command_approval_requested", approvalId: "approval-command", runId: "run-review", commandId: "command-review", nodeInstanceId: "human-review", contextDigest: digest, context: { subject: "catalog candidate" }, choices: ["ship", "hold"], actorScope: "operator", expiresAtMs: 2_000_000_000_000 },
 		{ notificationId: "notification-approval", operationId: "factory-release:catalog", createdAtMs: 3, kind: "approval_requested", approvalId: "approval-catalog", contextDigest: digest, expiresAtMs: 2_000_000_000_000 },
 		{ notificationId: "notification-uncertain", operationId: "factory-release:unknown", createdAtMs: 2, kind: "release_uncertain", dispatchGeneration: 2, outcomeCode: "provider_response_unknown" },
 		{ notificationId: "notification-settled", operationId: "factory-release:complete", createdAtMs: 1, kind: "release_settled", dispatchGeneration: 1, outcomeCode: "confirmed" },
@@ -94,6 +95,10 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		if (url.pathname.endsWith("/release/approvals/approval-catalog") && method === "PUT") {
 			releaseInbox = releaseInbox.filter(item => item.notificationId !== "notification-approval");
 			return respond(envelope({ kind: "release.approval.resource", resource: { approvalId: "approval-catalog", operationId: "factory-release:catalog", contextDigest: digest, status: "approved" } }));
+		}
+		if (url.pathname.endsWith("/runs/run-review/approvals/approval-command") && method === "PUT") {
+			releaseInbox = releaseInbox.filter(item => item.notificationId !== "notification-command");
+			return respond(envelope({ kind: "approval.resource", resource: { approvalId: "approval-command", runId: "run-review", commandId: "command-review", nodeInstanceId: "human-review", revision: 1, contextDigest: digest, status: "answered", choices: ["ship", "hold"], context: { subject: "catalog candidate" }, actorScope: "operator", expiresAtMs: 2_000_000_000_000, choice: "ship", decidedBy: "user-1", decidedAtMs: 1 } }));
 		}
 
 		if (url.pathname.endsWith("/validate") && method === "POST") {
@@ -182,7 +187,8 @@ test.describe("factory authoring console", () => {
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
 		const mocked = await routeFactoryApi(page, { releaseInbox: true });
 		await page.goto("/factories");
-		await expect(page.getByRole("heading", { name: "Release inbox" })).toBeVisible();
+		await expect(page.getByRole("heading", { name: "Factory inbox" })).toBeVisible();
+		await expect(page.getByText("Factory approval requested")).toBeVisible();
 		await expect(page.getByText("Release approval requested")).toBeVisible();
 		await expect(page.getByText("Release outcome uncertain")).toBeVisible();
 		await expect(page.getByText("Release completed")).toBeVisible();
@@ -194,6 +200,13 @@ test.describe("factory authoring console", () => {
 		expect(decision?.method).toBe("PUT");
 		expect(decision?.headers["if-match"]).toBe("0");
 		expect(decision?.body).toEqual({ contextDigest: digest, decision: "approved" });
+		const commandApproval = page.locator("article", { hasText: "Factory approval requested" });
+		await commandApproval.getByRole("button", { name: "ship" }).click();
+		await expect(page.getByText("command-review")).toHaveCount(0);
+		const commandDecision = mocked.requests.find(item => item.path.endsWith("/runs/run-review/approvals/approval-command"));
+		expect(commandDecision?.method).toBe("PUT");
+		expect(commandDecision?.headers["if-match"]).toBe("0");
+		expect(commandDecision?.body).toEqual({ contextDigest: digest, choice: "ship" });
 	});
 
 	test("authors with the real graph library, shows diagnostics, and exports @evidence", async ({ page, mockApi }, testInfo) => {
