@@ -20,12 +20,30 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function makeSandbox() {
+function makeSandbox(withLanes = true) {
   const root = mkdtempSync(join(tmpdir(), "visual-evidence-capture-"));
   roots.push(root);
   const scriptDir = join(root, "scripts", "visual-evidence");
   const binDir = join(root, "bin");
-  mkdirSync(join(root, "web"), { recursive: true });
+  mkdirSync(join(root, "web", "e2e"), { recursive: true });
+  if (withLanes) {
+    // Same shape as web/e2e/lanes.json. `root-real` stands in for the eight
+    // real-auth journeys that live at the e2e/ ROOT (chip-reorder, ...):
+    // the tier must come from lane membership, not from the path prefix.
+    writeFileSync(
+      join(root, "web", "e2e", "lanes.json"),
+      JSON.stringify(
+        {
+          lanes: {
+            "mock-full": ["web/e2e/mock.spec.ts"],
+            "real-auth": ["web/e2e/real-auth/real.spec.ts", "web/e2e/root-real.spec.ts"],
+          },
+        },
+        null,
+        2,
+      ),
+    );
+  }
   mkdirSync(scriptDir, { recursive: true });
   mkdirSync(binDir, { recursive: true });
   const script = join(scriptDir, "capture.sh");
@@ -60,8 +78,14 @@ if [ "\${FAIL_REPORT:-}" = "$PLAYWRIGHT_BLOB_OUTPUT_NAME" ]; then exit "\${FAIL_
   return { root, script, binDir };
 }
 
-function runCapture(specs: string, env: Record<string, string> = {}, seedStaleReport = false) {
-  const { root, script, binDir } = makeSandbox();
+function runCapture(
+  specs: string,
+  env: Record<string, string> = {},
+  seedStaleReport = false,
+  args: string[] = [],
+  withLanes = true,
+) {
+  const { root, script, binDir } = makeSandbox(withLanes);
   const specsFile = join(root, "selected.txt");
   const log = join(root, "playwright.log");
   writeFileSync(specsFile, specs);
@@ -70,7 +94,7 @@ function runCapture(specs: string, env: Record<string, string> = {}, seedStaleRe
     mkdirSync(join(root, "web/blob-report"), { recursive: true });
     writeFileSync(staleReport, "stale");
   }
-  const proc = Bun.spawnSync(["bash", script, specsFile], {
+  const proc = Bun.spawnSync(["bash", script, ...args, specsFile], {
     cwd: root,
     env: {
       ...process.env,
@@ -143,5 +167,43 @@ describe("visual-evidence capture", () => {
     expect(result.lines).toHaveLength(2);
     expect(result.lines[0]).toEndWith("--grep @evidence");
     expect(result.lines[1]).toEndWith("--grep @evidence");
+  });
+
+  test("tiers a root-level real-auth lane member by lanes.json, not by path prefix", () => {
+    const result = runCapture("e2e/root-real\\.spec\\.ts\n");
+
+    expect(result.code).toBe(0);
+    expect(result.lines).toHaveLength(1);
+    expect(result.lines[0]).toContain("real-auth-evidence.zip|1|scripts/run-real-e2e.ts real-auth --project=chromium --grep @evidence e2e/root-real\\.spec\\.ts");
+    expect(existsSync(join(result.root, "web/blob-report/real-auth-evidence.zip"))).toBe(true);
+    expect(existsSync(join(result.root, "web/blob-report/mock-evidence.zip"))).toBe(false);
+  });
+
+  test.each([
+    ["a root-level real-auth member", "e2e/root-real\\.spec\\.ts\n", 0],
+    ["a directory real-auth member", "e2e/real-auth/real\\.spec\\.ts\n", 0],
+    ["the __ALL__ fallback", "__ALL__\n", 0],
+    ["a mock-only selection", "e2e/mock\\.spec\\.ts\n", 1],
+    ["the __NONE__ sentinel", "__NONE__\n", 1],
+  ])("--has-real-auth answers for %s without running anything", (_label, specs, code) => {
+    const result = runCapture(specs, {}, false, ["--has-real-auth"]);
+
+    expect(result.code).toBe(code);
+    expect(result.lines).toHaveLength(0);
+    expect(existsSync(join(result.root, "web/blob-report"))).toBe(false);
+  });
+
+  test("CI installs the extension runner from the same lane answer", () => {
+    expect(readFileSync(CI_WORKFLOW, "utf8")).toContain(
+      'bash scripts/visual-evidence/capture.sh --has-real-auth "$SPECS_FILE"',
+    );
+  });
+
+  test("fails closed when the lane manifest is missing", () => {
+    const result = runCapture("e2e/mock\\.spec\\.ts\n", {}, false, [], false);
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("lane manifest missing");
+    expect(result.lines).toHaveLength(0);
   });
 });

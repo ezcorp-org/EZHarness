@@ -1043,9 +1043,11 @@ jobs:
               bunx playwright install-deps chromium
             fi
           )
-          # The helper splits mock and real-auth evidence. Real-auth uses the
-          # production runner transport, so make it available before capture.
-          if grep -qx '__ALL__' "$SPECS_FILE" || grep -q '^e2e/real-auth/' "$SPECS_FILE"; then
+          # The helper splits mock and real-auth evidence by lanes.json
+          # membership (root-level real-auth journeys included). Real-auth uses
+          # the production runner transport, so make it available before
+          # capture whenever the helper says that tier will run.
+          if bash scripts/visual-evidence/capture.sh --has-real-auth "$SPECS_FILE"; then
             source scripts/setup-extension-runner-ci.sh --install
             export EZCORP_EVIDENCE_RUNNER_READY=1
           fi
