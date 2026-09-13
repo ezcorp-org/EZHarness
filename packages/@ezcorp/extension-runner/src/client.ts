@@ -32,6 +32,10 @@ export class RunnerClient implements Runner {
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> { return (await this.call<{ files: WorkspaceFiles }>("artifacts", { artifactDigest })).files; }
   async start(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution> {
     await this.call("start", input);
+    return this.attach(input, reverseRpc);
+  }
+  async attach(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution> {
+    await this.call("attach", { workerId: input.workerId });
     let closed = false;
     const listeners = new Set<(method: string, params: unknown) => void>();
     const poll = async () => {
@@ -40,12 +44,19 @@ export class RunnerClient implements Runner {
         for (const event of events) {
           if (closed) break;
           if (event.id) {
-            void reverseRpc(event.method, event.params).then(result => this.call("reply", { workerId: input.workerId, id: event.id, result }), error => this.call("reply", { workerId: input.workerId, id: event.id, error: safeHostError(error).code })).catch(() => { closed = true; void this.cancel(input.workerId).catch(() => {}); });
+            try {
+              const result = await reverseRpc(event.method, event.params);
+              await this.call("reply", { workerId: input.workerId, id: event.id, result });
+            } catch (error) {
+              await this.call("reply", { workerId: input.workerId, id: event.id, error: safeHostError(error).code });
+            }
           } else for (const listener of listeners) listener(event.method, event.params);
         }
       }
     };
-    void poll().catch(() => { closed = true; void this.cancel(input.workerId).catch(() => {}); });
+    // Losing a host connection does not cancel a real worker. A fresh client
+    // can attach and resume its queued reverse calls.
+    void poll().catch(() => { closed = true; });
     return {
       workerId: input.workerId,
       request: async (method, params) => { if (closed) throw new RunnerError("worker_closed", "Worker session closed"); return (await this.call<{ result: unknown }>("request", { workerId: input.workerId, method, params })).result; },

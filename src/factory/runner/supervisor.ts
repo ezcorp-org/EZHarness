@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { executionLimits } from "@ezcorp/extension-runner";
@@ -36,7 +36,8 @@ function operation(input: FactoryRunnerRequest): FactoryJournalOperation {
 
 function context(input: FactoryRunnerRequest) {
   const workerId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}`).slice(0, 48)}`;
-  return { workerId, invocationId: randomUUID(), releaseId: input.artifactDigest, principalId: input.authority.tenantId, scopeId: input.authority.projectId, token: `factory-runner:${input.authority.attemptId}`, deadline: input.authority.deadlineAt.getTime() };
+  const invocationId = `factory_${digest(`${input.authority.attemptId}:${input.operationIndex}:invocation`).slice(0, 48)}`;
+  return { workerId, invocationId, releaseId: input.artifactDigest, principalId: input.authority.tenantId, scopeId: input.authority.projectId, token: `factory-runner:${input.authority.attemptId}`, deadline: input.authority.deadlineAt.getTime() };
 }
 
 function reverseEnvelope(value: unknown, expected: ReturnType<typeof context>): JsonValue {
@@ -62,27 +63,61 @@ export class FactoryRunnerSupervisor {
     const operationEntry = operation(input);
     await this.options.journal.admit({ ...input.authority, request: { artifactDigest: input.artifactDigest, toolName: input.toolName, toolInput: input.toolInput } });
     await this.options.journal.prepare(input.authority, operationEntry);
-    const claim = await this.options.journal.dispatch(input.authority, operationEntry.operationId);
-    if (!claim.claimed) return claim;
     const invocation = context(input);
+    const previous = await this.options.journal.operation(input.authority, operationEntry.operationId);
+    if (previous.state === "completed") return { claimed: false, result: previous.result };
+    if (previous.state === "dispatched" || previous.state === "uncertain") throw new Error("Factory effect outcome is uncertain and requires reconciliation.");
+    if (previous.state === "failed") throw new Error("Factory effect previously failed.");
     let worker: RunnerExecution | undefined;
+    let effectClaimed = false;
     try {
-      worker = await this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, async (method, raw) => {
-        if (method !== "factory.tool") throw new Error("Factory runner capability is denied.");
-        return this.options.invokeTool(reverseEnvelope(raw, invocation));
-      });
+      worker = await this.worker(input, invocation, this.reverse(input, invocation, operationEntry, () => { effectClaimed = true; }));
       this.active.set(input.authority.attemptId, worker);
       const result = await worker.request("extension/invoke", { name: input.toolName, input: input.toolInput, context: invocation }) as JsonValue;
+      if (!effectClaimed) throw new Error("Factory runner returned before its tool effect dispatched.");
       const checkpoint = await input.workspace.checkpoint({ operationId: operationEntry.operationId, result });
-      await this.options.journal.settle(input.authority, operationEntry.operationId, "completed", { resultDigest: digest(result), usage: {}, workspaceCheckpoint: checkpoint });
+      await this.options.journal.settle(input.authority, operationEntry.operationId, "completed", { resultDigest: digest(result), result, usage: {}, workspaceCheckpoint: checkpoint });
       return { claimed: true, result };
-    } catch (error) {
-      await this.options.journal.settle(input.authority, operationEntry.operationId, "failed", { resultDigest: digest(error instanceof Error ? { name: error.name, message: error.message } : String(error)) }).catch(() => undefined);
-      throw error;
     } finally {
       this.active.delete(input.authority.attemptId);
       await worker?.close();
     }
+  }
+
+  private async worker(input: FactoryRunnerRequest, invocation: ReturnType<typeof context>, reverse: (method: string, raw: unknown) => Promise<unknown>): Promise<RunnerExecution> {
+    const inspection = await this.options.runner.inspect(invocation.workerId);
+    if (inspection.state === "running") {
+      if (!this.options.runner.attach) throw new Error("Factory runner cannot reattach to a surviving worker.");
+      return this.options.runner.attach({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, reverse);
+    }
+    if (inspection.state !== "unknown") throw new Error("Factory worker is stopped and cannot be restarted by recovery.");
+    return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, reverse);
+  }
+
+  private reverse(input: FactoryRunnerRequest, invocation: ReturnType<typeof context>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {
+    return async (method, raw) => {
+      if (method !== "factory.tool") throw new Error("Factory runner capability is denied.");
+      await this.options.authorizeAttempt(input.authority);
+      const claim = await this.options.journal.dispatch(input.authority, operationEntry.operationId);
+      if (!claim.claimed) {
+        const previous = await this.options.journal.operation(input.authority, operationEntry.operationId);
+        if (previous.state === "completed") return previous.result;
+        throw new Error("Factory effect outcome is uncertain and requires reconciliation.");
+      }
+      onClaim();
+      try {
+        const result = await this.options.invokeTool(reverseEnvelope(raw, invocation));
+        return result;
+      } catch (error) {
+        const result = { code: "factory_tool_failed", message: error instanceof Error ? error.message.slice(0, 4096) : "Factory tool failed." } as const;
+        try {
+          await this.options.journal.settle(input.authority, operationEntry.operationId, "failed", { resultDigest: digest(result), result });
+        } catch (settlementError) {
+          throw new AggregateError([error, settlementError], "Factory tool failed and its durable settlement failed.");
+        }
+        throw error;
+      }
+    };
   }
 
   async stop(attemptId: string): Promise<void> {

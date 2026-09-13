@@ -75,13 +75,15 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.dispatch(attempt, ahead.operationId)).toEqual({ claimed: true });
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
   await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "result" })).rejects.toThrow("needs result, usage, and workspace checkpoint");
-  await journal.settle(attempt, ahead.operationId, "completed", { resultDigest: "ahead", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-2" } });
+  await journal.settle(attempt, ahead.operationId, "completed", { resultDigest: "ahead", result: { output: "ahead" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-2" } });
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: -1 });
-  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
-  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
+  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
+  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
+  expect(await journal.operation(attempt, first.operationId)).toEqual({ state: "completed", result: { output: "first" } });
+  expect(await journal.status(attempt)).toMatchObject({ terminalResult: { output: "ahead" }, workspaceCheckpoint: { revision: "checkpoint-2" } });
   await journal.prepare(attempt, first);
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
-  await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
+  await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
 
   const second = operation(2);

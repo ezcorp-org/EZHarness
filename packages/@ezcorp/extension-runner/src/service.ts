@@ -7,7 +7,7 @@ import { validateResourceLimits, validateInvocationContext } from "@ezcorp/exten
 import { identifier, processSpawn, RunnerError, validateFiles, safeHostError } from "./core";
 
 type Event = { id?: string; method: string; params: unknown };
-interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void }
+interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean }
 export interface RunnerServiceOptions { socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string }
 
 export async function startRunnerService(options: RunnerServiceOptions): Promise<{ close(): Promise<void> }> {
@@ -72,7 +72,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
           session.wake?.();
         })).finally(() => { starting--; });
         const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
-        const session: Session = { execution, pending, events, timer };
+        const session: Session = { execution, pending, events, timer, attached: false };
         sessions.set(data.workerId, session);
         execution.onNotification((method, params) => {
           if (events.length >= 32) { void closeSession(data.workerId); return; }
@@ -90,14 +90,44 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       }
       case "/v4/events": {
         const session = sessions.get(identifier(data.workerId));
-        if (!session || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
+        if (!session?.attached || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
         if (session.events.length === 0) await new Promise<void>(resolve => {
-          const timer = setTimeout(finish, 20_000);
-          function finish() { clearTimeout(timer); session!.wake = undefined; response.off("close", finish); resolve(); }
-          session.wake = finish;
-          response.once("close", finish);
+          let finished = false;
+          const wake = () => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            session!.wake = undefined;
+            response.off("close", detach);
+            request.off("aborted", detach);
+            resolve();
+          };
+          const detach = () => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            session!.wake = undefined;
+            session!.attached = false;
+            resolve();
+          };
+          const timer = setTimeout(wake, 20_000);
+          session.wake = wake;
+          response.once("close", detach);
+          request.once("aborted", detach);
         });
-        send(response, 200, { events: session.events.splice(0) });
+        // Reverse calls stay queued until their matching reply is accepted.
+        // A replacement client can therefore resume after a dropped poll.
+        const events = session.events.filter(event => event.id !== undefined);
+        const notifications = session.events.filter(event => event.id === undefined);
+        session.events.splice(0, session.events.length, ...events);
+        send(response, 200, { events: [...events, ...notifications] });
+        return;
+      }
+      case "/v4/attach": {
+        const session = sessions.get(identifier(data.workerId));
+        if (!session || session.attached) throw new RunnerError("unknown_worker", "Worker is unavailable or already attached");
+        session.attached = true;
+        send(response, 200, { workerId: data.workerId });
         return;
       }
       case "/v4/reply": {
@@ -106,6 +136,8 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         if (!pending) throw new RunnerError("unknown_request", "Host reply ID is stale or invalid");
         clearTimeout(pending.timer);
         session?.pending.delete(data.id);
+        const eventIndex = session?.events.findIndex(event => event.id === data.id) ?? -1;
+        if (eventIndex >= 0) session!.events.splice(eventIndex, 1);
         if (data.error) { const safe = safeHostError({ code: data.error }); pending.reject(new RunnerError(safe.code, safe.message)); } else pending.resolve(data.result);
         send(response, 200, {});
         return;

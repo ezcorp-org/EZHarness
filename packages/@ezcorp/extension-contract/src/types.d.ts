@@ -178,6 +178,8 @@ export interface RunnerExecution {
 export interface Runner {
   build(input: BuildRequest): Promise<BuildResult>;
   start(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution>;
+  /** Reconnect a host client to a live worker without launching another one. */
+  attach?(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution>;
   cancel(id: string): Promise<void>;
   inspect(id: string): Promise<RunnerInspection>;
   collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles>;

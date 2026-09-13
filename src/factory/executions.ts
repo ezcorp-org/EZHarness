@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { canonicalJson } from "@ezcorp/extension-contract";
+import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
 
@@ -34,8 +34,15 @@ export interface FactoryJournalOperation {
 export interface FactoryOperationSettlement {
   providerReceiptDigest?: string;
   resultDigest?: string;
+  /** Exact JSON result, retained so recovery never repeats a completed effect. */
+  result?: JsonValue;
   usage?: unknown;
   workspaceCheckpoint?: unknown;
+}
+
+export interface FactoryJournalOperationStatus {
+  state: FactoryOperationState;
+  result?: JsonValue;
 }
 
 /** Runs under the journal row locks immediately before an effect can dispatch. */
@@ -68,6 +75,7 @@ export class FactoryExecutionJournal {
     const requestHash = hashJson(requestJson);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, input);
+      await this.authorizeInTransaction(database, input);
       const prior = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${input.attemptId}`))[0];
       if (prior) {
         if (prior.request_hash !== requestHash) throw new Error("Factory attempt id conflicts with a different canonical request.");
@@ -123,17 +131,29 @@ export class FactoryExecutionJournal {
 
   async settle(authority: FactoryAttemptAuthority, operationId: string, state: Extract<FactoryOperationState, "completed" | "failed" | "uncertain">, result: FactoryOperationSettlement): Promise<void> {
     this.assertLiveInput(authority);
-    if (state === "completed" && (!result.resultDigest || result.usage === undefined || result.workspaceCheckpoint === undefined)) throw new Error("A completed factory operation needs result, usage, and workspace checkpoint evidence.");
+    if (state === "completed" && (!result.resultDigest || result.result === undefined || result.usage === undefined || result.workspaceCheckpoint === undefined)) throw new Error("A completed factory operation needs result, usage, and workspace checkpoint evidence.");
     if (state === "failed" && !result.resultDigest) throw new Error("A failed factory operation needs a result digest.");
     await this.db.transaction(async (database) => {
       await this.lockLive(database, authority);
-      const operation = releaseRows<{ operation_index: number }>(await database.execute(sql`UPDATE factory_execution_operations SET state=${state}, provider_receipt_digest=${result.providerReceiptDigest ?? null}, result_digest=${result.resultDigest ?? null}, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' RETURNING operation_index`))[0];
+      const operation = releaseRows<{ operation_index: number }>(await database.execute(sql`UPDATE factory_execution_operations SET state=${state}, provider_receipt_digest=${result.providerReceiptDigest ?? null}, result_digest=${result.resultDigest ?? null}, result_json=${result.result === undefined ? null : canonicalJson(result.result)}::jsonb, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' RETURNING operation_index`))[0];
       if (!operation || !Number.isSafeInteger(Number(operation.operation_index))) {
-        const existing = releaseRows<{ state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT state, provider_receipt_digest, result_digest, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
+        const existing = releaseRows<{ state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT state, provider_receipt_digest, result_digest, result_json, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
         if (!existing || !this.sameEvidence(existing, state, result)) throw new Error("Factory operation cannot settle from its current state.");
         return;
       }
       await database.execute(sql`UPDATE factory_executions SET journal_cursor = COALESCE((SELECT MIN(operation_index) - 1 FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND state IN ('prepared', 'dispatched')), (SELECT COALESCE(MAX(operation_index), -1) FROM factory_execution_operations WHERE attempt_id=${authority.attemptId})), updated_at=NOW() WHERE attempt_id=${authority.attemptId}`);
+    });
+  }
+
+  /** Reads recorded effect state and a completed result without issuing an effect. */
+  async operation(authority: FactoryAttemptAuthority, operationId: string): Promise<FactoryJournalOperationStatus> {
+    assertIdentity(authority);
+    return this.db.transaction(async (database) => {
+      await this.lockRunFence(database, authority);
+      const stored = releaseRows<{ state: FactoryOperationState; result_json: unknown }>(await database.execute(sql`SELECT state, result_json FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
+      if (!stored) throw new Error("Factory operation is unavailable to this tenant.");
+      if (stored.state === "completed") return { state: stored.state, result: this.storedJson(stored.result_json) as JsonValue };
+      return { state: stored.state };
     });
   }
 
@@ -143,9 +163,9 @@ export class FactoryExecutionJournal {
     if (!result.providerReceiptDigest) throw new Error("Late factory receipts need a digest.");
     await this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_execution_operations SET state='uncertain', provider_receipt_digest=${result.providerReceiptDigest}, result_digest=${result.resultDigest ?? null}, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' AND EXISTS (SELECT 1 FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch}) RETURNING operation_id`));
+      const updated = releaseRows(await database.execute(sql`UPDATE factory_execution_operations SET state='uncertain', provider_receipt_digest=${result.providerReceiptDigest}, result_digest=${result.resultDigest ?? null}, result_json=${result.result === undefined ? null : canonicalJson(result.result)}::jsonb, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' AND EXISTS (SELECT 1 FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch}) RETURNING operation_id`));
       if (updated.length) return;
-      const existing = releaseRows<{ state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT state, provider_receipt_digest, result_digest, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
+      const existing = releaseRows<{ state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT state, provider_receipt_digest, result_digest, result_json, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
       if (!existing || !this.sameEvidence(existing, "uncertain", result)) throw new Error("Late factory receipt does not match a dispatched operation.");
     });
   }
@@ -168,14 +188,21 @@ export class FactoryExecutionJournal {
     });
   }
 
-  async status(authority: FactoryAttemptAuthority): Promise<{ status: string; journalCursor: number; cancelAcceptedAt: Date | null; stoppedAt: Date | null }> {
+  async status(authority: FactoryAttemptAuthority): Promise<{ status: string; journalCursor: number; cancelAcceptedAt: Date | null; stoppedAt: Date | null; workspaceCheckpoint?: unknown; terminalResult?: JsonValue }> {
     assertIdentity(authority);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
       const row = releaseRows<{ status: string; journal_cursor: number; cancel_accepted_at: Date | null; stopped_at: Date | null }>(await database.execute(sql`SELECT status, journal_cursor, cancel_accepted_at, stopped_at FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch}`))[0];
       const cursor = Number(row?.journal_cursor);
       if (!row?.status || !Number.isSafeInteger(cursor)) throw new Error("Factory attempt is unavailable to this tenant.");
-      return { status: row.status, journalCursor: cursor, cancelAcceptedAt: row.cancel_accepted_at ?? null, stoppedAt: row.stopped_at ?? null };
+      const terminal = releaseRows<{ result_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT result_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND state='completed' ORDER BY operation_index DESC LIMIT 1`))[0];
+      return {
+        status: row.status,
+        journalCursor: cursor,
+        cancelAcceptedAt: row.cancel_accepted_at ?? null,
+        stoppedAt: row.stopped_at ?? null,
+        ...(terminal ? { workspaceCheckpoint: this.storedJson(terminal.workspace_checkpoint), terminalResult: this.storedJson(terminal.result_json) as JsonValue } : {}),
+      };
     });
   }
 
@@ -183,10 +210,11 @@ export class FactoryExecutionJournal {
     return { attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptNumber: authority.attemptNumber, grantRevision: authority.grantRevision, reservationGeneration: authority.reservationGeneration, executionEpoch: authority.executionEpoch, deadlineAt: authority.deadlineAt.getTime() };
   }
 
-  private sameEvidence(stored: { state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }, state: FactoryOperationState, result: FactoryOperationSettlement): boolean {
+  private sameEvidence(stored: { state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }, state: FactoryOperationState, result: FactoryOperationSettlement): boolean {
     return stored.state === state
       && stored.provider_receipt_digest === (result.providerReceiptDigest ?? null)
       && stored.result_digest === (result.resultDigest ?? null)
+      && this.canonicalStoredJson(stored.result_json) === canonicalJson(result.result ?? null)
       && this.canonicalStoredJson(stored.usage_json) === canonicalJson(result.usage ?? null)
       && this.canonicalStoredJson(stored.workspace_checkpoint) === canonicalJson(result.workspaceCheckpoint ?? null);
   }
@@ -194,6 +222,11 @@ export class FactoryExecutionJournal {
   private canonicalStoredJson(value: unknown): string {
     if (typeof value !== "string") return canonicalJson(value ?? null);
     try { return canonicalJson(JSON.parse(value)); } catch { return canonicalJson(value); }
+  }
+
+  private storedJson(value: unknown): unknown {
+    if (typeof value !== "string") return value;
+    try { return JSON.parse(value); } catch { throw new Error("Factory operation result is corrupt."); }
   }
 
   private assertLiveInput(authority: FactoryAttemptAuthority): void {

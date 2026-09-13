@@ -46,6 +46,7 @@ export async function up(database: MigrationDb): Promise<void> {
     request_digest TEXT NOT NULL,
     provider_receipt_digest TEXT,
     result_digest TEXT,
+    result_json JSONB,
     usage_json JSONB,
     workspace_checkpoint JSONB,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -53,6 +54,7 @@ export async function up(database: MigrationDb): Promise<void> {
     PRIMARY KEY (attempt_id, operation_id),
     UNIQUE (attempt_id, operation_index)
   )`);
+  await database.execute(sql`ALTER TABLE factory_execution_operations ADD COLUMN IF NOT EXISTS result_json JSONB`);
   await database.execute(sql`CREATE INDEX IF NOT EXISTS idx_factory_executions_run ON factory_executions(tenant_id, project_id, run_id, created_at)`);
   await database.execute(sql`CREATE INDEX IF NOT EXISTS idx_factory_execution_operations_cursor ON factory_execution_operations(attempt_id, operation_index)`);
 }
