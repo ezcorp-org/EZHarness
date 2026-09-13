@@ -8,6 +8,10 @@ Branch `wp/w01-durable-runtime`. Base `integ/w00` at `c6ac529d2`. All sixteen ga
 
 The control channel is now a FIFO triple bound read-write at `/channel`, with an in-guest shim holding all three `O_RDWR` for the guest's whole life. A FIFO reader sees end-of-file only when every writer closes, so no host process's exit can reach the guest; the supervisor's death closes only its own descriptors. Design and the pre-implementation feasibility measurement are in `DESIGN-guest-lifetime.md` and `logs/fifo-channel-feasibility.log`. `FramedExecution` gained a `FramedTransport` interface that `ChildProcessWithoutNullStreams` satisfies structurally, so all nine consuming files and the entire frame policy are unchanged, and builds never used this path.
 
+Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at a time.
+
+Receipt provenance, all from clean committed source with no dirty files. The two Podman runs are at `c49c62937`; the attempt-runtime, supervisor, package-preparation, and focused suites are at `9156b824a`; the static and coverage gates are at head. The two commits after `9156b824a` touch only `podman.integration.test.ts` and documentation, neither of which those four suites load.
+
 - [x] G1: One concurrent claimant launches one physical attempt, with stable worker and invocation identities committed before the guest starts.
   CHECK: bun test --timeout 120000 ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts
   EXPECT: exit 0; the losing claimant attaches and never starts a second guest
