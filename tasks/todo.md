@@ -909,3 +909,10 @@ Plan: `tasks/factory/PLAN.md`. Acceptance ledger: `tasks/factory/GATES.md`.
 ### Review
 
 Pending implementation and measured verification.
+
+### Local factory test campaign (user update)
+
+- [ ] Run local S3 services in Docker Compose and prove storage conformance.
+- [ ] Prove actual AMD GPU computation and isolated runner access.
+- [ ] Provision 10 tenant installations and run integration/load tests at that scale.
+- [ ] Record exact scale, duration, hardware and remaining launch evidence.
