@@ -90,7 +90,7 @@ async function fixture(): Promise<Fixture> {
   let now = baseNow;
   const clock = () => now;
   const fence = { tenantId, projectId, runId, executionEpoch: 1, cancellationEpoch: 0, grantRevision: 1, revision: 1, deadlineAtMs: now + 60_000, definitionDigest: `sha256:${"a".repeat(64)}`, status: "queued" } as const;
-  const command = { kind: "request-admission", id: `admit-${runId}`, nodeId: "task-node", candidateGeneration: 1, deadlineAtMs: now + 30_000 } as const;
+  const command = { kind: "request-admission", id: `admit-${runId}`, nodeId: "task-node", candidateGeneration: 0, deadlineAtMs: now + 30_000 } as const;
   const context = { command, node: { id: "task-node", kind: "task", runner: { package: "runner", version: "1", export: "run", digest: `sha256:${"b".repeat(64)}` } }, state: { nodes: { "task-node": { attempts: [{ attempt: 1 }] } } }, fence } as unknown as FactoryAuthorizedCommand;
   const reference = { tenantId, projectId, logicalRunId: runId, interpreterId: "root", commandId: command.id };
   const reservationId = factoryTaskReservationId(reference, context);

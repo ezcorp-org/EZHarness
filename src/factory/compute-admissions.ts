@@ -143,7 +143,7 @@ function terminalResult(row: AdmissionRow, input: FactoryComputeAdmissionRequest
   if (row.state === "admitted" || row.state === "rejected") {
     const decision = decodeDecision(row);
     const event = decodeEvent(row);
-    if (decision.reservationId !== row.reservation_id || event.granted !== (row.state === "admitted") || event.commandId !== input.reference.commandId || !Number.isSafeInteger(event.atMs) || event.atMs < 0 || !Number.isSafeInteger(event.candidateGeneration) || event.candidateGeneration < 1) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
+    if (decision.reservationId !== row.reservation_id || event.granted !== (row.state === "admitted") || event.commandId !== input.reference.commandId || !Number.isSafeInteger(event.atMs) || event.atMs < 0 || !Number.isSafeInteger(event.candidateGeneration) || event.candidateGeneration < 0) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
     if (row.state === "admitted") {
       if (decision.status !== "admitted") throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
       try { assertDecisionBinding(decision, input); }
