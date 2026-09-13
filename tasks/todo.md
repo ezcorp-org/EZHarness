@@ -2114,25 +2114,65 @@ Branch `wp/w04a-archive-writer` from `integ/w00` at `37f2ed3f9`. Surface owned: 
 role, its readiness result, the archive prerequisite before a dispatch claim, and the
 receipt-before-settlement recovery. Evidence: `/tmp/factory-platform-evidence/w04a/`.
 
-- [ ] Type and role checkpoint: `src/factory/archive-writer.ts` carries the archive-writer role,
+- [x] Type and role checkpoint: `src/factory/archive-writer.ts` carries the archive-writer role,
       the readiness result, the failure-domain evidence record, the member manifest, and the
       archive inventory. Unit tests cover every branch.
-- [ ] Compose the existing immutable archive adapter as the gateway's archive-writer role. It
+- [x] Compose the existing immutable archive adapter as the gateway's archive-writer role. It
       holds the `archive.json` credential set only and records the failure domain honestly.
-- [ ] Before a dispatch claim, archive the recovery intent plus every candidate, evidence, and
+- [x] Before a dispatch claim, archive the recovery intent plus every candidate, evidence, and
       request object the material references, read through W04's `FactoryScopedArtifactReader`,
       and verify each archived member reads back byte for byte.
-- [ ] Publication stays pending when any member is unavailable or corrupt. Test each separately.
-- [ ] After a confirmed provider effect, archive the receipt before product settlement; recover
+- [x] Publication stays pending when any member is unavailable or corrupt. Test each separately.
+- [x] After a confirmed provider effect, archive the receipt before product settlement; recover
       the same operation by identity from the archive without a second dispatch.
-- [ ] Crash at each boundary: after the intent write, after a member write, after the material
+- [x] Crash at each boundary: after the intent write, after a member write, after the material
       write, after the claim, after the provider effect, and after the receipt archive.
-- [ ] Access restrictions on the real local SeaweedFS services for all ten tenant identities:
+- [x] Access restrictions on the real local SeaweedFS services for all ten tenant identities:
       product and restore credentials cannot read, overwrite, or delete an archive object.
-- [ ] The archive stays readable while the ordinary store is down, and product settlement stays
+- [x] The archive stays readable while the ordinary store is down, and product settlement stays
       blocked until it returns.
-- [ ] Register `tests/postgres/factory-archive-writer.test.ts` in `.github/workflows/db-postgres.yml`
+- [x] Register `tests/postgres/factory-archive-writer.test.ts` in `.github/workflows/db-postgres.yml`
       in the same change; W18's registration gate fails closed otherwise.
-- [ ] Record the deployed-independence requirement as an explicit unmet criterion in
+- [x] Record the deployed-independence requirement as an explicit unmet criterion in
       `tasks/factory/w04a-GATES.md`. Same-host volumes prove credential separation only.
-- [ ] Full verification per `common.md`, then the Review paragraph and the lessons entry.
+- [x] Full verification per `common.md`, then the Review paragraph and the lessons entry.
+
+## Review — W04a
+
+The archive-writer role is the existing immutable archive adapter plus three things the plan
+asked for and the adapter did not have: the archive credential set as its own gateway role, a
+readiness result that separates operational readiness from publication grade, and a
+failure-domain record that cannot be argued into claiming more than the deployment proves.
+
+The archive prerequisite before a dispatch claim needed no change to the shared release store.
+`FactoryReleases` already takes a `FactoryReleaseArchive` and already archives the intent and the
+material before it sets `archive_ready`, and already refuses a claim without it. The role became
+that interface, so the material write now also resolves the pinned candidate, request, and
+evidence objects, reads each through W04's scoped reader, writes and re-reads every member, and
+writes the manifest that names them. The material object is written last. A missing, unreadable,
+or corrupt member therefore leaves `archive_ready` false and publication pending, and W07's file
+is untouched.
+
+The crash-boundary cases count objects rather than describing them. Five attempts put exactly 1,
+4, 5, 6, and 6 objects in the archive: the intent alone, the intent with three members, plus the
+manifest, plus the material, and then the identical set on the retry that commits. That last
+equality is the idempotence proof; an earlier fixture that handed out a new object version per
+write broke it, and the fixture was what was wrong.
+
+The receipt-before-settlement half is proved by making the settlement fail. The provider effect is
+confirmed, the receipt reaches the archive, the product transaction dies, and the operation is
+left uncertain with no receipt in the database and the receipt already in the archive. Recovery
+then settles the same operation by identity, using the provider only to verify that the archived
+receipt still describes the live object, and the publish count stays at one throughout. With the
+ordinary store unreachable the recovery refuses and the operation waits.
+
+On the real services all ten tenant identities pass, and every product and restore attempt to
+read, overwrite, or delete an archive object is refused with HTTP 403 — 130 refusals in total.
+This profile mints no separate restore identity, so the restore probe uses the product credential
+set and the receipt says so rather than implying a proof it did not run.
+
+What this does not show is an independent failure domain. Both services are on this host.
+`deployed-independent-failure-domain` is recorded as an unmet criterion in
+`tasks/factory/w04a-GATES.md`, in every readiness result, and in the real-services receipt, and
+the classifier will not return the independent verdict without an operator's replication
+statement that nothing here writes.

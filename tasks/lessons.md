@@ -612,3 +612,31 @@
   assembling it from the type.
 - A package that adds a `tests/postgres/*.test.ts` suite must register it in the `db-postgres.yml` producer list in the same change. Two branches can each pass alone and fail together: the registration gate arrived with W18 while the unregistered suite arrived with W04. Run the combined tree's registration gates at integration, not only each branch's.
 - Check host memory and other sessions' heavy processes before starting parallel producers on a shared box. A 30 GB host reached kernel OOM when an external 20 GB mutation run overlapped three workers; it killed the per-user systemd manager and the PostgreSQL proof container, which then falsely reported `Up` while refusing connections. Verify `pg_isready` inside the container, not the `podman ps` status.
+
+## 2026-09-13 — Independent archive writer
+
+- A gateway role can be added without editing the file that composes it. The release store already
+  took a `FactoryReleaseArchive`, so the archive-writer role became that interface and did the rest
+  of C04 step 1 inside the material write. Widening a union or restructuring `releases.ts` would
+  have been a change to another owner's file for no behaviour the seam did not already allow.
+- Order the writes so the observable marker is last. Members, then the manifest, then the material
+  object; the shared store sets `archive_ready` only after that call returns, so every crash
+  boundary leaves publication pending with nothing to undo.
+- A manifest that embeds storage metadata is only stable if the store's conditional create is.
+  The first memory fixture handed out a new version on every write, so a retried archive produced a
+  second manifest and the idempotence assertion failed. The fixture was wrong, not the code — but a
+  fixture that is more permissive than the real store hides exactly this class of defect.
+- Do not construct another module's key layout to read it back. Derive the prefix by stripping the
+  known `<name>/<digest>` suffix from a reference the operation already holds. The layout then has
+  one owner, and a restore that has only the archive can still list the operation.
+- Separate credentials and separate volumes on one host prove credential separation and nothing
+  else. Put the verdict in a field (`failureDomain`, `deployedIndependenceProven`,
+  `unmetCriteria`), not in a sentence, and make the classifier refuse to return the good verdict
+  without an operator's replication statement. A record that cannot overclaim is worth more than a
+  caveat a reader may skip.
+- Split "ready" from "publication grade". A same-host deployment can be operationally ready while
+  still failing the criterion that gates a production claim; one boolean would have forced a choice
+  between blocking local work and lying about the deployment.
+- Prove a denial with the status, not just the absence of success. All 130 refusals here were HTTP
+  403; a 404 would have been a weaker claim, because a missing object and a refused one look alike
+  from the outside.

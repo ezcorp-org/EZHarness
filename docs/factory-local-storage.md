@@ -33,3 +33,12 @@ directory exported to test all ten tenant identities, cross-tenant denials,
 conditional writes, multipart uploads, version reads, and restart persistence.
 After a restart, the conformance runner also waits for an object read because
 SeaweedFS registers durable volumes after its master election completes.
+
+Run `bun scripts/verify-factory-archive-writer.ts` with the same credential
+directory exported to test the archive-writer role itself: conditional create,
+checksum, version reads, the archive inventory, and a refusal for every product
+and restore attempt to read, overwrite, or delete an archive object, across all
+ten tenant identities. It stops the ordinary service for one step, so run it
+under `flock /tmp/ezcorp-validation-heavy.lock` on a shared host. Its receipt
+records `failureDomain: "same-host-not-independent"` and the unmet criterion
+`deployed-independent-failure-domain`, because that is what one host can show.
