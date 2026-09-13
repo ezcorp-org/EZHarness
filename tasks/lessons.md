@@ -526,3 +526,6 @@
 - A claimed two-phase operation needs a durable intent before external work. Read checks alone are not an intent.
 - Do not reuse one project-wide package lock for a graph with several pinned runner references. Each prepared reference needs its own revocable trust fact and readiness check.
 - Keep comments aligned with the accepted transport seam. Dispatcher readiness runs after durable claim and before token minting.
+# Package trust identity — 2026-09-13
+
+- When a public reference accepts optional identity fields, every database key and foreign key must use the canonical complete reference. A seal alone does not prevent row collisions.
