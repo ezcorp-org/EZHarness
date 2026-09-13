@@ -470,3 +470,5 @@
 
 - Validate and snapshot the full pool request before writing its grant binding. An invalid resource vector must not reserve an id.
 - Converge concurrent identical first requests with conflict-safe insertion and an exact durable reread. A select followed by a plain insert is not retry-safe.
+- Authorize a reconciliation operator before loading protected operation details or resolving a provider. Keep the store's transactional authorization as the final current-authority fence.
+- Deep-snapshot public request bodies before the first await. A response or provider call must never observe mutations to the caller's nested objects while durable work is pending.
