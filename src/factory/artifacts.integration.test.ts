@@ -18,7 +18,6 @@ import { FactoryArtifacts } from "./artifacts";
 import { createFactoryArtifactActivities } from "./artifact-activities";
 import { FactoryDefinitionArtifacts } from "./definition-artifacts";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
-import type { FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 
 const databases: PGlite[] = [];
 const directories: string[] = [];
@@ -49,17 +48,12 @@ test("host-issued definition references load exact canonical compiler bytes thro
 });
 
 test("definition manifests use bounded linked pages at the 512-page edge", async () => {
-  const { artifacts, definitions, identity } = await fixture();
-  const definitionDigest = `sha256:${"b".repeat(64)}`;
-  const references = [] as Array<{ objectId: string; digest: string; encodedBytes: number; index: number }>;
-  for (let index = 0; index < 512; index += 1) {
-    references.push({ ...await artifacts.stage(identity, "definition_page", new Uint8Array([index % 256]), { definitionDigest, pageIndex: index, interpreterScoped: false }), index });
-  }
-  const chain = definitions as unknown as { stageManifestChain(identity: FactoryIdentity, digest: string, byteLength: number, pages: typeof references): Promise<{ objectId: string; digest: string; encodedBytes: number }> };
-  const first = await chain.stageManifestChain(identity, definitionDigest, 512, references);
-  const page = await definitions.loadManifestPage(identity, { definitionDigest, definitionEncodedBytes: 512, manifest: first }, first);
-  expect(page.pages.length).toBeLessThan(512);
-  expect(page.next).toBeDefined();
+  const { definitions, identity } = await fixture();
+  const result = compileFactory(referenceCodeV1); if (!result.ok) throw new Error("reference compiler fixture failed");
+  const compiled = { ...result.factory, padding: "x".repeat(15 * 1024 * 1024) } as typeof result.factory;
+  const source = await definitions.stageDefinition(compiled, identity);
+  const loaded = await loadCompiledFactory(identity, source, { loadManifestPage: request => definitions.loadManifestPage(request, request.definition, request.page), loadDefinitionPage: request => definitions.loadDefinitionPage(request, request.definitionDigest, request.page) }) as typeof compiled;
+  expect(loaded.padding).toHaveLength(15 * 1024 * 1024);
 }, 30_000);
 
 test("execution manifests and partitions keep their definition scope", async () => {

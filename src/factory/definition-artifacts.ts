@@ -86,8 +86,9 @@ export class FactoryDefinitionArtifacts {
         start -= 1;
       }
       if (!candidate) throw new FactoryArtifactError("factory_manifest_too_large");
-      next = await this.artifacts.stage(identity, "definition_manifest", candidate, { definitionDigest, pageIndex: start + 1, interpreterScoped: false });
-      end = start + 1;
+      const pageStart = Math.max(0, start);
+      next = await this.artifacts.stage(identity, "definition_manifest", candidate, { definitionDigest, pageIndex: pageStart, interpreterScoped: false });
+      end = pageStart;
     }
     if (!next) throw new FactoryArtifactError("factory_definition_invalid");
     return next;
