@@ -1,0 +1,48 @@
+{
+  "document": "docs/plans/2026-09-13-composable-factory-platform-completion.md",
+  "documentSha256": "5e1eba2d78306b2add987ce4825c9e162b1bf778cf0f577e4d05b65577c728c4",
+  "sourceBaseline": "0ba97dc7c5e9b2cb524c853152b4a9c6864b5471",
+  "checkedAt": "2026-09-13T16:17:01.786265+00:00",
+  "scope": "Plan document validation only; no product readiness claim",
+  "workPackages": 22,
+  "contractProofs": 13,
+  "platformGates": 11,
+  "localLinks": 27,
+  "topologicalOrder": [
+    "W00",
+    "W01",
+    "W02",
+    "W03",
+    "W04",
+    "W04a",
+    "W05",
+    "W06",
+    "W07",
+    "W08",
+    "W09",
+    "W10",
+    "W11",
+    "W12",
+    "W13",
+    "W14",
+    "W16",
+    "W15",
+    "W17",
+    "W18",
+    "W19",
+    "W20"
+  ],
+  "checks": {
+    "workIdentityAndMapping": true,
+    "localFileLinks": true,
+    "acyclicDependencies": true,
+    "archiveBeforePublication": true,
+    "deployedRestoreAndFinalCiDependencies": true,
+    "platformGatesUnchanged": true
+  },
+  "independentReviews": {
+    "sol": "All ten reported findings resolved on rereview",
+    "terra": "All six grouped findings resolved on rereview"
+  },
+  "errors": []
+}

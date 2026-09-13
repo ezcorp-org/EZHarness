@@ -1,5 +1,17 @@
 # Extension v4 independent validation
 
+## Factory completion plan — 2026-09-13
+
+- [x] Audit the original platform plan and all thirteen launch contracts against current source and evidence.
+- [x] Collect Sol and Terra checkpoint and gap reviews without treating unmerged work as integrated.
+- [x] Write a dependency-ordered completion plan with owners, test criteria, and the authorized ten-installation milestone.
+- [x] Review hidden gaps and validate requirement coverage, local links, and dependency order.
+- [x] Record the plan review and leave platform launch gates unchanged.
+
+Plan review: This turn produces a plan. It does not start a new feature implementation leaf or claim launch readiness. The existing worktree remains the integration target; active agents report their current checkpoints and remaining gaps.
+
+Review: The [completion plan](../docs/plans/2026-09-13-composable-factory-platform-completion.md) contains 22 work packages and maps all thirteen contract/proof pairs and eleven platform gates. Four workstream audits distinguish integrated, unmerged, dirty, unproven, and missing work. Independent Sol and Terra review corrections include early archive readiness, component versus deployment certification, live cancellation and usage reconciliation, exact package identity, package lifecycle/API ownership, pool fairness, outbound notifications, and backup/key requirements. Both reviewers report their findings resolved. Document checks pass: 27 local links, complete mappings, acyclic dependencies, archive-before-publication, deployed restore/final CI prerequisites, and unchanged platform gates. The checksummed record is `docs/validation/factory/completion-plan/structure.json`. This task changes documentation only; no product test or launch completion is claimed.
+
 ## Trusted factory command lookup — Terra
 
 - [x] Reproduce rejection for an uncommitted or foreign command reference.
