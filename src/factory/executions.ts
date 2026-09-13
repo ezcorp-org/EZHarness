@@ -432,6 +432,23 @@ export class FactoryExecutionJournal {
     });
   }
 
+  /**
+   * Authorizes one bounded attempt-scoped auxiliary material write inside the
+   * caller's transaction. It reuses the same live fence every effect takes, so
+   * an expired deadline, a stale epoch or reservation generation, a cancelled
+   * attempt, or a superseded grant revision rejects the write.
+   */
+  async authorizeMaterialWriteInTransaction(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
+    const snapshot = snapshotAuthority(authority);
+    this.assertLiveInput(snapshot);
+    await this.lockLive(database, snapshot);
+  }
+
+  /** Authorizes one attempt-scoped material read. It admits no effect, so it stays available after the deadline. */
+  async authorizeMaterialReadInTransaction(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
+    await this.lockScopedRead(database, snapshotAuthority(authority));
+  }
+
   private async admitSnapshotInTransaction(database: MigrationDb, snapshot: FactoryAttemptAdmissionSnapshot): Promise<{ requestHash: string; reused: boolean }> {
     const { authority, requestHash, requestJson } = snapshot;
     this.assertLiveInput(authority);
