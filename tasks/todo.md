@@ -1663,3 +1663,12 @@ Review: the Bun pool process reads one strict private config, verifies the exact
 Plan review: the application must construct a real input resolver from its scoped artifact and grant stores. The host checks full immutable bytes once at admission; the workflow receives bounded inline values and exact artifact descriptors. Existing low-level lifecycle resolver seams remain available for controlled store tests.
 
 Review: application composition now provides a concrete host input resolver. Admission and later lazy reads share one exact local/shared immutable artifact loader. Actual canonical I-JSON bytes satisfy the published port schema; only inline values and descriptors enter the durable start. Foreign or revoked shares, altered digest/storage, wrong ports and malformed JSON fail before a run is committed. PGlite integration passes 47 tests / 317 assertions; PostgreSQL and real ordinary S3 pass 39 tests / 262 assertions. Input loader coverage is 39/39 lines and 7/7 functions; run resolver is 25/25 and 4/4; shared lazy reader is 122/122 and 25/25. Application composition is 99/99 lines and 24/25 functions. SDK build, all four types, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-run-inputs-source.json` and `root-run-inputs-integration-results.json`. Full production startup remains open.
+
+## C07 durable child runs and delegated budgets — final review
+
+- [x] Persist and seal each child inherited start clock; reject legacy rows without an explicit backfill.
+- [x] Verify sealed ancestor source heads before child task authority.
+- [x] Prove nested child clocks, parent supersession, deadline denial, unknown-hold denial, sibling held/retry progress, and nonzero settlement.
+- [x] Run PGlite, PostgreSQL/S3, migration restart, changed-source LCOV, SDK build, all canonical typechecks, and lint.
+
+Review: final source coverage is 100% for `child-runs.ts`, `command-authority.ts`, `run-lifecycle.ts`, `factory-schema.ts`, and the child start-clock migration. The registration lines in `migrate.ts` are exercised by the full migration restart test; its whole-file aggregate is 95.93% because the module has unrelated historical branches.

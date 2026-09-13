@@ -499,3 +499,8 @@
 
 - Persist and compare only execution authority fields in a compute admission fence. Public projection revisions and status can advance from queued to running without changing execution authority.
 - Test canonical zero-based candidate generations at every writer and reader boundary. A terminal reader must accept generation zero when the kernel defines it as the first generation.
+
+## 2026-09-13 — Child start clocks
+
+- A child has no root `start_run` outbox, so it must persist the original root clock inside its sealed binding. Never infer it from row creation time or use a zero default for legacy rows.
+- A reader of that clock must verify the entire binding digest, not only a timestamp and a digest-shaped string. A legacy populated binding without the fact must stop migration for explicit backfill.
