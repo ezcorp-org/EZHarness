@@ -16,7 +16,7 @@
  */
 import { test, expect } from "./fixtures/hydration.js";
 import { captureEvidence } from "./fixtures/evidence.js";
-import { buildWorkspace, extensionClient, requestRelease, type CreatedWorkspace } from "./fixtures/extension-v4.js";
+import { buildDeadline, buildWorkspace, extensionClient, requestRelease, type CreatedWorkspace } from "./fixtures/extension-v4.js";
 import type { InstallationState } from "../../src/extensions/v4/types";
 
 test("trusted-local: two acknowledgements, API refusals without them, standing banner @evidence", async ({ page, request, baseURL }, testInfo) => {
@@ -63,7 +63,7 @@ test("trusted-local: two acknowledgements, API refusals without them, standing b
     // With it, the real TrustedLocalRunner builds, typechecks and runs the
     // scaffold's own test as a plain process, and stamps the release so it
     // can never be mistaken for an isolated one.
-    const built = await buildWorkspace(client, created, { acknowledgeUnsandboxed: true });
+    const built = await buildWorkspace(client, created, buildDeadline(), { acknowledgeUnsandboxed: true });
     const release = Object.values(built.releases)[0]!;
     expect(release.runnerProfile).toBe("trusted-local-v4");
     expect(release.imageDigest).toMatch(/^localhost\/trusted-local@sha256:[a-f0-9]{64}$/);

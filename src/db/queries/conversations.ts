@@ -139,11 +139,13 @@ export async function createConversation(
     .returning();
   const created = rows[0]!;
 
-  // Phase 53 Stage 2: auto-wire bundled extensions that need to fire
-  // on every conversation (currently just the lessons-distiller).
-  // Failure is logged + swallowed — conversation creation must not
-  // depend on the wiring write succeeding. See
-  // `src/extensions/auto-wire-bundled.ts` for the contract.
+  // Auto-wire the bundled extensions that must fire on every
+  // conversation (`lessons-distiller`, `memory-extractor`). This is the
+  // create-time half only: it wires nothing while the extension is
+  // disabled, and `reconcileBundledConversationWiring()` covers that
+  // window at boot and at activation. Failure is logged + swallowed —
+  // conversation creation must not depend on the wiring write
+  // succeeding. See `src/extensions/auto-wire-bundled.ts`.
   try {
     const { autoWireBundledExtensions } = await import(
       "../../extensions/auto-wire-bundled"

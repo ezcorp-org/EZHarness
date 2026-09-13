@@ -93,6 +93,36 @@ test("a missing saved source does not substitute another revision", () => {
   expect(view.queryByRole("link", { name: /Revision/ })).not.toBeInTheDocument();
 });
 
+test("the heading and title name the extension being edited", () => {
+  const view = render(AuthorPage, { data: data({ extensionName: "memory-extractor" }) });
+  expect(view.getByRole("heading", { level: 1 })).toHaveTextContent("memory-extractor");
+  expect(document.title).toBe("memory-extractor · Extension workspace");
+});
+
+test("without a resolved name the page keeps its generic heading", () => {
+  const view = render(AuthorPage, { data: data({ extensionName: null }) });
+  expect(view.getByRole("heading", { level: 1 })).toHaveTextContent("Extension workspace");
+  expect(document.title).toBe("Extension workspace");
+});
+
+test("the installations list links by extension name and keeps the id as secondary text", () => {
+  const input = data({ state: null, workspace: null, files: {}, installations: [{ id: "installation-a", status: "active", name: "memory-extractor" }] });
+  const view = render(AuthorPage, { data: input });
+  const link = view.getByRole("link", { name: /memory-extractor/ });
+  expect(link).toHaveAttribute("href", "?installation=installation-a");
+  expect(link).toHaveTextContent("memory-extractor");
+  expect(link).toHaveTextContent("installation-a");
+  expect(view.getByText("installation-a")).toHaveClass("installation-id");
+});
+
+test("an installation with no known name falls back to its id alone", () => {
+  const input = data({ state: null, workspace: null, files: {}, installations: [{ id: "installation-b", status: "disabled", name: null }] });
+  const view = render(AuthorPage, { data: input });
+  expect(view.getByRole("link", { name: /installation-b/ })).toHaveAttribute("href", "?installation=installation-b");
+  expect(view.container.querySelector(".installation-id")).toBeNull();
+  expect(view.getByText("disabled")).toHaveClass("installation-status");
+});
+
 // ── trusted-local (unsandboxed) mode: the two acknowledgement points ──────
 // The server refuses a build or an approval without the acknowledgement
 // (`unsandboxed_acknowledgement_required`); these prove the page never lets

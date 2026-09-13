@@ -4,6 +4,7 @@ import { getExtensionLifecycle } from "$server/extensions/extension-lifecycle-se
 import { getExtensionProjectBinding } from "$server/extensions/project-binding";
 import { listProjects } from "$server/db/queries/projects";
 import { resolveControlActor } from "$lib/server/extensions/control-actor";
+import { resolveInstallationName, resolveInstallationNames } from "$lib/server/extensions/installation-name";
 import { getExtensionRunnerMode, TRUSTED_LOCAL_PROFILE } from "$server/extensions/runner-mode";
 import { TRUSTED_LOCAL_OMITTED_CONTROLS } from "@ezcorp/extension-runner";
 import type { PageServerLoad } from "./$types";
@@ -22,10 +23,17 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   // Passed as data rather than imported client-side: `runner-mode.ts` and
   // the runner package both reach node builtins.
   const runner = { extensionRunnerMode: getExtensionRunnerMode(), trustedLocalProfile: TRUSTED_LOCAL_PROFILE, unsandboxedOmittedControls: [...TRUSTED_LOCAL_OMITTED_CONTROLS] };
-  if (!installationId) return { ...runner, installations: await lifecycle.list(actor), state: null, workspace: null, files: {}, sourceUnavailable: null, canApprove, canBindProject: false, projects: [], projectBinding: null };
+  if (!installationId) {
+    // The list renders a name per row, so it resolves them in bulk here rather
+    // than inspecting each installation's state (one round-trip per row).
+    const owned = await lifecycle.list(actor);
+    const names = await resolveInstallationNames(owned.map((installation) => installation.id));
+    return { ...runner, installations: owned.map((installation) => ({ ...installation, name: names.get(installation.id) ?? null })), state: null, extensionName: null, breadcrumbTail: null, workspace: null, files: {}, sourceUnavailable: null, canApprove, canBindProject: false, projects: [], projectBinding: null };
+  }
   try {
     actor.scope = (await resolveControlActor(user, "human", installationId)).scope;
     const state = await lifecycle.inspect(actor, installationId);
+    const extensionName = await resolveInstallationName(state);
     const workspaceId = url.searchParams.get("workspace") ?? Object.values(state.workspaces).sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id;
     let source: Awaited<ReturnType<typeof lifecycle.readWorkspace>> | { workspace: null; files: Record<string, never> } = { workspace: null, files: {} };
     let sourceUnavailable: { workspaceId: string } | null = null;
@@ -38,7 +46,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       }
     }
     const projects = (await Promise.all((await listProjects()).map(async project => project.path && !(await checkProjectRole({ user }, project.id, "member") instanceof Response) ? { id: project.id, name: project.name } : null))).filter((project): project is { id: string; name: string } => project !== null);
-    return { ...runner, installations: [state.installation], state, ...source, sourceUnavailable, canApprove: canApprove && !sourceUnavailable, canBindProject: locals.authMethod === "session" && state.installation.ownerId === user.id, projects, projectBinding: await getExtensionProjectBinding(installationId) };
+    return { ...runner, installations: [{ ...state.installation, name: extensionName }], state, extensionName, breadcrumbTail: extensionName, ...source, sourceUnavailable, canApprove: canApprove && !sourceUnavailable, canBindProject: locals.authMethod === "session" && state.installation.ownerId === user.id, projects, projectBinding: await getExtensionProjectBinding(installationId) };
   } catch (cause) {
     if (cause && typeof cause === "object" && "code" in cause && ["not_found", "forbidden"].includes(String(cause.code))) throw error(404, "Workspace not found.");
     throw cause;

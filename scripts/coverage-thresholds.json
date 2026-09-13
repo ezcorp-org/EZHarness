@@ -6,6 +6,7 @@
   "src/db/migrations/add-extension-trusted-local-approvals.ts": 100,
   "web/src/lib/components/UnsandboxedExtensionsBanner.svelte": 100,
   "web/src/lib/components/UnsandboxedExtensionsBanner.helpers.ts": 100,
+  "web/src/lib/server/extensions/installation-name.ts": 100,
   "scripts/git-worktree-clean.ts": 100,
   "web/src/routes/(app)/admin/moderation/+page.server.ts": 100,
   "web/src/routes/api/auth/setup/+server.ts": 100,

@@ -255,6 +255,15 @@ export async function publishExtensionGeneration(installation: InstallationRecor
   const { getPageCache } = await import("./page-cache");
   getPageCache().invalidateExtension(installation.id);
   await ExtensionRegistry.getInstance().reload();
+  // A bundled extension that subscribes to conversation events is dead on
+  // every conversation created while it was disabled — the dispatcher gates
+  // delivery on a `conversation_extensions` row and the create-time hook has
+  // already been and gone. Reconcile the moment activation enables it so the
+  // operator does not have to restart the host. The helper never throws.
+  if (release && installation.enabled) {
+    const { AUTO_WIRE_BUNDLED_EXTENSION_NAMES, reconcileBundledConversationWiring } = await import("./auto-wire-bundled");
+    if (AUTO_WIRE_BUNDLED_EXTENSION_NAMES.includes(release.manifest.name)) await reconcileBundledConversationWiring();
+  }
   if (factoryAgents) {
     await getDb().transaction(async (transaction: import("../db/connection").DbTransaction) => {
       const result = await transaction.execute(sql`SELECT payload FROM extension_release_installations WHERE id = ${installation.id} FOR UPDATE`);

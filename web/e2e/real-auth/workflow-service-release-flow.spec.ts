@@ -1,6 +1,6 @@
 import { test, expect } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
-import { buildWorkspace, extensionClient, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { activateApprovedRelease, buildWorkspace, extensionClient, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import type { WorkspaceRecord } from "../../../src/extensions/v4/types";
 
 test("a human consents to a sealed service workflow; a real worker cannot fire after revocation @evidence", async ({ page, request, baseURL }, testInfo) => {
@@ -56,8 +56,7 @@ await serve(extension);
   await page.getByLabel("I reviewed this release and its permissions.").check();
   await captureEvidence(page, testInfo, "service-workflow-exact-release-review", { fullPage: true });
   await approve.click();
-  await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  await activateApprovedRelease(page);
 
   const serviceResponse = await request.post("/api/service-accounts", { data: { name, scopes: ["read", "write"], maxTokensPerDay: 10000 } });
   expect(serviceResponse.status(), await serviceResponse.text()).toBe(201);

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Local pre-commit hook (shift-left): runs the cheap CI gates on your STAGED
-# changes so biome lint + manifest-lock drift are caught before you push and
-# before CI does. This is advisory speed, NOT the enforcement backstop — CI's
-# required checks remain the gate. Bypass with `git commit --no-verify` or
-# EZ_SKIP_HOOKS=1; CI enforces the same checks either way.
+# changes so biome lint, the unit tests covering those changes, and
+# manifest-lock drift are caught before you push and before CI does. This is
+# advisory speed, NOT the enforcement backstop — CI's required checks remain
+# the gate. Bypass with `git commit --no-verify` or EZ_SKIP_HOOKS=1; CI
+# enforces the same checks either way.
+#
+# The test step resolves staged paths to their test files and runs only those
+# (scripts/lib/hook-lib.sh: run_staged_tests). It SKIPS past
+# EZ_PRECOMMIT_TEST_MAX files rather than blocking — see the note there.
+# EZ_SKIP_HOOK_TESTS=1 skips just the tests, keeping lint.
 #
 # Installed by scripts/setup-git-hooks.sh (`git config core.hooksPath .githooks`,
 # wired into `bun install` postinstall).
@@ -82,6 +88,24 @@ if [ "${#LINT_PATHS[@]}" -gt 0 ]; then
   if ! bunx biome check --no-errors-on-unmatched -- "${LINT_PATHS[@]}"; then
     fail "biome found lint issues in staged files" \
       "bunx biome check --write -- <file>   (review, then re-stage)"
+  fi
+fi
+
+# ── Unit tests covering the staged files ────────────────────────────────────
+# Same partial-staging caveat as the lint above: this runs the tests against
+# the on-disk worktree, not the staged index blob.
+# The `-r` guard is load-bearing, not defensive padding: this hook is copied
+# STANDALONE into throwaway repos (src/__tests__/git-hooks.test.ts fixtures copy
+# .githooks/pre-commit, biome.json and .gitignore — nothing from scripts/). An
+# unguarded `.` there fails, run_staged_tests is then undefined, and the hook
+# blocks a perfectly clean commit. A tree without the lib has no tests this hook
+# could run anyway, so skipping is the correct behavior, not a fallback.
+if [ "${EZ_SKIP_HOOK_TESTS:-}" != "1" ] && [ -r "$ROOT/scripts/lib/hook-lib.sh" ]; then
+  . "$ROOT/scripts/lib/hook-lib.sh"
+  echo "── Tests (staged) ─────────────────────────────────"
+  if ! run_staged_tests "${STAGED[@]}"; then
+    fail "a unit test covering your staged changes failed" \
+      "bun test --timeout 30000 <file>   (or: EZ_SKIP_HOOK_TESTS=1 git commit …)"
   fi
 fi
 

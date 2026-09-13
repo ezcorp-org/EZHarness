@@ -48,6 +48,15 @@ export function getConfiguredExtensionRunner(): Runner {
   }
 }
 
+// Answers the same question as getConfiguredExtensionRunner without throwing, so
+// a caller can branch on host settings. It reuses that validation rather than
+// restating it; neither a RunnerClient nor the lazy trusted-local runner opens
+// anything until its first call, so this is a pure settings check in both modes.
+export function isExtensionRunnerConfigured(): boolean {
+  try { getConfiguredExtensionRunner(); return true; }
+  catch { return false; }
+}
+
 /**
  * `resolve` may be sync (the socket client is cheap to construct) or async
  * (the in-process trusted-local runner digests bun and bundles the SDK on

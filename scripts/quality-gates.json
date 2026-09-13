@@ -1,0 +1,93 @@
+{
+  "$comment": [
+    "SINGLE SOURCE OF TRUTH for the code-quality gate thresholds added alongside",
+    "the per-file coverage ratchet. Protected by scripts/gate-integrity.ts:",
+    "a PR may raise these numbers, never lower them (crapMaxScore is inverted —",
+    "lower is stricter — so it may only DECREASE). A maintainer-only",
+    "`gate-change-approved` label is the sole bypass.",
+    "",
+    "Per-file coverage thresholds stay in scripts/coverage-thresholds.json —",
+    "that ratchet predates this file and owns ~500 keys. This file holds only",
+    "the NEW aggregate gates. See docs/features/platform/dev-lifecycle-and-gates.md."
+  ],
+
+  "coverage": {
+    "$comment": [
+      "Aggregate line-coverage floor across the merged coverage/lcov.info.",
+      "Complements (does NOT replace) the per-file ratchet: per-file catches a",
+      "single bad module, this catches slow drift across the whole tree.",
+      "Measured 96.19% on 2026-09-13 (124039/128950 lines, 1439 files)."
+    ],
+    "globalLineThreshold": 90
+  },
+
+  "crap": {
+    "$comment": [
+      "CRAP = comp^2 * (1 - cov)^3 + comp, per function (McCabe cyclomatic",
+      "complexity x line coverage). A function at 100% coverage scores exactly",
+      "its complexity, so maxScore 30 means: complexity <=5 needs no coverage,",
+      "complexity >30 can never pass however well tested. 30 is the value from",
+      "the original Crap4J paper and every tool that followed it.",
+      "",
+      "enforceGlobs scopes the gate to files the merged lcov actually measures.",
+      "warnScore only colours the report; it never fails a run.",
+      "",
+      "TWO MODES, because a mature tree cannot adopt CRAP 30 in one commit:",
+      "  --changed (PR gate)  every function the PR TOUCHED must be <= maxScore.",
+      "  full repo (nightly)  a RATCHET on the existing debt — the violation",
+      "                       count may fall, never rise. maxFullRepoViolations",
+      "                       was 83 of 9505 scored functions, measured on main",
+      "                       2026-09-13 (40 of them complexity-only, already",
+      "                       at 100% coverage — only a refactor moves those).",
+      "                       Lower it as the debt is paid; gate-integrity.ts",
+      "                       refuses to raise it.",
+      "",
+      "                       That 83 was measured WITHOUT the browser-route",
+      "                       coverage leg, which needs a CI-only receipt",
+      "                       (BROWSER_COVERAGE_RAW/LCOV) and cannot run",
+      "                       locally. Missing coverage only ever INFLATES a",
+      "                       CRAP score, so the real CI count is <= 83 and",
+      "                       this ceiling cannot false-fail. Ratchet it down",
+      "                       to the true number after the first nightly."
+    ],
+    "maxScore": 30,
+    "warnScore": 15,
+    "maxFullRepoViolations": 83,
+    "enforceGlobs": ["src/**/*.ts", "web/src/**/*.ts", "packages/@ezcorp/*/src/**/*.ts"]
+  },
+
+  "mutation": {
+    "$comment": [
+      "Stryker runs on the vitest leg only — it has no Bun test runner, and the",
+      "backend pool's per-file mock.module() isolation fights perTest coverage.",
+      "See docs/development-lifecycle.md -> 'Roadmap: mutation testing'.",
+      "",
+      "scoreThreshold fails the run (Stryker thresholds.break). PR runs are",
+      "diff-scoped; the nightly workflow runs mutateGlobs in full.",
+      "prBudgetMinutes caps a PR run so a large diff cannot stall the queue.",
+      "",
+      "WHY src/lib/server/** IS EXCLUDED — a sandbox limit, not a policy choice.",
+      "Stryker copies the project into web/.stryker-tmp/sandbox-*/ and runs the",
+      "tests there. web/vitest.config.ts aliases $server to resolve(__dirname,",
+      "'../src') — the REPO-ROOT src/ tree, which sits outside web/ and so is",
+      "never copied into the sandbox. Every *.server.test.ts therefore dies with",
+      "'Failed to resolve import \"$server/...\"' and Stryker aborts the whole run",
+      "on a failed initial test run. Measured: the 81-file scope failed outright;",
+      "dropping these 13 modules gives a valid 68-file scope (dry run green,",
+      "2617 tests). Validate any scope change cheaply with",
+      "`bun scripts/mutation.ts --full --dry-run-only` before paying for a run.",
+      "Lifting this needs the sandbox to contain repo-root src/ — i.e. running",
+      "Stryker from the repo root, or inPlace mode (which mutates the real",
+      "working tree and is unsafe on a box with concurrent agents)."
+    ],
+    "scoreThreshold": 80,
+    "prBudgetMinutes": 20,
+    "mutateGlobs": [
+      "src/lib/**/*.ts",
+      "!src/lib/**/*.test.ts",
+      "!src/lib/**/*.d.ts",
+      "!src/lib/**/__tests__/**",
+      "!src/lib/server/**"
+    ]
+  }
+}
