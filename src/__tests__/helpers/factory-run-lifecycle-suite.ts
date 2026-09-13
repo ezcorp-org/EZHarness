@@ -367,6 +367,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await cancelRun(principal, runKey(run.runId), run.revision, "durable-child-parent-cancel");
     await expect(fixture.db.transaction(transaction => lifecycle.authorizeRunInTransaction(transaction, { projectId, runId: childRunId }))).rejects.toMatchObject({ code: "factory_run_stopped" });
     expect(await children.resolve(service, reference)).toEqual(staged);
+    await fixture.db.execute(sql`UPDATE factory_child_runs SET started_ms=${now + 2} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`);
+    await expect(fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: childRunId }))).rejects.toMatchObject({ code: "factory_run_corrupt" });
   });
 
   test("a terminal child with an unknown hold cannot settle its parent allocation", async () => {
