@@ -17,6 +17,7 @@ export interface FactoryDefinitionKey { readonly projectId: string; readonly fac
 export interface FactoryDraftMetadata extends FactoryDefinitionKey { readonly revision: number; readonly sourceDigest: string; readonly archived: boolean; readonly updatedAtMs: number }
 export interface FactoryDraft extends FactoryDraftMetadata { readonly source: FactoryDefinition }
 export interface FactoryVersion extends FactoryDefinitionKey { readonly version: string; readonly draftRevision: number; readonly definitionDigest: string; readonly compiledBlobDigest: string; readonly compiledBytes: number; readonly publishedAtMs: number }
+export interface FactoryDraftListOptions { readonly after?: string; readonly limit?: number; readonly archived?: boolean; readonly search?: string }
 type DraftRow = { revision: number | string; source_digest: string; source_json: string; archived: boolean; updated_ms: string | number };
 type VersionRow = { version: string; draft_revision: number | string; definition_digest: string; compiled_blob_digest: string; compiled_bytes: number; published_ms: string | number };
 
@@ -50,6 +51,14 @@ function published(key: FactoryDefinitionKey, row: VersionRow): FactoryVersion {
 
 function pageBounds(after: string, limit: number): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || typeof after !== "string" || after.length > 512 || after.includes("\0")) throw new FactoryDefinitionError("factory_page_invalid");
+}
+
+function validSearch(search: unknown): search is string {
+  return typeof search === "string" && search.length >= 1 && search.length <= 512
+    && [...search].every(character => {
+      const code = character.codePointAt(0)!;
+      return code > 31 && code !== 127;
+    });
 }
 
 /** Revisioned authoring and immutable publication, backed by the shared blob store. */
@@ -105,18 +114,36 @@ export class FactoryDefinitions {
   }
 
   async list(principal: FactoryPrincipal, projectId: string, after = "", limit = 50): Promise<{ items: readonly FactoryDraftMetadata[]; nextCursor: string | null }> {
+    const page = await this.listDrafts(principal, projectId, { after, limit });
+    return { items: page.items.map(({ source: _source, ...metadata }) => metadata), nextCursor: page.nextCursor };
+  }
+
+  async listDrafts(principal: FactoryPrincipal, projectId: string, options: FactoryDraftListOptions = {}): Promise<{ items: readonly FactoryDraft[]; nextCursor: string | null }> {
+    const after = options.after ?? "";
+    const limit = options.limit ?? 50;
+    const archived = options.archived ?? false;
+    const search = options.search;
     pageBounds(after, limit);
+    if (typeof archived !== "boolean" || search !== undefined && !validSearch(search)) throw new FactoryDefinitionError("factory_page_invalid");
     return this.database.transaction(async transaction => {
       await this.grants.authorizeInTransaction(transaction, principal, projectId, "read");
-      const selected = rows<DraftRow & { factory_id: string }>(await transaction.execute(sql`SELECT factory_id, revision, source_digest, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts
-        WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND factory_id > ${after} AND archived=FALSE ORDER BY factory_id LIMIT ${limit + 1}`));
-      const items = selected.slice(0, limit).map(row => ({ projectId, factoryId: row.factory_id, revision: Number(row.revision), sourceDigest: row.source_digest, archived: row.archived, updatedAtMs: Number(row.updated_ms) }));
+      const searchFilter = search === undefined ? sql`` : sql`AND factory_id ILIKE ${`%${search}%`}`;
+      const selected = rows<DraftRow & { factory_id: string }>(await transaction.execute(sql`SELECT factory_id, revision, source_digest, source_json, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts
+        WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND factory_id > ${after} AND archived=${archived} ${searchFilter} ORDER BY factory_id LIMIT ${limit + 1}`));
+      const items = selected.slice(0, limit).map(row => draft({ projectId, factoryId: row.factory_id }, row));
       return { items, nextCursor: selected.length > limit ? items[items.length - 1]!.factoryId : null };
     });
   }
 
   async validate(principal: FactoryPrincipal, key: FactoryDefinitionKey): Promise<CompileResult> {
-    return compileFactory((await this.read(principal, key)).source);
+    const current = await this.readForAuthoring(principal, key);
+    return compileFactory(current.source);
+  }
+
+  async validateSource(principal: FactoryPrincipal, key: FactoryDefinitionKey, source: FactoryDefinition): Promise<CompileResult> {
+    if (source.id !== key.factoryId) throw new FactoryDefinitionError("factory_definition_identity_mismatch");
+    await this.grants.authorize(principal, key.projectId, "factory.author");
+    return compileFactory(source);
   }
 
   async export(principal: FactoryPrincipal, key: FactoryDefinitionKey): Promise<{ revision: number; content: string }> {
@@ -128,6 +155,12 @@ export class FactoryDefinitions {
   import(principal: FactoryPrincipal, key: FactoryDefinitionKey, expectedRevision: number, idempotencyKey: string, text: string, format: "json" | "yaml"): Promise<FactoryDraftMetadata> {
     if (format !== "json" && format !== "yaml") throw new FactoryDefinitionError("factory_format_invalid");
     return this.save(principal, key, expectedRevision, idempotencyKey, format === "json" ? parseFactoryJson(text) : parseFactoryYaml(text));
+  }
+
+  importNew(principal: FactoryPrincipal, projectId: string, expectedRevision: number, idempotencyKey: string, text: string, format: "json" | "yaml"): Promise<FactoryDraftMetadata> {
+    if (format !== "json" && format !== "yaml") throw new FactoryDefinitionError("factory_format_invalid");
+    const source = format === "json" ? parseFactoryJson(text) : parseFactoryYaml(text);
+    return this.save(principal, { projectId, factoryId: source.id }, expectedRevision, idempotencyKey, source);
   }
 
   async listVersions(principal: FactoryPrincipal, key: FactoryDefinitionKey, after = "", limit = 50): Promise<{ items: readonly FactoryVersion[]; nextCursor: string | null }> {
@@ -143,12 +176,14 @@ export class FactoryDefinitions {
     });
   }
 
-  async publish(principal: FactoryPrincipal, key: FactoryDefinitionKey, expectedRevision: number, idempotencyKey: string): Promise<FactoryVersion> {
+  async publish(principal: FactoryPrincipal, key: FactoryDefinitionKey, expectedRevision: number, idempotencyKey: string, requestedVersion?: string): Promise<FactoryVersion> {
     revision(expectedRevision);
     const snapshot = { ...key };
-    return this.mutations.execute({ principal, projectId: snapshot.projectId, action: "factory.publish", idempotencyKey, input: { kind: "version.publish", ...snapshot, expectedRevision } }, async transaction => {
+    const input = { kind: "version.publish", ...snapshot, expectedRevision, ...(requestedVersion === undefined ? {} : { requestedVersion }) };
+    return this.mutations.execute({ principal, projectId: snapshot.projectId, action: "factory.publish", idempotencyKey, input }, async transaction => {
       const current = draft(snapshot, await this.requireDraft(transaction, snapshot, true));
       if (current.revision !== expectedRevision || current.archived) throw new FactoryDefinitionError("factory_revision_conflict");
+      if (requestedVersion !== undefined && current.source.version !== requestedVersion) throw new FactoryDefinitionError("factory_version_conflict");
       const compiled = compileFactory(current.source);
       if (!compiled.ok) throw new FactoryDefinitionError("factory_definition_invalid", compiled.diagnostics);
       const value = compiled.factory;
@@ -170,20 +205,33 @@ export class FactoryDefinitions {
     });
   }
 
+  private readForAuthoring(principal: FactoryPrincipal, key: FactoryDefinitionKey): Promise<FactoryDraft> {
+    const snapshot = { ...key };
+    assertFactoryIdentity(key.factoryId);
+    return this.database.transaction(async transaction => {
+      await this.grants.authorizeInTransaction(transaction, principal, snapshot.projectId, "factory.author");
+      return draft(snapshot, await this.requireDraft(transaction, snapshot));
+    });
+  }
+
   async readVersion(principal: FactoryPrincipal, key: FactoryDefinitionKey, version: string): Promise<{ version: FactoryVersion; compiled: CompiledFactory }> {
     assertFactoryIdentity(key.factoryId, version);
     const snapshot = { ...key };
-    return this.database.transaction(async transaction => {
-      await this.grants.authorizeInTransaction(transaction, principal, snapshot.projectId, "read");
-      const row = await this.findVersion(transaction, snapshot, version);
-      if (!row) throw new FactoryDefinitionError("factory_version_not_found");
-      const bytes = await this.blobs.get(row.compiled_blob_digest);
-      if (bytes.byteLength !== row.compiled_bytes || bytes.byteLength > MAX_DEFINITION_BYTES || digestBytes(bytes) !== row.compiled_blob_digest) throw new FactoryDefinitionError("factory_definition_corrupt");
-      const compiled = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as CompiledFactory;
-      const rebuilt = compileFactory(compiled.definition);
-      if (!rebuilt.ok || rebuilt.factory.digest !== row.definition_digest || canonicalJson(rebuilt.factory) !== canonicalJson(compiled)) throw new FactoryDefinitionError("factory_definition_corrupt");
-      return { version: published(snapshot, row), compiled };
-    });
+    return this.database.transaction(transaction => this.readVersionInTransaction(transaction, principal, snapshot, version));
+  }
+
+  async readVersionInTransaction(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, version: string): Promise<{ version: FactoryVersion; compiled: CompiledFactory }> {
+    assertFactoryIdentity(key.projectId, key.factoryId, version);
+    const snapshot = { ...key };
+    await this.grants.authorizeInTransaction(transaction, principal, snapshot.projectId, "read");
+    const row = await this.findVersion(transaction, snapshot, version);
+    if (!row) throw new FactoryDefinitionError("factory_version_not_found");
+    const bytes = await this.blobs.get(row.compiled_blob_digest);
+    if (bytes.byteLength !== row.compiled_bytes || bytes.byteLength > MAX_DEFINITION_BYTES || digestBytes(bytes) !== row.compiled_blob_digest) throw new FactoryDefinitionError("factory_definition_corrupt");
+    const compiled = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as CompiledFactory;
+    const rebuilt = compileFactory(compiled.definition);
+    if (!rebuilt.ok || rebuilt.factory.digest !== row.definition_digest || canonicalJson(rebuilt.factory) !== canonicalJson(compiled)) throw new FactoryDefinitionError("factory_definition_corrupt");
+    return { version: published(snapshot, row), compiled };
   }
 
   private async findDraft(transaction: MigrationDb, key: FactoryDefinitionKey, write = false): Promise<DraftRow | undefined> {

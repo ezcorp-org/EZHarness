@@ -65,6 +65,9 @@ export function factoryDefinitionsConformance(createFixture: () => Promise<Fixtu
     expect(validateFactoryApiResponse({ schemaVersion: "factory.api.response.v1", kind: "version.summary", resource })).toEqual({ ok: true });
     expect(Number.isSafeInteger((await store.read(actor, key(definition.id))).updatedAtMs)).toBe(true);
     expect((await store.readVersion(actor, key(definition.id), version.version)).compiled.digest).toBe(version.definitionDigest);
+    const transactional = await fixture.db.transaction(transaction => store.readVersionInTransaction(transaction, actor, key(definition.id), version.version));
+    expect(transactional.version).toEqual(version);
+    expect(transactional.compiled.digest).toBe(version.definitionDigest);
     expect(await store.publish(actor, key(definition.id), 1, "publish-same-content")).toEqual(version);
     await store.save(actor, key(definition.id), 1, "edit-after-publish", { ...definition, presentation: { label: "Changed" } });
     expect(await store.publish(actor, key(definition.id), 1, "publish-v1")).toEqual(version);
@@ -122,6 +125,22 @@ export function factoryDefinitionsConformance(createFixture: () => Promise<Fixtu
     expect(last.nextCursor).toBeNull();
     expect((await store.listVersions(actor, key("missing"))).items).toEqual([]);
     expect(() => store.import(actor, key(definition.id), 3, "wrong-format", text, "xml" as "json")).toThrow("factory_format_invalid");
+  });
+
+  test("authoring metadata supports import identity, archive and search filters, and requested versions", async () => {
+    const alpha = source("filter-alpha");
+    const beta = source("filter-beta");
+    expect((await store.importNew(actor, "definition-project", 0, "import-new", canonicalJson(alpha), "json")).factoryId).toBe(alpha.id);
+    await store.save(actor, key(beta.id), 0, "filter-beta-create", beta);
+    await store.archive(actor, key(beta.id), 1, "filter-beta-archive");
+    expect((await store.listDrafts(actor, "definition-project", { search: "ALPHA" })).items.map(item => item.factoryId)).toContain(alpha.id);
+    expect((await store.listDrafts(actor, "definition-project", { archived: true, search: "filter" })).items.map(item => item.factoryId)).toEqual([beta.id]);
+    expect((await store.validateSource(actor, key(alpha.id), alpha)).ok).toBe(true);
+    await expect(store.validateSource(actor, key(beta.id), { ...alpha, id: beta.id })).resolves.toMatchObject({ ok: true });
+    await expect(store.validateSource(actor, key(beta.id), alpha)).rejects.toMatchObject({ code: "factory_definition_identity_mismatch" });
+    await expect(store.publish(actor, key(alpha.id), 1, "wrong-requested-version", "2.0.0")).rejects.toMatchObject({ code: "factory_version_conflict" });
+    expect((await store.publish(actor, key(alpha.id), 1, "right-requested-version", "1.0.0")).version).toBe("1.0.0");
+    await expect(store.listDrafts(actor, "definition-project", { search: "" })).rejects.toMatchObject({ code: "factory_page_invalid" });
   });
 
   test("scoped reads, pagination, missing resources and stale preconditions fail clearly", async () => {
