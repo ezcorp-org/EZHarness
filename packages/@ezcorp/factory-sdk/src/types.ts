@@ -324,68 +324,6 @@ export interface CompiledFactory {
   readonly pages: readonly CompiledPage[];
 }
 
-export type RunState =
-  | "created"
-  | "running"
-  | "waiting"
-  | "stopping"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-export type NodeState =
-  | "blocked"
-  | "ready"
-  | "reserved"
-  | "running"
-  | "waiting"
-  | "retry_wait"
-  | "stopping"
-  | "succeeded"
-  | "failed"
-  | "skipped"
-  | "cancelled";
-
-export interface NodeRuntimeState {
-  readonly state: NodeState;
-  readonly candidateGeneration: number;
-  readonly attempt: number;
-  readonly output?: JsonValue;
-  readonly error?: string;
-}
-
-export interface KernelState {
-  readonly logicalRunId: string;
-  readonly state: RunState;
-  readonly nodes: Readonly<Record<string, NodeRuntimeState>>;
-  readonly cancellationEpoch: number;
-  readonly commandCounter: number;
-  readonly appliedEventIds: readonly string[];
-}
-
-export type KernelEvent =
-  | { readonly kind: "start"; readonly id: string }
-  | { readonly kind: "node-result"; readonly id: string; readonly nodeId: string; readonly attempt: number; readonly output: JsonValue }
-  | { readonly kind: "node-failed"; readonly id: string; readonly nodeId: string; readonly attempt: number; readonly error: string }
-  | { readonly kind: "approval-decided"; readonly id: string; readonly nodeId: string; readonly choice: string }
-  | { readonly kind: "timer-expired"; readonly id: string; readonly nodeId: string }
-  | { readonly kind: "admission-result"; readonly id: string; readonly nodeId: string; readonly granted: boolean }
-  | { readonly kind: "cancel"; readonly id: string; readonly reason: string };
-
-export type KernelCommand =
-  | { readonly kind: "dispatch-node"; readonly id: string; readonly nodeId: string; readonly attempt: number; readonly input: JsonValue }
-  | { readonly kind: "request-admission"; readonly id: string; readonly nodeId: string }
-  | { readonly kind: "start-timer"; readonly id: string; readonly nodeId: string; readonly deadlineMs: number }
-  | { readonly kind: "run-child"; readonly id: string; readonly nodeId: string; readonly factory: FactoryReference; readonly input: JsonValue }
-  | { readonly kind: "cancel-node"; readonly id: string; readonly nodeId: string }
-  | { readonly kind: "complete-run"; readonly id: string; readonly output: JsonValue }
-  | { readonly kind: "fail-run"; readonly id: string; readonly error: string };
-
-export interface AdvanceResult {
-  readonly nextState: KernelState;
-  readonly commands: readonly KernelCommand[];
-}
-
 export interface CompilerDiagnostic {
   readonly code: string;
   readonly message: string;
