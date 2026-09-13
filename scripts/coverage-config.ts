@@ -237,6 +237,12 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/components/SwipeDrawer.svelte",
   "web/src/lib/components/ez/EzPanel.svelte",
   "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte",
+  // Direct Vitest utility suites own these browser-safe factory helpers.
+  "web/src/lib/factory/client.ts",
+  "web/src/lib/factory/download.ts",
+  "web/src/lib/factory/layout.ts",
+  "web/src/lib/factory/model.ts",
+  "web/src/routes/(app)/factories/+page.server.ts",
 ];
 
 /** V8-canonical files measured specifically by the standard Web Vitest producer. */
@@ -249,6 +255,12 @@ export const WEB_VITEST_CANONICAL_SOURCES: readonly string[] = V8_CANONICAL_SOUR
  * measure with the same map. Each has a trusted browser receipt at its floor.
  */
 export const BROWSER_CANONICAL_SOURCES: readonly string[] = [
+  // Native graph interactions and rendered console states own these maps.
+  "web/src/lib/factory/FactoryConsole.svelte",
+  "web/src/lib/factory/FactoryGraph.svelte",
+  "web/src/lib/factory/FactoryGraphBoundary.svelte",
+  "web/src/lib/factory/FactoryNode.svelte",
+  "web/src/routes/(app)/factories/+page.svelte",
   "web/src/lib/components/AgentSearchPicker.svelte",
   "web/src/lib/components/ChatInput.svelte",
   "web/src/lib/components/KnowledgeBaseTab.svelte",

@@ -111,7 +111,7 @@ test("final browser manifests must enumerate every scripted Svelte route", () =>
 		routes,
 		files: [...BROWSER_CANONICAL_SOURCES],
 	});
-	expect(routes).toHaveLength(64);
+	expect(routes).toHaveLength(65);
   expect(routes).toContain("web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte");
   expect(() => assertCompleteRouteInventory(routes.slice(1))).toThrow("browser coverage route inventory is incomplete");
   expect(() => assertCompleteRouteInventory([...routes, "web/src/routes/removed/+page.svelte"])).toThrow("extra=");
@@ -130,6 +130,7 @@ test("browser converter marks AST receipts with the shared browser producer", as
 test("every scripted route has an enforced per-file floor", async () => {
   const thresholds = await Bun.file(new URL("../../scripts/coverage-thresholds.json", import.meta.url)).json() as Record<string, number>;
   const exactHundred = new Set([
+    "web/src/routes/(app)/factories/+page.svelte",
     "web/src/routes/(app)/extensions/[id]/preview/+page.svelte",
     "web/src/routes/(app)/extensions/import-source/+page.svelte",
     "web/src/routes/(app)/extensions/project-proposals/[id]/+page.svelte",

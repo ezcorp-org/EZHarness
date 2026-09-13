@@ -392,3 +392,7 @@
 - Recompute every protected evidence digest from all persisted fields before a claim. A stored digest alone does not prove a mutable row still has its approved facts.
 - Use `Set.has` before `Set.add`; `Set.add` always returns the set and cannot detect duplicates.
 - Snapshot untrusted inputs before the first await and test the exact digest object in both creation and consumption paths.
+
+## 2026-09-13 — Shared heavy validation
+
+- Check the shared heavy-validation lock before starting a broad test or coverage pool. When another producer holds it, run only focused leaf checks and leave the canonical regression run to the queued owner.

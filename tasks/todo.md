@@ -1059,19 +1059,22 @@ Grant operations now freeze flat copies of every caller-owned authority and targ
 
 # Factory authoring console — 2026-09-13
 
-- [ ] Pin Svelte Flow and ELK and enforce their factory-only import boundary.
-- [ ] Add one strict SDK-backed browser client for draft list, create, import, export, save, validate, and publish.
-- [ ] Add pure graph projection/editing and deterministic ELK layout wrappers.
-- [ ] Build the responsive `/factories` authoring console and navigation entry.
-- [ ] Cover validation diagnostics, revision conflicts, keyboard editing, and immutable version publication.
-- [ ] Add component, route, manifest, and Playwright evidence tests for wide, narrow, light, dark, reduced-motion, and long-label states.
-- [ ] Inspect captured evidence and fix visible defects.
-- [ ] Run frozen installs, SDK build, typechecks, lint, focused/full tests, browser checks, and 100 percent owned-source coverage.
-- [ ] Record the final review and immutable commit proofs.
+- [x] Pin Svelte Flow and ELK and enforce their factory-only import boundary.
+- [x] Add one strict SDK-backed browser client for draft list, create, import, export, save, validate, and publish.
+- [x] Add pure graph projection/editing and deterministic ELK layout wrappers.
+- [x] Build the responsive `/factories` authoring console and navigation entry.
+- [x] Cover validation diagnostics, revision conflicts, keyboard editing, and immutable version publication.
+- [x] Add component, route, manifest, and Playwright evidence tests for wide, narrow, light, dark, reduced-motion, and long-label states.
+- [x] Inspect captured evidence and fix visible defects.
+- [x] Run frozen installs, SDK build, typechecks, lint, focused tests, browser checks, and 100 percent owned-source coverage.
+- [x] Record the final review and immutable commit proofs.
+- [ ] Parent runs the canonical full regression under the shared heavy-validation lock.
 
 ## Review
 
-Pending.
+The console uses the current membership project and the shared factory SDK contracts. Svelte Flow and ELK load only in the browser boundary. Draft writes use revision and idempotency preconditions. Publication compares the exact requested immutable source and explains that it does not activate a runner or package. Mock browser evidence covers the graph editor and narrow publication review. The real authenticated journey remains pending until the root-owned live factory boot is available.
+
+Frozen root and web installs, the SDK build, all four typecheck legs, and lint pass. The final focused suite passes 20 tests. The registration repair passes 22 tests with 218 assertions; the route, evidence, lane, and boundary gates pass 231 tests with 803 assertions. Chromium passes all five authoring scenarios. The ten new measured sources each have 100 percent line coverage. An earlier full run passed 25,966 tests and found four missing coverage registrations; those exact failures pass after the repair. A second full run was cancelled when the shared heavy-validation lock was found in use, so the parent owns the final canonical regression.
 
 ## Native terminal and canonical service producers
 
