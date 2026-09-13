@@ -293,9 +293,10 @@ export class FactoryRunLifecycle {
   /** Root start outbox is the sealed source of the workflow's original clock. */
   async readWorkflowStartedAtInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<number> {
     const command = await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).findRunCommandInTransaction(transaction, key.runId, "start_run");
-    const body = command?.command.kind === "start_run" && command.command.body && typeof command.command.body === "object" && !Array.isArray(command.command.body) ? command.command.body as Record<string, unknown> : null;
-    const startedAtMs = body?.startedAtMs;
-    if (!body || command.command.logicalRunId !== key.runId || body.tenantId !== this.tenantId || body.projectId !== key.projectId || body.logicalRunId !== key.runId || !Number.isSafeInteger(startedAtMs) || (startedAtMs as number) < 0) throw new FactoryRunLifecycleError("factory_run_corrupt");
+    if (!command || command.command.kind !== "start_run" || !command.command.body || typeof command.command.body !== "object" || Array.isArray(command.command.body)) throw new FactoryRunLifecycleError("factory_run_corrupt");
+    const body = command.command.body as Record<string, unknown>;
+    const startedAtMs = body.startedAtMs;
+    if (command.command.logicalRunId !== key.runId || body.tenantId !== this.tenantId || body.projectId !== key.projectId || body.logicalRunId !== key.runId || !Number.isSafeInteger(startedAtMs) || (startedAtMs as number) < 0) throw new FactoryRunLifecycleError("factory_run_corrupt");
     return startedAtMs as number;
   }
 
