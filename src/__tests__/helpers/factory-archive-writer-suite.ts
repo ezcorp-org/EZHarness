@@ -202,7 +202,7 @@ async function setup() {
   return { db, admin, projectId, scope, members, reader, archive, store, writer, releases, provider, recovery, prepare, claim, stateOf, rejectAudit, mutationKey, attemptMaterials, blobs };
 }
 
-async function memberBytes(world: Awaited<ReturnType<typeof setup>>, operation: FactoryReleaseOperation) {
+async function manifestFor(world: Awaited<ReturnType<typeof setup>>, operation: FactoryReleaseOperation) {
   const manifest = await world.writer.readManifest(operation.materialArchive!, operation.materialDigest);
   expect(manifest.schemaVersion).toBe(FACTORY_ARCHIVE_MANIFEST_SCHEMA_VERSION);
   return manifest;
@@ -213,7 +213,7 @@ test("the archive holds every referenced member before a dispatch claim is possi
   const operation = await world.prepare("complete");
   expect(operation).toMatchObject({ state: "pending", archiveReady: true });
 
-  const manifest = await memberBytes(world, operation);
+  const manifest = await manifestFor(world, operation);
   expect(manifest.members.map(member => [member.role, member.memberName])).toEqual([
     ["candidate", "candidate"], ["request", "request"], ["evidence", `evidence/${world.members.evidence.reference.artifactId}`],
   ]);
@@ -248,7 +248,7 @@ test("publication stays pending while a member is unavailable, and resumes when 
     VALUES (${TENANT},${world.scope.projectId},${world.scope.runId},${world.scope.attemptId},${world.scope.operationId},'evidence.json',1,0,${chunk.chunk_digest},${Number(chunk.encoded_bytes)},${chunk.blob_digest},${chunk.storage_version})`);
   const recovered = await world.prepare("member-gone", "member-gone-key");
   expect(recovered).toMatchObject({ archiveReady: true });
-  expect((await memberBytes(world, recovered)).members.some(member => member.artifact.artifactId === evidenceId)).toBe(true);
+  expect((await manifestFor(world, recovered)).members.some(member => member.artifact.artifactId === evidenceId)).toBe(true);
   expect(await world.claim(recovered)).toMatchObject({ state: "executing" });
 });
 
@@ -294,7 +294,7 @@ test("a crash at each archive boundary before the claim recovers by identity", a
   expect(operation.archiveReady).toBe(true);
   // The retry reuses every immutable object it already wrote; nothing new appears.
   expect([...new Set(world.archive.writes)]).toEqual([...archivedBefore]);
-  expect((await memberBytes(world, operation)).members).toHaveLength(3);
+  expect((await manifestFor(world, operation)).members).toHaveLength(3);
   expect(await world.claim(operation)).toMatchObject({ state: "executing" });
 });
 
@@ -395,6 +395,22 @@ test("an archived receipt from another generation cannot settle this one", async
   expect(await world.writer.readArchivedReceipt(uncertain)).toEqual(confirmed);
   const outcome = await world.recovery.recover(world.projectId, operation.operationId, world.provider, world.mutationKey("recover"));
   expect(outcome).toMatchObject({ kind: "settled_from_archive", receipt: confirmed });
+});
+
+test("two concurrent preparations archive one member set and leave one claimable operation", async () => {
+  const world = await setup();
+  const [left, right] = await Promise.all([world.prepare("concurrent", "concurrent-left"), world.prepare("concurrent", "concurrent-right")]);
+  expect(left.operationId).toBe(right.operationId);
+  expect([left.archiveReady, right.archiveReady]).toEqual([true, true]);
+  expect(left.intentArchive).toEqual(right.intentArchive!);
+  expect(left.materialArchive).toEqual(right.materialArchive!);
+
+  // Both attempts wrote, and every write landed on the same six immutable objects.
+  const keys = world.archive.writes.filter(key => key.includes(`/${Buffer.from(left.operationId).toString("base64url")}/`));
+  expect(keys.length).toBeGreaterThan(6);
+  expect(new Set(keys).size).toBe(6);
+  expect((await manifestFor(world, left)).members).toHaveLength(3);
+  expect(await world.claim(left)).toMatchObject({ state: "executing" });
 });
 
 test("the archive-writer role reports readiness and never claims an independent failure domain here", async () => {

@@ -101,8 +101,7 @@ no change to W07's file.
 - [x] G3: The archive holds every referenced member before a dispatch claim is possible, and
       publication stays pending when a member is unavailable or reads back different bytes.
       CHECK: `bun test --timeout 120000 ./src/factory/archive-writer.integration.test.ts`
-      EXPECT: 9 pass, 0 fail, 67 assertions. In the ten-file focused invocation that carries it:
-      299 pass, 0 fail, 1406 assertions.
+      EXPECT: 10 pass, 0 fail, 76 assertions.
       EVIDENCE: receipt `focused`.
 - [x] G4: A crash at each archive boundary recovers by identity and writes no second object.
       CHECK: the G3 suite, case "a crash at each archive boundary before the claim recovers by
@@ -132,8 +131,9 @@ no change to W07's file.
       CHECK: `bun test --timeout 300000 ./tests/postgres/factory-archive-writer.test.ts` with
       `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set, under the shared
       heavy lock.
-      EXPECT: 9 pass, 0 fail, 67 assertions.
-      EVIDENCE: receipts `postgres-archive-writer-first` and `postgres-storage`.
+      EXPECT: 10 pass, 0 fail, 76 assertions.
+      EVIDENCE: receipts `postgres-archive-writer-concurrent`, `final-postgres`, and
+      `postgres-storage`.
 - [x] G8: No product or restore credential can read, overwrite, or delete an archive object, for
       all ten tenant identities, and no foreign tenant's archive credential can either.
       CHECK: `bun scripts/verify-factory-archive-writer.ts`
@@ -167,6 +167,14 @@ no change to W07's file.
       and `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
       EXPECT: exit 0 from each.
       EVIDENCE: receipts `merge-lcov`, `new-file-coverage`, `patch-coverage`.
+- [x] G14: Two concurrent preparations of the same operation archive one member set and leave one
+      claimable operation.
+      CHECK: the G3 suite, case "two concurrent preparations archive one member set and leave one
+      claimable operation".
+      EXPECT: both calls return the same operation with the same intent and material archive
+      references, more than six writes land on exactly six distinct immutable objects, and the
+      manifest still names three members.
+      EVIDENCE: receipts `final-focused` and `postgres-archive-writer-concurrent`.
 - [x] G13: Every neighbouring producer that uses the shared PostgreSQL storage helper stays green
       after that helper gained the archive service.
       CHECK: the fifteen `tests/postgres/factory-*` suites that import
