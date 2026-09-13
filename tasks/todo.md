@@ -1629,3 +1629,25 @@ Review: the lazy command adapter accepts only an opaque trusted command referenc
 - [ ] Prove retries, restart, concurrent exhaustion, cancellation, repair, deadline, wrong definitions, PGlite, PostgreSQL/S3, coverage, types, and lint.
 
 Plan review: the parent command ID remains the only child-start authority. A child owns a separate logical run and root envelope, while the parent reserves exactly that envelope through a same-run child sub-envelope. Settlement transfers only verified child spending and returns unused allowance; no child receives fresh parent limits.
+## Terminal invalid-input startup — root
+
+- [ ] Turn initial kernel input validation failure into a non-retryable workflow failure.
+- [ ] Prove undeclared durable input creates no transition or effect through actual Temporal.
+- [ ] Re-run the full canonical Node coverage lane, web checks and static checks.
+
+Review in progress: current-root canonical Node run exposed a lazy-parent fixture with an undeclared data port. Kernel initialization threw outside the workflow error boundary, so Temporal retried workflow tasks indefinitely. The original logs and verified producer interruption are retained under `/tmp/factory-platform-evidence/root-compute-lazy-approval-fixed-node-*`. The fixture now declares its port and production startup converts invalid kernel input to `FACTORY_INPUT_INVALID`.
+
+## Production factory pool process
+
+- [x] Define the strict reference-only process configuration and startup contract.
+- [x] Validate private database, TLS, token, identity, and static resource configuration before bind.
+- [x] Bind the configured installation and pool to the durable database and reject unsafe restart changes.
+- [x] Publish honest atomic readiness and stop on database, listener, or shutdown failure.
+- [x] Reuse the existing Bun mTLS pool server and normalized Bun PostgreSQL adapter.
+- [x] Prove fresh subprocess startup, exact request recovery, restart fences, bad material, bad tokens, and shutdown against PostgreSQL.
+- [x] Document the exact launch and private file requirements.
+- [x] Run focused coverage, schema/static gates, and create an immutable checkpoint.
+
+Plan review: use one strict private config that contains only identities, static resources, and file references. Verify every referenced secret and the exact PostgreSQL database and role before the listener binds. Persist the installation and pool identity in the pool database, retain all durable allocations on restart, and reject resource removal. Publish readiness only after schema setup, resource checks, and the real mTLS listener succeed.
+
+Review: the Bun pool process reads one strict private config, verifies the exact PostgreSQL database and role, validates its TLS and RSA trust material, binds the database to one installation and pool, applies the existing pool schema and explicit resource inventory, and then starts the existing mTLS handler. Restart preserves durable allocations and rejects resource or host removal. An atomic readiness file becomes ready only after the database, schema and listener are live; heartbeat, listener-close and database-close failures degrade and exit nonzero. The canonical pool producer passes 65 tests with 430 assertions across PGlite, isolated PostgreSQL, Bun mTLS, Node mTLS and the fresh subprocess. All ten pool source records are at 100% line coverage in `/tmp/factory-pool-process-final/lcov.info`. Frozen installs, builds, all four type checks, lint, boundaries, registration, required-check tests and gate integrity pass.

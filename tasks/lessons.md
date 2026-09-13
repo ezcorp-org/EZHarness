@@ -494,3 +494,8 @@
 ## 2026-09-13 — Child workflow scheduling identity
 
 - One logical child run has one scheduling authority. A child launched through `executeChild` must use its durable child logical ID and must never also enqueue a root `start_run` command.
+
+## 2026-09-13 — Compute admission execution fences
+
+- Persist and compare only execution authority fields in a compute admission fence. Public projection revisions and status can advance from queued to running without changing execution authority.
+- Test canonical zero-based candidate generations at every writer and reader boundary. A terminal reader must accept generation zero when the kernel defines it as the first generation.

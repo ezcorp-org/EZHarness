@@ -159,9 +159,14 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
   } catch (error) {
     throw workflowFailure(error, "FACTORY_DEFINITION_INVALID");
   }
-  const created = isPartitionSource(input.definition)
-    ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs, input.durableInput)
-    : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs, input.durableInput);
+  let created: KernelState;
+  try {
+    created = isPartitionSource(input.definition)
+      ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs, input.durableInput)
+      : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs, input.durableInput);
+  } catch (error) {
+    throw workflowFailure(error, "FACTORY_INPUT_INVALID");
+  }
   const restored = input.continuation?.stateArtifact
     ? await loadTransitionArtifact(workflowIdentity(input), input.continuation.stateArtifact.sourceSequence, input.continuation.stateArtifact.manifest, reads)
     : undefined;
