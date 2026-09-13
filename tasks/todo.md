@@ -960,3 +960,15 @@ The compiler now emits immutable root-node partitions with exact node-level inbo
 - [ ] Wire all store authority into application routes and each real runner effect, then complete full platform proofs.
 
 Review: tasks/factory/budgets.md has store evidence; tasks/factory/GATES.md remains the full-scope ledger.
+
+# Factory application composition
+
+- [x] Add shared durable mutation receipts with current authority checks and exact payload identity.
+- [x] Add revisioned draft CRUD and immutable published versions with the SDK compiler and shared blob store.
+- [x] Prove concurrent save/publish, repeated keys, revoked access, corruption and transaction rollback on PGlite and PostgreSQL.
+- [x] Add canonical coverage entries; run types, lint, tests and measured source coverage.
+- [ ] Integrate into the application route/bootstrap layer with shared SDK API schemas and browser proof.
+
+Review: This is a component leaf of the complete platform plan. The root integration worktree remains fixed for its active application regression run. All work here is owned by the root, on a separate branch.
+
+Component review: canonical types pass in all four sections. Nine conformance cases cover saves/publish races, JSON/YAML round trips, archive, current access, corruption and rollback. PGlite source coverage: definitions150/150, mutation receipts34/34, additive migration8/8. Real PostgreSQL also runs the shared suite. API routes and real browser proof remain unchecked.
