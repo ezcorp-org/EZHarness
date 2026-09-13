@@ -9,6 +9,7 @@
 	import { startAuthKeepalive } from "$lib/auth-keepalive.js";
 	import { clearResumeState, projectIdFromPath } from "$lib/resume-path.js";
 	import { isIconUrl } from "$lib/project-icon.js";
+	import { resolveBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import HubNavSection from "$lib/components/hub/HubNavSection.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
@@ -261,9 +262,13 @@
 		return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "Home";
 	});
 
-	// Optional page-supplied trailing crumb (e.g. the extension name on the
-	// author page). Pages set `breadcrumbTail` in their load data.
-	let breadcrumbTail = $derived(page.data.breadcrumbTail || null);
+	// Optional trailing crumb naming the subject of a detail route — the
+	// extension on the author page, the agent on `/agents/<name>`. One
+	// resolver serves every route; see `$lib/breadcrumb-tail.svelte.ts` for
+	// the three sources and why routes keyed only by an opaque id get none.
+	let breadcrumbTail = $derived(
+		resolveBreadcrumbTail(page.route.id, page.url.pathname, page.params, page.data.breadcrumbTail),
+	);
 
 </script>
 

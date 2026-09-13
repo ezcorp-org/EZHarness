@@ -2,6 +2,7 @@
 	import { page } from "$app/state";
 	import { store } from "$lib/stores.svelte.js";
 	import { fetchRun, type Run } from "$lib/api.js";
+	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import { onMount } from "svelte";
 	import StatusBadge from "$lib/components/StatusBadge.svelte";
 	import LogStream from "$lib/components/LogStream.svelte";
@@ -41,6 +42,10 @@
 	});
 
 	let resultJson = $derived(run?.result ? JSON.stringify(run.result, null, 2) : null);
+
+	// Name this run in the Command Deck breadcrumb strip by the agent that
+	// produced it. The route param is a uuid, which reads as noise in chrome.
+	$effect(() => setBreadcrumbTail(run?.agentName));
 </script>
 
 <div class="space-y-6">

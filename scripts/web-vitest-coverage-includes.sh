@@ -232,11 +232,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/components/extensions/ExtensionBrowser.svelte"
     "--coverage.include=src/routes/api/extensions/[[]name]/preview/+server.ts"
     "--coverage.include=src/routes/(app)/extensions/[[]id]/preview/+page.svelte"
-    # `**` rather than the literal `(app)` group: Vitest matches this list with
-    # picomatch, where a bare `(app)` is a regex GROUP and so matches the path
-    # segment `app` — never the real directory `(app)`. Measured: the literal
-    # form reports 0 files for this module, this form reports 1.
-    "--coverage.include=src/routes/**/agents/[[]name]/+page.ts"
+    "--coverage.include=src/lib/breadcrumb-tail.svelte.ts"
     "--coverage.include=src/lib/server/workflow-access.ts"
     "--coverage.include=src/routes/**/pipelines/+page.server.ts"
     "--coverage.include=src/lib/components/WorkflowStepForm.svelte"

@@ -1,5 +1,5 @@
 {
-  "web/src/routes/(app)/agents/[name]/+page.ts": 100,
+  "web/src/lib/breadcrumb-tail.svelte.ts": 100,
   "web/src/lib/server/extensions/installation-name.ts": 100,
   "scripts/git-worktree-clean.ts": 100,
   "web/src/routes/(app)/admin/moderation/+page.server.ts": 100,
