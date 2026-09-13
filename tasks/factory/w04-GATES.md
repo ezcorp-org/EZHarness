@@ -89,14 +89,27 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       EXPECT: 26 pass, 0 fail, 205 assertions against PostgreSQL 16.14 and the local S3 service.
       EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `postgres-materials`.
       NOTE: this gate failed twice before it passed, and both failures are stated rather than
-      hidden. The shared `factory-platform-proof-postgres` container was dead for part of this
-      package's window: `podman ps` reported it up while its PID was gone and port 46343 refused
-      connections, so the first run failed with 26 connection errors before any assertion. After
-      its owner restored it, the second run failed one case, because the mutual-TLS restart proof
-      used a client certificate whose common name was not this suite's tenant; the certificate is
-      now bound to the tenant. Both runs survive in `receipts.jsonl` with their exit code, counts,
-      and log digest, but their log files were overwritten by the passing run before the receipt
-      runner began writing a uniquely named log per run.
+      hidden.
+
+      The first failure was environmental. A kernel out-of-memory kill at 13:38 EDT, caused by an
+      unrelated 20 GB run in another session, killed the per-user systemd manager and the
+      `factory-platform-proof-postgres` container's processes. Podman still reported the container
+      up with PID 3199365 while that PID was gone, `podman exec` failed with `crun: the container
+      ... is not running`, and port 46343 refused connections. The run at 14:44 EDT therefore
+      failed with 26 connection errors before any assertion. The coordinator repaired the host and
+      the container; the cause above is the coordinator's account, and it matches what was
+      observed here.
+
+      The second failure was this suite's own defect. The mutual-TLS restart proof used a client
+      certificate whose common name was not this suite's tenant, so the gateway correctly refused
+      it with 401. The certificate is now minted for the tenant under test.
+
+      Every structured receipt in `receipts.jsonl` started at 15:25 EDT or later, which is after
+      both the outage window and the host's memory hold, and no receipt log contains a
+      connection-closed or `sd-bus` error. The second failure survives in `receipts.jsonl` with
+      its exit code, counts, and log digest; its log file was overwritten by the passing rerun
+      before the receipt runner began writing a uniquely named log per run. The 14:44 failure
+      predates the receipt runner and exists only as this note.
 - [x] G10: The two new tables and the widened artifact row match their Drizzle models in real
       PostgreSQL, including every scoped foreign key.
       CHECK: `bun test --timeout 240000 ./tests/postgres/factory-schema.test.ts`
