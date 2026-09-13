@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { FileBlobStore } from "../../extensions/v4/blobs";
+import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryArtifacts } from "../../factory/artifacts";
 import {
   FACTORY_MATERIAL_LIMITS,
@@ -25,7 +26,14 @@ const TENANT = "tenant-a";
 const SECRET = "material-gateway-secret";
 const INSTALLATION = "installation-a";
 
-export function factoryMaterialGatewayConformance(create: () => Promise<{ db: TransactionalDb; close(): Promise<void> }>): void {
+export interface FactoryMaterialGatewayFixture {
+  readonly db: TransactionalDb;
+  /** Supplied by the real PostgreSQL producer so the same routes run against S3. */
+  readonly blobs?: BlobStore;
+  close(): Promise<void>;
+}
+
+export function factoryMaterialGatewayConformance(create: () => Promise<FactoryMaterialGatewayFixture>): void {
 describe("C02 gateway material routes", () => {
 const databases: Array<{ close(): Promise<void> }> = [];
 const servers: { stop(): void }[] = [];
@@ -60,7 +68,7 @@ async function setup() {
   const wraps: InstallationKeyWrap[] = [];
   const store: InstallationKeyWrapStore = { async load() { return wraps; }, async save(value) { wraps.push(value); } };
   const key = await InstallationDataKey.loadOrCreate(INSTALLATION, store, new StaticMasterKeyProvider({ id: "operator", bytes: new Uint8Array(32).fill(5) }));
-  const blobs = new EncryptedBlobStore(new FileBlobStore(root), key, TENANT);
+  const blobs = new EncryptedBlobStore(database.blobs ?? new FileBlobStore(root), key, TENANT);
   const artifacts = new FactoryArtifacts(db, blobs, TENANT);
   const journal = new FactoryExecutionJournal(db, async () => {});
   const reader = new FactoryScopedMaterials({ database: db, artifacts, blobs });

@@ -92,8 +92,10 @@ export interface FactoryScopedArtifactReader {
  * to one code so a reader cannot learn whether an object exists.
  */
 export class FactoryArtifactAccessError extends Error {
-  constructor(readonly code: string) {
+  readonly code: string;
+  constructor(code: string) {
     super(code);
+    this.code = code;
     this.name = "FactoryArtifactAccessError";
   }
 }
@@ -101,8 +103,10 @@ export class FactoryArtifactAccessError extends Error {
 export function unavailable(): never { throw new FactoryArtifactAccessError("factory_artifact_unavailable"); }
 
 export class FactoryMaterialError extends Error {
-  constructor(readonly code: string) {
+  readonly code: string;
+  constructor(code: string) {
     super(code);
+    this.code = code;
     this.name = "FactoryMaterialError";
   }
 }
