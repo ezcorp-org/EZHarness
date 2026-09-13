@@ -2,13 +2,11 @@
 
 Scope: `docs/plans/2026-09-13-composable-factory-platform-completion.md` section 5, W01. Interface surface 6 of the W00 freeze. Receipts live under `/tmp/factory-platform-evidence/w01/`; each `logs/<label>.json` records the producing commit, dirty files, exact command, exit code, UTC start and end, duration, and the log's SHA-256. `INDEX.md` maps them and `SHA256SUMS` checksums the raw logs.
 
-Branch `wp/w01-durable-runtime`. Base `integ/w00` at `c6ac529d2`. Fourteen of sixteen gates pass. G4 and G10 are REOPENED by validator finding 1.
+Branch `wp/w01-durable-runtime`. Base `integ/w00` at `c6ac529d2`. All sixteen gates pass.
 
-**Reopened: losing the controlling attachment terminates the guest.** The validator reported the SIGKILL-supervisor case as timing flakiness and recommended a bounded retry. Root-causing it showed a product defect instead, so no retry was added. `launchDetached` returns `processSpawn(podman, ["attach", name])`, whose stdin pipe is held by the supervisor process. Killing the supervisor closes that pipe, `podman attach` forwards the EOF into the container's stdin, and the guest exits. Measured on a faithful reproduction of the real code path: container `running` while the parent lived, `exited exit=7` at the first observation 250 ms after `SIGKILL`, where 7 is the guest's own stdin-end handler. The existing test passes only when a fresh supervisor's `podman attach` wins that sub-second race, which is exactly why it fails under load. A bounded retry would have made it reliably green while the product still violated the requirement.
+**Closed: guest lifetime is decoupled from the supervising process.** The validator reported the SIGKILL case as timing flakiness and recommended a bounded retry. Root-causing it found a product defect, so the design was fixed instead of the test. The guest's stdin was a `podman attach` stream whose pipe the supervisor held; killing the supervisor closed it, podman forwarded the end-of-input, and the guest died. Measured before the fix in `logs/attach-eof-repro.log`: `running` while the parent lived, `exited exit=7` at the first observation 250 ms after `SIGKILL`, where 7 is the guest's own end-of-input handler.
 
-Podman 5.8.2 offers no way out on the CLI surface: `podman attach --no-stdin` cannot write, and the attach stream is the only writable path to container stdin, so a client's EOF always reaches the guest. Meeting "losing the controlling attachment must not terminate the guest" requires moving the control channel off container stdin, most likely to a bind-mounted unix socket. That crosses into the v4 guest serve loop and W02's Python bridge, so it is a scope decision for the coordinator rather than a change I should make unilaterally at the end of a validation round.
-
-Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at a time.
+The control channel is now a FIFO triple bound read-write at `/channel`, with an in-guest shim holding all three `O_RDWR` for the guest's whole life. A FIFO reader sees end-of-file only when every writer closes, so no host process's exit can reach the guest; the supervisor's death closes only its own descriptors. Design and the pre-implementation feasibility measurement are in `DESIGN-guest-lifetime.md` and `logs/fifo-channel-feasibility.log`. `FramedExecution` gained a `FramedTransport` interface that `ChildProcessWithoutNullStreams` satisfies structurally, so all nine consuming files and the entire frame policy are unchanged, and builds never used this path.
 
 - [x] G1: One concurrent claimant launches one physical attempt, with stable worker and invocation identities committed before the guest starts.
   CHECK: bun test --timeout 120000 ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts
@@ -25,10 +23,10 @@ Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at
   EXPECT: exit 0; drift in worker, invocation, token, deadline, scope, or principal is `frame_unbound`
   EVIDENCE: `logs/final-focused-suites.json`; `guest-frames.ts` 13/13 lines; the single-tool supervisor adapter shares the same policy.
 
-- [ ] G4: Losing the controlling attachment terminates no guest, and a fresh attach skips normal startup's orphan cleanup.
+- [x] G4: Losing the controlling attachment terminates no guest, and a fresh attach skips normal startup's orphan cleanup.
   CHECK: flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 180000 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts
   EXPECT: the guest is still running after its supervisor dies, independent of how fast a replacement attaches
-  EVIDENCE: REOPENED. The orphan-cleanup half holds: attach prepares the store only, creates no container, and the case asserts no probe and no sweep. The no-termination half does not: the guest exits on the supervisor's stdin EOF, and the test passes only by winning the race. See the reopened note above and `logs/attach-eof-repro.log`.
+  EVIDENCE: `logs/final-podman-suite-run1.json` and `-run2.json`, both exit 0, 15 pass / 0 fail, 78 assertions, run back to back under the lock. The SIGKILL case asserts `running` before any attach, after observing the child's exit rather than a clock, and asserts no probe and no sweep on the attach. Its controlled fault reproduces the superseded stdin transport and settles on a terminal state with the guest's own exit code 7, so the assertion cannot pass vacuously.
 
 - [x] G5: Terminal results are durable before they are acknowledged, and a fresh supervisor or gateway reads the same result without another `extension/invoke`.
   CHECK: bun test --timeout 120000 ./src/factory/runner/attempt-recovery.test.ts
@@ -55,10 +53,10 @@ Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at
   EXPECT: exit 0 on both
   EVIDENCE: `logs/final-podman-suite-run1.json` and `-run2.json` reconnects a second supervisor to the same host guest. `logs/final-attempt-runtime-integration.json` verifies the RSA signature over the canonical unsigned facts and its digest, and `stopPhysical` refuses to call a worker absent until a terminal runtime observation confirms it.
 
-- [ ] G10: The real subprocess test: start the guest, SIGKILL its owning supervisor, count exactly one labelled container, attach from a new supervisor without cleanup, then remove every owned resource.
+- [x] G10: The real subprocess test: start the guest, SIGKILL its owning supervisor, count exactly one labelled container, attach from a new supervisor without cleanup, then remove every owned resource.
   CHECK: flock ... bun test --timeout 180000 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts
   EXPECT: deterministic, not race-dependent
-  EVIDENCE: REOPENED for the same cause as G4. The test uses a real child process and a real SIGKILL, not an injected `Runner.attach`, and it does prove attach-without-cleanup and full resource removal when it wins the race. It cannot be called deterministic until the guest stops dying with its supervisor.
+  EVIDENCE: `logs/final-podman-suite-run1.json` and `-run2.json`. A real child process and a real SIGKILL, not an injected `Runner.attach`. Two consecutive runs pass, and the property no longer depends on winning a race.
 
 - [x] G11: Re-run C05 PGlite, real PostgreSQL and S3, real Podman preparation, and schema and foreign-key parity.
   CHECK: postgres-env.sh bun test ./tests/postgres/factory-{schema,migration-restart,executions,attempt-queue,execution-gateway,package-preparation}.test.ts; flock ... bun test ./src/factory/package-preparation.podman.integration.test.ts; bun scripts/verify-factory-storage.ts
