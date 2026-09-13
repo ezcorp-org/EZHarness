@@ -1,0 +1,96 @@
+name: Mutation (nightly, full suite)
+
+# The full-suite counterpart to ci.yml's diff-scoped `Mutation (changed files)`
+# job. A PR only ever mutates the files it touched, so nothing would otherwise
+# re-check a module whose tests rotted under an unrelated change. This runs the
+# whole mutation.mutateGlobs set, plus the FULL-REPO CRAP ratchet (the PR gate
+# only scores touched functions).
+#
+# Thresholds come from scripts/quality-gates.json — never hardcode one here.
+
+on:
+  schedule:
+    # 03:17 UTC. Off the hour on purpose: the top of the hour is the busiest
+    # slot on GitHub's shared scheduler and delays a long job the most.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      enforce:
+        description: "Fail the workflow on a below-threshold score (default: report only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never stack nightly runs — a full mutation pass can outlive its interval.
+  group: mutation-nightly
+  cancel-in-progress: false
+
+jobs:
+  mutation-full:
+    name: Full mutation suite
+    runs-on: ubuntu-latest
+    # Generous: the whole web/src/lib/** set is far larger than a PR diff.
+    # Measured ~6 min for 6 files on a loaded 32-core box; a 2-core runner is
+    # slower, and this must not be killed mid-run by a tight cap.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version # single pin source, matches ci.yml
+      # StrykerJS 10 requires Node >= 22; the vitest runner is a Node process.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+      # web is NOT a bun workspace — see the same note in ci.yml.
+      - run: bun install --cwd web --frozen-lockfile
+      - run: bunx --bun svelte-kit sync
+        working-directory: web
+
+      # REPORT-ONLY UNTIL CALIBRATED — deliberate, and the PR gate is unaffected.
+      # The full scope is the intersection of mutation.mutateGlobs with the
+      # --coverage.include manifest, and that manifest carries a broad
+      # `src/lib/**`, so 185 files qualify. "V8 is asked to report on it" is not
+      # "a vitest test executes it", and every file in the gap comes back 100%
+      # NoCoverage — which mutation.ts correctly refuses to score. The first runs
+      # exist to name those files so they can be excluded or their tests fixed.
+      # A nightly that is red on day one gets muted, and a muted gate gates
+      # nothing. Promote to enforcing by flipping the default below once a run
+      # is clean; the diff-scoped PR gate blocks for real in the meantime.
+      - name: Full mutation run
+        run: |
+          bun scripts/mutation.ts --full \
+            ${{ inputs.enforce && '' || '--report-only' }}
+
+      # ── Full-repo CRAP ratchet ────────────────────────────────────────────
+      # Needs the merged lcov, which only the coverage pipeline produces, so the
+      # nightly regenerates it rather than reading a PR artifact it cannot see.
+      # continue-on-error: a coverage-pipeline problem must not be reported as a
+      # mutation failure — the step below decides the CRAP verdict on its own.
+      - name: Rebuild coverage for the CRAP ratchet
+        id: cov
+        continue-on-error: true
+        run: bun run test:coverage
+      - name: CRAP ratchet (full repo)
+        if: always()
+        run: bun scripts/crap-score.ts
+      - name: Global coverage floor
+        if: always()
+        run: bun scripts/check-global-coverage.ts
+
+      - name: Quality summary
+        if: always()
+        run: bun scripts/quality-report.ts --text --limit 40
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-nightly-reports
+          path: |
+            coverage/quality
+            coverage/lcov.info
+          retention-days: 14
