@@ -79,7 +79,17 @@ function validatorViolations(input: SourceInput, validatorPaths: ReadonlySet<str
         add(node, `runtime module '${moduleName}' is forbidden in the deterministic validator`);
       }
     }
-    if (ts.isIdentifier(node) && ["eval", "Function", "RegExp", "fetch", "WebSocket"].includes(node.text)) {
+    if (ts.isIdentifier(node) && [
+      "eval",
+      "Function",
+      "RegExp",
+      "fetch",
+      "WebSocket",
+      "XMLHttpRequest",
+      "EventSource",
+      "globalThis",
+      "Reflect",
+    ].includes(node.text)) {
       const parent = node.parent;
       const isDeclarationName = (ts.isFunctionDeclaration(parent) || ts.isVariableDeclaration(parent) || ts.isParameter(parent)) && parent.name === node;
       const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
@@ -87,11 +97,14 @@ function validatorViolations(input: SourceInput, validatorPaths: ReadonlySet<str
     }
     if (ts.isPropertyAccessExpression(node)) {
       const name = callName(node);
-      if (name && ["Date.now", "performance.now", "Bun.spawn", "Bun.spawnSync"].includes(name)) add(node, `'${name}' is forbidden in the deterministic validator`);
+      if (name && (
+        ["Date.now", "performance.now", "process.hrtime", "Bun.nanoseconds", "Bun.spawn", "Bun.spawnSync", "Math.random", "crypto.randomUUID", "crypto.getRandomValues"].includes(name)
+        || ["eval", "Function", "RegExp", "fetch", "WebSocket", "XMLHttpRequest", "EventSource", "constructor"].includes(node.name.text)
+      )) add(node, `'${name}' is forbidden in the deterministic validator`);
     }
     if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression)) {
       const name = node.argumentExpression.text;
-      if (["eval", "Function", "RegExp", "fetch", "WebSocket", "spawn", "spawnSync", "now"].includes(name)) {
+      if (["eval", "Function", "RegExp", "fetch", "WebSocket", "XMLHttpRequest", "EventSource", "constructor", "spawn", "spawnSync", "now", "random", "randomUUID", "getRandomValues", "hrtime", "nanoseconds"].includes(name)) {
         add(node, `computed access to '${name}' is forbidden in the deterministic validator`);
       }
     }

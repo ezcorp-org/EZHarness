@@ -26,6 +26,10 @@ describe("factory static boundaries", () => {
     ["Date.now()", "Date.now"],
     ["new Date()", "ambient time"],
     ["performance.now()", "performance.now"],
+    ["Math.random()", "Math.random"],
+    ["globalThis.eval('1')", "globalThis"],
+    ["const Unsafe = (() => {}).constructor; new Unsafe('return 1')", "constructor"],
+    ["Reflect.get(globalThis, 'Function')", "Reflect"],
     ["Bun.spawn(['true'])", "Bun.spawn"],
   ])("rejects controlled validator fault %s", (fault, expected) => {
     const files = safeFactory.map((file) => file.path === validationPath ? { ...file, source: `${file.source}\n${fault};` } : file);
