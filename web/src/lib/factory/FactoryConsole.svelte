@@ -219,7 +219,12 @@
 		try {
 			const result = await api.validateDraft(projectId, selected.factoryId, source);
 			diagnostics = result.diagnostics;
-			message = result.valid ? "Definition is valid and ready to publish." : result.diagnostics.length + " validation diagnostics found.";
+			if (result.valid) {
+				message = "Definition is valid and ready to publish.";
+			} else {
+				message = "";
+				errorMessage = `${result.diagnostics.length} validation ${result.diagnostics.length === 1 ? "diagnostic" : "diagnostics"} found.`;
+			}
 		} catch (error) {
 			errorMessage = describeError(error);
 		}

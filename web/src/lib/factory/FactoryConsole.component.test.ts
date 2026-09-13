@@ -135,6 +135,8 @@ describe("FactoryConsole", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Add node" }));
 		await fireEvent.click(screen.getByRole("button", { name: /Validate/ }));
 		await screen.findByText("Connect the result port.");
+		expect(screen.getByRole("alert")).toHaveTextContent("1 validation diagnostic found.");
+		expect(screen.queryByRole("status")).toBeNull();
 
 		await fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
 		await screen.findByText("Revision conflict");
