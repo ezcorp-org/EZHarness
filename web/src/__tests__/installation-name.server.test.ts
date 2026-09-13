@@ -1,8 +1,9 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ getExtension: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getExtension: vi.fn(), getExtensionsByIds: vi.fn(), getReleaseNamesByInstallationIds: vi.fn() }));
 vi.mock("$server/db/queries/extensions", () => mocks);
-import { resolveInstallationName } from "$lib/server/extensions/installation-name";
+vi.mock("$server/db/queries/extension-releases", () => mocks);
+import { resolveInstallationName, resolveInstallationNames } from "$lib/server/extensions/installation-name";
 import type { InstallationState } from "$server/extensions/v4/types";
 
 type Release = { manifest: { name: string }; createdAt: string };
@@ -17,6 +18,8 @@ function state(overrides: { activeReleaseId?: string | null; releases?: Record<s
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.getExtension.mockResolvedValue(null);
+  mocks.getExtensionsByIds.mockResolvedValue(new Map());
+  mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map());
 });
 
 test("no installation has no name", async () => {
@@ -49,4 +52,35 @@ test("a bundled source without releases falls back to its legacy row", async () 
 
 test("a fresh workspace without releases or a legacy row has no name", async () => {
   expect(await resolveInstallationName(state())).toBeNull();
+});
+
+test("a list resolves its reserved release names in one query", async () => {
+  mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map([["live", "memory-extractor"]]));
+  expect(await resolveInstallationNames(["live"])).toEqual(new Map([["live", "memory-extractor"]]));
+  expect(mocks.getReleaseNamesByInstallationIds).toHaveBeenCalledWith(["live"]);
+  expect(mocks.getExtensionsByIds).not.toHaveBeenCalled();
+});
+
+test("only the installations without a reserved name reach the legacy rows", async () => {
+  mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map([["live", "memory-extractor"]]));
+  mocks.getExtensionsByIds.mockResolvedValue(new Map([["bundled", { name: "lessons-distiller" }]]));
+  expect(await resolveInstallationNames(["live", "bundled"])).toEqual(new Map([["live", "memory-extractor"], ["bundled", "lessons-distiller"]]));
+  expect(mocks.getExtensionsByIds).toHaveBeenCalledWith(["bundled"]);
+});
+
+test("a reserved name is never overwritten by a legacy row", async () => {
+  mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map([["live", "memory-extractor"]]));
+  mocks.getExtensionsByIds.mockResolvedValue(new Map([["live", { name: "stale-legacy-name" }]]));
+  expect(await resolveInstallationNames(["live"])).toEqual(new Map([["live", "memory-extractor"]]));
+});
+
+test("an installation neither source knows stays out of the map", async () => {
+  expect(await resolveInstallationNames(["unknown"])).toEqual(new Map());
+  expect(mocks.getExtensionsByIds).toHaveBeenCalledWith(["unknown"]);
+});
+
+test("an empty list queries neither source", async () => {
+  expect(await resolveInstallationNames([])).toEqual(new Map());
+  expect(mocks.getReleaseNamesByInstallationIds).not.toHaveBeenCalled();
+  expect(mocks.getExtensionsByIds).not.toHaveBeenCalled();
 });
