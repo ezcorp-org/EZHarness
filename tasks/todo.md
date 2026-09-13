@@ -1343,3 +1343,11 @@ Review: `attempt-token-purpose-red.log` retains the real Node-to-Bun mTLS reprod
 - [ ] Prove the private-file boundary and measured coverage; integrate the actual production Node writer when available.
 
 Plan review: the Node bootstrap owner and root agreed the versioned private readiness-file contract. This reader uses the existing descriptor-based private-file module. The Node writer must verify authenticated namespace/task-queue polling before it can report ready. The reader alone is not a production boot proof.
+## Factory journal service-credential propagation
+
+- [x] Reproduce effect dispatch after durable service-credential revocation.
+- [x] Preserve the complete durable credential when the journal reconstructs its run principal.
+- [x] Prove the fix with PGlite, PostgreSQL, focused coverage, type checks, lint, and gate integrity.
+- [x] Record the review and immutable follow-up commit.
+
+Review: The run-grant adapter now snapshots its five used authority fields before any database wait and passes the exact durable service credential into `FactoryGrants`. PGlite and PostgreSQL each pass 12 cases with 70 assertions, including revoked-credential effect denial and a caller-mutation race. Focused LCOV measures all 19 run-grant lines and all seven functions. The SDK build, all four type-check legs, lint, and gate integrity pass. The canonical parent regression remains parent-owned under the shared heavy-validation lock.

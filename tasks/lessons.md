@@ -440,3 +440,4 @@
 ### 2026-09-13 — Preserve durable service authority
 
 - Persist the complete public service credential identity with a durable request. Reconstructing only the service account ID loses the credential revision and revocation fence during later authorization.
+- Audit every adapter that reconstructs a principal from that durable request. Lifecycle and journal authorization must both carry the credential fence into the current grant check.
