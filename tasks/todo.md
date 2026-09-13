@@ -1796,3 +1796,12 @@ Plan review: send only exact committed partition notifications and invalidations
 Partition delivery reproduction exposed a prior integration defect: the product command index rejected a valid published partition start because its batch contained more than 32 commands. C08 limits simultaneous activities to 32 and the whole batch to 512 KiB. The root correction preserves byte limits and unique bounded command identities; validation is pending. The original failed receipt is /tmp/factory-platform-evidence/root-partition-delivery-red.log.
 
 Partition batch correction review: 60 focused product/artifact/private-service tests passed with 744 assertions. PostgreSQL/S3 plus schema passed 49 tests / 2,769 assertions. SDK build, all four type checks, lint, boundaries, and gate integrity passed. Exact source snapshot and receipts are /tmp/factory-platform-evidence/root-partition-batch-correction-source.json and root-partition-batch-correction-integration-results.json. This corrects command persistence only; the original partition effect test is retained separately for the following adapter leaf.
+
+## Parent validation — partition authority and batch correction
+
+- [x] Integrate the partition authority reader with verified stored command coordinates and live child ancestry.
+- [x] Prove valid batches above 32 commands through published partition storage.
+- [x] Pass product/artifact/private-service and PostgreSQL/S3 checks, then repair the single inferred fixture-port type and replay all four type checks.
+- [x] Pass static and committed patch/new-file coverage gates.
+
+Review: source 0c7219dca passed 61 product tests / 750 assertions and 50 PostgreSQL/S3/schema tests / 2,775 assertions. Type checks found only an inferred optional undefined output port in the new authority fixture. Correction cf4984b49 passed all four type legs, lint, boundaries, and gate integrity. Merged patch/new-file coverage against fa47daaaf passed. Receipts: /tmp/factory-platform-evidence/root-partition-authority-parent-integration-results.json, root-partition-authority-types-remainder-integration-results.json, and root-partition-authority-parent-coverage-results.json. The new end-to-end partition delivery adapter is still under test; its repair trace exposed a separate kernel generation notification defect.
