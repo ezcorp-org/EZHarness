@@ -6,6 +6,8 @@ import { factoryBootConfig } from "../factory/boot";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+type InstallationBoundJwtPayload = JWTPayload & { iss: string; aud: string };
+
 function base64UrlEncode(data: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < data.length; i++) {
@@ -66,7 +68,7 @@ export async function signJWT(
   crypto.getRandomValues(jtiBytes);
   const jti = Array.from(jtiBytes).map(b => b.toString(16).padStart(2, "0")).join("");
   const audience = await installationId(secret, installation);
-  const fullPayload: JWTPayload = {
+  const fullPayload: InstallationBoundJwtPayload = {
     ...payload,
     iss: audience,
     aud: audience,
@@ -103,7 +105,7 @@ export async function verifyJWT(
     const valid = await crypto.subtle.verify("HMAC", key, signature, encoder.encode(signingInput));
     if (!valid) return null;
 
-    const payload: JWTPayload = JSON.parse(decoder.decode(base64UrlDecode(payloadB64)));
+    const payload: InstallationBoundJwtPayload = JSON.parse(decoder.decode(base64UrlDecode(payloadB64)));
     const now = Math.floor(Date.now() / 1000);
     if (!Number.isSafeInteger(payload.iat) || !Number.isSafeInteger(payload.exp) || payload.exp <= now) {
       return null;
