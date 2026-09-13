@@ -519,3 +519,10 @@
 
 - For every migration default, model the same default in `schema.ts`. Run the canonical schema parity test; focused feature tests do not detect a missing ORM default.
 - When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
+
+## 2026-09-13 — Preparation receipts need durable authority
+
+- Do not populate an in-memory readiness cache until the enclosing database transaction has committed. Return only immutable snapshots; a rollback must not expose a receipt.
+- A claimed two-phase operation needs a durable intent before external work. Read checks alone are not an intent.
+- Do not reuse one project-wide package lock for a graph with several pinned runner references. Each prepared reference needs its own revocable trust fact and readiness check.
+- Keep comments aligned with the accepted transport seam. Dispatcher readiness runs after durable claim and before token minting.
