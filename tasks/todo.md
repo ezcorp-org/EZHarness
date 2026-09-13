@@ -1414,3 +1414,10 @@ Review: `root-authority-integration-results.json` passes SDK build, 155 SDK test
 Plan review: reuse the existing worker transport and pool service routes. The new package owns HTTP only and cannot import the Temporal SDK. The root owns this extraction and pool client; the Node bootstrap owner keeps its stable gateway imports. `transport-path-red.log` records the real Node client accepting an absolute URL before the correction. No private credentials leave the local test server.
 
 Shared client review: `shared-transport-final-integration-results.json` records ten passing producers against the source manifest `shared-transport-source-manifest.json`: root/web frozen installs, shared transport/orchestrator builds, actual Node gateway tests, actual Bun mTLS client, PostgreSQL/S3 private service, all four type checks, lint, gate integrity and factory boundaries. The real PostgreSQL/private Node queue proof passes five cases (74 assertions); the Bun client passes one case (11 assertions). Direct Node coverage measures the shared transport completely at 121/121 lines. A request cannot replace the configured origin; options and body are captured before credential reads; credentials reload on each request; a slowly streaming response cannot extend the total network deadline. This closes transport extraction; the pool client and concrete product command policy remain open.
+
+## Factory bounded lazy input — Terra
+
+- [x] Trace FactoryTransportValue, ValueSource, expressions/map, durable run/start and activity seams.
+- [x] Propose bounded reference/page protocol and ownership.
+- [x] Implement host authorization, immutable paging and conformance tests.
+- [ ] Validate coverage, types and lint.

@@ -905,6 +905,7 @@
   "src/factory/pool/service-server.ts": 100,
   "src/factory/artifacts.ts": 100,
   "src/factory/artifact-access.ts": 100,
+  "src/factory/lazy-input.ts": 100,
   "src/factory/definition-artifacts.ts": 100,
   "src/factory/transition-artifacts.ts": 100,
   "src/factory/artifact-activities.ts": 100,
