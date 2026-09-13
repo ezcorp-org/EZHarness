@@ -159,6 +159,19 @@ export class InstallationDataKey {
     if (!persisted) throw new FactoryEncryptionError("factory_key_missing");
     return persisted;
   }
+  /** Readonly recovery for workers: never creates or rotates a wrap. */
+  static async loadExisting(installationId: string, wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
+    requireId(installationId);
+    const existing = await wraps.load(installationId);
+    if (existing.length === 0) throw new FactoryEncryptionError("factory_key_missing");
+    for (const candidate of [...existing].sort((a, b) => b.wrapVersion - a.wrapVersion)) {
+      if (candidate.installationId !== installationId) continue;
+      const master = await masters.get(candidate.masterKeyId);
+      if (!master) continue;
+      try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { /* retained wraps may use other masters */ }
+    }
+    throw new FactoryEncryptionError("factory_key_missing");
+  }
   async rotate(wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
     const master = await masters.current(); key(master.bytes);
     for (let attempt = 0; attempt < 8; attempt += 1) {

@@ -164,6 +164,7 @@ export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
  * for missing LCOV data rather than borrowing an incompatible map.
  */
 export const V8_CANONICAL_SOURCES: readonly string[] = [
+  "src/factory/file-key-wraps.ts",
   "packages/@ezcorp/factory-orchestrator/src/contracts.ts",
   "packages/@ezcorp/factory-orchestrator/src/definition-pages.ts",
   "packages/@ezcorp/factory-orchestrator/src/dispatcher.ts",

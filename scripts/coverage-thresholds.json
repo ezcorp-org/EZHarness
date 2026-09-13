@@ -892,6 +892,7 @@
   "src/factory/transition-artifacts.ts": 100,
   "src/factory/artifact-activities.ts": 100,
   "src/factory/encryption.ts": 100,
+  "src/factory/file-key-wraps.ts": 100,
   "src/factory/encryption-key-wrap-store.ts": 100,
   "src/db/migrations/add-factory-artifacts.ts": 100,
   "src/db/migrations/add-factory-installation-key-wraps.ts": 100,

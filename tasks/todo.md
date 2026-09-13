@@ -25,6 +25,15 @@ Review: PGlite restored the exact 40 KiB Node-produced transition through two bo
 
 Review: descriptor tests reject an actual FIFO and a symlinked parent. The real PostgreSQL race persists distinct-master versions before either caller reports success, then restarts with `second-master`. Real local S3 preserves the versioned ciphertext object through rotation. Focused Bun source coverage has 100% lines for `encryption.ts` and `private-files.ts`; the real PostgreSQL producer has 100% lines for `encryption-key-wrap-store.ts`. Four typecheck legs, lint, and the Node 24 Temporal codec contract pass. Production worker wiring remains with the verification leaf.
 
+## Factory C06 readonly Node key loader — Terra
+
+- [x] Add strict descriptor-read wrapped-key file schema and readonly store.
+- [x] Load an existing installation key without DB, key creation, or rotation.
+- [x] Prove Node 24 Temporal codec success and all key-file readiness denials.
+- [x] Recheck encrypted definition/application composition and required validation.
+
+Review: `src/factory/file-key-wraps.ts` reads only private descriptor-anchored files, accepts only `factory.key-wraps.v1`, has no data-key creation or rotation path, and returns only the Node-compatible history codec. The Node 24 test covers the workflow context round trip plus missing, empty, foreign, malformed, corrupt, wrong-master, mode, and grantable-root denials. Canonical Node coverage records 101/101 lines for this source at `/tmp/factory-platform-evidence/terra-c06-node-coverage/lcov.info`. The real PostgreSQL and local S3 proof publishes and reads an encrypted definition through `createFactoryApplication` at `/tmp/factory-platform-evidence/terra-c06-definitions-postgres-s3.log`. Four type legs and lint complete at `/tmp/factory-platform-evidence/terra-c06-types-lint.log`; lint has zero errors and eight existing infos.
+
 - [x] Fetch PR and latest main; preserve original worktrees.
 - [x] Read handoff, repository rules, and lessons; assign four Sol worktrees.
 - [x] Complete clean/reused installs, package suites, backend, web, static, and coverage runs.

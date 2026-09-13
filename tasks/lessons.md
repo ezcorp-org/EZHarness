@@ -146,6 +146,7 @@
 ## 2026-09-13 — Factory merged SDK validation
 
 - After merging Factory SDK sources, rebuild the pinned root and web dependencies and run the Factory SDK build before interpreting TypeScript export errors. A stale package `dist` can look like a missing source export.
+- A live `flock` wrapper with an empty test log is queued, not a hung producer. Mark the log only after lock acquisition and inspect the child PID before terminating a check.
 
 - A healthy server and sign-in page do not prove extension activation. After a deployment or container change, open an existing persisted installation and verify its immutable source and release files are readable through the real review/enable journey.
 
