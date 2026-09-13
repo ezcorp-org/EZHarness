@@ -52,7 +52,7 @@
 import type { APIRequestContext, APIResponse } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
 import { execFileSync } from "node:child_process";
-import { importAndActivateBundledExtension } from "./fixtures/extension-v4.js";
+import { activateApprovedRelease, importAndActivateBundledExtension } from "./fixtures/extension-v4.js";
 import type { InstallationState } from "../../src/extensions/v4/types";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;
@@ -644,8 +644,7 @@ test.describe(
       await page.goto(`/extensions/author?installation=${encodeURIComponent(installationId)}`);
       await page.getByLabel("I reviewed this release and its permissions.").check();
       await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
-      await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+      await activateApprovedRelease(page);
 
       const reactivated = await initial.client.extensionControl<InstallationState>("extensions_inspect", { installationId });
       expect(reactivated.installation.enabled).toBe(true);

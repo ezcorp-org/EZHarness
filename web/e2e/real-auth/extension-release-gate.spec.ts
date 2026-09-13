@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "../fixtures/hydration.js";
 import { captureEvidence } from "../fixtures/evidence";
-import { extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { activateApprovedRelease, extensionClient, buildWorkspace, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "../../../src/extensions/v4/types";
 
 async function invokeToolFromComposer(page: Page, name: string): Promise<void> {
@@ -48,8 +48,7 @@ test("an approved release renders real results, repeats, rejects broken source, 
     await expect(button).toBeDisabled();
     await page.getByLabel("I reviewed this release and its permissions.").check();
     await button.click();
-    await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+    await activateApprovedRelease(page);
     const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
     expect(active.installation.activeReleaseId).toBe(release.id);
     return release;
