@@ -17,6 +17,7 @@ import { FactoryInbox } from "./inbox";
 import { FactoryCommandOutbox } from "./outbox";
 import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type FactoryRunKey } from "./records";
 
+interface ChildAncestorRow { parent_run_id: string; parent_execution_epoch: number | string; parent_cancellation_epoch: number | string; parent_grant_revision: number | string; binding_digest: string; }
 interface LifecycleRow { factory_id: string; factory_version: string; definition_digest: string; grant_revision: string | number; revision: string | number; cancellation_epoch: string | number; status: FactoryRunDetails["status"]; deadline_ms: string | number; parameters_json: string; parameters_digest: string; output_json: string | null; error_json: string | null; created_ms: string | number; updated_ms: string | number }
 export interface FactoryRunRequest { readonly run: FactoryRunDetails; readonly receipt: FactoryDurableReceipt }
 /** Lets host admission retain a bounded placeholder while the durable parameter descriptor carries artifact references. */
@@ -265,6 +266,12 @@ export class FactoryRunLifecycle {
   /** Trusted service boundary: lock the durable run and recheck its live authority. */
   async authorizeRunInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunFence> {
     key = { projectId: key.projectId, runId: key.runId };
+    const ancestor = rows<ChildAncestorRow>(await transaction.execute(sql`SELECT parent_run_id,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,binding_digest FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.runId}`))[0];
+    if (ancestor) {
+      if (!ancestor.parent_run_id || !/^sha256:[a-f0-9]{64}$/.test(ancestor.binding_digest) || ![ancestor.parent_execution_epoch, ancestor.parent_cancellation_epoch, ancestor.parent_grant_revision].every(value => Number.isSafeInteger(Number(value)))) throw new FactoryRunLifecycleError("factory_child_corrupt");
+      const parent = await this.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: ancestor.parent_run_id });
+      if (parent.executionEpoch !== Number(ancestor.parent_execution_epoch) || parent.cancellationEpoch !== Number(ancestor.parent_cancellation_epoch) || parent.grantRevision !== Number(ancestor.parent_grant_revision)) throw new FactoryRunLifecycleError("factory_child_stale");
+    }
     const row = await this.row(transaction, key, true);
     const request = await this.records.readRunRequestInTransaction(transaction, key);
     const installation = rows<{ execution_epoch: number }>(await transaction.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id=${this.tenantId}`))[0];

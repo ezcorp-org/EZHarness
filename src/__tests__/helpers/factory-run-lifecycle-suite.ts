@@ -294,6 +294,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await children.resolve(service, reference)).toEqual(staged);
     expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" } });
     expect(await lifecycle.budgets.inspect({ projectId, runId: childRunId, envelopeId: "root" })).toMatchObject({ limits: { tokens: "100" } });
+    await cancelRun(principal, runKey(run.runId), run.revision, "durable-child-parent-cancel");
+    await expect(fixture.db.transaction(transaction => lifecycle.authorizeRunInTransaction(transaction, { projectId, runId: childRunId }))).rejects.toMatchObject({ code: "factory_run_stopped" });
+    expect(await children.resolve(service, reference)).toEqual(staged);
   });
 
   test("lazy reads authorize the exact pending input and stop when its committed result advances", async () => {
