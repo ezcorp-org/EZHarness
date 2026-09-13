@@ -125,7 +125,7 @@ jobs:
       # full shared-library LCOV used by the existing coverage gate.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version-file: .node-version
       - name: Run Vitest shard with V8 coverage
         run: |
           bash scripts/web-vitest-coverage.sh --output coverage-shard/web-vitest-${{ matrix.i }} --shard ${{ matrix.i }}/3
