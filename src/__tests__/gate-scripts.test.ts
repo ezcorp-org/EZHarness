@@ -1114,6 +1114,11 @@ describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
   test("pure-deletion hunks (no added lines) never fail on absence", () => {
     expect(shouldFailOnLcovAbsence("src/runtime/foo.ts", 0)).toBe(false);
   });
+  test("declaration-only TypeScript is exempt while runtime declarations stay gated", () => {
+    expect(shouldFailOnLcovAbsence("packages/sdk/src/types.ts", 3, "export interface Item { id: string }\nexport type ItemId = Item['id'];")).toBe(false);
+    expect(shouldFailOnLcovAbsence("packages/sdk/src/types.ts", 3, "export enum Item { One }")).toBe(true);
+    expect(shouldFailOnLcovAbsence("packages/sdk/src/types.ts", 3, "export const item = 1;")).toBe(true);
+  });
 });
 
 // ── typecheck-tests: exclusion validation ───────────────────────────────────
