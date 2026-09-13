@@ -638,6 +638,11 @@ async function handleDedupMemoryWrite(
       },
       conversationId,
       projectId: typeof projectId === "string" ? projectId : null,
+      // Eligibility goes to the real `injection_eligible` column, not
+      // just provenance JSON — the injection path filters on the
+      // column. A non-boolean (or absent) value is omitted so the
+      // schema default applies.
+      ...(typeof injectionEligible === "boolean" ? { injectionEligible } : {}),
       provenanceFactory: (action, fact, convId) => ({
         sourceConversationId: convId,
         sourceMessageIds: fact.messageIds ?? [],

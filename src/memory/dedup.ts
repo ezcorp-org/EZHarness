@@ -13,31 +13,20 @@
  *   > to a new `src/memory/dedup.ts` host module that survives the
  *   > deletion.
  *
- * Today's wiring:
- *   - Stage 1: `extraction.ts::extractMemories` continues to call the
- *     dedup helper directly (re-exported from this module so the legacy
- *     listener path keeps working unchanged during Stage 1).
- *   - The bundled extension's `ctx.memory.write` flows through the
- *     host's memory-handler which (per the spec) consults this module
- *     before insert. The host-handler integration is deliberately a
- *     thin v1 — it surfaces the dedup decision to the caller via the
- *     same insert/update path the legacy code uses, so the parity test
- *     can assert identical row shapes.
+ * Today's wiring (Stage 2 is done — `extraction.ts` is deleted): the
+ * single caller is `handleDedupMemoryWrite` in
+ * `src/extensions/runtime-invoke-handler.ts`, serving the bundled
+ * memory-extractor's `ctx.invoke("runtime.memory.dedupMemoryWrite")`.
+ * The extractor uses that RPC rather than `ctx.memory.write` precisely
+ * because dedup must see memories authored by any extension, which the
+ * `selfOnly` capability surface cannot.
  *
  * The mutex below is a per-project serialization gate. Concurrent
  * `run:complete` events extracting overlapping facts must not race past
  * the similarity check (the `findSimilarMemory` query and the
- * subsequent insert/update are not atomic). The legacy implementation
- * lived in `extraction.ts`; moving it here ensures both the Stage-1
- * legacy path and the bundled-extension path share a single mutex
- * instance — without the shared instance, both paths could be holding
- * "their" lock and still race against each other across a project.
- *
- * Stage 2 cleanup: when `extraction.ts` is deleted, the only callers
- * of this module are the host-side memory-handler (via
- * `runtime.memory.dedupMemoryWrite`) and the bundled extractor's
- * post-write path. The mutex stays here because cross-extension memory
- * writes must continue to serialize.
+ * subsequent insert/update are not atomic). It lives here, on the
+ * shared helper, so every writer holds ONE lock instance per project —
+ * two writers each holding "their own" lock would still race.
  */
 
 import type { ExtractedFact, MemoryProvenance } from "./types";
@@ -107,22 +96,33 @@ async function generateEmbedding(text: string): Promise<number[]> {
 //   2. Find the most-similar existing active memory (cross-extension).
 //   3. If similarity >= threshold: update the existing row in place
 //      (newer wins, history-extended provenance).
-//   4. Otherwise: insert a new memory row with full provenance.
+//   4. Otherwise: insert a new memory row with full provenance, the
+//      source conversation's owner in `user_id`, and the caller's
+//      injection eligibility in `injection_eligible`.
 //
 // The full sequence runs under `withDedupLock(projectKey)` so two
 // concurrent run:complete events touching the same project cannot
 // both pass the similarity check and produce duplicate rows.
 //
 // `provenanceFactory` lets the caller stamp extension-specific fields
-// (`source`, `extensionId`, `injectionEligible`) without this module
-// knowing about extension identity — which keeps the cross-extension
-// dedup invariant intact.
+// (`source`, `extensionId`) without this module knowing about
+// extension identity — which keeps the cross-extension dedup
+// invariant intact. Eligibility also rides in provenance for audit
+// parity, but the COLUMN is what retrieval filters on.
 export interface DedupWriteInput {
   fact: ExtractedFact;
   conversationId: string;
   projectId: string | null | undefined;
   /** Pre-computed embedding. If omitted, the helper computes one. */
   embedding?: number[];
+  /** Injection eligibility for the INSERT branch, written to the real
+   *  `memories.injection_eligible` column. Omit to let the column
+   *  default (`true`) apply — the host pipeline's behaviour. The
+   *  UPDATE branch never touches the column: an existing row's
+   *  eligibility is the owner's setting (it is editable via
+   *  `PATCH /api/memories/[id]`), and a dedup hit must not silently
+   *  re-enable a memory the owner took out of injection. */
+  injectionEligible?: boolean;
   /** Provenance factory for the INSERT branch. The factory receives
    *  the action ("created") and returns the full provenance object.
    *  The UPDATE branch always uses the legacy "updated" provenance
@@ -143,7 +143,7 @@ export interface DedupWriteResult {
 export async function dedupAndWriteMemory(
   input: DedupWriteInput,
 ): Promise<DedupWriteResult> {
-  const { fact, conversationId, projectId, provenanceFactory } = input;
+  const { fact, conversationId, projectId, provenanceFactory, injectionEligible } = input;
   const embedding = input.embedding ?? (await generateEmbedding(fact.content));
 
   return withDedupLock(dedupLockKey(projectId), async () => {
@@ -190,15 +190,29 @@ export async function dedupAndWriteMemory(
       confidence: fact.confidence ?? "medium",
       embedding,
       provenance,
+      // Stamp the owner into the real column. Retrieval only falls back
+      // to the source conversation's owner when `user_id` is null, so a
+      // row that relies on that fallback becomes unattributable — and
+      // so invisible to the person it belongs to — the moment the
+      // conversation is deleted (`on delete set null`). `conv` is the
+      // same row the similarity scope above resolved, so the column and
+      // the dedup scope can never disagree.
+      userId: conv?.userId ?? null,
+      // Omitted when the caller says nothing, so the schema default
+      // (`true`) decides. The host pipeline never passes a value, which
+      // keeps its rows injectable exactly as before this column was
+      // written here.
+      ...(injectionEligible === undefined ? {} : { injectionEligible }),
     });
     return { action: "inserted", memoryId: inserted.id };
   });
 }
 
-/** Default provenance factory matching the legacy `extractMemories`
- *  shape (no `source` / `extensionId` / `injectionEligible` fields).
- *  Used by `extraction.ts` Stage 1 so the legacy callsite continues
- *  to produce identical rows after the helper move. */
+/** Provenance factory matching the legacy `extractMemories` shape (no
+ *  `source` / `extensionId` / `injectionEligible` fields). Its
+ *  production caller went away with `extraction.ts`; it survives as the
+ *  reference "host pipeline" shape the dedup tests write through, so a
+ *  row-shape regression still fails somewhere. */
 export function legacyExtractionProvenance(
   _action: "created",
   fact: ExtractedFact,
