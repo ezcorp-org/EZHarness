@@ -175,6 +175,22 @@ describe("factory compiler", () => {
     expect(codes(missingInput)).toContain("BINDING_INPUT");
   });
 
+  test("allows repair only for explicitly opted-in literal input ports", () => {
+    const valid = clone(referenceDataV1);
+    (node(valid, "parse-schema-validation") as Extract<FactoryNode, { kind: "task" }>).repairableInputs = ["partitionRows"];
+    expect(codes(valid)).toEqual([]);
+
+    for (const repairableInputs of [["partitionRows", "partitionRows"], ["missing"], ["snapshot"]]) {
+      const invalid = clone(referenceDataV1);
+      (node(invalid, "parse-schema-validation") as Extract<FactoryNode, { kind: "task" }>).repairableInputs = repairableInputs;
+      expect(codes(invalid)).toContain("REPAIR_INPUT");
+    }
+
+    const protectedNode = clone();
+    (node(protectedNode, "release-approval") as unknown as { repairableInputs: string[] }).repairableInputs = ["decision"];
+    expect(codes(protectedNode)).toContain("FACTORY_SCHEMA");
+  });
+
   test("rejects authority widening and unsafe control bounds", () => {
     const capability = clone();
     (node(capability, "snapshot-repository") as { capabilities: string[] }).capabilities = ["admin"];

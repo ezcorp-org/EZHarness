@@ -394,6 +394,8 @@ function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, dept
   if (!inputs.ok) return inputs;
   const outputs = validateSchemaRecord(node.outputPorts ?? {}, ["indexes", "nodeById", node.id, "outputPorts"]);
   if (!outputs.ok) return outputs;
+  const repairableInputs = node.kind === "task" || node.kind === "subfactory" ? node.repairableInputs : undefined;
+  if (repairableInputs !== undefined && (new Set(repairableInputs).size !== repairableInputs.length || repairableInputs.some(name => !Object.hasOwn(node.inputPorts ?? {}, name) || node.bindings?.[name]?.kind !== "literal"))) return issue("COMPILED_REPAIR_INPUT", "Repairable inputs must be unique existing literal-bound input ports.", ["indexes", "nodeById", node.id, "repairableInputs"]);
   if (node.deadlineMs !== undefined && (!safeCounter(node.deadlineMs, 1) || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs || node.deadlineMs > factory.definition.bounds.runDeadlineMs!)) return issue("COMPILED_NODE_DEADLINE", "Node deadline exceeds launch or run bounds.", ["indexes", "nodeById", node.id, "deadlineMs"]);
   if (node.retry !== undefined && (node.kind !== "task" || !safeCounter(node.retry.maxAttempts, 1) || node.retry.maxAttempts > 3 || !safeCounter(node.retry.initialDelayMs) || !safeCounter(node.retry.maximumDelayMs) || node.retry.maximumDelayMs < node.retry.initialDelayMs)) return issue("COMPILED_RETRY", "Compiled retry policy is invalid.", ["indexes", "nodeById", node.id, "retry"]);
   if (node.kind === "task" && node.maxIterations !== undefined && !safeCounter(node.maxIterations, 1)) return issue("COMPILED_TASK_BOUND", "Task iteration bound must be positive.", ["indexes", "nodeById", node.id, "maxIterations"]);
@@ -755,6 +757,9 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     if (!boundedText(request.body.nodeId, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_CONTROL_NODE", "Repair and replan need a bounded node target.", ["body", "nodeId"]);
     const parameters = validateApiTransportValues(request.body.parameters, ["body", "parameters"]);
     if (!parameters.ok) return parameters;
+    if (request.body.action === "replan") {
+      if (!boundedText(request.body.replacement.id, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(request.body.replacement.version, FACTORY_LIMITS.maxApiIdentifierLength) || request.body.replacement.version === "latest" || request.body.replacement.version.includes("*") || !validDigest(request.body.replacement.digest, true)) return issue("API_CONTROL_REPLACEMENT", "Replan needs an exact published child revision.", ["body", "replacement"]);
+    }
   }
   if (request.kind === "run.control" && encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_CONTROL_BYTES", "Run control exceeds the 64 KiB durable command bound.", []);
   if (request.kind === "approval.decide" && (!validDigest(request.body.contextDigest, false) || !boundedText(request.body.choice))) return issue("API_CONTEXT_DIGEST", "Approval decision needs a bounded exact choice and lowercase sha256 context digest.", ["body"]);
@@ -777,7 +782,7 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
   if (request.kind === "release.contract.put") {
     if (!validDigest(request.body.contractDigest, true) || !validDigest(request.body.validatorLockDigest, true)) return issue("API_RELEASE_CONTRACT_DIGEST", "Release contract digests must be prefixed lowercase sha256 values.", ["body"]);
     const claimIds = new Set(request.body.mandatoryClaims.map(claim => claim.id));
-    if (claimIds.size !== request.body.mandatoryClaims.length || request.body.mandatoryClaims.some(claim => !boundedText(claim.id) || !boundedText(claim.validatorId) || !safeCounter(claim.freshnessMs, 1))) return issue("API_RELEASE_CONTRACT_CLAIM", "Release contract claims must be unique, bounded, and fresh for a positive interval.", ["body", "mandatoryClaims"]);
+    if (claimIds.size !== request.body.mandatoryClaims.length || request.body.mandatoryClaims.some(claim => !boundedText(claim.id) || !boundedText(claim.validatorId) || !safeCounter(claim.freshnessMs, 1) || (claim.required !== undefined && typeof claim.required !== "boolean"))) return issue("API_RELEASE_CONTRACT_CLAIM", "Release contract claims must be unique, bounded, fresh for a positive interval, and mark required as a boolean when present.", ["body", "mandatoryClaims"]);
     const groupIds = new Set(request.body.claimGroups.map(group => group.id));
     if (groupIds.size !== request.body.claimGroups.length || request.body.claimGroups.some(group => !boundedText(group.id) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || group.claimIds.some(id => !claimIds.has(id)))) return issue("API_RELEASE_CONTRACT_GROUP", "Release contract groups must be unique and reference valid claims.", ["body", "claimGroups"]);
   }

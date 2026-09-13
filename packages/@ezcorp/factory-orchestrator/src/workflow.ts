@@ -2,7 +2,7 @@ import type { JsonValue } from "@ezcorp/factory-sdk";
 import { factoryChildRunId } from "@ezcorp/factory-sdk/transport-types";
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { KernelCommand, KernelEvent, KernelFactoryPlan, KernelState } from "@ezcorp/factory-sdk/kernel-types";
-import { advanceKernel, createKernelState, createPartitionKernelState } from "@ezcorp/factory-sdk/kernel";
+import { advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState } from "@ezcorp/factory-sdk/kernel";
 import {
   condition,
   ActivityCancellationType,
@@ -171,6 +171,7 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     ? await loadTransitionArtifact(workflowIdentity(input), input.continuation.stateArtifact.sourceSequence, input.continuation.stateArtifact.manifest, reads)
     : undefined;
   let state = input.continuation?.state ?? restored?.nextState ?? (input.deadlineAtMs === undefined ? created : { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, input.deadlineAtMs) });
+  assertKernelContinuationState(factory, state);
   if (state.definitionDigest !== input.definition.definitionDigest) throw workflowFailure(new Error("continuation definition digest does not match input"), "FACTORY_INPUT_INVALID");
   if (input.continuation) assertDurableInputContinuity(input, state);
   if (isPartitionSource(input.definition) && state.partition?.id !== input.definition.partition.partitionId) throw workflowFailure(new Error("continuation partition ID does not match input"), "FACTORY_INPUT_INVALID");

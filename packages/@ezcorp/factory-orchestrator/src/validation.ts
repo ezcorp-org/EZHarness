@@ -148,6 +148,23 @@ export function validateInboxEvent(value: JsonValue): asserts value is JsonValue
   if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 512) throw new Error("inbox event requires a stable ID");
   if (!Number.isSafeInteger(value.atMs) || (value.atMs as number) < 0) throw new Error(`inbox event ${String(value.id)} requires a recorded timestamp`);
   if (typeof value.kind !== "string") throw new Error("inbox event requires a kind");
+  if (value.kind === "repair" || value.kind === "replan") {
+    requiredIdentity(typeof value.nodeId === "string" ? value.nodeId : "", "run control node ID");
+    if (value.reason !== undefined) requiredIdentity(typeof value.reason === "string" ? value.reason : "", "run control reason");
+    if (value.inputOverride !== undefined && typeof value.inputOverride !== "object") throw new Error("run control input override must be JSON");
+    const allowed = new Set(["kind", "id", "atMs", "nodeId", "reason", "inputOverride", ...(value.kind === "replan" ? ["replacement"] : [])]);
+    if (Object.keys(value).some(key => !allowed.has(key))) throw new Error("run control event contains unknown fields");
+    if (value.kind === "replan") {
+      const replacement = value.replacement;
+      if (typeof replacement !== "object" || replacement === null || Array.isArray(replacement)) throw new Error("replan replacement is required");
+      requiredIdentity(typeof replacement.id === "string" ? replacement.id : "", "replan factory ID");
+      const version = typeof replacement.version === "string" ? replacement.version : "";
+      requiredIdentity(version, "replan factory version");
+      if (version === "latest" || version.includes("*")) throw new Error("replan factory version must be exact");
+      digest(replacement.digest, "replan factory digest");
+      if (Object.keys(replacement).some(key => !["id", "version", "digest"].includes(key))) throw new Error("replan replacement contains unknown fields");
+    }
+  }
 }
 
 export function assertContinuationSize(continuation: FactoryContinuation): void {
