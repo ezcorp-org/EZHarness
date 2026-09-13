@@ -42,7 +42,7 @@ export class FactoryCommandAuthority {
     if (command.kind !== "request-admission" && command.kind !== "dispatch-node") throw new FactoryCommandAuthorityError("factory_command_forbidden");
     const head = await this.head(this.database, reference);
     const transition = await this.transitions.loadCommittedTransition(reference, Number(head.source_sequence));
-    // Blob reads finish before the transaction. The run lock and exact head
+    // Transition reads finish before the transaction. The run lock and exact head
     // comparison below close the race with a concurrently committed transition.
     return this.database.transaction(async transaction => {
       const { fence, compiled } = await this.lifecycle.readExecutionPlanInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId });
@@ -53,7 +53,7 @@ export class FactoryCommandAuthority {
       const node = nodeFor(compiled, command.nodeId);
       const runtime = Object.hasOwn(state.nodes, command.nodeId) ? state.nodes[command.nodeId] : undefined;
       const attempt = runtime?.attempts.at(-1);
-      if (!node || node.kind !== "task" || !runtime || !attempt || runtime.candidateGeneration !== command.candidateGeneration || attempt.candidateGeneration !== command.candidateGeneration || attempt.commandId !== command.id || attempt.stopped || attempt.uncertain || attempt.deadlineAtMs !== command.deadlineAtMs || !Number.isSafeInteger(command.deadlineAtMs) || command.deadlineAtMs <= this.now() || command.deadlineAtMs > fence.deadlineAtMs || runtime.status !== (command.kind === "request-admission" ? "reserved" : "running") || (command.kind === "dispatch-node" && (command.attempt !== attempt.attempt || command.cancellationEpoch !== fence.cancellationEpoch))) throw new FactoryCommandAuthorityError("factory_command_stale");
+      if (node?.kind !== "task" || !runtime || !attempt || runtime.candidateGeneration !== command.candidateGeneration || attempt.candidateGeneration !== command.candidateGeneration || attempt.commandId !== command.id || attempt.stopped || attempt.uncertain || attempt.deadlineAtMs !== command.deadlineAtMs || !Number.isSafeInteger(command.deadlineAtMs) || command.deadlineAtMs <= this.now() || command.deadlineAtMs > fence.deadlineAtMs || runtime.status !== (command.kind === "request-admission" ? "reserved" : "running") || (command.kind === "dispatch-node" && (command.attempt !== attempt.attempt || command.cancellationEpoch !== fence.cancellationEpoch))) throw new FactoryCommandAuthorityError("factory_command_stale");
       return work(transaction, { command, node, state, fence });
     });
   }
