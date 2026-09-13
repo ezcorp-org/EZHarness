@@ -129,13 +129,17 @@ test("the superseded stdin channel is what used to kill the guest with its super
     expect((await command("podman", ["inspect", "--format={{.State.Status}}", name])).trim()).toBe("running");
     supervisor.kill("SIGKILL");
     await supervisor.exited;
-    // Poll the container's own state, not a clock: it settles once podman has
-    // propagated the closed stream, and it settles on "exited", never "running".
-    let status = "running";
-    for (let attempt = 0; attempt < 40 && status === "running"; attempt++) {
+    // Poll the container's own state, not a clock, until it settles. Podman
+    // reports "stopped" or "exited" depending on how far teardown has got; both
+    // are terminal and neither is "running", which is the property under test.
+    const settled = new Set(["stopped", "exited"]);
+    let status = "";
+    for (let attempt = 0; attempt < 120 && !settled.has(status); attempt++) {
       status = (await command("podman", ["inspect", "--format={{.State.Status}}", name])).trim();
     }
-    expect(status).toBe("exited");
+    expect(settled.has(status)).toBe(true);
+    // Exit code 7 is the guest's own end-of-input handler, so this names the
+    // cause precisely rather than observing that the container merely stopped.
     expect((await command("podman", ["inspect", "--format={{.State.ExitCode}}", name])).trim()).toBe("7");
   } finally { await command("podman", ["rm", "--force", "--time=0", "--ignore", name]); }
 }, 120_000);
