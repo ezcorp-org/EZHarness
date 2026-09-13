@@ -25,6 +25,14 @@ export interface PodmanRunnerOptions {
   executionCeiling?: ResourceLimits;
   maxBuilds?: number;
   maxExecutions?: number;
+  /** Explicit GPU device nodes for execution guests. Build guests never receive them. */
+  configuredDevices?: readonly string[];
+}
+
+export function configuredRunnerDevices(value: readonly string[] | undefined): readonly string[] {
+  const devices = value ?? [];
+  if (devices.length > 16 || new Set(devices).size !== devices.length || devices.some(device => device !== "/dev/kfd" && !/^\/dev\/dri\/renderD[0-9]+$/.test(device))) throw new RunnerError("invalid_device", "Runner device configuration is invalid");
+  return Object.freeze([...devices]);
 }
 
 export class PodmanRunner implements Runner {
@@ -32,6 +40,7 @@ export class PodmanRunner implements Runner {
   protected readonly root: string;
   private readonly podman: string;
   private readonly seccompPath: string;
+  private readonly configuredDevices: readonly string[];
   private readonly operations = new Map<string, RunnerInspection>();
   private readonly containers = new Map<string, string>();
   private readonly executions = new Map<string, FramedExecution>();
@@ -48,6 +57,7 @@ export class PodmanRunner implements Runner {
     if (!/^[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(this.image)) throw new RunnerError("image_unpinned", "Runner image must use an immutable registry digest");
     this.podman = options.podman ?? "podman";
     this.seccompPath = resolve(options.seccompPath ?? seccompDefault);
+    this.configuredDevices = configuredRunnerDevices(options.configuredDevices ?? (process.env.EZ_EXTENSION_RUNNER_DEVICES === undefined ? undefined : process.env.EZ_EXTENSION_RUNNER_DEVICES.split(",").filter(Boolean)));
   }
   async initialize(): Promise<void> {
     this.ready ??= this.probe().catch(async error => { await this.close(); this.ready = undefined; throw error; });
@@ -91,16 +101,16 @@ export class PodmanRunner implements Runner {
     }
   }
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
-  protected launch(id: string, limits: ResourceLimits, staged: string, args: string[]): ChildProcessWithoutNullStreams {
-    return processSpawn(this.podman, [...this.args(id, limits, staged), this.image, ...args]);
+  protected launch(id: string, limits: ResourceLimits, staged: string, args: string[], assignedDevices = false): ChildProcessWithoutNullStreams {
+    return processSpawn(this.podman, [...this.args(id, limits, staged, assignedDevices), this.image, ...args]);
   }
   protected async run(id: string, limits: ResourceLimits, staged: string, args: string[], maximumBytes = limits.outputBytes): Promise<string> {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
   }
-  private args(id: string, limits: ResourceLimits, mount?: string): string[] {
+  private args(id: string, limits: ResourceLimits, mount?: string, assignedDevices = false): string[] {
     const name = `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`;
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), "--entrypoint=/usr/local/bin/bun", "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), "--entrypoint=/usr/local/bin/bun", "-i"];
   }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
     const target = join(directory, relativePath(path));
@@ -258,7 +268,7 @@ export class PodmanRunner implements Runner {
         await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
-      const child = this.launch(input.workerId, limits, stage, ["./.runner/extension.js"]);
+      const child = this.launch(input.workerId, limits, stage, ["./.runner/extension.js"], true);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);

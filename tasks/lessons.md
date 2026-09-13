@@ -529,3 +529,9 @@
 # Package trust identity — 2026-09-13
 
 - When a public reference accepts optional identity fields, every database key and foreign key must use the canonical complete reference. A seal alone does not prevent row collisions.
+
+# C02 topology — 2026-09-13
+
+- A native runner function is not an isolated runner. Keep the durable tenant launch intent in the gateway database, run the Bun and Python bridges inside the per-attempt guest, and keep the host to opaque process facts and physical-stop receipts.
+- A physical-stop receipt digest identifies the canonical unsigned facts. Sign those same bytes with the configured RSA host key; do not digest a separate signed wrapper.
+- A physical-stop proof needs the configured host principal as a signed required fact. Provider allocations without a stable host identity cannot use this stop-settlement path.
