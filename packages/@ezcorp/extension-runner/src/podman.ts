@@ -63,6 +63,11 @@ export class PodmanRunner implements Runner {
     this.ready ??= this.probe().catch(async error => { await this.close(); this.ready = undefined; throw error; });
     return this.ready;
   }
+  private async initializeRecovery(): Promise<void> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    await this.acquireLease();
+    await this.probeSecurity(false);
+  }
   private async probe(): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const root = await lstat(this.root);
@@ -83,7 +88,7 @@ export class PodmanRunner implements Runner {
     this.lease = lease;
     lease.once("exit", () => { this.lease = undefined; this.ready = undefined; void this.close(); });
   }
-  protected async probeSecurity(): Promise<void> {
+  protected async probeSecurity(cleanupOrphans = true): Promise<void> {
     const info = JSON.parse(await command(this.podman, ["info", "--format=json"]));
     if (!info.host?.security?.rootless || !info.host?.security?.seccompEnabled || info.host?.cgroupVersion !== "v2" || !["memory", "cpu", "pids"].every(controller => info.host.cgroupControllers.includes(controller))) throw new RunnerError("isolation_unavailable", "Rootless Podman, seccomp, and cgroup v2 CPU/memory/PID controls are required");
     const profile = JSON.parse(await readFile(this.seccompPath, "utf8"));
@@ -95,6 +100,7 @@ export class PodmanRunner implements Runner {
       const probe = JSON.parse(await command(this.podman, [...this.args(probeId, limits), this.image, "-e", program]));
       if (probe.uid !== 65534 || probe.writable || probe.memory !== String(limits.memoryBytes) || probe.swap !== "0" || probe.cpu !== "50000 100000" || probe.pids !== "32" || !/^CapEff:\s+0+$/m.test(probe.status) || !/^NoNewPrivs:\s+1$/m.test(probe.status) || !/^Seccomp:\s+2$/m.test(probe.status) || probe.routes.split("\n").length !== 1 || probe.ipv6.split("\n").some((line: string) => line && !line.endsWith("lo"))) throw new RunnerError("isolation_probe_failed", "Kernel controls did not match the secure runner profile");
     } finally { await this.remove(probeId); }
+    if (!cleanupOrphans) return;
     const orphans = await command(this.podman, ["ps", "-a", "--filter", `label=io.ezcorp.runner=${sha256(this.root)}`, "--format={{.Names}}"]);
     for (const name of orphans.trim().split("\n").filter(Boolean)) {
       if (/^ez-v4-[a-f0-9-]+$/.test(name)) await command(this.podman, ["rm", "--force", "--time=0", name]);
@@ -103,6 +109,12 @@ export class PodmanRunner implements Runner {
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
   protected launch(id: string, limits: ResourceLimits, staged: string, args: string[], assignedDevices = false): ChildProcessWithoutNullStreams {
     return processSpawn(this.podman, [...this.args(id, limits, staged, assignedDevices), this.image, ...args]);
+  }
+  /** Execution containers outlive the control client so a restarted supervisor can attach. */
+  private async launchDetached(id: string, limits: ResourceLimits, staged: string, args: string[]): Promise<ChildProcessWithoutNullStreams> {
+    const name = this.containerName(id);
+    await command(this.podman, [...this.args(id, limits, staged, true), "--detach", this.image, ...args]);
+    return processSpawn(this.podman, ["attach", name]);
   }
   protected async run(id: string, limits: ResourceLimits, staged: string, args: string[], maximumBytes = limits.outputBytes): Promise<string> {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
@@ -139,7 +151,7 @@ export class PodmanRunner implements Runner {
     workspaceText(input.files[input.entrypoint], input.entrypoint);
     if (filesDigest(input.files) !== input.sourceDigest) throw new RunnerError("source_digest_mismatch", "Frozen source digest does not match bytes");
     const limits = limitsWithin(input.limits, this.options.buildCeiling ?? buildLimits);
-    await this.initialize();
+    await this.acquireLease();
     await this.authorize("build", input.sourceDigest);
     if (this.operations.has(input.operationId)) throw new RunnerError("duplicate_operation", "Runner operation ID is already used");
     if (this.activeBuilds >= (this.options.maxBuilds ?? 1)) throw new RunnerError("runner_busy", "Build concurrency limit reached", "queue", true);
@@ -250,7 +262,7 @@ export class PodmanRunner implements Runner {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
-    await this.initialize();
+    await this.acquireLease();
     if ((await this.inspect(input.workerId)).state !== "running") throw new RunnerError("worker_not_running", "Worker cannot be attached because it is not running");
     if (this.executions.has(input.workerId)) throw new RunnerError("duplicate_worker", "Worker is already attached");
     const name = this.containerName(input.workerId);
@@ -286,7 +298,7 @@ export class PodmanRunner implements Runner {
         await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
-      const child = this.launch(input.workerId, limits, stage, ["./.runner/extension.js"], true);
+      const child = await this.launchDetached(input.workerId, limits, stage, ["./.runner/extension.js"]);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);
