@@ -291,7 +291,11 @@ test("artifact input fields wait for an exact bounded result before activation",
   if (read?.kind !== "read-input-value") throw new Error("lazy input read was not emitted");
   expect(() => advanceKernel(graph, started.nextState, event("wrong", { kind: "input-value-read", commandId: read.id, nodeId: read.nodeId, candidateGeneration: read.candidateGeneration, cancellationEpoch: read.cancellationEpoch, name: "data", artifact: { ...artifact, digest: `sha256:${"0".repeat(64)}` }, path: ["label"], storageVersion: "v1", mediaType: "application/json", value: "ok" }))).toThrow(FactoryKernelError);
   const loaded = advanceKernel(graph, started.nextState, event("loaded", { kind: "input-value-read", commandId: read.id, nodeId: read.nodeId, candidateGeneration: read.candidateGeneration, cancellationEpoch: read.cancellationEpoch, name: "data", artifact, path: ["label"], storageVersion: "v1", mediaType: "application/json", value: "ok" }));
-  expect(loaded.commands).toContainEqual(expect.objectContaining({ kind: "request-admission", nodeId: "work" }));
+  const admission = loaded.commands.find(command => command.kind === "request-admission");
+  expect(admission).toMatchObject({ nodeId: "work" });
+  if (admission?.kind !== "request-admission") throw new Error("lazy field admission was not emitted");
+  const dispatched = advanceKernel(graph, loaded.nextState, event("admitted", { kind: "admission-result", nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: admission.candidateGeneration, granted: true }));
+  expect(dispatched.commands).toContainEqual(expect.objectContaining({ kind: "dispatch-node", nodeId: "work", input: { value: "ok" } }));
 });
 
 test("artifact maps retain only one page while advancing exact absolute cursors", () => {
