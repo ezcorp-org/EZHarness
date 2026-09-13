@@ -1980,12 +1980,14 @@ Team: coordinator (this session), Opus implementation workers, Sonnet validators
 - [x] Baseline checks on `33cab8657`: GitHub transport tests, SDK build, typecheck, lint, boundaries, gate integrity all exit 0 (`/tmp/factory-platform-evidence/w00/baseline-results.jsonl`).
 - [x] Integrate `a83f91556`, `3a84d4867`, then `b6cfa4798` (Sol run controls) into `integ/w00` as `bd2cedcc9`; task notes union-merged.
 - [x] Commit Terra's exact dirty recovery fix on `feat/factory-lazy-input` as `28bc2bfc3`; retest: 11 pass / 1 fail (fresh-runner artifact directory regression, W01 owns). Staging baseline Podman suite: 11/11.
-- [ ] Combined controls checks and coverage-gap recheck on `bd2cedcc9` (`w00-staging-*` receipts).
-- [ ] Requirement/evidence index for C01–C13, F01–F13, and eleven gates (`docs/validation/factory/w00/requirement-index.md`).
-- [ ] Shared interface freeze with single writers (`docs/plans/2026-09-13-composable-factory-platform-interfaces.md`).
-- [ ] Redacted evidence summaries and checksums copied into `docs/validation/factory/w00/`.
-- [ ] Correct overstated task notes with appended notes, without deleting history.
+- [x] Combined controls checks and coverage-gap recheck on `bd2cedcc9`/`425c1bfde` (`w00-staging*` receipts): all producers exit 0; 644987ada new-file/patch gates pass; 2588c9f19 gates fail (W18 backlog).
+- [x] Requirement/evidence index for C01–C13, F01–F13, and eleven gates (`docs/validation/factory/w00/requirement-index.md`): 201 rows, 22 discrepancies routed.
+- [x] Shared interface freeze with single writers (`docs/plans/2026-09-13-composable-factory-platform-interfaces.md`).
+- [x] Redacted evidence summaries and checksums copied into `docs/validation/factory/w00/`.
+- [x] Correct overstated task notes with appended notes, without deleting history (eight files; four understated gate files also annotated).
 - [ ] Fast-forward `feat/composable-factory-platform` to the finished `integ/w00`.
+
+Review (W00): the integration revision is clean and every imported change has a source/test record in `tasks/factory/w00-GATES.md`. Two regressions surfaced and one was fixed here: the canonical web pool failed two session-refresh cases because the branch's JWT verifier now requires installation-bound claims (fixed in `425c1bfde`); Terra's runtime branch fails one Podman cleanup case on a fresh runner (routed to W01). Routed defects from the audit: pool 200-instead-of-429 and reservation vocabulary (W03); `factory_disabled` reason string, API scope mismatches, missing package install/quarantine route (W09/W14); five unregistered PostgreSQL suites and a runner precheck with no consuming job (W18); unimplemented workspace checkpoints (W04 with a W01 seam); Python validator equivalence (W02); provider I/O inside the release transaction (W07).
 
 ## Wave 1 — W01, W04, W18 (parallel) then W04a
 

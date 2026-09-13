@@ -15,3 +15,4 @@
 - [ ] G5: Focused regression and measured new/changed-line coverage pass.
   EVIDENCE: pending
 
+Note (W00 audit 2026-09-13): the gates above remain formally pending, but the corresponding source is in the integration branch and its component legs passed at ancestor heads (see docs/validation/factory/w00/requirement-index.md). They close only when re-run on the final candidate under W20.

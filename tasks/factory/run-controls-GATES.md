@@ -2,6 +2,8 @@
 
 Status: ready for integration
 
+Note (W00 recheck 2026-09-13): integrated into `integ/w00` as `bd2cedcc9`. The parent patch-coverage gate that failed at `84cfd2a99` (kernel-types.ts, kernel.ts:1396, command-authority.ts:128) passes on the combined source: `docs/validation/factory/w00/w00-staging3-coverage-results.json` records new-file and patch exit 0 against base `644987ada` at `425c1bfde`. The full-feature-diff gates against `2588c9f19` still fail and are W18 input.
+
 ## Behavior
 
 - PGlite lifecycle: 44 passed, 644 assertions.
