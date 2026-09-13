@@ -15,8 +15,19 @@ export const DESIRED_REQUIRED_CHECKS = [
   "Gate integrity",
   "Visual evidence",
   "Web security coverage",
+  // The seven exact C11 verification lanes. scripts/check-factory-lanes.ts
+  // proves each name belongs to a job with real producers; this list is what
+  // branch protection must REQUIRE. Registering a required check is an admin
+  // action, not a code change, so the five added here report as `missing`
+  // until the repository administrator applies
+  // docs/validation/factory/stage-2b/required-check-registration.md.
   "Factory schema and kernel",
+  "Factory runner contracts",
   "Factory Temporal integration",
+  "Factory assurance and release",
+  "Factory isolation",
+  "Factory product and domain E2E",
+  "Factory deployment and operations",
 ] as const;
 
 interface RequiredStatusChecksResponse {

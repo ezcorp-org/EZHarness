@@ -110,8 +110,11 @@ export const SOURCE_GLOBS: readonly string[] = [
   "src/**/*.ts",
   "scripts/git-worktree-clean.ts",
   "scripts/check-factory-boundaries.ts",
+  "scripts/check-factory-lanes.ts",
   "scripts/check-factory-runners.ts",
   "scripts/check-required-checks.ts",
+  "scripts/check-schema-generate-drift.ts",
+  "scripts/lib/ci-registration.ts",
   "web/src/**/*.ts",
   "web/src/**/*.svelte",
   "packages/@ezcorp/sdk/src/**/*.ts",
@@ -132,6 +135,13 @@ export const SOURCE_GLOBS: readonly string[] = [
   // The Worker is a shipped execution target. Its source must receive the
   // same changed/new-file coverage checks as the host runtime.
   "worker/src/**/*.ts",
+  // The LOCKED Python distribution (`.python-version` + uv.lock). Scoped to
+  // that project, not `**/*.py`: the two Python files outside it
+  // (packages/@ezcorp/extension-runner/src/peer-gateway.py and
+  // scripts/fixtures/factory-local-gpu.py) belong to no locked project, have
+  // no runnable coverage producer, and are recorded as W18 backlog rather
+  // than pulled into a gate that nothing can satisfy.
+  "src/factory/runner/python/**/*.py",
 ];
 
 // Test/spec/type files are never "product code" for the new-file gate.
@@ -140,6 +150,10 @@ const NON_SOURCE_GLOBS: readonly string[] = [
   "**/*.spec.ts",
   "**/__tests__/**",
   "**/*.d.ts",
+  // Python's standard test runner discovers `test_*.py`; the package marker
+  // beside them is not product code either.
+  "**/test_*.py",
+  "**/tests/__init__.py",
 ];
 
 /**
@@ -154,6 +168,13 @@ const NON_SOURCE_GLOBS: readonly string[] = [
 /** Producer tags carried in LCOV `TN:` fields through every merge generation. */
 export const NODE_V8_COVERAGE_PRODUCER = "ezcorp-node-v8";
 export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
+/**
+ * `coverage.py` is the only instrumenter that can measure Python source. Bun
+ * never executes these files, so there is no second line map to sum with —
+ * the tag exists so a future Bun-side "equivalent" can never be merged in.
+ * scripts/python-quality.sh writes this exact string into each `TN:` record.
+ */
+export const PYTHON_COVERAGE_PRODUCER = "ezcorp-python-coverage";
 
 /**
  * These files have a canonical Node/V8 producer. Bun instruments their
@@ -334,6 +355,7 @@ export const BUN_CANONICAL_SOURCES: readonly string[] = Object.keys(BUN_CANONICA
  * source-of-truth lists; consumers use this helper so tag checks cannot drift.
  */
 export function canonicalCoverageProducer(source: string): string | undefined {
+  if (source.endsWith(".py")) return PYTHON_COVERAGE_PRODUCER;
   if (V8_CANONICAL_SOURCES.includes(source)) return NODE_V8_COVERAGE_PRODUCER;
   if (BROWSER_CANONICAL_SOURCES.includes(source)) return BROWSER_V8_COVERAGE_PRODUCER;
   return BUN_CANONICAL_PRODUCERS[source as keyof typeof BUN_CANONICAL_PRODUCERS];
@@ -430,6 +452,17 @@ export function isDeclarationOnlyTypeScript(source: string): boolean {
 }
 
 /**
+ * Sources measured by a runtime-native producer that is NOT part of the Bun
+ * coverage pool. The wildcard dropout signals below walk the repository, so
+ * without this they would demand a Bun lcov record for a Python file that Bun
+ * never loads. Their real gate is the `Factory runner contracts` lane, whose
+ * coverage.py LCOV the same merge consumes.
+ */
+export function isRuntimeNativeSource(relPath: string): boolean {
+  return relPath.endsWith(".py");
+}
+
+/**
  * A wildcard threshold with *some* lcov data can still hide an omitted
  * executable sibling. This is the per-file complement to
  * {@link wildcardTreeDropouts}: every non-catchall wildcard source that has a
@@ -452,6 +485,13 @@ export async function wildcardSourceFileDropouts(
       if (seen.has(file) || !isSourceFile(file) || isExcluded(file) || lcovSet.has(file)) continue;
       seen.add(file);
       if (file.endsWith(".ts") && isDeclarationOnlyTypeScript(await sourceForFile(file))) continue;
+      if (isRuntimeNativeSource(file)) {
+        out.push(
+          `${file}: runtime-native source has no lcov record — run its own producer ` +
+            `(bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.`,
+        );
+        continue;
+      }
       out.push(
         `${file}: wildcard threshold ${pat} has no lcov record for this executable source — ` +
           `a coverage producer omitted an individual file. Add the owning test/producer; do not hide it.`,

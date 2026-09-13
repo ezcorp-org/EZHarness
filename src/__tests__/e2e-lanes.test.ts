@@ -27,7 +27,7 @@ import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const BASH = Bun.which("bash");
-const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model"] as const;
+const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model", "factory-services"] as const;
 const OPTIONAL_OPERATOR_LANES = ["external-model"] as const;
 
 // Every browser spec is now wired to a strict CI lane. Keep lane membership
@@ -227,6 +227,57 @@ describe("e2e lane manifest", () => {
   test("evidence members all carry @evidence", () => {
     const untagged = lanes.evidence!.filter((f) => !evidenceTagged.has(f));
     expect(untagged, `evidence entries without @evidence:\n  ${untagged.join("\n  ")}`).toEqual([]);
+  });
+
+  test("factory-services is registered in every canonical consumer", async () => {
+    const [collector, merger, localCoverage, config, ci] = await Promise.all([
+      Bun.file(join(REPO_ROOT, "scripts/collect-browser-route-coverage-lane.sh")).text(),
+      Bun.file(join(REPO_ROOT, "scripts/merge-browser-route-coverage.sh")).text(),
+      Bun.file(join(REPO_ROOT, "scripts/run-browser-route-coverage.sh")).text(),
+      Bun.file(join(REPO_ROOT, "web/playwright.config.ts")).text(),
+      Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text(),
+    ]);
+    expect(Object.hasOwn(lanes, "factory-services")).toBe(true);
+    // The collector accepts it as a lane name and dispatches it.
+    expect(collector).toContain("|factory-services) ;;");
+    expect(collector).toContain("  factory-services)");
+    // Both aggregation paths know it, and both make it REQUIRED once declared.
+    expect(merger).toContain("required_lanes+=(factory-services)");
+    expect(localCoverage).toContain("for lane in factory-services; do");
+    // The mock partition must never sweep it up.
+    expect(config).toContain('"external-model", "factory-services"');
+    // A real CI job consumes it on the labelled runner.
+    const job = ciJobBlock(ci, "factory-product-e2e");
+    expect(job).toContain("collect-browser-route-coverage-lane.sh factory-services");
+    expect(job).toContain("factory-real");
+    expect(job).toContain("browser-v8-factory-services");
+  });
+
+  test("factory-services is registered and deliberately unpopulated, and every consumer fails closed on that", async () => {
+    // W14 owns this lane's specs and its Playwright configuration. Recording
+    // the empty state here means populating it is a deliberate edit rather
+    // than something that can drift in unnoticed, and the guards below are
+    // what stop an empty lane from being collected as a pass.
+    expect(lanes["factory-services"]).toEqual([]);
+    expect(() => laneArgs(lanes, "factory-services")).toThrow("lane 'factory-services' is missing/empty in web/e2e/lanes.json");
+    const collector = await Bun.file(join(REPO_ROOT, "scripts/collect-browser-route-coverage-lane.sh")).text();
+    const block = collector.split("  factory-services)")[1]?.split("\n    ;;")[0] ?? "";
+    expect(block).toContain("FACTORY_TEST_POSTGRES_URL:?");
+    expect(block).toContain("EZCORP_FACTORY_STORAGE_SECRETS_DIR:?");
+    expect(block).toContain("FACTORY_TEMPORAL_TEST_SERVER:?");
+    expect(block).toContain("web/playwright.factory-services.config.ts");
+    expect(block).toMatch(/\[ "\$\{#args\[@\]\}" -gt 0 \]/);
+  });
+
+  test("the service lane is collected and aggregated through the same path as the mandatory five", async () => {
+    const localCoverage = await Bun.file(join(REPO_ROOT, "scripts/run-browser-route-coverage.sh")).text();
+    // A second, weaker collection path would let an added lane skip artifact
+    // archiving or a failure rule the mandatory lanes cannot skip, so there is
+    // exactly ONE collector function and both loops call it.
+    expect([...localCoverage.matchAll(/^collect_lane\(\) \{$/gm)]).toHaveLength(1);
+    expect([...localCoverage.matchAll(/collect_lane "\$lane" \|\| lane_status=1/g)]).toHaveLength(2);
+    expect(localCoverage).toContain('archive_playwright_artifacts "$lane_output" "$lane"');
+    expect(localCoverage).toMatch(/export EZCORP_BROWSER_COVERAGE_SERVICE_LANES="\$\{EZCORP_BROWSER_COVERAGE_SERVICE_LANES:-0\}"/);
   });
 
   test("there is no unwired browser backlog", () => {

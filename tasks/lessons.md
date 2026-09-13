@@ -570,3 +570,9 @@
 - In zsh, `set -- $var` and unquoted `$var` do not word-split. Run multi-field loops through `bash -c` or `read a b <<< "$line"`; check that every iteration ran before trusting a batch.
 - A hook can require `git worktree add ./.worktrees/<name>`; create agent worktrees from the integration worktree root with that exact prefix.
 - Before merging an agent branch, run its full component suite on both the branch and the integration baseline. A branch note that cites one passing case does not show whether the branch broke a neighbouring existing test.
+
+- `podman ps` can report a container `Up` from stale state. When the systemd user session dies, podman cannot reach the user bus, `crun` fails with `sd-bus call: Access denied`, and the reported status keeps describing a process that no longer exists. Check `State.Pid` against the process table and probe the port before trusting a service container, and read a `Connection closed` from a client as a possible dead server rather than a client defect.
+
+- Adding a wildcard threshold key without registering its producer in the canonical pipeline reds every local coverage run through the whole-tree dropout signal. A new runtime's coverage registration is not complete until the producer runs in `scripts/test-coverage.sh` as well as in CI; check which of the three modes should carry it, because a leg that needs a toolchain CI installs in one job must stay out of legs-only.
+
+- Derive a registration requirement from the artifacts on disk, not from a written list. Five PostgreSQL suites and thirty-four C13 reuse edges were missing precisely because both inventories were hand-kept; a check that re-derives them fails closed on the next omission instead of waiting for the next audit.

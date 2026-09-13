@@ -29,9 +29,13 @@ const browserCoverage = process.env.EZCORP_BROWSER_COVERAGE === "1";
 // strictly as files under e2e/real-auth/. The Docker-run production lane opts
 // back in through DOCKER_TEST, while the real config derives its own list
 // as its exact testMatch below.
+// factory-services is excluded in BOTH modes: its journeys need real Temporal,
+// real object storage, and real credentials, which no mock preview provides.
+// Leaving it in the default collection would also break the exact mock/real
+// partition assertion in src/__tests__/e2e-lanes.test.ts.
 const mockExcludedLanes = isDocker
-	? ["external-model"]
-	: ["fresh-setup", "real-auth", "production-image", "external-model"];
+	? ["external-model", "factory-services"]
+	: ["fresh-setup", "real-auth", "production-image", "external-model", "factory-services"];
 const realTestIgnore = mockExcludedLanes.flatMap((lane) =>
 	lanesManifest.lanes[lane].map(
 		(path) => new RegExp(`${path.slice("web/".length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
