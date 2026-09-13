@@ -284,7 +284,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     if (command?.kind !== "run-child") throw new Error("missing child command");
     await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
-    const children = new FactoryChildRuns(fixture.db, tenantId, authority, lifecycle);
+    const children = new FactoryChildRuns(fixture.db, tenantId, authority, lifecycle, transitions);
     const service = { tenantId, subject: "orchestration" };
     const reference = { ...identity, commandId: command.id, factory: command.factory };
     const staged = await children.resolve(service, reference);
@@ -295,6 +295,12 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await children.resolve(service, reference)).toEqual(staged);
     expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" } });
     expect(await lifecycle.budgets.inspect({ projectId, runId: childRunId, envelopeId: "root" })).toMatchObject({ limits: { tokens: "100" } });
+    const childIdentity = { tenantId, projectId, logicalRunId: childRunId, interpreterId: "root" };
+    await persistTransition(childIdentity, 1, { id: "child-complete", kind: "cancel", atMs: now, reason: "settlement" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "child-terminal", output: {} }], undefined, activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(childRunId));
+    await children.settle(service, { projectId, childRunId });
+    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`))).toEqual([{ state: "settled" }]);
+    expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "0" }, spent: { tokens: "0" } });
     await cancelRun(principal, runKey(run.runId), run.revision, "durable-child-parent-cancel");
     await expect(fixture.db.transaction(transaction => lifecycle.authorizeRunInTransaction(transaction, { projectId, runId: childRunId }))).rejects.toMatchObject({ code: "factory_run_stopped" });
     expect(await children.resolve(service, reference)).toEqual(staged);
