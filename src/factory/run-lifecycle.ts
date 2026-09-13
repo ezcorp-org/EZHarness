@@ -159,7 +159,8 @@ export class FactoryRunLifecycle {
     assertFactoryIdentity(input.parent.projectId, input.parent.runId, input.parentInterpreterId, input.parentCommandId, input.childRunId, input.parentEnvelopeId, input.factory.id, input.factory.version, input.factory.digest);
     if (input.parent.tenantId !== this.tenantId || input.deadlineAtMs !== input.parent.deadlineAtMs && input.deadlineAtMs > input.parent.deadlineAtMs || !Number.isSafeInteger(input.startedAtMs) || input.startedAtMs < 0 || !Number.isSafeInteger(input.deadlineAtMs) || input.deadlineAtMs <= this.now()) throw new FactoryRunLifecycleError("factory_child_invalid");
     const { fence } = await this.readExecutionPlanInTransaction(transaction, { projectId: input.parent.projectId, runId: input.parent.runId });
-    if (fence.executionEpoch !== input.parent.executionEpoch || fence.cancellationEpoch !== input.parent.cancellationEpoch || fence.grantRevision !== input.parent.grantRevision || fence.deadlineAtMs !== input.parent.deadlineAtMs) throw new FactoryRunLifecycleError("factory_child_stale");
+    const parentStartedAtMs = await this.readWorkflowStartedAtInTransaction(transaction, { projectId: input.parent.projectId, runId: input.parent.runId });
+    if (input.startedAtMs !== parentStartedAtMs || fence.executionEpoch !== input.parent.executionEpoch || fence.cancellationEpoch !== input.parent.cancellationEpoch || fence.grantRevision !== input.parent.grantRevision || fence.deadlineAtMs !== input.parent.deadlineAtMs) throw new FactoryRunLifecycleError("factory_child_stale");
     const { version, compiled } = await this.options.definitions.readVersionInTransaction(transaction, input.initiator, { projectId: input.parent.projectId, factoryId: input.factory.id }, input.factory.version);
     if (version.definitionDigest !== input.factory.digest || compiled.digest !== input.factory.digest || compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_definition_conflict");
     const ports = compiled.definition.inputPorts;
@@ -281,6 +282,15 @@ export class FactoryRunLifecycle {
     const fence = await this.authorizeRunInTransaction(transaction, { projectId: authority.projectId, runId: authority.runId });
     if (authority.cancellationEpoch !== fence.cancellationEpoch || authority.executionEpoch !== fence.executionEpoch || authority.grantRevision !== fence.grantRevision || !Number.isSafeInteger(authority.deadlineAt.getTime()) || authority.deadlineAt.getTime() <= this.now() || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new FactoryRunLifecycleError("factory_run_fence_changed");
   };
+
+  /** Root start outbox is the sealed source of the workflow's original clock. */
+  async readWorkflowStartedAtInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<number> {
+    const command = await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).findRunCommandInTransaction(transaction, key.runId, "start_run");
+    const body = command?.command.kind === "start_run" && command.command.body && typeof command.command.body === "object" && !Array.isArray(command.command.body) ? command.command.body as Record<string, unknown> : null;
+    const startedAtMs = body?.startedAtMs;
+    if (!body || command.command.logicalRunId !== key.runId || body.tenantId !== this.tenantId || body.projectId !== key.projectId || body.logicalRunId !== key.runId || !Number.isSafeInteger(startedAtMs) || (startedAtMs as number) < 0) throw new FactoryRunLifecycleError("factory_run_corrupt");
+    return startedAtMs as number;
+  }
 
   /** Private command admission uses the exact published plan and the live initiator. */
   async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {

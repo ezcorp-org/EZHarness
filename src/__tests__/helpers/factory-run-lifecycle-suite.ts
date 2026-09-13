@@ -16,6 +16,7 @@ import { FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../factory/run-lifecycle";
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { FactoryCommandAuthority, type FactoryAuthorizedApprovalCommand } from "../../factory/command-authority";
+import { FactoryChildRuns } from "../../factory/child-runs";
 import { FactoryTaskAdmission, factoryTaskReservationId, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
 import { FactoryInbox } from "../../factory/inbox";
@@ -266,6 +267,33 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       }
       await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
     }
+  });
+
+  test("a child command creates one durable child receipt without a second root outbox start", async () => {
+    const definitionKey = { projectId, factoryId: "durable-child-parent" };
+    const child = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, factories: [child], outputPorts: {},
+      graph: { nodes: [{ id: "child", kind: "subfactory", factory: child, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "durable-child-parent-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "durable-child-parent-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
+    const run = await startRun(principal, definitionKey, request, 0, "durable-child-parent-start");
+    const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+    const command = first.commands.find(value => value.kind === "run-child");
+    expect(command?.kind).toBe("run-child");
+    if (command?.kind !== "run-child") throw new Error("missing child command");
+    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    const children = new FactoryChildRuns(fixture.db, tenantId, authority, lifecycle);
+    const service = { tenantId, subject: "orchestration" };
+    const reference = { ...identity, commandId: command.id, factory: command.factory };
+    const staged = await children.resolve(service, reference);
+    expect(staged.definitionDigest).toBe(child.digest);
+    const childRunId = (await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${run.runId} AND parent_command_id=${command.id}`) as unknown as { rows: Array<{ child_run_id: string }> }).rows[0]!.child_run_id;
+    expect(childRunId).toMatch(/^child-[a-f0-9]{64}$/);
+    expect(rows(await fixture.db.execute(sql`SELECT logical_run_id FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id=${childRunId}`))).toEqual([]);
+    expect(await children.resolve(service, reference)).toEqual(staged);
+    expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" } });
+    expect(await lifecycle.budgets.inspect({ projectId, runId: childRunId, envelopeId: "root" })).toMatchObject({ limits: { tokens: "100" } });
   });
 
   test("lazy reads authorize the exact pending input and stop when its committed result advances", async () => {
