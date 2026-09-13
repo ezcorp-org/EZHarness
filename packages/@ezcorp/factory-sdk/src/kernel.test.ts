@@ -294,10 +294,31 @@ test("artifact input fields wait for an exact bounded result before activation",
   expect(loaded.commands).toContainEqual(expect.objectContaining({ kind: "request-admission", nodeId: "work" }));
 });
 
-test("artifact map collections request a bounded first page", () => {
+test("artifact maps retain only one page while advancing exact absolute cursors", () => {
   const map: Extract<FactoryNode, { kind: "map" }> = { id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items" }, itemSchema: { type: "string" }, body: { nodes: [], outputs: {} }, mode: "all", maxItems: 96, maxConcurrency: 4, outputPorts: {} };
   const graph = compiled([map], {}, { items: { type: "array", items: { type: "string" }, maxItems: 96 } });
   const artifact = { artifactId: "items", digest, encodedBytes: 96 * 1024 };
   const started = advanceKernel(graph, createKernelState(graph, "lazy-map", { items: [] }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
-  expect(started.commands).toContainEqual(expect.objectContaining({ kind: "read-input-page", nodeId: "map", name: "items", cursor: 0, maxItems: 32, artifact }));
+  const first = started.commands.find(command => command.kind === "read-input-page");
+  expect(first).toMatchObject({ nodeId: "map", name: "items", cursor: 0, maxItems: 32, artifact });
+  if (first?.kind !== "read-input-page") throw new Error("first map page was not emitted");
+  const page = (id: string, command: typeof first, items: readonly JsonValue[], nextCursor?: number) => event(id, { kind: "input-page-read" as const, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: [], storageVersion: "v1", mediaType: "application/json" as const, cursor: command.cursor, maxItems: command.maxItems, items, ...(nextCursor === undefined ? {} : { nextCursor }) });
+  expect(() => advanceKernel(graph, started.nextState, page("bad-page", first, ["a"], 2))).toThrow(FactoryKernelError);
+  const second = advanceKernel(graph, started.nextState, page("page-0", first, ["a", "b"], 2));
+  expect(() => advanceKernel(graph, second.nextState, page("stale-page", first, ["a", "b"], 2))).toThrow(FactoryKernelError);
+  expect(second.nextState.nodes.map?.map?.completedIndexes).toEqual([0, 1]);
+  expect(second.nextState.nodes.map?.map?.snapshot).toEqual([]);
+  const next = second.commands.find(command => command.kind === "read-input-page");
+  expect(next).toMatchObject({ cursor: 2, expectedStorageVersion: "v1" });
+  if (next?.kind !== "read-input-page") throw new Error("second map page was not emitted");
+  const third = advanceKernel(graph, second.nextState, page("page-2", next, ["c"], 3));
+  expect(third.nextState.nodes.map?.map?.completedIndexes).toEqual([0, 1, 2]);
+  const terminal = third.commands.find(command => command.kind === "read-input-page");
+  expect(terminal).toMatchObject({ cursor: 3, expectedStorageVersion: "v1" });
+  if (terminal?.kind !== "read-input-page") throw new Error("terminal map page was not emitted");
+  const complete = advanceKernel(graph, third.nextState, page("page-3", terminal, []));
+  expect(complete.nextState.nodes.map?.status).toBe("succeeded");
+  expect(complete.nextState.nodes.map?.map?.snapshot).toEqual([]);
+  expect(JSON.stringify(complete.nextState).length).toBeLessThan(32 * 1024);
 });
+

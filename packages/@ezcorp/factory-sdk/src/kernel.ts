@@ -191,7 +191,7 @@ function applyInputValue(factory: KernelFactoryPlan, state: KernelState, event: 
 
 function applyInputPage(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { readonly kind: "input-page-read" }>, commands: KernelCommand[]): KernelState {
   const pending = state.lazyInput?.pending[event.commandId];
-  if (pending?.kind !== "page" || pending.nodeId !== event.nodeId || pending.candidateGeneration !== event.candidateGeneration || pending.cancellationEpoch !== event.cancellationEpoch || pending.name !== event.name || pending.cursor !== event.cursor || pending.maxItems !== event.maxItems || artifactKey(pending.artifact) !== artifactKey(event.artifact) || lazyKey(pending.name, pending.path) !== lazyKey(event.name, event.path) || event.mediaType !== "application/json" || event.items.length > pending.maxItems) throw new FactoryKernelError("lazy input page does not match its pending command");
+  if (pending?.kind !== "page" || pending.nodeId !== event.nodeId || pending.candidateGeneration !== event.candidateGeneration || pending.cancellationEpoch !== event.cancellationEpoch || pending.name !== event.name || pending.cursor !== event.cursor || pending.maxItems !== event.maxItems || artifactKey(pending.artifact) !== artifactKey(event.artifact) || lazyKey(pending.name, pending.path) !== lazyKey(event.name, event.path) || event.mediaType !== "application/json" || event.items.length > pending.maxItems || !Number.isSafeInteger(event.cursor) || event.cursor < 0 || (event.nextCursor !== undefined && (!Number.isSafeInteger(event.nextCursor) || event.nextCursor !== event.cursor + event.items.length || event.nextCursor <= event.cursor))) throw new FactoryKernelError("lazy input page does not match its pending command");
   if (new TextEncoder().encode(canonicalizeJson(event.items as JsonValue)).byteLength > pending.maxBytes) throw new FactoryKernelError("lazy input page exceeds its bound");
   const key = artifactKey(event.artifact); const bound = state.lazyInput!.versions[key];
   if (bound !== undefined && bound !== event.storageVersion) throw new FactoryKernelError("lazy input storage version changed");
@@ -199,9 +199,14 @@ function applyInputPage(factory: KernelFactoryPlan, state: KernelState, event: E
   const lazyInput = { ...state.lazyInput!, versions: { ...state.lazyInput!.versions, [key]: event.storageVersion }, pending: pendingEntries };
   const runtime = state.nodes[pending.nodeId];
   if (!runtime?.map) throw new FactoryKernelError("lazy input page has no waiting map");
-  const map = { ...runtime.map, snapshot: event.items.map(snapshotValue), itemCount: event.nextCursor ?? event.cursor + event.items.length, pageOffset: event.cursor, nextCursor: event.nextCursor, lazy: { name: pending.name, artifact: pending.artifact, path: pending.path, storageVersion: event.storageVersion } };
-  if (event.items.length === 0 && event.nextCursor === undefined) return completeControl(factory, withNode({ ...state, lazyInput }, pending.nodeId, { ...runtime, map }), pending.nodeId, Object.fromEntries(Object.keys(nodeFor(factory, pending.nodeId)?.outputPorts ?? {}).map(name => [name, []])), commands);
-  return fillMapWindow(factory, withNode({ ...state, lazyInput }, pending.nodeId, { ...runtime, map }), nodeFor(factory, pending.nodeId) as Extract<FactoryNode, { kind: "map" }>, pending.nodeId, commands);
+  const node = nodeFor(factory, pending.nodeId);
+  if (node?.kind !== "map") throw new FactoryKernelError("lazy input page has no map definition");
+  const itemCount = event.nextCursor ?? event.cursor + event.items.length;
+  if (itemCount > node.maxItems) return failNode(factory, { ...state, lazyInput }, node, pending.nodeId, "MAP_ITEM_BOUND", "bound_exhausted", commands);
+  const map = { ...runtime.map, snapshot: event.items.map(snapshotValue), itemCount, pageOffset: event.cursor, nextCursor: event.nextCursor, lazy: { name: pending.name, artifact: pending.artifact, path: pending.path, storageVersion: event.storageVersion } };
+  const resumed = withNode({ ...state, lazyInput }, pending.nodeId, { ...runtime, map });
+  if (event.items.length === 0 && event.nextCursor === undefined) return completeMap(factory, resumed, node, pending.nodeId, commands);
+  return fillMapWindow(factory, resumed, node, pending.nodeId, commands);
 }
 
 function partitionEdgeKey(sourcePartitionId: string, sourceNodeId: string, nodeId: string): string {
@@ -998,6 +1003,20 @@ function requestArtifactMapPage(state: KernelState, node: Extract<FactoryNode, {
   return withNode({ ...command.state, lazyInput }, nodeId, { ...command.state.nodes[nodeId]!, status: "waiting", waitingReason: "external_reconciliation", map: { snapshot: [], itemCount: 0, pageOffset: 0, nextCursor: 0, lazy: { name: collection.name, artifact, path, ...(expectedStorageVersion === undefined ? {} : { storageVersion: expectedStorageVersion }) }, completedIndexes: [], failedIndexes: [], outcomes: {} } });
 }
 
+function requestNextArtifactMapPage(state: KernelState, node: Extract<FactoryNode, { kind: "map" }>, nodeId: string, commands: KernelCommand[]): KernelState {
+  const runtime = state.nodes[nodeId];
+  const map = runtime?.map;
+  const cursor = map?.nextCursor;
+  const lazy = map?.lazy;
+  if (!runtime || !map || !lazy || cursor === undefined || !state.lazyInput) return state;
+  if (Object.values(state.lazyInput.pending).some(pending => pending.kind === "page" && pending.nodeId === nodeId)) return state;
+  const command = commandFor(state, "read-input-page", nodeId);
+  const pending = { kind: "page" as const, nodeId, candidateGeneration: runtime.candidateGeneration, cancellationEpoch: state.cancellationEpoch, name: lazy.name, artifact: lazy.artifact, path: lazy.path, cursor, maxItems: 32, maxBytes: 32 * 1024, expectedStorageVersion: lazy.storageVersion };
+  const lazyInput = { ...command.state.lazyInput!, pending: { ...command.state.lazyInput!.pending, [command.id]: pending } };
+  commands.push({ kind: "read-input-page", id: command.id, nodeId, candidateGeneration: pending.candidateGeneration, cancellationEpoch: pending.cancellationEpoch, name: pending.name, artifact: pending.artifact, path: pending.path, cursor, maxItems: pending.maxItems, maxBytes: pending.maxBytes, expectedStorageVersion: lazy.storageVersion });
+  return withNode({ ...command.state, lazyInput }, nodeId, { ...runtime, map: { ...map, snapshot: [], nextCursor: undefined }, waitingReason: "external_reconciliation" });
+}
+
 function requestArtifactInputs(state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
   if (!state.durableInput || !state.lazyInput) return state;
   let next = state;
@@ -1035,7 +1054,7 @@ function expressionContext(state: KernelState, nodeId = "", loopOverride?: Reado
       index += 1;
     } else if ((runtime?.map || runtime?.loop) && parts[index + 1] === "items") {
       const item = Number(parts[index + 2]);
-      if (runtime.map) map = { item: runtime.map.snapshot[item]!, index: item };
+      if (runtime.map) map = { item: runtime.map.snapshot[item - (runtime.map.pageOffset ?? 0)]!, index: item };
       if (runtime.loop) loop = { carried: runtime.loop.carried, index: item };
       scopes.push(`${parts.slice(0, index + 3).join("/")}/`);
       index += 2;
@@ -1124,25 +1143,34 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
   const next = withNode({ ...state, nodes, scopes }, parentId, { ...parent, map });
   const terminalItems = map.completedIndexes.length + map.failedIndexes.length;
   if (terminalItems === map.itemCount) {
-    const output: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
-    for (const name of Object.keys(parentNode.outputPorts ?? {})) {
-      output[name] = Array.from({ length: map.itemCount }, (_, index) => {
-        const outcome = outcomes[index];
-        const value = isRecord(outcome) ? outcome[name] ?? null : null;
-        return parentNode.mode === "all" ? value : map.failedIndexes.includes(index) ? { outcome: "failed", error: isRecord(outcome) ? outcome.error ?? "MAP_ITEM_FAILED" : "MAP_ITEM_FAILED" } : { outcome: "succeeded", value };
-      });
-    }
-    const scopes = { ...next.scopes };
-    delete scopes[accountingScopeId];
-    return completeControl(factory, { ...next, scopes }, parentId, output, commands);
+    if (map.nextCursor !== undefined) return requestNextArtifactMapPage(next, parentNode, parentId, commands);
+    return completeMap(factory, next, parentNode, parentId, commands);
   }
   return next;
+}
+
+function completeMap(factory: KernelFactoryPlan, state: KernelState, parentNode: Extract<FactoryNode, { kind: "map" }>, parentId: string, commands: KernelCommand[]): KernelState {
+  const map = state.nodes[parentId]?.map;
+  if (!map) throw new FactoryKernelError("map completion requires map state");
+  const output: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
+  for (const name of Object.keys(parentNode.outputPorts ?? {})) {
+    output[name] = Array.from({ length: map.itemCount }, (_, index) => {
+      const outcome = map.outcomes[index];
+      const value = isRecord(outcome) ? outcome[name] ?? null : null;
+      return parentNode.mode === "all" ? value : map.failedIndexes.includes(index) ? { outcome: "failed", error: isRecord(outcome) ? outcome.error ?? "MAP_ITEM_FAILED" : "MAP_ITEM_FAILED" } : { outcome: "succeeded", value };
+    });
+  }
+  const scopes = { ...state.scopes };
+  delete scopes[`${parentId}/items`];
+  return completeControl(factory, { ...state, scopes }, parentId, output, commands);
 }
 
 function fillMapWindow(factory: KernelFactoryPlan, state: KernelState, parentNode: Extract<FactoryNode, { kind: "map" }>, parentId: string, commands: KernelCommand[]): KernelState {
   let next = state;
   const activeItems = new Set(Object.keys(next.nodes).filter((id) => id.startsWith(`${parentId}/items/`) && ["reserved", "running", "waiting", "retry_wait", "stopping"].includes(next.nodes[id]!.status)).map((id) => Number(id.slice(`${parentId}/items/`.length).split("/")[0])));
-  for (let nextItem = 0; next.nodes[parentId]?.status === "waiting" && nextItem < next.nodes[parentId]!.map!.itemCount && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
+  const pageStart = next.nodes[parentId]?.map?.pageOffset ?? 0;
+  const pageEnd = pageStart + (next.nodes[parentId]?.map?.snapshot.length ?? 0);
+  for (let nextItem = pageStart; next.nodes[parentId]?.status === "waiting" && nextItem < pageEnd && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
     const currentMap = next.nodes[parentId]!.map!;
     if (currentMap.completedIndexes.includes(nextItem) || currentMap.failedIndexes.includes(nextItem) || activeItems.has(nextItem)) continue;
     const scopeId = `${parentId}/items/${nextItem}`;
