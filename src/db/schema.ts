@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { buildFactorySchema } from "./factory-schema";
 import type { PublishedExtensionRelease } from "@ezcorp/extension-contract";
 import type {
   AgentResult,
@@ -2883,3 +2884,25 @@ export const extensionRuntimeLocks = pgTable("extension_runtime_locks", {
   effects: integer("effects").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.installationId, table.key] })]);
+
+// Factory definitions live in a separate builder so these product tables can
+// refer to the established project and user records without a module cycle.
+export const {
+  factoryInstallation,
+  factoryProjects,
+  factoryRuns,
+  factoryAuditBatches,
+  factoryCommandOutbox,
+  factoryRunProjections,
+  factoryInboxCursors,
+  factoryInboxEvents,
+  factoryGrants,
+  factoryBudgetEnvelopes,
+  factoryBudgetReservations,
+  factoryMutationReceipts,
+  factoryDrafts,
+  factoryVersions,
+  factoryExecutions,
+  factoryExecutionOperationCursors,
+  factoryExecutionOperations,
+} = buildFactorySchema({ projects, users });

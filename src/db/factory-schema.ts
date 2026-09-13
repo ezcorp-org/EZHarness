@@ -1,0 +1,340 @@
+import { sql } from "drizzle-orm";
+import {
+  bigint,
+  boolean,
+  check,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+
+/** The main schema supplies these existing product records without a cycle. */
+export interface FactorySchemaReferences {
+  readonly projects: { readonly id: AnyPgColumn };
+  readonly users: { readonly id: AnyPgColumn };
+}
+
+/** Each table receives new columns; Drizzle columns cannot be shared. */
+function tenantProjectColumns() {
+  return { tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull() };
+}
+
+function tenantProjectRunColumns() {
+  return { ...tenantProjectColumns(), runId: text("run_id").notNull() };
+}
+
+function createdAtColumn() {
+  return timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+}
+
+function updatedAtColumn() {
+  return timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
+}
+
+/**
+ * Product Factory storage. Pool and run-control databases deliberately do
+ * not belong here. `schema.ts` calls this after it creates projects and users.
+ */
+export function buildFactorySchema({ projects, users }: FactorySchemaReferences) {
+  const factoryInstallation = pgTable("factory_installation", {
+    singleton: integer("singleton").primaryKey(),
+    tenantId: text("tenant_id").notNull().unique(),
+    executionEpoch: integer("execution_epoch").notNull().default(1),
+  }, (table) => [
+    check("factory_installation_singleton_check", sql`${table.singleton} = 1`),
+    check("factory_installation_execution_epoch_check", sql`${table.executionEpoch} > 0`),
+  ]);
+
+  const factoryProjects = pgTable("factory_projects", tenantProjectColumns(), (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId] }),
+    foreignKey({ columns: [table.tenantId], foreignColumns: [factoryInstallation.tenantId] }).onDelete("restrict"),
+    foreignKey({ columns: [table.projectId], foreignColumns: [projects.id] }).onDelete("restrict"),
+  ]);
+
+  const factoryRuns = pgTable("factory_runs", {
+    ...tenantProjectRunColumns(),
+    definitionDigest: text("definition_digest").notNull(),
+    interpreterBuild: text("interpreter_build").notNull(),
+    executionEpoch: integer("execution_epoch").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    requestPayload: text("request_payload").notNull(),
+    nextSequence: bigint("next_sequence", { mode: "number" }).notNull().default(1),
+    createdAt: createdAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+    check("factory_runs_execution_epoch_check", sql`${table.executionEpoch} > 0`),
+    check("factory_runs_next_sequence_check", sql`${table.nextSequence} > 0`),
+  ]);
+
+  const factoryAuditBatches = pgTable("factory_audit_batches", {
+    ...tenantProjectRunColumns(),
+    interpreterId: text("interpreter_id").notNull(),
+    sourceSequence: bigint("source_sequence", { mode: "number" }).notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    predecessorDigest: text("predecessor_digest"),
+    digest: text("digest").notNull(),
+    payload: text("payload").notNull(),
+    createdAt: createdAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.sourceSequence] }),
+    uniqueIndex("factory_audit_batches_tenant_id_project_id_run_id_sequence_key").on(table.tenantId, table.projectId, table.runId, table.sequence),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    check("factory_audit_batches_source_sequence_check", sql`${table.sourceSequence} > 0`),
+    check("factory_audit_batches_sequence_check", sql`${table.sequence} > 0`),
+  ]);
+
+  const factoryCommandOutbox = pgTable("factory_command_outbox", {
+    id: text("id").notNull(),
+    ...tenantProjectColumns(),
+    logicalRunId: text("logical_run_id").notNull(),
+    deduplicationId: text("deduplication_id").notNull(),
+    inputHash: text("input_hash").notNull(),
+    state: text("state").notNull(),
+    availableAt: bigint("available_at", { mode: "number" }).notNull(),
+    leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0),
+    payload: text("payload").notNull(),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.id] }),
+    uniqueIndex("factory_command_outbox_tenant_id_project_id_deduplication_id_key").on(table.tenantId, table.projectId, table.deduplicationId),
+    index("idx_factory_command_outbox_ready").on(table.tenantId, table.projectId, table.state, table.availableAt, table.leaseUntil),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.logicalRunId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    check("factory_command_outbox_input_hash_check", sql`${table.inputHash} ~ '^sha256:[0-9a-f]{64}$'`),
+    check("factory_command_outbox_state_check", sql`${table.state} IN ('queued', 'leased', 'delivered', 'cancelled', 'dead_letter', 'outcome_unknown')`),
+  ]);
+
+  const factoryRunProjections = pgTable("factory_run_projections", {
+    ...tenantProjectRunColumns(),
+    consumerId: text("consumer_id").notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    digest: text("digest").notNull(),
+    payload: text("payload").notNull(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.consumerId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    check("factory_run_projections_sequence_check", sql`${table.sequence} > 0`),
+  ]);
+
+  const factoryInboxCursors = pgTable("factory_inbox_cursors", {
+    ...tenantProjectRunColumns(),
+    interpreterId: text("interpreter_id").notNull(),
+    nextSequence: bigint("next_sequence", { mode: "number" }).notNull().default(1),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    check("factory_inbox_cursors_next_sequence_check", sql`${table.nextSequence} > 0`),
+  ]);
+
+  const factoryInboxEvents = pgTable("factory_inbox_events", {
+    ...tenantProjectRunColumns(),
+    interpreterId: text("interpreter_id").notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    eventId: text("event_id").notNull(),
+    eventHash: text("event_hash").notNull(),
+    kind: text("kind").notNull(),
+    payload: text("payload").notNull(),
+    appliedSourceSequence: bigint("applied_source_sequence", { mode: "number" }),
+    appliedDigest: text("applied_digest"),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.eventId] }),
+    uniqueIndex("factory_inbox_events_tenant_id_project_id_run_id_interpreter_id_sequence_key").on(table.tenantId, table.projectId, table.runId, table.interpreterId, table.sequence),
+    index("idx_factory_inbox_pending").on(table.tenantId, table.projectId, table.runId, table.interpreterId, table.sequence).where(sql`${table.appliedSourceSequence} IS NULL`),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId], foreignColumns: [factoryInboxCursors.tenantId, factoryInboxCursors.projectId, factoryInboxCursors.runId, factoryInboxCursors.interpreterId] }).onDelete("restrict"),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.appliedSourceSequence], foreignColumns: [factoryAuditBatches.tenantId, factoryAuditBatches.projectId, factoryAuditBatches.runId, factoryAuditBatches.interpreterId, factoryAuditBatches.sourceSequence] }).onDelete("restrict"),
+    check("factory_inbox_events_sequence_check", sql`${table.sequence} > 0`),
+    check("factory_inbox_events_hash_check", sql`${table.eventHash} ~ '^sha256:[0-9a-f]{64}$'`),
+    check("factory_inbox_events_kind_check", sql`${table.kind} IN ('decision', 'partition_notification')`),
+    check("factory_inbox_events_applied_receipt_check", sql`(${table.appliedSourceSequence} IS NULL) = (${table.appliedDigest} IS NULL)`),
+  ]);
+
+  const factoryGrants = pgTable("factory_grants", {
+    ...tenantProjectColumns(),
+    principalKind: text("principal_kind").notNull(),
+    principalId: text("principal_id").notNull(),
+    action: text("action").notNull(),
+    issuerId: text("issuer_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revision: bigint("revision", { mode: "number" }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.principalKind, table.principalId, table.action] }),
+    foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+    foreignKey({ columns: [table.issuerId], foreignColumns: [users.id] }).onDelete("restrict"),
+    check("factory_grants_principal_kind_check", sql`${table.principalKind} IN ('user', 'service')`),
+    check("factory_grants_action_check", sql`${table.action} IN ('factory.author', 'factory.publish', 'factory.run', 'factory.operate', 'factory.approve', 'factory.release', 'factory.trust')`),
+    check("factory_grants_revision_check", sql`${table.revision} > 0`),
+  ]);
+
+  const factoryBudgetEnvelopes = pgTable("factory_budget_envelopes", {
+    ...tenantProjectRunColumns(),
+    envelopeId: text("envelope_id").notNull(),
+    parentId: text("parent_id"),
+    requestDigest: text("request_digest").notNull(),
+    limits: text("limits").notNull(),
+    allocated: text("allocated").notNull(),
+    spent: text("spent").notNull(),
+    deadlineMs: bigint("deadline_ms", { mode: "number" }).notNull(),
+    state: text("state").notNull(),
+    admissionBlocked: boolean("admission_blocked").notNull().default(false),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.envelopeId] }),
+    uniqueIndex("factory_budget_root").on(table.tenantId, table.projectId, table.runId).where(sql`${table.parentId} IS NULL`),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.parentId], foreignColumns: [table.tenantId, table.projectId, table.runId, table.envelopeId] }).onDelete("restrict"),
+    check("factory_budget_envelopes_deadline_ms_check", sql`${table.deadlineMs} > 0`),
+    check("factory_budget_envelopes_state_check", sql`${table.state} IN ('open', 'closed')`),
+  ]);
+
+  const factoryBudgetReservations = pgTable("factory_budget_reservations", {
+    ...tenantProjectRunColumns(),
+    reservationId: text("reservation_id").notNull(),
+    envelopeId: text("envelope_id").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    amount: text("amount").notNull(),
+    actual: text("actual"),
+    receiptDigest: text("receipt_digest"),
+    computeAllocation: text("compute_allocation"),
+    uncertainty: text("uncertainty"),
+    state: text("state").notNull(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.envelopeId], foreignColumns: [factoryBudgetEnvelopes.tenantId, factoryBudgetEnvelopes.projectId, factoryBudgetEnvelopes.runId, factoryBudgetEnvelopes.envelopeId] }).onDelete("restrict"),
+    check("factory_budget_reservations_state_check", sql`${table.state} IN ('held', 'running', 'uncertain', 'settled')`),
+  ]);
+
+  const factoryMutationReceipts = pgTable("factory_mutation_receipts", {
+    ...tenantProjectColumns(),
+    principalKind: text("principal_kind").notNull(),
+    principalId: text("principal_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    inputDigest: text("input_digest").notNull(),
+    responseJson: text("response_json"),
+    responseDigest: text("response_digest"),
+    createdAt: createdAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.principalKind, table.principalId, table.idempotencyKey] }),
+    foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+  ]);
+
+  const factoryDrafts = pgTable("factory_drafts", {
+    ...tenantProjectColumns(),
+    factoryId: text("factory_id").notNull(),
+    revision: bigint("revision", { mode: "number" }).notNull(),
+    sourceDigest: text("source_digest").notNull(),
+    sourceJson: text("source_json").notNull(),
+    archived: boolean("archived").notNull().default(false),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.factoryId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+    check("factory_drafts_revision_check", sql`${table.revision} > 0`),
+  ]);
+
+  const factoryVersions = pgTable("factory_versions", {
+    ...tenantProjectColumns(),
+    factoryId: text("factory_id").notNull(),
+    version: text("version").notNull(),
+    draftRevision: bigint("draft_revision", { mode: "number" }).notNull(),
+    definitionDigest: text("definition_digest").notNull(),
+    compiledBlobDigest: text("compiled_blob_digest").notNull(),
+    compiledBytes: integer("compiled_bytes").notNull(),
+    lockJson: text("lock_json").notNull(),
+    createdAt: createdAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.factoryId, table.version] }),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.factoryId], foreignColumns: [factoryDrafts.tenantId, factoryDrafts.projectId, factoryDrafts.factoryId] }).onDelete("restrict"),
+    check("factory_versions_draft_revision_check", sql`${table.draftRevision} > 0`),
+    check("factory_versions_compiled_bytes_check", sql`${table.compiledBytes} > 0`),
+  ]);
+
+  const factoryExecutions = pgTable("factory_executions", {
+    attemptId: text("attempt_id").primaryKey(),
+    ...tenantProjectRunColumns(),
+    nodeInstanceId: text("node_instance_id").notNull(),
+    candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
+    attemptNumber: bigint("attempt_number", { mode: "number" }).notNull(),
+    grantRevision: bigint("grant_revision", { mode: "number" }).notNull(),
+    reservationGeneration: bigint("reservation_generation", { mode: "number" }).notNull(),
+    executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(),
+    cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull().default(0),
+    deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
+    requestHash: text("request_hash").notNull(),
+    requestJson: jsonb("request_json").notNull(),
+    operationInitialIndex: bigint("operation_initial_index", { mode: "number" }).notNull().default(0),
+    status: text("status").notNull(),
+    journalCursor: bigint("journal_cursor", { mode: "number" }).notNull().default(-1),
+    cancelAcceptedAt: timestamp("cancel_accepted_at", { withTimezone: true }),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    index("idx_factory_executions_run").on(table.tenantId, table.projectId, table.runId, table.createdAt),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    check("factory_executions_status_check", sql`${table.status} IN ('admitted', 'running', 'cancel_accepted', 'stopped', 'failed')`),
+  ]);
+
+  const factoryExecutionOperationCursors = pgTable("factory_execution_operation_cursors", {
+    ...tenantProjectRunColumns(),
+    nodeInstanceId: text("node_instance_id").notNull(),
+    candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
+    nextOperationIndex: bigint("next_operation_index", { mode: "number" }).notNull().default(0),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration] }),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  ]);
+
+  const factoryExecutionOperations = pgTable("factory_execution_operations", {
+    attemptId: text("attempt_id").notNull(),
+    operationId: text("operation_id").notNull(),
+    operationIndex: bigint("operation_index", { mode: "number" }).notNull(),
+    kind: text("kind").notNull(),
+    state: text("state").notNull(),
+    requestDigest: text("request_digest").notNull(),
+    providerReceiptDigest: text("provider_receipt_digest"),
+    resultDigest: text("result_digest"),
+    resultJson: jsonb("result_json"),
+    usageJson: jsonb("usage_json"),
+    workspaceCheckpoint: jsonb("workspace_checkpoint"),
+    createdAt: createdAtColumn(),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.attemptId, table.operationId] }),
+    uniqueIndex("factory_execution_operations_attempt_id_operation_index_key").on(table.attemptId, table.operationIndex),
+    index("idx_factory_execution_operations_cursor").on(table.attemptId, table.operationIndex),
+    foreignKey({ columns: [table.attemptId], foreignColumns: [factoryExecutions.attemptId] }).onDelete("cascade"),
+    check("factory_execution_operations_kind_check", sql`${table.kind} IN ('model', 'tool')`),
+    check("factory_execution_operations_state_check", sql`${table.state} IN ('prepared', 'dispatched', 'completed', 'failed', 'uncertain')`),
+  ]);
+
+  return {
+    factoryInstallation,
+    factoryProjects,
+    factoryRuns,
+    factoryAuditBatches,
+    factoryCommandOutbox,
+    factoryRunProjections,
+    factoryInboxCursors,
+    factoryInboxEvents,
+    factoryGrants,
+    factoryBudgetEnvelopes,
+    factoryBudgetReservations,
+    factoryMutationReceipts,
+    factoryDrafts,
+    factoryVersions,
+    factoryExecutions,
+    factoryExecutionOperationCursors,
+    factoryExecutionOperations,
+  };
+}

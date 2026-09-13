@@ -39,3 +39,25 @@
   CHECK: git diff --numstat HEAD~1..HEAD -- src/factory src/runtime packages/@ezcorp/factory-sdk
   EXPECT: records the final measured source/test delta.
   EVIDENCE: pinned focused runner producer: journal/gateway/native/runtime/supervisor/Podman 13 pass; exact LCOV 100% for execution-gateway 69/69, executions 190/190, native 74/74, supervisor 76/76, and SDK compiler 592/592. `BASE_REF=HEAD~2 bun scripts/check-patch-coverage.ts` passed six changed source files. The source diff measured 208 added + 80 deleted = 288 lines.
+
+# Factory Drizzle schema gates
+
+- [x] S1 Every product Factory migration table has one exported Drizzle table model, with reusable fresh scope column builders.
+  CHECK: bun test ./src/db/factory-schema.test.ts
+  EXPECT: pass
+  EVIDENCE: pinned Bun unit test passed 2 tests; it verifies all 17 table exports, fresh column instances, cancellation epoch default, and 20 foreign keys.
+
+- [x] S2 The schema matches a real PostgreSQL database after the Factory migrations, including types, defaults, keys, foreign keys, and indexes.
+  CHECK: FACTORY_TEST_POSTGRES_URL=... bun test ./tests/postgres/factory-schema.test.ts
+  EXPECT: pass
+  EVIDENCE: pinned Bun with isolated PostgreSQL passed 2 tests and 547 assertions; it introspected every Factory column/type/default/nullability plus primary, unique, foreign, and partial-index facts.
+
+- [x] S3 The schema has no runtime import cycle and all changed executable source has 100% measured coverage.
+  CHECK: FACTORY_TEST_POSTGRES_URL=... bun test --coverage ./src/db/factory-schema.test.ts ./tests/postgres/factory-schema.test.ts
+  EXPECT: pass with `src/db/factory-schema.ts` at 100%
+  EVIDENCE: clean Bun import passed; combined LCOV measured factory-schema 288/288, add-factory-inbox 7/7, add-factory-budgets 7/7, and add-factory-definitions 8/8.
+
+- [x] S4 Root typecheck and lint pass with the Factory schema import.
+  CHECK: bun run typecheck && bun run lint
+  EXPECT: exit 0
+  EVIDENCE: pinned four-leg typecheck passed; lint exited 0 with eight existing informational diagnostics outside this leaf.
