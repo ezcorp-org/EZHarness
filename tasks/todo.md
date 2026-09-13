@@ -1773,6 +1773,14 @@ Plan review: the private gateway routes only a stored command reference. Test it
 - [x] Add a scoped immutable command router over existing product handlers.
 - [x] Prove actual durable task admission, generic approval, lazy input, and child resolution through the router.
 - [x] Reject missing handlers, foreign service/scope, wrong command class, and mutable references.
-- [ ] Verify PostgreSQL/S3, measured coverage, SDK build, all four types, lint, and parent integration.
+- [x] Verify PostgreSQL/S3, measured coverage, SDK build, all four types, lint, and parent integration.
 
 Private dispatch validation: PGlite 40/506 assertions; PostgreSQL/S3 40/2,380; router 46/46 lines and 13/13 functions. SDK build, all four types, lint, boundaries, and gate integrity passed. The first type failure was a unit fixture missing the complete child source envelope; the corrected replay passed. Exact receipts are recorded in tasks/factory/private-command-dispatch-GATES.md. Parent integration remains open.
+
+## Parent integration — command routing, validator evidence, and attempt dispatch
+
+- [x] Merge immutable Sol validator and dispatcher leaves, current-approval correction, and root private command routing.
+- [x] Preserve all concurrent fixture and task changes while resolving integration conflicts.
+- [x] Pass product/database integration, both builds, four type checks, static checks, real Node orchestration, and committed patch/new-file coverage.
+
+Review: source ac656591e passed 124 product tests / 1,171 assertions and 142 PostgreSQL/S3 tests / 3,410 assertions across all 19 registered PostgreSQL files. SDK and orchestrator builds, all four type checks, lint, boundaries, and gate integrity passed. Node passed 77 tests with zero failures in 110,428 ms. Patch/new-file coverage passed against fe7be0bbe. Receipts: /tmp/factory-platform-evidence/root-private-validator-dispatch-merge-combined-integration-results.json and root-private-validator-dispatch-merge-coverage-results.json. These results close this integration batch. The subsequent real partition-start test exposed a command-count defect now being fixed in the root side worktree; full startup, end-to-end journeys, soak, and all platform launch gates remain open.
