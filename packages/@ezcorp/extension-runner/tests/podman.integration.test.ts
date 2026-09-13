@@ -1,6 +1,6 @@
 import { workspaceText } from "@ezcorp/extension-contract";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -48,6 +48,29 @@ test("real isolated build, typecheck, feature tests, discovery, invocation and r
   expect(await restarted.collectArtifacts(artifactDigest)).toEqual(await runner.collectArtifacts(artifactDigest));
 }, 120_000);
 
+/** Observes the fail-closed kernel probe so a build or attach cannot silently skip it. */
+class ProbeObservingRunner extends PodmanRunner {
+  readonly sweeps: boolean[] = [];
+  protected override async probeSecurity(cleanupOrphans = true): Promise<void> {
+    this.sweeps.push(cleanupOrphans);
+    await super.probeSecurity(cleanupOrphans);
+  }
+}
+
+test("a first build on a fresh runner prepares its artifact store and probes kernel isolation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ez-runner-first-build-"));
+  const fresh = new ProbeObservingRunner({ root: directory, ...await provision() });
+  try {
+    const files = source("async input => input");
+    const built = await fresh.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+    expect(built.diagnostics).toEqual([]);
+    expect(built.state).toBe("succeeded");
+    expect(fresh.sweeps).toEqual([true]);
+    expect((await lstat(join(directory, "artifacts"))).mode & 0o777).toBe(0o700);
+    expect(await fresh.collectArtifacts(built.artifactDigest!)).toMatchObject({ "extension.ts": files["extension.ts"]! });
+  } finally { await fresh.close(); await rm(directory, { recursive: true, force: true }); }
+}, 120_000);
+
 test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches and cancels", async () => {
   const files = source("async input => input");
   const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
@@ -62,9 +85,10 @@ test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches a
     const output = new TextDecoder().decode(first.value);
     if (!output.includes("READY")) throw new Error(`crashed supervisor did not start guest: ${await new Response(child.stderr).text()}`);
   } finally { child.kill("SIGKILL"); await child.exited; }
-  const fresh = new PodmanRunner({ root });
+  const fresh = new ProbeObservingRunner({ root });
   expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
   const _attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
+  expect(fresh.sweeps).toEqual([false]);
   expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
   await fresh.cancel(workerId);
   expect(await fresh.inspect(workerId)).toMatchObject({ state: "cancelled" });
