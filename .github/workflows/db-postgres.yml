@@ -158,6 +158,7 @@ jobs:
           --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-storage
           ./tests/postgres/factory-artifacts.test.ts
           ./tests/postgres/factory-artifact-access.test.ts
+          ./tests/postgres/factory-artifact-materials.test.ts
           ./tests/postgres/factory-lazy-input.test.ts
           ./tests/postgres/factory-lazy-commands.test.ts
           ./tests/postgres/factory-boot.test.ts

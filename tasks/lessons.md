@@ -610,3 +610,4 @@
 - A generated JSON Schema with `additionalProperties: false` rejects a hand-built fixture that
   carries one extra field. Copy the shape from the package's own valid fixture rather than
   assembling it from the type.
+- A package that adds a `tests/postgres/*.test.ts` suite must register it in the `db-postgres.yml` producer list in the same change. Two branches can each pass alone and fail together: the registration gate arrived with W18 while the unregistered suite arrived with W04. Run the combined tree's registration gates at integration, not only each branch's.
