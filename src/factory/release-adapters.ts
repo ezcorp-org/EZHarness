@@ -122,10 +122,24 @@ export class S3FactoryReleaseProvider implements FactoryReleaseProvider {
     }
     const version = written.VersionId;
     if (!version) throw new FactoryReleaseError("factory_s3_receipt_missing");
-    const restored = await this.client.send(new GetObjectCommand({ Bucket: this.options.bucket, Key: key, VersionId: version })) as { Body?: unknown };
+    return this.readReceipt(claim, version);
+  }
+
+  private async readReceipt(operation: FactoryReleaseOperation, version: string, signal?: AbortSignal): Promise<FactoryProviderReceipt> {
+    const key = this.key(operation);
+    const request = publicationRequest(operation.request);
+    const restored = await this.client.send(new GetObjectCommand({ Bucket: this.options.bucket, Key: key, VersionId: version }), signal ? { abortSignal: signal } : undefined) as { Body?: unknown; VersionId?: string; ContentType?: string };
     const restoredBytes = await responseBytes(restored.Body);
-    if (sha256(restoredBytes) !== sha256(bytes)) throw new FactoryReleaseError("factory_s3_receipt_corrupt");
-    return { provider: "s3", account: this.options.account, object: claim.destination.object, requestDigest: claim.requestDigest, operationId: claim.operationId, dispatchGeneration: claim.dispatchGeneration, providerReceiptId: `s3:${this.options.bucket}:${key}:${version}`, version, effectDigest: sha256(bytes) };
+    const expectedDigest = sha256(Buffer.from(request.bytesBase64, "base64"));
+    if (restored.VersionId !== version || sha256(restoredBytes) !== expectedDigest || request.contentType !== undefined && restored.ContentType !== request.contentType) throw new FactoryReleaseError("factory_s3_receipt_corrupt");
+    return { provider: "s3", account: this.options.account, object: operation.destination.object, requestDigest: operation.requestDigest, operationId: operation.operationId, dispatchGeneration: operation.dispatchGeneration, providerReceiptId: `s3:${this.options.bucket}:${key}:${version}`, version, effectDigest: expectedDigest };
+  }
+
+  async verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt, _evidence: unknown, signal?: AbortSignal): Promise<boolean> {
+    [operation, receipt] = structuredClone([operation, receipt]);
+    if (typeof receipt.version !== "string" || !receipt.version || receipt.version.length > 512) return false;
+    try { return canonicalJson(await this.readReceipt(operation, receipt.version, signal)) === canonicalJson(receipt); }
+    catch (error) { if (missing(error)) return false; throw error; }
   }
 
   async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown, signal?: AbortSignal): Promise<boolean> {

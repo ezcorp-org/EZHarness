@@ -33,6 +33,8 @@ const ordinary = await parseConfig(ordinaryPath);
 const archive = await parseConfig(archivePath);
 if (ordinary.identities.length !== 10 || archive.identities.length !== 10) throw new Error("The proof requires exactly ten scoped identities in each credential set.");
 
+let verifiedReceipts = 0;
+let rejectedReceipts = 0;
 const stamp = `${Date.now()}-${crypto.randomUUID()}`;
 for (let index = 0; index < ordinary.identities.length; index += 1) {
   const ordinaryIdentity = ordinary.identities[index]!;
@@ -53,6 +55,13 @@ for (let index = 0; index < ordinary.identities.length; index += 1) {
   const provider = new S3FactoryReleaseProvider({ endpoint: ordinaryEndpoint, bucket: tenantId, account: tenantId, credentials: credentials(ordinaryIdentity) });
   const receipt = await provider.publish(claim);
   if (receipt.operationId !== operationId || receipt.object !== object || !receipt.version) throw new Error("The publication receipt does not match its operation.");
+  const evidence = { operationId, reason: "actual provider lookup" };
+  if (!await provider.verifyReceipt(claim, receipt, evidence)) throw new Error("The provider did not verify its exact publication receipt.");
+  verifiedReceipts += 1;
+  for (const forged of [{ ...receipt, version: "missing-version" }, { ...receipt, effectDigest: sha("0") }, { ...receipt, providerReceiptId: "forged-receipt" }, { ...receipt, account: "foreign" }]) {
+    if (await provider.verifyReceipt(claim, forged, evidence)) throw new Error("The provider accepted a fabricated receipt.");
+    rejectedReceipts += 1;
+  }
   const store = new S3FactoryReleaseArchive({ endpoint: archiveEndpoint, bucket: tenantId, prefix: "archive/release-archive-proof", credentials: credentials(archiveIdentity) });
   const bytes = new TextEncoder().encode(JSON.stringify({ operationId, receipt }));
   const reference = await store.writeImmutable(tenantId, operationId, "receipt", bytes);
@@ -77,7 +86,7 @@ await expectForeignDenial(archiveEndpoint, "tenant-01", ordinary.identities[0]!,
 await expectForeignDenial(ordinaryEndpoint, "tenant-01", archive.identities[0]!, `ordinary/release-proof/${stamp}/0.txt`);
 
 const result = {
-  testedAt: new Date().toISOString(), tenants: 10, publications: 10, archives: 10, foreignDenials: 3, versionedReceipts: true,
+  testedAt: new Date().toISOString(), tenants: 10, publications: 10, archives: 10, foreignDenials: 3, versionedReceipts: true, verifiedReceipts, rejectedReceipts,
   endpoints: [new URL(ordinaryEndpoint).host, new URL(archiveEndpoint).host], failureDomain: "same-host-not-independent",
 };
 await mkdir(dirname(outputPath), { recursive: true });

@@ -1891,3 +1891,17 @@ PGlite integration passes 81 tests / 785 assertions. The focused LCOV run measur
 Review: source 57751b80b passed 165 SDK tests, 161 product tests, 164 PostgreSQL/S3/schema tests, one real Podman package test, and 78 real Node tests, with both builds, all types, lint, boundaries, and gate integrity. Source 84cfd2a99 then integrated protected commands and passed 172 product tests / 1,462 assertions and 166 PostgreSQL/S3/schema tests / 3,984 assertions, SDK build, all types, lint, boundaries, and integrity. Existing SDK and Node reports are reused only for files whose source bytes match the producing revision.
 
 Committed new-file coverage passes. Patch coverage against 644987ada found an untested protected-input exception, an uncalled acceptance authority wrapper, and an existing gate inconsistency for the declaration-only kernel types file. Sol owns the behavior tests and reuse of the gate's existing structural declaration check; no exclusion or synthetic coverage is permitted. Evidence: /tmp/factory-platform-evidence/root-package-outcome-partition-merge-combined-integration-results.json, root-protected-effects-parent-combined-integration-results.json, and root-protected-effects-parent-coverage-results.json. All platform launch gates remain open.
+
+## Provider receipt verification and GitHub publication — root
+
+Plan review: reuse the existing release store, broker credential/egress boundary, and provider adapters. The user authorized private GitHub publication tests and local S3. Test the existing public release application/store seam, then the actual provider boundary. No additional approval is needed for these tests.
+
+- [x] Reproduce an unverified attached receipt through the release reconciliation path.
+- [x] Require bounded provider verification before accepting a receipt; prove uncertainty, tamper, timeout, and exact version checks with real S3.
+- [ ] Extend the v4 GitHub broker with immutable candidate, branch, tested-base, draft PR, and lost-response contracts.
+- [ ] Prove disposable publication against the private test repository and record provider receipts.
+- [ ] Pass focused and PostgreSQL/S3 coverage, all type checks, lint, and parent integration.
+
+Review: pending.
+
+Receipt verification review: the original reconciliation test resolved a fabricated receipt as success. The store now requires bounded provider confirmation before any archive or success mutation. S3 derives the expected receipt from the exact returned object version, digest, and media type, then compares all receipt fields. Uncertainty survives rejection and timeout. The focused store/adapter/application run passes 24 tests / 161 assertions; PostgreSQL passes 15 tests / 99 assertions; all four type checks, lint, boundaries, and gate integrity pass. Live S3 uses all ten tenant identities: ten publications, ten archived receipts, ten verified receipts, forty rejected altered receipts, and three foreign-access denials. A subsequent adapter test also proves the old exact version remains verifiable after the current object changes and that a media-type mismatch fails. Adapter coverage is 101/101 lines and 28/28 functions. Raw results: /tmp/factory-platform-evidence/root-provider-receipt-final-combined-integration-results.json, root-provider-receipt-version-final.log, and root-provider-receipt-s3-live.json. Final committed patch checks and parent integration remain pending.

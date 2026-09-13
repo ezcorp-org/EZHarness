@@ -6,7 +6,7 @@ import { FactoryReleaseError, type FactoryReleaseClaim } from "./releases";
 class MemoryS3 {
   private sequence = 0;
   readonly current = new Map<string, { bytes: Uint8Array; version: string; etag: string; checksum?: string }>();
-  readonly versions = new Map<string, Uint8Array>();
+  readonly versions = new Map<string, { bytes: Uint8Array; contentType?: string }>();
   losePutResponse = false;
   corruptReads = false;
   omitVersions = false;
@@ -26,16 +26,18 @@ class MemoryS3 {
       const version = `version-${++this.sequence}`;
       const etag = `"etag-${this.sequence}"`;
       this.current.set(command.input.Key!, { bytes, version, etag, checksum: command.input.ChecksumSHA256 });
-      this.versions.set(`${command.input.Key!}:${version}`, bytes);
+      this.versions.set(`${command.input.Key!}:${version}`, { bytes, contentType: command.input.ContentType });
       if (this.losePutResponse) throw new Error("response lost after committed write");
       return { ...(this.omitVersions ? {} : { VersionId: version }), ETag: etag };
     }
     if (command instanceof GetObjectCommand) {
       const current = this.current.get(command.input.Key!);
-      const bytes = command.input.VersionId ? this.versions.get(`${command.input.Key!}:${command.input.VersionId}`) : current?.bytes;
+      const version = command.input.VersionId ?? current?.version;
+      const item = this.versions.get(`${command.input.Key!}:${version}`);
+      const bytes = item?.bytes;
       if (!bytes) throw { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } };
       const value = this.corruptReads ? new Uint8Array([0]) : bytes;
-      return { Body: { async transformToByteArray() { return value; } }, ContentLength: value.byteLength };
+      return { Body: { async transformToByteArray() { return value; } }, ContentLength: value.byteLength, VersionId: version, ContentType: item?.contentType };
     }
     throw new Error("unexpected S3 command");
   }
@@ -107,4 +109,25 @@ test("S3 response loss exposes uncertainty and an exact live lookup proves effec
   expect(await provider.proveNoEffect(absent, { operationId: absent.operationId, reason: "operator lookup" }, controller.signal)).toBe(true);
   expect(client.lastAbortSignal).toBe(controller.signal);
   expect(await provider.proveNoEffect(absent, { operationId: "foreign", reason: "operator lookup" })).toBe(false);
+});
+
+
+test("S3 reconciliation verifies a provider receipt against exact version bytes without another write", async () => {
+  const client = new MemoryS3();
+  const provider = new S3FactoryReleaseProvider({ endpoint: "http://127.0.0.1", bucket: "ordinary", account: "tenant-a", prefix: "published", credentials: { accessKeyId: "ordinary-id", secretAccessKey: "ordinary-secret" }, client });
+  const operation = claim();
+  const receipt = await provider.publish(operation);
+  const evidence = { operationId: operation.operationId, reason: "verify recorded version" };
+  const signal = new AbortController().signal;
+  expect(await provider.verifyReceipt(operation, receipt, evidence, signal)).toBe(true);
+  expect(client.lastAbortSignal).toBe(signal);
+  for (const forged of [{ ...receipt, version: "" }, { ...receipt, version: "missing-version" }, { ...receipt, effectDigest: `sha256:${"0".repeat(64)}` }, { ...receipt, providerReceiptId: "forged-receipt" }, { ...receipt, account: "foreign" }]) {
+    expect(await provider.verifyReceipt(operation, forged, evidence)).toBe(false);
+  }
+  expect(client.versions.size).toBe(1);
+  const replaced = await client.send(new PutObjectCommand({ Bucket: "ordinary", Key: "published/releases/result.txt", Body: Buffer.from("release bytes"), ContentType: "application/octet-stream" }));
+  expect(await provider.verifyReceipt(operation, receipt, evidence)).toBe(true);
+  await expect(provider.verifyReceipt(operation, { ...receipt, version: String(replaced.VersionId) }, evidence)).rejects.toMatchObject({ code: "factory_s3_receipt_corrupt" });
+  client.corruptReads = true;
+  await expect(provider.verifyReceipt(operation, receipt, evidence)).rejects.toMatchObject({ code: "factory_s3_receipt_corrupt" });
 });

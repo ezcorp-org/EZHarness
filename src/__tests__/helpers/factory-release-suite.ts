@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import { canonicalJson } from "@ezcorp/extension-contract";
 import { up as addFactoryReleases } from "../../db/migrations/add-factory-releases";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
@@ -100,6 +101,7 @@ class Provider implements FactoryReleaseProvider {
     if (this.loseResponse) throw new Error("response lost after write");
     return receipt;
   }
+  async verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt) { return canonicalJson(this.receipts.get(operation.operationId) ?? null) === canonicalJson(receipt); }
   async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown) { this.proofCalls += 1; return this.noEffect && (evidence as { operationId?: string })?.operationId === operation.operationId; }
 }
 
@@ -428,12 +430,36 @@ test("reconcile attaches a verified receipt, preserves uncertainty, or proves no
   sender.stopped = false; provider.noEffect = false;
 });
 
+test("an operator cannot attach a fabricated matching receipt without a provider-verified effect", async () => {
+  const operation = await prepareRelease(admin, request("forged-provider-receipt"));
+  const approvalId = await approved(operation);
+  const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId });
+  provider.loseResponse = true; await releases.dispatch(claim, provider); provider.loseResponse = false;
+  const receipt = provider.receipts.get(operation.operationId)!;
+  const writes = archive.writes;
+  await expect(reconcileRelease(admin, {
+    projectId, operationId: operation.operationId, action: "attach_receipt", reason: "operator supplied a receipt that the provider did not issue",
+    providerEvidence: { lookup: true }, receipt: { ...receipt, version: "fabricated-version", providerReceiptId: "fabricated-provider-receipt" },
+  }, provider)).rejects.toMatchObject({ code: "factory_release_receipt_unverified" });
+  expect(await releases.inspect(projectId, operation.operationId)).toMatchObject({ state: "uncertain" });
+  expect(archive.writes).toBe(writes);
+});
+
 test("reconciliation proof calls are transaction-bounded and abortable", async () => {
   const uncertain = await prepareRelease(admin, request("proof-timeout")); const approvalId = await approved(uncertain); const claim = await releases.claim(admin, projectId, uncertain.operationId, { kind: "approval", approvalId });
   provider.loseResponse = true; await releases.dispatch(claim, provider); provider.loseResponse = false;
   const never = () => new Promise<boolean>(() => {});
   const bounded = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, new Destination(), archive, { proveStopped: never }, () => now, 1);
-  await expect(bounded.reconcile(admin, { projectId, operationId: uncertain.operationId, action: "confirm_no_effect", reason: "proof service did not answer", providerEvidence: { operationId: uncertain.operationId } }, claim.dispatchGeneration, { publish: provider.publish.bind(provider), proveNoEffect: never }, mutationKey("proof-timeout"))).rejects.toMatchObject({ code: "factory_release_reconciliation_timeout" });
+  await expect(bounded.reconcile(admin, { projectId, operationId: uncertain.operationId, action: "confirm_no_effect", reason: "proof service did not answer", providerEvidence: { operationId: uncertain.operationId } }, claim.dispatchGeneration, { publish: provider.publish.bind(provider), verifyReceipt: provider.verifyReceipt.bind(provider), proveNoEffect: never }, mutationKey("proof-timeout"))).rejects.toMatchObject({ code: "factory_release_reconciliation_timeout" });
+  expect(await releases.inspect(projectId, uncertain.operationId)).toMatchObject({ state: "uncertain" });
+  let receiptSignal: AbortSignal | undefined;
+  const writes = archive.writes;
+  await expect(bounded.reconcile(admin, { projectId, operationId: uncertain.operationId, action: "attach_receipt", reason: "receipt lookup did not answer", providerEvidence: { operationId: uncertain.operationId }, receipt: provider.receipts.get(uncertain.operationId)! }, claim.dispatchGeneration, {
+    publish: provider.publish.bind(provider), proveNoEffect: provider.proveNoEffect.bind(provider),
+    verifyReceipt: async (_operation, _receipt, _evidence, signal) => { receiptSignal = signal; return never(); },
+  }, mutationKey("receipt-proof-timeout"))).rejects.toMatchObject({ code: "factory_release_reconciliation_timeout" });
+  expect(receiptSignal?.aborted).toBe(true);
+  expect(archive.writes).toBe(writes);
   expect(await releases.inspect(projectId, uncertain.operationId)).toMatchObject({ state: "uncertain" });
 });
 

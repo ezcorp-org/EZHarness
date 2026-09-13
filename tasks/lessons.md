@@ -557,3 +557,8 @@
 - A claim referenced by a quorum group is protected evidence even when `required` is false. Register and validate every group claim. Apply `required` only as an individual gate; apply the group threshold separately.
 - A subfactory result is not the parent task's terminal result. Bind a sealed alias to the exact current parent attempt, child binding, child acceptance decision, and child artifact. Recheck both parent and child lifecycle fences before reuse.
 - A mutable current pointer must equal the maximum immutable revision in its scope. Validate that invariant while the pointer is locked so a rollback cannot reactivate revoked trust.
+
+## 2026-09-13 — Provider receipt proof
+
+- A structurally matching operator-supplied receipt is not proof of an external effect. Resolve the configured provider and verify the exact immutable version before success or archival settlement.
+- Use the same bounded, abortable proof boundary for receipt attachment and absence reconciliation. Timeouts preserve uncertainty.

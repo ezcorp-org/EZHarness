@@ -102,6 +102,7 @@ export interface FactorySenderFence {
 
 export interface FactoryReleaseProvider {
   publish(claim: FactoryReleaseClaim): Promise<FactoryProviderReceipt>;
+  verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt, evidence: unknown, signal?: AbortSignal): Promise<boolean>;
   proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown, signal?: AbortSignal): Promise<boolean>;
 }
 
@@ -374,7 +375,7 @@ function notificationStore(database: MigrationDb, tenantId: string, projectId: s
 
 const notificationQueue = new DurableDeliveryQueue<FactoryNotification>((code, message) => new FactoryReleaseError(code, message), randomUUID);
 
-async function boundedReconciliationProof(timeoutMs: number, prove: (signal: AbortSignal) => Promise<readonly [boolean, boolean]>): Promise<readonly [boolean, boolean]> {
+async function boundedReconciliationProof<T>(timeoutMs: number, prove: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<never>((_, reject) => { timeout = setTimeout(() => { controller.abort(); reject(new FactoryReleaseError("factory_release_reconciliation_timeout")); }, timeoutMs); });
@@ -537,6 +538,8 @@ export class FactoryReleases {
       if (request.action === "attach_receipt") {
         if (!request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
         validateReceipt(locked, request.receipt);
+        const verified = await boundedReconciliationProof(this.reconciliationProofTimeoutMs, signal => provider.verifyReceipt(locked, request.receipt!, request.providerEvidence, signal));
+        if (!verified) throw new FactoryReleaseError("factory_release_receipt_unverified");
       } else if (request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
       if (request.action === "confirm_no_effect") {
         const [stopped, absent] = await boundedReconciliationProof(this.reconciliationProofTimeoutMs, signal => Promise.all([this.senderFence.proveStopped(locked, locked.senderToken!, request.providerEvidence, signal), provider.proveNoEffect(locked, request.providerEvidence, signal)]));
