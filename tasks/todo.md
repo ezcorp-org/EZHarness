@@ -1234,3 +1234,22 @@ Review: `/tmp/factory-platform-evidence/assembled-backend-3eeee3259.log` reports
 - [ ] Prove rollback, retries, corrupted index/artifact denial and tenant/project/interpreter separation on PGlite and PostgreSQL/S3.
 
 Plan review: C02 accepts only authenticated command references from the Node worker. Product code must resolve the command from committed canonical audit. The new table is a bounded lookup index over that audit, with scoped foreign keys. It supplies no independent release authority and cannot accept a caller's runner, input, or grants. Existing journal admission, run fences and budget admission remain the effect gates.
+
+
+## Encrypted definition and private key integration review
+
+- [x] Integrate immutable C06 definition, private-file and readonly Node key-wrap changes.
+- [x] Run root and web frozen installs and rebuild the factory SDK.
+- [x] Re-run real PostgreSQL/S3 definition and provisioning proofs plus Node key-file coverage.
+- [x] Run all four typecheck legs and lint on the integrated source.
+
+Review: `/tmp/factory-platform-evidence/root-c06-results.json` records five successful producers at `c82b1b05b`. PostgreSQL/S3 and provisioning pass 16 cases/110 assertions. The actual Node key-file producer measures 101/101 lines. Root and web frozen installs, SDK build, all four typecheck legs and lint pass. These are component integration proofs; full application startup and recovery remain open.
+
+## Backend correction integration review
+
+- [x] Integrate `433c1469c` as `cc9bb59ff`.
+- [x] Independently rerun both bundled review files and the complete Bun/Node/Python golden fixture file.
+- [ ] Integrate and verify the five SDK expansion/repair corrections.
+- [ ] Rerun the complete canonical backend suite.
+
+Review: `/tmp/factory-platform-evidence/root-backend-corrections.log` records all three complete focused files passing. A rejected review preserves its terminal human decision. Canonical bundled host-API grants retain the existing aggregate JSON size bound. An initial runner request starts its operation cursor at zero when no checkpoint exists.
