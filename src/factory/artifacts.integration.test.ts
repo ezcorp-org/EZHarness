@@ -157,7 +157,7 @@ test("stored command lookup rejects uncommitted, malformed, and tampered transit
   const command = storedCommand("tampered-command");
   const event: Extract<KernelEvent, { kind: "cancel" }> = { id: "tampered-command-event", kind: "cancel", atMs: 1, reason: "test" };
   const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 1, event, nextState: {}, commands: [command] }));
-  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 1, index: 0, content, encodedBytes: artifactJson.bytes(content).byteLength });
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 1, index: 0, contentBase64: encodeFactoryPageBase64(artifactJson.bytes(content)), encodedBytes: artifactJson.bytes(content).byteLength });
   const finalized = await transitions.finalizeTransitionArtifact({ ...identity, sourceSequence: 1, encodedBytes: page.encodedBytes, eventId: event.id, pages: [page] });
   const reference = { ...identity, commandId: command.id };
   await expect(transitions.loadStoredCommand(reference)).rejects.toMatchObject({ code: "factory_transition_command_not_found" });
@@ -187,7 +187,7 @@ test("stored command indexing rejects duplicate malformed IDs before audit admis
   const event: Extract<KernelEvent, { kind: "cancel" }> = { id: "duplicate-command-event", kind: "cancel", atMs: 1, reason: "test" };
   const command = storedCommand("duplicate-command");
   const content = artifactJson.text(artifactJson.canonical({ schemaVersion: "factory.transition.v1", ...identity, sourceSequence: 1, event, nextState: {}, commands: [command, command] }));
-  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 1, index: 0, content, encodedBytes: artifactJson.bytes(content).byteLength });
+  const page = await transitions.stageTransitionPage({ ...identity, sourceSequence: 1, index: 0, contentBase64: encodeFactoryPageBase64(artifactJson.bytes(content)), encodedBytes: artifactJson.bytes(content).byteLength });
   const finalized = await transitions.finalizeTransitionArtifact({ ...identity, sourceSequence: 1, encodedBytes: page.encodedBytes, eventId: event.id, pages: [page] });
   await expect(transitions.recordTransition({ ...identity, sourceSequence: 1, eventId: event.id, eventHash: finalized.eventHash, artifactManifest: finalized.manifest })).rejects.toMatchObject({ code: "factory_transition_commands_invalid" });
   const rows = await db.execute(sql`SELECT command_id FROM factory_transition_commands WHERE tenant_id=${identity.tenantId}`) as unknown as { rows?: unknown[] } | unknown[];
