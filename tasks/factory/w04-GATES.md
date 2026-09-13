@@ -88,11 +88,15 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       heavy lock.
       EXPECT: 26 pass, 0 fail, 205 assertions against PostgreSQL 16.14 and the local S3 service.
       EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `postgres-materials`.
-      NOTE: the shared `factory-platform-proof-postgres` container was dead for part of this
-      package's window. `podman ps` reported it up while its PID was gone and port 46343 refused
-      connections. It was restored by its owner and this gate then passed. The first failing run
-      is preserved as `/tmp/factory-platform-evidence/w04/postgres-materials.log` history in the
-      receipts, exit 1 with 26 connection failures.
+      NOTE: this gate failed twice before it passed, and both failures are stated rather than
+      hidden. The shared `factory-platform-proof-postgres` container was dead for part of this
+      package's window: `podman ps` reported it up while its PID was gone and port 46343 refused
+      connections, so the first run failed with 26 connection errors before any assertion. After
+      its owner restored it, the second run failed one case, because the mutual-TLS restart proof
+      used a client certificate whose common name was not this suite's tenant; the certificate is
+      now bound to the tenant. Both runs survive in `receipts.jsonl` with their exit code, counts,
+      and log digest, but their log files were overwritten by the passing run before the receipt
+      runner began writing a uniquely named log per run.
 - [x] G10: The two new tables and the widened artifact row match their Drizzle models in real
       PostgreSQL, including every scoped foreign key.
       CHECK: `bun test --timeout 240000 ./tests/postgres/factory-schema.test.ts`
