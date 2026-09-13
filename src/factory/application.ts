@@ -10,6 +10,9 @@ import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "./run-life
 import { FactoryArtifacts } from "./artifacts";
 import { FactoryDefinitionArtifacts } from "./definition-artifacts";
 import { FactoryServiceCredentials } from "./service-credentials";
+import { FactoryExecutionJournal } from "./executions";
+import { FactoryReleaseAuthorityStore } from "./release-authority";
+import type { FactoryReleaseApplication } from "./release-application";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -22,6 +25,10 @@ export interface FactoryApplication {
   readonly runs: FactoryRunLifecycle;
   readonly grants: FactoryGrants;
   readonly credentials: FactoryServiceCredentials;
+  readonly artifacts: FactoryArtifacts;
+  readonly journal: FactoryExecutionJournal;
+  readonly releaseAuthority: FactoryReleaseAuthorityStore;
+  readonly releaseOperations?: FactoryReleaseApplication;
   readonly availableResourceClasses: ReadonlySet<string>;
 }
 
@@ -32,6 +39,7 @@ export interface FactoryApplicationOptions {
   readonly runOptions: Omit<FactoryRunLifecycleOptions, "definitions" | "grants" | "stageDefinitionInTransaction">;
   readonly grants?: FactoryGrants;
   readonly availableResourceClasses: Iterable<string>;
+  readonly createReleaseOperations?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority">>) => FactoryReleaseApplication;
 }
 
 let configuredApplication: FactoryApplication | null = null;
@@ -69,17 +77,27 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   }
   const definitions = new FactoryDefinitions(options.database, options.tenantId, grants, options.blobs);
   const credentials = new FactoryServiceCredentials(options.database, options.tenantId, grants);
-  const artifacts = new FactoryDefinitionArtifacts(new FactoryArtifacts(options.database, options.blobs, options.tenantId));
+  const artifacts = new FactoryArtifacts(options.database, options.blobs, options.tenantId);
+  const definitionArtifacts = new FactoryDefinitionArtifacts(artifacts);
   const runs = new FactoryRunLifecycle(options.database, options.tenantId, {
     ...options.runOptions, definitions, grants,
-    stageDefinitionInTransaction: (transaction, compiled, identity) => artifacts.stageDefinitionInTransaction(transaction, compiled, identity),
+    stageDefinitionInTransaction: (transaction, compiled, identity) => definitionArtifacts.stageDefinitionInTransaction(transaction, compiled, identity),
   });
+  const journal = new FactoryExecutionJournal(options.database, runs.authorizeAttemptInTransaction);
+  const releaseAuthority = new FactoryReleaseAuthorityStore(options.database, options.tenantId, grants, runs, journal, artifacts);
+  const releaseOperations = options.createReleaseOperations?.(Object.freeze({ tenantId: options.tenantId, grants, runs, artifacts, journal, releaseAuthority }));
+  if (releaseOperations && releaseOperations.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
+  if (releaseOperations) Object.freeze(releaseOperations);
   return Object.freeze({
     tenantId: options.tenantId,
     grants,
     credentials,
     definitions,
     runs,
+    artifacts,
+    journal,
+    releaseAuthority,
+    ...(releaseOperations ? { releaseOperations } : {}),
     availableResourceClasses: immutableSet(resources),
   });
 }

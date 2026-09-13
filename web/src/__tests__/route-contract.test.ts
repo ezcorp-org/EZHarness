@@ -756,10 +756,13 @@ describe("registry ⇄ filesystem parity", () => {
     // here, so the whole session-only surface reads one way.
     const SESSION_ONLY = [
       "DELETE /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
+      "DELETE /api/factories/projects/:projectId/release/policies/:policyId",
+      "DELETE /api/factories/projects/:projectId/release/trust",
       "DELETE /api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials/:credentialId",
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
       "GET /api/extensions/:name/preview",
+      "GET /api/factories/projects/:projectId/release/notifications",
       "GET /api/service-accounts",
       "GET /api/workflows/delegated-runs",
       "GET /api/workflows/delegations",
@@ -773,6 +776,7 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/extensions/releases/:installationId/approve",
       "POST /api/extensions/releases/:installationId/project",
       "POST /api/factories/projects/:projectId/definitions/:factoryId/versions",
+      "POST /api/factories/projects/:projectId/releases/:operationId/approvals",
       "POST /api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials",
       "POST /api/import/commit",
       "POST /api/marketplace/:id/install",
@@ -783,6 +787,11 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/workflows/delegations",
       "POST /api/workflows/delegations/preview",
       "PUT /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
+      "PUT /api/factories/projects/:projectId/release/approvals/:approvalId",
+      "PUT /api/factories/projects/:projectId/release/contracts/:contractId",
+      "PUT /api/factories/projects/:projectId/release/control",
+      "PUT /api/factories/projects/:projectId/release/policies/:policyId",
+      "PUT /api/factories/projects/:projectId/release/trust",
       "PUT /api/mcp-servers/:id",
       "PUT /api/projects/:id/tool-permission-mode",
     ];

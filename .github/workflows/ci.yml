@@ -94,6 +94,8 @@ jobs:
           mkdir -p /tmp/factory-tools/temporal-test-server
           tar -xzf /tmp/temporal-test-server.tar.gz -C /tmp/factory-tools/temporal-test-server
           chmod u+x /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+      - name: Provision private Node runtime directory
+        run: sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
       - name: Run Node-only factory workflow, cancellation, and saved-history replay
         env:
           COV_OUT: coverage-shard

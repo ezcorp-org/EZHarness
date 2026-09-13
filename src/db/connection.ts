@@ -25,7 +25,7 @@ import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul
 import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
 import { composePostgresHint } from "./compose-db-hint";
 import { embeddedDatabasePath } from "./data-path";
-import { assertFactoryBootReadiness } from "../factory/boot";
+import { assertFactoryBootConfiguration, factoryBootConfig } from "../factory/boot";
 const log = logger.child("db");
 
 const DB_PATH = embeddedDatabasePath();
@@ -432,7 +432,7 @@ async function initPglite(): Promise<void> {
   }
 
   clearMarker();
-  setReadiness({ state: "ready" });
+  setDatabaseReadiness();
 }
 
 /**
@@ -734,7 +734,7 @@ async function initPostgres(): Promise<void> {
     throw err;
   }
   await repairDoubleEncodedJsonb(sql);
-  setReadiness({ state: "ready" });
+  setDatabaseReadiness();
 }
 
 /** Settings marker recording that the one-shot jsonb repair has completed, so
@@ -812,11 +812,15 @@ async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sq
   }
 }
 
+function setDatabaseReadiness(): void {
+  setReadiness(factoryBootConfig.enabled ? { state: "booting", reason: "factory-services-pending" } : { state: "ready" });
+}
+
 async function init(): Promise<void> {
   // The factory flag is captured by factory/boot at process startup. Check
   // before opening either driver so a flag-on PGlite install cannot create or
   // migrate a database and then silently run without factory dependencies.
-  assertFactoryBootReadiness(DATABASE_URL);
+  assertFactoryBootConfiguration(DATABASE_URL);
   if (DATABASE_URL) {
     await initPostgres();
   } else {

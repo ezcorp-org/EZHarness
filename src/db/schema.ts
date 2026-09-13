@@ -2904,11 +2904,13 @@ export const {
   factoryServiceCredentials,
   factoryBudgetEnvelopes,
   factoryBudgetReservations,
+  factoryComputeAdmissions,
   factoryMutationReceipts,
   factoryDrafts,
   factoryVersions,
   factoryRunLifecycle,
   factoryExecutions,
+  factoryAttemptQueue,
   factoryExecutionOperationCursors,
   factoryExecutionOperations,
 } = buildFactorySchema({ projects, users, serviceAccounts });

@@ -5,11 +5,12 @@ import { S3BlobStore, digestBytes, s3ObjectKey, type S3BlobStoreOptions } from "
 import { FactoryReleaseError, type FactoryArchiveObject, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseClaim, type FactoryReleaseOperation, type FactoryReleaseProvider } from "./releases";
 
 interface S3ResponseBody { transformToByteArray(): Promise<Uint8Array> }
-type S3ClientLike = Pick<S3Client, "send">;
+type ArchiveS3ClientLike = Pick<S3Client, "send">;
+interface S3ClientLike { send(command: unknown, options?: { readonly abortSignal?: AbortSignal }): Promise<unknown> }
 
 export interface FactoryS3ArchiveOptions extends Omit<S3BlobStoreOptions, "prefix" | "client"> {
   readonly prefix: string;
-  readonly client?: S3ClientLike;
+  readonly client?: ArchiveS3ClientLike;
 }
 
 function archiveSegment(value: string): string {
@@ -23,13 +24,13 @@ function status(error: unknown): number | undefined { return (error as { $metada
 function missing(error: unknown): boolean { return status(error) === 404 || ["NoSuchKey", "NoSuchVersion", "NotFound"].includes((error as { name?: string }).name ?? ""); }
 function conflict(error: unknown): boolean { return status(error) === 409 || status(error) === 412 || ["PreconditionFailed", "ConditionalRequestConflict"].includes((error as { name?: string }).name ?? ""); }
 
-function makeClient(options: FactoryS3ArchiveOptions): S3ClientLike {
+function makeClient(options: FactoryS3ArchiveOptions): ArchiveS3ClientLike {
   return options.client ?? new S3Client({ endpoint: options.endpoint, region: options.region ?? "us-east-1", forcePathStyle: true, credentials: options.credentials, maxAttempts: 1 });
 }
 
 /** Conditional immutable release archive built on the shared digest-verifying S3 blob store. */
 export class S3FactoryReleaseArchive implements FactoryReleaseArchive {
-  private readonly client: S3ClientLike;
+  private readonly client: ArchiveS3ClientLike;
   private readonly root: string;
   constructor(private readonly options: FactoryS3ArchiveOptions) {
     this.root = options.prefix.replace(/^\/+|\/+$/g, "");
@@ -95,7 +96,7 @@ export class S3FactoryReleaseProvider implements FactoryReleaseProvider {
   constructor(private readonly options: FactoryS3PublicationOptions) {
     if (!options.bucket || !options.account || !options.credentials.accessKeyId || !options.credentials.secretAccessKey) throw new FactoryReleaseError("factory_s3_configuration_invalid");
     this.prefix = (options.prefix ?? "").replace(/^\/+|\/+$/g, "");
-    this.client = options.client ?? new S3Client({ endpoint: options.endpoint, region: options.region ?? "us-east-1", forcePathStyle: true, credentials: options.credentials, maxAttempts: 1 });
+    this.client = options.client ?? new S3Client({ endpoint: options.endpoint, region: options.region ?? "us-east-1", forcePathStyle: true, credentials: options.credentials, maxAttempts: 1 }) as unknown as S3ClientLike;
   }
 
   private key(operation: FactoryReleaseOperation): string {
@@ -127,11 +128,11 @@ export class S3FactoryReleaseProvider implements FactoryReleaseProvider {
     return { provider: "s3", account: this.options.account, object: claim.destination.object, requestDigest: claim.requestDigest, operationId: claim.operationId, dispatchGeneration: claim.dispatchGeneration, providerReceiptId: `s3:${this.options.bucket}:${key}:${version}`, version, effectDigest: sha256(bytes) };
   }
 
-  async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown): Promise<boolean> {
+  async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown, signal?: AbortSignal): Promise<boolean> {
     if (!evidence || typeof evidence !== "object" || (evidence as { operationId?: unknown }).operationId !== operation.operationId || (evidence as { reason?: unknown }).reason === undefined) return false;
     const key = this.key(operation);
     try {
-      await this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: key }));
+      await this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: key }), signal ? { abortSignal: signal } : undefined);
       return false;
     } catch (error) { return missing(error) && operation.destination.expectedVersion === undefined; }
   }

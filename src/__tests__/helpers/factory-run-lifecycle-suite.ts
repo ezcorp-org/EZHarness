@@ -17,6 +17,9 @@ import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../fact
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { FactoryCommandAuthority } from "../../factory/command-authority";
 import { FactoryTaskAdmission, factoryTaskReservationId } from "../../factory/task-admission";
+import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
+import { FactoryInbox } from "../../factory/inbox";
+import type { PoolAdmissionClient } from "../../factory/pool/client";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
@@ -172,6 +175,28 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await projector.project(runKey(run.runId), 8)).toMatchObject({ sequence: 3, lag: 0 });
   });
 
+  test("compute admission commits only under the actual current command authority", async () => {
+    const run = await start();
+    const { identity, transitions, activities, event, first, admission, authority } = await taskInterpreter(run.runId);
+    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    const reference = { ...identity, commandId: admission.id };
+    const service = { tenantId, subject: "orchestration" };
+    const profile = { resources: { cpu: 1 }, memoryBytes: 128, budget: { costMicros: "5", tokens: 6, computeMs: 7 } };
+    const reserved = await new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, { cpu: profile }, () => now).request(service, reference);
+    const queued = (await new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").inspect(reserved.outboxCommandId))!;
+    const input = queued.command.body as import("../../factory/task-admission").FactoryComputeAdmissionRequest;
+    const lease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "current-authority-allocation", fence: "current-authority-fence", deadlineAt: new Date(now + 1_000), resources: input.request.resources, hostId: "host-current" };
+    let requests = 0;
+    const pool = { async request() { requests++; return { status: "admitted" as const, reservationId: reserved.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
+    const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
+    await fixture.db.transaction(transaction => admissions.enlistInTransaction(transaction, input));
+    expect(await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId })).toMatchObject({ status: "admitted", receipt: { lease: { allocationToken: lease.allocationToken }, event: { commandId: admission.id, granted: true } } });
+    expect(requests).toBe(1);
+    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_budget_reservations WHERE reservation_id=${reserved.reservationId}`))).toEqual([{ state: "running" }]);
+    expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${run.runId}`))).toHaveLength(1);
+    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
+  });
+
   test("task limits can reduce a host budget and cannot exceed its memory profile", async () => {
     const definitionKey = { projectId, factoryId: "task-budget-factory" };
     const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId,
@@ -276,6 +301,42 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
         await expect(authority.withCurrentInput(service, { ...reference, commandId: admission.id }, async () => "read")).rejects.toMatchObject({ code: "factory_command_forbidden" });
       }
       await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, runLifecycle).project(runKey(run.runId));
+    }
+  });
+
+  test("approval decisions share the current command transaction and exact declared human scope", async () => {
+    const definitionKey = { projectId, factoryId: "approval-authority-factory" };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts: {}, outputPorts: {},
+      graph: { nodes: [{ id: "human", kind: "approval", actorScope: "operator", choices: ["approve", "deny"], context: { kind: "literal", value: { subject: "review" } }, expiresInMs: 60_000, onDenied: "fail", onExpired: "fail" }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "approval-authority-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "approval-authority-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: {} };
+    const service = { tenantId, subject: "orchestration" };
+    for (const forged of [false, true]) {
+      const run = await startRun(principal, definitionKey, request, 0, `approval-authority-${forged}`);
+      const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+      const command = first.commands.find(value => value.kind === "request-approval");
+      expect(command?.kind).toBe("request-approval");
+      if (command?.kind !== "request-approval") throw new Error("missing approval command");
+      const reference = { ...identity, commandId: command.id };
+      await persistTransition(identity, 1, event, first.nextState, first.commands.map(value => forged && value.id === command.id ? { ...command, actorScope: "owner" } : value), undefined, activities);
+      if (forged) {
+        await expect(authority.withCurrentApproval(service, reference, async () => "approval")).rejects.toMatchObject({ code: "factory_command_stale" });
+      } else {
+        const select = (_transaction: unknown, context: Awaited<Parameters<Parameters<FactoryCommandAuthority["withCurrentApproval"]>[2]>[1]>) => Promise.resolve({ command: context.command, principal: context.initiator, attempt: context.attempt, compiled: context.compiled.digest });
+        const approved = await authority.withCurrentApproval(service, reference, select);
+        expect(approved).toMatchObject({ command, principal: { id: principal.id, kind: "user", authentication: "api-key" }, attempt: { commandId: command.id, candidateGeneration: 0, attempt: 1, deadlineAtMs: command.deadlineAtMs }, compiled: request.definitionDigest });
+        expect(await fixture.db.transaction(transaction => authority.withCurrentApprovalInTransaction(transaction, service, reference, async (actual, context) => {
+          expect(actual).toBe(transaction);
+          return select(actual, context);
+        }))).toEqual(approved);
+        await expect(authority.withCurrent(service, reference, async () => "task")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+        const timer = first.commands.find(value => value.kind === "start-timer")!;
+        await expect(authority.withCurrentApproval(service, { ...reference, commandId: timer.id }, async () => "approval")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+        await cancelRun(principal, runKey(run.runId), run.revision, "approval-authority-cancel");
+        await expect(authority.withCurrentApproval(service, reference, select)).rejects.toMatchObject({ code: "factory_run_stopped" });
+      }
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
     }
   });
 

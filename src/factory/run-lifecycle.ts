@@ -230,7 +230,7 @@ export class FactoryRunLifecycle {
   };
 
   /** Private command admission uses the exact published plan and the live initiator. */
-  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory }> {
+  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {
     key = { projectId: key.projectId, runId: key.runId };
     const fence = await this.authorizeRunInTransaction(transaction, key);
     const row = await this.row(transaction, key);
@@ -238,7 +238,7 @@ export class FactoryRunLifecycle {
     const principal = initiator(request);
     const { compiled } = await this.options.definitions.readVersionInTransaction(transaction, principal, { projectId: key.projectId, factoryId: row.factory_id }, row.factory_version);
     if (compiled.digest !== fence.definitionDigest || compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_definition_conflict");
-    return { fence, compiled };
+    return { fence, compiled, initiator: principal };
   }
 
   private async authorizeCancellation(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryRunKey): Promise<void> {

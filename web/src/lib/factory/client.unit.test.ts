@@ -23,6 +23,15 @@ const version = {
 	publishedAtMs: 2,
 };
 const credential = { serviceAccountId: "service one", credentialId: "credential/one", scopes: ["read"] as const, revision: 1, issuedAtMs: 1_000, expiresAtMs: 61_000, revoked: false };
+const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: "sha256:" + digest, export: "release" } as const;
+const trust = { revision: 1, state: "active" as const, packageLock, packageTrustDigest: "sha256:" + compiledDigest, validatorTrustDigest: "sha256:" + digest, approvedBy: "admin-1", approvalGrantRevision: 1 };
+const control = { enabled: true, enableEpoch: 1 };
+const releaseBody = { runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 0, decisionId: "decision-1", candidateDigest: "sha256:" + digest, action: "publish", destination: { provider: "s3", account: "tenant-1", object: "release.json" }, request: { contentType: "application/json" }, estimatedSpendMicros: 1, deadlineMs: 2_000_000_000_000 } as const;
+const releaseOperation = { operationId: "operation/one", runId: releaseBody.runId, nodeInstanceId: releaseBody.nodeInstanceId, candidateGeneration: releaseBody.candidateGeneration, decisionId: releaseBody.decisionId, candidateDigest: releaseBody.candidateDigest, action: releaseBody.action, destination: releaseBody.destination, estimatedSpendMicros: releaseBody.estimatedSpendMicros, deadlineMs: releaseBody.deadlineMs, contractDigest: "sha256:" + compiledDigest, executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1, destinationDigest: "sha256:" + digest, requestDigest: "sha256:" + compiledDigest, state: "pending" as const, dispatchGeneration: 0, dispatchStarted: false, archiveReady: true };
+const releaseContract = { contractId: "contract/one", revision: 1, contractDigest: "sha256:" + digest, validatorLockDigest: "sha256:" + compiledDigest, mandatoryClaims: [], claimGroups: [] };
+const releaseApproval = { approvalId: "approval/one", operationId: releaseOperation.operationId, contextDigest: digest, status: "pending" as const, expiresAtMs: releaseBody.deadlineMs };
+const releaseNotification = { notificationId: "notification/one", operationId: releaseOperation.operationId, createdAtMs: 1, kind: "approval_requested" as const, approvalId: releaseApproval.approvalId, contextDigest: digest, expiresAtMs: releaseBody.deadlineMs };
+const releasePolicy = { policyId: "policy/one", revision: 1 as const, revoked: false as const, principalKind: "service" as const, principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "releases/", contractDigest: "sha256:" + digest, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: releaseBody.deadlineMs };
 
 function api(value: FactoryApiResponse, status = 200): Response {
 	return Response.json(value, { status });
@@ -50,6 +59,20 @@ function response(kind: FactoryApiResponse["kind"]): FactoryApiResponse {
 			return { schemaVersion: "factory.api.response.v1", kind, resource: credential, token: "ezkfsvc_aaa.bbb.ccc" };
 		case "service-credential.resource":
 			return { schemaVersion: "factory.api.response.v1", kind, resource: { ...credential, revision: 2, revoked: true } };
+		case "release.trust.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: trust };
+		case "release.control.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: control };
+		case "release.contract.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseContract };
+		case "release.operation.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseOperation };
+		case "release.approval.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseApproval };
+		case "release.notification.page":
+			return { schemaVersion: "factory.api.response.v1", kind, page: { items: [releaseNotification], nextCursor: "notification/next" } };
+		case "release.policy.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releasePolicy };
 		default:
 			throw new Error("unsupported fixture");
 	}
@@ -64,6 +87,15 @@ describe("FactoryApiClient", () => {
 		fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 			const path = String(input);
 			calls.push({ path, init });
+			if (path.includes("/release/contracts/")) return api(response("release.contract.resource"));
+			if (path.includes("/release/notifications")) return api(response("release.notification.page"));
+			if (path.includes("/release/approvals/")) return api(response("release.approval.resource"));
+			if (path.includes("/release/policies/")) return api(response("release.policy.resource"));
+			if (path.endsWith("/approvals")) return api(response("release.approval.resource"));
+			if (path.endsWith("/reconciliations")) return api(response("release.operation.resource"));
+			if (path.includes("/releases")) return api(response("release.operation.resource"));
+			if (path.endsWith("/release/trust")) return api(response("release.trust.resource"));
+			if (path.endsWith("/release/control")) return api(response("release.control.resource"));
 			if (path.includes("/service-accounts/") && init?.method === "DELETE") return api(response("service-credential.resource"));
 			if (path.includes("/service-accounts/")) return api(response("service-credential.issued"));
 			if (path.includes("/export")) return api(response("draft.export"));
@@ -75,6 +107,33 @@ describe("FactoryApiClient", () => {
 			if (path.includes("/definitions/")) return api(init?.method === "PUT" || init?.method === "DELETE" ? response("draft.summary") : response("draft.details"));
 			return api(init?.method === "POST" ? response("draft.summary") : response("draft.page"));
 		});
+	});
+
+	test("routes public release operations with exact preconditions and encoded identities", async () => {
+		const client = new FactoryApiClient({ fetch: fetcher as unknown as typeof fetch, idempotencyKey: operation => "key:" + operation });
+		expect(await client.putReleaseContract("project/one", "contract/one", { contractDigest: releaseContract.contractDigest, validatorLockDigest: releaseContract.validatorLockDigest, mandatoryClaims: [], claimGroups: [] }, 0)).toEqual(releaseContract);
+		expect(await client.prepareRelease("project/one", releaseBody)).toEqual(releaseOperation);
+		expect(await client.getRelease("project/one", "operation/one")).toEqual(releaseOperation);
+		expect(await client.requestReleaseApproval("project/one", "operation/one", releaseBody.deadlineMs, 0)).toEqual(releaseApproval);
+		expect(await client.decideReleaseApproval("project/one", "approval/one", digest, "approved")).toEqual(releaseApproval);
+		expect(await client.listReleaseNotifications("project/one", { limit: 25, cursor: "notification/zero" })).toEqual({ items: [releaseNotification], nextCursor: "notification/next" });
+		expect(await client.putReleasePolicy("project/one", "policy/one", releasePolicy)).toEqual(releasePolicy);
+		expect(await client.deleteReleasePolicy("project/one", "policy/one", 1)).toEqual(releasePolicy);
+		expect(await client.reconcileRelease("project/one", "operation/one", 1, { action: "keep_uncertain", reason: "Still unknown", providerEvidence: { lookup: true } })).toEqual(releaseOperation);
+		expect(calls.map(call => call.path)).toEqual([
+			"/api/factories/projects/project%2Fone/release/contracts/contract%2Fone",
+			"/api/factories/projects/project%2Fone/releases",
+			"/api/factories/projects/project%2Fone/releases/operation%2Fone",
+			"/api/factories/projects/project%2Fone/releases/operation%2Fone/approvals",
+			"/api/factories/projects/project%2Fone/release/approvals/approval%2Fone",
+			"/api/factories/projects/project%2Fone/release/notifications?limit=25&cursor=notification%2Fzero",
+			"/api/factories/projects/project%2Fone/release/policies/policy%2Fone",
+			"/api/factories/projects/project%2Fone/release/policies/policy%2Fone",
+			"/api/factories/projects/project%2Fone/releases/operation%2Fone/reconciliations",
+		]);
+		expect(new Headers(calls[3]!.init?.headers).get("If-Match")).toBe("0");
+		expect(new Headers(calls[8]!.init?.headers).get("If-Match")).toBe("1");
+		expect(calls[7]!.init?.method).toBe("DELETE");
 	});
 
 	test("routes every authoring operation with encoded identity and mutation preconditions", async () => {
@@ -92,6 +151,9 @@ describe("FactoryApiClient", () => {
 		expect(await client.publishVersion("project/one", source.id, 1, source.version)).toEqual(version);
 		expect(await client.issueServiceCredential("project/one", "service one", ["read"], 61_000)).toMatchObject({ resource: credential, token: expect.stringMatching(/^ezkfsvc_/) });
 		expect(await client.revokeServiceCredential("project/one", "service one", "credential/one", 1)).toMatchObject({ revision: 2, revoked: true });
+		expect(await client.publishReleaseTrust("project/one", 0, packageLock, "sha256:" + digest)).toEqual(trust);
+		expect(await client.revokeReleaseTrust("project/one", 1)).toEqual(trust);
+		expect(await client.setReleaseEnabled("project/one", true, 0)).toEqual(control);
 
 		const listed = new URL(calls[0]!.path, "http://localhost");
 		expect(listed.pathname).toContain("project%2Fone/definitions");
@@ -109,6 +171,13 @@ describe("FactoryApiClient", () => {
 		expect(calls[11]?.init?.body).toBe(JSON.stringify({ scopes: ["read"], expiresAtMs: 61_000 }));
 		expect(calls[12]?.path).toContain("credential%2Fone");
 		expect(calls[12]?.init?.method).toBe("DELETE");
+		expect(calls[13]?.path).toContain("project%2Fone/release/trust");
+		expect(calls[13]?.init?.method).toBe("PUT");
+		expect(calls[13]?.init?.body).toBe(JSON.stringify({ packageLock, validatorTrustDigest: "sha256:" + digest }));
+		expect(calls[14]?.init?.method).toBe("DELETE");
+		expect(calls[14]?.init?.body).toBeUndefined();
+		expect(calls[15]?.path).toContain("project%2Fone/release/control");
+		expect(calls[15]?.init?.body).toBe(JSON.stringify({ enabled: true }));
 	});
 
 	test("uses the platform fetch and bounded random key defaults", async () => {

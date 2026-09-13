@@ -8,6 +8,18 @@ import type {
 	FactoryVersionSummary,
 	FactoryServiceCredentialResource,
 	FactoryServiceScope,
+	FactoryReleaseTrustResource,
+	FactoryReleaseControlResource,
+	FactoryReleaseContractBody,
+	FactoryReleaseContractResource,
+	FactoryReleasePrepareBody,
+	FactoryReleaseOperationResource,
+	FactoryReleaseApprovalResource,
+	FactoryReleaseNotificationResource,
+	FactoryReleasePolicyBody,
+	FactoryReleasePolicyResource,
+	FactoryReleaseReconciliationBody,
+	RunnerReference,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
 
@@ -92,6 +104,14 @@ export class FactoryApiClient {
 
 	private definition(projectId: string, factoryId: string): string {
 		return this.definitions(projectId) + "/" + encoded(factoryId);
+	}
+
+	private release(projectId: string): string {
+		return "/api/factories/projects/" + encoded(projectId) + "/release";
+	}
+
+	private releases(projectId: string): string {
+		return "/api/factories/projects/" + encoded(projectId) + "/releases";
 	}
 
 	private async read(path: string, init?: RequestInit): Promise<FactoryApiResponse> {
@@ -185,12 +205,77 @@ export class FactoryApiClient {
 		const path = "/api/factories/projects/" + encoded(projectId) + "/service-accounts/" + encoded(serviceAccountId) + "/credentials/" + encoded(credentialId);
 		return expectKind(await this.read(path, this.mutationInit("revoke-credential:" + credentialId, revision, undefined, "DELETE")), "service-credential.resource").resource;
 	}
+
+	async publishReleaseTrust(projectId: string, revision: number, packageLock: RunnerReference, validatorTrustDigest: string): Promise<FactoryReleaseTrustResource> {
+		const response = await this.read(this.release(projectId) + "/trust", this.mutationInit("publish-release-trust:" + projectId, revision, { packageLock, validatorTrustDigest }, "PUT"));
+		return expectKind(response, "release.trust.resource").resource;
+	}
+
+	async revokeReleaseTrust(projectId: string, revision: number): Promise<FactoryReleaseTrustResource> {
+		const response = await this.read(this.release(projectId) + "/trust", this.mutationInit("revoke-release-trust:" + projectId, revision, undefined, "DELETE"));
+		return expectKind(response, "release.trust.resource").resource;
+	}
+
+	async setReleaseEnabled(projectId: string, enabled: boolean, epoch: number): Promise<FactoryReleaseControlResource> {
+		const response = await this.read(this.release(projectId) + "/control", this.mutationInit("set-release-enabled:" + projectId, epoch, { enabled }, "PUT"));
+		return expectKind(response, "release.control.resource").resource;
+	}
+
+	async putReleaseContract(projectId: string, contractId: string, body: FactoryReleaseContractBody, currentRevision: number): Promise<FactoryReleaseContractResource> {
+		const path = this.release(projectId) + "/contracts/" + encoded(contractId);
+		return expectKind(await this.read(path, this.mutationInit("put-release-contract:" + contractId, currentRevision, body, "PUT")), "release.contract.resource").resource;
+	}
+
+	async prepareRelease(projectId: string, body: FactoryReleasePrepareBody): Promise<FactoryReleaseOperationResource> {
+		return expectKind(await this.read(this.releases(projectId), this.mutationInit("prepare-release:" + body.runId + ":" + body.nodeInstanceId, 0, body)), "release.operation.resource").resource;
+	}
+
+	async getRelease(projectId: string, operationId: string): Promise<FactoryReleaseOperationResource> {
+		return expectKind(await this.read(this.releases(projectId) + "/" + encoded(operationId)), "release.operation.resource").resource;
+	}
+
+	async requestReleaseApproval(projectId: string, operationId: string, expiresAtMs: number, dispatchGeneration: number): Promise<FactoryReleaseApprovalResource> {
+		const path = this.releases(projectId) + "/" + encoded(operationId) + "/approvals";
+		return expectKind(await this.read(path, this.mutationInit("request-release-approval:" + operationId, dispatchGeneration, { expiresAtMs })), "release.approval.resource").resource;
+	}
+
+	async decideReleaseApproval(projectId: string, approvalId: string, contextDigest: string, decision: "approved" | "denied"): Promise<FactoryReleaseApprovalResource> {
+		const path = this.release(projectId) + "/approvals/" + encoded(approvalId);
+		return expectKind(await this.read(path, this.mutationInit("decide-release-approval:" + approvalId, 0, { contextDigest, decision }, "PUT")), "release.approval.resource").resource;
+	}
+
+	async listReleaseNotifications(projectId: string, query: { readonly limit?: number; readonly cursor?: string } = {}): Promise<{ readonly items: readonly FactoryReleaseNotificationResource[]; readonly nextCursor: string | null }> {
+		const response = expectKind(await this.read(this.release(projectId) + "/notifications" + queryString(query)), "release.notification.page");
+		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
+	}
+
+	async putReleasePolicy(projectId: string, policyId: string, body: FactoryReleasePolicyBody): Promise<FactoryReleasePolicyResource> {
+		const path = this.release(projectId) + "/policies/" + encoded(policyId);
+		return expectKind(await this.read(path, this.mutationInit("put-release-policy:" + policyId, 0, body, "PUT")), "release.policy.resource").resource;
+	}
+
+	async deleteReleasePolicy(projectId: string, policyId: string, revision: number): Promise<FactoryReleasePolicyResource> {
+		const path = this.release(projectId) + "/policies/" + encoded(policyId);
+		return expectKind(await this.read(path, this.mutationInit("delete-release-policy:" + policyId, revision, undefined, "DELETE")), "release.policy.resource").resource;
+	}
+
+	async reconcileRelease(projectId: string, operationId: string, dispatchGeneration: number, body: FactoryReleaseReconciliationBody): Promise<FactoryReleaseOperationResource> {
+		const path = this.releases(projectId) + "/" + encoded(operationId) + "/reconciliations";
+		return expectKind(await this.read(path, this.mutationInit("reconcile-release:" + operationId + ":" + dispatchGeneration, dispatchGeneration, body)), "release.operation.resource").resource;
+	}
 }
 
 export type FactoryAuthoringApi = Pick<FactoryApiClient,
 	"listDrafts" | "getDraft" | "createDraft" | "importDraft" | "saveDraft" | "archiveDraft" |
 	"exportDraft" | "validateDraft" | "listVersions" | "getVersion" | "publishVersion"
 >;
+
+export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
+	"publishReleaseTrust" | "revokeReleaseTrust" | "setReleaseEnabled" | "putReleaseContract" | "prepareRelease" | "getRelease" |
+	"requestReleaseApproval" | "decideReleaseApproval" | "listReleaseNotifications" | "putReleasePolicy" | "deleteReleasePolicy" | "reconcileRelease"
+>;
+
+export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval">;
 
 export function blankFactory(factoryId: string): FactoryDefinition {
 	return {

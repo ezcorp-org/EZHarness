@@ -6,6 +6,8 @@ import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { FactoryAssurance, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
+import { FactoryNotificationDelivery } from "../../factory/notification-delivery";
+import { FactoryReleaseApplication } from "../../factory/release-application";
 import { FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
 
 export function factoryReleaseConformance(setup: () => Promise<{ db: TransactionalDb; close: () => Promise<void> }>): void {
@@ -21,6 +23,7 @@ let close: () => Promise<void>;
 let grants: FactoryGrants;
 let assurance: FactoryAssurance;
 let releases: FactoryReleases;
+let materials: FactoryReleaseMaterialReader;
 let decisionId: string;
 let fenceStatus: FactoryReleaseAuthority["status"] = "running";
 const releaseEnableEpoch = 4;
@@ -57,9 +60,11 @@ class Destination implements FactoryDestinationReservationReader {
 
 class MemoryArchive implements FactoryReleaseArchive {
   readonly objects = new Map<string, Uint8Array>();
+  writes = 0;
   failWrite = false;
   corruptRead = false;
   async writeImmutable(tenant: string, operationId: string, name: "intent" | "material" | "receipt" | "reconciliation", bytes: Uint8Array): Promise<FactoryArchiveObject> {
+    this.writes += 1;
     if (this.failWrite) throw new Error("archive unavailable");
     const raw = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
     const key = `${tenant}/${operationId}/${name}/${raw}`;
@@ -77,11 +82,13 @@ class MemoryArchive implements FactoryReleaseArchive {
 
 class SenderFence implements FactorySenderFence {
   stopped = false;
-  async proveStopped(operation: FactoryReleaseOperation, senderToken: string, evidence: unknown) { return this.stopped && senderToken === operation.senderToken && (evidence as { operationId?: string })?.operationId === operation.operationId; }
+  proofCalls = 0;
+  async proveStopped(operation: FactoryReleaseOperation, senderToken: string, evidence: unknown) { this.proofCalls += 1; return this.stopped && senderToken === operation.senderToken && (evidence as { operationId?: string })?.operationId === operation.operationId; }
 }
 
 class Provider implements FactoryReleaseProvider {
   calls = 0;
+  proofCalls = 0;
   loseResponse = false;
   noEffect = false;
   receipts = new Map<string, FactoryProviderReceipt>();
@@ -92,7 +99,7 @@ class Provider implements FactoryReleaseProvider {
     if (this.loseResponse) throw new Error("response lost after write");
     return receipt;
   }
-  async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown) { return this.noEffect && (evidence as { operationId?: string })?.operationId === operation.operationId; }
+  async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown) { this.proofCalls += 1; return this.noEffect && (evidence as { operationId?: string })?.operationId === operation.operationId; }
 }
 
 const archive = new MemoryArchive();
@@ -104,9 +111,23 @@ function request(suffix: string, overrides: Partial<FactoryReleaseRequest> = {})
   return { ...candidate, decisionId, candidateDigest: trusted.candidateDigest, action: "publish", destination: { provider: "fixture", account: "account-a", object: `releases/${suffix}` }, request: { body: suffix }, estimatedSpendMicros: 5, deadlineMs: now + 5_000, ...overrides };
 }
 
+let mutationSequence = 0;
+const mutationKey = (kind: string) => `${kind}-${++mutationSequence}`;
+const prepareRelease = (actor: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey = mutationKey("prepare")) => releases.prepare(actor, input, idempotencyKey);
+const createReleasePolicy = (actor: FactoryPrincipal, policy: Parameters<FactoryReleases["createPolicy"]>[1], idempotencyKey = mutationKey("policy-create")) => releases.createPolicy(actor, policy, idempotencyKey);
+const revokeReleasePolicy = (actor: FactoryPrincipal, currentProjectId: string, policyId: string, expectedRevision: number, idempotencyKey = mutationKey("policy-revoke")) => releases.revokePolicy(actor, currentProjectId, policyId, expectedRevision, idempotencyKey);
+const requestReleaseApproval = async (actor: FactoryPrincipal, currentProjectId: string, operationId: string, expiresAtMs: number, idempotencyKey = mutationKey("approval-request")) => {
+  const operation = await releases.inspect(currentProjectId, operationId);
+  return releases.requestApproval(actor, currentProjectId, operationId, expiresAtMs, operation?.dispatchGeneration ?? 0, idempotencyKey);
+};
+const reconcileRelease = async (actor: FactoryPrincipal, input: Parameters<FactoryReleases["reconcile"]>[1], currentProvider: FactoryReleaseProvider, idempotencyKey = mutationKey("reconcile")) => {
+  const operation = await releases.inspect(input.projectId, input.operationId);
+  return releases.reconcile(actor, input, operation?.dispatchGeneration ?? 1, currentProvider, idempotencyKey);
+};
+
 async function approved(operation: FactoryReleaseOperation, requester: FactoryPrincipal = admin) {
-  const approval = await assurance.requestApproval(admin, { projectId, operationId: operation.operationId, decisionId, destinationDigest: operation.destinationDigest, expectedGeneration: operation.dispatchGeneration + 1, expiresAtMs: now + 1_000 });
-  await assurance.decideApproval(admin, projectId, approval.approvalId, approval.contextDigest, true);
+  const approval = await assurance.requestApproval(admin, { projectId, operationId: operation.operationId, decisionId, destinationDigest: operation.destinationDigest, expectedGeneration: operation.dispatchGeneration + 1, expiresAtMs: now + 1_000 }, mutationKey("assurance-request"));
+  await assurance.decideApproval(admin, projectId, approval.approvalId, approval.contextDigest, true, mutationKey("assurance-decision"));
   if (requester.kind === "service") expect(requester.id).toBe(service.id);
   return approval.approvalId;
 }
@@ -127,10 +148,10 @@ beforeAll(async () => {
   trusted = { ...candidate, validatorId: "validator", validatorLockDigest: digest("c"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "artifact", digest: digest("a"), encodedBytes: 10 }, environmentDigest: digest("e"), configurationDigest: digest("d"), runnerDigest: digest("e"), claims: [{ id: "passed", passed: true, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 10_000 };
   const gateway = new Gateway();
   assurance = new FactoryAssurance(database, tenantId, grants, gateway, new RunFence(), gateway, () => now);
-  await assurance.approveContract(admin, { projectId, contractId: "contract", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "passed", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "all", claimIds: ["passed"], minimumPasses: 1, requireAllDecisive: true }] });
+  await assurance.approveContract(admin, { projectId, contractId: "contract", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "passed", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "all", claimIds: ["passed"], minimumPasses: 1, requireAllDecisive: true }] }, mutationKey("contract"));
   await assurance.captureEvidence({ ...candidate, validatorId: trusted.validatorId });
   decisionId = (await assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).decisionId;
-  const materials: FactoryReleaseMaterialReader = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
+  materials = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
   releases = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, new Destination(), archive, sender, () => now);
 });
 
@@ -144,95 +165,185 @@ test("migration creates scoped release, archive, reconciliation, reservation, po
 });
 
 test("archive is immutable and read-verified before claim", async () => {
+  const archiveKey = "prepare-archive-retry";
   archive.failWrite = true;
-  await expect(releases.prepare(admin, request("archive-fault"))).rejects.toThrow("archive unavailable");
+  await expect(prepareRelease(admin, request("archive-fault"), archiveKey)).rejects.toThrow("archive unavailable");
   const pending = rows<{ state: string; archive_ready: boolean }>(await database.execute(sql`SELECT state,archive_ready FROM factory_release_operations WHERE destination_object='releases/archive-fault'`))[0];
   expect(pending).toEqual({ state: "pending", archive_ready: false });
   archive.failWrite = false; archive.corruptRead = true;
-  await expect(releases.prepare(admin, request("archive-fault"))).rejects.toMatchObject({ code: "factory_release_archive_unreadable" });
+  await expect(prepareRelease(admin, request("archive-fault"), archiveKey)).rejects.toMatchObject({ code: "factory_release_archive_unreadable" });
   archive.corruptRead = false;
-  const prepared = await releases.prepare(admin, request("archive-fault"));
+  const prepared = await prepareRelease(admin, request("archive-fault"), archiveKey);
   expect(prepared).toMatchObject({ archiveReady: true, state: "pending", material: { decisionId } });
-  await expect(releases.prepare(admin, request("archive-fault", { request: { body: "changed" } }))).rejects.toMatchObject({ code: "factory_release_conflict" });
+  const writesAfterReady = archive.writes;
+  expect(await prepareRelease(admin, request("archive-fault"), archiveKey)).toEqual(prepared);
+  expect(archive.writes).toBe(writesAfterReady);
+  await expect(prepareRelease(admin, request("archive-fault", { request: { body: "changed" } }), archiveKey)).rejects.toMatchObject({ code: "idempotency_conflict" });
 
   await database.execute(sql`CREATE FUNCTION reject_release_archive_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='factory.release.archived' THEN RAISE EXCEPTION 'archive audit unavailable'; END IF; RETURN NEW; END $$`);
   await database.execute(sql`CREATE TRIGGER reject_release_archive_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_release_archive_audit()`);
-  await expect(releases.prepare(admin, request("archive-audit-fault"))).rejects.toThrow();
+  await expect(prepareRelease(admin, request("archive-audit-fault"))).rejects.toThrow();
   expect(rows<{ state: string; archive_ready: boolean }>(await database.execute(sql`SELECT state,archive_ready FROM factory_release_operations WHERE destination_object='releases/archive-audit-fault'`))).toEqual([{ state: "pending", archive_ready: false }]);
   await database.execute(sql`DROP TRIGGER reject_release_archive_audit ON audit_log`); await database.execute(sql`DROP FUNCTION reject_release_archive_audit()`);
-  const auditRetry = await releases.prepare(admin, request("archive-audit-fault"));
+  const auditRetry = await prepareRelease(admin, request("archive-audit-fault"));
   expect(auditRetry).toMatchObject({ state: "pending", archiveReady: true });
 });
 
 test("authority selection rejects another candidate-producing node in the same run", async () => {
-  await expect(releases.prepare(admin, request("foreign-node", { nodeInstanceId: "another-release-node" }))).rejects.toThrow("canonical lifecycle lock mismatch");
+  await expect(prepareRelease(admin, request("foreign-node", { nodeInstanceId: "another-release-node" }))).rejects.toThrow("canonical lifecycle lock mismatch");
   expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/foreign-node'`))).toEqual([]);
 });
 
 test("approval request and its human notification commit together once", async () => {
-  const operation = await releases.prepare(admin, request("approval-notification"));
-  const approval = await releases.requestApproval(admin, projectId, operation.operationId, now + 1_000);
+  const operation = await prepareRelease(admin, request("approval-notification"));
+  const approvalKey = "release-approval-stable";
+  const approval = await requestReleaseApproval(admin, projectId, operation.operationId, now + 1_000, approvalKey);
+  expect(await requestReleaseApproval(admin, projectId, operation.operationId, now + 1_000, approvalKey)).toEqual(approval);
+  await expect(requestReleaseApproval(admin, projectId, operation.operationId, now + 999, approvalKey)).rejects.toMatchObject({ code: "idempotency_conflict" });
+  await expect(releases.requestApproval(admin, projectId, operation.operationId, now + 1_000, 1, mutationKey("approval-stale-generation"))).rejects.toMatchObject({ code: "factory_release_not_claimable" });
   const notification = await releases.claimNotification(projectId);
   expect(notification).toMatchObject({ kind: "approval_requested", operationId: operation.operationId, payload: { approvalId: approval.approvalId } });
   await releases.settleNotification(projectId, notification!, "delivered");
   expect(await releases.inspectNotification(projectId, notification!.id)).toMatchObject({ state: "delivered" });
   expect(rows<{ state: string }>(await database.execute(sql`SELECT state FROM factory_notifications WHERE notification_id=${notification!.id}`))).toEqual([{ state: "delivered" }]);
+  expect(rows(await database.execute(sql`SELECT notification_id FROM factory_notifications WHERE payload::jsonb->>'operationId'=${operation.operationId}`))).toHaveLength(1);
 
-  const failedNotificationOperation = await releases.prepare(admin, request("approval-notification-failed"));
-  await releases.requestApproval(admin, projectId, failedNotificationOperation.operationId, now + 1_000);
+  const failedNotificationOperation = await prepareRelease(admin, request("approval-notification-failed"));
+  await requestReleaseApproval(admin, projectId, failedNotificationOperation.operationId, now + 1_000);
   const unknown = await releases.dispatchNotification(projectId, async () => { throw new Error("notification response lost"); });
   expect(unknown).toMatchObject({ kind: "approval_requested", operationId: failedNotificationOperation.operationId, state: "outcome_unknown" });
 });
 
+test("durable release notifications form one current-authorized human inbox", async () => {
+  const reviewer: FactoryPrincipal = { kind: "user", id: "release-reviewer", authentication: "session" };
+  await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${reviewer.id},'release-reviewer@example.test','x','reviewer','member')`);
+  await database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('release-reviewer-member',${projectId},${reviewer.id},'member')`);
+  for (const action of ["factory.approve", "factory.operate", "factory.release"] as const) await grants.set(admin, { projectId, principal: reviewer, action, expectedRevision: 0, expiresAtMs: null });
+  const approvalOperation = await prepareRelease(admin, request("human-inbox-approval"));
+  const approval = await requestReleaseApproval(admin, projectId, approvalOperation.operationId, now + 1_000);
+
+  const uncertainOperation = await prepareRelease(admin, request("human-inbox-uncertain"));
+  const uncertainApproval = await approved(uncertainOperation);
+  const uncertainClaim = await releases.claim(admin, projectId, uncertainOperation.operationId, { kind: "approval", approvalId: uncertainApproval });
+  provider.loseResponse = true;
+  await releases.dispatch(uncertainClaim, provider);
+  provider.loseResponse = false;
+
+  const settledOperation = await prepareRelease(admin, request("human-inbox-settled"));
+  const settledApproval = await approved(settledOperation);
+  const settledClaim = await releases.claim(admin, projectId, settledOperation.operationId, { kind: "approval", approvalId: settledApproval });
+  await releases.dispatch(settledClaim, provider);
+
+  const delivery = new FactoryNotificationDelivery(releases);
+  while (await delivery.deliverNext(projectId)) {}
+  const firstPage = await delivery.listForHuman(reviewer, projectId, { limit: 2 });
+  expect(firstPage.items).toHaveLength(2);
+  expect(firstPage.nextCursor).not.toBeNull();
+  const secondPage = await delivery.listForHuman(reviewer, projectId, { limit: 200, cursor: firstPage.nextCursor! });
+  const visible = [...firstPage.items, ...secondPage.items];
+  expect(visible).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: "approval_requested", operationId: approvalOperation.operationId, approvalId: approval.approvalId, contextDigest: approval.contextDigest }),
+    expect.objectContaining({ kind: "release_uncertain", operationId: uncertainOperation.operationId, dispatchGeneration: 1, outcomeCode: "provider_response_unknown" }),
+    expect.objectContaining({ kind: "release_settled", operationId: settledOperation.operationId, dispatchGeneration: 1 }),
+  ]));
+
+  const restarted = new FactoryNotificationDelivery(releases);
+  expect(await restarted.deliverNext(projectId)).toBeNull();
+  const replay = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(new Set(replay.items.map(item => item.notificationId)).size).toBe(replay.items.length);
+  for (const target of [approvalOperation, uncertainOperation, settledOperation]) {
+    expect(replay.items.filter(item => item.operationId === target.operationId)).toHaveLength(1);
+  }
+
+  await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('release-foreign','foreign-release@example.test','x','foreign','user')`);
+  const foreign = { kind: "user", id: "release-foreign", authentication: "session" } as const;
+  expect(await restarted.listForHuman(foreign, projectId, { limit: 200 })).toEqual({ items: [], nextCursor: null });
+  expect(await restarted.listForHuman({ ...admin, authentication: "api-key" }, projectId, { limit: 200 })).toEqual({ items: [], nextCursor: null });
+  const application = new FactoryReleaseApplication(tenantId, grants, assurance, releases, { resolve: () => provider });
+  await expect(application.decideApproval(foreign, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("foreign-inbox-decision"))).rejects.toThrow("factory_forbidden");
+
+  await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.release", expectedRevision: 1 });
+  let scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(scoped.items.some(item => item.operationId === settledOperation.operationId)).toBe(false);
+  expect(scoped.items.some(item => item.operationId === approvalOperation.operationId)).toBe(true);
+  await grants.set(admin, { projectId, principal: reviewer, action: "factory.release", expectedRevision: 2, expiresAtMs: null });
+
+  await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.operate", expectedRevision: 1 });
+  scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(scoped.items.some(item => item.operationId === uncertainOperation.operationId)).toBe(false);
+  expect(scoped.items.some(item => item.operationId === settledOperation.operationId)).toBe(true);
+  await grants.set(admin, { projectId, principal: reviewer, action: "factory.operate", expectedRevision: 2, expiresAtMs: null });
+
+  await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.approve", expectedRevision: 1 });
+  scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(scoped.items.some(item => item.operationId === approvalOperation.operationId)).toBe(false);
+  await expect(application.decideApproval(reviewer, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("revoked-inbox-decision"))).rejects.toThrow("factory_forbidden");
+  await grants.set(admin, { projectId, principal: reviewer, action: "factory.approve", expectedRevision: 2, expiresAtMs: null });
+
+  await application.decideApproval(reviewer, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("inbox-decision"));
+  expect((await restarted.listForHuman(reviewer, projectId, { limit: 200 })).items.some(item => item.operationId === approvalOperation.operationId)).toBe(false);
+
+  const sealed = rows<{ notification_id: string; input_hash: string }>(await database.execute(sql`SELECT notification_id,input_hash FROM factory_notifications WHERE payload::jsonb->>'operationId'=${settledOperation.operationId}`))[0]!;
+  await database.execute(sql`UPDATE factory_notifications SET input_hash=${digest("0")} WHERE notification_id=${sealed.notification_id}`);
+  await expect(restarted.listForHuman(reviewer, projectId, { limit: 200 })).rejects.toMatchObject({ code: "factory_notification_corrupt" });
+  await database.execute(sql`UPDATE factory_notifications SET input_hash=${sealed.input_hash} WHERE notification_id=${sealed.notification_id}`);
+});
+
 test("claim atomically consumes one exact approval and rejects cancellation, revocation, races, and destination changes", async () => {
-  const cancelled = await releases.prepare(admin, request("cancel-before")); const cancelApproval = await approved(cancelled);
+  const cancelled = await prepareRelease(admin, request("cancel-before")); const cancelApproval = await approved(cancelled);
   fenceStatus = "cancelling";
   await expect(releases.claim(admin, projectId, cancelled.operationId, { kind: "approval", approvalId: cancelApproval })).rejects.toThrow();
   fenceStatus = "running";
 
-  const changed = await releases.prepare(admin, request("destination-change")); const changedApproval = await approved(changed); destinationVersion = "foreign";
+  const changed = await prepareRelease(admin, request("destination-change")); const changedApproval = await approved(changed); destinationVersion = "foreign";
   await expect(releases.claim(admin, projectId, changed.operationId, { kind: "approval", approvalId: changedApproval })).rejects.toMatchObject({ code: "factory_release_destination_changed" });
   destinationVersion = null;
 
-  const raced = await releases.prepare(admin, request("claim-race")); const approval = await approved(raced);
+  const raced = await prepareRelease(admin, request("claim-race")); const approval = await approved(raced);
   const results = await Promise.allSettled([releases.claim(admin, projectId, raced.operationId, { kind: "approval", approvalId: approval }), releases.claim(admin, projectId, raced.operationId, { kind: "approval", approvalId: approval })]);
   expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
   expect(rows<{ status: string }>(await database.execute(sql`SELECT status FROM factory_release_approvals WHERE approval_id=${approval}`))).toEqual([{ status: "consumed" }]);
 
-  const revoked = await releases.prepare(admin, request("grant-revoked")); const revokedApproval = await approved(revoked);
+  const revokedRequest = request("grant-revoked");
+  const revoked = await prepareRelease(admin, revokedRequest, "prepare-before-revoke"); const revokedApproval = await approved(revoked);
   await grants.revoke(admin, { projectId, principal: admin, action: "factory.release", expectedRevision: 1 });
+  await expect(prepareRelease(admin, revokedRequest, "prepare-before-revoke")).rejects.toThrow("factory_forbidden");
   await expect(releases.claim(admin, projectId, revoked.operationId, { kind: "approval", approvalId: revokedApproval })).rejects.toThrow("factory_forbidden");
   await grants.set(admin, { projectId, principal: admin, action: "factory.release", expectedRevision: 2, expiresAtMs: null });
 });
 
 test("bounded automatic policy is consumed at claim and revocation wins before claim", async () => {
-  const approvedService = await releases.prepare(service, request("service-approved"));
+  const approvedService = await prepareRelease(service, request("service-approved"));
   const serviceApproval = await approved(approvedService, service);
   await expect(releases.claim(service, projectId, approvedService.operationId, { kind: "approval", approvalId: serviceApproval })).resolves.toMatchObject({ authority: { kind: "approval", id: serviceApproval } });
 
-  await releases.createPolicy(admin, { projectId, policyId: "policy-a", principal: service, action: "publish", destinationProvider: "fixture", destinationAccount: "account-a", destinationPrefix: "releases/policy", contractDigest: digest("f"), revision: 1, maxOperations: 1, maxSpendMicros: 5, expiresAtMs: now + 5_000 });
-  const foreignAccount = await releases.prepare(service, request("policy-foreign-account", { destination: { provider: "fixture", account: "account-b", object: "releases/policy/foreign" } }));
+  const policy = { projectId, policyId: "policy-a", principal: service, action: "publish", destinationProvider: "fixture", destinationAccount: "account-a", destinationPrefix: "releases/policy", contractDigest: digest("f"), revision: 1, maxOperations: 1, maxSpendMicros: 5, expiresAtMs: now + 5_000 } as const;
+  await createReleasePolicy(admin, policy, "policy-a-create");
+  await createReleasePolicy(admin, policy, "policy-a-create");
+  await expect(createReleasePolicy(admin, { ...policy, maxOperations: 2 }, "policy-a-create")).rejects.toMatchObject({ code: "idempotency_conflict" });
+  const foreignAccount = await prepareRelease(service, request("policy-foreign-account", { destination: { provider: "fixture", account: "account-b", object: "releases/policy/foreign" } }));
   await expect(releases.claim(service, projectId, foreignAccount.operationId, { kind: "policy", policyId: "policy-a", expectedRevision: 1 })).rejects.toMatchObject({ code: "factory_release_policy_denied" });
-  const foreignProvider = await releases.prepare(service, request("policy-foreign-provider", { destination: { provider: "other", account: "account-a", object: "releases/policy/foreign" } }));
+  const foreignProvider = await prepareRelease(service, request("policy-foreign-provider", { destination: { provider: "other", account: "account-a", object: "releases/policy/foreign" } }));
   await expect(releases.claim(service, projectId, foreignProvider.operationId, { kind: "policy", policyId: "policy-a", expectedRevision: 1 })).rejects.toMatchObject({ code: "factory_release_policy_denied" });
-  const first = await releases.prepare(service, request("policy-one"));
+  const first = await prepareRelease(service, request("policy-one"));
   await expect(releases.claim(service, projectId, first.operationId, { kind: "policy", policyId: "policy-a", expectedRevision: 1 })).resolves.toMatchObject({ authority: { kind: "policy", id: "policy-a", policyRevision: 1 } });
-  const second = await releases.prepare(service, request("policy-two"));
+  const second = await prepareRelease(service, request("policy-two"));
   await expect(releases.claim(service, projectId, second.operationId, { kind: "policy", policyId: "policy-a", expectedRevision: 1 })).rejects.toMatchObject({ code: "factory_release_policy_denied" });
-  await releases.createPolicy(admin, { projectId, policyId: "policy-revoked", principal: service, action: "publish", destinationProvider: "fixture", destinationAccount: "account-a", destinationPrefix: "releases/policy", contractDigest: digest("f"), revision: 1, maxOperations: 2, maxSpendMicros: 10, expiresAtMs: now + 5_000 });
-  await releases.revokePolicy(admin, projectId, "policy-revoked", 1);
+  await createReleasePolicy(admin, { projectId, policyId: "policy-revoked", principal: service, action: "publish", destinationProvider: "fixture", destinationAccount: "account-a", destinationPrefix: "releases/policy", contractDigest: digest("f"), revision: 1, maxOperations: 2, maxSpendMicros: 10, expiresAtMs: now + 5_000 });
+  await revokeReleasePolicy(admin, projectId, "policy-revoked", 1, "policy-revoke-stable");
+  await revokeReleasePolicy(admin, projectId, "policy-revoked", 1, "policy-revoke-stable");
   await expect(releases.claim(service, projectId, second.operationId, { kind: "policy", policyId: "policy-revoked", expectedRevision: 2 })).rejects.toMatchObject({ code: "factory_release_policy_denied" });
 });
 
 test("dispatch archives a readable receipt before database success and post-claim cancellation does not forge rollback", async () => {
-  const startFault = await releases.prepare(admin, request("dispatch-start-audit-fault")); const startFaultApproval = await approved(startFault); const startFaultClaim = await releases.claim(admin, projectId, startFault.operationId, { kind: "approval", approvalId: startFaultApproval });
+  const startFault = await prepareRelease(admin, request("dispatch-start-audit-fault")); const startFaultApproval = await approved(startFault); const startFaultClaim = await releases.claim(admin, projectId, startFault.operationId, { kind: "approval", approvalId: startFaultApproval });
   await database.execute(sql`CREATE FUNCTION reject_release_dispatch_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='factory.release.dispatch.started' THEN RAISE EXCEPTION 'dispatch audit unavailable'; END IF; RETURN NEW; END $$`);
   await database.execute(sql`CREATE TRIGGER reject_release_dispatch_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_release_dispatch_audit()`);
   const callsBeforeStart = provider.calls; const startFailed = await releases.dispatch(startFaultClaim, provider).then(() => false, () => true);
   await database.execute(sql`DROP TRIGGER reject_release_dispatch_audit ON audit_log`); await database.execute(sql`DROP FUNCTION reject_release_dispatch_audit()`);
   expect(startFailed).toBe(true); expect(provider.calls).toBe(callsBeforeStart); expect(await releases.inspect(projectId, startFault.operationId)).toMatchObject({ state: "executing", dispatchStarted: false });
 
-  const operation = await releases.prepare(admin, request("dispatch-success")); const approval = await approved(operation); const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
+  const operation = await prepareRelease(admin, request("dispatch-success")); const approval = await approved(operation); const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
   const providerCalls = provider.calls;
   await expect(releases.dispatch({ ...claim, estimatedSpendMicros: claim.estimatedSpendMicros + 1 }, provider)).rejects.toMatchObject({ code: "factory_release_sender_fenced" });
   expect(provider.calls).toBe(providerCalls);
@@ -250,7 +361,7 @@ test("dispatch archives a readable receipt before database success and post-clai
 });
 
 test("the durable dispatch-start fence permits only one provider call", async () => {
-  const operation = await releases.prepare(admin, request("dispatch-race")); const approval = await approved(operation); const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
+  const operation = await prepareRelease(admin, request("dispatch-race")); const approval = await approved(operation); const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
   const calls = provider.calls;
   const results = await Promise.allSettled([releases.dispatch(claim, provider), releases.dispatch(claim, provider)]);
   expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
@@ -258,7 +369,7 @@ test("the durable dispatch-start fence permits only one provider call", async ()
 });
 
 test("lost response remains uncertain and never causes an implicit resend", async () => {
-  const operation = await releases.prepare(admin, request("response-loss")); const approval = await approved(operation); const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
+  const operation = await prepareRelease(admin, request("response-loss")); const approval = await approved(operation); const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
   provider.loseResponse = true;
   expect(await releases.dispatch(claim, provider)).toMatchObject({ state: "uncertain", outcomeCode: "provider_response_unknown" });
   const calls = provider.calls;
@@ -266,14 +377,14 @@ test("lost response remains uncertain and never causes an implicit resend", asyn
   expect(provider.calls).toBe(calls);
   provider.loseResponse = false;
 
-  const archiveFault = await releases.prepare(admin, request("receipt-archive-fault")); const archiveFaultApproval = await approved(archiveFault); const archiveFaultClaim = await releases.claim(admin, projectId, archiveFault.operationId, { kind: "approval", approvalId: archiveFaultApproval });
+  const archiveFault = await prepareRelease(admin, request("receipt-archive-fault")); const archiveFaultApproval = await approved(archiveFault); const archiveFaultClaim = await releases.claim(admin, projectId, archiveFault.operationId, { kind: "approval", approvalId: archiveFaultApproval });
   archive.failWrite = true;
   const archiveUnknown = await releases.dispatch(archiveFaultClaim, provider);
   archive.failWrite = false;
   expect(archiveUnknown).toMatchObject({ state: "uncertain", outcomeCode: "receipt_archive_unknown" });
   expect(archiveUnknown.receipt).toBeUndefined();
 
-  const auditFault = await releases.prepare(admin, request("receipt-audit-fault")); const auditFaultApproval = await approved(auditFault); const auditFaultClaim = await releases.claim(admin, projectId, auditFault.operationId, { kind: "approval", approvalId: auditFaultApproval });
+  const auditFault = await prepareRelease(admin, request("receipt-audit-fault")); const auditFaultApproval = await approved(auditFault); const auditFaultClaim = await releases.claim(admin, projectId, auditFault.operationId, { kind: "approval", approvalId: auditFaultApproval });
   await database.execute(sql`CREATE FUNCTION reject_release_receipt_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action IN ('factory.release.receipt.confirmed','factory.release.uncertain') THEN RAISE EXCEPTION 'receipt audit unavailable'; END IF; RETURN NEW; END $$`);
   await database.execute(sql`CREATE TRIGGER reject_release_receipt_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_release_receipt_audit()`);
   const auditSettlementFailed = await releases.dispatch(auditFaultClaim, provider).then(() => false, () => true);
@@ -281,35 +392,53 @@ test("lost response remains uncertain and never causes an implicit resend", asyn
   expect(auditSettlementFailed).toBe(true);
   expect(await releases.inspect(projectId, auditFault.operationId)).toMatchObject({ state: "executing", dispatchStarted: true });
   await expect(releases.dispatch(auditFaultClaim, provider)).rejects.toMatchObject({ code: "factory_release_sender_fenced" });
-  expect(await releases.reconcile(admin, { projectId, operationId: auditFault.operationId, action: "attach_receipt", reason: "archived receipt survived the audit outage", providerEvidence: { lookup: true }, receipt: provider.receipts.get(auditFault.operationId)! }, provider)).toMatchObject({ state: "succeeded" });
+  expect(await reconcileRelease(admin, { projectId, operationId: auditFault.operationId, action: "attach_receipt", reason: "archived receipt survived the audit outage", providerEvidence: { lookup: true }, receipt: provider.receipts.get(auditFault.operationId)! }, provider)).toMatchObject({ state: "succeeded" });
 });
 
 test("reconcile attaches a verified receipt, preserves uncertainty, or proves no effect before new consent", async () => {
-  const attach = await releases.prepare(admin, request("attach-receipt")); const attachApproval = await approved(attach); const attachClaim = await releases.claim(admin, projectId, attach.operationId, { kind: "approval", approvalId: attachApproval });
+  const attach = await prepareRelease(admin, request("attach-receipt")); const attachApproval = await approved(attach); const attachClaim = await releases.claim(admin, projectId, attach.operationId, { kind: "approval", approvalId: attachApproval });
   provider.loseResponse = true; await releases.dispatch(attachClaim, provider); provider.loseResponse = false;
   const receipt = provider.receipts.get(attach.operationId)!;
-  await expect(releases.reconcile(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt: { ...receipt, object: "foreign" } }, provider)).rejects.toMatchObject({ code: "factory_release_foreign_receipt" });
-  expect(await releases.reconcile(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt }, provider)).toMatchObject({ state: "succeeded" });
+  await expect(releases.reconcile(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "stale generation", providerEvidence: { lookup: true }, receipt }, attachClaim.dispatchGeneration + 1, provider, mutationKey("reconcile-stale-generation"))).rejects.toMatchObject({ code: "factory_release_reconciliation_stale" });
+  await expect(reconcileRelease(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt: { ...receipt, object: "foreign" } }, provider)).rejects.toMatchObject({ code: "factory_release_foreign_receipt" });
+  expect(await reconcileRelease(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt }, provider)).toMatchObject({ state: "succeeded" });
 
-  const held = await releases.prepare(admin, request("keep-uncertain")); const heldApproval = await approved(held); const heldClaim = await releases.claim(admin, projectId, held.operationId, { kind: "approval", approvalId: heldApproval });
+  const held = await prepareRelease(admin, request("keep-uncertain")); const heldApproval = await approved(held); const heldClaim = await releases.claim(admin, projectId, held.operationId, { kind: "approval", approvalId: heldApproval });
   provider.loseResponse = true; await releases.dispatch(heldClaim, provider); provider.loseResponse = false;
-  expect(await releases.reconcile(admin, { projectId, operationId: held.operationId, action: "keep_uncertain", reason: "provider cannot establish the outcome", providerEvidence: { lookup: "inconclusive" } }, provider)).toMatchObject({ state: "uncertain" });
+  const keepRequest = { projectId, operationId: held.operationId, action: "keep_uncertain" as const, reason: "provider cannot establish the outcome", providerEvidence: { lookup: "inconclusive" } };
+  expect(await reconcileRelease(admin, keepRequest, provider, "keep-uncertain-stable")).toMatchObject({ state: "uncertain" });
+  expect(await reconcileRelease(admin, keepRequest, provider, "keep-uncertain-stable")).toMatchObject({ state: "uncertain" });
+  await expect(reconcileRelease(admin, { ...keepRequest, reason: "changed reason" }, provider, "keep-uncertain-stable")).rejects.toMatchObject({ code: "idempotency_conflict" });
+  expect(rows(await database.execute(sql`SELECT reconciliation_id FROM factory_release_reconciliations WHERE operation_id=${held.operationId}`))).toHaveLength(1);
 
-  const absent = await releases.prepare(admin, request("no-effect")); const absentApproval = await approved(absent); const absentClaim = await releases.claim(admin, projectId, absent.operationId, { kind: "approval", approvalId: absentApproval });
+  const absent = await prepareRelease(admin, request("no-effect")); const absentApproval = await approved(absent); const absentClaim = await releases.claim(admin, projectId, absent.operationId, { kind: "approval", approvalId: absentApproval });
   provider.loseResponse = true; await releases.dispatch(absentClaim, provider); provider.loseResponse = false;
   const evidence = { operationId: absent.operationId };
-  await expect(releases.reconcile(admin, { projectId, operationId: absent.operationId, action: "confirm_no_effect", reason: "lookup found no object", providerEvidence: evidence }, provider)).rejects.toMatchObject({ code: "factory_release_absence_unproved" });
+  await expect(reconcileRelease(admin, { projectId, operationId: absent.operationId, action: "confirm_no_effect", reason: "lookup found no object", providerEvidence: evidence }, provider)).rejects.toMatchObject({ code: "factory_release_absence_unproved" });
   sender.stopped = true; provider.noEffect = true;
-  const reopened = await releases.reconcile(admin, { projectId, operationId: absent.operationId, action: "confirm_no_effect", reason: "sender stopped and lookup found no object", providerEvidence: evidence }, provider);
+  const absenceRequest = { projectId, operationId: absent.operationId, action: "confirm_no_effect" as const, reason: "sender stopped and lookup found no object", providerEvidence: evidence };
+  const proofsBefore = [sender.proofCalls, provider.proofCalls, archive.writes];
+  const reopened = await reconcileRelease(admin, absenceRequest, provider, "absence-proof-stable");
   expect(reopened).toMatchObject({ state: "pending", dispatchGeneration: 1, outcomeCode: "confirmed_no_effect" });
+  expect(await reconcileRelease(admin, absenceRequest, provider, "absence-proof-stable")).toEqual(reopened);
+  expect([sender.proofCalls, provider.proofCalls, archive.writes]).toEqual([proofsBefore[0]! + 1, proofsBefore[1]! + 1, proofsBefore[2]! + 1]);
   await expect(releases.claim(admin, projectId, absent.operationId, { kind: "approval", approvalId: absentApproval })).rejects.toThrow();
   const freshApproval = await approved(reopened); await expect(releases.claim(admin, projectId, reopened.operationId, { kind: "approval", approvalId: freshApproval })).resolves.toMatchObject({ dispatchGeneration: 2 });
   sender.stopped = false; provider.noEffect = false;
 });
 
+test("reconciliation proof calls are transaction-bounded and abortable", async () => {
+  const uncertain = await prepareRelease(admin, request("proof-timeout")); const approvalId = await approved(uncertain); const claim = await releases.claim(admin, projectId, uncertain.operationId, { kind: "approval", approvalId });
+  provider.loseResponse = true; await releases.dispatch(claim, provider); provider.loseResponse = false;
+  const never = () => new Promise<boolean>(() => {});
+  const bounded = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, new Destination(), archive, { proveStopped: never }, () => now, 1);
+  await expect(bounded.reconcile(admin, { projectId, operationId: uncertain.operationId, action: "confirm_no_effect", reason: "proof service did not answer", providerEvidence: { operationId: uncertain.operationId } }, claim.dispatchGeneration, { publish: provider.publish.bind(provider), proveNoEffect: never }, mutationKey("proof-timeout"))).rejects.toMatchObject({ code: "factory_release_reconciliation_timeout" });
+  expect(await releases.inspect(projectId, uncertain.operationId)).toMatchObject({ state: "uncertain" });
+});
+
 test("transactional audit failure rolls claim and policy counters back", async () => {
-  const operation = await releases.prepare(service, request("audit-policy"));
-  await releases.createPolicy(admin, { projectId, policyId: "policy-audit", principal: service, action: "publish", destinationProvider: "fixture", destinationAccount: "account-a", destinationPrefix: "releases/audit", contractDigest: digest("f"), revision: 1, maxOperations: 1, maxSpendMicros: 5, expiresAtMs: now + 5_000 });
+  const operation = await prepareRelease(service, request("audit-policy"));
+  await createReleasePolicy(admin, { projectId, policyId: "policy-audit", principal: service, action: "publish", destinationProvider: "fixture", destinationAccount: "account-a", destinationPrefix: "releases/audit", contractDigest: digest("f"), revision: 1, maxOperations: 1, maxSpendMicros: 5, expiresAtMs: now + 5_000 });
   await database.execute(sql`CREATE FUNCTION reject_release_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='factory.release.claimed' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$`);
   await database.execute(sql`CREATE TRIGGER reject_release_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_release_audit()`);
   await expect(releases.claim(service, projectId, operation.operationId, { kind: "policy", policyId: "policy-audit", expectedRevision: 1 })).rejects.toThrow();
@@ -319,7 +448,7 @@ test("transactional audit failure rolls claim and policy counters back", async (
 });
 
 test("tampered pinned operation facts fail closed before provider dispatch", async () => {
-  const operation = await releases.prepare(admin, request("tamper")); const approval = await approved(operation);
+  const operation = await prepareRelease(admin, request("tamper")); const approval = await approved(operation);
   await database.execute(sql`UPDATE factory_release_operations SET canonical_request=${JSON.stringify({ provider: "fixture", request: { body: "forged" } })} WHERE operation_id=${operation.operationId}`);
   await expect(releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval })).rejects.toMatchObject({ code: "factory_release_corrupt" });
 });
