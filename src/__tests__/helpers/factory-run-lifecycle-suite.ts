@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { referenceCodeV1, validateFactoryApiResponse, type FactoryDefinition, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, validateFactoryApiResponse, createKernelState, advanceKernel, type FactoryDefinition, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
@@ -15,6 +15,7 @@ import { FactoryCommandOutbox } from "../../factory/outbox";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../factory/run-lifecycle";
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
+import { FactoryCommandAuthority } from "../../factory/command-authority";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
@@ -93,6 +94,55 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const request = await application.runs.start(principal, key, body, 0, "composed-start");
     expect(request.run.status).toBe("queued");
     expect(await application.runs.readCommand(principal, runKey(request.run.runId), request.receipt.commandId)).toMatchObject({ state: "queued" });
+  });
+
+  test("only the current committed task command admits product work under the live run fence", async () => {
+    const run = await start();
+    const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const transitions = new FactoryTransitionArtifacts(artifacts);
+    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
+    const { compiled } = await definitions.readVersion(principal, key, body.factoryVersion);
+    const input = Object.fromEntries(Object.entries(body.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null]));
+    const event = { kind: "start", id: "authority-start", atMs: now } as const;
+    const first = advanceKernel(compiled, createKernelState(compiled, run.runId, input, now), event);
+    const admission = first.commands.find(command => command.kind === "request-admission")!;
+    expect(admission.kind).toBe("request-admission");
+    const authority = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, ["orchestration"]);
+    const service = { tenantId, subject: "orchestration" };
+    const reference = { ...identity, commandId: admission.id };
+    await expect(authority.withCurrent(service, reference, async () => "effect")).rejects.toThrow();
+    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    const check = await authority.withCurrent(service, reference, async (_transaction, context) => ({ runner: context.node.runner, command: context.command, grantRevision: context.fence.grantRevision }));
+    expect(check).toEqual({ runner: expect.objectContaining({ package: "@ezcorp/reference-code", export: "snapshotRepository" }), command: admission, grantRevision: body.grantRevision });
+    await expect(authority.withCurrent({ ...service, subject: "foreign-service" }, reference, async () => "effect")).rejects.toThrow();
+    await expect(authority.withCurrent(service, { ...reference, projectId: "foreign-project" }, async () => "effect")).rejects.toThrow();
+    if (admission.kind !== "request-admission") throw new Error("missing admission");
+    const admittedEvent = { kind: "admission-result", id: "authority-admitted", atMs: now + 1, nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: admission.candidateGeneration, granted: true } as const;
+    const next = advanceKernel(compiled, first.nextState, admittedEvent);
+    await persistTransition(identity, 2, admittedEvent, next.nextState, next.commands, undefined, activities);
+    await expect(authority.withCurrent(service, reference, async () => "effect")).rejects.toMatchObject({ code: "factory_command_stale" });
+    const dispatch = next.commands.find(command => command.kind === "dispatch-node")!;
+    const currentReference = { ...identity, commandId: dispatch.id };
+    expect(await authority.withCurrent(service, currentReference, async (_transaction, context) => context.command)).toEqual(dispatch);
+    const mutable = { ...currentReference };
+    const pending = authority.withCurrent(service, mutable, async (_transaction, context) => context.command.id);
+    mutable.commandId = "caller-changed-command";
+    expect(await pending).toBe(dispatch.id);
+    const originalLoad = transitions.loadCommittedTransition.bind(transitions);
+    const raced = spyOn(transitions, "loadCommittedTransition").mockImplementationOnce(async (...args) => {
+      const loaded = await originalLoad(...args);
+      await persistTransition(identity, 3, { kind: "timer-expired", id: "authority-concurrent", atMs: now + 2, commandId: "unrelated" }, next.nextState, [], undefined, activities);
+      return loaded;
+    });
+    try { await expect(authority.withCurrent(service, currentReference, async () => "effect")).rejects.toMatchObject({ code: "factory_command_stale" }); }
+    finally { raced.mockRestore(); }
+    const expired = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, ["orchestration"], () => admission.deadlineAtMs);
+    await expect(expired.withCurrent(service, currentReference, async () => "effect")).rejects.toMatchObject({ code: "factory_command_stale" });
+    await cancelRun(principal, runKey(run.runId), run.revision, "authority-cancel");
+    await expect(authority.withCurrent(service, currentReference, async () => "effect")).rejects.toMatchObject({ code: "factory_run_stopped" });
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
+    expect(await projector.project(runKey(run.runId), 8)).toMatchObject({ sequence: 3, lag: 0 });
   });
 
   test("public run reads consume bounded committed root transitions and recover from their cursor", async () => {

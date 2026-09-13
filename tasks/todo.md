@@ -1442,3 +1442,14 @@ Restart fixture review: the combined 12-file PostgreSQL producer at `49a6ad119` 
 ## Integrated regression receipt
 
 The current platform regression passes at `7ea6e4bd9171460a7ef5a3de9d46203faf2049a8`: canonical `bun run test` reports **26,152 pass, 0 fail, 1,714 files**. All four type checks, lint, gate integrity, factory boundaries and actionlint pass. `/tmp/factory-platform-evidence/root-authority-static-backend-integration-results.json` records exact commands and exits. At the preceding `176f6871f`, the corrected combined PostgreSQL/S3 lane passes **89 tests / 2,231 assertions** across its 12 CI files; the PGlite restart lane and actual Node gateway transport pass. The remaining overall platform gates stay open; later source changes need their affected checks.
+
+## Current committed command authority — root
+
+- [x] Prove a committed kernel admission command resolves only against the live run and exact published definition.
+- [x] Reuse kernel expanded-node resolution and reject stale generations, commands and run fences.
+- [x] Bind immutable transition reads to the same locked database head before product admission.
+- [x] Prove PostgreSQL/S3, revocation, cancellation and mutable input cases; run static checks and coverage.
+
+Plan review: the next private command policy uses product records, exact stored transition artifacts and current grants. The transport supplies only a scoped command reference. The shared run-lifecycle conformance suite is the approved test boundary; no user authority is supplied by the Node worker.
+
+Review: `FactoryCommandAuthority` loads an indexed immutable task command, the latest verified interpreter transition and the exact published plan. It then locks the live run, rechecks grants and epochs, compares the same audit head, and admits only the current task attempt. The shared conformance suite proves delayed-command rejection, concurrent transition rejection, configuration scope, caller input snapshots, expiry and cancellation. PGlite and actual PostgreSQL/S3 each pass 19 tests with 147 assertions. Measured coverage is command authority 39/39 lines and 8/8 functions, plus lifecycle 172/172 lines and 46/46 functions. SDK build, all four type checks, lint, boundaries and gate integrity pass. Exact source hashes are in `/tmp/factory-platform-evidence/root-command-authority-complete-source.json`; producer commands/exits are in `root-command-authority-complete-integration-results.json`. This is the task authorization step; pool reservation/dispatch, child creation and lazy read dispatch remain pending.
