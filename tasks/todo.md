@@ -1835,9 +1835,9 @@ Review: source 0c7219dca passed 61 product tests / 750 assertions and 50 Postgre
 - [x] Replace C04 release trust and local readiness with tuple-scoped runner trust and durable receipt facts.
 - [x] Seal durable build intents before external work; recover the same build identity after restart.
 - [x] Prove independent runner-tuple revocation and all required storage/runner gates.
-- [ ] Define the scoped immutable v4 release mapping and sealed receipt schema.
-- [ ] Add a production catalog adapter that reads the existing v4 repository and blob store without copying release storage.
-- [ ] Create a two-phase preparation flow: durable intent, out-of-transaction RunnerClient build/collect, then revalidated receipt commit.
+- [x] Define the scoped immutable v4 release mapping and sealed receipt schema.
+- [x] Add a production catalog adapter that reads the existing v4 repository and blob store without copying release storage.
+- [x] Create a two-phase preparation flow: durable intent, out-of-transaction RunnerClient build/collect, then revalidated receipt commit.
 - [ ] Wrap the existing trusted runner so dispatch requires a matching current prepared receipt and cannot run after trust or grant revocation.
 - [ ] Prove PGlite, PostgreSQL/S3, real Podman preparation/recovery, revocation, coverage, SDK build, type checks, and lint.
 
@@ -1854,3 +1854,16 @@ Full-reference correction: every package preparation primary key and foreign key
 - [ ] Implement one fresh isolated Bun/Python attempt launcher with receipt readiness and broker-only effects.
 - [ ] Prove real CPU no-GPU fail-closed, Podman/Python execution and recovery, then supported AMD GPU execution for the first ten local installations.
 - [ ] Run focused coverage, PostgreSQL/S3, canonical static checks, and lint.
+
+## C05 parent review — dispatch readiness
+
+- [x] Reproduce revoked-trust resurrection through the real dispatch-readiness method.
+- [x] Reject a current pointer that does not name the latest immutable trust revision.
+- [x] Prove receipt rollback, live authority revocation, independent model/configuration identity, and damaged seals on PGlite and PostgreSQL/S3.
+- [x] Register preparation in the required PostgreSQL coverage job and verify combined source types, lint, migrations, and coverage.
+
+Plan review: reuse the existing package fixture and transaction boundary. Preserve failed evidence and keep overall C05 readiness open until the combined checks pass.
+
+Parent review: dispatch now rejects a rolled-back trust pointer unless it names the latest immutable revision for the complete runner reference. The catalog checks the installation project on bind and reuse. Concurrent workers return one committed receipt, and receipt reuse verifies the current release evidence. Shared fixtures cover transaction rollback, trust/grant/admin revocation during hydration, independent model and configuration identity, and damaged trust/intent/receipt seals. PostgreSQL exposed three missing modeled foreign keys; schema now records them and the existing v4 installation table. The required PostgreSQL/S3 job includes preparation.
+
+Validation: 17 focused checks / 62 assertions and 16 PostgreSQL/schema checks / 2,419 assertions pass. Package preparation measures 95/95 lines and 70/70 functions; the migration measures 14/14 lines and 2/2 functions. SDK build, all four type checks, lint, gate integrity, and boundaries pass. Source snapshots and raw results: /tmp/factory-platform-evidence/root-package-scope-concurrency-parent-source.json and root-package-scope-concurrency-parent-integration-results.json. Original red receipts remain under root-package-trust-pointer-red, root-package-scope-concurrency-red, and root-package-receipt-reuse-red. Parent combined SDK/Node replay and full runtime composition remain open.

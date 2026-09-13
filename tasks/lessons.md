@@ -544,3 +544,11 @@
 
 - Before extending a shared authority module, compare it with the current integration head. Reuse its stored command entry, source sequence, command digest, and ancestor validation. Do not reconstruct an origin query that the integrated module already supplies.
 - A partition command must bind the requested interpreter ID to its declared source partition, in addition to validating the loaded state partition and compiled edge.
+
+## 2026-09-13 — Package authority parent review
+
+- A sealed historical revision does not prove current authority. Validate mutable current pointers against the latest immutable revision before dispatch or mutation.
+- Bind an extension installation's project scope at every catalog read; a project grant does not grant access to another project's package.
+- A concurrent preparation may observe the other worker's completed intent. Verify its facts and receipt, then return the same receipt. Do not reject completion solely because its phase changed.
+- Reused preparation receipts need the same current release/evidence checks as dispatch readiness.
+- Model every migration foreign key, including references to pre-existing v4 tables. Run the canonical PostgreSQL schema proof before calling an integration complete.

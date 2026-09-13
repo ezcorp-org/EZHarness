@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 function registrationIssues(workflow: string, thresholds: string): string[] {
   const required = [
     ["PostgreSQL and S3 conformance", "./tests/postgres/factory-validator-materials.test.ts"],
+    ["package preparation conformance", "./tests/postgres/factory-package-preparation.test.ts"],
     ["coverage artifact", "name: lcov-cov-factory-storage"],
     ["coverage receipt", "path: coverage-factory-storage/lcov.info"],
     ["missing-report failure", "if-no-files-found: error"],
@@ -11,6 +12,8 @@ function registrationIssues(workflow: string, thresholds: string): string[] {
   const sources = [
     "src/factory/validator-materials.ts",
     "src/db/migrations/add-factory-validator-materials.ts",
+    "src/factory/package-preparation.ts",
+    "src/db/migrations/add-factory-package-preparations.ts",
   ] as const;
   return [
     ...required.filter(([, value]) => !workflow.includes(value)).map(([label]) => label),
@@ -18,7 +21,7 @@ function registrationIssues(workflow: string, thresholds: string): string[] {
   ];
 }
 
-describe("factory validator material coverage registration", () => {
+describe("factory protected material coverage registration", () => {
   test("runs the real storage proof and gates every new source at 100 percent", async () => {
     const [workflow, thresholds] = await Promise.all([
       readFile(".github/workflows/db-postgres.yml", "utf8"),
@@ -33,6 +36,7 @@ describe("factory validator material coverage registration", () => {
       readFile("scripts/coverage-thresholds.json", "utf8"),
     ]);
     expect(registrationIssues(workflow.replace("./tests/postgres/factory-validator-materials.test.ts", "./tests/postgres/missing.test.ts"), thresholds)).toContain("PostgreSQL and S3 conformance");
+    expect(registrationIssues(workflow.replace("./tests/postgres/factory-package-preparation.test.ts", "./tests/postgres/missing.test.ts"), thresholds)).toContain("package preparation conformance");
     expect(registrationIssues(workflow, thresholds.replace('"src/factory/validator-materials.ts": 100', '"src/factory/validator-materials.ts": 99'))).toContain("src/factory/validator-materials.ts threshold");
   });
 });
