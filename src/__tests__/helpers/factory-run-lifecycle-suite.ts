@@ -25,6 +25,8 @@ import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admi
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "../../factory/native-runner-policy";
 import { FactoryInbox } from "../../factory/inbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
+import { FactoryAssuranceCommands } from "../../factory/assurance-commands";
+import { FactoryReleases } from "../../factory/releases";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
@@ -128,6 +130,28 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const result = { schemaVersion: "factory.runner.result.v1" as const, status: "completed" as const, journalCursor: 0, operations: [{ ...operation, state: "completed" as const, resultDigest: "c".repeat(64), usage, workspaceCheckpoint: checkpoint }], resultDigest: output.digest.slice(7), output, usage, workspaceCheckpoint: checkpoint };
     return { task, completions, admitted, authority, result, value, artifacts };
   };
+  const prepareApproval = async (scope: "owner" | "operator" | "tenant-contract-admin", suffix: string) => {
+    const definitionKey = { projectId, factoryId: `${suffix}-approval-factory` };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts: {}, outputPorts: {},
+      graph: { nodes: [{ id: "human", kind: "approval", actorScope: scope, choices: ["ship", "hold"], context: { kind: "literal", value: { subject: suffix } }, expiresInMs: 60_000, onDenied: "fail", onExpired: "fail" }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, `${suffix}-approval-create`, source);
+    const version = await definitions.publish(principal, definitionKey, 1, `${suffix}-approval-publish`);
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: {} };
+    const run = await startRun(principal, definitionKey, request, 0, `${suffix}-approval-start`);
+    const current = await committedInterpreter(run.runId, definitionKey, request);
+    const command = current.first.commands.find(value => value.kind === "request-approval");
+    if (command?.kind !== "request-approval") throw new Error("missing approval command");
+    const reference = { ...current.identity, commandId: command.id };
+    await persistTransition(current.identity, 1, current.event, current.first.nextState, current.first.commands, undefined, current.activities);
+    const releases = new FactoryReleases(fixture.db, tenantId, grants, { tenantId } as never, {} as never, {} as never, {} as never, {} as never, {} as never, () => now);
+    const approvals = new FactoryAssuranceCommands(fixture.db, tenantId, grants, current.authority, new FactoryInbox(fixture.db, tenantId, () => now), releases, { tenantId, subject: "orchestration" }, () => now);
+    expect(await approvals.execute(reference)).toBeNull();
+    expect((await releases.deliverNextNotification(projectId))?.kind).toBe("command_approval_requested");
+    const visible = await releases.listDeliveredNotifications(principal, projectId, { limit: 200 });
+    const item = visible.items.find(value => value.kind === "command_approval_requested" && value.runId === run.runId);
+    if (item?.kind !== "command_approval_requested") throw new Error("missing command approval notification");
+    return { ...current, approvals, command, item, reference, releases, run };
+  };
   beforeAll(async () => {
     fixture = await create();
     await up(fixture.db); await up(fixture.db);
@@ -140,7 +164,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${principal.id}, 'lifecycle@example.test', 'not-a-login', 'Lifecycle', 'admin')`);
     await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('lifecycle-membership', ${projectId}, ${principal.id}, 'owner')`);
     grants = new FactoryGrants(fixture.db, tenantId, () => now);
-    for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate"] as const) await grants.set(principal, { principal, projectId, action, expectedRevision: 0, expiresAtMs: null });
+    for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate", "factory.approve", "factory.trust"] as const) await grants.set(principal, { principal, projectId, action, expectedRevision: 0, expiresAtMs: null });
     objectStore = fixture.blobs ?? blobs;
     definitions = new FactoryDefinitions(fixture.db, tenantId, grants, objectStore);
     const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: key.factoryId };
@@ -703,6 +727,78 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       }
       await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
     }
+  });
+
+  test("generic approval command persists one human request and one exact inbox decision", async () => {
+    const { activities, approvals, command, compiled, first, identity, item, reference, releases, run, transitions } = await prepareApproval("operator", "candidate-7");
+    const application = createFactoryApplication({ database: fixture.db, tenantId, blobs: objectStore, grants, availableResourceClasses: ["cpu"], runOptions: options, createCommandApprovals: () => approvals });
+    expect(application.commandApprovals).toBe(approvals);
+    expect(Object.isFrozen(application.commandApprovals)).toBe(true);
+    expect(await approvals.execute(reference)).toBeNull();
+    expect(rows(await fixture.db.execute(sql`SELECT approval_id FROM factory_command_approvals WHERE run_id=${run.runId}`))).toHaveLength(1);
+    expect(rows(await fixture.db.execute(sql`SELECT notification_id FROM factory_notifications WHERE payload::jsonb->>'approvalId' IS NOT NULL AND payload::jsonb->>'approvalId' LIKE 'factory-command-approval:%'`))).toHaveLength(1);
+    expect(item).toMatchObject({ kind: "command_approval_requested", commandId: command.id, nodeInstanceId: command.nodeId, choices: ["ship", "hold"], context: { subject: "candidate-7" }, actorScope: "operator" });
+
+    await fixture.db.execute(sql`UPDATE factory_run_lifecycle SET cancellation_epoch=cancellation_epoch+1 WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId}`);
+    expect((await releases.listDeliveredNotifications(principal, projectId, { limit: 200 })).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(false);
+    await fixture.db.execute(sql`UPDATE factory_run_lifecycle SET cancellation_epoch=cancellation_epoch-1 WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId}`);
+
+    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('approval-foreign','approval-foreign@example.test','x','Foreign reviewer','user')`);
+    await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('approval-foreign-member',${projectId},'approval-foreign','member')`);
+    const foreign = { kind: "user", id: "approval-foreign", authentication: "session" } as const;
+    expect((await releases.listDeliveredNotifications(foreign, projectId)).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(false);
+    await expect(approvals.decide(foreign, projectId, run.runId, item.approvalId, item.contextDigest, "ship", 0, "foreign-command-decision")).rejects.toThrow("factory_forbidden");
+
+    await grants.revoke(principal, { principal, projectId, action: "factory.approve", expectedRevision: 1 });
+    expect((await releases.listDeliveredNotifications(principal, projectId, { limit: 200 })).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(false);
+    await expect(approvals.decide(principal, projectId, run.runId, item.approvalId, item.contextDigest, "ship", 0, "revoked-command-decision")).rejects.toThrow("factory_forbidden");
+    await grants.set(principal, { principal, projectId, action: "factory.approve", expectedRevision: 2, expiresAtMs: null });
+
+    const protectedRow = rows<{ protected_digest: string }>(await fixture.db.execute(sql`SELECT protected_digest FROM factory_command_approvals WHERE approval_id=${item.approvalId}`))[0]!;
+    await fixture.db.execute(sql`UPDATE factory_command_approvals SET protected_digest=${`sha256:${"0".repeat(64)}`} WHERE approval_id=${item.approvalId}`);
+    await expect(approvals.decide(principal, projectId, run.runId, item.approvalId, item.contextDigest, "ship", 0, "tampered-command-decision")).rejects.toMatchObject({ code: "factory_command_approval_corrupt" });
+    await fixture.db.execute(sql`UPDATE factory_command_approvals SET protected_digest=${protectedRow.protected_digest} WHERE approval_id=${item.approvalId}`);
+
+    await fixture.db.execute(sql`ALTER TABLE factory_inbox_events RENAME TO command_approval_hidden_inbox`);
+    try { await expect(approvals.decide(principal, projectId, run.runId, item.approvalId, item.contextDigest, "ship", 0, "rollback-command-decision")).rejects.toThrow(); }
+    finally { await fixture.db.execute(sql`ALTER TABLE command_approval_hidden_inbox RENAME TO factory_inbox_events`); }
+    expect(rows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_command_approvals WHERE approval_id=${item.approvalId}`))[0]?.status).toBe("pending");
+    expect(rows(await fixture.db.execute(sql`SELECT idempotency_key FROM factory_mutation_receipts WHERE idempotency_key='rollback-command-decision'`))).toEqual([]);
+
+    const decision = await approvals.decide(principal, projectId, run.runId, item.approvalId, item.contextDigest, "ship", 0, "command-decision");
+    expect(decision).toMatchObject({ runId: run.runId, commandId: command.id, nodeInstanceId: command.nodeId, revision: 1, status: "answered", choice: "ship", decidedBy: principal.id });
+    expect(await approvals.decide(principal, projectId, run.runId, item.approvalId, item.contextDigest, "ship", 0, "command-decision")).toEqual(decision);
+    expect((await releases.listDeliveredNotifications(principal, projectId, { limit: 200 })).items.some(value => value.kind === "command_approval_requested" && value.approvalId === item.approvalId)).toBe(false);
+    const decided = await approvals.execute(reference);
+    expect(decided).toMatchObject({ kind: "approval-decided", commandId: command.id, nodeId: command.nodeId, choice: "ship" });
+    const inbox = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE run_id=${run.runId} AND interpreter_id='root'`));
+    expect(inbox.map(row => JSON.parse(row.payload))).toEqual([decided]);
+    expect(rows(await fixture.db.execute(sql`SELECT id FROM factory_command_outbox WHERE logical_run_id=${run.runId} AND payload::jsonb#>>'{command,kind}'='decision'`))).toHaveLength(1);
+    const next = advanceKernel(compiled, first.nextState, decided!);
+    await persistTransition(identity, 2, decided!, next.nextState, next.commands, undefined, activities);
+    expect(await approvals.execute(reference)).toEqual(decided);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+  });
+
+  test("owner and tenant contract administrator approval scopes do not widen human authority", async () => {
+    await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('approval-reviewer','approval-reviewer@example.test','x','Approval reviewer','user'),('approval-admin','approval-admin@example.test','x','Approval admin','admin')`);
+    await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('approval-reviewer-member',${projectId},'approval-reviewer','member'),('approval-admin-member',${projectId},'approval-admin','member')`);
+    const reviewer = { kind: "user", id: "approval-reviewer", authentication: "session" } as const;
+    const administrator = { kind: "user", id: "approval-admin", authentication: "session" } as const;
+    await grants.set(principal, { principal: reviewer, projectId, action: "factory.approve", expectedRevision: 0, expiresAtMs: null });
+    await grants.set(principal, { principal: administrator, projectId, action: "factory.approve", expectedRevision: 0, expiresAtMs: null });
+    await grants.set(principal, { principal: administrator, projectId, action: "factory.trust", expectedRevision: 0, expiresAtMs: null });
+
+    const owner = await prepareApproval("owner", "owner-scope");
+    await expect(owner.approvals.decide(reviewer, projectId, owner.run.runId, owner.item.approvalId, owner.item.contextDigest, "ship", 0, "owner-foreign-decision")).rejects.toMatchObject({ code: "factory_command_approval_forbidden" });
+    expect(await owner.approvals.decide(principal, projectId, owner.run.runId, owner.item.approvalId, owner.item.contextDigest, "ship", 0, "owner-decision")).toMatchObject({ actorScope: "owner", decidedBy: principal.id });
+
+    const contractAdmin = await prepareApproval("tenant-contract-admin", "contract-admin-scope");
+    await expect(contractAdmin.approvals.decide(reviewer, projectId, contractAdmin.run.runId, contractAdmin.item.approvalId, contractAdmin.item.contextDigest, "ship", 0, "contract-member-decision")).rejects.toThrow("factory_forbidden");
+    expect(await contractAdmin.approvals.decide(administrator, projectId, contractAdmin.run.runId, contractAdmin.item.approvalId, contractAdmin.item.contextDigest, "hold", 0, "contract-admin-decision")).toMatchObject({ actorScope: "tenant-contract-admin", choice: "hold", decidedBy: administrator.id });
+    expect(Number(rows<{ decided_trust_revision: number | string }>(await fixture.db.execute(sql`SELECT decided_trust_revision FROM factory_command_approvals WHERE approval_id=${contractAdmin.item.approvalId}`))[0]?.decided_trust_revision)).toBe(1);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, owner.transitions, lifecycle).project(runKey(owner.run.runId));
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, contractAdmin.transitions, lifecycle).project(runKey(contractAdmin.run.runId));
   });
 
   test("public run reads consume bounded committed root transitions and recover from their cursor", async () => {

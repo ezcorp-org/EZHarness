@@ -10,6 +10,7 @@ import { FactoryServiceCredentialError } from "$server/factory/service-credentia
 import { FactoryReleaseAuthorityError } from "$server/factory/release-authority";
 import { FactoryReleaseError } from "$server/factory/releases";
 import { FactoryAssuranceError } from "$server/factory/assurance";
+import { FactoryAssuranceCommandError } from "$server/factory/assurance-commands";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 
@@ -37,6 +38,7 @@ const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn() };
 const credentials = { issue: vi.fn(), revoke: vi.fn(), authenticate: vi.fn() };
 const releaseAuthority = { publishTrust: vi.fn(), revokeTrust: vi.fn(), setReleaseEnabled: vi.fn() };
 const releaseOperations = { putContract: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), requestApproval: vi.fn(), decideApproval: vi.fn(), listNotifications: vi.fn(), putPolicy: vi.fn(), deletePolicy: vi.fn(), reconcile: vi.fn() };
+const commandApprovals = { decide: vi.fn() };
 
 const sourceDigest = createHash("sha256").update(canonicalizeJson(referenceCodeV1 as unknown as Parameters<typeof canonicalizeJson>[0])).digest("hex");
 const compiledResult = compileFactory(referenceCodeV1);
@@ -63,6 +65,7 @@ const runList = await import("./projects/[projectId]/runs/+server");
 const runItem = await import("./projects/[projectId]/runs/[runId]/+server");
 const runControl = await import("./projects/[projectId]/runs/[runId]/control/+server");
 const runCommand = await import("./projects/[projectId]/runs/[runId]/commands/[commandId]/+server");
+const commandApproval = await import("./projects/[projectId]/runs/[runId]/approvals/[approvalId]/+server");
 const credentialIssue = await import("./projects/[projectId]/service-accounts/[serviceAccountId]/credentials/+server");
 const credentialRevoke = await import("./projects/[projectId]/service-accounts/[serviceAccountId]/credentials/[credentialId]/+server");
 const releaseTrust = await import("./projects/[projectId]/release/trust/+server");
@@ -88,6 +91,7 @@ beforeEach(() => {
     credentials,
     releaseAuthority,
     releaseOperations,
+    commandApprovals,
     runs,
     availableResourceClasses: new Set(["cpu"]),
   } as unknown as FactoryApplication;
@@ -128,6 +132,7 @@ beforeEach(() => {
   releaseOperations.putPolicy.mockResolvedValue({ policyId: "policy-1", revision: 1, revoked: false, principalKind: "service", principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "release/", contractDigest: `sha256:${sourceDigest}`, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: 2_000_000_000_000 });
   releaseOperations.deletePolicy.mockResolvedValue({ policyId: "policy-1", revision: 2, revoked: true });
   releaseOperations.reconcile.mockResolvedValue({ ...operation, state: "uncertain", outcomeCode: "operator_kept_uncertain" });
+  commandApprovals.decide.mockResolvedValue({ approvalId: "command-approval-1", runId: "run-1", commandId: "command-1", nodeInstanceId: "review", revision: 1, contextDigest: sourceDigest, status: "answered", choices: ["ship", "hold"], context: { subject: "deploy" }, actorScope: "operator", expiresAtMs: 2_000_000_000_000, choice: "ship", decidedBy: "member-1", decidedAtMs: 1 });
 });
 
 function event(method: string, pathname: string, options: { body?: unknown; revision?: number; key?: string; auth?: "session" | "api-key" | "internal"; anonymous?: boolean; scopes?: string[]; params?: Record<string, string> } = {}) {
@@ -287,6 +292,23 @@ describe("factory definition and grant routes", () => {
     const keyAuthor = await collection.POST(event("POST", "/api/factories/projects/project-1/definitions", { params, body: { source: referenceCodeV1 }, revision: 0, key: "key", auth: "api-key", scopes: ["write"] }));
     expect(keyAuthor.status).toBe(200);
     expect(definitions.save).toHaveBeenLastCalledWith(expect.objectContaining({ authentication: "api-key" }), expect.anything(), 0, "key", referenceCodeV1);
+  });
+
+  test("answers a run-scoped generic approval only through a human session", async () => {
+    const params = { projectId: "project-1", runId: "run-1", approvalId: "command-approval-1" };
+    const response = await commandApproval.PUT(event("PUT", "/api/factories/projects/project-1/runs/run-1/approvals/command-approval-1", { params, body: { contextDigest: sourceDigest, choice: "ship" }, revision: 0, key: "answer-command" }));
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({ kind: "approval.resource", resource: { runId: "run-1", status: "answered", choice: "ship" } });
+    expect(commandApprovals.decide).toHaveBeenCalledWith({ kind: "user", id: "member-1", authentication: "session" }, "project-1", "run-1", "command-approval-1", sourceDigest, "ship", 0, "answer-command");
+    expect((await commandApproval.PUT(event("PUT", "/api/factories/projects/project-1/runs/run-1/approvals/command-approval-1", { params, body: { contextDigest: sourceDigest, choice: "ship" }, revision: 0, key: "answer-command-key", auth: "api-key", scopes: ["write"] }))).status).toBe(403);
+    expect((await commandApproval.PUT(event("PUT", "/api/factories/projects/project-1/runs/run-1/approvals/command-approval-1", { params, body: { contextDigest: sourceDigest, choice: "ship" }, revision: 1, key: "answer-command-stale" }))).status).toBe(412);
+
+    for (const [code, status] of [["factory_command_approval_not_found", 404], ["factory_command_approval_forbidden", 403], ["factory_command_approval_stale", 412], ["factory_command_approval_invalid", 400], ["factory_command_approval_corrupt", 500]] as const) {
+      commandApprovals.decide.mockRejectedValueOnce(new FactoryAssuranceCommandError(code));
+      const failure = await commandApproval.PUT(event("PUT", "/api/factories/projects/project-1/runs/run-1/approvals/command-approval-1", { params, body: { contextDigest: sourceDigest, choice: "ship" }, revision: 0, key: `answer-command-${code}` }));
+      expect(failure.status).toBe(status);
+      expect(await json(failure)).toMatchObject({ kind: "error", error: { code } });
+    }
   });
 
   test("rejects malformed SDK inputs and missing or stale header preconditions", async () => {

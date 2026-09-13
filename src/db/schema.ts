@@ -3040,3 +3040,22 @@ export const factoryTaskCompletions = pgTable("factory_task_completions", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
   attemptId: text("attempt_id").notNull().references(() => factoryExecutionTerminals.attemptId, { onDelete: "restrict" }), inputDigest: text("input_digest").notNull(), authorityJson: text("authority_json").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }), uniqueIndex("factory_task_completions_attempt_id_key").on(table.attemptId), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict")]);
+
+export const factoryCommandApprovals = pgTable("factory_command_approvals", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(),
+  runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  sourceSequence: bigint("source_sequence", { mode: "number" }).notNull(), sourceDigest: text("source_digest").notNull(),
+  nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), attempt: bigint("attempt", { mode: "number" }).notNull(),
+  definitionDigest: text("definition_digest").notNull(), executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull(),
+  initiatorKind: text("initiator_kind").notNull().$type<"user" | "service">(), initiatorId: text("initiator_id").notNull(), actorScope: text("actor_scope").notNull().$type<"owner" | "operator" | "tenant-contract-admin">(),
+  choicesJson: text("choices_json").notNull(), contextJson: text("context_json").notNull(), deadlineAtMs: bigint("deadline_at_ms", { mode: "number" }).notNull(),
+  contextDigest: text("context_digest").notNull(), protectedDigest: text("protected_digest").notNull(), status: text("status").notNull().$type<"pending" | "answered">(), choice: text("choice"),
+  decidedBy: text("decided_by").references(() => users.id, { onDelete: "restrict" }), decidedApproveRevision: bigint("decided_approve_revision", { mode: "number" }), decidedTrustRevision: bigint("decided_trust_revision", { mode: "number" }), decidedAtMs: bigint("decided_at_ms", { mode: "number" }),
+  eventJson: text("event_json"), eventDigest: text("event_digest"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }),
+  uniqueIndex("factory_command_approvals_command_key").on(table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId),
+  index("idx_factory_command_approvals_pending").on(table.tenantId, table.projectId, table.status, table.deadlineAtMs, table.approvalId),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.sourceSequence], foreignColumns: [factoryAuditBatches.tenantId, factoryAuditBatches.projectId, factoryAuditBatches.runId, factoryAuditBatches.interpreterId, factoryAuditBatches.sourceSequence] }).onDelete("restrict"),
+]);

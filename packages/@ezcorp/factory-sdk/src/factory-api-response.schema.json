@@ -1258,10 +1258,39 @@
     "FactoryApprovalResource": {
       "additionalProperties": false,
       "properties": {
+        "actorScope": {
+          "enum": [
+            "owner",
+            "operator",
+            "tenant-contract-admin"
+          ],
+          "type": "string"
+        },
         "approvalId": {
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
+        },
+        "choice": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/definitions/JsonValue"
         },
         "contextDigest": {
           "maxLength": 64,
@@ -1283,6 +1312,11 @@
           "minimum": 0,
           "type": "number"
         },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
         "revision": {
           "maximum": 9007199254740991,
           "minimum": 1,
@@ -1296,8 +1330,7 @@
         "status": {
           "enum": [
             "pending",
-            "approved",
-            "denied",
+            "answered",
             "expired"
           ],
           "type": "string"
@@ -1306,9 +1339,14 @@
       "required": [
         "approvalId",
         "runId",
+        "commandId",
+        "nodeInstanceId",
         "revision",
         "contextDigest",
         "status",
+        "choices",
+        "context",
+        "actorScope",
         "expiresAtMs"
       ],
       "type": "object"
@@ -2078,6 +2116,89 @@
             "notificationId",
             "operationId",
             "outcomeCode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "actorScope": {
+              "enum": [
+                "owner",
+                "operator",
+                "tenant-contract-admin"
+              ],
+              "type": "string"
+            },
+            "approvalId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "choices": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array"
+            },
+            "commandId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "context": {
+              "$ref": "#/definitions/JsonValue"
+            },
+            "contextDigest": {
+              "maxLength": 64,
+              "minLength": 64,
+              "type": "string"
+            },
+            "createdAtMs": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "number"
+            },
+            "expiresAtMs": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "number"
+            },
+            "kind": {
+              "const": "command_approval_requested",
+              "type": "string"
+            },
+            "nodeInstanceId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "notificationId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "runId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "actorScope",
+            "approvalId",
+            "choices",
+            "commandId",
+            "context",
+            "contextDigest",
+            "createdAtMs",
+            "expiresAtMs",
+            "kind",
+            "nodeInstanceId",
+            "notificationId",
+            "runId"
           ],
           "type": "object"
         }

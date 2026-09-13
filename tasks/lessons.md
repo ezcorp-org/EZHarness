@@ -509,3 +509,5 @@
 
 - A sealed child binding pins the parent command and its attempt, not the parent audit head. Recheck that exact command against the latest verified parent state; unrelated timers, sibling results, and approvals may advance the head while the child remains valid.
 - Idempotent settlement must reread the binding after budget locks. A concurrent winner can change open to settled while the loser waits; return its same durable receipt instead of reporting a conflict.
+
+- When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.

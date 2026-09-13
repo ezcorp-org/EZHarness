@@ -48,7 +48,7 @@ function requests(): FactoryApiRequest[] {
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.control", path: { ...project, runId: "run-1" }, preconditions, body: { action: "replan", nodeId: "compile", parameters: {} } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "approval.get", path: { ...project, runId: "run-1", approvalId: "approval-1" } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "approval.list", path: project, query: { limit: 200 } },
-    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "approval.decide", path: { ...project, runId: "run-1", approvalId: "approval-1" }, preconditions, body: { decision: "approved", contextDigest: sourceDigest } },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "approval.decide", path: { ...project, runId: "run-1", approvalId: "approval-1" }, preconditions: { ...preconditions, expectedRevision: 0 }, body: { choice: "approve", contextDigest: sourceDigest } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.list", path: project, query: { principalKind: "service", action: "factory.run" } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.set", path: { ...project, principalKind: "service", principalId: "agent-1", action: "factory.run" }, preconditions: { ...preconditions, expectedRevision: 0 }, body: { expiresAtMs: 2_000_000_000_000 } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.revoke", path: { ...project, principalKind: "user", principalId: "user-1", action: "factory.author" }, preconditions },
@@ -79,7 +79,7 @@ function draftSummary(): FactoryDraftSummary {
 function responses(): FactoryApiResponse[] {
   const version = { factoryId: referenceCodeV1.id, version: referenceCodeV1.version, draftRevision: 1, definitionDigest: compiled.digest, compiledBlobDigest, compiledBytes: new TextEncoder().encode(compiledJson).byteLength, publishedAtMs: 1 } as const;
   const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "running", createdAtMs: 1, updatedAtMs: 1 } as const;
-  const approval = { approvalId: "approval-1", runId: "run-1", revision: 1, contextDigest: sourceDigest, status: "pending", expiresAtMs: 2 } as const;
+  const approval = { approvalId: "approval-1", runId: "run-1", commandId: "command-1", nodeInstanceId: "approval-node", revision: 1, contextDigest: sourceDigest, status: "pending", choices: ["approve", "deny"], context: { subject: "deploy" }, actorScope: "operator", expiresAtMs: 2 } as const;
   const grant = { principalKind: "user", principalId: "user-1", action: "factory.author", revision: 1, expiresAtMs: null, revoked: false } as const;
   const credential = { serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read", "chat"] as const, revision: 1, issuedAtMs: 1_999_999_940_000, expiresAtMs: 2_000_000_000_000, revoked: false } as const;
   const trust = { revision: 1, state: "active" as const, packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "admin-1", approvalGrantRevision: 1 };
@@ -113,6 +113,7 @@ function responses(): FactoryApiResponse[] {
       { notificationId: "notification-1", operationId: "operation-1", createdAtMs: 1, kind: "approval_requested", approvalId: "approval-1", contextDigest: sourceDigest, expiresAtMs: 2_000_000_000_000 },
       { notificationId: "notification-2", operationId: "operation-2", createdAtMs: 2, kind: "release_uncertain", dispatchGeneration: 1, outcomeCode: "provider_response_unknown" },
       { notificationId: "notification-3", operationId: "operation-3", createdAtMs: 3, kind: "release_settled", dispatchGeneration: 1, outcomeCode: "confirmed" },
+      { notificationId: "notification-4", createdAtMs: 4, kind: "command_approval_requested", approvalId: "approval-2", runId: "run-1", commandId: "command-2", nodeInstanceId: "review", contextDigest: sourceDigest, context: { subject: "deploy" }, choices: ["ship", "hold"], actorScope: "operator", expiresAtMs: 2_000_000_000_000 },
     ] } },
   ];
 }
@@ -225,9 +226,9 @@ describe("factory product API schema", () => {
     const details = responses()[1] as Extract<FactoryApiResponse, { kind: "draft.details" }>;
     expect(code(validateFactoryApiResponse({ ...details, resource: { ...details.resource, factoryId: "different" } }))).toBe("API_FACTORY_ID");
     const approval = responses()[9] as Extract<FactoryApiResponse, { kind: "approval.resource" }>;
-    expect(code(validateFactoryApiResponse({ ...approval, resource: { ...approval.resource, status: "approved" } }))).toBe("API_APPROVAL_RESOURCE");
+    expect(code(validateFactoryApiResponse({ ...approval, resource: { ...approval.resource, status: "answered" } }))).toBe("API_APPROVAL_RESOURCE");
     const approvalPage = responses()[10] as Extract<FactoryApiResponse, { kind: "approval.page" }>;
-    expect(code(validateFactoryApiResponse({ ...approvalPage, page: { items: [{ ...approvalPage.page.items[0]!, contextDigest: "b".repeat(64), status: "denied" }] } }))).toBe("API_APPROVAL_RESOURCE");
+    expect(code(validateFactoryApiResponse({ ...approvalPage, page: { items: [{ ...approvalPage.page.items[0]!, contextDigest: "b".repeat(64), status: "answered" }] } }))).toBe("API_APPROVAL_RESOURCE");
     const version = responses()[5] as Extract<FactoryApiResponse, { kind: "version.summary" }>;
     expect(code(validateFactoryApiResponse({ ...version, resource: { ...version.resource, compiledBlobDigest: "b".repeat(63) } }))).toBe("API_RESPONSE_SCHEMA");
     const versionPage = responses()[6] as Extract<FactoryApiResponse, { kind: "version.page" }>;

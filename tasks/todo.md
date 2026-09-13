@@ -1709,3 +1709,19 @@ Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product a
 - [ ] Finish combined PostgreSQL/S3, types, static checks, Node orchestration, and coverage.
 
 Review checkpoint: combined source `965deee9e` failed because the completion fixture omitted the now-required native resource resolution. This also left an unprojected fixture run before the fairness test. The corrected fixture uses `FactoryNativeRunnerPolicy`; the lifecycle lane passes 30 tests / 323 assertions with no failures. Both logs are retained under `/tmp/factory-platform-evidence/root-child-completion-*`.
+
+# Factory assurance command dispatch (2026-09-13)
+
+- [x] Inspect committed kernel command shapes, current C04 stores, transition indexing, run lifecycle, and root command authority.
+- [x] Send the exact proposed adapter and required authority context to root before source edits.
+- [x] Persist the exact current generic approval command and protected human context.
+- [x] Return `null` for a pending human wait and one stable correlated event for the durable answer.
+- [x] Extend the existing notification inbox, session API, SDK, browser client, and UI with exact declared choices.
+- [x] Prove operator, owner, tenant administrator, foreign, revoked, tampered, rollback, duplicate, and replay behavior in PGlite.
+- [ ] Pass PostgreSQL, focused coverage, SDK build, all four type checks, lint, boundaries, patch coverage, browser evidence, and gate integrity.
+- [ ] Commit an immutable generic approval checkpoint with its integration contract and evidence.
+
+## Plan review
+
+- The first bounded leaf uses `FactoryCommandAuthority.withCurrentApproval` and the dormant C13 API contract. The store accepts only the trusted service and stored command reference. It locks current run authority before the approval row, stores the exact choices and review context, and writes the decision plus the existing interpreter inbox event in one transaction.
+- A generic workflow approval is separate from C04 release consent. Acceptance and release commands remain later leaves because their committed command shapes do not yet identify an exact producer candidate and prepared release operation.

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
+import type { JsonValue } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
@@ -10,6 +11,7 @@ import type { FactoryAcceptedRelease, FactoryAssurance } from "./assurance";
 import { FactoryGrantError, type FactoryAction, type FactoryGrants, type FactoryPrincipal } from "./grants";
 import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
+import { protectFactoryCommandApproval } from "./assurance-commands";
 
 const MAX_TEXT = 512;
 const MAX_REQUEST_BYTES = 1024 * 1024;
@@ -166,20 +168,24 @@ export interface FactoryReconciliationRequest {
   readonly receipt?: FactoryProviderReceipt;
 }
 
-export interface FactoryNotification extends DurableDeliveryRecord {
+interface FactoryNotificationBase extends DurableDeliveryRecord {
   readonly tenantId: string;
   readonly projectId: string;
   readonly deduplicationId: string;
   readonly inputHash: string;
-  readonly kind: "approval_requested" | "release_uncertain" | "release_settled";
-  readonly operationId: string;
   readonly payload: unknown;
 }
+
+export type FactoryNotification = FactoryNotificationBase & (
+  | { readonly kind: "approval_requested" | "release_uncertain" | "release_settled"; readonly operationId: string }
+  | { readonly kind: "command_approval_requested"; readonly approvalId: string }
+);
 
 export type FactoryVisibleReleaseNotification =
   | { readonly notificationId: string; readonly operationId: string; readonly createdAtMs: number; readonly kind: "approval_requested"; readonly approvalId: string; readonly contextDigest: string; readonly expiresAtMs: number }
   | { readonly notificationId: string; readonly operationId: string; readonly createdAtMs: number; readonly kind: "release_uncertain"; readonly dispatchGeneration: number; readonly outcomeCode: string }
-  | { readonly notificationId: string; readonly operationId: string; readonly createdAtMs: number; readonly kind: "release_settled"; readonly dispatchGeneration: number; readonly outcomeCode: string };
+  | { readonly notificationId: string; readonly operationId: string; readonly createdAtMs: number; readonly kind: "release_settled"; readonly dispatchGeneration: number; readonly outcomeCode: string }
+  | { readonly notificationId: string; readonly createdAtMs: number; readonly kind: "command_approval_requested"; readonly approvalId: string; readonly runId: string; readonly commandId: string; readonly nodeInstanceId: string; readonly contextDigest: string; readonly context: JsonValue; readonly choices: readonly string[]; readonly actorScope: "owner" | "operator" | "tenant-contract-admin"; readonly expiresAtMs: number };
 
 export interface FactoryNotificationListOptions { readonly cursor?: string; readonly limit?: number }
 export interface FactoryNotificationPage { readonly items: readonly FactoryVisibleReleaseNotification[]; readonly nextCursor: string | null }
@@ -204,6 +210,33 @@ type NotificationProjectionRow = NotificationRow & {
   context_digest: string | null;
   approval_expires_at_ms: number | string | null;
   approval_status: "pending" | "approved" | "rejected" | "consumed" | "revoked" | null;
+  command_approval_id: string | null;
+  command_run_id: string | null;
+  command_interpreter_id: string | null;
+  command_id: string | null;
+  command_node_instance_id: string | null;
+  command_context_digest: string | null;
+  command_context_json: string | null;
+  command_choices_json: string | null;
+  command_actor_scope: "owner" | "operator" | "tenant-contract-admin" | null;
+  command_initiator_kind: "user" | "service" | null;
+  command_initiator_id: string | null;
+  command_deadline_at_ms: number | string | null;
+  command_status: "pending" | "answered" | null;
+  command_source_sequence: number | string | null;
+  command_source_digest: string | null;
+  command_candidate_generation: number | string | null;
+  command_attempt: number | string | null;
+  command_definition_digest: string | null;
+  command_execution_epoch: number | string | null;
+  command_cancellation_epoch: number | string | null;
+  command_protected_digest: string | null;
+  current_source_sequence: number | string | null;
+  current_source_digest: string | null;
+  lifecycle_status: string | null;
+  lifecycle_deadline_ms: number | string | null;
+  lifecycle_cancellation_epoch: number | string | null;
+  installation_execution_epoch: number | string | null;
 };
 
 export class FactoryReleaseError extends Error {
@@ -302,9 +335,10 @@ function notificationScope(tenantId: string, projectId: string): string { return
 
 function decodeNotification(row: NotificationRow, tenantId: string, projectId: string): FactoryNotification {
   const notification = JSON.parse(row.payload) as FactoryNotification;
-  if (notification.tenantId !== tenantId || notification.projectId !== projectId || !["approval_requested", "release_uncertain", "release_settled"].includes(notification.kind) || notification.inputHash !== row.input_hash || durableInputHash({ kind: notification.kind, operationId: notification.operationId, payload: notification.payload }) !== row.input_hash) throw new FactoryReleaseError("factory_notification_corrupt");
+  const subject = notification.kind === "command_approval_requested" ? { approvalId: notification.approvalId } : { operationId: notification.operationId };
+  if (notification.tenantId !== tenantId || notification.projectId !== projectId || !["approval_requested", "release_uncertain", "release_settled", "command_approval_requested"].includes(notification.kind) || notification.inputHash !== row.input_hash || durableInputHash({ kind: notification.kind, ...subject, payload: notification.payload }) !== row.input_hash) throw new FactoryReleaseError("factory_notification_corrupt");
   try {
-    text(notification.id, notification.deduplicationId, notification.operationId);
+    text(notification.id, notification.deduplicationId, notification.kind === "command_approval_requested" ? notification.approvalId : notification.operationId);
     count(notification.attempts); count(notification.maxAttempts, true); count(notification.availableAt); count(notification.leaseUntil); count(notification.createdAt);
   } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
   return { ...notification, state: row.state };
@@ -520,6 +554,16 @@ export class FactoryReleases {
   async inspectNotification(projectId: string, notificationId: string): Promise<FactoryNotification | null> { text(projectId, notificationId); return notificationQueue.inspect(notificationStore(this.database, this.tenantId, projectId), notificationScope(this.tenantId, projectId), notificationId); }
   async dispatchNotification(projectId: string, handler: (notification: FactoryNotification) => Promise<void>): Promise<FactoryNotification | null> { return dispatchDurableDelivery(() => this.claimNotification(projectId), (notification, outcome, code) => this.settleNotification(projectId, notification, outcome, code), handler, () => null); }
 
+  /** Generic approval requests share the same durable in-app notification queue. */
+  async enqueueCommandApprovalInTransaction(transaction: MigrationDb, projectId: string, approvalId: string): Promise<FactoryNotification> {
+    text(projectId, approvalId);
+    const kind = "command_approval_requested" as const;
+    const payload = { approvalId };
+    const deduplicationId = `${kind}:${approvalId}`;
+    const inputHash = durableInputHash({ kind, approvalId, payload });
+    return notificationQueue.enqueue(notificationStore(transaction, this.tenantId, projectId), { scope: notificationScope(this.tenantId, projectId), deduplicationId, inputHash, hashExisting: record => record.inputHash, create: () => ({ id: randomUUID(), tenantId: this.tenantId, projectId, deduplicationId, inputHash, kind, approvalId, payload, state: "queued", attempts: 0, maxAttempts: 5, availableAt: this.now(), leaseUntil: 0, createdAt: this.now() }) });
+  }
+
   /** The transaction itself is the local inbox delivery boundary; no external acknowledgement is involved. */
   async deliverNextNotification(projectId: string): Promise<FactoryNotification | null> {
     text(projectId);
@@ -541,7 +585,7 @@ export class FactoryReleases {
     return this.database.transaction(async transaction => {
       const readAt = this.now();
       const permitted = new Set<FactoryAction>();
-      for (const action of ["factory.approve", "factory.operate", "factory.release"] as const) {
+      for (const action of ["factory.approve", "factory.operate", "factory.release", "factory.trust"] as const) {
         try { await this.grants.authorizeInTransaction(transaction, actor, projectId, action); permitted.add(action); }
         catch (error) { if (!deniedGrant(error)) throw error; }
       }
@@ -550,21 +594,49 @@ export class FactoryReleases {
       const found = rows<NotificationProjectionRow>(await transaction.execute(sql`
         SELECT n.notification_id,n.payload,n.state,n.input_hash,
           o.state AS operation_state,o.dispatch_generation,o.outcome_code,o.receipt_json,
-          a.approval_id,a.context_digest,a.expires_at_ms AS approval_expires_at_ms,a.status AS approval_status
+          a.approval_id,a.context_digest,a.expires_at_ms AS approval_expires_at_ms,a.status AS approval_status,
+          ca.approval_id AS command_approval_id,ca.run_id AS command_run_id,ca.interpreter_id AS command_interpreter_id,ca.command_id,ca.node_instance_id AS command_node_instance_id,
+          ca.context_digest AS command_context_digest,ca.context_json AS command_context_json,ca.choices_json AS command_choices_json,
+          ca.actor_scope AS command_actor_scope,ca.initiator_kind AS command_initiator_kind,ca.initiator_id AS command_initiator_id,
+          ca.deadline_at_ms AS command_deadline_at_ms,ca.status AS command_status,ca.source_sequence AS command_source_sequence,ca.source_digest AS command_source_digest,
+          ca.candidate_generation AS command_candidate_generation,ca.attempt AS command_attempt,ca.definition_digest AS command_definition_digest,
+          ca.execution_epoch AS command_execution_epoch,ca.cancellation_epoch AS command_cancellation_epoch,ca.protected_digest AS command_protected_digest,
+          (SELECT h.source_sequence FROM factory_audit_batches h WHERE h.tenant_id=ca.tenant_id AND h.project_id=ca.project_id AND h.run_id=ca.run_id AND h.interpreter_id=ca.interpreter_id ORDER BY h.source_sequence DESC LIMIT 1) AS current_source_sequence,
+          (SELECT h.digest FROM factory_audit_batches h WHERE h.tenant_id=ca.tenant_id AND h.project_id=ca.project_id AND h.run_id=ca.run_id AND h.interpreter_id=ca.interpreter_id ORDER BY h.source_sequence DESC LIMIT 1) AS current_source_digest,
+          l.status AS lifecycle_status,l.deadline_ms AS lifecycle_deadline_ms,l.cancellation_epoch AS lifecycle_cancellation_epoch,
+          i.execution_epoch AS installation_execution_epoch
         FROM factory_notifications n
         LEFT JOIN factory_release_operations o
           ON o.tenant_id=n.tenant_id AND o.project_id=n.project_id AND o.operation_id=n.payload::jsonb->>'operationId'
         LEFT JOIN factory_release_approvals a
           ON a.tenant_id=n.tenant_id AND a.project_id=n.project_id AND a.operation_id=o.operation_id
           AND a.approval_id=n.payload::jsonb#>>'{payload,approvalId}'
+        LEFT JOIN factory_command_approvals ca
+          ON ca.tenant_id=n.tenant_id AND ca.project_id=n.project_id AND ca.approval_id=n.payload::jsonb->>'approvalId'
+        LEFT JOIN factory_run_lifecycle l
+          ON l.tenant_id=ca.tenant_id AND l.project_id=ca.project_id AND l.run_id=ca.run_id
+        LEFT JOIN factory_installation i ON i.tenant_id=n.tenant_id
         WHERE n.tenant_id=${this.tenantId} AND n.project_id=${projectId} AND n.state='delivered' AND n.notification_id>${cursor}
         ORDER BY n.notification_id LIMIT ${limit + 1}`));
       const selected = found.slice(0, limit);
       const items: FactoryVisibleReleaseNotification[] = [];
       for (const row of selected) {
         const notification = decodeNotification(row, this.tenantId, projectId);
-        if (notification.id !== row.notification_id || row.operation_state === null) throw new FactoryReleaseError("factory_notification_corrupt");
+        if (notification.id !== row.notification_id) throw new FactoryReleaseError("factory_notification_corrupt");
         const payload = notificationPayload(notification.payload);
+        if (notification.kind === "command_approval_requested") {
+          if (notification.approvalId !== row.command_approval_id || payload.approvalId !== row.command_approval_id || row.command_status !== "pending" || Number(row.command_deadline_at_ms) <= readAt || Number(row.command_source_sequence) !== Number(row.current_source_sequence) || row.command_source_digest !== row.current_source_digest || Number(row.command_execution_epoch) !== Number(row.installation_execution_epoch) || Number(row.command_cancellation_epoch) !== Number(row.lifecycle_cancellation_epoch) || !["queued", "running", "waiting"].includes(row.lifecycle_status ?? "") || Number(row.lifecycle_deadline_ms) <= readAt) continue;
+          const allowed = row.command_actor_scope === "operator" ? permitted.has("factory.approve") : row.command_actor_scope === "owner" ? permitted.has("factory.approve") && row.command_initiator_kind === "user" && row.command_initiator_id === actor.id : row.command_actor_scope === "tenant-contract-admin" ? permitted.has("factory.approve") && permitted.has("factory.trust") : false;
+          if (!allowed) continue;
+          let context: JsonValue, choices: unknown;
+          try { context = JSON.parse(row.command_context_json ?? ""); choices = JSON.parse(row.command_choices_json ?? ""); } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
+          if (!Array.isArray(choices) || choices.length < 1 || choices.some(value => typeof value !== "string") || !row.command_run_id || !row.command_interpreter_id || !row.command_id || !row.command_node_instance_id || !row.command_context_digest || !row.command_source_digest || !row.command_definition_digest || !row.command_initiator_kind || !row.command_initiator_id || !row.command_actor_scope || !row.command_protected_digest || !/^[a-f0-9]{64}$/.test(row.command_context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
+          const sealed = protectFactoryCommandApproval({ tenantId: this.tenantId, projectId, runId: row.command_run_id, interpreterId: row.command_interpreter_id, commandId: row.command_id, sourceSequence: Number(row.command_source_sequence), sourceDigest: row.command_source_digest, nodeInstanceId: row.command_node_instance_id, candidateGeneration: Number(row.command_candidate_generation), attempt: Number(row.command_attempt), initiator: { kind: row.command_initiator_kind, id: row.command_initiator_id }, actorScope: row.command_actor_scope, choices, context, deadlineAtMs: Number(row.command_deadline_at_ms), definitionDigest: row.command_definition_digest, executionEpoch: Number(row.command_execution_epoch), cancellationEpoch: Number(row.command_cancellation_epoch) });
+          if (sealed.contextDigest !== row.command_context_digest || sealed.protectedDigest !== row.command_protected_digest) throw new FactoryReleaseError("factory_notification_corrupt");
+          items.push({ notificationId: notification.id, createdAtMs: notification.createdAt, kind: notification.kind, approvalId: row.command_approval_id, runId: row.command_run_id, commandId: row.command_id, nodeInstanceId: row.command_node_instance_id, contextDigest: row.command_context_digest, context, choices, actorScope: row.command_actor_scope!, expiresAtMs: Number(row.command_deadline_at_ms) });
+          continue;
+        }
+        if (row.operation_state === null) throw new FactoryReleaseError("factory_notification_corrupt");
         if (notification.kind === "approval_requested") {
           if (!permitted.has("factory.approve") || row.operation_state !== "pending" || row.approval_status !== "pending" || Number(row.approval_expires_at_ms) <= readAt) continue;
           if (typeof payload.approvalId !== "string" || payload.approvalId !== row.approval_id || payload.expiresAtMs !== Number(row.approval_expires_at_ms) || !row.context_digest || !/^[a-f0-9]{64}$/.test(row.context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
@@ -650,7 +722,7 @@ export class FactoryReleases {
     await insertTransactionalAuditEntry(transaction, `factory-release-reconciliation:${reconciliationId}`, operator.id, "factory.release.reconciled", operation.operationId, { tenantId: this.tenantId, projectId: operation.projectId, operationId: operation.operationId, reconciliationId, action: request.action, reason: request.reason, evidenceDigest: hash(request.providerEvidence) });
   }
 
-  private async enqueueNotificationInTransaction(transaction: MigrationDb, projectId: string, kind: FactoryNotification["kind"], operationId: string, payload: unknown): Promise<FactoryNotification> {
+  private async enqueueNotificationInTransaction(transaction: MigrationDb, projectId: string, kind: "approval_requested" | "release_uncertain" | "release_settled", operationId: string, payload: unknown): Promise<FactoryNotification> {
     const deduplicationId = `${kind}:${operationId}:${hash(payload)}`;
     const inputHash = durableInputHash({ kind, operationId, payload });
     return notificationQueue.enqueue(notificationStore(transaction, this.tenantId, projectId), { scope: notificationScope(this.tenantId, projectId), deduplicationId, inputHash, hashExisting: record => record.inputHash, create: () => ({ id: randomUUID(), tenantId: this.tenantId, projectId, deduplicationId, inputHash, kind, operationId, payload, state: "queued", attempts: 0, maxAttempts: 5, availableAt: this.now(), leaseUntil: 0, createdAt: this.now() }) });

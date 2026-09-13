@@ -54,6 +54,19 @@
 			deciding = "";
 		}
 	}
+
+	async function decideCommand(item: Extract<FactoryReleaseNotificationResource, { kind: "command_approval_requested" }>, choice: string): Promise<void> {
+		deciding = item.approvalId;
+		errorMessage = "";
+		try {
+			await api.decideCommandApproval(projectId, item.runId, item.approvalId, item.contextDigest, choice);
+			items = items.filter(current => current.notificationId !== item.notificationId);
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : "The approval decision failed.";
+		} finally {
+			deciding = "";
+		}
+	}
 </script>
 
 <section class="release-inbox" aria-labelledby="release-inbox-title" data-testid="factory-release-inbox">
@@ -61,29 +74,31 @@
 		<div class="title-mark"><BellRing size={18} /></div>
 		<div>
 			<p>Human review</p>
-			<h2 id="release-inbox-title">Release inbox</h2>
+			<h2 id="release-inbox-title">Factory inbox</h2>
 		</div>
-		<span class="count" aria-label={`${items.length} release notifications`}>{items.length}</span>
-		<button class="refresh" aria-label="Refresh release inbox" disabled={loading || !projectId} onclick={() => load()}><span class:spin={loading}><RefreshCw size={15} /></span></button>
+		<span class="count" aria-label={`${items.length} factory notifications`}>{items.length}</span>
+		<button class="refresh" aria-label="Refresh factory inbox" disabled={loading || !projectId} onclick={() => load()}><span class:spin={loading}><RefreshCw size={15} /></span></button>
 	</header>
 
 	{#if errorMessage}<div class="inbox-error" role="alert">{errorMessage}</div>{/if}
 	{#if loading && items.length === 0}
 		<p class="empty" aria-live="polite">Checking current release authority…</p>
 	{:else if items.length === 0}
-		<p class="empty">No release actions need your attention.</p>
+		<p class="empty">No factory actions need your attention.</p>
 	{:else}
 		<div class="items" aria-live="polite">
 			{#each items as item (item.notificationId)}
 				<article class:uncertain={item.kind === "release_uncertain"} class:settled={item.kind === "release_settled"}>
 					<div class="kind-icon">
-						{#if item.kind === "approval_requested"}<BellRing size={16} />{:else if item.kind === "release_uncertain"}<CircleAlert size={17} />{:else}<CircleCheck size={17} />{/if}
+						{#if item.kind === "approval_requested" || item.kind === "command_approval_requested"}<BellRing size={16} />{:else if item.kind === "release_uncertain"}<CircleAlert size={17} />{:else}<CircleCheck size={17} />{/if}
 					</div>
 					<div class="copy">
-						<strong>{item.kind === "approval_requested" ? "Release approval requested" : item.kind === "release_uncertain" ? "Release outcome uncertain" : "Release completed"}</strong>
-						<code title={item.operationId}>{item.operationId}</code>
+						<strong>{item.kind === "command_approval_requested" ? "Factory approval requested" : item.kind === "approval_requested" ? "Release approval requested" : item.kind === "release_uncertain" ? "Release outcome uncertain" : "Release completed"}</strong>
+						<code title={item.kind === "command_approval_requested" ? item.commandId : item.operationId}>{item.kind === "command_approval_requested" ? item.commandId : item.operationId}</code>
 						{#if item.kind === "approval_requested"}
 							<small>Review the exact candidate before this request expires.</small>
+						{:else if item.kind === "command_approval_requested"}
+							<small>Node {item.nodeInstanceId} · {JSON.stringify(item.context)}</small>
 						{:else if item.kind === "release_uncertain"}
 							<small>Generation {item.dispatchGeneration} · {item.outcomeCode}. Reconciliation is required.</small>
 						{:else}
@@ -94,6 +109,12 @@
 						<div class="decision-actions">
 							<button class="deny" disabled={deciding === item.approvalId} onclick={() => decide(item, "denied")}><X size={14} /> Deny</button>
 							<button class="approve" disabled={deciding === item.approvalId} onclick={() => decide(item, "approved")}><Check size={14} /> Approve</button>
+						</div>
+					{:else if item.kind === "command_approval_requested"}
+						<div class="decision-actions">
+							{#each item.choices as choice}
+								<button class="approve" disabled={deciding === item.approvalId} onclick={() => decideCommand(item, choice)}>{choice}</button>
+							{/each}
 						</div>
 					{/if}
 				</article>

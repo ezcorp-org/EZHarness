@@ -19,6 +19,7 @@ import type {
 	FactoryReleasePolicyBody,
 	FactoryReleasePolicyResource,
 	FactoryReleaseReconciliationBody,
+	FactoryApprovalResource,
 	RunnerReference,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
@@ -244,6 +245,11 @@ export class FactoryApiClient {
 		return expectKind(await this.read(path, this.mutationInit("decide-release-approval:" + approvalId, 0, { contextDigest, decision }, "PUT")), "release.approval.resource").resource;
 	}
 
+	async decideCommandApproval(projectId: string, runId: string, approvalId: string, contextDigest: string, choice: string): Promise<FactoryApprovalResource> {
+		const path = "/api/factories/projects/" + encoded(projectId) + "/runs/" + encoded(runId) + "/approvals/" + encoded(approvalId);
+		return expectKind(await this.read(path, this.mutationInit("decide-command-approval:" + approvalId, 0, { contextDigest, choice }, "PUT")), "approval.resource").resource;
+	}
+
 	async listReleaseNotifications(projectId: string, query: { readonly limit?: number; readonly cursor?: string } = {}): Promise<{ readonly items: readonly FactoryReleaseNotificationResource[]; readonly nextCursor: string | null }> {
 		const response = expectKind(await this.read(this.release(projectId) + "/notifications" + queryString(query)), "release.notification.page");
 		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
@@ -275,7 +281,7 @@ export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
 	"requestReleaseApproval" | "decideReleaseApproval" | "listReleaseNotifications" | "putReleasePolicy" | "deleteReleasePolicy" | "reconcileRelease"
 >;
 
-export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval">;
+export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval" | "decideCommandApproval">;
 
 export function blankFactory(factoryId: string): FactoryDefinition {
 	return {
