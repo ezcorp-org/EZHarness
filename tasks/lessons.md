@@ -518,3 +518,4 @@
 ## 2026-09-13 — Schema migration parity
 
 - For every migration default, model the same default in `schema.ts`. Run the canonical schema parity test; focused feature tests do not detect a missing ORM default.
+- When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.

@@ -9,6 +9,7 @@ import { FactoryServiceCredentialError } from "$server/factory/service-credentia
 import { FactoryReleaseAuthorityError, type FactoryReleaseControl, type FactoryReleaseTrustRecord } from "$server/factory/release-authority";
 import { FactoryAssuranceError } from "$server/factory/assurance";
 import { FactoryReleaseError, type FactoryReleaseOperation } from "$server/factory/releases";
+import { FactoryAssuranceCommandError } from "$server/factory/assurance-commands";
 import type { FactoryReleaseApplication } from "$server/factory/release-application";
 import { signFactoryServiceToken } from "$server/auth/factory-service-token";
 import { getJwtSecret } from "$server/auth/jwt";
@@ -249,6 +250,11 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
     }
     case "command.get":
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "command.resource", resource: await application.runs.readCommand(principal, { projectId: request.path.projectId, runId: request.path.runId }, request.path.commandId) };
+    case "approval.decide": {
+      if (!application.commandApprovals) throw new FactoryAssuranceCommandError("factory_command_approval_unavailable");
+      const resource = await application.commandApprovals.decide(principal, request.path.projectId, request.path.runId, request.path.approvalId, request.body.contextDigest, request.body.choice, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "approval.resource", resource };
+    }
     case "grant.list": {
       const page = await application.grants.list(principal, request.path.projectId, request.query);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.page", page: apiPage(page.items.map(grantResource), page.nextCursor) };
@@ -446,6 +452,14 @@ function mappedError(error: unknown): Response {
     if (error.code === "factory_assurance_invalid") return errorResponse(400, error.code, "The release assurance request is invalid.");
     if (error.code === "factory_assurance_claim_failed" || error.code === "factory_assurance_evidence_stale") return errorResponse(422, error.code, "The candidate does not satisfy the current assurance contract.");
     return errorResponse(500, error.code, "Release assurance storage is unavailable.", true);
+  }
+  if (error instanceof FactoryAssuranceCommandError) {
+    if (error.code === "factory_command_approval_unavailable") return errorResponse(503, error.code, "Factory approval services are not ready.", true);
+    if (error.code === "factory_command_approval_not_found") return errorResponse(404, error.code, "Factory approval not found.");
+    if (error.code === "factory_command_approval_forbidden" || error.code === "factory_command_approval_scope") return errorResponse(403, error.code, "Factory approval authority is required.");
+    if (error.code === "factory_command_approval_stale" || error.code === "factory_command_approval_conflict") return errorResponse(412, error.code, "The factory approval precondition is stale.");
+    if (error.code === "factory_command_approval_invalid") return errorResponse(400, error.code, "The factory approval request is invalid.");
+    return errorResponse(500, error.code, "Factory approval storage is unavailable.", true);
   }
   if (error instanceof FactoryReleaseError) {
     if (error.code === "factory_release_application_unavailable") return errorResponse(503, error.code, "Release services are not ready.", true);

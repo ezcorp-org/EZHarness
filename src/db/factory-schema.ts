@@ -388,7 +388,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     childFactoryId: text("child_factory_id").notNull(),
     childFactoryVersion: text("child_factory_version").notNull(),
     childDefinitionDigest: text("child_definition_digest").notNull(),
-    definitionJson: text("definition_json").notNull(),
+    definitionJson: text("definition_json").notNull().default("{}"),
     startedMs: bigint("started_ms", { mode: "number" }).notNull(),
     parentExecutionEpoch: bigint("parent_execution_epoch", { mode: "number" }).notNull(),
     parentCancellationEpoch: bigint("parent_cancellation_epoch", { mode: "number" }).notNull(),

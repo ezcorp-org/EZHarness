@@ -836,7 +836,8 @@ export interface FactoryRunRevisionBody {
 export type FactoryRunControlBody = FactoryRunCancelBody | FactoryRunRevisionBody;
 
 export interface FactoryApprovalDecisionBody {
-  readonly decision: "approved" | "denied";
+  /** Must equal one of the exact choices in the protected approval request. @minLength 1 @maxLength 512 */
+  readonly choice: string;
   /** @minLength 64 @maxLength 64 */
   readonly contextDigest: string;
   /** @minLength 1 @maxLength 2048 */
@@ -979,17 +980,27 @@ export interface FactoryApprovalResource {
   readonly approvalId: string;
   /** @minLength 1 @maxLength 512 */
   readonly runId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly commandId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly nodeInstanceId: string;
   /** @minimum 1 @maximum 9007199254740991 */
   readonly revision: number;
   /** @minLength 64 @maxLength 64 */
   readonly contextDigest: string;
-  readonly status: "pending" | "approved" | "denied" | "expired";
+  readonly status: "pending" | "answered" | "expired";
+  /** @minItems 1 @maxItems 100 */
+  readonly choices: readonly string[];
+  readonly context: JsonValue;
+  readonly actorScope: "owner" | "operator" | "tenant-contract-admin";
   /** @minimum 0 @maximum 9007199254740991 */
   readonly expiresAtMs: number;
   /** @minLength 1 @maxLength 512 */
   readonly decidedBy?: string;
   /** @minimum 0 @maximum 9007199254740991 */
   readonly decidedAtMs?: number;
+  /** @minLength 1 @maxLength 512 */
+  readonly choice?: string;
 }
 
 export interface FactoryGrantResource {
@@ -1081,21 +1092,34 @@ export interface FactoryReleaseApprovalResource {
 
 interface FactoryReleaseNotificationBase {
   /** @minLength 1 @maxLength 512 */ readonly notificationId: string;
-  /** @minLength 1 @maxLength 512 */ readonly operationId: string;
   /** @minimum 0 @maximum 9007199254740991 */ readonly createdAtMs: number;
 }
 
 export type FactoryReleaseNotificationResource =
   | (FactoryReleaseNotificationBase & {
     readonly kind: "approval_requested";
+    /** @minLength 1 @maxLength 512 */ readonly operationId: string;
     /** @minLength 1 @maxLength 512 */ readonly approvalId: string;
     /** @minLength 64 @maxLength 64 */ readonly contextDigest: string;
     /** @minimum 1 @maximum 9007199254740991 */ readonly expiresAtMs: number;
   })
   | (FactoryReleaseNotificationBase & {
     readonly kind: "release_uncertain" | "release_settled";
+    /** @minLength 1 @maxLength 512 */ readonly operationId: string;
     /** @minimum 1 @maximum 9007199254740991 */ readonly dispatchGeneration: number;
     /** @minLength 1 @maxLength 512 */ readonly outcomeCode: string;
+  })
+  | (FactoryReleaseNotificationBase & {
+    readonly kind: "command_approval_requested";
+    /** @minLength 1 @maxLength 512 */ readonly approvalId: string;
+    /** @minLength 1 @maxLength 512 */ readonly runId: string;
+    /** @minLength 1 @maxLength 512 */ readonly commandId: string;
+    /** @minLength 1 @maxLength 512 */ readonly nodeInstanceId: string;
+    /** @minLength 64 @maxLength 64 */ readonly contextDigest: string;
+    readonly context: JsonValue;
+    /** @minItems 1 @maxItems 100 */ readonly choices: readonly string[];
+    readonly actorScope: "owner" | "operator" | "tenant-contract-admin";
+    /** @minimum 1 @maximum 9007199254740991 */ readonly expiresAtMs: number;
   });
 
 export type FactoryReleasePolicyResource =

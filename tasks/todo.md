@@ -1702,6 +1702,36 @@ Plan review: test the public completion boundary with a published factory, admit
 
 Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product and registration 47 passed / 421 assertions; PostgreSQL/S3 plus schema parity 46 passed / 2,090 assertions. SDK build, all four typechecks, lint (zero errors / eight existing infos), gate integrity, and boundaries passed. Both database producers report task-completions 79/79 lines and 18/18 functions, migration 4/4 and 2/2; shared command authority 88/88 and 26/26, artifacts 106/106 and 28/28, input artifacts 39/39 and 7/7. Source snapshot and exact results: `/tmp/factory-platform-evidence/root-task-completion-final-source.json` and `root-task-completion-final-integration-results.json`. Committed patch/new-file coverage and parent integration remain pending.
 
+## Parent integration — native policy, child runs, successful completion
+
+- [x] Preserve the first combined-suite failure and reproduce it in the lifecycle lane.
+- [x] Use the concrete native policy in the shared completion fixture.
+- [ ] Finish combined PostgreSQL/S3, types, static checks, Node orchestration, and coverage.
+
+Review checkpoint: combined source `965deee9e` failed because the completion fixture omitted the now-required native resource resolution. This also left an unprojected fixture run before the fairness test. The corrected fixture uses `FactoryNativeRunnerPolicy`; the lifecycle lane passes 30 tests / 323 assertions with no failures. Both logs are retained under `/tmp/factory-platform-evidence/root-child-completion-*`.
+
+# Factory assurance command dispatch (2026-09-13)
+
+- [x] Inspect committed kernel command shapes, current C04 stores, transition indexing, run lifecycle, and root command authority.
+- [x] Send the exact proposed adapter and required authority context to root before source edits.
+- [x] Persist the exact current generic approval command and protected human context.
+- [x] Return `null` for a pending human wait and one stable correlated event for the durable answer.
+- [x] Extend the existing notification inbox, session API, SDK, browser client, and UI with exact declared choices.
+- [x] Prove operator, owner, tenant administrator, foreign, revoked, tampered, rollback, duplicate, and replay behavior in PGlite.
+- [x] Pass PostgreSQL, focused coverage, SDK build, all four type checks, lint, boundaries, patch coverage, browser evidence, and gate integrity.
+- [x] Commit an immutable generic approval checkpoint with its integration contract and evidence.
+
+## Plan review
+
+- The first bounded leaf uses `FactoryCommandAuthority.withCurrentApproval` and the dormant C13 API contract. The store accepts only the trusted service and stored command reference. It locks current run authority before the approval row, stores the exact choices and review context, and writes the decision plus the existing interpreter inbox event in one transaction.
+- A generic workflow approval is separate from C04 release consent. Acceptance and release commands remain later leaves because their committed command shapes do not yet identify an exact producer candidate and prepared release operation.
+
+## Review
+
+- A current generic approval command now creates one protected pending decision. The store obtains its command, node, attempt, fence, choices, actor scope, context, and initiator from `FactoryCommandAuthority`; it accepts no caller evidence. A pending execution returns `null`.
+- A current human with explicit `factory.approve` can choose only a declared answer. Owner review also requires the durable run initiator. Tenant-contract-admin review also requires current `factory.trust`. The decision transaction locks run authority before the approval and inbox rows, then commits one audited decision and one stable `approval-decided` event. Exact retries reuse that row and event after current reviewer authorization.
+- The existing factory inbox and session API expose the generic request beside release notifications. Foreign and revoked principals cannot read or decide it. Release approval remains a separate C04 consent path.
+- PGlite and isolated PostgreSQL each pass 26 lifecycle cases with 248 assertions. Focused SDK, migration, release, API, web, Chromium, coverage, build, all typecheck legs, lint, boundaries, patch coverage, and gate integrity pass. Exact commands, logs, measured lines, and source hashes are in `tasks/factory/generic-command-approval-GATES.md`.
 ## C05 factory v4 package preparation — Terra
 
 - [ ] Define the scoped immutable v4 release mapping and sealed receipt schema.
