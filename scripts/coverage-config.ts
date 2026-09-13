@@ -121,6 +121,7 @@ export const SOURCE_GLOBS: readonly string[] = [
   "packages/@ezcorp/extension-runner/src/**/*.ts",
   "packages/@ezcorp/factory-sdk/src/**/*.ts",
   "packages/@ezcorp/factory-orchestrator/src/**/*.ts",
+  "packages/@ezcorp/factory-transport/src/**/*.ts",
   "docs/extensions/examples/**/*.ts",
   // First-party BUNDLED extensions (registered in src/extensions/bundled.ts).
   // They ship in the product exactly like `src/**` does — the reference
@@ -165,6 +166,7 @@ export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
  */
 export const V8_CANONICAL_SOURCES: readonly string[] = [
   "src/factory/file-key-wraps.ts",
+  "packages/@ezcorp/factory-transport/src/index.ts",
   "packages/@ezcorp/factory-orchestrator/src/contracts.ts",
   "packages/@ezcorp/factory-orchestrator/src/definition-pages.ts",
   "packages/@ezcorp/factory-orchestrator/src/dispatcher.ts",

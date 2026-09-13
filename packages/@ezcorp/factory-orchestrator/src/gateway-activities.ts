@@ -1,7 +1,4 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { request as httpsRequest, type RequestOptions } from "node:https";
-import type { IncomingHttpHeaders } from "node:http";
 import type { CompiledExecutionManifest, CompiledPartitionArtifact } from "@ezcorp/factory-sdk/types";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { Context } from "@temporalio/activity";
@@ -22,38 +19,11 @@ import {
 } from "./contracts.ts";
 import { validateDefinitionSource, validateInboxEvent, validateManifestPage, validateObjectReference } from "./validation.ts";
 
-export interface GatewayTlsSecretPaths {
-  readonly caPath: string;
-  readonly certificatePath: string;
-  readonly privateKeyPath: string;
-  readonly serviceTokenPath: string;
-}
-
-export interface GatewayTransportOptions {
-  readonly baseUrl: string;
-  readonly tls: GatewayTlsSecretPaths;
-  readonly serverName?: string;
-  readonly requestTimeoutMs?: number;
-}
+import { createGatewayTransport, type GatewayResponse, type GatewayTransportOptions } from "@ezcorp/factory-transport";
+export { createGatewayTransport, type GatewayTlsSecretPaths, type GatewayTransportOptions, type GatewayTransport, type GatewayResponse } from "@ezcorp/factory-transport";
 
 export interface GatewayActivitiesOptions extends GatewayTransportOptions {
   readonly heartbeatIntervalMs?: number;
-}
-
-export interface GatewayResponse {
-  readonly statusCode: number;
-  readonly headers: IncomingHttpHeaders;
-  readonly body: Buffer;
-}
-
-export interface GatewayTransport {
-  request(method: "GET" | "POST" | "PUT", path: string, body?: unknown, responseLimit?: number, signal?: AbortSignal): Promise<GatewayResponse>;
-}
-
-function encoded(value: unknown, limit: number): Buffer {
-  const body = Buffer.from(JSON.stringify(value));
-  if (body.byteLength > limit) throw new Error(`factory gateway request exceeds ${limit} bytes`);
-  return body;
 }
 
 function sha256(bytes: Buffer): string {
@@ -72,86 +42,11 @@ function parseJson<T>(response: GatewayResponse): T {
   }
 }
 
-function requireSuccess(response: GatewayResponse): GatewayResponse {
-  if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(`factory gateway returned HTTP ${response.statusCode}`);
-  return response;
-}
-
 function commandPath(execution: CommandExecution): { method: "POST" | "PUT"; path: string } {
   const command = execution.command;
   if (command.kind === "dispatch-node") return { method: "PUT", path: `/internal/factory/v1/executions/${encodeURIComponent(command.id)}` };
   if (command.kind === "cancel-node") return { method: "POST", path: `/internal/factory/v1/executions/${encodeURIComponent(command.attemptCommandId)}/cancel` };
   return { method: "POST", path: `/internal/factory/v1/commands/${encodeURIComponent(command.id)}` };
-}
-
-function createTransport(
-  endpoint: URL,
-  credentials: { ca: Buffer; certificate: Buffer; privateKey: Buffer; token: string },
-  serverName: string,
-  timeoutMs: number,
-): GatewayTransport {
-  return {
-    request(method, path, value, responseLimit = MAX_ACTIVITY_PAYLOAD_BYTES, signal) {
-      const body = value === undefined ? undefined : encoded(value, responseLimit);
-      return new Promise((resolve, reject) => {
-        const url = new URL(path, endpoint);
-        const options: RequestOptions = {
-          method,
-          ca: credentials.ca,
-          cert: credentials.certificate,
-          key: credentials.privateKey,
-          rejectUnauthorized: true,
-          servername: serverName,
-          ...(signal ? { signal } : {}),
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${credentials.token}`,
-            "content-type": "application/json",
-            "content-length": body?.byteLength ?? 0,
-            "x-ezcorp-factory-version": "1",
-          },
-        };
-        const request = httpsRequest(url, options, (response) => {
-          const chunks: Buffer[] = [];
-          let received = 0;
-          response.on("data", (chunk: Buffer) => {
-            received += chunk.byteLength;
-            if (received > responseLimit) response.destroy(new Error(`factory gateway response exceeds ${responseLimit} bytes`));
-            else chunks.push(chunk);
-          });
-          response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) }));
-          response.on("error", reject);
-        });
-        request.setTimeout(timeoutMs, () => request.destroy(new Error("factory gateway request timed out")));
-        request.on("error", reject);
-        if (body) request.write(body);
-        request.end();
-      });
-    },
-  };
-}
-
-async function loadCredentials(paths: GatewayTlsSecretPaths): Promise<{ ca: Buffer; certificate: Buffer; privateKey: Buffer; token: string }> {
-  const [ca, certificate, privateKey, tokenBytes] = await Promise.all([
-    readFile(paths.caPath), readFile(paths.certificatePath), readFile(paths.privateKeyPath), readFile(paths.serviceTokenPath),
-  ]);
-  const token = tokenBytes.toString("utf8").trim();
-  if (!token) throw new Error("factory gateway service token is empty");
-  return { ca, certificate, privateKey, token };
-}
-
-/** Shared private HTTPS client. It reloads every credential before each request. */
-export async function createGatewayTransport(options: GatewayTransportOptions): Promise<GatewayTransport> {
-  const endpoint = new URL(options.baseUrl);
-  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error("factory gateway requires a plain private HTTPS origin");
-  await loadCredentials(options.tls);
-  return {
-    async request(method, path, body, responseLimit = MAX_ACTIVITY_PAYLOAD_BYTES, signal): Promise<GatewayResponse> {
-      const credentials = await loadCredentials(options.tls);
-      const transport = createTransport(endpoint, credentials, options.serverName ?? endpoint.hostname, options.requestTimeoutMs ?? 30_000);
-      return requireSuccess(await transport.request(method, path, body, responseLimit, signal));
-    },
-  };
 }
 
 export async function createGatewayFactoryActivities(options: GatewayActivitiesOptions): Promise<FactoryActivities> {
