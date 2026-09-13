@@ -1,6 +1,6 @@
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { JsonValue } from "@ezcorp/factory-sdk";
-import { MAX_PAGE_BYTES, MAX_TRANSITION_ARTIFACT_BYTES, MAX_TRANSITION_PAGES, type FactoryIdentity, type FinalizedTransitionArtifact, type ImmutableObjectReference, type TransitionArtifact, type TransitionArtifactRequest, type TransitionPageReference, type TransitionPageRequest, type TransitionRecord } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
+import { MAX_PAGE_BYTES, MAX_TRANSITION_ARTIFACT_BYTES, MAX_TRANSITION_PAGES, type FactoryIdentity, type FactoryTransitionManifest, type FactoryTransitionPage, type FinalizedTransitionArtifact, type ImmutableObjectReference, type TransitionArtifact, type TransitionArtifactRequest, type TransitionPageReference, type TransitionPageRequest, type TransitionRecord } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { digestBytes } from "../extensions/v4/blobs";
 import { FACTORY_ARTIFACT_MAX_BYTES, FactoryArtifactError, artifactJson } from "./artifacts";
 import type { FactoryArtifacts } from "./artifacts";
@@ -9,23 +9,8 @@ import { encodeFactoryPayload, FactoryRecords } from "./records";
 
 function eventDigest(event: unknown): string { return `sha256:${digestBytes(artifactJson.canonical(event))}`; }
 
-type StoredTransitionManifest = {
-  readonly schemaVersion: "factory.transition-manifest.v1";
-  readonly tenantId: string;
-  readonly projectId: string;
-  readonly logicalRunId: string;
-  readonly interpreterId: string;
-  readonly sourceSequence: number;
-  readonly eventId: string;
-  readonly eventHash: string;
-  readonly encodedBytes: number;
-  readonly pages: readonly TransitionPageReference[];
-};
-
-/** Structural match for the Node worker's FactoryTransitionManifest contract. */
-export type LoadedTransitionManifest = StoredTransitionManifest & { readonly self: ImmutableObjectReference };
-/** Structural match for the Node worker's FactoryTransitionPage contract. */
-export type LoadedTransitionPage = TransitionPageReference & { readonly content: string };
+export type LoadedTransitionManifest = FactoryTransitionManifest;
+export type LoadedTransitionPage = FactoryTransitionPage;
 
 function validSequence(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 1; }
 function sameReference(left: ImmutableObjectReference, right: ImmutableObjectReference): boolean { return left.objectId === right.objectId && left.digest === right.digest && left.encodedBytes === right.encodedBytes; }
