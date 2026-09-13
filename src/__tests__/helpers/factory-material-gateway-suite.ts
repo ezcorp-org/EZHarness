@@ -201,6 +201,8 @@ test("the gateway maps material conflicts, unknown objects and denied methods to
   expect((await json(`${object}/seal`, certs, token, "POST", { digest: factoryMaterialDigest(content) })).status).toBe(400);
   // An out-of-range chunk index never reaches the service.
   expect((await chunk(`${object}/chunks/${FACTORY_MATERIAL_LIMITS.maxChunks}`, certs, token, "PUT", content, factoryMaterialDigest(content))).status).toBe(400);
+  expect((await chunk(`${object}/chunks/0`, certs, token, "DELETE", content, factoryMaterialDigest(content))).status).toBe(405);
+  expect((await json(`${object}/seal`, certs, token, "GET")).status).toBe(405);
 });
 
 test("a chunk upload after the attempt deadline is refused while the listing stays readable", async () => {
