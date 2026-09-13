@@ -295,6 +295,8 @@ export type KernelCommand =
       readonly candidateGeneration: number;
       readonly factory: FactoryReference;
       readonly input: JsonValue;
+      /** Child readers re-authorize against the child lifecycle, never the parent. */
+      readonly durableInput?: import("./types.js").FactoryDurableInput;
       readonly deadlineAtMs: number;
     }
   | {
