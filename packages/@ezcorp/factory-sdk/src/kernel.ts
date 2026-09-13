@@ -185,7 +185,7 @@ function applyInputValue(factory: KernelFactoryPlan, state: KernelState, event: 
   if (bound !== undefined && bound !== event.storageVersion) throw new FactoryKernelError("lazy input storage version changed");
   const lazyInput = { versions: { ...state.lazyInput!.versions, [key]: event.storageVersion }, values: { ...state.lazyInput!.values, [lazyKey(event.name, event.path)]: snapshotValue(event.value) }, pending: { ...state.lazyInput!.pending } };
   delete (lazyInput.pending as Record<string, unknown>)[event.commandId];
-  return activateReady(factory, { ...state, lazyInput }, commands, [pending.nodeId]);
+  return activateReady(factory, withNode({ ...state, lazyInput }, pending.nodeId, { ...state.nodes[pending.nodeId]!, status: "blocked", waitingReason: undefined, waitingDeadlineAtMs: undefined }), commands, [pending.nodeId]);
 }
 
 function partitionEdgeKey(sourcePartitionId: string, sourceNodeId: string, nodeId: string): string {
