@@ -6,6 +6,7 @@ dependencies = ["jsonschema==4.25.1"]
 
 [dependency-groups]
 dev = [
+    "coverage==7.13.1",
     "mypy==1.18.2",
     "ruff==0.12.11",
     "types-jsonschema>=4.26.0.20260518",

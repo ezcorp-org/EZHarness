@@ -38,4 +38,4 @@
 - [x] G5 The changed executable source is covered by focused tests and the final patch has at least 100 changed/new executable lines measured.
   CHECK: git diff --numstat HEAD~1..HEAD -- src/factory src/runtime packages/@ezcorp/factory-sdk
   EXPECT: records the final measured source/test delta.
-  EVIDENCE: `git show --numstat HEAD -- packages/@ezcorp/factory-sdk/src src/factory src/runtime tests/postgres` measured 208 added + 80 deleted = 288 changed lines; focused suites and real Podman recovery passed. Full coverage could not finish because its script used system Bun 1.3.9 and hit unrelated existing failures (Bun crashes, missing Temporal worker, and unrelated CI-set/migration/mock checks).
+  EVIDENCE: pinned focused runner producer: journal/gateway/native/runtime/supervisor/Podman 13 pass; exact LCOV 100% for execution-gateway 69/69, executions 190/190, native 74/74, supervisor 76/76, and SDK compiler 592/592. `BASE_REF=HEAD~2 bun scripts/check-patch-coverage.ts` passed six changed source files. The source diff measured 208 added + 80 deleted = 288 lines.

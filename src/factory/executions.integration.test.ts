@@ -117,6 +117,7 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
   await expect(journal.settle(attempt, second.operationId, "failed", { resultDigest: "late" })).rejects.toThrow("stale, cancelled, or expired");
   await journal.reconcileLate(expired, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: { charged: 1 }, workspaceCheckpoint: { revision: "late" } });
+  await expect(journal.reconcileLate({ ...expired, requestDigest: "b".repeat(64) }, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: { charged: 1 }, workspaceCheckpoint: { revision: "late" } })).rejects.toThrow("unavailable");
   expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
   expect(await journal.confirmStopped(expired)).toBe(true);
   expect(await journal.status(attempt)).toMatchObject({ status: "stopped" });
@@ -129,4 +130,13 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
 
   await expect(journal.status({ ...attempt, grantRevision: 99 })).rejects.toThrow("unavailable");
   expect(await journal.cancel(expired)).toBe(false);
+
+  const mutable = admission(authority({ attemptId: "attempt-snapshot", attemptNumber: 9 }));
+  const expected = { ...mutable, deadlineAt: new Date(mutable.deadlineAt) };
+  const snapshotJournal = new FactoryExecutionJournal(db, async () => {
+    (mutable as { tenantId: string }).tenantId = "tenant-b";
+    mutable.deadlineAt.setTime(0);
+  });
+  expect(await snapshotJournal.admit(mutable)).toMatchObject({ reused: false });
+  expect(await snapshotJournal.status(expected)).toMatchObject({ status: "admitted" });
 });

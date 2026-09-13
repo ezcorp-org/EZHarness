@@ -74,49 +74,56 @@ function assertOperation(authority: FactoryAttemptAuthority, operation: FactoryJ
   if (operation.operationId !== expected) throw new Error("Factory operation id does not match its attempt identity.");
 }
 
+/** Copy mutable caller input before any transaction await can observe a later mutation. */
+function snapshotAuthority(value: FactoryAttemptAuthority): FactoryAttemptAuthority {
+  assertIdentity(value);
+  return Object.freeze({ attemptId: value.attemptId, tenantId: value.tenantId, projectId: value.projectId, runId: value.runId, nodeInstanceId: value.nodeInstanceId, candidateGeneration: value.candidateGeneration, attemptNumber: value.attemptNumber, grantRevision: value.grantRevision, reservationGeneration: value.reservationGeneration, executionEpoch: value.executionEpoch, cancellationEpoch: value.cancellationEpoch, requestDigest: value.requestDigest, deadlineAt: new Date(value.deadlineAt.getTime()) });
+}
+
+function snapshotOperation(value: FactoryJournalOperation): FactoryJournalOperation {
+  return Object.freeze({ operationId: value.operationId, operationIndex: value.operationIndex, kind: value.kind, requestDigest: value.requestDigest });
+}
+
+function snapshotSettlement(value: FactoryOperationSettlement): FactoryOperationSettlement {
+  const copy = (item: unknown): JsonValue | undefined => item === undefined ? undefined : JSON.parse(canonicalJson(item)) as JsonValue;
+  return Object.freeze({ ...(value.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: value.providerReceiptDigest }), ...(value.resultDigest === undefined ? {} : { resultDigest: value.resultDigest }), ...(value.result === undefined ? {} : { result: copy(value.result) }), ...(value.usage === undefined ? {} : { usage: copy(value.usage) }), ...(value.workspaceCheckpoint === undefined ? {} : { workspaceCheckpoint: copy(value.workspaceCheckpoint) }) });
+}
+
 /** Durable C02 journal; the gateway authenticates and supplies its authority. */
 export class FactoryExecutionJournal {
   constructor(private readonly db: TransactionalDb, private readonly authorizeInTransaction: FactoryAttemptAuthorizer, private readonly now: () => Date = () => new Date()) {}
 
   async admit(input: FactoryAttemptAdmission): Promise<{ requestHash: string; reused: boolean }> {
-    this.assertLiveInput(input);
+    const authority = snapshotAuthority(input);
+    this.assertLiveInput(authority);
     const requestIdentity = factoryRunnerRequestIdentity(input.request);
     const requestHash = factoryRunnerRequestDigest(input.request);
-    if (requestHash !== input.requestDigest) throw new Error("Factory signed attempt does not match the canonical runner request.");
-    if (requestIdentity.authority.attemptId !== input.attemptId
-      || requestIdentity.authority.tenantId !== input.tenantId
-      || requestIdentity.authority.projectId !== input.projectId
-      || requestIdentity.authority.runId !== input.runId
-      || requestIdentity.authority.nodeInstanceId !== input.nodeInstanceId
-      || requestIdentity.authority.candidateGeneration !== input.candidateGeneration
-      || requestIdentity.authority.attemptNumber !== input.attemptNumber
-      || requestIdentity.authority.grantRevision !== input.grantRevision
-      || requestIdentity.authority.reservationGeneration !== input.reservationGeneration
-      || requestIdentity.authority.executionEpoch !== input.executionEpoch
-      || requestIdentity.authority.cancellationEpoch !== input.cancellationEpoch
-      || requestIdentity.authority.deadlineAtMs !== input.deadlineAt.getTime()) throw new Error("Factory signed attempt does not match the canonical runner request.");
+    if (requestHash !== authority.requestDigest) throw new Error("Factory signed attempt does not match the canonical runner request.");
+    if (requestIdentity.authority.attemptId !== authority.attemptId || requestIdentity.authority.tenantId !== authority.tenantId || requestIdentity.authority.projectId !== authority.projectId || requestIdentity.authority.runId !== authority.runId || requestIdentity.authority.nodeInstanceId !== authority.nodeInstanceId || requestIdentity.authority.candidateGeneration !== authority.candidateGeneration || requestIdentity.authority.attemptNumber !== authority.attemptNumber || requestIdentity.authority.grantRevision !== authority.grantRevision || requestIdentity.authority.reservationGeneration !== authority.reservationGeneration || requestIdentity.authority.executionEpoch !== authority.executionEpoch || requestIdentity.authority.cancellationEpoch !== authority.cancellationEpoch || requestIdentity.authority.deadlineAtMs !== authority.deadlineAt.getTime()) throw new Error("Factory signed attempt does not match the canonical runner request.");
     const requestJson = canonicalJson(requestIdentity);
     return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, input);
-      await this.authorizeInTransaction(database, input);
-      const prior = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${input.attemptId}`))[0];
+      await this.lockRunFence(database, authority);
+      await this.authorizeInTransaction(database, authority);
+      const prior = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0];
       if (prior) {
         if (prior.request_hash !== requestHash) throw new Error("Factory attempt id conflicts with a different canonical request.");
         return { requestHash, reused: true };
       }
-      await database.execute(sql`INSERT INTO factory_execution_operation_cursors(tenant_id, project_id, run_id, node_instance_id, candidate_generation) VALUES (${input.tenantId}, ${input.projectId}, ${input.runId}, ${input.nodeInstanceId}, ${input.candidateGeneration}) ON CONFLICT DO NOTHING`);
-      const cursor = releaseRows<{ next_operation_index: number | string }>(await database.execute(sql`SELECT next_operation_index FROM factory_execution_operation_cursors WHERE tenant_id=${input.tenantId} AND project_id=${input.projectId} AND run_id=${input.runId} AND node_instance_id=${input.nodeInstanceId} AND candidate_generation=${input.candidateGeneration} FOR UPDATE`))[0];
+      await database.execute(sql`INSERT INTO factory_execution_operation_cursors(tenant_id, project_id, run_id, node_instance_id, candidate_generation) VALUES (${authority.tenantId}, ${authority.projectId}, ${authority.runId}, ${authority.nodeInstanceId}, ${authority.candidateGeneration}) ON CONFLICT DO NOTHING`);
+      const cursor = releaseRows<{ next_operation_index: number | string }>(await database.execute(sql`SELECT next_operation_index FROM factory_execution_operation_cursors WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} FOR UPDATE`))[0];
       const initialIndex = Number(cursor?.next_operation_index);
       if (!Number.isSafeInteger(initialIndex) || initialIndex < 0) throw new Error("Factory operation cursor is invalid.");
-      const inserted = releaseRows(await database.execute(sql`INSERT INTO factory_executions(attempt_id, tenant_id, project_id, run_id, node_instance_id, candidate_generation, attempt_number, grant_revision, reservation_generation, execution_epoch, cancellation_epoch, deadline_at, request_hash, request_json, operation_initial_index, status) VALUES (${input.attemptId}, ${input.tenantId}, ${input.projectId}, ${input.runId}, ${input.nodeInstanceId}, ${input.candidateGeneration}, ${input.attemptNumber}, ${input.grantRevision}, ${input.reservationGeneration}, ${input.executionEpoch}, ${input.cancellationEpoch}, ${input.deadlineAt}, ${requestHash}, ${requestJson}::jsonb, ${initialIndex}, 'admitted') ON CONFLICT (attempt_id) DO NOTHING RETURNING attempt_id`));
+      const inserted = releaseRows(await database.execute(sql`INSERT INTO factory_executions(attempt_id, tenant_id, project_id, run_id, node_instance_id, candidate_generation, attempt_number, grant_revision, reservation_generation, execution_epoch, cancellation_epoch, deadline_at, request_hash, request_json, operation_initial_index, status) VALUES (${authority.attemptId}, ${authority.tenantId}, ${authority.projectId}, ${authority.runId}, ${authority.nodeInstanceId}, ${authority.candidateGeneration}, ${authority.attemptNumber}, ${authority.grantRevision}, ${authority.reservationGeneration}, ${authority.executionEpoch}, ${authority.cancellationEpoch}, ${authority.deadlineAt}, ${requestHash}, ${requestJson}::jsonb, ${initialIndex}, 'admitted') ON CONFLICT (attempt_id) DO NOTHING RETURNING attempt_id`));
       if (inserted.length) return { requestHash, reused: false };
-      const raced = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${input.attemptId}`))[0];
+      const raced = releaseRows<{ request_hash: string }>(await database.execute(sql`SELECT request_hash FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0];
       if (raced?.request_hash === requestHash) return { requestHash, reused: true };
       throw new Error("Factory attempt admission did not persist.");
     });
   }
 
   async prepare(authority: FactoryAttemptAuthority, operation: FactoryJournalOperation): Promise<void> {
+    authority = snapshotAuthority(authority);
+    operation = snapshotOperation(operation);
     this.assertLiveInput(authority);
     assertOperation(authority, operation);
     return this.db.transaction(async (database) => {
@@ -138,6 +145,7 @@ export class FactoryExecutionJournal {
 
   /** `claimed` is true exactly once; callers must not repeat an external effect otherwise. */
   async dispatch(authority: FactoryAttemptAuthority, operationId: string): Promise<{ claimed: boolean }> {
+    authority = snapshotAuthority(authority);
     this.assertLiveInput(authority);
     return this.db.transaction(async (database) => {
       await this.lockLive(database, authority);
@@ -153,6 +161,8 @@ export class FactoryExecutionJournal {
   }
 
   async settle(authority: FactoryAttemptAuthority, operationId: string, state: Extract<FactoryOperationState, "completed" | "failed" | "uncertain">, result: FactoryOperationSettlement): Promise<void> {
+    authority = snapshotAuthority(authority);
+    result = snapshotSettlement(result);
     this.assertLiveInput(authority);
     if (state === "completed" && (!result.resultDigest || result.result === undefined || result.usage === undefined || result.workspaceCheckpoint === undefined)) throw new Error("A completed factory operation needs result, usage, and workspace checkpoint evidence.");
     if (state === "failed" && !result.resultDigest) throw new Error("A failed factory operation needs a result digest.");
@@ -170,7 +180,7 @@ export class FactoryExecutionJournal {
 
   /** Reads recorded effect state and a completed result without issuing an effect. */
   async operation(authority: FactoryAttemptAuthority, operationId: string): Promise<FactoryJournalOperationStatus> {
-    assertIdentity(authority);
+    authority = snapshotAuthority(authority);
     return this.db.transaction(async (database) => {
       await this.lockScopedRead(database, authority);
       const stored = releaseRows<{ state: FactoryOperationState; result_json: unknown }>(await database.execute(sql`SELECT state, result_json FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
@@ -182,7 +192,7 @@ export class FactoryExecutionJournal {
 
   /** Ordered durable evidence for a completed runner result. This is read-only. */
   async operations(authority: FactoryAttemptAuthority): Promise<FactoryJournalOperationEvidence[]> {
-    assertIdentity(authority);
+    authority = snapshotAuthority(authority);
     return this.db.transaction(async (database) => {
       await this.lockScopedRead(database, authority);
       const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id, operation_index, kind, state, request_digest, result_digest, provider_receipt_digest, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} ORDER BY operation_index ASC`));
@@ -202,10 +212,11 @@ export class FactoryExecutionJournal {
 
   /** Record a late receipt for reconciliation without advancing the run cursor. */
   async reconcileLate(authority: FactoryAttemptAuthority, operationId: string, result: FactoryOperationSettlement): Promise<void> {
-    assertIdentity(authority);
+    authority = snapshotAuthority(authority);
+    result = snapshotSettlement(result);
     if (!result.providerReceiptDigest) throw new Error("Late factory receipts need a digest.");
     await this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
+      await this.lockScopedRead(database, authority);
       const updated = releaseRows(await database.execute(sql`UPDATE factory_execution_operations SET state='uncertain', provider_receipt_digest=${result.providerReceiptDigest}, result_digest=${result.resultDigest ?? null}, result_json=${result.result === undefined ? null : canonicalJson(result.result)}::jsonb, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' AND EXISTS (SELECT 1 FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest}) RETURNING operation_id`));
       if (updated.length) return;
       const existing = releaseRows<{ state: FactoryOperationState; provider_receipt_digest: string | null; result_digest: string | null; result_json: unknown; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT state, provider_receipt_digest, result_digest, result_json, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId}`))[0];
@@ -214,7 +225,7 @@ export class FactoryExecutionJournal {
   }
 
   async cancel(authority: FactoryAttemptAuthority): Promise<boolean> {
-    assertIdentity(authority);
+    authority = snapshotAuthority(authority);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
       const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='cancel_accepted', cancel_accepted_at=COALESCE(cancel_accepted_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status IN ('admitted', 'running') RETURNING attempt_id`));
@@ -223,7 +234,7 @@ export class FactoryExecutionJournal {
   }
 
   async confirmStopped(authority: FactoryAttemptAuthority): Promise<boolean> {
-    assertIdentity(authority);
+    authority = snapshotAuthority(authority);
     return this.db.transaction(async (database) => {
       await this.lockRunFence(database, authority);
       const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='stopped', stopped_at=COALESCE(stopped_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status='cancel_accepted' RETURNING attempt_id`));
@@ -232,7 +243,7 @@ export class FactoryExecutionJournal {
   }
 
   async status(authority: FactoryAttemptAuthority): Promise<{ status: string; journalCursor: number; cancelAcceptedAt: Date | null; stoppedAt: Date | null; workspaceCheckpoint?: unknown; terminalResult?: JsonValue }> {
-    assertIdentity(authority);
+    authority = snapshotAuthority(authority);
     return this.db.transaction(async (database) => {
       await this.lockScopedRead(database, authority);
       const row = releaseRows<{ status: string; journal_cursor: number; cancel_accepted_at: Date | null; stopped_at: Date | null }>(await database.execute(sql`SELECT status, journal_cursor, cancel_accepted_at, stopped_at FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest}`))[0];
