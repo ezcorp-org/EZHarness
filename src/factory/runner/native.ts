@@ -9,7 +9,7 @@ import type { FactoryExecutionContext } from "../../runtime/factory-execution";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority } from "../executions";
 
 export interface NativeFactoryJournal {
-  snapshot(request: FactoryRunnerRequest): Promise<{ readonly operations: readonly FactoryRunnerOperationResult[]; readonly journalCursor: number; readonly usage: FactoryUsage }>;
+  snapshot(request: FactoryRunnerRequest): Promise<{ readonly operations: readonly FactoryRunnerOperationResult[]; readonly journalCursor: number; readonly usage?: FactoryUsage }>;
 }
 
 export interface NativeFactoryArtifacts {
@@ -41,7 +41,8 @@ export function nativeFactoryJournal(journal: FactoryExecutionJournal): NativeFa
       const evidence = await journal.evidence(authority(request));
       const operations = evidence.operations as FactoryRunnerOperationResult[];
       requireValid(validateFactoryRunnerResult({ schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: evidence.journalCursor, operations }), "Durable runner operations");
-      return { operations, journalCursor: evidence.journalCursor, usage: operationUsage(operations) };
+      const usage = operationUsage(operations);
+      return { operations, journalCursor: evidence.journalCursor, ...(usage ? { usage } : {}) };
     },
   };
 }
@@ -79,17 +80,17 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
   const run = await options.executor.executeFactoryAttempt({ ...options.conversation(request), execution });
   const { journalCursor, operations, usage } = await options.journal.snapshot(request);
   if (run.status === "cancelled") {
-    const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor, operations: [...operations], usage };
+    const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor, operations: [...operations], ...(usage ? { usage } : {}) };
     requireValid(validateFactoryRunnerResult(result), "Factory runner result");
     return result;
   }
-  if (usage.kind !== "measured") throw new Error("A completed native runner needs durable measured usage.");
   if (run.status !== "success") {
     const error = typeof run.result?.error === "string" ? run.result.error : run.result?.error?.message ?? "Factory agent did not complete.";
-    const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "failed", journalCursor, operations: [...operations], resultDigest: digest({ error }), error: { code: "FACTORY_AGENT_FAILED", message: error, retryable: false }, usage };
+    const result: FactoryRunnerResult = { schemaVersion: "factory.runner.result.v1", status: "failed", journalCursor, operations: [...operations], resultDigest: digest({ error }), error: { code: "FACTORY_AGENT_FAILED", message: error, retryable: false }, ...(usage ? { usage } : {}) };
     requireValid(validateFactoryRunnerResult(result), "Factory runner result");
     return result;
   }
+  if (usage?.kind !== "measured") throw new Error("A completed native runner needs durable measured usage.");
   const [output, workspaceCheckpoint] = await Promise.all([options.artifacts.output(request, run), options.artifacts.checkpoint(request, run)]);
   // Agent output contains optional undefined fields; its wire form omits them.
   const outputValue = JSON.parse(JSON.stringify(run.result?.output ?? null));
@@ -103,9 +104,10 @@ export async function runNativeFactoryRunner(value: unknown, options: NativeFact
 
 export type { FactoryUsage };
 
-function operationUsage(operations: readonly FactoryRunnerOperationResult[]): FactoryUsage {
+function operationUsage(operations: readonly FactoryRunnerOperationResult[]): FactoryUsage | undefined {
+  if (operations.length === 0) return undefined;
   const usage = operations.map(operation => operation.usage).filter((value): value is FactoryUsage => value !== undefined);
-  if (usage.length !== operations.length || usage.length === 0) throw new Error("Durable operation usage is unavailable.");
+  if (usage.length !== operations.length) throw new Error("Durable operation usage is unavailable.");
   const held = usage.reduce((total, value) => total + BigInt(value.kind === "measured" ? value.costMicros : value.heldCostMicros), 0n).toString();
   if (usage.some(value => value.kind === "unknown")) return { kind: "unknown", reason: "durable operation usage is incomplete", heldCostMicros: held };
   const measured = usage as Extract<FactoryUsage, { kind: "measured" }>[];

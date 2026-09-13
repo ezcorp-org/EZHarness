@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export PATH="/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH"
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 out=${COV_OUT:?COV_OUT is required}
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-pool-coverage.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$out" "$tmp/bun-service" "$tmp/bun-token" "$tmp/node-v8"
 cd "$repo_root"
-bun test --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-service" ./tests/postgres/factory-pool-service.test.ts
-bun test --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-token" ./src/factory/pool/service-token.test.ts
-NODE_V8_COVERAGE="$tmp/node-v8" FACTORY_POOL_NODE_V8_BUNDLE="$tmp/server.mjs" bun test ./tests/postgres/factory-pool-mtls.test.ts
+bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-service" ./tests/postgres/factory-pool-service.test.ts
+bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/bun-token" ./src/factory/pool/service-token.test.ts
+NODE_V8_COVERAGE="$tmp/node-v8" FACTORY_POOL_NODE_V8_BUNDLE="$tmp/server.mjs" bun test --timeout 30000 ./tests/postgres/factory-pool-mtls.test.ts
 node scripts/node-v8-to-lcov.mjs "$tmp/node-v8" "$tmp/server.mjs" "$tmp/server.mjs" "$tmp/server.lcov" src/factory/pool/service-server.ts
 mkdir "$tmp/lcov"
 cp "$tmp/bun-service/lcov.info" "$tmp/lcov/service.info"

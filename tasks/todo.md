@@ -1063,3 +1063,12 @@ Grant operations now freeze flat copies of every caller-owned authority and targ
 ## Review
 
 Pending.
+
+## Native terminal and canonical service producers
+
+- [x] Reproduce cancellation before the first operation without measured usage.
+- [x] Preserve cancelled/failed terminal results without an invented zero charge; reject successful results with no measured usage.
+- [x] Remove the machine-specific Bun path from the pool coverage producer and use the repository's targeted hook budget.
+- [x] Run the actual PostgreSQL pool/provisioning producers, native adapter coverage, all four typecheck legs and lint on frozen source.
+
+Review: `/tmp/factory-platform-evidence/terminal-pool-provisioning-results.json` records every exit as zero. Native adapter, pool service/token/HTTPS server and local provisioner have full measured line coverage. These component receipts do not complete application wiring or the full platform gates.

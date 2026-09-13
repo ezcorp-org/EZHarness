@@ -54,6 +54,13 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
   expect(events).toEqual(["before:run:node:0:5", "broker:run:node:0:5", "after:run:node:0:5"]);
   await expect(runNativeFactoryRunner(request, { ...options, executor: { executeFactoryAttempt: async () => ({ id: "cancelled", agentName: "chat", status: "cancelled" as const, startedAt: 1, logs: [] }) } })).resolves.toMatchObject({ status: "cancelled", journalCursor: 5 });
   await expect(runNativeFactoryRunner(request, { ...options, executor: { executeFactoryAttempt: async () => ({ id: "failed", agentName: "chat", status: "error" as const, startedAt: 1, logs: [], result: { success: false, output: null, error: "broker failed" } }) } })).resolves.toMatchObject({ status: "failed", error: { code: "FACTORY_AGENT_FAILED" } });
+  const emptyJournal = { snapshot: async () => ({ operations: [], journalCursor: 4 }) };
+  const cancelledBeforeDispatch = await runNativeFactoryRunner(request, { ...options, journal: emptyJournal, executor: { executeFactoryAttempt: async () => ({ id: "cancelled-empty", agentName: "chat", status: "cancelled" as const, startedAt: 1, logs: [] }) } });
+  expect(cancelledBeforeDispatch).toEqual({ schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: 4, operations: [] });
+  const failedBeforeDispatch = await runNativeFactoryRunner(request, { ...options, journal: emptyJournal, executor: { executeFactoryAttempt: async () => ({ id: "failed-empty", agentName: "chat", status: "error" as const, startedAt: 1, logs: [] }) } });
+  expect(failedBeforeDispatch).toMatchObject({ status: "failed", journalCursor: 4, operations: [], error: { code: "FACTORY_AGENT_FAILED" } });
+  expect(Object.hasOwn(failedBeforeDispatch, "usage")).toBe(false);
+  await expect(runNativeFactoryRunner(request, { ...options, journal: emptyJournal, executor: { executeFactoryAttempt: async () => ({ id: "success-empty", agentName: "chat", status: "success" as const, startedAt: 1, logs: [], result: { success: true, output: null } }) } })).rejects.toThrow("needs durable measured usage");
   await expect(runNativeFactoryRunner(request, {
     execution: () => ({ ...execution, attempt: { ...execution.attempt, runId: "forged" } }), conversation: () => ({ conversationId: "factory-conversation", userMessage: "make output" }),
     executor: { executeFactoryAttempt: async () => { throw new Error("must not execute forged request"); } }, journal: { snapshot: async () => ({ operations: [operation], journalCursor: 5, usage: operation.usage! }) },
@@ -84,7 +91,10 @@ test("native journal adapter maps complete authority and preserves measured and 
   const heldOperation = { ...operation, state: "uncertain", providerReceiptDigest: raw, usage: { kind: "unknown", reason: "receipt", heldCostMicros: "7" } };
   const held = nativeFactoryJournal({ evidence: async () => ({ operations: [heldOperation], journalCursor: 4 }) } as any);
   expect((await held.snapshot(request)).usage).toEqual({ kind: "unknown", reason: "durable operation usage is incomplete", heldCostMicros: "7" });
-  const missing = nativeFactoryJournal({ evidence: async () => ({ operations: [], journalCursor: 4 }) } as any);
+  const empty = nativeFactoryJournal({ evidence: async () => ({ operations: [], journalCursor: 4 }) } as any);
+  expect(await empty.snapshot(request)).toEqual({ operations: [], journalCursor: 4 });
+  const { usage: _usage, ...withoutUsage } = operation;
+  const missing = nativeFactoryJournal({ evidence: async () => ({ operations: [{ ...withoutUsage, state: "failed" }], journalCursor: 5 }) } as any);
   await expect(missing.snapshot(request)).rejects.toThrow("Durable operation usage is unavailable");
   const corrupt = nativeFactoryJournal({ evidence: async () => ({ operations: [operation], journalCursor: -1 }) } as any);
   await expect(corrupt.snapshot(request)).rejects.toThrow("RUNNER_OPERATION_CURSOR");
