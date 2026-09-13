@@ -64,6 +64,26 @@ describe("durable factory records through the application database", () => {
     await expect(new FactoryRecords(fixture.db, "tenant-two").createRun(request(), enqueue)).rejects.toMatchObject({ code: "factory_epoch_changed" });
   });
 
+  test("service initiators retain their real identity without a user foreign key", async () => {
+    const run = request({ principalKind: "service", principalId: "factory-service" });
+    await fixture.db.execute(sql`INSERT INTO service_accounts (id, name, created_by_user_id, project_id, max_tokens_per_day) VALUES (${run.principalId}, 'Factory service', 'factory-human', 'factory-project', 100)`);
+    expect(await records.createRun(run, enqueue)).toEqual({ created: true });
+    const entry = rows<{ user_id: string | null; metadata: unknown }>(await fixture.db.execute(sql`SELECT user_id, metadata FROM audit_log WHERE action='factory.run.requested' AND target=${run.runId}`))[0]!;
+    expect(entry.user_id).toBeNull();
+    expect(typeof entry.metadata === "string" ? JSON.parse(entry.metadata) : entry.metadata).toMatchObject({ principalId: run.principalId, principalKind: "service" });
+    await expect(records.createRun(request({ principalKind: "operator" as "user" }), enqueue)).rejects.toMatchObject({ code: "factory_principal_invalid" });
+  });
+
+  test("trusted initiators are read from verified scoped durable requests", async () => {
+    const run = await started();
+    const read = (key = run) => fixture.db.transaction(tx => records.readRunRequestInTransaction(tx, key));
+    expect(await read()).toEqual(run);
+    await expect(read({ ...run, projectId: "foreign-project" })).rejects.toMatchObject({ code: "factory_run_not_found" });
+    await fixture.db.execute(sql`UPDATE factory_runs SET request_payload=${JSON.stringify({ ...run, principalId: "tampered" })} WHERE run_id=${run.runId}`);
+    await expect(read()).rejects.toMatchObject({ code: "factory_request_corrupt" });
+    await expect(records.createRun(null as unknown as FactoryRunRequest, enqueue)).rejects.toMatchObject({ code: "factory_request_invalid" });
+  });
+
   test("a failed outbox write rolls back the accepted run and its audit", async () => {
     const run = request();
     await expect(records.createRun(run, async (transaction, input) => {

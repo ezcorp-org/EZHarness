@@ -16,6 +16,7 @@ export interface FactoryRunRequest extends FactoryRunKey {
   readonly executionEpoch: number;
   readonly input: unknown;
   readonly principalId: string;
+  readonly principalKind?: "user" | "service";
 }
 
 export interface FactoryAuditInput extends FactoryRunKey {
@@ -59,6 +60,19 @@ function boundedPayload(value: unknown): string {
   return payload;
 }
 
+export { identity as assertFactoryIdentity, boundedPayload as encodeFactoryPayload };
+
+function runRequest(input: unknown): { payload: string; request: FactoryRunRequest } {
+  const payload = boundedPayload(input);
+  const request = JSON.parse(payload) as FactoryRunRequest;
+  if (!request || typeof request !== "object") throw new FactoryRecordError("factory_request_invalid");
+  identity(request.projectId, request.runId, request.interpreterBuild, request.principalId);
+  positive(request.executionEpoch);
+  if (request.principalKind !== undefined && request.principalKind !== "user" && request.principalKind !== "service") throw new FactoryRecordError("factory_principal_invalid");
+  if (!/^sha256:[a-f0-9]{64}$/.test(request.definitionDigest)) throw new FactoryRecordError("factory_definition_digest_invalid");
+  return { payload, request };
+}
+
 function auditId(tenantId: string, projectId: string, runId: string, kind: string, identity: unknown): string {
   return `factory:${digestObject({ tenantId, projectId, runId, kind, identity })}`;
 }
@@ -94,11 +108,7 @@ export class FactoryRecords {
   }
 
   async createRun(input: FactoryRunRequest, enqueue: (transaction: MigrationDb, request: FactoryRunRequest) => Promise<void>): Promise<{ readonly created: boolean }> {
-    const payload = boundedPayload(input);
-    const request = JSON.parse(payload) as FactoryRunRequest;
-    identity(request.projectId, request.runId, request.interpreterBuild, request.principalId);
-    positive(request.executionEpoch);
-    if (!/^sha256:[a-f0-9]{64}$/.test(request.definitionDigest)) throw new FactoryRecordError("factory_definition_digest_invalid");
+    const { payload, request } = runRequest(input);
     const digest = digestObject(request);
     return this.database.transaction(async (transaction) => {
       const installation = rows<{ execution_epoch: number }>(await transaction.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${this.tenantId} FOR UPDATE`))[0];
@@ -112,10 +122,19 @@ export class FactoryRecords {
         if (existing.request_digest !== digest) throw new FactoryRecordError("factory_run_conflict");
         return { created: false };
       }
-      await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, request.projectId, request.runId, "start", digest), request.principalId, "factory.run.requested", request.runId, { tenantId: this.tenantId, projectId: request.projectId, definitionDigest: request.definitionDigest, executionEpoch: request.executionEpoch });
+      await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, request.projectId, request.runId, "start", digest), request.principalKind === "service" ? null : request.principalId, "factory.run.requested", request.runId, { tenantId: this.tenantId, projectId: request.projectId, definitionDigest: request.definitionDigest, executionEpoch: request.executionEpoch, principalKind: request.principalKind ?? "user", principalId: request.principalId });
       await enqueue(transaction, request);
       return { created: true };
     });
+  }
+
+  async readRunRequestInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunRequest> {
+    identity(key.projectId, key.runId);
+    const row = rows<{ request_digest: string; request_payload: string }>(await transaction.execute(sql`SELECT request_digest, request_payload FROM factory_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR SHARE`))[0];
+    if (!row) throw new FactoryRecordError("factory_run_not_found");
+    const { request } = runRequest(JSON.parse(row.request_payload));
+    if (digestObject(request) !== row.request_digest || request.projectId !== key.projectId || request.runId !== key.runId) throw new FactoryRecordError("factory_request_corrupt");
+    return request;
   }
 
   async appendAudit(request: FactoryAuditInput): Promise<FactoryAuditBatch> {
