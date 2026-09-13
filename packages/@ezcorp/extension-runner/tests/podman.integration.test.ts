@@ -64,7 +64,7 @@ test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches a
   } finally { child.kill("SIGKILL"); await child.exited; }
   const fresh = new PodmanRunner({ root });
   expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
-  const attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
+  const _attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
   expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
   await fresh.cancel(workerId);
   expect(await fresh.inspect(workerId)).toMatchObject({ state: "cancelled" });

@@ -63,11 +63,6 @@ export class PodmanRunner implements Runner {
     this.ready ??= this.probe().catch(async error => { await this.close(); this.ready = undefined; throw error; });
     return this.ready;
   }
-  private async initializeRecovery(): Promise<void> {
-    await mkdir(this.root, { recursive: true, mode: 0o700 });
-    await this.acquireLease();
-    await this.probeSecurity(false);
-  }
   private async probe(): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const root = await lstat(this.root);
