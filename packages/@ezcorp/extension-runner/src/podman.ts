@@ -245,6 +245,23 @@ export class PodmanRunner implements Runner {
   async start(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, reverseRpc: ReverseRpc): Promise<FramedExecution> {
     return this.startExecution(input, reverseRpc, false);
   }
+  /** Reconnect to an existing container after a supervisor restart. Recovery never admits new reverse effects. */
+  async attach(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, _reverseRpc: ReverseRpc): Promise<FramedExecution> {
+    identifier(input.workerId);
+    const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
+    if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
+    await this.initialize();
+    if ((await this.inspect(input.workerId)).state !== "running") throw new RunnerError("worker_not_running", "Worker cannot be attached because it is not running");
+    if (this.executions.has(input.workerId)) throw new RunnerError("duplicate_worker", "Worker is already attached");
+    const name = this.containerName(input.workerId);
+    this.containers.set(input.workerId, name);
+    this.operations.set(input.workerId, { id: input.workerId, state: "running", diagnostics: [] });
+    const child = processSpawn(this.podman, ["attach", name]);
+    const execution = new FramedExecution(input.workerId, child, async () => { throw new RunnerError("recovery_effect_denied", "Recovered workers cannot perform effects before durable result recovery"); }, () => this.remove(input.workerId), Math.min(limits.outputBytes, 1024 ** 2), limits.timeoutMs);
+    this.executions.set(input.workerId, execution);
+    void execution.exited.finally(() => { this.executions.delete(input.workerId); }).catch(() => undefined);
+    return execution;
+  }
   private async startExecution(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
@@ -304,13 +321,14 @@ export class PodmanRunner implements Runner {
   }
   async cancel(id: string): Promise<void> {
     identifier(id);
-    const current = this.operations.get(id);
-    if (!current) return;
+    const current = this.operations.get(id) ?? await this.inspect(id);
+    if (current.state === "unknown") return;
     this.operations.set(id, { ...current, state: "cancelled" });
     this.controllers.get(id)?.abort(new RunnerError("cancelled", "Build cancelled"));
     const buildWorker = this.buildWorkers.get(id);
     if (buildWorker) await this.cancel(buildWorker);
     await this.executions.get(id)?.close();
+    this.containers.set(id, this.containerName(id));
     await this.remove(id);
   }
   async inspect(id: string): Promise<RunnerInspection> {
