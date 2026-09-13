@@ -7,6 +7,7 @@ import type { BlobStore } from "../../extensions/v4/types";
 import { digestBytes } from "../../extensions/v4/blobs";
 import { createFactoryApplication } from "../../factory/application";
 import { FactoryArtifacts } from "../../factory/artifacts";
+import { createFactoryArtifactActivities } from "../../factory/artifact-activities";
 import { FactoryDefinitionArtifacts } from "../../factory/definition-artifacts";
 import { FactoryDefinitions } from "../../factory/definitions";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
@@ -14,7 +15,10 @@ import { FactoryCommandOutbox } from "../../factory/outbox";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../factory/run-lifecycle";
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
+import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
+import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
+import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
 export function factoryRunLifecycleConformance(create: () => Promise<{ db: TransactionalDb; blobs?: BlobStore; close(): Promise<void> }>): void {
   let fixture: Awaited<ReturnType<typeof create>>;
@@ -23,6 +27,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   let lifecycle: FactoryRunLifecycle;
   let options: FactoryRunLifecycleOptions;
   let body: FactoryRunStartBody;
+  let objectStore: BlobStore;
   let now = Date.UTC(2030, 0, 1);
   let sequence = 0;
   let stages = 0;
@@ -48,7 +53,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('lifecycle-membership', ${projectId}, ${principal.id}, 'owner')`);
     grants = new FactoryGrants(fixture.db, tenantId, () => now);
     for (const action of ["factory.author", "factory.publish", "factory.run", "factory.operate"] as const) await grants.set(principal, { principal, projectId, action, expectedRevision: 0, expiresAtMs: null });
-    const objectStore = fixture.blobs ?? blobs;
+    objectStore = fixture.blobs ?? blobs;
     definitions = new FactoryDefinitions(fixture.db, tenantId, grants, objectStore);
     const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: key.factoryId };
     await definitions.save(principal, key, 0, "definition-create", source);
@@ -88,6 +93,101 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const request = await application.runs.start(principal, key, body, 0, "composed-start");
     expect(request.run.status).toBe("queued");
     expect(await application.runs.readCommand(principal, runKey(request.run.runId), request.receipt.commandId)).toMatchObject({ state: "queued" });
+  });
+
+  test("public run reads consume bounded committed root transitions and recover from their cursor", async () => {
+    const run = await start();
+    const runIdentity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const transitions = new FactoryTransitionArtifacts(artifacts);
+    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
+    const first = { id: "projection-running", kind: "cancel", atMs: now, reason: "test" } as never;
+    await persistTransition(runIdentity, 1, first, { status: "running" } as never, [], undefined, activities);
+    const terminal = { kind: "complete-run", id: "projection-complete", output: { result: "done" } } as const;
+    await persistTransition(runIdentity, 2, { id: "projection-complete-event", kind: "cancel", atMs: now + 1, reason: "test" } as never, { status: "completed" } as never, [terminal], undefined, activities);
+    expect((await lifecycle.read(principal, runKey(run.runId))).status).toBe("queued");
+    expect(await projector.progress(runKey(run.runId))).toMatchObject({ sequence: 0, lag: 2 });
+    expect(await projector.project(runKey(run.runId), 1)).toMatchObject({ sequence: 1, lag: 1, applied: 1 });
+    expect((await lifecycle.read(principal, runKey(run.runId))).status).toBe("running");
+    const restarted = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
+    expect(await restarted.project(runKey(run.runId), 1)).toMatchObject({ sequence: 2, lag: 0, applied: 1 });
+    expect(await lifecycle.read(principal, runKey(run.runId))).toMatchObject({ status: "succeeded", output: { kind: "inline", value: { result: "done" } } });
+    expect(await restarted.project(runKey(run.runId))).toMatchObject({ sequence: 2, lag: 0, applied: 0 });
+  });
+
+  test("projected terminal status requires a root terminal command and preserves cancellation", async () => {
+    const run = await start();
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const transitions = new FactoryTransitionArtifacts(artifacts);
+    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
+    const child = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "child" };
+    await persistTransition(child, 1, { id: "child-terminal", kind: "cancel", atMs: now, reason: "test" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "child-complete", output: {} }], undefined, activities);
+    await projector.project(runKey(run.runId));
+    expect((await lifecycle.read(principal, runKey(run.runId))).status).toBe("queued");
+    const root = { ...child, interpreterId: "root" };
+    await persistTransition(root, 1, { id: "partition-terminal", kind: "cancel", atMs: now + 1, reason: "test" } as never, { status: "completed" } as never, [{ kind: "complete-partition", id: "partition-complete", partitionId: "child" }], undefined, activities);
+    await projector.project(runKey(run.runId));
+    expect((await lifecycle.read(principal, runKey(run.runId))).status).not.toBe("succeeded");
+    await cancelRun(principal, runKey(run.runId), 1, "projector-cancel");
+    await persistTransition(root, 2, { id: "late-success", kind: "cancel", atMs: now + 2, reason: "test" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "late-complete", output: {} }], undefined, activities);
+    await projector.project(runKey(run.runId));
+    expect((await lifecycle.read(principal, runKey(run.runId))).status).toBe("cancelling");
+    await persistTransition(root, 3, { id: "projected-cancel", kind: "cancel", atMs: now + 3, reason: "test" } as never, { status: "cancelled" } as never, [{ kind: "cancel-run", id: "root-cancel", reason: "cancelled" }], undefined, activities);
+    await projector.project(runKey(run.runId));
+    expect(await lifecycle.read(principal, runKey(run.runId))).toMatchObject({ status: "cancelled", error: { code: "FACTORY_RUN_CANCELLED", message: "cancelled" } });
+  });
+
+  test("bounded pending projection drains later runs when one committed audit is corrupt", async () => {
+    const poisoned = await start();
+    const healthy = await start();
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const transitions = new FactoryTransitionArtifacts(artifacts);
+    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
+    for (const run of [poisoned, healthy]) {
+      const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
+      await persistTransition(identity, 1, { id: `pending-${run.runId}`, kind: "cancel", atMs: now, reason: "test" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: `pending-complete-${run.runId}`, output: { runId: run.runId } }], undefined, activities);
+    }
+    await fixture.db.execute(sql`UPDATE factory_audit_batches SET payload='{}' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${poisoned.runId}`);
+    const first = await projector.projectPending({ runs: 2, batchesPerRun: 1 });
+    expect(first.runs).toHaveLength(2);
+    expect(first.runs.find((result) => result.key.runId === poisoned.runId)).toMatchObject({ errorCode: "factory_audit_corrupt" });
+    expect(first.runs.find((result) => result.key.runId === healthy.runId)).toMatchObject({ progress: { lag: 0, applied: 1 } });
+    expect((await lifecycle.read(principal, runKey(healthy.runId))).status).toBe("succeeded");
+    const restarted = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
+    expect(await restarted.projectPending({ runs: 2, batchesPerRun: 1 })).toMatchObject({ runs: [{ key: runKey(poisoned.runId), errorCode: "factory_audit_corrupt" }] });
+    await expect(projector.projectPending({ runs: 0 })).rejects.toThrow("page");
+  });
+
+  test("projection rejects corrupt sources, foreign scope, and rolls cursor back with the read model", async () => {
+    const run = await start();
+    const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const transitions = new FactoryTransitionArtifacts(artifacts);
+    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
+    await persistTransition(identity, 1, { id: "corrupt-projection", kind: "cancel", atMs: now, reason: "test" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "corrupt-complete", output: {} }], undefined, activities);
+    await fixture.db.execute(sql`UPDATE factory_audit_batches SET payload='{}' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${run.runId}`);
+    await expect(projector.project(runKey(run.runId))).rejects.toThrow("factory_audit_corrupt");
+    expect(await projector.progress(runKey(run.runId))).toMatchObject({ sequence: 0, lag: 1 });
+    expect((await lifecycle.read(principal, runKey(run.runId))).status).toBe("queued");
+    await expect(projector.project({ projectId: "foreign-project", runId: run.runId })).rejects.toMatchObject({ code: "factory_run_not_found" });
+    expect(() => new FactoryRunTransitionProjector(fixture.db, "foreign-tenant", transitions, lifecycle)).toThrow("scope");
+
+    const rollback = await start();
+    const rollbackIdentity = { ...identity, logicalRunId: rollback.runId };
+    await persistTransition(rollbackIdentity, 1, { id: "rollback-projection", kind: "cancel", atMs: now, reason: "test" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "rollback-complete", output: {} }], undefined, activities);
+    await fixture.db.execute(sql`CREATE FUNCTION reject_projected_lifecycle() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'projection rejected'; END $$`);
+    await fixture.db.execute(sql`CREATE TRIGGER reject_projected_lifecycle BEFORE UPDATE ON factory_run_lifecycle FOR EACH ROW EXECUTE FUNCTION reject_projected_lifecycle()`);
+    try { await expect(projector.project(runKey(rollback.runId))).rejects.toThrow(); }
+    finally {
+      await fixture.db.execute(sql`DROP TRIGGER reject_projected_lifecycle ON factory_run_lifecycle`);
+      await fixture.db.execute(sql`DROP FUNCTION reject_projected_lifecycle()`);
+    }
+    expect(await projector.progress(runKey(rollback.runId))).toMatchObject({ sequence: 0, lag: 1 });
+    expect((await lifecycle.read(principal, runKey(rollback.runId))).status).toBe("queued");
   });
 
   test("durable run receipts expose verified dispatch status without exposing command bodies", async () => {

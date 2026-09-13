@@ -11,6 +11,17 @@
 
 Review: public page-stage/finalize/record/load tests reject uncommitted and foreign references, duplicate IDs, changed IDs, tampered indexes, audit payloads, and page blobs. They also prove retry convergence and one transaction for audit, index, and inbox receipt. Focused Bun coverage reports 125/125 executable lines for `transition-artifacts.ts`, 334/334 for `factory-schema.ts`, and 4/4 for the new migration at `/tmp/factory-platform-evidence/terra-c02-command-coverage.lcov`. The real PostgreSQL/S3 proof passes seven cases at `/tmp/factory-platform-evidence/terra-c02-command-postgres-s3.log`. Four typecheck legs and lint pass with zero errors and eight existing infos at `/tmp/factory-platform-evidence/terra-c02-command-types-lint.log`.
 
+## Factory transition status projector — Terra
+
+- [x] Reproduce a public started run that stays queued after a committed terminal transition.
+- [x] Add bounded audit projection cursor and atomic lifecycle read-model apply methods.
+- [x] Verify committed transition artifacts before deriving terminal status.
+- [x] Add a fair indexed installation drain that does not let a corrupt run starve later runs.
+- [x] Prove cursor recovery, ordering, cancellation, transaction rollback, scope denials, and drain fairness on PGlite and PostgreSQL/S3.
+- [x] Run coverage, four typecheck legs, and lint; record review.
+
+Review: A public started run remains `queued` until its verified committed root transition is projected. The projector checks the canonical audit and immutable page bytes before its cursor and lifecycle update commit in one transaction. `lag` is the committed audit maximum sequence minus the durable consumer cursor. `projectPending({ runs, batchesPerRun })` uses the scoped audit and projection indexes, orders by the oldest unprojected sequence, and records a corrupt run error while it continues with later runs. PGlite passes 17 cases/130 assertions at `/tmp/factory-platform-evidence/terra-run-projection-pglite.log`; real PostgreSQL/S3 passes the same suite at `/tmp/factory-platform-evidence/terra-run-projection-postgres-s3.log`. Focused artifact integration passes 12 cases/54 assertions at `/tmp/factory-platform-evidence/terra-run-projection-artifacts.log`. The new projector measures 64/64 executable lines in `/tmp/factory-platform-evidence/terra-run-projection-coverage.lcov`; all four typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-run-projection-final-types-lint.log` (eight existing lint infos).
+
 ## Factory assurance integrity — 2026-09-13
 
 - [x] Bind every persisted contract field and the approving authority into a canonical protected snapshot.

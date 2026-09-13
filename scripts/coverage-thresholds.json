@@ -189,6 +189,7 @@
   "src/factory/records.ts": 100,
   "src/factory/inbox.ts": 100,
   "src/factory/run-lifecycle.ts": 100,
+  "src/factory/run-transition-projector.ts": 100,
   "src/factory/locks.ts": 100,
   "src/db/migrations/add-factory-run-lifecycle.ts": 100,
   "src/factory/transport-queue.ts": 100,
