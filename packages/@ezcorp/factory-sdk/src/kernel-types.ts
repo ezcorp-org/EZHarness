@@ -82,8 +82,12 @@ export interface KernelNodeState {
   readonly timer?: { readonly id: string; readonly deadlineAtMs: number; readonly purpose: "deadline" | "retry" };
   /** Persistent control facts; never reset by task retry or continuation. */
   readonly map?: {
+    /** Current bounded artifact page or the complete inline collection. */
     readonly snapshot: readonly JsonValue[];
     readonly itemCount: number;
+    readonly pageOffset?: number;
+    readonly nextCursor?: number;
+    readonly lazy?: { readonly name: string; readonly artifact: import("./types.js").FactoryArtifactReference; readonly path: readonly import("./types.js").ReferencePathSegment[]; readonly storageVersion?: string };
     readonly completedIndexes: readonly number[];
     readonly failedIndexes: readonly number[];
     readonly outcomes: Readonly<Record<string, JsonValue>>;
@@ -112,6 +116,13 @@ export interface KernelState {
   /** Immutable compiled-plan digest. The plan is passed to every kernel call. */
   readonly definitionDigest: string;
   readonly input: JsonValue;
+  /** Explicit transport descriptor; it is never merged into input. */
+  readonly durableInput?: import("./types.js").FactoryDurableInput;
+  readonly lazyInput?: {
+    readonly versions: Readonly<Record<string, string>>;
+    readonly values: Readonly<Record<string, JsonValue>>;
+    readonly pending: Readonly<Record<string, { readonly kind: "value" | "page"; readonly nodeId: string; readonly candidateGeneration: number; readonly cancellationEpoch: number; readonly name: string; readonly artifact: import("./types.js").FactoryArtifactReference; readonly path: readonly import("./types.js").ReferencePathSegment[]; readonly cursor?: number; readonly maxItems?: number; readonly maxBytes: number; readonly expectedStorageVersion?: string }>>;
+  };
   readonly status: KernelRunStatus;
   readonly runDeadlineAtMs: number;
   readonly runTimerId?: string;

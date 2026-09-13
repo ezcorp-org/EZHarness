@@ -1,6 +1,7 @@
 import { validateValue } from "./validation.js";
 import { evaluateExpression } from "./expressions.js";
 import { canonicalizeJson, isUnsignedDecimal, validateIJson } from "./canonical.js";
+import type { FactoryDurableInput } from "./types.js";
 import type {
   AdvanceResult,
   KernelCommand,
@@ -31,8 +32,9 @@ export function createKernelState(
   logicalRunId: string,
   input: JsonValue,
   nowMs: number,
+  durableInput?: FactoryDurableInput,
 ): KernelState {
-  return createInitialState(factory, factory.definition.graph.nodes.map((node) => node.id), logicalRunId, input, nowMs);
+  return createInitialState(factory, factory.definition.graph.nodes.map((node) => node.id), logicalRunId, input, nowMs, undefined, durableInput);
 }
 
 /** Create one bounded interpreter state from a compiler-owned execution partition. */
@@ -42,10 +44,15 @@ export function createPartitionKernelState(
   logicalRunId: string,
   input: JsonValue,
   nowMs: number,
+  durableInput?: FactoryDurableInput,
 ): KernelState {
   const partition = factory.partitions.find((candidate) => candidate.id === partitionId);
   if (!partition) throw new FactoryKernelError(`compiled partition ${partitionId} does not exist`);
-  return createInitialState(factory, partition.nodeIds, logicalRunId, input, nowMs, partitionId);
+  return createInitialState(factory, partition.nodeIds, logicalRunId, input, nowMs, partitionId, durableInput);
+}
+
+function snapshotDurableInput(value: FactoryDurableInput): FactoryDurableInput {
+  return JSON.parse(canonicalizeJson(value as unknown as JsonValue)) as FactoryDurableInput;
 }
 
 function createInitialState(
@@ -55,6 +62,7 @@ function createInitialState(
   input: JsonValue,
   nowMs: number,
   partitionId?: string,
+  durableInput?: FactoryDurableInput,
 ): KernelState {
   validateRecord(factory.definition.inputPorts, input, "run input");
   const nodes: Record<string, KernelNodeState> = Object.create(null) as Record<string, KernelNodeState>;
@@ -67,6 +75,7 @@ function createInitialState(
     logicalRunId,
     definitionDigest: factory.digest,
     input: snapshotValue(input),
+    ...(durableInput ? { durableInput: snapshotDurableInput(durableInput), lazyInput: { versions: {}, values: {}, pending: {} } } : {}),
     status: "created",
     runDeadlineAtMs: nowMs + Math.min(requested, MAX_RUN_DEADLINE_MS),
     nowMs,
