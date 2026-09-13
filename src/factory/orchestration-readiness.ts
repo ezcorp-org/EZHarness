@@ -1,28 +1,8 @@
 import { basename, dirname, resolve } from "node:path";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import type { FactoryOrchestrationReadiness, FactoryOrchestrationReadinessOptions } from "@ezcorp/factory-sdk/transport-types";
+import { privateDirectory, readPrivateBounded } from "./private-files.ts";
 
-/** Written by the Node process only after its authenticated polling probe succeeds. */
-export interface FactoryOrchestrationReadiness {
-  readonly schemaVersion: "factory.orchestrator-readiness.v1";
-  readonly installationId: string;
-  readonly tenantId: string;
-  readonly namespace: string;
-  readonly taskQueue: string;
-  readonly lifecycle: "starting" | "ready" | "stopping" | "failed";
-  readonly observedAtMs: number;
-  readonly workerPolling: boolean;
-  readonly dispatcherLive: boolean;
-  readonly credentialGeneration: number;
-  readonly errorCode?: string;
-}
-export interface FactoryOrchestrationReadinessOptions {
-  readonly installationId: string;
-  readonly tenantId: string;
-  readonly namespace: string;
-  readonly taskQueue: string;
-  readonly readinessFilePath: string;
-  readonly readinessHeartbeatMs?: number;
-}
+export type { FactoryOrchestrationReadiness, FactoryOrchestrationReadinessOptions } from "@ezcorp/factory-sdk/transport-types";
 export type ReadyFactoryOrchestration = FactoryOrchestrationReadiness & { readonly lifecycle: "ready"; readonly workerPolling: true; readonly dispatcherLive: true };
 export class FactoryOrchestrationReadinessError extends Error {
   readonly code = "factory_orchestration_unavailable";

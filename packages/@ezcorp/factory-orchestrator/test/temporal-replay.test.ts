@@ -179,6 +179,22 @@ async function waitForActivityCancellation(started) {
   }
 }
 
+async function waitForReleaseOrCancellation(released) {
+  const context = Context.current();
+  context.cancellationSignal.throwIfAborted();
+  let cancel = () => undefined;
+  const cancellation = new Promise((_, reject) => {
+    cancel = () => reject(context.cancellationSignal.reason);
+    context.cancellationSignal.addEventListener("abort", cancel, { once: true });
+  });
+  const heartbeat = setInterval(() => context.heartbeat(), 10);
+  try { await Promise.race([released, cancellation]); }
+  finally {
+    clearInterval(heartbeat);
+    context.cancellationSignal.removeEventListener("abort", cancel);
+  }
+}
+
 before(async () => {
   historyDirectory = await mkdtemp(join(tmpdir(), "factory-history-"));
   environment = await TestWorkflowEnvironment.createTimeSkipping({ server: { executable: { type: "existing-path", path: server } } });
@@ -412,7 +428,7 @@ describe("factory Temporal workflow", () => {
             return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
           }
           if (command.kind === "dispatch-node") {
-            if (command.nodeId === "slow-0000") await slow;
+            if (command.nodeId === "slow-0000") await waitForReleaseOrCancellation(slow);
             if (command.nodeId === "z") {
               assert.deepEqual(command.input, { fromA: 7 });
               zAdvancedBeforeSlow = !slowReleased;
@@ -510,9 +526,9 @@ describe("factory Temporal workflow", () => {
       executeCommand: async ({ command }) => {
         if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
         if (command.kind === "dispatch-node") {
-          if (command.nodeId === sourceHoldId) await sourceHold;
-          if (command.nodeId === middleHoldId) await middleHold;
-          if (command.nodeId === "a" && command.candidateGeneration === 1) await replacementGate;
+          if (command.nodeId === sourceHoldId) await waitForReleaseOrCancellation(sourceHold);
+          if (command.nodeId === middleHoldId) await waitForReleaseOrCancellation(middleHold);
+          if (command.nodeId === "a" && command.candidateGeneration === 1) await waitForReleaseOrCancellation(replacementGate);
           if (command.nodeId === "zz-publish-repaired") publishCount += 1;
           return { kind: "node-result", id: `${command.id}:result`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: command.nodeId === "a" || command.nodeId === "m" ? { value: command.candidateGeneration + 1 } : {} };
         }
