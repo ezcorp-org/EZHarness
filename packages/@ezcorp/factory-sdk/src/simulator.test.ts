@@ -115,3 +115,23 @@ test("loop fails at its iteration bound after a false until result", () => {
   expect(result.state.status).toBe("failed");
   expect(result.state.nodes.loop?.error).toBe("LOOP_BOUND_EXHAUSTED");
 });
+
+test("loop starts a second scoped iteration after false until and returns the later result", () => {
+  const body = { nodes: [{ id: "work", kind: "task" as const, runner }], outputs: {} };
+  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "string" as const }, body, until: { kind: "eq" as const, left: { kind: "ref" as const, root: "loop" as const, name: "result" }, right: { kind: "literal" as const, value: "done" } }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
+  const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [loop], outputs: { result: { kind: "ref", root: "node", name: "loop" } } } }, indexes: { nodeById: { loop }, successors: { loop: [] }, dependencyCounts: { loop: 0 } } };
+  const ids: string[] = [];
+  const result = simulateFactory(factory, "loop-two", {}, { execute: (_node, command) => { ids.push(command.nodeId); return { kind: "success", output: command.nodeId.includes("/0/") ? "again" : "done" }; } });
+  expect(ids).toEqual(["loop/items/0/work", "loop/items/1/work"]);
+  expect(result.state.status).toBe("completed");
+  expect(result.state.nodes.loop?.output).toBe("done");
+});
+
+test("loop rejects a non-boolean until result", () => {
+  const body = { nodes: [{ id: "work", kind: "task" as const, runner }], outputs: {} };
+  const loop = { id: "loop", kind: "loop" as const, initialInput: { kind: "literal" as const, value: "seed" }, carriedSchema: { type: "string" as const }, resultSchema: { type: "string" as const }, body, until: { kind: "literal" as const, value: "not boolean" }, nextInput: { kind: "literal" as const, value: "next" }, maxIterations: 2, maxElapsedMs: 1_000, onExhausted: "fail" as const };
+  const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [loop], outputs: { result: { kind: "ref", root: "node", name: "loop" } } } }, indexes: { nodeById: { loop }, successors: { loop: [] }, dependencyCounts: { loop: 0 } } };
+  const result = simulateFactory(factory, "loop-bad-until", {}, { execute: () => ({ kind: "success", output: "done" }) });
+  expect(result.state.status).toBe("failed");
+  expect(result.state.nodes.loop?.error).toBe("LOOP_UNTIL_INVALID");
+});
