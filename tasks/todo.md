@@ -1123,3 +1123,16 @@ Review: integration head `3dffb7418` plus this model fix passes the 21 focused c
 - [ ] Complete factory-enabled application boot, service-principal HTTP authentication, and real browser/run execution.
 
 Review: `/tmp/factory-platform-evidence/run-api-results.json` has six successful producers: 167 focused tests, 10 route tests, 13 PostgreSQL lifecycle tests, 13 PostgreSQL/S3 lifecycle tests, all four type checks, and lint. LCOV measures run lifecycle149/149, outbox155/155, application77/77, harness client453/453, shared route142/142, and every new route2/2 lines. Input revision0 now matches creation of a new logical run; stale nonzero start revisions return412. Accepted requests return202 and a real stored command status URL. An unknown dispatch remains visible as unknown and does not become run completion. Repair/replan currently fail unavailable and are not a completed surface. Full-platform gates remain open.
+
+
+## Private factory HTTPS transport
+
+- [x] Prove the C02 private Node-to-Bun mTLS request boundary through actual sockets.
+- [ ] Reuse bounded framing for the attempt gateway and orchestration service, with exact response bytes and peer identity.
+- [x] Reject malformed, oversized, duplicate, unauthenticated and stalled requests; drain/close owned sockets.
+- [ ] Add purpose-scoped service authentication, queue and stored artifact routes.
+- [ ] Verify real Node/PostgreSQL/S3 composition, coverage, types, lint and production boot.
+
+Plan review: the accepted C02 contract specifies the private HTTPS boundary under test. Existing runner-attempt authorization remains in its handler. The shared transport supplies only the verified certificate and bounded bytes, and cannot derive authority from a request body.
+
+Transport review: seven socket tests and 70 assertions pass, including a real Node client, mTLS denial, exact 64 KiB response bytes, fragmented framing, extra-request termination and bounded failures. Shared transport and attempt gateway measure 70/70 and36/36 executable lines. All four type checks and lint pass after installing both root and web locked dependencies. Receipts are `/tmp/factory-platform-evidence/private-https-final-focused.log`, `private-https-final-coverage/lcov.info`, `private-https-types-with-web.log`, and `private-https-lint-corrected.log`. Purpose-scoped orchestration routes and full production startup remain open.

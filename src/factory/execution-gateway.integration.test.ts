@@ -1,3 +1,4 @@
+import { certificates, rawTls, type Certificates } from "../__tests__/helpers/factory-certificates";
 import { afterEach, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { vector } from "@electric-sql/pglite-pgvector";
@@ -5,10 +6,7 @@ import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import { request as httpsRequest } from "node:https";
-import { connect } from "node:tls";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rm } from "node:fs/promises";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { signJWT } from "../auth/jwt";
@@ -28,25 +26,6 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
 });
 
-type Certificates = { ca: string; serverKey: string; serverCert: string; clientKey: string; clientCert: string; foreignKey: string; foreignCert: string };
-
-async function command(args: string[]): Promise<void> {
-  const child = Bun.spawn(["openssl", ...args], { stdout: "ignore", stderr: "pipe" });
-  expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
-}
-
-async function certificates(): Promise<Certificates> {
-  const root = await mkdtemp(join(tmpdir(), "factory-gateway-"));
-  directories.push(root);
-  await command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, "ca.key"), "-out", join(root, "ca.pem"), "-days", "1", "-subj", "/CN=factory-test-ca"]);
-  for (const [name, subject, extension] of [["server", "localhost", "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth"], ["client", "tenant-a", "extendedKeyUsage=clientAuth"], ["foreign", "tenant-b", "extendedKeyUsage=clientAuth"]] as const) {
-    await command(["req", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, `${name}.key`), "-out", join(root, `${name}.csr`), "-subj", `/CN=${subject}`]);
-    await Bun.write(join(root, `${name}.ext`), extension);
-    await command(["x509", "-req", "-in", join(root, `${name}.csr`), "-CA", join(root, "ca.pem"), "-CAkey", join(root, "ca.key"), "-CAcreateserial", "-out", join(root, `${name}.pem`), "-days", "1", "-extfile", join(root, `${name}.ext`)]);
-  }
-  const get = (name: string) => readFile(join(root, name), "utf8");
-  return { ca: await get("ca.pem"), serverKey: await get("server.key"), serverCert: await get("server.pem"), clientKey: await get("client.key"), clientCert: await get("client.pem"), foreignKey: await get("foreign.key"), foreignCert: await get("foreign.pem") };
-}
 
 function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
   return { attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 60_000), ...overrides };
@@ -88,18 +67,6 @@ async function call(url: string, certificates: Certificates, attempt: FactoryAtt
   });
 }
 
-async function rawTls(url: string, certificates: Certificates, chunks: string[]): Promise<string> {
-  const endpoint = new URL(url);
-  return new Promise((resolve, reject) => {
-    const socket = connect({ host: "127.0.0.1", port: Number(endpoint.port), ca: certificates.ca, cert: certificates.clientCert, key: certificates.clientKey, servername: "localhost", rejectUnauthorized: true });
-    let response = "";
-    socket.setEncoding("utf8");
-    socket.on("data", bytes => { response += bytes; });
-    socket.once("error", reject);
-    socket.once("end", () => resolve(response));
-    socket.once("secureConnect", async () => { for (const chunk of chunks) { socket.write(chunk); await new Promise(resolve => setTimeout(resolve, 1)); } });
-  });
-}
 
 test("native Bun mTLS gateway derives attempt authority from an installation token and tenant certificate", async () => {
   const database = new PGlite({ extensions: { vector, pg_trgm } });
@@ -111,7 +78,7 @@ test("native Bun mTLS gateway derives attempt authority from an installation tok
   await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, 'tenant-a', 6)`);
   await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'request', '{}')`);
-  const certs = await certificates();
+  const certs = await certificates(directories);
   const journal = new FactoryExecutionJournal(db, async () => {});
   const authorized: FactoryAttemptAuthority[] = [];
   const server = startFactoryExecutionGateway({ journal, authorizeAttempt: async value => { authorized.push(value); }, jwtSecret: "test-secret", installationId: "installation-a", tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca } });
