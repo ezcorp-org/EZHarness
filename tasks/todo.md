@@ -1413,3 +1413,10 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - PostgreSQL/S3 conformance: `tests/postgres/factory-lazy-input.test.ts` passed 3/3, including shared and same-project immutable reads plus live credential/grant revocation.
 - Static gate: SDK build, four typecheck legs, lint (8 existing infos), and integrity gate passed in `/tmp/factory-platform-evidence/terra-lazy-input-types-lint-gate.log`.
 - Owned source LCOV: `src/factory/lazy-input.ts` 144/144 lines in `/tmp/factory-platform-evidence/terra-lazy-input-owned-coverage.log`.
+
+## C07 deterministic SDK/kernel lazy input — Terra
+- [ ] Preserve legacy inline workflow input and add an explicit durable artifact descriptor.
+- [ ] Add deterministic read-value/read-page commands, bounded caches, stale-result denial, and artifact path/map handling.
+- [ ] Wire orchestration activity contracts and workflow correlation, including command ID child resolution.
+- [ ] Preserve descriptor at lifecycle start and prove field, paged map, replay, child, and corrupt-result cases.
+- [ ] Run PostgreSQL/S3 conformance, owned coverage, SDK build, all types, lint, and integrity checks.
