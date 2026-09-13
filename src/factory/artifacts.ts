@@ -31,6 +31,9 @@ export class FactoryArtifacts {
   constructor(readonly database: TransactionalDb, private readonly blobs: BlobStore) {}
 
   async stage(identityValue: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId" | "interpreterId">, kind: FactoryArtifactKind, content: Uint8Array, options: { definitionDigest?: string; sourceSequence?: number; pageIndex?: number; interpreterScoped?: boolean } = {}): Promise<ImmutableObjectReference> {
+    identityValue = { ...identityValue };
+    content = Uint8Array.from(content);
+    options = { ...options };
     identity(identityValue);
     bounded(content);
     const sequence = sourceSequence(options.sourceSequence);
@@ -57,6 +60,9 @@ export class FactoryArtifacts {
   }
 
   async load(identityValue: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId" | "interpreterId">, object: ImmutableObjectReference, kinds: readonly FactoryArtifactKind[], interpreterScoped = false): Promise<{ reference: ImmutableObjectReference; kind: FactoryArtifactKind; definitionDigest: string | null; sourceSequence: number | null; pageIndex: number | null; content: Uint8Array }> {
+    identityValue = { ...identityValue };
+    object = { ...object };
+    kinds = [...kinds];
     identity(identityValue);
     if (!object?.objectId || !/^sha256:[0-9a-f]{64}$/.test(object.digest) || !Number.isSafeInteger(object.encodedBytes) || object.encodedBytes < 1 || object.encodedBytes > FACTORY_ARTIFACT_MAX_BYTES) throw new FactoryArtifactError("factory_artifact_reference_invalid");
     const row = releaseRows<ArtifactRow>(await this.database.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE object_id=${object.objectId} AND tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} ${interpreterScoped ? sql`AND interpreter_id=${identityValue.interpreterId}` : sql``} FOR SHARE`))[0];
