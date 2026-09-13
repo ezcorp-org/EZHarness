@@ -368,3 +368,4 @@
 
 - A compiler success must pass its own public compiled-artifact validator. Test materialized defaults against shorter enclosing bounds, including nested control graphs.
 - Enforce size limits on the final canonical artifact as well as its source and pages. Derived indexes can duplicate enough source data to cross the compiled IR limit.
+- API resource types must match the durable store's canonical metadata names and object model. Do not require extra content-addressed objects when one immutable compiled artifact already embeds the definition and lock.

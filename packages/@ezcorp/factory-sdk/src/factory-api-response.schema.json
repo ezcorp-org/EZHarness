@@ -1191,14 +1191,6 @@
           "minLength": 1,
           "type": "string"
         },
-        "definition": {
-          "$ref": "#/definitions/FactoryDefinition"
-        },
-        "definitionDigest": {
-          "maxLength": 64,
-          "minLength": 64,
-          "type": "string"
-        },
         "factoryId": {
           "maxLength": 512,
           "minLength": 1,
@@ -1209,6 +1201,14 @@
           "minimum": 1,
           "type": "number"
         },
+        "source": {
+          "$ref": "#/definitions/FactoryDefinition"
+        },
+        "sourceDigest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
         "updatedAtMs": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -1218,10 +1218,10 @@
       "required": [
         "archived",
         "availability",
-        "definition",
-        "definitionDigest",
         "factoryId",
         "revision",
+        "source",
+        "sourceDigest",
         "updatedAtMs"
       ],
       "type": "object"
@@ -1240,11 +1240,6 @@
           "minLength": 1,
           "type": "string"
         },
-        "definitionDigest": {
-          "maxLength": 64,
-          "minLength": 64,
-          "type": "string"
-        },
         "factoryId": {
           "maxLength": 512,
           "minLength": 1,
@@ -1254,6 +1249,11 @@
           "maximum": 9007199254740991,
           "minimum": 1,
           "type": "number"
+        },
+        "sourceDigest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
         },
         "updatedAtMs": {
           "maximum": 9007199254740991,
@@ -1266,7 +1266,7 @@
         "revision",
         "archived",
         "availability",
-        "definitionDigest",
+        "sourceDigest",
         "updatedAtMs"
       ],
       "type": "object"
@@ -1624,38 +1624,34 @@
     "FactoryVersionSummary": {
       "additionalProperties": false,
       "properties": {
-        "compiledArtifact": {
-          "$ref": "#/definitions/FactoryArtifactReference"
-        },
-        "compiledDigest": {
+        "compiledBlobDigest": {
           "maxLength": 64,
           "minLength": 64,
           "type": "string"
         },
-        "definitionArtifact": {
-          "$ref": "#/definitions/FactoryArtifactReference"
+        "compiledBytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "type": "number"
         },
         "definitionDigest": {
           "maxLength": 64,
           "minLength": 64,
           "type": "string"
         },
+        "draftRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
         "factoryId": {
           "maxLength": 512,
           "minLength": 1,
           "type": "string"
         },
-        "lockArtifact": {
-          "$ref": "#/definitions/FactoryArtifactReference"
-        },
         "publishedAtMs": {
           "maximum": 9007199254740991,
           "minimum": 0,
-          "type": "number"
-        },
-        "sourceRevision": {
-          "maximum": 9007199254740991,
-          "minimum": 1,
           "type": "number"
         },
         "version": {
@@ -1667,12 +1663,10 @@
       "required": [
         "factoryId",
         "version",
-        "sourceRevision",
+        "draftRevision",
         "definitionDigest",
-        "compiledDigest",
-        "definitionArtifact",
-        "compiledArtifact",
-        "lockArtifact",
+        "compiledBlobDigest",
+        "compiledBytes",
         "publishedAtMs"
       ],
       "type": "object"

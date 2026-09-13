@@ -708,8 +708,8 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     const preconditions = validateApiPreconditions(request);
     if (!preconditions.ok) return preconditions;
   }
-  if ((request.kind === "draft.update" || request.kind === "draft.validate") && request.body.definition.id !== request.path.factoryId) return issue("API_FACTORY_ID", "The definition ID must match the trusted factory path.", ["body", "definition", "id"]);
-  if ((request.kind === "draft.create" || request.kind === "draft.update" || request.kind === "draft.validate") && encodedBytes(request.body.definition as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_DEFINITION_BYTES", "Factory definition exceeds 16 MiB.", ["body", "definition"]);
+  if ((request.kind === "draft.update" || request.kind === "draft.validate") && request.body.source.id !== request.path.factoryId) return issue("API_FACTORY_ID", "The definition ID must match the trusted factory path.", ["body", "source", "id"]);
+  if ((request.kind === "draft.create" || request.kind === "draft.update" || request.kind === "draft.validate") && encodedBytes(request.body.source as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_DEFINITION_BYTES", "Factory definition exceeds 16 MiB.", ["body", "source"]);
   if (request.kind === "draft.import" && new TextEncoder().encode(request.body.source).byteLength > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_IMPORT_BYTES", "Imported source exceeds 16 MiB.", ["body", "source"]);
   if (request.kind === "run.start") {
     if (!validDigest(request.body.definitionDigest, false)) return issue("API_DEFINITION_DIGEST", "Run start needs a lowercase sha256 definition digest.", ["body", "definitionDigest"]);
@@ -728,8 +728,8 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
   return { ok: true };
 }
 
-function validDraftSummary(resource: { availability: string; availabilityReason?: string; definitionDigest: string }): boolean {
-  return validDigest(resource.definitionDigest, false)
+function validDraftSummary(resource: { availability: string; availabilityReason?: string; sourceDigest: string }): boolean {
+  return validDigest(resource.sourceDigest, false)
     && (resource.availability === "unavailable" ? boundedText(resource.availabilityReason ?? "", 2_048) : resource.availabilityReason === undefined);
 }
 
@@ -740,10 +740,9 @@ function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "ap
 
 function validVersion(resource: Extract<FactoryApiResponse, { kind: "version.summary" }>["resource"]): boolean {
   return validDigest(resource.definitionDigest, false)
-    && validDigest(resource.compiledDigest, false)
-    && validateArtifactReference(resource.definitionArtifact, ["resource", "definitionArtifact"]).ok
-    && validateArtifactReference(resource.compiledArtifact, ["resource", "compiledArtifact"]).ok
-    && validateArtifactReference(resource.lockArtifact, ["resource", "lockArtifact"]).ok;
+    && validDigest(resource.compiledBlobDigest, false)
+    && safeCounter(resource.compiledBytes, 1)
+    && resource.compiledBytes <= FACTORY_LIMITS.maxDefinitionBytes;
 }
 
 /** Strict, workflow-safe validation for C09 route responses. */
@@ -752,7 +751,7 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
   const response = value as FactoryApiResponse;
   if (response.kind === "draft.summary" || response.kind === "draft.details") {
     if (!validDraftSummary(response.resource)) return issue("API_DRAFT_RESOURCE", "Draft digest or availability detail is invalid.", ["resource"]);
-    if (response.kind === "draft.details" && response.resource.definition.id !== response.resource.factoryId) return issue("API_FACTORY_ID", "Draft definition ID must match its resource ID.", ["resource", "definition", "id"]);
+    if (response.kind === "draft.details" && response.resource.source.id !== response.resource.factoryId) return issue("API_FACTORY_ID", "Draft definition ID must match its resource ID.", ["resource", "source", "id"]);
   }
   if (response.kind === "draft.page" && response.page.items.some((item) => !validDraftSummary(item))) return issue("API_DRAFT_RESOURCE", "Draft page contains an invalid digest or availability detail.", ["page", "items"]);
   if (response.kind === "version.summary" && !validVersion(response.resource)) return issue("API_VERSION_DIGEST", "Published version digests and artifacts must be valid.", ["resource"]);

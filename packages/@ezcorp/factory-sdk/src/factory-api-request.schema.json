@@ -1220,12 +1220,12 @@
     "FactoryDefinitionBody": {
       "additionalProperties": false,
       "properties": {
-        "definition": {
+        "source": {
           "$ref": "#/definitions/FactoryDefinition"
         }
       },
       "required": [
-        "definition"
+        "source"
       ],
       "type": "object"
     },

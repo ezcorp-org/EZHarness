@@ -9,7 +9,7 @@ const digest = "a".repeat(64);
 const preconditions = { idempotencyKey: "request-1", payloadDigest: digest, expectedRevision: 1 } as const;
 const project = { projectId: "project-1" } as const;
 const draft = { ...project, factoryId: referenceCodeV1.id } as const;
-const definitionBody = { definition: referenceCodeV1 } as const;
+const definitionBody = { source: referenceCodeV1 } as const;
 
 function code(result: ReturnType<typeof validateFactoryApiRequest> | ReturnType<typeof validateFactoryApiResponse>): string | undefined {
   return result.ok ? undefined : result.issues[0]?.code;
@@ -44,18 +44,17 @@ function requests(): FactoryApiRequest[] {
 }
 
 function draftSummary(): FactoryDraftSummary {
-  return { factoryId: referenceCodeV1.id, revision: 1, archived: false, availability: "available", definitionDigest: digest, updatedAtMs: 1 };
+  return { factoryId: referenceCodeV1.id, revision: 1, archived: false, availability: "available", sourceDigest: digest, updatedAtMs: 1 };
 }
 
 function responses(): FactoryApiResponse[] {
-  const artifact = { artifactId: "artifact-1", digest: `sha256:${digest}`, encodedBytes: 1 } as const;
-  const version = { factoryId: referenceCodeV1.id, version: referenceCodeV1.version, sourceRevision: 1, definitionDigest: digest, compiledDigest: digest, definitionArtifact: artifact, compiledArtifact: artifact, lockArtifact: artifact, publishedAtMs: 1 } as const;
+  const version = { factoryId: referenceCodeV1.id, version: referenceCodeV1.version, draftRevision: 1, definitionDigest: digest, compiledBlobDigest: digest, compiledBytes: 1, publishedAtMs: 1 } as const;
   const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: digest, grantRevision: 1, revision: 1, status: "running", createdAtMs: 1, updatedAtMs: 1 } as const;
   const approval = { approvalId: "approval-1", runId: "run-1", revision: 1, contextDigest: digest, status: "pending", expiresAtMs: 2 } as const;
   const grant = { principalKind: "user", principalId: "user-1", action: "factory.author", revision: 1, expiresAtMs: null, revoked: false } as const;
   return [
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.summary", resource: draftSummary() },
-    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.details", resource: { ...draftSummary(), definition: referenceCodeV1 } },
+    { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.details", resource: { ...draftSummary(), source: referenceCodeV1 } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.page", page: { items: [draftSummary()], nextCursor: "next" } },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.export", format: "json", source: "{}" },
     { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "draft.validation", valid: true, diagnostics: [] },
@@ -122,7 +121,7 @@ describe("factory product API schema", () => {
     const largeDefinition = structuredClone(referenceCodeV1);
     (largeDefinition.inputPorts.request as { description?: string }).description = "界".repeat(5_600_000);
     const create = requests()[0] as Extract<FactoryApiRequest, { kind: "draft.create" }>;
-    expect(code(validateFactoryApiRequest({ ...create, body: { definition: largeDefinition } }))).toBe("API_DEFINITION_BYTES");
+    expect(code(validateFactoryApiRequest({ ...create, body: { source: largeDefinition } }))).toBe("API_DEFINITION_BYTES");
     expect(code(validateFactoryApiRequest({ ...start, body: { ...start.body, factoryVersion: "bad\nversion" } }))).toBe("API_VERSION");
     const repair = requests()[15] as Extract<FactoryApiRequest, { kind: "run.control" }>;
     expect(code(validateFactoryApiRequest({ ...repair, body: { action: "repair", parameters: { value: { kind: "inline", value: "x".repeat(FACTORY_LIMITS.maxInlineValueBytes + 1) } } } }))).toBe("API_PARAMETER_BYTES");
@@ -133,7 +132,7 @@ describe("factory product API schema", () => {
     const summary = responses()[0] as Extract<FactoryApiResponse, { kind: "draft.summary" }>;
     expect(code(validateFactoryApiResponse({ ...summary, unknown: true }))).toBe("API_RESPONSE_SCHEMA");
     expect(code(validateFactoryApiResponse({ ...summary, resource: { ...summary.resource, unknown: true } }))).toBe("API_RESPONSE_SCHEMA");
-    expect(code(validateFactoryApiResponse({ ...summary, resource: { ...summary.resource, definitionDigest: "bad" } }))).toBe("API_RESPONSE_SCHEMA");
+    expect(code(validateFactoryApiResponse({ ...summary, resource: { ...summary.resource, sourceDigest: "bad" } }))).toBe("API_RESPONSE_SCHEMA");
     expect(code(validateFactoryApiResponse({ ...summary, resource: { ...summary.resource, availability: "unavailable" } }))).toBe("API_DRAFT_RESOURCE");
     expect(code(validateFactoryApiResponse({ ...summary, resource: { ...summary.resource, availabilityReason: "unexpected" } }))).toBe("API_DRAFT_RESOURCE");
     expect(validateFactoryApiResponse({ ...summary, resource: { ...summary.resource, availability: "unavailable", availabilityReason: "GPU unavailable" } })).toEqual({ ok: true });
@@ -144,9 +143,9 @@ describe("factory product API schema", () => {
     const approvalPage = responses()[10] as Extract<FactoryApiResponse, { kind: "approval.page" }>;
     expect(code(validateFactoryApiResponse({ ...approvalPage, page: { items: [{ ...approvalPage.page.items[0]!, contextDigest: "b".repeat(64), status: "denied" }] } }))).toBe("API_APPROVAL_RESOURCE");
     const version = responses()[5] as Extract<FactoryApiResponse, { kind: "version.summary" }>;
-    expect(code(validateFactoryApiResponse({ ...version, resource: { ...version.resource, compiledDigest: "b".repeat(63) } }))).toBe("API_RESPONSE_SCHEMA");
+    expect(code(validateFactoryApiResponse({ ...version, resource: { ...version.resource, compiledBlobDigest: "b".repeat(63) } }))).toBe("API_RESPONSE_SCHEMA");
     const versionPage = responses()[6] as Extract<FactoryApiResponse, { kind: "version.page" }>;
-    expect(code(validateFactoryApiResponse({ ...versionPage, page: { items: [{ ...versionPage.page.items[0]!, lockArtifact: { ...versionPage.page.items[0]!.lockArtifact, artifactId: "../lock" } }] } }))).toBe("API_VERSION_DIGEST");
+    expect(code(validateFactoryApiResponse({ ...versionPage, page: { items: [{ ...versionPage.page.items[0]!, compiledBlobDigest: "A".repeat(64) }] } }))).toBe("API_VERSION_DIGEST");
     const runDetails = responses()[7] as Extract<FactoryApiResponse, { kind: "run.details" }>;
     expect(code(validateFactoryApiResponse({ ...runDetails, resource: { ...runDetails.resource, definitionDigest: "A".repeat(64) } }))).toBe("API_RUN_DIGEST");
     expect(code(validateFactoryApiResponse({ ...runDetails, resource: { ...runDetails.resource, parameters: { value: { kind: "inline", value: "x".repeat(FACTORY_LIMITS.maxInlineValueBytes + 1) } } } }))).toBe("API_PARAMETER_BYTES");

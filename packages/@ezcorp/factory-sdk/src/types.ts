@@ -659,7 +659,7 @@ export interface FactoryGrantListQuery extends FactoryListQuery {
 }
 
 export interface FactoryDefinitionBody {
-  readonly definition: FactoryDefinition;
+  readonly source: FactoryDefinition;
 }
 
 export interface FactoryImportBody {
@@ -754,13 +754,13 @@ export interface FactoryDraftSummary {
   /** @minLength 1 @maxLength 2048 */
   readonly availabilityReason?: string;
   /** @minLength 64 @maxLength 64 */
-  readonly definitionDigest: string;
+  readonly sourceDigest: string;
   /** @minimum 0 @maximum 9007199254740991 */
   readonly updatedAtMs: number;
 }
 
 export interface FactoryDraftDetails extends FactoryDraftSummary {
-  readonly definition: FactoryDefinition;
+  readonly source: FactoryDefinition;
 }
 
 export interface FactoryVersionSummary {
@@ -769,14 +769,13 @@ export interface FactoryVersionSummary {
   /** @minLength 1 @maxLength 512 */
   readonly version: string;
   /** @minimum 1 @maximum 9007199254740991 */
-  readonly sourceRevision: number;
+  readonly draftRevision: number;
   /** @minLength 64 @maxLength 64 */
   readonly definitionDigest: string;
   /** @minLength 64 @maxLength 64 */
-  readonly compiledDigest: string;
-  readonly definitionArtifact: FactoryArtifactReference;
-  readonly compiledArtifact: FactoryArtifactReference;
-  readonly lockArtifact: FactoryArtifactReference;
+  readonly compiledBlobDigest: string;
+  /** @minimum 1 @maximum 16777216 */
+  readonly compiledBytes: number;
   /** @minimum 0 @maximum 9007199254740991 */
   readonly publishedAtMs: number;
 }
