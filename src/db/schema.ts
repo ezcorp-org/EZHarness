@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, foreignKey, uniqueIndex, date, vector, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, foreignKey, uniqueIndex, date, vector, customType, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { buildFactorySchema } from "./factory-schema";
 import type { PublishedExtensionRelease } from "@ezcorp/extension-contract";
@@ -2960,6 +2960,26 @@ export const factoryReleaseCandidateHistory = pgTable("factory_release_candidate
 export const factoryReleaseCurrentCandidates = pgTable("factory_release_current_candidates", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), candidateDigest: text("candidate_digest").notNull(), attemptId: text("attempt_id").notNull(), pointerRevision: bigint("pointer_revision", { mode: "number" }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId] }), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration], foreignColumns: [factoryReleaseCandidateHistory.tenantId, factoryReleaseCandidateHistory.projectId, factoryReleaseCandidateHistory.runId, factoryReleaseCandidateHistory.nodeInstanceId, factoryReleaseCandidateHistory.candidateGeneration] }).onDelete("restrict")]);
+/** Exact human-issued source-to-target artifact reads; the protected digest binds all usable metadata. */
+export const factoryArtifactReadGrants = pgTable("factory_artifact_read_grants", {
+  tenantId: text("tenant_id").notNull(), sourceProjectId: text("source_project_id").notNull(), sourceRunId: text("source_run_id").notNull(), sourceArtifactId: text("source_artifact_id").notNull(), targetProjectId: text("target_project_id").notNull(),
+  artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), artifactKind: text("artifact_kind").notNull(), storageVersion: text("storage_version").notNull(), mediaType: text("media_type").notNull(),
+  issuerId: text("issuer_id").notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceArtifactId, table.targetProjectId] }),
+  index("idx_factory_artifact_read_grants_target").on(table.tenantId, table.targetProjectId, table.sourceArtifactId),
+  foreignKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceArtifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceRunId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.targetProjectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.issuerId], foreignColumns: [users.id] }).onDelete("restrict"),
+  check("factory_artifact_read_grants_digest_check", sql`${table.artifactDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_artifact_read_grants_bytes_check", sql`${table.artifactBytes} > 0 AND ${table.artifactBytes} <= 16777216`),
+  check("factory_artifact_read_grants_kind_check", sql`char_length(${table.artifactKind}) BETWEEN 1 AND 128`),
+  check("factory_artifact_read_grants_media_type_check", sql`char_length(${table.mediaType}) BETWEEN 1 AND 128`),
+  check("factory_artifact_read_grants_storage_version_check", sql`char_length(${table.storageVersion}) BETWEEN 1 AND 512`),
+  check("factory_artifact_read_grants_issuer_revision_check", sql`${table.issuerGrantRevision} > 0`),
+  check("factory_artifact_read_grants_protected_digest_check", sql`${table.protectedDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+]);
 /** Factory C04 assurance facts. Migrations own SQL constraints; this model keeps product queries typed. */
 export const factoryAcceptanceContracts = pgTable("factory_acceptance_contracts", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), contractId: text("contract_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
