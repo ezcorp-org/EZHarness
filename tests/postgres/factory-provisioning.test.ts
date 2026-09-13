@@ -68,7 +68,7 @@ test("recovers marked role and database after external DDL crashes without adopt
     expect(partial.database_oid).toBe(null);
     const role = localName("factory_role", tenantId), database = localName("factory_product", tenantId);
     const roleMarker = (await admin`SELECT shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { marker: string } | undefined;
-    if (interrupted === "role") expect(roleMarker).toBeUndefined(); else expect(roleMarker?.marker).toBe(`factory-provisioner-role:${partial.installation_id}:${partial.role_plan}`);
+    if (interrupted === "role") expect(roleMarker).toBeUndefined(); else expect(roleMarker?.marker).toBe(`factory-provisioner-role:${partial.installation_id}:${partial.role_plan}:${partial.database_plan}`);
     if (interrupted === "database") {
       const databaseMarker = (await admin`SELECT shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { marker: string | null };
       expect(databaseMarker.marker).toBeNull();
@@ -112,7 +112,7 @@ test("does not adopt an unmarked pre-existing database outside its creation phas
   const tenantId = "tenant-95", role = localName("factory_role", tenantId), database = localName("factory_product", tenantId);
   await admin.unsafe(`CREATE ROLE "${role}" LOGIN`); await admin.unsafe(`CREATE DATABASE "${database}" OWNER "${role}"`);
   const installationId = randomUUID(), rolePlan = randomUUID(), databasePlan = randomUUID();
-  await admin.unsafe(`COMMENT ON ROLE "${role}" IS 'factory-provisioner-role:${installationId}:${rolePlan}'`);
+  await admin.unsafe(`COMMENT ON ROLE "${role}" IS 'factory-provisioner-role:${installationId}:${rolePlan}:${databasePlan}'`);
   const roleOid = (await admin`SELECT oid::text FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string };
   const control = new SQL(controlUrl);
   await control`INSERT INTO factory_installations(tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_oid, role_plan, database_plan) VALUES (${tenantId}, ${installationId}, ${`${tenantId}.factory.test`}, ${`${tenantId}@example.test`}, ${database}, ${role}, ${tenantId}, ${join(root, "installations", tenantId)}, 'partial', 'role', ${randomUUID()}, ${roleOid.oid}::oid, ${rolePlan}, ${databasePlan})`;

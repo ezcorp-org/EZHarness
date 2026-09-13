@@ -17,7 +17,7 @@ type ProvisionOutcome = { installation: LocalInstallation } | { failure: string 
 const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
 const localName = (prefix: string, tenantId: string) => `${prefix}_${createHash("sha256").update(tenantId).digest("hex").slice(0, 20)}`;
 const secret = () => randomBytes(32).toString("base64url");
-const resourceMarker = (kind: "role" | "database", record: InstallationRecord): string => `factory-provisioner-${kind}:${stored(record, "installation_id")}:${stored(record, `${kind}_plan`)}`;
+const resourceMarker = (kind: "role" | "database", record: InstallationRecord): string => kind === "role" ? `factory-provisioner-role:${stored(record, "installation_id")}:${stored(record, "role_plan")}:${stored(record, "database_plan")}` : `factory-provisioner-database:${stored(record, "installation_id")}:${stored(record, "database_plan")}`;
 const stored = (record: Record<string, string | undefined>, field: string): string => { const value = record[field]; if (!value) throw new Error(`Installation record has no ${field}.`); return value; };
 const owner = (): number => { const uid = process.getuid?.(); if (uid === undefined) throw new Error("Local secret storage requires a POSIX owner."); return uid; };
 function assertRequest(request: LocalInstallationRequest): void { if (!/^tenant-\d{2}$/.test(request.tenantId)) throw new Error("Local provisioner requires a generated tenant-XX identity."); if (!/^[a-z0-9][a-z0-9.-]{0,252}$/.test(request.hostname)) throw new Error("Installation hostname is malformed."); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.administratorEmail)) throw new Error("First administrator email is malformed."); }
