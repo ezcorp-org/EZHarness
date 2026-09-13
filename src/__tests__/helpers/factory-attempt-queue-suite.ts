@@ -47,6 +47,10 @@ export async function verifyFactoryAttemptQueue(createFixture: () => Promise<Att
     })).rejects.toThrow("attempt enqueue failed");
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${rollback.attemptId}`))).toHaveLength(0);
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE attempt_id=${rollback.attemptId}`))).toHaveLength(0);
+    const failedQueueInsert = admission("failed-queue-insert");
+    await expect(new FactoryAttemptQueue(fixture.db, journal, "attempt-tenant", () => -1).enqueue(failedQueueInsert)).rejects.toThrow();
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${failedQueueInsert.attemptId}`))).toHaveLength(0);
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE attempt_id=${failedQueueInsert.attemptId}`))).toHaveLength(0);
     expect((await queue.enqueue(rollback)).state).toBe("queued");
     const retry = { ...rollback, request: { ...rollback.request, broker: { ...rollback.request.broker, attemptToken: "fresh-token" } } };
     expect((await queue.enqueue(retry)).id).toBe(rollback.attemptId);
