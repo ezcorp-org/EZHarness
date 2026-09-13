@@ -44,7 +44,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   const startRun = async (...args: Parameters<FactoryRunLifecycle["start"]>) => (await lifecycle.start(...args)).run;
   const cancelRun = async (...args: Parameters<FactoryRunLifecycle["cancel"]>) => (await lifecycle.cancel(...args)).run;
   const start = () => startRun(principal, key, body, 0, `start-${++sequence}`);
-  const taskInterpreter = async (runId: string, definitionKey = key, request = body) => {
+  const committedInterpreter = async (runId: string, definitionKey = key, request = body) => {
     const identity = { tenantId, projectId, logicalRunId: runId, interpreterId: "root" };
     const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
     const transitions = new FactoryTransitionArtifacts(artifacts);
@@ -112,7 +112,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("only the current committed task command admits product work under the live run fence", async () => {
     const run = await start();
-    const { identity, transitions, activities, compiled, event, first, admission, authority } = await taskInterpreter(run.runId);
+    const { identity, transitions, activities, compiled, event, first, admission, authority } = await committedInterpreter(run.runId);
     expect(admission.kind).toBe("request-admission");
     const service = { tenantId, subject: "orchestration" };
     const reference = { ...identity, commandId: admission.id };
@@ -180,7 +180,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const version = await definitions.publish(principal, definitionKey, 1, "task-budget-publish");
     const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
     const run = await startRun(principal, definitionKey, request, 0, "task-budget-start");
-    const { identity, transitions, activities, event, first, admission, authority } = await taskInterpreter(run.runId, definitionKey, request);
+    const { identity, transitions, activities, event, first, admission, authority } = await committedInterpreter(run.runId, definitionKey, request);
     await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
     const reference = { ...identity, commandId: admission.id };
     const service = { tenantId, subject: "orchestration" };
@@ -191,6 +191,46 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(delivery?.command.body).toMatchObject({ budget: { costMicros: "3", tokens: 4, computeMs: 5 }, memoryBytes: 128 });
     expect((await lifecycle.budgets.inspect({ ...runKey(run.runId), envelopeId: "root" })).allocated).toEqual({ costMicros: "3", tokens: "4", computeMs: "5" });
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+  });
+
+  test("a child resolves only from the current committed parent attempt and exact published reference", async () => {
+    const definitionKey = { projectId, factoryId: "parent-authority-factory" };
+    const child = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, factories: [child], outputPorts: {},
+      graph: { nodes: [{ id: "child", kind: "subfactory", factory: child, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "parent-authority-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "parent-authority-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
+    const service = { tenantId, subject: "orchestration" };
+    for (const forged of [false, true]) {
+      const run = await startRun(principal, definitionKey, request, 0, `parent-authority-${forged}`);
+      const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+      const command = first.commands.find(value => value.kind === "run-child");
+      expect(command?.kind).toBe("run-child");
+      if (command?.kind !== "run-child") throw new Error("missing child command");
+      const reference = { ...identity, commandId: command.id };
+      await expect(authority.withCurrentChild(service, reference, async () => "child")).rejects.toThrow();
+      const commands = first.commands.map(value => forged && value.id === command.id ? { ...command, factory: { ...child, digest: `sha256:${"0".repeat(64)}` } } : value);
+      await persistTransition(identity, 1, event, first.nextState, commands, undefined, activities);
+      if (forged) {
+        await expect(authority.withCurrentChild(service, reference, async () => "child")).rejects.toMatchObject({ code: "factory_command_stale" });
+      } else {
+        const resolve = () => authority.withCurrentChild(service, reference, async (_transaction, context) => ({ child: context.node.factory, command: context.command, fence: context.fence.definitionDigest }));
+        expect(await resolve()).toEqual({ child, command, fence: request.definitionDigest });
+        await expect(authority.withCurrent(service, reference, async () => "task")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+        const timer = first.commands.find(value => value.kind === "start-timer")!;
+        await expect(authority.withCurrentChild(service, { ...reference, commandId: timer.id }, async () => "child")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+        const mutable = { ...reference };
+        const pending = authority.withCurrentChild(service, mutable, async (_transaction, context) => context.command.factory);
+        mutable.commandId = "caller-changed-child";
+        expect(await pending).toEqual(child);
+        const expired = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, [service.subject], () => command.deadlineAtMs);
+        await expect(expired.withCurrentChild(service, reference, async () => "child")).rejects.toMatchObject({ code: "factory_command_stale" });
+        await cancelRun(principal, runKey(run.runId), run.revision, "parent-authority-cancel");
+        await expect(resolve()).rejects.toMatchObject({ code: "factory_run_stopped" });
+      }
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+    }
   });
 
   test("public run reads consume bounded committed root transitions and recover from their cursor", async () => {

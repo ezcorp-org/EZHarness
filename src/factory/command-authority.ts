@@ -1,5 +1,5 @@
 import { nodeFor } from "@ezcorp/factory-sdk/kernel";
-import type { KernelCommand, KernelState, TaskNode } from "@ezcorp/factory-sdk";
+import type { CompiledFactory, FactoryNode, KernelCommand, KernelState, SubfactoryNode, TaskNode } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
@@ -9,13 +9,25 @@ import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 type ExecutionCommand = Extract<KernelCommand, { kind: "request-admission" | "dispatch-node" }>;
+type ChildCommand = Extract<KernelCommand, { kind: "run-child" }>;
 interface Head { source_sequence: number | string; digest: string }
+interface CommittedCommand<Command extends KernelCommand> {
+  readonly command: Command;
+  readonly compiled: CompiledFactory;
+  readonly state: KernelState;
+  readonly fence: FactoryRunFence;
+}
 
 export interface FactoryAuthorizedCommand {
   readonly command: ExecutionCommand;
   readonly node: TaskNode;
   readonly state: KernelState;
   readonly fence: FactoryRunFence;
+}
+
+export interface FactoryAuthorizedChildCommand extends Omit<FactoryAuthorizedCommand, "command" | "node"> {
+  readonly command: ChildCommand;
+  readonly node: SubfactoryNode;
 }
 
 export class FactoryCommandAuthorityError extends Error {
@@ -41,12 +53,29 @@ export class FactoryCommandAuthority {
   }
 
   async withCurrent<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>): Promise<Result> {
+    return this.withCommitted(service, value, (command): command is ExecutionCommand => command.kind === "request-admission" || command.kind === "dispatch-node", async (transaction, context) => {
+      const node = this.attemptNode(context, "task");
+      return work(transaction, { command: context.command, node, state: context.state, fence: context.fence });
+    });
+  }
+
+  async withCurrentChild<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedChildCommand) => Promise<Result>): Promise<Result> {
+    return this.withCommitted(service, value, (command): command is ChildCommand => command.kind === "run-child", async (transaction, context) => {
+      const node = this.attemptNode(context, "subfactory");
+      const expected = node.factory;
+      const actual = context.command.factory;
+      if (actual.id !== expected.id || actual.version !== expected.version || actual.digest !== expected.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
+      return work(transaction, { command: context.command, node, state: context.state, fence: context.fence });
+    });
+  }
+
+  private async withCommitted<Command extends KernelCommand, Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, accepts: (command: KernelCommand) => command is Command, work: (transaction: MigrationDb, context: CommittedCommand<Command>) => Promise<Result>): Promise<Result> {
     const reference = Object.freeze({ tenantId: value.tenantId, projectId: value.projectId, logicalRunId: value.logicalRunId, interpreterId: value.interpreterId, commandId: value.commandId });
     assertFactoryIdentity(...Object.values(reference));
     this.assertService(service);
     if (reference.tenantId !== this.tenantId) throw new FactoryCommandAuthorityError("factory_command_forbidden");
     const command = await this.transitions.loadStoredCommand(reference);
-    if (command.kind !== "request-admission" && command.kind !== "dispatch-node") throw new FactoryCommandAuthorityError("factory_command_forbidden");
+    if (!accepts(command)) throw new FactoryCommandAuthorityError("factory_command_forbidden");
     const head = await this.head(this.database, reference);
     const transition = await this.transitions.loadCommittedTransition(reference, Number(head.source_sequence));
     // Transition reads finish before the transaction. The run lock and exact head
@@ -57,12 +86,17 @@ export class FactoryCommandAuthority {
       if (Number(current.source_sequence) !== Number(head.source_sequence) || current.digest !== head.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
       const state = transition.nextState;
       if (state.logicalRunId !== reference.logicalRunId || state.definitionDigest !== fence.definitionDigest || state.runDeadlineAtMs !== fence.deadlineAtMs || state.cancellationEpoch !== fence.cancellationEpoch || !["running", "waiting"].includes(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
-      const node = nodeFor(compiled, command.nodeId);
-      const runtime = Object.hasOwn(state.nodes, command.nodeId) ? state.nodes[command.nodeId] : undefined;
-      const attempt = runtime?.attempts.at(-1);
-      if (node?.kind !== "task" || !runtime || !attempt || runtime.candidateGeneration !== command.candidateGeneration || attempt.candidateGeneration !== command.candidateGeneration || attempt.commandId !== command.id || attempt.stopped || attempt.uncertain || attempt.deadlineAtMs !== command.deadlineAtMs || !Number.isSafeInteger(command.deadlineAtMs) || command.deadlineAtMs <= this.now() || command.deadlineAtMs > fence.deadlineAtMs || runtime.status !== (command.kind === "request-admission" ? "reserved" : "running") || (command.kind === "dispatch-node" && (command.attempt !== attempt.attempt || command.cancellationEpoch !== fence.cancellationEpoch))) throw new FactoryCommandAuthorityError("factory_command_stale");
-      return work(transaction, { command, node, state, fence });
+      return work(transaction, { command, compiled, state, fence });
     });
+  }
+
+  private attemptNode<Kind extends "task" | "subfactory">({ command, compiled, state, fence }: CommittedCommand<ExecutionCommand | ChildCommand>, kind: Kind): Extract<FactoryNode, { kind: Kind }> {
+    const node = nodeFor(compiled, command.nodeId);
+    const runtime = Object.hasOwn(state.nodes, command.nodeId) ? state.nodes[command.nodeId] : undefined;
+    const attempt = runtime?.attempts.at(-1);
+    const expectedStatus = command.kind === "request-admission" ? "reserved" : command.kind === "dispatch-node" ? "running" : "waiting";
+    if (node?.kind !== kind || !runtime || !attempt || runtime.candidateGeneration !== command.candidateGeneration || attempt.candidateGeneration !== command.candidateGeneration || attempt.commandId !== command.id || attempt.stopped || attempt.uncertain || attempt.deadlineAtMs !== command.deadlineAtMs || !Number.isSafeInteger(command.deadlineAtMs) || command.deadlineAtMs <= this.now() || command.deadlineAtMs > fence.deadlineAtMs || runtime.status !== expectedStatus || (command.kind === "dispatch-node" && (command.attempt !== attempt.attempt || command.cancellationEpoch !== fence.cancellationEpoch))) throw new FactoryCommandAuthorityError("factory_command_stale");
+    return node as Extract<FactoryNode, { kind: Kind }>;
   }
 
   private async head(database: MigrationDb, reference: TrustedFactoryCommandReference): Promise<Head> {
