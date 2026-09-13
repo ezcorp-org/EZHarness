@@ -60,6 +60,17 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     expect(releaseRows(await db.execute(sql`SELECT attempt_id FROM factory_executions`))).toHaveLength(1);
   });
 
+  test("racing attempt authorities admit at most one canonical identity", async () => {
+    const base = authority({ attemptId: "racing-attempt" });
+    const outcomes = await Promise.allSettled([
+      journal.admit({ ...base, grantRevision: 10, request: { task: "same" } }),
+      journal.admit({ ...base, grantRevision: 11, request: { task: "same" } }),
+    ]);
+    expect(outcomes.filter(outcome => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter(outcome => outcome.status === "rejected")).toHaveLength(1);
+    expect(releaseRows(await db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id = 'racing-attempt'`))).toHaveLength(1);
+  });
+
   test("out-of-order results cannot advance the cursor across an unfinished operation", async () => {
     const attempt = authority();
     const zero = operation(0);
