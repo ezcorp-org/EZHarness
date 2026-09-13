@@ -6,8 +6,8 @@
   "private": true,
   "workspaces": ["packages/@ezcorp/*"],
   "overrides": {
-    "@earendil-works/pi-ai": "0.84.3",
-    "@earendil-works/pi-telemetry": "0.84.3",
+    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-telemetry": "0.84.4",
     "zod": "4.5.2",
     "sharp": "0.35.4"
   },
@@ -48,7 +48,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.3",
+    "@earendil-works/pi-agent-core": "0.84.4",
     "@earendil-works/pi-ai": "0.84.4",
     "@electric-sql/pglite": "0.5.7",
     "@electric-sql/pglite-pgvector": "0.0.8",
