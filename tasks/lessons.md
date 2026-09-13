@@ -431,3 +431,11 @@
 
 - Snapshot every trusted command-reference coordinate before its first await, then use only that snapshot for lookup and verification.
 - A stable command ID with identical canonical bytes may recur in a later transition. Retain its first committed audit pointer; reject only a digest change.
+### 2026-09-13 — Verify exact test paths before sending replay commands
+
+- Search the repository for the test file and copy its actual path into the replay command. Do not infer a path from the route name.
+- A browser coverage fixture name must also come from the current tree. In this project it is `web/e2e/fixtures/hydration.ts`.
+
+### 2026-09-13 — Preserve durable service authority
+
+- Persist the complete public service credential identity with a durable request. Reconstructing only the service account ID loses the credential revision and revocation fence during later authorization.

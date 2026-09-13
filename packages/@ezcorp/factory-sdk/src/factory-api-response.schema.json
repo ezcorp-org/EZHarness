@@ -968,6 +968,54 @@
           "additionalProperties": false,
           "properties": {
             "kind": {
+              "const": "service-credential.issued",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryServiceCredentialResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            },
+            "token": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource",
+            "token"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "service-credential.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryServiceCredentialResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
               "const": "command.resource",
               "type": "string"
             },
@@ -1687,6 +1735,65 @@
         "updatedAtMs"
       ],
       "type": "object"
+    },
+    "FactoryServiceCredentialResource": {
+      "additionalProperties": false,
+      "properties": {
+        "credentialId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "issuedAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "revoked": {
+          "type": "boolean"
+        },
+        "scopes": {
+          "items": {
+            "$ref": "#/definitions/FactoryServiceScope"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "type": "array"
+        },
+        "serviceAccountId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "serviceAccountId",
+        "credentialId",
+        "scopes",
+        "revision",
+        "issuedAtMs",
+        "expiresAtMs",
+        "revoked"
+      ],
+      "type": "object"
+    },
+    "FactoryServiceScope": {
+      "enum": [
+        "read",
+        "write",
+        "chat"
+      ],
+      "type": "string"
     },
     "FactoryTransportValue": {
       "anyOf": [

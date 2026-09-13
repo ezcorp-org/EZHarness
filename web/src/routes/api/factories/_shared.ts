@@ -5,6 +5,9 @@ import { FactoryDefinitionError, type FactoryDraft, type FactoryDraftMetadata, t
 import { FactoryGrantError, type FactoryGrantRecord, type FactoryPrincipal } from "$server/factory/grants";
 import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
+import { FactoryServiceCredentialError } from "$server/factory/service-credentials";
+import { signFactoryServiceToken } from "$server/auth/factory-service-token";
+import { getJwtSecret } from "$server/auth/jwt";
 import { readBoundedJson } from "$lib/server/security/bounded-json";
 import { requireScope } from "$lib/server/security/api-keys";
 import {
@@ -51,6 +54,8 @@ const MUTATION_KINDS = new Set([
   "run.start",
   "run.control",
   "approval.decide",
+  "service-credential.issue",
+  "service-credential.revoke",
 ]);
 
 export function readFactoryJson(request: Request): Promise<unknown> {
@@ -90,14 +95,22 @@ export async function handleFactoryApi(event: FactoryEvent, options: FactoryRout
   const application = getFactoryApplication();
   if (!application) return errorResponse(503, "factory_application_unavailable", "Factory services are not ready.", true);
 
-  const user = options.scope === "session" ? requireSessionAuth(event.locals) : checkAuth(event.locals);
-  if (user instanceof Response) return user;
-  if (options.scope !== "session") {
-    const scope = requireScope(event.locals, options.scope);
-    if (scope) return scope;
+  let principal: FactoryPrincipal;
+  const service = event.locals.factoryServicePrincipal;
+  if (options.scope !== "session" && service) {
+    if (!service.scopes.includes(options.scope)) return errorResponse(403, "factory_service_scope_required", "The service credential does not permit this factory operation.");
+    principal = { kind: "service", id: service.serviceAccountId, authentication: "service", credential: service };
+  } else {
+    const user = options.scope === "session" ? requireSessionAuth(event.locals) : checkAuth(event.locals);
+    if (user instanceof Response) return user;
+    if (options.scope !== "session") {
+      const scope = requireScope(event.locals, options.scope);
+      if (scope) return scope;
+    }
+    const userPrincipal = requestPrincipal(event.locals, user.id);
+    if (!userPrincipal) return errorResponse(403, "factory_principal_unsupported", "This authentication method cannot use factories.");
+    principal = userPrincipal;
   }
-  const principal = requestPrincipal(event.locals, user.id);
-  if (!principal) return errorResponse(403, "factory_principal_unsupported", "This authentication method cannot use factories.");
 
   let request: FactoryApiRequest;
   try {
@@ -107,6 +120,7 @@ export async function handleFactoryApi(event: FactoryEvent, options: FactoryRout
     if (error instanceof SyntaxError) return errorResponse(400, "invalid_json", error.message);
     throw error;
   }
+  if (service && request.path.projectId !== service.projectId) return errorResponse(403, "factory_service_project_mismatch", "The service credential does not permit this project.");
 
   try {
     return response(await dispatchFactoryRequest(application, principal, request));
@@ -235,6 +249,19 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
       const result = await application.grants.revoke(principal, { projectId: request.path.projectId, principal: target, action: request.path.action, expectedRevision: request.preconditions.expectedRevision }, request.preconditions.idempotencyKey);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.resource", resource: { principalKind: target.kind, principalId: target.id, action: request.path.action, revision: result.revision, expiresAtMs: result.expiresAtMs, revoked: true } };
     }
+    case "service-credential.issue": {
+      const result = await application.credentials.issue(principal, {
+        ...request.path, scopes: request.body.scopes, expiresAtMs: request.body.expiresAtMs,
+        expectedRevision: request.preconditions.expectedRevision as 0,
+      }, request.preconditions.idempotencyKey);
+      if (!factoryBootConfig.installationId) throw new FactoryServiceCredentialError("factory_service_credential_storage");
+      const token = await signFactoryServiceToken(result, await getJwtSecret(), factoryBootConfig.installationId);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "service-credential.issued", resource: credentialResource(result), token };
+    }
+    case "service-credential.revoke": {
+      const result = await application.credentials.revoke(principal, { ...request.path, expectedRevision: request.preconditions.expectedRevision }, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "service-credential.resource", resource: credentialResource(result) };
+    }
     default:
       return unsupportedRequest(request);
   }
@@ -279,6 +306,13 @@ function grantResource(grant: FactoryGrantRecord) {
   return { principalKind: grant.principalKind, principalId: grant.principalId, action: grant.action, revision: grant.revision, expiresAtMs: grant.expiresAtMs, revoked: grant.revoked };
 }
 
+function credentialResource(record: import("$server/factory/service-credentials").FactoryServiceCredentialRecord) {
+  return {
+    serviceAccountId: record.serviceAccountId, credentialId: record.credentialId, scopes: record.scopes,
+    revision: record.revision, issuedAtMs: record.issuedAtMs, expiresAtMs: record.expiresAtMs, revoked: record.revoked,
+  };
+}
+
 function grantPrincipal(kind: "user" | "service", id: string): FactoryPrincipal {
   return kind === "user" ? { kind, id, authentication: "session" } : { kind, id, authentication: "service" };
 }
@@ -299,6 +333,13 @@ function mappedError(error: unknown): Response {
     if (error.code === "idempotency_conflict") return errorResponse(409, error.code, "The idempotency key was already used for a different request.");
     if (error.code === "invalid_idempotency_key") return errorResponse(400, error.code, "A bounded Idempotency-Key is required.");
     return errorResponse(500, error.code, "The durable mutation receipt is unavailable.", true);
+  }
+  if (error instanceof FactoryServiceCredentialError) {
+    if (error.code === "factory_service_credential_conflict") return errorResponse(412, error.code, "The service credential revision is stale.");
+    if (error.code === "factory_service_credential_not_found") return errorResponse(404, error.code, "Factory service credential not found.");
+    if (error.code === "factory_service_credential_forbidden" || error.code === "factory_human_required") return errorResponse(403, error.code, "Factory service credential authority is required.");
+    if (error.code === "factory_service_credential_invalid") return errorResponse(400, error.code, "The factory service credential request is invalid.");
+    return errorResponse(500, error.code, "Factory service credential storage is unavailable.", true);
   }
   if (error instanceof FactoryGrantError) {
     if (error.code === "factory_grant_conflict" || error.code === "factory_grant_stale") return errorResponse(412, error.code, "The factory grant revision is stale.");

@@ -13,6 +13,7 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryCommandOutbox } from "../../factory/outbox";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../factory/run-lifecycle";
+import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
 
 export function factoryRunLifecycleConformance(create: () => Promise<{ db: TransactionalDb; blobs?: BlobStore; close(): Promise<void> }>): void {
@@ -181,6 +182,23 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     try { await expect(cancelRun(principal, runKey(userRun.runId), 1, "storage-denied")).rejects.toThrow("grant storage unavailable"); }
     finally { authorization.mockRestore(); }
     expect((await lifecycle.read(principal, runKey(userRun.runId))).status).toBe("queued");
+  });
+
+  test("durable public service runs retain and recheck their credential fence", async () => {
+    const service: FactoryPrincipal = { kind: "service", id: "run-http-service", authentication: "service" };
+    await fixture.db.execute(sql`INSERT INTO service_accounts(id,name,created_by_user_id,project_id,max_tokens_per_day,expires_at) VALUES (${service.id}, 'run-http-service', ${principal.id}, ${projectId}, 100, ${new Date(now + duration)})`);
+    await grants.set(principal, { principal: service, projectId, action: "factory.run", expectedRevision: 0, expiresAtMs: now + duration });
+    const expiresAtMs = (Math.floor(Date.now() / 1_000) + 600) * 1_000;
+    const credentials = new FactoryServiceCredentials(fixture.db, tenantId, grants);
+    const credential = await credentials.issue(principal, { projectId, serviceAccountId: service.id, scopes: ["chat"], expiresAtMs, expectedRevision: 0 }, "run-http-credential");
+    const publicService: FactoryPrincipal = { ...service, credential };
+    const run = await startRun(publicService, key, body, 0, "run-http-service-start");
+    const stored = await fixture.db.transaction(transaction => new FactoryRecords(fixture.db, tenantId).readRunRequestInTransaction(transaction, runKey(run.runId)));
+    expect(stored.serviceCredential).toMatchObject({ credentialId: credential.credentialId, revision: 1, scopes: ["chat"] });
+    await expect(fixture.db.transaction(transaction => lifecycle.authorizeRunInTransaction(transaction, runKey(run.runId)))).resolves.toMatchObject({ grantRevision: 1 });
+    await credentials.revoke(principal, { projectId, serviceAccountId: service.id, credentialId: credential.credentialId, expectedRevision: 1 }, "run-http-credential-revoke");
+    await expect(startRun(publicService, key, body, 0, "run-http-service-start")).rejects.toMatchObject({ code: "factory_service_credential_forbidden" });
+    await expect(fixture.db.transaction(transaction => lifecycle.authorizeRunInTransaction(transaction, runKey(run.runId)))).rejects.toMatchObject({ code: "factory_service_credential_forbidden" });
   });
 
   test("cancellation fences admission, retains unknown holds and is atomic with its decision", async () => {

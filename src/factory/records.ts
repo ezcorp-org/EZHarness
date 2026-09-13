@@ -5,6 +5,8 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
+import type { FactoryServiceTokenIdentity } from "../auth/factory-service-token";
+import { isFactoryServiceTokenIdentity } from "../auth/factory-service-token";
 
 export interface FactoryRunKey {
   readonly projectId: string;
@@ -18,6 +20,7 @@ export interface FactoryRunRequest extends FactoryRunKey {
   readonly input: unknown;
   readonly principalId: string;
   readonly principalKind?: "user" | "service";
+  readonly serviceCredential?: FactoryServiceTokenIdentity;
 }
 
 export interface FactoryAuditInput extends FactoryRunKey {
@@ -70,6 +73,10 @@ function runRequest(input: unknown): { payload: string; request: FactoryRunReque
   identity(request.projectId, request.runId, request.interpreterBuild, request.principalId);
   positive(request.executionEpoch);
   if (request.principalKind !== undefined && request.principalKind !== "user" && request.principalKind !== "service") throw new FactoryRecordError("factory_principal_invalid");
+  if (request.serviceCredential !== undefined && ((request.principalKind ?? "user") !== "service"
+    || request.serviceCredential.serviceAccountId !== request.principalId
+    || request.serviceCredential.projectId !== request.projectId
+    || !isFactoryServiceTokenIdentity(request.serviceCredential))) throw new FactoryRecordError("factory_principal_invalid");
   if (!/^sha256:[a-f0-9]{64}$/.test(request.definitionDigest)) throw new FactoryRecordError("factory_definition_digest_invalid");
   return { payload, request };
 }

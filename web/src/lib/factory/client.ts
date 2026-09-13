@@ -6,6 +6,8 @@ import type {
 	FactoryDraftSummary,
 	FactoryVersionDetails,
 	FactoryVersionSummary,
+	FactoryServiceCredentialResource,
+	FactoryServiceScope,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
 
@@ -171,6 +173,17 @@ export class FactoryApiClient {
 			this.mutationInit("publish:" + factoryId + ":" + version, revision, { version }),
 		);
 		return expectKind(response, "version.summary").resource;
+	}
+
+	async issueServiceCredential(projectId: string, serviceAccountId: string, scopes: readonly FactoryServiceScope[], expiresAtMs: number): Promise<{ readonly resource: FactoryServiceCredentialResource; readonly token: string }> {
+		const path = "/api/factories/projects/" + encoded(projectId) + "/service-accounts/" + encoded(serviceAccountId) + "/credentials";
+		const response = expectKind(await this.read(path, this.mutationInit("issue-credential:" + serviceAccountId, 0, { scopes, expiresAtMs })), "service-credential.issued");
+		return { resource: response.resource, token: response.token };
+	}
+
+	async revokeServiceCredential(projectId: string, serviceAccountId: string, credentialId: string, revision: number): Promise<FactoryServiceCredentialResource> {
+		const path = "/api/factories/projects/" + encoded(projectId) + "/service-accounts/" + encoded(serviceAccountId) + "/credentials/" + encoded(credentialId);
+		return expectKind(await this.read(path, this.mutationInit("revoke-credential:" + credentialId, revision, undefined, "DELETE")), "service-credential.resource").resource;
 	}
 }
 

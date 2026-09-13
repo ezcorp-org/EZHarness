@@ -19,6 +19,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 export interface FactorySchemaReferences {
   readonly projects: { readonly id: AnyPgColumn };
   readonly users: { readonly id: AnyPgColumn };
+  readonly serviceAccounts: { readonly id: AnyPgColumn; readonly projectId: AnyPgColumn };
 }
 
 /** Each table receives new columns; Drizzle columns cannot be shared. */
@@ -42,7 +43,7 @@ function updatedAtColumn() {
  * Product Factory storage. Pool and run-control databases deliberately do
  * not belong here. `schema.ts` calls this after it creates projects and users.
  */
-export function buildFactorySchema({ projects, users }: FactorySchemaReferences) {
+export function buildFactorySchema({ projects, users, serviceAccounts }: FactorySchemaReferences) {
   const factoryInstallation = pgTable("factory_installation", {
     singleton: integer("singleton").primaryKey(),
     tenantId: text("tenant_id").notNull().unique(),
@@ -188,6 +189,29 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     check("factory_grants_principal_kind_check", sql`${table.principalKind} IN ('user', 'service')`),
     check("factory_grants_action_check", sql`${table.action} IN ('factory.author', 'factory.publish', 'factory.run', 'factory.operate', 'factory.approve', 'factory.release', 'factory.trust')`),
     check("factory_grants_revision_check", sql`${table.revision} > 0`),
+  ]);
+
+  const factoryServiceCredentials = pgTable("factory_service_credentials", {
+    ...tenantProjectColumns(),
+    serviceAccountId: text("service_account_id").notNull(),
+    credentialId: text("credential_id").notNull(),
+    scopes: jsonb("scopes").notNull().$type<("read" | "write" | "chat")[]>(),
+    revision: bigint("revision", { mode: "number" }).notNull(),
+    issuedByUserId: text("issued_by_user_id").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    updatedAt: updatedAtColumn(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.serviceAccountId, table.credentialId] }),
+    foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+    foreignKey({ columns: [table.serviceAccountId, table.projectId], foreignColumns: [serviceAccounts.id, serviceAccounts.projectId] }).onDelete("cascade"),
+    foreignKey({ columns: [table.issuedByUserId], foreignColumns: [users.id] }).onDelete("restrict"),
+    index("idx_factory_service_credentials_live").on(table.tenantId, table.projectId, table.serviceAccountId, table.credentialId, table.revision),
+    check("factory_service_credentials_revision_check", sql`${table.revision} > 0`),
+    check("factory_service_credentials_expiry_check", sql`${table.expiresAt} > ${table.issuedAt}`),
+    check("factory_service_credentials_max_expiry_check", sql`${table.expiresAt} <= ${table.issuedAt} + INTERVAL '1 hour'`),
+    check("factory_service_credentials_scopes_check", sql`jsonb_typeof(${table.scopes}) = 'array' AND jsonb_array_length(${table.scopes}) BETWEEN 1 AND 3 AND ${table.scopes} <@ '["read","write","chat"]'::jsonb`),
   ]);
 
   const factoryBudgetEnvelopes = pgTable("factory_budget_envelopes", {
@@ -376,6 +400,7 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     factoryInboxCursors,
     factoryInboxEvents,
     factoryGrants,
+    factoryServiceCredentials,
     factoryBudgetEnvelopes,
     factoryBudgetReservations,
     factoryMutationReceipts,

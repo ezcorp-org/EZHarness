@@ -633,6 +633,16 @@ export interface FactoryGrantPath extends FactoryProjectPath {
   readonly action: FactoryAction;
 }
 
+export interface FactoryServiceAccountPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly serviceAccountId: string;
+}
+
+export interface FactoryServiceCredentialPath extends FactoryServiceAccountPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly credentialId: string;
+}
+
 /** Values sourced from Idempotency-Key and If-Match, outside the JSON body. */
 export interface FactoryMutationPreconditions {
   /** @minLength 1 @maxLength 200 */
@@ -728,6 +738,15 @@ export interface FactoryGrantSetBody {
   readonly expiresAtMs: number | null;
 }
 
+export type FactoryServiceScope = "read" | "write" | "chat";
+
+export interface FactoryServiceCredentialIssueBody {
+  /** Canonical order is read, write, chat. @minItems 1 @maxItems 3 */
+  readonly scopes: readonly FactoryServiceScope[];
+  /** Whole-second expiry, no more than one hour after issuance. @minimum 1 @maximum 9007199254740991 */
+  readonly expiresAtMs: number;
+}
+
 /**
  * Canonical C09 route input. `path` is populated from trusted routing state.
  * Tenant identity is intentionally absent, and resource identity never appears
@@ -755,7 +774,9 @@ export type FactoryApiRequest =
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "approval.decide"; readonly path: FactoryApprovalPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryApprovalDecisionBody }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.list"; readonly path: FactoryProjectPath; readonly query: FactoryGrantListQuery }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.set"; readonly path: FactoryGrantPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryGrantSetBody }
-  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.revoke"; readonly path: FactoryGrantPath; readonly preconditions: FactoryMutationPreconditions };
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "grant.revoke"; readonly path: FactoryGrantPath; readonly preconditions: FactoryMutationPreconditions }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "service-credential.issue"; readonly path: FactoryServiceAccountPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryServiceCredentialIssueBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "service-credential.revoke"; readonly path: FactoryServiceCredentialPath; readonly preconditions: FactoryMutationPreconditions };
 
 export interface FactoryDraftSummary {
   /** @minLength 1 @maxLength 512 */
@@ -861,6 +882,22 @@ export interface FactoryGrantResource {
   readonly revoked: boolean;
 }
 
+export interface FactoryServiceCredentialResource {
+  /** @minLength 1 @maxLength 512 */
+  readonly serviceAccountId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly credentialId: string;
+  /** @minItems 1 @maxItems 3 */
+  readonly scopes: readonly FactoryServiceScope[];
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly revision: number;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly issuedAtMs: number;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly expiresAtMs: number;
+  readonly revoked: boolean;
+}
+
 /** Durable transport state; delivery does not mean the run completed. */
 export interface FactoryCommandResource {
   /** @minLength 1 @maxLength 512 */
@@ -932,6 +969,8 @@ export type FactoryApiResponse =
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "approval.page"; readonly page: FactoryApiPage<FactoryApprovalResource> }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "grant.resource"; readonly resource: FactoryGrantResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "grant.page"; readonly page: FactoryApiPage<FactoryGrantResource> }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "service-credential.issued"; readonly resource: FactoryServiceCredentialResource; /** @minLength 32 @maxLength 4096 */ readonly token: string }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "service-credential.resource"; readonly resource: FactoryServiceCredentialResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "command.resource"; readonly resource: FactoryCommandResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "mutation.accepted"; readonly receipt: FactoryDurableReceipt }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "error"; readonly error: FactoryApiError };

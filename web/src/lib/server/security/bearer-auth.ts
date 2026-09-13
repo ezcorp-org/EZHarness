@@ -15,6 +15,11 @@ import {
 } from "$lib/server/security/internal-auth";
 import { getUserById } from "$server/db/queries/users";
 import { logger } from "$server/logger";
+import { FACTORY_SERVICE_TOKEN_PREFIX, verifyFactoryServiceToken, type FactoryServiceScope, type FactoryServiceTokenClaims } from "$server/auth/factory-service-token";
+import { factoryServiceRouteScope } from "$server/auth/factory-service-routes";
+import { factoryBootConfig } from "$server/factory/boot";
+import { getFactoryApplication } from "$server/factory/application";
+import { getJwtSecret } from "$server/auth/jwt";
 
 const log = logger.child("bearer-auth");
 
@@ -39,7 +44,10 @@ export interface BearerAuthEvent {
      *  declaration cap. A cookie session, an unpolicied key and an internal
      *  `ezkint_` principal all leave it undefined and are unchanged. */
     apiKeyToolPolicy?: ToolPolicy;
+    factoryServicePrincipal?: FactoryServiceTokenClaims;
   };
+  method?: string;
+  routeId?: string | null;
   /** Remote IP as reported by the adapter; SvelteKit's `getClientAddress()`
    *  on the Bun adapter returns the direct socket peer. Critically: when
    *  the server sits behind a reverse proxy (nginx, Caddy, Traefik), this
@@ -58,6 +66,26 @@ export interface BearerAuthEvent {
   onBehalfOfHeader?: string | null;
 }
 
+export interface FactoryServiceAuthDependencies {
+  readonly scope: FactoryServiceScope | null;
+  readonly secret: string;
+  readonly installationId: string;
+  authenticate(claims: FactoryServiceTokenClaims, scope: FactoryServiceScope): Promise<void>;
+}
+
+export async function attachFactoryServiceBearer(
+  event: BearerAuthEvent,
+  raw: string,
+  dependencies: FactoryServiceAuthDependencies,
+): Promise<boolean> {
+  if (!dependencies.scope) return false;
+  const claims = await verifyFactoryServiceToken(raw, dependencies.secret, dependencies.installationId);
+  if (!claims) return false;
+  await dependencies.authenticate(claims, dependencies.scope);
+  event.locals.factoryServicePrincipal = claims;
+  return true;
+}
+
 /** Attempts to authenticate a request by its `Authorization: Bearer …`
  *  header. No-ops when the header is missing, malformed, or points at a
  *  key that doesn't verify. Returns `true` when `event.locals.user` was
@@ -66,9 +94,22 @@ export interface BearerAuthEvent {
 export async function attachBearerAuth(
   event: BearerAuthEvent,
   authHeader: string | null | undefined,
+  factoryServiceDependencies?: FactoryServiceAuthDependencies,
 ): Promise<boolean> {
   if (!authHeader?.startsWith("Bearer ")) return false;
   const raw = authHeader.slice(7);
+
+  if (raw.startsWith(FACTORY_SERVICE_TOKEN_PREFIX)) {
+    try {
+      if (factoryServiceDependencies) return await attachFactoryServiceBearer(event, raw, factoryServiceDependencies);
+      const scope = factoryServiceRouteScope(event.method ?? "", event.routeId);
+      const application = getFactoryApplication();
+      if (!scope || !factoryBootConfig.enabled || !factoryBootConfig.installationId || !application) return false;
+      return await attachFactoryServiceBearer(event, raw, { scope, secret: await getJwtSecret(), installationId: factoryBootConfig.installationId, authenticate: (claims, requiredScope) => application.credentials.authenticate(claims, requiredScope).then(() => undefined) });
+    } catch {
+      return false;
+    }
+  }
 
   // Internal, bundled-extension keys route exclusively through
   // verifyInternalKey. On prefix-match we NEVER fall through to

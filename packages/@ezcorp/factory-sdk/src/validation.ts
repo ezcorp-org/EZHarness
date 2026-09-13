@@ -669,7 +669,7 @@ function validateApiPreconditions(request: Extract<FactoryApiRequest, { precondi
   const { idempotencyKey, expectedRevision } = request.preconditions;
   if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
   if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
-  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start";
+  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "service-credential.issue";
   if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
   if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation requires revision 0.", ["preconditions", "expectedRevision"]);
   return { ok: true };
@@ -727,6 +727,16 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
   if (request.kind === "run.control" && encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_CONTROL_BYTES", "Run control exceeds the 64 KiB durable command bound.", []);
   if (request.kind === "approval.decide" && !validDigest(request.body.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Approval decision needs a lowercase sha256 context digest.", ["body", "contextDigest"]);
   if (request.kind === "grant.set" && request.path.principalKind === "service" && request.body.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grants require an expiry.", ["body", "expiresAtMs"]);
+  if (request.kind === "service-credential.issue") {
+    const order = ["read", "write", "chat"] as const;
+    const canonical = order.filter(scope => request.body.scopes.includes(scope));
+    if (request.preconditions.expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Credential issuance requires revision zero.", ["preconditions", "expectedRevision"]);
+    if (request.body.expiresAtMs % 1_000 !== 0) return issue("API_CREDENTIAL_EXPIRY", "Credential expiry must be a whole second.", ["body", "expiresAtMs"]);
+    if (new Set(request.body.scopes).size !== request.body.scopes.length
+      || request.body.scopes.some((scope, index) => canonical[index] !== scope)) {
+      return issue("API_CREDENTIAL_SCOPES", "Credential scopes must be unique and in canonical order.", ["body", "scopes"]);
+    }
+  }
   const payloadDigest = "preconditions" in request ? validateFactoryApiPayloadDigest(request) : { ok: true } as const;
   if (!payloadDigest.ok) return payloadDigest;
   return { ok: true };
@@ -777,6 +787,17 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
   if (response.kind === "approval.page" && response.page.items.some((item) => !validApprovalResource(item))) return issue("API_APPROVAL_RESOURCE", "Approval page contains inconsistent context or decision evidence.", ["page", "items"]);
   if (response.kind === "grant.resource" && response.resource.principalKind === "service" && response.resource.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grant resources require an expiry.", ["resource", "expiresAtMs"]);
   if (response.kind === "grant.page" && response.page.items.some((item) => item.principalKind === "service" && item.expiresAtMs === null)) return issue("API_GRANT_EXPIRY", "Service grant page contains a missing expiry.", ["page", "items"]);
+  if (response.kind === "service-credential.issued" || response.kind === "service-credential.resource") {
+    const resource = response.resource;
+    const canonical = ["read", "write", "chat"].filter(scope => resource.scopes.includes(scope as typeof resource.scopes[number]));
+    if (resource.scopes.length !== new Set(resource.scopes).size || resource.scopes.some((scope, index) => scope !== canonical[index])
+      || resource.issuedAtMs % 1_000 !== 0 || resource.expiresAtMs % 1_000 !== 0 || resource.expiresAtMs <= resource.issuedAtMs) {
+      return issue("API_CREDENTIAL_RESOURCE", "Service credential metadata is invalid.", ["resource"]);
+    }
+    if (response.kind === "service-credential.issued" && !/^ezkfsvc_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(response.token)) {
+      return issue("API_CREDENTIAL_TOKEN", "Issued service credential token is invalid.", ["token"]);
+    }
+  }
   if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
   if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);
   if (encodedBytes(response as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_RESPONSE_BYTES", "Factory API response exceeds 16 MiB.", []);
