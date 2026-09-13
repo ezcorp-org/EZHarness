@@ -50,7 +50,7 @@ test("host-issued definition references load exact canonical compiler bytes thro
 test("definition manifests use bounded linked pages at the 512-page edge", async () => {
   const { definitions, identity } = await fixture();
   const result = compileFactory(referenceCodeV1); if (!result.ok) throw new Error("reference compiler fixture failed");
-  const compiled = { ...result.factory, padding: "x".repeat(15 * 1024 * 1024) } as typeof result.factory;
+  const compiled = { ...result.factory, padding: "x".repeat(15 * 1024 * 1024) } as typeof result.factory & { padding: string };
   const source = await definitions.stageDefinition(compiled, identity);
   const loaded = await loadCompiledFactory(identity, source, { loadManifestPage: request => definitions.loadManifestPage(request, request.definition, request.page), loadDefinitionPage: request => definitions.loadDefinitionPage(request, request.definitionDigest, request.page) }) as typeof compiled;
   expect(loaded.padding).toHaveLength(15 * 1024 * 1024);
