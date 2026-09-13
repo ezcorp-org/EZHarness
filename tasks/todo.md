@@ -1415,8 +1415,12 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - Owned source LCOV: `src/factory/lazy-input.ts` 144/144 lines in `/tmp/factory-platform-evidence/terra-lazy-input-owned-coverage.log`.
 
 ## C07 deterministic SDK/kernel lazy input — Terra
-- [ ] Preserve legacy inline workflow input and add an explicit durable artifact descriptor.
-- [ ] Add deterministic read-value/read-page commands, bounded caches, stale-result denial, and artifact path/map handling.
-- [ ] Wire orchestration activity contracts and workflow correlation, including command ID child resolution.
-- [ ] Preserve descriptor at lifecycle start and prove field, paged map, replay, child, and corrupt-result cases.
-- [ ] Run PostgreSQL/S3 conformance, owned coverage, SDK build, all types, lint, and integrity checks.
+- [x] Preserve legacy inline workflow input and add an explicit durable artifact descriptor.
+- [x] Add deterministic read-value/read-page commands, bounded caches, stale-result denial, and artifact path/map handling.
+- [x] Wire orchestration activity contracts and workflow correlation, including command ID child resolution.
+- [x] Preserve descriptor at lifecycle start and prove field, paged map, replay, child, and corrupt-result cases.
+- [x] Run PostgreSQL/S3 conformance, owned coverage, SDK build, all types, lint, and integrity checks.
+
+Review: `FactoryWorkflowInput.durableInput` is an explicit `factory.lazy-input.v1` descriptor, separate from legacy `input` JSON. The kernel records only selected `(name,path)` values and a current map page. It emits `read-input-value` and `read-input-page` commands through the existing generic command activity, matches returned events to command/node/generation/cancellation/ref/path/page fences, pins storage version, and rejects substituted or stale values. Lazy maps keep their current window with absolute indices, then request the next cursor and terminate on an empty final page. Child descriptors use `factoryChildRunId` and pass the parent `run-child` command ID to the authoritative child resolver. A continuation must carry the exact same descriptor.
+
+Validation: locked Node Temporal replay passes 18/18 at `/tmp/factory-platform-evidence/terra-lazy-temporal-replay-passing.log`; it includes field hydration through recorded generic commands, a tagged child workflow, descriptor substitution denial, and existing replay/continuation cases. SDK source coverage passes 159/159 with `kernel.ts` 1151/1151 lines at `/tmp/factory-platform-evidence/terra-lazy-sdk-coverage-final.log`. The real PostgreSQL/S3 private-service conformance passes 5/5 at `/tmp/factory-platform-evidence/terra-lazy-private-resolve-postgres-s3.log`; it rejects missing/invalid resolve `commandId`. Its PGlite coverage has `private-service.ts` 97/97 lines at `/tmp/factory-platform-evidence/terra-lazy-private-resolve-coverage.log`. Root and web frozen installs complete, then SDK build, all canonical typecheck legs, and lint pass at `/tmp/factory-platform-evidence/terra-lazy-final-types-lint.log` (eight existing lint infos).
