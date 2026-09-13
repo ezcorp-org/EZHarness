@@ -17,6 +17,9 @@ import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../fact
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { FactoryCommandAuthority } from "../../factory/command-authority";
 import { FactoryTaskAdmission, factoryTaskReservationId } from "../../factory/task-admission";
+import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
+import { FactoryInbox } from "../../factory/inbox";
+import type { PoolAdmissionClient } from "../../factory/pool/client";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
@@ -170,6 +173,28 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await expect(authority.withCurrent(service, currentReference, async () => "effect")).rejects.toMatchObject({ code: "factory_run_stopped" });
     const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle);
     expect(await projector.project(runKey(run.runId), 8)).toMatchObject({ sequence: 3, lag: 0 });
+  });
+
+  test("compute admission commits only under the actual current command authority", async () => {
+    const run = await start();
+    const { identity, transitions, activities, event, first, admission, authority } = await taskInterpreter(run.runId);
+    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    const reference = { ...identity, commandId: admission.id };
+    const service = { tenantId, subject: "orchestration" };
+    const profile = { resources: { cpu: 1 }, memoryBytes: 128, budget: { costMicros: "5", tokens: 6, computeMs: 7 } };
+    const reserved = await new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, { cpu: profile }, () => now).request(service, reference);
+    const queued = (await new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").inspect(reserved.outboxCommandId))!;
+    const input = queued.command.body as import("../../factory/task-admission").FactoryComputeAdmissionRequest;
+    const lease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "current-authority-allocation", fence: "current-authority-fence", deadlineAt: new Date(now + 1_000), resources: input.request.resources, hostId: "host-current" };
+    let requests = 0;
+    const pool = { async request() { requests++; return { status: "admitted" as const, reservationId: reserved.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
+    const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
+    await fixture.db.transaction(transaction => admissions.enlistInTransaction(transaction, input));
+    expect(await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId })).toMatchObject({ status: "admitted", receipt: { lease: { allocationToken: lease.allocationToken }, event: { commandId: admission.id, granted: true } } });
+    expect(requests).toBe(1);
+    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_budget_reservations WHERE reservation_id=${reserved.reservationId}`))).toEqual([{ state: "running" }]);
+    expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${run.runId}`))).toHaveLength(1);
+    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
   });
 
   test("task limits can reduce a host budget and cannot exceed its memory profile", async () => {

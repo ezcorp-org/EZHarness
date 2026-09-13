@@ -61,7 +61,8 @@ function status(value: unknown): PoolLeaseStatus {
   };
 }
 
-function decision(value: unknown): PoolDecision {
+/** Decode the exact pool decision shape from a durable or HTTP boundary. */
+export function parsePoolDecision(value: unknown): PoolDecision {
   const input = wireRecord(value, "admission decision");
   if (typeof input.status !== "string" || !decisionStates.has(input.status as PoolDecision["status"])) throw new Error("Pool admission decision status is malformed.");
   const state = input.status as PoolDecision["status"];
@@ -121,7 +122,7 @@ export async function createPoolAdmissionClient(options: PoolAdmissionClientOpti
   const client: PoolAdmissionClient = {
     async request(value: PoolAdmissionRequest, signal?: AbortSignal) {
       const input = snapshotRequest(value);
-      const result = decision(json(await requestJson(transport, "POST", "/v1/pool/requests", input, signal), "admission decision"));
+      const result = parsePoolDecision(json(await requestJson(transport, "POST", "/v1/pool/requests", input, signal), "admission decision"));
       if (result.reservationId !== input.reservationId) throw new Error("Pool admission returned a mismatched reservation.");
       if (result.status === "admitted") assertLeaseBinding(result.lease!, tenantId, input, input.resources);
       return result;

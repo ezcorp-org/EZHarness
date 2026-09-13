@@ -2904,6 +2904,7 @@ export const {
   factoryServiceCredentials,
   factoryBudgetEnvelopes,
   factoryBudgetReservations,
+  factoryComputeAdmissions,
   factoryMutationReceipts,
   factoryDrafts,
   factoryVersions,

@@ -1585,3 +1585,18 @@ Plan review: request authority comes from the committed interpreter. A later hum
 Plan review: terminal journal and child completion must commit measured usage, release the hold and publish the completion receipt together. These entry points preserve existing trusted-receipt and unknown-hold rules.
 
 Review: settlement and envelope closure now accept the caller transaction, while public calls reuse those same implementations and capture caller-owned scope/usage before awaiting. A failed terminal receipt rolls both settlement and child-to-parent spent transfer back; exact retry settles once after revocation, and unresolved usage retains its hold. PGlite and PostgreSQL each pass 11 tests / 64 assertions. Budget coverage is 178/178 lines and 54/54 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-terminal-budget-source.json` and `root-terminal-budget-integration-results.json`.
+## Factory product compute-admission dispatcher
+
+- [x] Add canonical, scoped compute-admission persistence and migration/schema parity.
+- [x] Enlist the exact request inside the task budget transaction through a stable public seam.
+- [x] Claim fair due work without holding product locks during pool HTTPS calls.
+- [x] Recover queued and lost responses only by replaying the exact original pool request.
+- [x] Commit a confirmed allocation, running budget, stable admission event, and inbox delivery atomically.
+- [x] Cancel remote allocations after authority loss while retaining the product budget hold.
+- [x] Prove terminal receipt replay, competing polls, corruption fences, and foreign service denial.
+- [x] Run actual PostgreSQL and pool HTTPS recovery tests, coverage, schema parity, builds, types, lint, boundaries, and gate integrity.
+- [x] Record review and create an immutable checkpoint.
+
+Plan review: the product row is enlisted with the held budget before the pool command becomes visible. A short committed poll lease protects fair selection, but every HTTP call runs without a database lock. Only an exact request replay can recover an admitted token. The first admitted commit uses command authority, then locks budget, compute state, and inbox in that order. A stored terminal receipt needs only the trusted installation service check because the kernel is expected to advance after admission.
+
+Review: `FactoryComputeAdmissions` now records one canonical request beside the held product budget, drains the installation pool outbox into a fair durable poll queue, and replays only that exact request to recover a token-bearing lease. The admitted commit rechecks the current command, marks the budget running, stores stable response/event bytes, and enqueues the inbox decision in one transaction. Authority loss cancels known remote allocations while retaining the hold; uncertain cancellation remains recoverable. The transaction-bound admitted reader locks budget before compute state and verifies the stored token and generation before runner admission. The final producer passes 33 tests with 231 assertions across focused PGlite, isolated PostgreSQL, actual Bun mTLS, and actual command authority. Owned coverage is 306/306 lines; the dispatcher also measures 68/68 functions. PostgreSQL schema parity passes two tests with 1,638 assertions. All four typecheck legs, lint, boundaries, gate integrity, and registration tests pass. Coverage is at `/tmp/factory-compute-admissions-final/lcov.info`.
