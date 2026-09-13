@@ -8,6 +8,7 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestBytes, digestObject } from "../extensions/v4/blobs";
 import type { BlobStore } from "../extensions/v4/types";
+import type { BoundBlobStore } from "./encryption";
 import { assertFactoryIdentity } from "./records";
 import { FactoryMutations } from "./mutations";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
@@ -20,6 +21,7 @@ export interface FactoryVersion extends FactoryDefinitionKey { readonly version:
 export interface FactoryDraftListOptions { readonly after?: string; readonly limit?: number; readonly archived?: boolean; readonly search?: string }
 type DraftRow = { revision: number | string; source_digest: string; source_json?: string; required_resources_json: string; requirements_complete: boolean; validation_diagnostic_count: number | string; archived: boolean; updated_ms: string | number };
 type VersionRow = { version: string; draft_revision: number | string; definition_digest: string; compiled_blob_digest: string; compiled_bytes: number; published_ms: string | number };
+type DefinitionBlobStore = BlobStore | BoundBlobStore;
 
 export class FactoryDefinitionError extends Error {
   constructor(readonly code: string, readonly diagnostics?: unknown) { super(code); this.name = "FactoryDefinitionError"; }
@@ -84,10 +86,14 @@ function validSearch(search: unknown): search is string {
     });
 }
 
+function boundBlobs(blobs: DefinitionBlobStore): blobs is BoundBlobStore { return "putBound" in blobs && "getBound" in blobs; }
+function definitionObjectId(tenantId: string, key: FactoryDefinitionKey, version: string): string { return `factory-definition:${digestObject({ tenantId, ...key, version })}`; }
+function compiledDigest(bytes: Uint8Array): string { return `sha256:${digestBytes(bytes)}`; }
+
 /** Revisioned authoring and immutable publication, backed by the shared blob store. */
 export class FactoryDefinitions {
   private readonly mutations: FactoryMutations;
-  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants, private readonly blobs: BlobStore) {
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants, private readonly blobs: DefinitionBlobStore) {
     this.mutations = new FactoryMutations(database, tenantId, grants);
   }
 
@@ -214,15 +220,19 @@ export class FactoryDefinitions {
       const value = compiled.factory;
       const bytes = new TextEncoder().encode(canonicalJson(value));
       if (bytes.byteLength > MAX_DEFINITION_BYTES) throw new FactoryDefinitionError("factory_definition_too_large");
-      // Staging is immutable and confers no publication authority. Only the
-      // scoped pointer committed below publishes the definition version.
-      const compiledBlobDigest = await this.blobs.put(bytes);
-      if (digestBytes(bytes) !== compiledBlobDigest) throw new FactoryDefinitionError("factory_definition_corrupt");
+      const plaintextDigest = compiledDigest(bytes);
       const existing = await this.findVersion(transaction, snapshot, current.source.version);
       if (existing) {
-        if (existing.compiled_blob_digest !== compiledBlobDigest) throw new FactoryDefinitionError("factory_version_conflict");
+        const existingBytes = await this.readCompiledBytes(snapshot, existing);
+        if (compiledDigest(existingBytes) !== plaintextDigest) throw new FactoryDefinitionError("factory_version_conflict");
         return published(snapshot, existing);
       }
+      // Staging is immutable and confers no publication authority. Only the
+      // scoped pointer committed below publishes the definition version.
+      const compiledBlobDigest = boundBlobs(this.blobs)
+        ? await this.blobs.putBound({ tenantId: this.tenantId, objectId: definitionObjectId(this.tenantId, snapshot, current.source.version) }, bytes)
+        : await this.blobs.put(bytes);
+      if (compiledDigest(await this.readCompiledBytes(snapshot, { version: current.source.version, compiled_blob_digest: compiledBlobDigest, compiled_bytes: bytes.byteLength })) !== plaintextDigest) throw new FactoryDefinitionError("factory_definition_corrupt");
       await transaction.execute(sql`INSERT INTO factory_versions (tenant_id, project_id, factory_id, version, draft_revision, definition_digest, compiled_blob_digest, compiled_bytes, lock_json)
         VALUES (${this.tenantId}, ${snapshot.projectId}, ${snapshot.factoryId}, ${current.source.version}, ${expectedRevision}, ${value.digest}, ${compiledBlobDigest}, ${bytes.byteLength}, ${canonicalJson(value.lock)})`);
       await this.audit(transaction, principal, snapshot, "published", { version: current.source.version, definitionDigest: value.digest, compiledBlobDigest, draftRevision: expectedRevision });
@@ -251,8 +261,7 @@ export class FactoryDefinitions {
     await this.grants.authorizeInTransaction(transaction, principal, snapshot.projectId, "read");
     const row = await this.findVersion(transaction, snapshot, version);
     if (!row) throw new FactoryDefinitionError("factory_version_not_found");
-    const bytes = await this.blobs.get(row.compiled_blob_digest);
-    if (bytes.byteLength !== row.compiled_bytes || bytes.byteLength > MAX_DEFINITION_BYTES || digestBytes(bytes) !== row.compiled_blob_digest) throw new FactoryDefinitionError("factory_definition_corrupt");
+    const bytes = await this.readCompiledBytes(snapshot, row);
     const compiled = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as CompiledFactory;
     const rebuilt = compileFactory(compiled.definition);
     if (!rebuilt.ok || rebuilt.factory.digest !== row.definition_digest || canonicalJson(rebuilt.factory) !== canonicalJson(compiled)) throw new FactoryDefinitionError("factory_definition_corrupt");
@@ -271,6 +280,17 @@ export class FactoryDefinitions {
 
   private async findVersion(transaction: MigrationDb, key: FactoryDefinitionKey, version: string): Promise<VersionRow | undefined> {
     return rows<VersionRow>(await transaction.execute(sql`SELECT version, draft_revision, definition_digest, compiled_blob_digest, compiled_bytes, FLOOR(EXTRACT(EPOCH FROM created_at) * 1000) AS published_ms FROM factory_versions WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND factory_id=${key.factoryId} AND version=${version}`))[0];
+  }
+
+  private async readCompiledBytes(key: FactoryDefinitionKey, row: Pick<VersionRow, "version" | "compiled_blob_digest" | "compiled_bytes">): Promise<Uint8Array> {
+    let bytes: Uint8Array;
+    try {
+      bytes = boundBlobs(this.blobs)
+        ? await this.blobs.getBound({ tenantId: this.tenantId, objectId: definitionObjectId(this.tenantId, key, row.version) }, row.compiled_blob_digest)
+        : await this.blobs.get(row.compiled_blob_digest);
+    } catch { throw new FactoryDefinitionError("factory_definition_corrupt"); }
+    if (bytes.byteLength !== row.compiled_bytes || bytes.byteLength > MAX_DEFINITION_BYTES || !boundBlobs(this.blobs) && digestBytes(bytes) !== row.compiled_blob_digest) throw new FactoryDefinitionError("factory_definition_corrupt");
+    return bytes;
   }
 
   private async audit(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, action: string, evidence: unknown): Promise<void> {
