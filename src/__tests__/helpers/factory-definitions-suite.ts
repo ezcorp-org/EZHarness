@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import { referenceCodeV1, type FactoryDefinition } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, validateFactoryApiResponse, type FactoryDefinition } from "@ezcorp/factory-sdk";
 import { FactoryDefinitions } from "../../factory/definitions";
 import { FactoryMutations } from "../../factory/mutations";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
@@ -61,6 +61,9 @@ export function factoryDefinitionsConformance(createFixture: () => Promise<Fixtu
     const definition = source("published");
     await store.save(actor, key(definition.id), 0, "publish-create", definition);
     const version = await store.publish(actor, key(definition.id), 1, "publish-v1");
+    const { projectId: _projectId, ...resource } = version;
+    expect(validateFactoryApiResponse({ schemaVersion: "factory.api.response.v1", kind: "version.summary", resource })).toEqual({ ok: true });
+    expect(Number.isSafeInteger((await store.read(actor, key(definition.id))).updatedAtMs)).toBe(true);
     expect((await store.readVersion(actor, key(definition.id), version.version)).compiled.digest).toBe(version.definitionDigest);
     expect(await store.publish(actor, key(definition.id), 1, "publish-same-content")).toEqual(version);
     await store.save(actor, key(definition.id), 1, "edit-after-publish", { ...definition, presentation: { label: "Changed" } });

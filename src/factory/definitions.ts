@@ -14,11 +14,11 @@ import type { FactoryGrants, FactoryPrincipal } from "./grants";
 
 const MAX_DEFINITION_BYTES = FACTORY_LIMITS.maxDefinitionBytes;
 export interface FactoryDefinitionKey { readonly projectId: string; readonly factoryId: string }
-export interface FactoryDraftMetadata extends FactoryDefinitionKey { readonly revision: number; readonly sourceDigest: string; readonly archived: boolean }
+export interface FactoryDraftMetadata extends FactoryDefinitionKey { readonly revision: number; readonly sourceDigest: string; readonly archived: boolean; readonly updatedAtMs: number }
 export interface FactoryDraft extends FactoryDraftMetadata { readonly source: FactoryDefinition }
-export interface FactoryVersion extends FactoryDefinitionKey { readonly version: string; readonly draftRevision: number; readonly definitionDigest: string; readonly compiledBlobDigest: string; readonly compiledBytes: number }
-type DraftRow = { revision: number | string; source_digest: string; source_json: string; archived: boolean };
-type VersionRow = { version: string; draft_revision: number | string; definition_digest: string; compiled_blob_digest: string; compiled_bytes: number };
+export interface FactoryVersion extends FactoryDefinitionKey { readonly version: string; readonly draftRevision: number; readonly definitionDigest: string; readonly compiledBlobDigest: string; readonly compiledBytes: number; readonly publishedAtMs: number }
+type DraftRow = { revision: number | string; source_digest: string; source_json: string; archived: boolean; updated_ms: string | number };
+type VersionRow = { version: string; draft_revision: number | string; definition_digest: string; compiled_blob_digest: string; compiled_bytes: number; published_ms: string | number };
 
 export class FactoryDefinitionError extends Error {
   constructor(readonly code: string, readonly diagnostics?: unknown) { super(code); this.name = "FactoryDefinitionError"; }
@@ -41,11 +41,11 @@ function draft(key: FactoryDefinitionKey, row: DraftRow): FactoryDraft {
   const storedRevision = Number(row.revision);
   revision(storedRevision);
   if (sourceJson(source, key.factoryId) !== row.source_json || digestObject(source) !== row.source_digest) throw new FactoryDefinitionError("factory_definition_corrupt");
-  return { ...key, revision: storedRevision, sourceDigest: row.source_digest, source, archived: row.archived };
+  return { ...key, revision: storedRevision, sourceDigest: row.source_digest, source, archived: row.archived, updatedAtMs: Number(row.updated_ms) };
 }
 
 function published(key: FactoryDefinitionKey, row: VersionRow): FactoryVersion {
-  return { ...key, version: row.version, draftRevision: Number(row.draft_revision), definitionDigest: row.definition_digest, compiledBlobDigest: row.compiled_blob_digest, compiledBytes: row.compiled_bytes };
+  return { ...key, version: row.version, draftRevision: Number(row.draft_revision), definitionDigest: row.definition_digest, compiledBlobDigest: row.compiled_blob_digest, compiledBytes: row.compiled_bytes, publishedAtMs: Number(row.published_ms) };
 }
 
 function pageBounds(after: string, limit: number): void {
@@ -77,7 +77,7 @@ export class FactoryDefinitions {
         if (!inserted.length) throw new FactoryDefinitionError("factory_revision_conflict");
       }
       await this.audit(transaction, principal, snapshot, "saved", { revision: nextRevision, sourceDigest });
-      return { ...snapshot, revision: nextRevision, sourceDigest, archived: false };
+      return { ...snapshot, revision: nextRevision, sourceDigest, archived: false, updatedAtMs: Number((await this.requireDraft(transaction, snapshot)).updated_ms) };
     });
   }
 
@@ -91,7 +91,7 @@ export class FactoryDefinitions {
       const nextRevision = expectedRevision + 1;
       await transaction.execute(sql`UPDATE factory_drafts SET revision=${nextRevision}, archived=TRUE, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${snapshot.projectId} AND factory_id=${snapshot.factoryId}`);
       await this.audit(transaction, principal, snapshot, "archived", { revision: nextRevision });
-      return { ...snapshot, revision: nextRevision, sourceDigest: current.sourceDigest, archived: true };
+      return { ...snapshot, revision: nextRevision, sourceDigest: current.sourceDigest, archived: true, updatedAtMs: Number((await this.requireDraft(transaction, snapshot)).updated_ms) };
     });
   }
 
@@ -108,9 +108,9 @@ export class FactoryDefinitions {
     pageBounds(after, limit);
     return this.database.transaction(async transaction => {
       await this.grants.authorizeInTransaction(transaction, principal, projectId, "read");
-      const selected = rows<DraftRow & { factory_id: string }>(await transaction.execute(sql`SELECT factory_id, revision, source_digest, archived FROM factory_drafts
+      const selected = rows<DraftRow & { factory_id: string }>(await transaction.execute(sql`SELECT factory_id, revision, source_digest, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts
         WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND factory_id > ${after} AND archived=FALSE ORDER BY factory_id LIMIT ${limit + 1}`));
-      const items = selected.slice(0, limit).map(row => ({ projectId, factoryId: row.factory_id, revision: Number(row.revision), sourceDigest: row.source_digest, archived: row.archived }));
+      const items = selected.slice(0, limit).map(row => ({ projectId, factoryId: row.factory_id, revision: Number(row.revision), sourceDigest: row.source_digest, archived: row.archived, updatedAtMs: Number(row.updated_ms) }));
       return { items, nextCursor: selected.length > limit ? items[items.length - 1]!.factoryId : null };
     });
   }
@@ -136,7 +136,7 @@ export class FactoryDefinitions {
     assertFactoryIdentity(snapshot.factoryId);
     return this.database.transaction(async transaction => {
       await this.grants.authorizeInTransaction(transaction, principal, snapshot.projectId, "read");
-      const selected = rows<VersionRow>(await transaction.execute(sql`SELECT version, draft_revision, definition_digest, compiled_blob_digest, compiled_bytes FROM factory_versions
+      const selected = rows<VersionRow>(await transaction.execute(sql`SELECT version, draft_revision, definition_digest, compiled_blob_digest, compiled_bytes, FLOOR(EXTRACT(EPOCH FROM created_at) * 1000) AS published_ms FROM factory_versions
         WHERE tenant_id=${this.tenantId} AND project_id=${snapshot.projectId} AND factory_id=${snapshot.factoryId} AND version > ${after} ORDER BY version LIMIT ${limit + 1}`));
       const items = selected.slice(0, limit).map(row => published(snapshot, row));
       return { items, nextCursor: selected.length > limit ? items[items.length - 1]!.version : null };
@@ -166,7 +166,7 @@ export class FactoryDefinitions {
       await transaction.execute(sql`INSERT INTO factory_versions (tenant_id, project_id, factory_id, version, draft_revision, definition_digest, compiled_blob_digest, compiled_bytes, lock_json)
         VALUES (${this.tenantId}, ${snapshot.projectId}, ${snapshot.factoryId}, ${current.source.version}, ${expectedRevision}, ${value.digest}, ${compiledBlobDigest}, ${bytes.byteLength}, ${canonicalJson(value.lock)})`);
       await this.audit(transaction, principal, snapshot, "published", { version: current.source.version, definitionDigest: value.digest, compiledBlobDigest, draftRevision: expectedRevision });
-      return { ...snapshot, version: current.source.version, draftRevision: expectedRevision, definitionDigest: value.digest, compiledBlobDigest, compiledBytes: bytes.byteLength };
+      return published(snapshot, (await this.findVersion(transaction, snapshot, current.source.version))!);
     });
   }
 
@@ -187,7 +187,7 @@ export class FactoryDefinitions {
   }
 
   private async findDraft(transaction: MigrationDb, key: FactoryDefinitionKey, write = false): Promise<DraftRow | undefined> {
-    return rows<DraftRow>(await transaction.execute(sql`SELECT revision, source_digest, source_json, archived FROM factory_drafts WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND factory_id=${key.factoryId} ${write ? sql`FOR UPDATE` : sql`FOR SHARE`}`))[0];
+    return rows<DraftRow>(await transaction.execute(sql`SELECT revision, source_digest, source_json, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND factory_id=${key.factoryId} ${write ? sql`FOR UPDATE` : sql`FOR SHARE`}`))[0];
   }
 
   private async requireDraft(transaction: MigrationDb, key: FactoryDefinitionKey, write = false): Promise<DraftRow> {
@@ -197,7 +197,7 @@ export class FactoryDefinitions {
   }
 
   private async findVersion(transaction: MigrationDb, key: FactoryDefinitionKey, version: string): Promise<VersionRow | undefined> {
-    return rows<VersionRow>(await transaction.execute(sql`SELECT version, draft_revision, definition_digest, compiled_blob_digest, compiled_bytes FROM factory_versions WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND factory_id=${key.factoryId} AND version=${version}`))[0];
+    return rows<VersionRow>(await transaction.execute(sql`SELECT version, draft_revision, definition_digest, compiled_blob_digest, compiled_bytes, FLOOR(EXTRACT(EPOCH FROM created_at) * 1000) AS published_ms FROM factory_versions WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND factory_id=${key.factoryId} AND version=${version}`))[0];
   }
 
   private async audit(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, action: string, evidence: unknown): Promise<void> {
