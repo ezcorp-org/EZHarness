@@ -39,7 +39,11 @@ authorization, and they close the credential-separation half of C06.14 only.
 | `ba5d291b9` | `feat(factory): type the gateway archive-writer role and its readiness` |
 | `213e4dc82` | `feat(factory): archive every publication member before the dispatch claim` |
 | `213b6f076` | `test(factory): prove the archive restrictions on the real local services` |
-| `<docs>` | `docs(factory): record the W04a archive gates, review, and lessons` |
+| `ee210ffde` | `docs(factory): record the W04a archive gates, review, and lessons` |
+| `<stamp>` | `docs(factory): stamp the W04a gate commit table` (adds the row above; a file cannot carry its own hash) |
+
+Every executable change is in the first three commits. The two documentation commits change no
+code, so the receipts below were produced at `213b6f076` and re-run clean at the final commit.
 
 ## The landed API
 
