@@ -1370,3 +1370,14 @@ Review: the release authority store now derives a per-node current candidate onl
 - [ ] Verify the new authority and credential fixes on PostgreSQL/S3, then repeat full regression.
 
 Review: `root-projection-integration-results.json` records 155 SDK tests (1,101 assertions) and 20 PostgreSQL/S3 lifecycle/schema tests (1,431 assertions) passing at `55232b905`. It stopped on a readonly fixture type error. At corrected `618560260`, `root-projection-regression-results.json` records all four type checks, lint and gate integrity passing; the full backend pool reported 26,127 passes and one failure across 1,708 files. The actual module-graph CLI found a forbidden regular expression in service credential validation. `root-validator-boundary-green.log` records the replacement passing all 29 boundary and API schema cases, including malformed segments and non-base64url characters. Receipts are under `/tmp/factory-platform-evidence`. Full regression remains open until a complete passing run.
+
+## Application restart integration
+
+- [x] Reproduce the release-table migration failure through the real PGlite close/reopen path.
+- [x] Preserve an already scoped artifact primary key and all dependent foreign keys.
+- [x] Make older artifact index migrations retain newer partition and candidate identity dimensions.
+- [x] Add shared PGlite/PostgreSQL repeated-boot tests with 96 KiB artifacts, multiple nodes/generations and legacy key upgrade.
+- [ ] Re-run every failed backend file, PostgreSQL schema/restart and all static checks.
+- [ ] Repeat the complete backend pool after the correction.
+
+Review: `root-authority-integration-results.json` passes SDK build, 155 SDK tests (1,112 assertions), 85 PostgreSQL/S3 tests (2,148 assertions), all four type checks, lint and gate integrity at `647e63a53`. Its full backend pool fails 64 tests across 34 files, mostly repeat-migration checks. `root-authority-restart-red.log` reproduces the referenced-primary-key drop through actual database reopen and rollback. `root-migration-restart-focused.log` passes 17 restart/migration/maintenance cases. The initial scoped-key correction also passes ten real-init and idempotent migration cases, including a five-boot cycle. Full regression remains open.
