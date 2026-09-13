@@ -244,25 +244,51 @@ function temporalPayload(envelope: Uint8Array): TemporalPayload {
   const bytes = Buffer.from(envelope);
   if (bytes.byteLength < 7 || bytes.readUInt8(0) !== TEMPORAL_ENVELOPE_VERSION) throw new FactoryEncryptionError("factory_decryption_failed");
   const count = bytes.readUInt16BE(1), dataLength = bytes.readUInt32BE(3); let offset = 7;
-  const metadata: Record<string, Uint8Array> = {};
+  const metadata: Array<[string, Uint8Array]> = [];
   for (let index = 0; index < count; index += 1) {
     if (offset + 6 > bytes.byteLength) throw new FactoryEncryptionError("factory_decryption_failed");
     const keyLength = bytes.readUInt16BE(offset), valueLength = bytes.readUInt32BE(offset + 2); offset += 6;
     if (offset + keyLength + valueLength > bytes.byteLength) throw new FactoryEncryptionError("factory_decryption_failed");
     const key = bytes.subarray(offset, offset + keyLength).toString(); offset += keyLength;
-    if (!key || Object.hasOwn(metadata, key)) throw new FactoryEncryptionError("factory_decryption_failed");
-    metadata[key] = Uint8Array.from(bytes.subarray(offset, offset + valueLength)); offset += valueLength;
+    if (!key || metadata.some(([name]) => name === key)) throw new FactoryEncryptionError("factory_decryption_failed");
+    metadata.push([key, Uint8Array.from(bytes.subarray(offset, offset + valueLength))]); offset += valueLength;
   }
   if (offset + dataLength !== bytes.byteLength) throw new FactoryEncryptionError("factory_decryption_failed");
-  return { metadata, data: Uint8Array.from(bytes.subarray(offset)) };
+  return { metadata: Object.fromEntries(metadata), data: Uint8Array.from(bytes.subarray(offset)) };
 }
 
-/** Exact post-codec byte count, including the fixed authenticated-encryption envelope. */
-export function factoryTemporalPayloadWireBytes(payload: TemporalPayload): number { return temporalEnvelope(payload).byteLength + TEMPORAL_CRYPTO_OVERHEAD; }
+function varintBytes(value: number): number {
+  let bytes = 1;
+  while (value >= 0x80) { value = Math.floor(value / 0x80); bytes += 1; }
+  return bytes;
+}
 
-/** Exact raw-data allowance for these metadata values under the C08 64 KiB wire bound. */
+function encryptedTemporalDataBytes(payload: TemporalPayload): number { return temporalEnvelope(payload).byteLength + TEMPORAL_CRYPTO_OVERHEAD; }
+
+/** Byte length of the post-codec Temporal protobuf Payload. The fixed metadata is the encrypted codec marker. */
+export function factoryTemporalPayloadWireBytes(payload: TemporalPayload): number {
+  const dataBytes = encryptedTemporalDataBytes(payload);
+  // Payload.metadata["encoding"] map entry is 38 bytes; Payload.data is field 2.
+  return 38 + 1 + varintBytes(dataBytes) + dataBytes;
+}
+
+/** Byte length of the post-codec Temporal protobuf Payloads message. */
+export function factoryTemporalPayloadsWireBytes(payloads: readonly TemporalPayload[]): number {
+  return payloads.reduce((total, payload) => {
+    const payloadBytes = factoryTemporalPayloadWireBytes(payload);
+    return total + 1 + varintBytes(payloadBytes) + payloadBytes;
+  }, 0);
+}
+
+/** Raw-data allowance for one payload under the C08 64 KiB post-codec Payloads protobuf bound. */
 export function factoryTemporalPayloadDataBytesLimit(metadata: TemporalPayload["metadata"]): number {
-  return Math.max(0, FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT - factoryTemporalPayloadWireBytes({ metadata, data: new Uint8Array() }));
+  let lower = 0, upper = FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT;
+  while (lower < upper) {
+    const candidate = Math.ceil((lower + upper) / 2);
+    if (factoryTemporalPayloadsWireBytes([{ metadata, data: new Uint8Array(candidate) }]) <= FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT) lower = candidate;
+    else upper = candidate - 1;
+  }
+  return lower;
 }
 
 /** Node-compatible Temporal codec. It binds each payload to the SDK-provided serialization context. */
@@ -270,7 +296,11 @@ export class FactoryTemporalPayloadCodec implements TemporalPayloadCodec {
   private readonly records: EncryptedRecordCodec;
   private readonly tenantId: string;
   constructor(records: EncryptedRecordCodec, tenantId: string) { this.records = records; this.tenantId = tenantId; }
-  async encode(payloads: TemporalPayload[], context?: TemporalSerializationContext): Promise<TemporalPayload[]> { const objectId = temporalObjectId(context); return payloads.map((payload, index) => { if (factoryTemporalPayloadWireBytes(payload) > FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT) throw new FactoryEncryptionError("factory_payload_too_large"); return { metadata: { encoding: Buffer.from("binary/factory-encrypted") }, data: this.records.encode({ tenantId: this.tenantId, objectId: `${objectId}:${index}` }, temporalEnvelope(payload)) }; }); }
+  async encode(payloads: TemporalPayload[], context?: TemporalSerializationContext): Promise<TemporalPayload[]> {
+    const objectId = temporalObjectId(context);
+    if (factoryTemporalPayloadsWireBytes(payloads) > FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT) throw new FactoryEncryptionError("factory_payload_too_large");
+    return payloads.map((payload, index) => ({ metadata: { encoding: Buffer.from("binary/factory-encrypted") }, data: this.records.encode({ tenantId: this.tenantId, objectId: `${objectId}:${index}` }, temporalEnvelope(payload)) }));
+  }
   async decode(payloads: TemporalPayload[], context?: TemporalSerializationContext): Promise<TemporalPayload[]> { const objectId = temporalObjectId(context); return payloads.map((payload, index) => {
     if (Buffer.from(payload.metadata?.encoding ?? []).toString() !== "binary/factory-encrypted") throw new FactoryEncryptionError("factory_decryption_failed");
     try { return temporalPayload(this.records.decode({ tenantId: this.tenantId, objectId: `${objectId}:${index}` }, payload.data ?? new Uint8Array())); } catch (error) { if (error instanceof FactoryEncryptionError) throw error; throw new FactoryEncryptionError("factory_decryption_failed"); }

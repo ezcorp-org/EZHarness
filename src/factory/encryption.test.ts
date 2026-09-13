@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { EncryptedBlobStore, EncryptedRecordCodec, FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, factoryTemporalPayloadDataBytesLimit, factoryTemporalPayloadWireBytes, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption";
+import { EncryptedBlobStore, EncryptedRecordCodec, FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, factoryTemporalPayloadDataBytesLimit, factoryTemporalPayloadWireBytes, factoryTemporalPayloadsWireBytes, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption";
 
 const digest = (value: Uint8Array) => createHash("sha256").update(value).digest("hex");
 class Wraps implements InstallationKeyWrapStore {
@@ -89,9 +89,24 @@ describe("factory C06 encryption", () => {
     const codec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(data, "history"), "tenant");
     const metadata = { encoding: Buffer.from("json/plain") }, context = { type: "workflow" as const, namespace: "factory-tenant", workflowId: "tenant/logical-run" };
     const bytes = factoryTemporalPayloadDataBytesLimit(metadata), maximum = { metadata, data: new Uint8Array(bytes) };
-    expect(factoryTemporalPayloadWireBytes(maximum)).toBe(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
-    expect((await codec.encode([maximum], context))[0]!.data).toHaveLength(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+    expect(factoryTemporalPayloadsWireBytes([maximum])).toBe(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+    expect(factoryTemporalPayloadWireBytes(maximum)).toBeLessThan(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+    expect((await codec.encode([maximum], context))[0]!.data).toHaveLength(maximum.data.byteLength + maximum.metadata.encoding.byteLength + 7 + 6 + "encoding".length + 20 + 12 + 16);
     await expect(codec.encode([{ metadata, data: new Uint8Array(bytes + 1) }], context)).rejects.toMatchObject({ code: "factory_payload_too_large" });
+    const half = { metadata, data: new Uint8Array(Math.ceil(bytes / 2)) };
+    expect(factoryTemporalPayloadWireBytes(half)).toBeLessThan(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+    expect(factoryTemporalPayloadsWireBytes([half, half])).toBeGreaterThan(FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+    await expect(codec.encode([half, half], context)).rejects.toMatchObject({ code: "factory_payload_too_large" });
+  });
+
+  test("preserves an own __proto__ Temporal metadata key", async () => {
+    const data = await InstallationDataKey.loadOrCreate("install", new Wraps(), new StaticMasterKeyProvider(master("a")));
+    const codec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(data, "history"), "tenant");
+    const metadata = Object.fromEntries([["__proto__", Buffer.from("owned")], ["encoding", Buffer.from("json/plain")]]);
+    const context = { type: "workflow" as const, namespace: "factory-tenant", workflowId: "tenant/logical-run" };
+    const [decoded] = await codec.decode(await codec.encode([{ metadata, data: Buffer.from("payload") }], context), context);
+    expect(Object.hasOwn(decoded!.metadata!, "__proto__")).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(decoded!.metadata!, "__proto__")?.value).toEqual(Buffer.from("owned"));
   });
 
   test("reads only an owned private raw operator key file through its directory descriptor", async () => {

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { it } from "node:test";
 import type { Payload } from "@temporalio/common";
 import { defaultPayloadConverter } from "@temporalio/common";
 import type { PayloadCodec } from "@temporalio/common/lib/converter/payload-codec";
-import { EncryptedRecordCodec, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../../../src/factory/encryption.ts";
+import { EncryptedRecordCodec, FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, factoryTemporalPayloadWireBytes, factoryTemporalPayloadsWireBytes, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../../../src/factory/encryption.ts";
+
+type TemporalProto = { readonly temporal: { readonly api: { readonly common: { readonly v1: { readonly Payload: { encode(value: unknown): { finish(): Uint8Array } }; readonly Payloads: { encode(value: unknown): { finish(): Uint8Array } } } } } } };
+const proto = createRequire(import.meta.url)("../../../../node_modules/.bun/@temporalio+proto@1.23.0/node_modules/@temporalio/proto") as TemporalProto;
 
 class Wraps implements InstallationKeyWrapStore {
   private readonly values: InstallationKeyWrap[] = [];
@@ -32,4 +36,24 @@ it("uses the real Node Temporal PayloadCodec context for factory workflow and pa
   const rotated = await key.rotate(wraps, provider("new"));
   const rewrapped: PayloadCodec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(rotated, "history"), "tenant");
   assert.deepEqual(defaultPayloadConverter.fromPayload((await rewrapped.decode(encoded, context))[0]!, context), { approved: true, nested: [1, 2] });
+});
+
+it("measures the actual Temporal protobuf boundary after codec encryption", async () => {
+  const key = await InstallationDataKey.loadOrCreate("install", new Wraps(), provider("old"));
+  const codec: PayloadCodec = new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(key, "history"), "tenant");
+  const context = { type: "workflow" as const, namespace: "factory-tenant", workflowId: "tenant/logical-run" };
+  const metadata = { encoding: Buffer.from("json/plain") };
+  let lower = 0, upper = FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT;
+  while (lower < upper) {
+    const candidate = Math.ceil((lower + upper) / 2);
+    const encoded = await codec.encode([{ metadata, data: new Uint8Array(candidate) }], context).catch(() => undefined);
+    if (encoded) lower = candidate;
+    else upper = candidate - 1;
+  }
+  const input = { metadata, data: new Uint8Array(lower) };
+  const encoded = await codec.encode([input], context);
+  assert.equal(factoryTemporalPayloadWireBytes(input), proto.temporal.api.common.v1.Payload.encode(encoded[0]).finish().byteLength);
+  assert.equal(factoryTemporalPayloadsWireBytes([input]), proto.temporal.api.common.v1.Payloads.encode({ payloads: encoded }).finish().byteLength);
+  assert.equal(proto.temporal.api.common.v1.Payloads.encode({ payloads: encoded }).finish().byteLength, FACTORY_TEMPORAL_ENCRYPTED_PAYLOAD_LIMIT);
+  await assert.rejects(() => codec.encode([{ metadata, data: new Uint8Array(lower + 1) }], context), { code: "factory_payload_too_large" });
 });
