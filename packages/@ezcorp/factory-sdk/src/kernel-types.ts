@@ -131,7 +131,9 @@ export interface KernelState {
     readonly id: string;
     readonly completedEdges: Readonly<Record<string, string>>;
     readonly externalOutputs: Readonly<Record<string, {
-      readonly output: JsonValue;
+      readonly status: "succeeded" | "failed" | "skipped" | "cancelled";
+      readonly output?: JsonValue;
+      readonly error?: string;
       readonly candidateGeneration: number;
       readonly terminalSequence: number;
     }>>;
@@ -211,7 +213,9 @@ export type KernelEvent =
       readonly nodeId: string;
       readonly candidateGeneration: number;
       readonly terminalSequence: number;
-      readonly output: JsonValue;
+      readonly outcome: "succeeded" | "failed" | "skipped" | "cancelled";
+      readonly output?: JsonValue;
+      readonly error?: string;
     })
   | (KernelEventBase & { readonly kind: "cancel"; readonly reason: string });
 
@@ -260,7 +264,9 @@ export type KernelCommand =
       readonly nodeId: string;
       readonly candidateGeneration: number;
       readonly terminalSequence: number;
-      readonly output: JsonValue;
+      readonly outcome: "succeeded" | "failed" | "skipped" | "cancelled";
+      readonly output?: JsonValue;
+      readonly error?: string;
     }
   | {
       readonly kind: "request-acceptance";

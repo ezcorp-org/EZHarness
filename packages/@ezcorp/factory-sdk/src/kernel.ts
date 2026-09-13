@@ -179,11 +179,16 @@ function applyPartitionCompletion(
   const priorEdge = state.partition.completedEdges[edgeKey];
   const priorOutput = state.partition.externalOutputs[event.sourceNodeId];
   if (priorOutput) {
+    if (event.candidateGeneration < priorOutput.candidateGeneration) return state;
     const exactSource = priorOutput.candidateGeneration === event.candidateGeneration
       && priorOutput.terminalSequence === event.terminalSequence
-      && canonicalizeJson(priorOutput.output) === canonicalizeJson(event.output);
-    if (!exactSource || (priorEdge !== undefined && priorEdge !== event.id)) throw new FactoryKernelError("partition completion conflicts with its recorded source fence");
-    if (priorEdge) return state;
+      && priorOutput.status === event.outcome
+      && priorOutput.error === event.error
+      && canonicalizeJson(priorOutput.output ?? null) === canonicalizeJson(event.output ?? null);
+    if (event.candidateGeneration === priorOutput.candidateGeneration) {
+      if (!exactSource || (priorEdge !== undefined && priorEdge !== event.id)) throw new FactoryKernelError("partition completion conflicts with its recorded source fence");
+      if (priorEdge) return state;
+    }
   }
   const partitionState = {
     ...state.partition,
@@ -191,13 +196,19 @@ function applyPartitionCompletion(
     externalOutputs: {
       ...state.partition.externalOutputs,
       [event.sourceNodeId]: {
-        output: snapshotValue(event.output),
+        status: event.outcome,
+        output: event.output === undefined ? undefined : snapshotValue(event.output),
+        error: event.error,
         candidateGeneration: event.candidateGeneration,
         terminalSequence: event.terminalSequence,
       },
     },
   };
-  return activateReady(factory, { ...state, partition: partitionState }, commands, [event.nodeId]);
+  let next: KernelState = { ...state, partition: partitionState };
+  if (priorOutput && event.candidateGeneration > priorOutput.candidateGeneration) {
+    next = applyRepair(factory, next, { kind: "repair", id: event.id, atMs: event.atMs, nodeId: event.nodeId, reason: "PARTITION_SOURCE_REPAIRED" }, commands);
+  }
+  return activateReady(factory, next, commands, [event.nodeId]);
 }
 
 function emitPartitionNotifications(
@@ -210,7 +221,8 @@ function emitPartitionNotifications(
   const partition = partitionFor(factory, state.partition.id);
   let next = state;
   for (const edge of partition?.outbound ?? []) {
-    if (previous.nodes[edge.nodeId]?.status === "succeeded" || state.nodes[edge.nodeId]?.status !== "succeeded") continue;
+    const status = state.nodes[edge.nodeId]?.status;
+    if (!status || !terminalStatus(status) || previous.nodes[edge.nodeId]?.status === status) continue;
     const runtime = state.nodes[edge.nodeId]!;
     const command = commandFor(next, "notify-partition", edge.nodeId);
     next = command.state;
@@ -223,7 +235,9 @@ function emitPartitionNotifications(
       nodeId: edge.toNodeId,
       candidateGeneration: runtime.candidateGeneration,
       terminalSequence: runtime.terminalSequence!,
-      output: runtime.output ?? null,
+      outcome: status as "succeeded" | "failed" | "skipped" | "cancelled",
+      output: runtime.output,
+      error: runtime.error,
     });
   }
   return next;
@@ -398,12 +412,13 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
     childId = parentId;
   }
   const affected = new Set<string>();
-  const queue = [event.nodeId, ...aggregateIds.flatMap(id => successorsFor(factory, id))];
+  const localSuccessors = (id: string) => successorsFor(factory, id).filter(successor => Object.hasOwn(state.nodes, successor));
+  const queue = [event.nodeId, ...aggregateIds.flatMap(localSuccessors)];
   for (let index = 0; index < queue.length; index += 1) {
     const id = queue[index]!;
     if (affected.has(id)) continue;
     affected.add(id);
-    queue.push(...successorsFor(factory, id));
+    queue.push(...localSuccessors(id));
     for (const childId of Object.keys(state.nodes)) if (childId.startsWith(`${id}/`)) queue.push(childId);
   }
   if ([...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)) return state;
@@ -596,10 +611,11 @@ function predecessorRuntime(state: KernelState, nodeId: string): KernelNodeState
   if (local || !state.partition || nodeId.includes("/")) return local;
   const external = state.partition.externalOutputs[nodeId];
   return external ? {
-    status: "succeeded",
+    status: external.status,
     candidateGeneration: external.candidateGeneration,
     nextAttempt: 1,
     output: external.output,
+    error: external.error,
     terminalSequence: external.terminalSequence,
     attempts: [],
   } : undefined;
@@ -814,7 +830,7 @@ function resolveValue(source: ValueSource, state: KernelState, nodeId = ""): Jso
 
 function expressionContext(state: KernelState, nodeId = "", loopOverride?: Readonly<Record<string, JsonValue>>): import("./types.js").ExpressionContext {
   const nodes: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
-  for (const [id, completion] of Object.entries(state.partition?.externalOutputs ?? {})) nodes[id] = completion.output;
+  for (const [id, completion] of Object.entries(state.partition?.externalOutputs ?? {})) if (completion.output !== undefined) nodes[id] = completion.output;
   const parts = nodeId.split("/");
   const scopes = [""];
   let map: Readonly<Record<string, JsonValue>> | undefined;
