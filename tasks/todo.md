@@ -1619,3 +1619,11 @@ Plan review: there must be no configuration path that creates a held task budget
 - [ ] Run owned coverage, SDK build, all canonical typechecks, lint, and integrity checks.
 
 Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.
+
+## Terminal invalid-input startup — root
+
+- [ ] Turn initial kernel input validation failure into a non-retryable workflow failure.
+- [ ] Prove undeclared durable input creates no transition or effect through actual Temporal.
+- [ ] Re-run the full canonical Node coverage lane, web checks and static checks.
+
+Review in progress: current-root canonical Node run exposed a lazy-parent fixture with an undeclared data port. Kernel initialization threw outside the workflow error boundary, so Temporal retried workflow tasks indefinitely. The original logs and verified producer interruption are retained under `/tmp/factory-platform-evidence/root-compute-lazy-approval-fixed-node-*`. The fixture now declares its port and production startup converts invalid kernel input to `FACTORY_INPUT_INVALID`.

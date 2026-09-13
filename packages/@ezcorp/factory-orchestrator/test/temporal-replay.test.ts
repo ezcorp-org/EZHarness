@@ -713,7 +713,7 @@ describe("factory Temporal workflow", () => {
     const childFactory = compiled([
       { ...node, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } },
     ], "lazy-child", lazyDataInput);
-    const parentFactory = compiled([{ id: "child", kind: "subfactory", factory: { id: "lazy-child", version: "1", digest: childFactory.digest }, releaseMode: "none", grants: [] }], "lazy-parent");
+    const parentFactory = compiled([{ id: "child", kind: "subfactory", factory: { id: "lazy-child", version: "1", digest: childFactory.digest }, releaseMode: "none", grants: [] }], "lazy-parent", lazyDataInput);
     const artifact = { artifactId: "lazy-child", digest: packageDigest, encodedBytes: 70_000 };
     let resolvedCommandId: string | undefined;
     let childLogicalRunId: string | undefined;
@@ -746,6 +746,29 @@ describe("factory Temporal workflow", () => {
     });
     assert.ok(resolvedCommandId);
     assert.match(childLogicalRunId ?? "", /^child-[a-f0-9]{64}$/);
+  });
+
+  it("fails an undeclared durable input once before recording a transition or effect", { timeout: 45_000 }, async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    let work = 0;
+    const activities = {
+      ...definitionActivities(factory),
+      recordTransition: async () => { work += 1; },
+      executeCommand: async () => { work += 1; throw new Error("invalid input must not execute"); },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: `tenant/undeclared-durable-input-${process.pid}`, taskQueue: queue,
+        workflowExecutionTimeout: "10 seconds", retry: { maximumAttempts: 1 },
+        args: [workflowInput(factory, { logicalRunId: "undeclared-durable-input", startedAtMs, input: { data: {} }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: { artifactId: "undeclared", digest: packageDigest, encodedBytes: 70_000 } } } } })],
+      });
+      await assert.rejects(handle.result(), (error) => {
+        const cause = (error as { cause?: { type?: string; nonRetryable?: boolean; message?: string } }).cause;
+        return cause?.type === "FACTORY_INPUT_INVALID" && cause.nonRetryable === true && cause.message === "Durable input contains an undeclared port.";
+      });
+    });
+    assert.equal(work, 0);
   });
 
   it("runs a pinned subfactory as a child workflow", async () => {
