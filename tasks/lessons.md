@@ -567,3 +567,6 @@
 - Read the root package scripts before invoking a focused web test. This repository has no `test:web` script; run `test:component` from `web` and pass paths relative to that working directory.
 - When light checks run in parallel, wait for every producer to close before applying even a small lint fix. Rerun every check whose source snapshot changed.
 - A change to a shared verifier (JWT `iss`/`aud`) must be proven with the canonical web Vitest pool, not only focused factory suites. A legacy test that hand-signs tokens must mint them through the production signer so the test exercises the enforced envelope instead of bypassing it.
+- In zsh, `set -- $var` and unquoted `$var` do not word-split. Run multi-field loops through `bash -c` or `read a b <<< "$line"`; check that every iteration ran before trusting a batch.
+- A hook can require `git worktree add ./.worktrees/<name>`; create agent worktrees from the integration worktree root with that exact prefix.
+- Before merging an agent branch, run its full component suite on both the branch and the integration baseline. A branch note that cites one passing case does not show whether the branch broke a neighbouring existing test.
