@@ -1351,6 +1351,19 @@ Plan review: the Node bootstrap owner and root agreed the versioned private read
 - [x] Record the review and immutable follow-up commit.
 
 Review: The run-grant adapter now snapshots its five used authority fields before any database wait and passes the exact durable service credential into `FactoryGrants`. PGlite and PostgreSQL each pass 12 cases with 70 assertions, including revoked-credential effect denial and a caller-mutation race. Focused LCOV measures all 19 run-grant lines and all seven functions. The SDK build, all four type-check legs, lint, and gate integrity pass. The canonical parent regression remains parent-owned under the shared heavy-validation lock.
+
+## Factory release trust and control HTTP API
+
+- [x] Add strict SDK request and response contracts for trust publication, trust revocation, and release control.
+- [x] Register three session-only routes and expose them through the shared factory handler.
+- [x] Add typed browser-client methods without making the routes API-key controllable.
+- [x] Prove session-only authority, preconditions, idempotency, error mapping, schemas, registry/OpenAPI parity, and source coverage.
+- [x] Run the SDK build before all four type-check legs, lint, factory boundaries, and gate integrity.
+- [x] Record review and an immutable commit for parent integration.
+
+Plan review: Reuse the authority store's durable `FactoryMutations` receipts. `If-Match` is the trust revision or release-control epoch. The HTTP body can supply only the exact package/validator trust lock or the enabled boolean. Candidate, material, completion, claim, and dispatch facts remain private.
+
+Review: Three registered session-only routes now call the real release authority store through the shared factory handler. Strict SDK schemas and validation reject mutable runner pins and caller-supplied protected facts. The browser client sends canonical payload digests, idempotency keys, and exact trust revision or control epoch preconditions. Focused root, SDK, and web suites pass 14/155/21 tests with 81/1,129/route assertions; changed lines are fully covered in `/tmp/factory-c04-api-root-cov-20260913a`, `/tmp/factory-c04-api-sdk-cov-20260913a`, and `/tmp/factory-c04-api-web-cov-20260913a`. Registry, OpenAPI, session-scope, coverage registration, factory boundaries, the production web build, four type-check legs, lint, and gate integrity pass. Parent owns the combined PostgreSQL regression and live boot journey from the integrated base.
 ## Factory durable release authority facts
 
 - [x] Define exact terminal, candidate output, trust, release-control, history, and current-pointer records.
@@ -1401,3 +1414,12 @@ Review: `root-authority-integration-results.json` passes SDK build, 155 SDK test
 Plan review: reuse the existing worker transport and pool service routes. The new package owns HTTP only and cannot import the Temporal SDK. The root owns this extraction and pool client; the Node bootstrap owner keeps its stable gateway imports. `transport-path-red.log` records the real Node client accepting an absolute URL before the correction. No private credentials leave the local test server.
 
 Shared client review: `shared-transport-final-integration-results.json` records ten passing producers against the source manifest `shared-transport-source-manifest.json`: root/web frozen installs, shared transport/orchestrator builds, actual Node gateway tests, actual Bun mTLS client, PostgreSQL/S3 private service, all four type checks, lint, gate integrity and factory boundaries. The real PostgreSQL/private Node queue proof passes five cases (74 assertions); the Bun client passes one case (11 assertions). Direct Node coverage measures the shared transport completely at 121/121 lines. A request cannot replace the configured origin; options and body are captured before credential reads; credentials reload on each request; a slowly streaming response cannot extend the total network deadline. This closes transport extraction; the pool client and concrete product command policy remain open.
+
+## Factory bounded lazy input — Terra
+
+- [x] Trace FactoryTransportValue, ValueSource, expressions/map, durable run/start and activity seams.
+- [x] Propose bounded reference/page protocol and ownership.
+- [x] Implement host authorization, immutable paging and conformance tests.
+- [ ] Validate coverage, types and lint.
+
+Restart fixture review: the combined 12-file PostgreSQL producer at `49a6ad119` passed 88 cases and failed the new repeated-migration case because it supplied raw Bun SQL rows to a migration that uses the production normalized adapter. The fixture now repeats the same locked migration entrypoint used on startup; PGlite retains its own native adapter. Actual logs and the failed receipt remain under `root-restart-integration-*`. Regression is still open.

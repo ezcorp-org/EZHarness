@@ -6,6 +6,7 @@ import { FactoryGrantError, type FactoryGrantRecord, type FactoryPrincipal } fro
 import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
 import { FactoryServiceCredentialError } from "$server/factory/service-credentials";
+import { FactoryReleaseAuthorityError, type FactoryReleaseControl, type FactoryReleaseTrustRecord } from "$server/factory/release-authority";
 import { signFactoryServiceToken } from "$server/auth/factory-service-token";
 import { getJwtSecret } from "$server/auth/jwt";
 import { readBoundedJson } from "$lib/server/security/bounded-json";
@@ -56,6 +57,9 @@ const MUTATION_KINDS = new Set([
   "approval.decide",
   "service-credential.issue",
   "service-credential.revoke",
+  "release.trust.publish",
+  "release.trust.revoke",
+  "release.control.set",
 ]);
 
 export function readFactoryJson(request: Request): Promise<unknown> {
@@ -262,6 +266,18 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
       const result = await application.credentials.revoke(principal, { ...request.path, expectedRevision: request.preconditions.expectedRevision }, request.preconditions.idempotencyKey);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "service-credential.resource", resource: credentialResource(result) };
     }
+    case "release.trust.publish": {
+      const result = await application.releaseAuthority.publishTrust(principal, { ...request.path, ...request.body, expectedRevision: request.preconditions.expectedRevision }, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.trust.resource", resource: releaseTrustResource(result) };
+    }
+    case "release.trust.revoke": {
+      const result = await application.releaseAuthority.revokeTrust(principal, request.path.projectId, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.trust.resource", resource: releaseTrustResource(result) };
+    }
+    case "release.control.set": {
+      const result = await application.releaseAuthority.setReleaseEnabled(principal, request.path.projectId, request.body.enabled, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "release.control.resource", resource: releaseControlResource(result) };
+    }
     default:
       return unsupportedRequest(request);
   }
@@ -313,6 +329,16 @@ function credentialResource(record: import("$server/factory/service-credentials"
   };
 }
 
+function releaseTrustResource(record: FactoryReleaseTrustRecord) {
+  const { projectId: _projectId, ...resource } = record;
+  return resource;
+}
+
+function releaseControlResource(record: FactoryReleaseControl) {
+  const { projectId: _projectId, ...resource } = record;
+  return resource;
+}
+
 function grantPrincipal(kind: "user" | "service", id: string): FactoryPrincipal {
   return kind === "user" ? { kind, id, authentication: "session" } : { kind, id, authentication: "service" };
 }
@@ -340,6 +366,13 @@ function mappedError(error: unknown): Response {
     if (error.code === "factory_service_credential_forbidden" || error.code === "factory_human_required") return errorResponse(403, error.code, "Factory service credential authority is required.");
     if (error.code === "factory_service_credential_invalid") return errorResponse(400, error.code, "The factory service credential request is invalid.");
     return errorResponse(500, error.code, "Factory service credential storage is unavailable.", true);
+  }
+  if (error instanceof FactoryReleaseAuthorityError) {
+    if (error.code === "factory_release_trust_conflict" || error.code === "factory_release_control_conflict") return errorResponse(412, error.code, "The release authority revision is stale.");
+    if (error.code === "factory_release_trust_missing") return errorResponse(404, error.code, "Release trust not found.");
+    if (error.code === "factory_release_authority_human_required" || error.code === "factory_release_authority_scope") return errorResponse(403, error.code, "Human release authority is required.");
+    if (error.code === "factory_release_authority_invalid") return errorResponse(400, error.code, "The release authority request is invalid.");
+    return errorResponse(500, error.code, "Release authority storage is unavailable.", true);
   }
   if (error instanceof FactoryGrantError) {
     if (error.code === "factory_grant_conflict" || error.code === "factory_grant_stale") return errorResponse(412, error.code, "The factory grant revision is stale.");

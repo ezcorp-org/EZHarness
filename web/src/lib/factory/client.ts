@@ -8,6 +8,9 @@ import type {
 	FactoryVersionSummary,
 	FactoryServiceCredentialResource,
 	FactoryServiceScope,
+	FactoryReleaseTrustResource,
+	FactoryReleaseControlResource,
+	RunnerReference,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
 
@@ -92,6 +95,10 @@ export class FactoryApiClient {
 
 	private definition(projectId: string, factoryId: string): string {
 		return this.definitions(projectId) + "/" + encoded(factoryId);
+	}
+
+	private release(projectId: string): string {
+		return "/api/factories/projects/" + encoded(projectId) + "/release";
 	}
 
 	private async read(path: string, init?: RequestInit): Promise<FactoryApiResponse> {
@@ -185,11 +192,30 @@ export class FactoryApiClient {
 		const path = "/api/factories/projects/" + encoded(projectId) + "/service-accounts/" + encoded(serviceAccountId) + "/credentials/" + encoded(credentialId);
 		return expectKind(await this.read(path, this.mutationInit("revoke-credential:" + credentialId, revision, undefined, "DELETE")), "service-credential.resource").resource;
 	}
+
+	async publishReleaseTrust(projectId: string, revision: number, packageLock: RunnerReference, validatorTrustDigest: string): Promise<FactoryReleaseTrustResource> {
+		const response = await this.read(this.release(projectId) + "/trust", this.mutationInit("publish-release-trust:" + projectId, revision, { packageLock, validatorTrustDigest }, "PUT"));
+		return expectKind(response, "release.trust.resource").resource;
+	}
+
+	async revokeReleaseTrust(projectId: string, revision: number): Promise<FactoryReleaseTrustResource> {
+		const response = await this.read(this.release(projectId) + "/trust", this.mutationInit("revoke-release-trust:" + projectId, revision, undefined, "DELETE"));
+		return expectKind(response, "release.trust.resource").resource;
+	}
+
+	async setReleaseEnabled(projectId: string, enabled: boolean, epoch: number): Promise<FactoryReleaseControlResource> {
+		const response = await this.read(this.release(projectId) + "/control", this.mutationInit("set-release-enabled:" + projectId, epoch, { enabled }, "PUT"));
+		return expectKind(response, "release.control.resource").resource;
+	}
 }
 
 export type FactoryAuthoringApi = Pick<FactoryApiClient,
 	"listDrafts" | "getDraft" | "createDraft" | "importDraft" | "saveDraft" | "archiveDraft" |
 	"exportDraft" | "validateDraft" | "listVersions" | "getVersion" | "publishVersion"
+>;
+
+export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
+	"publishReleaseTrust" | "revokeReleaseTrust" | "setReleaseEnabled"
 >;
 
 export function blankFactory(factoryId: string): FactoryDefinition {

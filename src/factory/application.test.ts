@@ -43,6 +43,9 @@ describe("factory application composition", () => {
     expect(application.runs.tenantId).toBe("tenant-1");
     expect(application.definitions.tenantId).toBe("tenant-1");
     expect(application.grants.tenantId).toBe("tenant-1");
+    expect(application.artifacts.database).toBe(database);
+    expect(application.journal.database).toBe(database);
+    expect(application.releaseAuthority.tenantId).toBe("tenant-1");
     expect(getFactoryApplication()).toBeNull();
     configureFactoryApplication(application);
     expect(getFactoryApplication()).toBe(application);

@@ -1016,6 +1016,50 @@
           "additionalProperties": false,
           "properties": {
             "kind": {
+              "const": "release.trust.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryReleaseTrustResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.control.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryReleaseControlResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
               "const": "command.resource",
               "type": "string"
             },
@@ -1567,6 +1611,74 @@
         "id",
         "version",
         "digest"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseControlResource": {
+      "additionalProperties": false,
+      "properties": {
+        "enableEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "enableEpoch"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseTrustResource": {
+      "additionalProperties": false,
+      "properties": {
+        "approvalGrantRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "approvedBy": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "packageLock": {
+          "$ref": "#/definitions/RunnerReference"
+        },
+        "packageTrustDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "revoked"
+          ],
+          "type": "string"
+        },
+        "validatorTrustDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision",
+        "state",
+        "packageLock",
+        "packageTrustDigest",
+        "validatorTrustDigest",
+        "approvedBy",
+        "approvalGrantRevision"
       ],
       "type": "object"
     },
