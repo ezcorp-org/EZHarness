@@ -32,7 +32,10 @@ const renewedLease: PoolLease = { ...lease, tenantId: request.authority.tenantId
 const prepared: FactoryPreparedPackageReceipt = { projectId: request.authority.projectId, reference: request.runner, trustRevision: 1, packageTrustDigest: digest, releaseDigest: digest, sourceDigest: digest, artifactDigest: raw, imageDigest: digest, manifestDigest: digest, evidenceDigest: digest, buildIdentity: "build-runtime", receiptDigest: digest };
 const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const signStopReceipt = async (receipt: FactoryUnsignedPhysicalStopReceipt) => signFactoryPhysicalStopReceipt(receipt, "test-host-key", hostKeys.privateKey);
-const dispatchReadiness = { assertDispatchReady: async () => prepared };
+// Readiness must answer with the exact receipt the dispatch carries; the
+// runtime rejects any drift between them immediately before the token mint.
+let readyReceipt: FactoryPreparedPackageReceipt = prepared;
+const dispatchReadiness = { assertDispatchReady: async () => readyReceipt };
 
 class ResponseLossRunner implements Runner {
   starts = 0;
@@ -194,6 +197,7 @@ test("a fresh isolated Bun guest receives only the minted attempt token and retu
     if (build.state !== "succeeded") throw new Error(`isolated guest build failed: ${build.diagnostics.map(diagnostic => diagnostic.code).join(",")}`);
     if (!build.artifactDigest) throw new Error("isolated guest artifact was not built");
     const guestPrepared = { ...prepared, artifactDigest: build.artifactDigest };
+    readyReceipt = guestPrepared;
     const pool = { acknowledgeStart: async () => renewedLease, renew: async () => renewedLease };
     const brokerInputs: unknown[] = [];
     const runtime = new IsolatedFactoryAttemptRuntime({ runner, launches: new FactoryDatabaseAttemptLaunchStore(db), pool, broker: { invoke: async (_request, input) => { brokerInputs.push(input); return { accepted: true }; } }, signStopReceipt, readiness: dispatchReadiness, presentStopReceipt: async () => {}, mintAttemptToken: async () => "fresh-isolated-attempt-token" });
