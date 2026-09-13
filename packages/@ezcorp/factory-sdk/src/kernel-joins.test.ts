@@ -32,7 +32,7 @@ function admit(graph: CompiledFactory, state: KernelState, nodeId: string): Kern
 function result(graph: CompiledFactory, state: KernelState, nodeId: string, atMs: number, output: string) {
   const attempt = state.nodes[nodeId]?.attempts.at(-1);
   if (!attempt) throw new Error(`missing dispatch for ${nodeId}`);
-  return advanceKernel(graph, state, { kind: "node-result", id: `result-${nodeId}-${atMs}`, atMs, nodeId, commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output });
+  return advanceKernel(graph, state, { kind: "node-result", id: `result-${nodeId}-${atMs}`, atMs, nodeId, commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output: { value: output } });
 }
 
 function joinGraph(mode: "any" | "quorum", quorum: number): CompiledFactory {
@@ -52,7 +52,7 @@ test("any join selects its first qualified result and cancels each loser before 
   state = admit(graph, state, "c");
   const winner = result(graph, state, "b", 10, "b-result");
 
-  expect(winner.nextState.nodes.join?.output).toEqual({ winners: [{ id: "b", output: "b-result" }] });
+  expect(winner.nextState.nodes.join?.output).toEqual({ winners: [{ nodeId: "b", outputs: { value: "b-result" } }] });
   expect(winner.nextState.nodes.join?.status).toBe("succeeded");
   expect(winner.nextState.nodes.a?.status).toBe("stopping");
   expect(winner.nextState.nodes.c?.status).toBe("stopping");
@@ -77,8 +77,8 @@ test("quorum retains the first qualified set in recorded order and cancels remai
   const winner = result(graph, state, "a", 20, "a-result");
 
   expect(winner.nextState.nodes.join?.output).toEqual({ winners: [
-    { id: "b", output: "b-result" },
-    { id: "a", output: "a-result" },
+    { nodeId: "b", outputs: { value: "b-result" } },
+    { nodeId: "a", outputs: { value: "a-result" } },
   ] });
   expect(winner.nextState.nodes.join?.status).toBe("succeeded");
   expect(winner.nextState.nodes.c?.status).toBe("stopping");

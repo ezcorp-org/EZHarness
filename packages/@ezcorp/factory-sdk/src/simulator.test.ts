@@ -92,7 +92,7 @@ test("an item keeps its map concurrency slot until its whole multi-node body com
   const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 2, maxConcurrency: 1 };
   const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "map" } } } }, indexes: { nodeById: { map }, successors: { map: [] }, dependencyCounts: { map: 0 } } };
   const dispatched: string[] = [];
-  simulateFactory(factory, "multi-body", {}, { execute: (_node, command) => { dispatched.push(command.nodeId); return { kind: "success", output: command.nodeId }; } });
+  simulateFactory(factory, "multi-body", {}, { execute: (_node, command) => { dispatched.push(command.nodeId); return { kind: "success", output: { node: command.nodeId } }; } });
   expect(dispatched).toEqual(["map/items/0/first", "map/items/0/second", "map/items/1/first", "map/items/1/second"]);
 });
 

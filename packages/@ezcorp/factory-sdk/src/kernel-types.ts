@@ -57,6 +57,8 @@ export interface KernelNodeState {
   readonly error?: string;
   readonly terminalSequence?: number;
   readonly discarded?: boolean;
+  /** Failure belongs to an explicit collecting map or qualifying join. */
+  readonly failureHandled?: boolean;
   readonly attempts: readonly KernelAttempt[];
   readonly selected?: "then" | "else";
   readonly waitingReason?: "approval" | "admission" | "remediation" | "external_reconciliation";
