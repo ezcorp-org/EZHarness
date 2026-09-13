@@ -92,3 +92,15 @@ test("a missing saved source does not substitute another revision", () => {
   expect(view.getByRole("alert")).toHaveTextContent("No other saved workspaces are available.");
   expect(view.queryByRole("link", { name: /Revision/ })).not.toBeInTheDocument();
 });
+
+test("the heading and title name the extension being edited", () => {
+  const view = render(AuthorPage, { data: data({ extensionName: "memory-extractor" }) });
+  expect(view.getByRole("heading", { level: 1 })).toHaveTextContent("memory-extractor");
+  expect(document.title).toBe("memory-extractor · Extension workspace");
+});
+
+test("without a resolved name the page keeps its generic heading", () => {
+  const view = render(AuthorPage, { data: data({ extensionName: null }) });
+  expect(view.getByRole("heading", { level: 1 })).toHaveTextContent("Extension workspace");
+  expect(document.title).toBe("Extension workspace");
+});

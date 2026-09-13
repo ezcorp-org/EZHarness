@@ -173,12 +173,12 @@
   }
 </script>
 
-<svelte:head><title>Extension workspace</title></svelte:head>
+<svelte:head><title>{data.extensionName ? `${data.extensionName} · Extension workspace` : "Extension workspace"}</title></svelte:head>
 <svelte:window onbeforeunload={(event) => { if (dirty) { event.preventDefault(); event.returnValue = ""; } }} />
 
 <div class="workspace-shell">
   <header class="workspace-heading">
-    <div><p class="eyebrow">Extensions / Version 4</p><h1>Extension workspace</h1><p class="muted">Build in isolation. Review the exact release. Activate only after approval.</p></div>
+    <div><p class="eyebrow">Extensions / Version 4</p><h1>{data.extensionName ?? "Extension workspace"}</h1><p class="muted">Build in isolation. Review the exact release. Activate only after approval.</p></div>
     {#if installationState}<span class="state-badge">{installationState.installation.uninstalled ? "Uninstalled" : installationState.installation.status} · generation {installationState.installation.generation}</span>{/if}
   </header>
   {#if failure}<div role="alert" class="message failure">{failure} Your local edits remain in this page.</div>{/if}
