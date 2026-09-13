@@ -37,7 +37,7 @@ function requests(): FactoryApiRequest[] {
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "version.publish", path: draft, preconditions, body: { version: referenceCodeV1.version } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "version.get", path: { ...draft, version: referenceCodeV1.version } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "version.list", path: draft, query: {} },
-    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.start", path: draft, preconditions, body: { factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 3, parameters: { request: { kind: "inline", value: "build it" } } } },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.start", path: draft, preconditions: { ...preconditions, expectedRevision: 0 }, body: { factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 3, parameters: { request: { kind: "inline", value: "build it" } } } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.get", path: { ...project, runId: "run-1" } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.list", path: project, query: { status: "running", factoryId: referenceCodeV1.id } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.control", path: { ...project, runId: "run-1" }, preconditions, body: { action: "cancel", reason: "User request" } },

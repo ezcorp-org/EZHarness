@@ -61,6 +61,18 @@ test("factory authoring client sends encoded paths, queries, and mutation precon
   expect(new URL(requests[8]!.url).search).toBe("");
   expect(new URL(requests[9]!.url).pathname).toEndWith("/versions/1%2F0");
   expect(new URL(requests[10]!.url).searchParams.get("action")).toBe("factory.run");
+  const runBody = { factoryVersion: "1", definitionDigest: `sha256:${"a".repeat(64)}`, grantRevision: 1, parameters: {} };
+  await factory.startFactoryRun("project/one", "factory/one", runBody, "start-key");
+  await factory.listFactoryRuns("project/one", { factoryId: "factory/one", status: "waiting", limit: 2 });
+  await factory.listFactoryRuns("project/one");
+  await factory.getFactoryRun("project/one", "run/one");
+  await factory.controlFactoryRun("project/one", "run/one", { action: "cancel" }, 2, "cancel-key");
+  await factory.getFactoryCommand("project/one", "run/one", "command/one");
+  expect(requests[11]!.headers.get("If-Match")).toBe("0");
+  expect(requests[11]!.headers.get("Idempotency-Key")).toBe("start-key");
+  expect(new URL(requests[12]!.url).searchParams.get("status")).toBe("waiting");
+  expect(requests[15]!.headers.get("If-Match")).toBe("2");
+  expect(new URL(requests[16]!.url).pathname).toContain("/runs/run%2Fone/commands/command%2Fone");
   expect(requests.every(request => request.headers.get("Authorization") === "Bearer ezk_factory")).toBe(true);
 });
 

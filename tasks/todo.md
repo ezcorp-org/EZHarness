@@ -1111,3 +1111,15 @@ Review: `/tmp/factory-platform-evidence/lifecycle-artifacts-results.json` record
 - [x] Verify sealed contracts, evidence, approvals, audit faults, and current authority after integration.
 
 Review: integration head `3dffb7418` plus this model fix passes the 21 focused cases, PostgreSQL schema (2 cases, 895 assertions), and PostgreSQL assurance (13 cases, 38 assertions). All four type checks and lint pass. Owned measured lines are assurance 130/130, assurance migration 10/10, and shared approval context 19/19. Receipts: `/tmp/factory-platform-evidence/assurance-integrated-results.json` and `assurance-integrated-coverage/lcov.info`. These are component proofs; application boot, release dispatch, production journeys, and the 10-tenant soak remain open.
+
+
+## Factory run API — durable requests and reads
+
+- [x] Return the original committed command receipt from run start and cancellation.
+- [x] Add scoped command status and bounded, filtered run summaries.
+- [x] Register routes and harness client methods with exact read/chat scopes.
+- [x] Verify retries, failed/unknown dispatch, cancellation races, rollback, missing receipts, membership, and actual PostgreSQL/S3 composition.
+- [ ] Connect bounded repair/replan to real kernel replacement semantics.
+- [ ] Complete factory-enabled application boot, service-principal HTTP authentication, and real browser/run execution.
+
+Review: `/tmp/factory-platform-evidence/run-api-results.json` has six successful producers: 167 focused tests, 10 route tests, 13 PostgreSQL lifecycle tests, 13 PostgreSQL/S3 lifecycle tests, all four type checks, and lint. LCOV measures run lifecycle149/149, outbox155/155, application77/77, harness client453/453, shared route142/142, and every new route2/2 lines. Input revision0 now matches creation of a new logical run; stale nonzero start revisions return412. Accepted requests return202 and a real stored command status URL. An unknown dispatch remains visible as unknown and does not become run completion. Repair/replan currently fail unavailable and are not a completed surface. Full-platform gates remain open.

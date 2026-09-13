@@ -4,6 +4,7 @@ import { canonicalizeJson, compileFactory, referenceCodeV1, type FactoryApiRespo
 import type { FactoryApplication } from "$server/factory/application";
 import { FactoryDefinitionError } from "$server/factory/definitions";
 import { FactoryGrantError } from "$server/factory/grants";
+import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
@@ -26,6 +27,7 @@ const definitions = {
   readVersion: vi.fn(),
   listVersions: vi.fn(),
 };
+const runs = { start: vi.fn(), read: vi.fn(), list: vi.fn(), cancel: vi.fn(), readCommand: vi.fn() };
 const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn() };
 
 const sourceDigest = createHash("sha256").update(canonicalizeJson(referenceCodeV1 as unknown as Parameters<typeof canonicalizeJson>[0])).digest("hex");
@@ -48,6 +50,13 @@ const versions = await import("./projects/[projectId]/definitions/[factoryId]/ve
 const versionRoute = await import("./projects/[projectId]/definitions/[factoryId]/versions/[version]/+server");
 const grantList = await import("./projects/[projectId]/grants/+server");
 const grantItem = await import("./projects/[projectId]/grants/[principalKind]/[principalId]/[action]/+server");
+const runStart = await import("./projects/[projectId]/definitions/[factoryId]/runs/+server");
+const runList = await import("./projects/[projectId]/runs/+server");
+const runItem = await import("./projects/[projectId]/runs/[runId]/+server");
+const runControl = await import("./projects/[projectId]/runs/[runId]/control/+server");
+const runCommand = await import("./projects/[projectId]/runs/[runId]/commands/[commandId]/+server");
+const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "queued", createdAtMs: 1, updatedAtMs: 1 };
+const receipt = { resourceId: run.runId, commandId: "command-1", statusUrl: "/api/factories/projects/project-1/runs/run-1/commands/command-1" };
 const shared = await import("./_shared");
 
 beforeEach(() => {
@@ -56,6 +65,7 @@ beforeEach(() => {
     tenantId: "tenant-1",
     definitions,
     grants,
+    runs,
     availableResourceClasses: new Set(["cpu"]),
   } as unknown as FactoryApplication;
   vi.clearAllMocks();
@@ -69,6 +79,11 @@ beforeEach(() => {
   definitions.publish.mockResolvedValue(version);
   definitions.readVersion.mockResolvedValue({ version, compiled });
   definitions.listVersions.mockResolvedValue({ items: [version], nextCursor: null });
+  runs.start.mockResolvedValue({ run: { ...run, parameters: {} }, receipt });
+  runs.read.mockResolvedValue({ ...run, parameters: {} });
+  runs.list.mockResolvedValue({ items: [run], nextCursor: null });
+  runs.cancel.mockResolvedValue({ run: { ...run, status: "cancelling", parameters: {} }, receipt });
+  runs.readCommand.mockResolvedValue({ commandId: receipt.commandId, runId: run.runId, kind: "start_run", state: "outcome_unknown", attempts: 1, createdAtMs: 1, failureCode: "worker_lease_expired" });
   grants.list.mockResolvedValue({ items: [grant], nextCursor: null });
   grants.set.mockResolvedValue({ revision: 1, expiresAtMs: null });
   grants.revoke.mockResolvedValue({ revision: 2, expiresAtMs: null });
@@ -92,6 +107,47 @@ function event(method: string, pathname: string, options: { body?: unknown; revi
 async function json(response: Response): Promise<FactoryApiResponse> {
   return await response.json() as FactoryApiResponse;
 }
+
+describe("factory run request routes", () => {
+  const project = { projectId: "project-1" };
+  const path = { ...project, runId: "run-1" };
+  const definitionPath = { ...project, factoryId: referenceCodeV1.id };
+  const body = { factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, parameters: {} };
+  test("accepts a pinned run at revision zero and returns its durable status location", async () => {
+    const response = await runStart.POST(event("POST", "/api/factories/projects/project-1/definitions/reference.code.v1/runs", { auth: "api-key", scopes: ["chat"], params: definitionPath, body, revision: 0, key: "run-key" }));
+    expect(response.status).toBe(202); expect(await json(response)).toMatchObject({ kind: "mutation.accepted", receipt });
+    expect(runs.start).toHaveBeenCalledWith({ kind: "user", id: "key-owner", authentication: "api-key" }, definitionPath, body, 0, "run-key");
+    const denied = await runStart.POST(event("POST", "/api/factories/projects/project-1/definitions/reference.code.v1/runs", { auth: "api-key", scopes: ["write"], params: definitionPath, body, revision: 0, key: "run-key" }));
+    expect(denied.status).toBe(403);
+    const stale = await runStart.POST(event("POST", "/api/factories/projects/project-1/definitions/reference.code.v1/runs", { params: definitionPath, body, revision: 1, key: "run-key" }));
+    expect(stale.status).toBe(412);
+  });
+  test("reads run summaries and failed dispatch separately, with scoped bounded filters", async () => {
+    const page = await runList.GET(event("GET", "/api/factories/projects/project-1/runs?limit=2&cursor=before&status=queued&factoryId=reference.code.v1&search=code", { params: project }));
+    expect(page.status).toBe(200); expect(await json(page)).toMatchObject({ kind: "run.page" });
+    expect(runs.list).toHaveBeenCalledWith(expect.anything(), project.projectId, { limit: 2, cursor: "before", status: "queued", factoryId: "reference.code.v1", search: "code" });
+    const detail = await runItem.GET(event("GET", "/api/factories/projects/project-1/runs/run-1", { params: path }));
+    expect(await json(detail)).toMatchObject({ kind: "run.details", resource: { status: "queued" } });
+    const command = await runCommand.GET(event("GET", receipt.statusUrl, { params: { ...path, commandId: receipt.commandId } }));
+    expect(await json(command)).toMatchObject({ kind: "command.resource", resource: { state: "outcome_unknown" } });
+    expect(runs.readCommand).toHaveBeenCalledWith(expect.anything(), path, receipt.commandId);
+    expect((await runList.GET(event("GET", "/api/factories/projects/project-1/runs?limit=201", { params: project }))).status).toBe(400);
+  });
+  test("cancellation acknowledges the request without claiming a stopped run", async () => {
+    const response = await runControl.POST(event("POST", "/api/factories/projects/project-1/runs/run-1/control", { params: path, body: { action: "cancel", reason: "Stop" }, revision: 1, key: "cancel-key" }));
+    expect(response.status).toBe(202); expect(await json(response)).toMatchObject({ kind: "mutation.accepted", receipt });
+    expect(runs.cancel).toHaveBeenCalledWith(expect.anything(), path, 1, "cancel-key", "Stop");
+    const unavailable = await runControl.POST(event("POST", "/api/factories/projects/project-1/runs/run-1/control", { params: path, body: { action: "repair", nodeId: "candidate", parameters: {} }, revision: 1, key: "repair-key" }));
+    expect(unavailable.status).toBe(503); expect(runs.cancel).toHaveBeenCalledTimes(1);
+  });
+  test("maps run preconditions, authority, availability, and storage failures", async () => {
+    for (const [code, status] of [["factory_revision_conflict", 412], ["factory_revision_invalid", 412], ["factory_run_not_found", 404], ["factory_command_not_found", 404], ["factory_run_terminal", 409], ["factory_run_stopped", 409], ["factory_definition_conflict", 409], ["factory_input_invalid", 400], ["factory_page_invalid", 400], ["factory_interpreter_unavailable", 503], ["factory_run_corrupt", 500]] as const) {
+      runs.read.mockRejectedValueOnce(new FactoryRunLifecycleError(code));
+      const response = await runItem.GET(event("GET", "/api/factories/projects/project-1/runs/run-1", { params: path }));
+      expect(response.status).toBe(status); expect(await json(response)).toMatchObject({ kind: "error", error: { code } });
+    }
+  });
+});
 
 describe("factory definition and grant routes", () => {
   test("routes every successful draft, version, and grant operation through the shared contract", async () => {
@@ -210,7 +266,7 @@ describe("factory definition and grant routes", () => {
     expect(await json(cursor)).toMatchObject({ page: { nextCursor: referenceCodeV1.id } });
     await expect(shared.handleFactoryApi(event("POST", "/api/factories/projects/project-1/runs", { body: {}, revision: 1, key: "run" }), {
       scope: "write",
-      build: () => ({ kind: "run.start", path: { projectId: "project-1", factoryId: referenceCodeV1.id }, body: { factoryVersion: "1.0.0", definitionDigest: compiled.digest, grantRevision: 1, parameters: {} } }),
+      build: () => ({ kind: "approval.get", path: { projectId: "project-1", runId: "run-1", approvalId: "approval-1" } }),
     })).rejects.toThrow("not handled");
   });
 });

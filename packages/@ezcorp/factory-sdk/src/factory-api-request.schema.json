@@ -874,6 +874,28 @@
           "additionalProperties": false,
           "properties": {
             "kind": {
+              "const": "command.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryCommandPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
               "const": "approval.get",
               "type": "string"
             },
@@ -1130,6 +1152,32 @@
       "required": [
         "maxExpandedNodes",
         "maxScopeDepth"
+      ],
+      "type": "object"
+    },
+    "FactoryCommandPath": {
+      "additionalProperties": false,
+      "properties": {
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "projectId",
+        "runId"
       ],
       "type": "object"
     },

@@ -17,7 +17,7 @@ export { SseDataBuffer } from "./sse";
 import { SseDataBuffer } from "./sse";
 import type { RuntimeEvent } from "./events";
 import { HARNESS_ROUTES, buildPath, type HarnessRouteName } from "./routes";
-import type { FactoryApiResponse, FactoryDefinition, FactoryDefinitionListQuery, FactoryGrantListQuery, FactoryListQuery } from "@ezcorp/factory-sdk";
+import type { FactoryApiResponse, FactoryDefinition, FactoryDefinitionListQuery, FactoryGrantListQuery, FactoryListQuery, FactoryRunListQuery, FactoryRunStartBody, FactoryRunControlBody } from "@ezcorp/factory-sdk";
 
 export interface HarnessClientOptions {
   /** Base origin of the EZCorp instance, e.g. `http://localhost:3000`. */
@@ -396,6 +396,26 @@ export class HarnessClient {
 
   getFactoryVersion(projectId: string, factoryId: string, version: string): Promise<FactoryApiResponse> {
     return this.route("getFactoryVersion", { projectId, factoryId, version });
+  }
+
+  startFactoryRun(projectId: string, factoryId: string, body: FactoryRunStartBody, idempotencyKey: string): Promise<FactoryApiResponse> {
+    return this.factoryMutation("startFactoryRun", { projectId, factoryId }, 0, idempotencyKey, body);
+  }
+
+  listFactoryRuns(projectId: string, query: FactoryRunListQuery = {}): Promise<FactoryApiResponse> {
+    return this.factoryQuery("listFactoryRuns", { projectId }, query);
+  }
+
+  getFactoryRun(projectId: string, runId: string): Promise<FactoryApiResponse> {
+    return this.route("getFactoryRun", { projectId, runId });
+  }
+
+  controlFactoryRun(projectId: string, runId: string, body: FactoryRunControlBody, expectedRevision: number, idempotencyKey: string): Promise<FactoryApiResponse> {
+    return this.factoryMutation("controlFactoryRun", { projectId, runId }, expectedRevision, idempotencyKey, body);
+  }
+
+  getFactoryCommand(projectId: string, runId: string, commandId: string): Promise<FactoryApiResponse> {
+    return this.route("getFactoryCommand", { projectId, runId, commandId });
   }
 
   listFactoryGrants(projectId: string, query: FactoryGrantListQuery = {}): Promise<FactoryApiResponse> {

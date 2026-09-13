@@ -3,6 +3,7 @@ import { factoryBootConfig } from "$server/factory/boot";
 import { draftAvailability, getFactoryApplication, type FactoryApplication } from "$server/factory/application";
 import { FactoryDefinitionError, type FactoryDraft, type FactoryDraftMetadata, type FactoryVersion } from "$server/factory/definitions";
 import { FactoryGrantError, type FactoryGrantRecord, type FactoryPrincipal } from "$server/factory/grants";
+import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
 import { readBoundedJson } from "$lib/server/security/bounded-json";
 import { requireScope } from "$lib/server/security/api-keys";
@@ -21,10 +22,11 @@ import {
   type FactoryDraftSummary,
   type FactoryGrantListQuery,
   type FactoryListQuery,
+  type FactoryRunListQuery,
   type ValidationIssue,
 } from "@ezcorp/factory-sdk";
 
-type FactoryRouteScope = "read" | "write" | "session";
+type FactoryRouteScope = "read" | "write" | "chat" | "session";
 type FactoryMutationRequest = Extract<FactoryApiRequest, { preconditions: unknown }>;
 type FactoryEvent = { readonly request: Request; readonly url: URL; readonly locals: App.Locals };
 type FactoryRouteFields = Readonly<Record<string, unknown>>;
@@ -61,6 +63,10 @@ export function factoryListQuery(url: URL): FactoryListQuery {
 
 export function factoryDefinitionListQuery(url: URL): FactoryDefinitionListQuery {
   return compactQuery(url, ["limit", "cursor", "search", "availability", "archived"] as const) as FactoryDefinitionListQuery;
+}
+
+export function factoryRunListQuery(url: URL): FactoryRunListQuery {
+  return compactQuery(url, ["limit", "cursor", "search", "status", "factoryId"] as const) as FactoryRunListQuery;
 }
 
 export function factoryGrantListQuery(url: URL): FactoryGrantListQuery {
@@ -198,6 +204,23 @@ async function dispatchFactoryRequest(application: FactoryApplication, principal
       const page = await definitions.listVersions(principal, request.path, request.query.cursor ?? "", request.query.limit ?? 50);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "version.page", page: apiPage(page.items.map(versionResource), page.nextCursor) };
     }
+    case "run.start": {
+      const result = await application.runs.start(principal, request.path, request.body, request.preconditions.expectedRevision, request.preconditions.idempotencyKey);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "mutation.accepted", receipt: result.receipt };
+    }
+    case "run.get":
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "run.details", resource: await application.runs.read(principal, request.path) };
+    case "run.list": {
+      const page = await application.runs.list(principal, request.path.projectId, request.query);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "run.page", page: apiPage(page.items, page.nextCursor) };
+    }
+    case "run.control": {
+      if (request.body.action !== "cancel") throw new FactoryRunLifecycleError("factory_control_unavailable");
+      const result = await application.runs.cancel(principal, request.path, request.preconditions.expectedRevision, request.preconditions.idempotencyKey, request.body.reason);
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "mutation.accepted", receipt: result.receipt };
+    }
+    case "command.get":
+      return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "command.resource", resource: await application.runs.readCommand(principal, { projectId: request.path.projectId, runId: request.path.runId }, request.path.commandId) };
     case "grant.list": {
       const page = await application.grants.list(principal, request.path.projectId, request.query);
       return { schemaVersion: FACTORY_API_RESPONSE_SCHEMA_VERSION, kind: "grant.page", page: apiPage(page.items.map(grantResource), page.nextCursor) };
@@ -267,7 +290,7 @@ function apiPage<T>(items: readonly T[], cursor: string | null): { items: readon
 function response(value: FactoryApiResponse): Response {
   const validation = validateFactoryApiResponse(value);
   if (!validation.ok) throw new Error(`Invalid factory API response: ${validation.issues[0]?.code ?? "unknown"}`);
-  return Response.json(value);
+  return Response.json(value, { status: value.kind === "mutation.accepted" ? 202 : 200 });
 }
 
 function mappedError(error: unknown): Response {
@@ -283,6 +306,14 @@ function mappedError(error: unknown): Response {
     if (error.code === "factory_forbidden" || error.code === "factory_human_required" || error.code === "factory_grant_widening") return errorResponse(403, error.code, "Factory authority is required.");
     if (error.code === "factory_grant_invalid" || error.code === "factory_page_invalid") return errorResponse(400, error.code, "The factory grant request is invalid.");
     return errorResponse(500, error.code, "Factory grant storage is unavailable.", true);
+  }
+  if (error instanceof FactoryRunLifecycleError) {
+    if (error.code === "factory_revision_conflict" || error.code === "factory_revision_invalid") return errorResponse(412, error.code, "The factory run revision is stale.");
+    if (error.code === "factory_run_not_found" || error.code === "factory_command_not_found") return errorResponse(404, error.code, "Factory run or command not found.");
+    if (error.code === "factory_run_terminal" || error.code === "factory_run_stopped" || error.code === "factory_definition_conflict") return errorResponse(409, error.code, "The factory run request conflicts with current state.");
+    if (error.code === "factory_input_invalid" || error.code === "factory_page_invalid") return errorResponse(400, error.code, "The factory run request is invalid.");
+    if (error.code === "factory_interpreter_unavailable" || error.code === "factory_control_unavailable") return errorResponse(503, error.code, "The required factory execution service is unavailable.", true);
+    return errorResponse(500, error.code, "Factory run storage is unavailable.", true);
   }
   if (error instanceof FactoryDefinitionError) {
     if (error.code === "factory_revision_conflict" || error.code === "factory_revision_invalid") return errorResponse(412, error.code, "The factory definition revision is stale.");

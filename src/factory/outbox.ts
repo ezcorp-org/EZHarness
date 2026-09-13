@@ -218,8 +218,23 @@ export class FactoryCommandOutbox {
   }
 
   async inspect(commandId: string): Promise<FactoryCommandDelivery | null> {
+    return this.inspectInTransaction(this.database, commandId);
+  }
+
+  async inspectInTransaction(transaction: MigrationDb, commandId: string): Promise<FactoryCommandDelivery | null> {
     identity(commandId);
-    return stateMachine.inspect(new FactoryCommandStore(this.database, this.tenantId, this.projectId, this.destination), this.scope, commandId);
+    return stateMachine.inspect(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, commandId);
+  }
+
+  /** Read the original durable request identity; never create a replacement. */
+  async findRunCommandInTransaction(transaction: MigrationDb, runId: string, kind: "start_run" | "decision", eventId?: string): Promise<FactoryCommandDelivery | null> {
+    identity(runId);
+    if (eventId !== undefined) identity(eventId);
+    const found = rows<CommandRow>(await transaction.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox WHERE tenant_id=${this.tenantId} AND project_id=${this.projectId} AND logical_run_id=${runId} AND payload::jsonb->'command'->>'kind'=${kind} ${eventId === undefined ? sql`` : sql`AND payload::jsonb->'command'->>'eventId'=${eventId}`} LIMIT 2`));
+    if (found.length > 1) throw new FactoryOutboxError("factory_command_corrupt");
+    const delivery = found[0] ? decode(found[0], this.tenantId, this.projectId) : null;
+    if (delivery && delivery.logicalRunId !== runId) throw new FactoryOutboxError("factory_command_corrupt");
+    return delivery;
   }
 
   async dispatch(handler: (delivery: FactoryCommandDelivery) => Promise<void>): Promise<FactoryCommandDelivery | null> {

@@ -616,6 +616,11 @@ export interface FactoryRunPath extends FactoryProjectPath {
   readonly runId: string;
 }
 
+export interface FactoryCommandPath extends FactoryRunPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly commandId: string;
+}
+
 export interface FactoryApprovalPath extends FactoryRunPath {
   /** @minLength 1 @maxLength 512 */
   readonly approvalId: string;
@@ -744,6 +749,7 @@ export type FactoryApiRequest =
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "run.get"; readonly path: FactoryRunPath }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "run.list"; readonly path: FactoryProjectPath; readonly query: FactoryRunListQuery }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "run.control"; readonly path: FactoryRunPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryRunControlBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "command.get"; readonly path: FactoryCommandPath }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "approval.get"; readonly path: FactoryApprovalPath }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "approval.list"; readonly path: FactoryProjectPath; readonly query: FactoryListQuery }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "approval.decide"; readonly path: FactoryApprovalPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryApprovalDecisionBody }
@@ -855,6 +861,22 @@ export interface FactoryGrantResource {
   readonly revoked: boolean;
 }
 
+/** Durable transport state; delivery does not mean the run completed. */
+export interface FactoryCommandResource {
+  /** @minLength 1 @maxLength 512 */
+  readonly commandId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly runId: string;
+  readonly kind: "start_run" | "compute_admission" | "decision" | "partition_notification";
+  readonly state: "queued" | "leased" | "delivered" | "cancelled" | "dead_letter" | "outcome_unknown";
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly attempts: number;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly createdAtMs: number;
+  /** @minLength 1 @maxLength 512 */
+  readonly failureCode?: string;
+}
+
 export interface FactoryDurableReceipt {
   /** @minLength 1 @maxLength 512 */
   readonly resourceId: string;
@@ -910,5 +932,6 @@ export type FactoryApiResponse =
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "approval.page"; readonly page: FactoryApiPage<FactoryApprovalResource> }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "grant.resource"; readonly resource: FactoryGrantResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "grant.page"; readonly page: FactoryApiPage<FactoryGrantResource> }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "command.resource"; readonly resource: FactoryCommandResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "mutation.accepted"; readonly receipt: FactoryDurableReceipt }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "error"; readonly error: FactoryApiError };

@@ -1,7 +1,7 @@
 import { lockFactoryScope } from "./locks";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
 import { validateValue } from "@ezcorp/factory-sdk/validation";
-import type { BudgetBounds, CompiledFactory, FactoryRunDetails, FactoryRunStartBody, JsonValue } from "@ezcorp/factory-sdk";
+import type { BudgetBounds, CompiledFactory, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableReceipt, FactoryCommandResource, JsonValue } from "@ezcorp/factory-sdk";
 import type { FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -18,6 +18,8 @@ import { FactoryCommandOutbox } from "./outbox";
 import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type FactoryRunKey } from "./records";
 
 interface LifecycleRow { factory_id: string; factory_version: string; definition_digest: string; grant_revision: string | number; revision: string | number; cancellation_epoch: string | number; status: FactoryRunDetails["status"]; deadline_ms: string | number; parameters_json: string; parameters_digest: string; output_json: string | null; error_json: string | null; created_ms: string | number; updated_ms: string | number }
+export interface FactoryRunRequest { readonly run: FactoryRunDetails; readonly receipt: FactoryDurableReceipt }
+
 export interface FactoryRunFence {
   readonly tenantId: string;
   readonly projectId: string;
@@ -48,7 +50,11 @@ export class FactoryRunLifecycleError extends Error {
 
 function details(key: FactoryRunKey, row: LifecycleRow): FactoryRunDetails {
   if (digestObject(JSON.parse(row.parameters_json)) !== row.parameters_digest) throw new FactoryRunLifecycleError("factory_run_corrupt");
-  return { runId: key.runId, factoryId: row.factory_id, factoryVersion: row.factory_version, definitionDigest: row.definition_digest, grantRevision: Number(row.grant_revision), revision: Number(row.revision), status: row.status, parameters: JSON.parse(row.parameters_json), ...(row.output_json === null ? {} : { output: JSON.parse(row.output_json) }), ...(row.error_json === null ? {} : { error: JSON.parse(row.error_json) }), createdAtMs: Number(row.created_ms), updatedAtMs: Number(row.updated_ms) };
+  return { ...summary(key, row), parameters: JSON.parse(row.parameters_json), ...(row.output_json === null ? {} : { output: JSON.parse(row.output_json) }), ...(row.error_json === null ? {} : { error: JSON.parse(row.error_json) }) };
+}
+
+function summary(key: FactoryRunKey, row: LifecycleRow): FactoryRunSummary {
+  return { runId: key.runId, factoryId: row.factory_id, factoryVersion: row.factory_version, definitionDigest: row.definition_digest, grantRevision: Number(row.grant_revision), revision: Number(row.revision), status: row.status, createdAtMs: Number(row.created_ms), updatedAtMs: Number(row.updated_ms) };
 }
 
 /** Product start/cancellation facts. Interpreter state is committed through audit. */
@@ -68,7 +74,7 @@ export class FactoryRunLifecycle {
     this.budgets = new FactoryBudgets(database, tenantId, this.authorizeAdmissionInTransaction, now);
   }
 
-  async start(principal: FactoryPrincipal, key: FactoryDefinitionKey, body: FactoryRunStartBody, expectedRevision: number, idempotencyKey: string): Promise<FactoryRunDetails> {
+  async start(principal: FactoryPrincipal, key: FactoryDefinitionKey, body: FactoryRunStartBody, expectedRevision: number, idempotencyKey: string): Promise<FactoryRunRequest> {
     const snapshot = JSON.parse(encodeFactoryPayload({ principal, key, body })) as { principal: FactoryPrincipal; key: FactoryDefinitionKey; body: FactoryRunStartBody };
     principal = snapshot.principal; key = snapshot.key; body = snapshot.body;
     if (expectedRevision !== 0) throw new FactoryRunLifecycleError("factory_revision_conflict");
@@ -95,11 +101,11 @@ export class FactoryRunLifecycle {
         await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).enqueueInTransaction(tx, { kind: "start_run", projectId: key.projectId, logicalRunId: runId, interpreterId: "root", body: workflowInput });
       });
       const runKey = { projectId: key.projectId, runId };
-      return details(runKey, await this.row(transaction, runKey));
+      return this.requestResult(transaction, runKey, await this.row(transaction, runKey), "start_run");
     });
   }
 
-  async cancel(principal: FactoryPrincipal, key: FactoryRunKey, expectedRevision: number, idempotencyKey: string, reason = "Operator requested cancellation"): Promise<FactoryRunDetails> {
+  async cancel(principal: FactoryPrincipal, key: FactoryRunKey, expectedRevision: number, idempotencyKey: string, reason = "Operator requested cancellation"): Promise<FactoryRunRequest> {
     const snapshot = JSON.parse(encodeFactoryPayload({ principal, key })) as { principal: FactoryPrincipal; key: FactoryRunKey };
     principal = snapshot.principal; key = snapshot.key;
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision >= Number.MAX_SAFE_INTEGER || !reason || reason.length > 2048) throw new FactoryRunLifecycleError("factory_revision_invalid");
@@ -107,14 +113,14 @@ export class FactoryRunLifecycle {
       const row = await this.row(transaction, key, true);
       if (Number(row.revision) !== expectedRevision) throw new FactoryRunLifecycleError("factory_revision_conflict");
       if (row.status === "succeeded" || row.status === "failed") throw new FactoryRunLifecycleError("factory_run_terminal");
-      if (row.status === "cancelled" || row.status === "cancelling") return details(key, row);
+      if (row.status === "cancelled" || row.status === "cancelling") return this.requestResult(transaction, key, row, "decision", this.cancellationEventId(key, Number(row.cancellation_epoch)));
       const epoch = Number(row.cancellation_epoch) + 1;
       if (!Number.isSafeInteger(epoch)) throw new FactoryRunLifecycleError("factory_epoch_invalid");
       await transaction.execute(sql`UPDATE factory_run_lifecycle SET status='cancelling', revision=${expectedRevision + 1}, cancellation_epoch=${epoch}, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
-      const eventId = `factory-cancel:${digestObject({ tenantId: this.tenantId, ...key, epoch })}`;
+      const eventId = this.cancellationEventId(key, epoch);
       await this.inbox.enqueueInTransaction(transaction, { ...key, interpreterId: "root" }, { kind: "cancel", id: eventId, atMs: this.now(), reason });
       await insertTransactionalAuditEntry(transaction, eventId, principal.kind === "user" ? principal.id : null, "factory.run.cancel.requested", key.runId, { tenantId: this.tenantId, projectId: key.projectId, cancellationEpoch: epoch, reason, principalId: principal.id, principalKind: principal.kind });
-      return details(key, await this.row(transaction, key));
+      return this.requestResult(transaction, key, await this.row(transaction, key), "decision", eventId);
     }, transaction => this.authorizeCancellation(transaction, principal, key));
   }
 
@@ -124,6 +130,40 @@ export class FactoryRunLifecycle {
       await this.options.grants.authorizeInTransaction(transaction, snapshot.principal, snapshot.key.projectId, "read");
       return details(snapshot.key, await this.row(transaction, snapshot.key));
     });
+  }
+
+  async list(principal: FactoryPrincipal, projectId: string, query: FactoryRunListQuery = {}): Promise<{ items: readonly FactoryRunSummary[]; nextCursor: string | null }> {
+    const input = JSON.parse(encodeFactoryPayload({ principal, projectId, query })) as { principal: FactoryPrincipal; projectId: string; query: FactoryRunListQuery };
+    const { limit = 50, cursor = "", factoryId, status, search } = input.query;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 || cursor.length > 2048 || (search !== undefined && (!search || search.length > 512)) || (status !== undefined && !["queued", "running", "waiting", "cancelling", "succeeded", "failed", "cancelled", "uncertain"].includes(status))) throw new FactoryRunLifecycleError("factory_page_invalid");
+    if (factoryId !== undefined) assertFactoryIdentity(factoryId);
+    return this.database.transaction(async transaction => {
+      await this.options.grants.authorizeInTransaction(transaction, input.principal, input.projectId, "read");
+      const found = rows<LifecycleRow & { run_id: string }>(await transaction.execute(sql`SELECT run_id, factory_id, factory_version, definition_digest, grant_revision, revision, status, FLOOR(EXTRACT(EPOCH FROM created_at) * 1000) AS created_ms, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_run_lifecycle WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND run_id > ${cursor} ${factoryId === undefined ? sql`` : sql`AND factory_id=${factoryId}`} ${status === undefined ? sql`` : sql`AND status=${status}`} ${search === undefined ? sql`` : sql`AND (strpos(lower(run_id), lower(${search})) > 0 OR strpos(lower(factory_id), lower(${search})) > 0)`} ORDER BY run_id LIMIT ${limit + 1}`));
+      const items = found.slice(0, limit).map(row => summary({ projectId: input.projectId, runId: row.run_id }, row));
+      return { items, nextCursor: found.length > limit ? items[items.length - 1]!.runId : null };
+    });
+  }
+
+  async readCommand(principal: FactoryPrincipal, key: FactoryRunKey, commandId: string): Promise<FactoryCommandResource> {
+    const input = JSON.parse(encodeFactoryPayload({ principal, key, commandId })) as { principal: FactoryPrincipal; key: FactoryRunKey; commandId: string };
+    return this.database.transaction(async transaction => {
+      await this.options.grants.authorizeInTransaction(transaction, input.principal, input.key.projectId, "read");
+      const command = await new FactoryCommandOutbox(this.database, this.tenantId, input.key.projectId, this.now).inspectInTransaction(transaction, input.commandId);
+      if (!command || command.logicalRunId !== input.key.runId) throw new FactoryRunLifecycleError("factory_command_not_found");
+      return { commandId: command.id, runId: command.logicalRunId, kind: command.command.kind, state: command.state, attempts: command.attempts, createdAtMs: command.createdAt, ...(command.failureCode === undefined ? {} : { failureCode: command.failureCode }) };
+    });
+  }
+
+  private cancellationEventId(key: FactoryRunKey, epoch: number): string {
+    return `factory-cancel:${digestObject({ tenantId: this.tenantId, ...key, epoch })}`;
+  }
+
+  private async requestResult(transaction: MigrationDb, key: FactoryRunKey, row: LifecycleRow, kind: "start_run" | "decision", eventId?: string): Promise<FactoryRunRequest> {
+    const command = await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).findRunCommandInTransaction(transaction, key.runId, kind, eventId);
+    if (!command) throw new FactoryRunLifecycleError("factory_command_not_found");
+    const segments = [key.projectId, key.runId, command.id].map(encodeURIComponent);
+    return { run: details(key, row), receipt: { resourceId: key.runId, commandId: command.id, statusUrl: `/api/factories/projects/${segments[0]}/runs/${segments[1]}/commands/${segments[2]}` } };
   }
 
   readonly authorizeAdmissionInTransaction: FactoryBudgetAdmission = async (transaction, key) => {

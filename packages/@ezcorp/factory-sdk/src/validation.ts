@@ -669,9 +669,9 @@ function validateApiPreconditions(request: Extract<FactoryApiRequest, { precondi
   const { idempotencyKey, expectedRevision } = request.preconditions;
   if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
   if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
-  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set";
+  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start";
   if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
-  if ((request.kind === "draft.create" || request.kind === "draft.import") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Draft creation and import require revision 0.", ["preconditions", "expectedRevision"]);
+  if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation requires revision 0.", ["preconditions", "expectedRevision"]);
   return { ok: true };
 }
 

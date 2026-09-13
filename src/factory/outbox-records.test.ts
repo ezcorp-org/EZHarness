@@ -39,6 +39,22 @@ describe("factory run start outbox integration", () => {
     expect(rows(await fixture.db.execute(sql`SELECT id FROM audit_log WHERE target = ${run.runId}`))).toHaveLength(1);
   });
 
+  test("reading an original run command rejects ambiguous or mismatched stored identities", async () => {
+    const run = request("inspect-original");
+    await records.createRun(run, enqueueStart);
+    const read = () => fixture.db.transaction(tx => outbox.findRunCommandInTransaction(tx, run.runId, "start_run"));
+    const original = (await read())!;
+    expect(original.logicalRunId).toBe(run.runId);
+    await outbox.enqueue({ kind: "start_run", projectId: run.projectId, logicalRunId: run.runId, interpreterId: "other", body: run });
+    await expect(read()).rejects.toMatchObject({ code: "factory_command_corrupt" });
+    await fixture.db.execute(sql`DELETE FROM factory_command_outbox WHERE logical_run_id=${run.runId} AND id<>${original.id}`);
+    const different = request("inspect-other");
+    await records.createRun(different, async () => {});
+    await fixture.db.execute(sql`UPDATE factory_command_outbox SET logical_run_id=${different.runId} WHERE id=${original.id}`);
+    await expect(fixture.db.transaction(tx => outbox.findRunCommandInTransaction(tx, different.runId, "start_run"))).rejects.toMatchObject({ code: "factory_command_corrupt" });
+    expect(await read()).toBeNull();
+  });
+
   test("an outbox failure rolls back the run and fail-closed audit", async () => {
     const run = request("rejected-start");
     await fixture.db.execute(sql`CREATE FUNCTION reject_factory_command() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'outbox unavailable'; END $$`);

@@ -7,13 +7,14 @@ import { configureFactoryApplication, createFactoryApplication, definitionAvaila
 
 const database = {} as TransactionalDb;
 const blobs = {} as BlobStore;
+const runOptions = { interpreterBuild: "immutable-build", interpreterCompatibility: "1", limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 }, resolveParameters: async () => ({}) };
 
 afterEach(() => configureFactoryApplication(null));
 
 describe("factory application composition", () => {
   test("copies trusted resource inventory and configures one frozen application", () => {
     const inventory = new Set(["cpu"]);
-    const application = createFactoryApplication({ database, tenantId: "tenant-1", blobs, availableResourceClasses: inventory });
+    const application = createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: inventory });
     inventory.add("gpu");
     expect(application.availableResourceClasses.has("cpu")).toBe(true);
     expect(application.availableResourceClasses.has("gpu")).toBe(false);
@@ -39,6 +40,7 @@ describe("factory application composition", () => {
     expect(application.availableResourceClasses.isDisjointFrom(new Set(["gpu"]))).toBe(true);
     expect((application.availableResourceClasses as Set<string>).add).toBeUndefined();
     expect(Object.isFrozen(application)).toBe(true);
+    expect(application.runs.tenantId).toBe("tenant-1");
     expect(application.definitions.tenantId).toBe("tenant-1");
     expect(application.grants.tenantId).toBe("tenant-1");
     expect(getFactoryApplication()).toBeNull();
@@ -47,10 +49,10 @@ describe("factory application composition", () => {
   });
 
   test("rejects invalid identity and mismatched grant scope", () => {
-    expect(() => createFactoryApplication({ database, tenantId: "", blobs, availableResourceClasses: [] })).toThrow();
-    expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, availableResourceClasses: [""] })).toThrow();
+    expect(() => createFactoryApplication({ database, tenantId: "", blobs, runOptions, availableResourceClasses: [] })).toThrow();
+    expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [""] })).toThrow();
     const grants = new FactoryGrants(database, "tenant-2");
-    expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, grants, availableResourceClasses: [] })).toThrow("factory_scope_mismatch");
+    expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, grants, runOptions, availableResourceClasses: [] })).toThrow("factory_scope_mismatch");
   });
 
   test("finds deep resource requirements and fails closed on invalid semantics", () => {

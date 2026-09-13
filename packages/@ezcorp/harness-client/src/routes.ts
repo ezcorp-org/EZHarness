@@ -38,6 +38,11 @@ export const HARNESS_ROUTES = {
   listFactoryVersions: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/versions" },
   getFactoryVersion: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/versions/:version" },
   listFactoryGrants: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/grants" },
+  startFactoryRun: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/runs" },
+  listFactoryRuns: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/runs" },
+  getFactoryRun: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/runs/:runId" },
+  controlFactoryRun: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/runs/:runId/control" },
+  getFactoryCommand: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/runs/:runId/commands/:commandId" },
   extensionControl: { httpMethod: "POST", pathTemplate: "/api/extensions/control" },
   // Configure
   getSetting: { httpMethod: "GET", pathTemplate: "/api/settings/:key" },

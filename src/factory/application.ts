@@ -4,6 +4,9 @@ import type { BlobStore } from "../extensions/v4/types";
 import { assertFactoryIdentity } from "./records";
 import { factoryDefinitionRequirements, FactoryDefinitions, type FactoryDraftMetadata } from "./definitions";
 import { FactoryGrants } from "./grants";
+import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "./run-lifecycle";
+import { FactoryArtifacts } from "./artifacts";
+import { FactoryDefinitionArtifacts } from "./definition-artifacts";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -13,6 +16,7 @@ export interface FactoryDefinitionAvailability {
 export interface FactoryApplication {
   readonly tenantId: string;
   readonly definitions: FactoryDefinitions;
+  readonly runs: FactoryRunLifecycle;
   readonly grants: FactoryGrants;
   readonly availableResourceClasses: ReadonlySet<string>;
 }
@@ -21,6 +25,7 @@ export interface FactoryApplicationOptions {
   readonly database: TransactionalDb;
   readonly tenantId: string;
   readonly blobs: BlobStore;
+  readonly runOptions: Omit<FactoryRunLifecycleOptions, "definitions" | "grants" | "stageDefinitionInTransaction">;
   readonly grants?: FactoryGrants;
   readonly availableResourceClasses: Iterable<string>;
 }
@@ -58,10 +63,17 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
     assertFactoryIdentity(resourceClass);
     resources.add(resourceClass);
   }
+  const definitions = new FactoryDefinitions(options.database, options.tenantId, grants, options.blobs);
+  const artifacts = new FactoryDefinitionArtifacts(new FactoryArtifacts(options.database, options.blobs, options.tenantId));
+  const runs = new FactoryRunLifecycle(options.database, options.tenantId, {
+    ...options.runOptions, definitions, grants,
+    stageDefinitionInTransaction: (transaction, compiled, identity) => artifacts.stageDefinitionInTransaction(transaction, compiled, identity),
+  });
   return Object.freeze({
     tenantId: options.tenantId,
     grants,
-    definitions: new FactoryDefinitions(options.database, options.tenantId, grants, options.blobs),
+    definitions,
+    runs,
     availableResourceClasses: immutableSet(resources),
   });
 }

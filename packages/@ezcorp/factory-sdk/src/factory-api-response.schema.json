@@ -968,6 +968,28 @@
           "additionalProperties": false,
           "properties": {
             "kind": {
+              "const": "command.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryCommandResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
               "const": "mutation.accepted",
               "type": "string"
             },
@@ -1112,6 +1134,66 @@
       "required": [
         "maxExpandedNodes",
         "maxScopeDepth"
+      ],
+      "type": "object"
+    },
+    "FactoryCommandResource": {
+      "additionalProperties": false,
+      "description": "Durable transport state; delivery does not mean the run completed.",
+      "properties": {
+        "attempts": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "createdAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "failureCode": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "start_run",
+            "compute_admission",
+            "decision",
+            "partition_notification"
+          ],
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "leased",
+            "delivered",
+            "cancelled",
+            "dead_letter",
+            "outcome_unknown"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "runId",
+        "kind",
+        "state",
+        "attempts",
+        "createdAtMs"
       ],
       "type": "object"
     },
