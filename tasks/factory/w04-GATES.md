@@ -77,10 +77,14 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `typecheck`, `lint`,
       `boundaries`, `gate-integrity`.
 - [x] G8: Coverage of every new file and every changed line.
-      CHECK: `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
-      `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts` after merging the focused LCOVs.
-      EXPECT: exit 0 each.
-      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `coverage-*`.
+      CHECK: one `bun test --coverage --coverage-reporter=lcov` invocation over the thirteen
+      producing files, then `bun scripts/merge-lcov.ts`, then
+      `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
+      `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
+      EXPECT: 100 pass, 0 fail, 996 assertions, then exit 0 from each gate. Every changed file
+      measures every one of its lines.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `quiet-coverage-*`,
+      `quiet-new-file-gate`, and `quiet-patch-gate`.
 - [x] G9: A real guest stores material, restarts, and consumes the same verified bytes from
       PostgreSQL and S3.
       CHECK: `bun test --timeout 240000 ./tests/postgres/factory-artifact-materials.test.ts` with
@@ -161,11 +165,14 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
   the bounded header prefix while the body arrives and joins the body once. Its limit test now
   pins the new ceiling and a 3 MiB body round-trips byte for byte.
 
-## Known load-induced flake, not introduced here
+## Measured load sensitivity, not a defect introduced here
 
 `src/factory/artifacts.integration.test.ts`, case "definition manifests use bounded linked pages
-at the 512-page edge", carries its own 30-second budget and stages 512 encrypted pages. Under
-coverage instrumentation with a host load average above 35 it exceeds that budget. It passes at
-this head when it is not competing for the box. Its budget was not raised, per the repository
-rule that a saturated machine is not a code defect. The focused coverage producer runs it in its
-own invocation for that reason.
+at the 512-page edge", carries its own 30-second budget inside its signature, which the runner's
+`--timeout` does not raise, and it stages 512 encrypted pages.
+
+Measured directly rather than inferred. Under coverage in a thirteen-file invocation at a host
+load average above 35, during an unrelated 20 GB run in another session, it exceeded its budget
+and the whole invocation was lost. The same thirteen-file invocation at a load average of 1.4,
+with 18 GB available, passes in 47 seconds: 100 pass, 0 fail, 996 assertions. Its budget was
+never raised, and the coverage producer needs no split.
