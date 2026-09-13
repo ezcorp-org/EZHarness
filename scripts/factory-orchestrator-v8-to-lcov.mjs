@@ -8,7 +8,8 @@ if (!coverageDirectory || !bundlePath || !sourceMapPath || !outputPath) {
   throw new Error("usage: factory-orchestrator-v8-to-lcov <v8-dir> <bundle> <map> <output>");
 }
 
-const requireFromWorker = createRequire(import.meta.resolve("@temporalio/worker"));
+const requireFromOrchestrator = createRequire(new URL("../packages/@ezcorp/factory-orchestrator/package.json", import.meta.url));
+const requireFromWorker = createRequire(requireFromOrchestrator.resolve("@temporalio/worker"));
 const { SourceMapConsumer } = requireFromWorker("source-map");
 const bundle = await readFile(bundlePath, "utf8");
 const lineOffsets = [0];
