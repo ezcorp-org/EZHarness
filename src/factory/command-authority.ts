@@ -14,15 +14,20 @@ type ExecutionCommand = Extract<KernelCommand, { kind: "request-admission" | "di
 type ChildCommand = Extract<KernelCommand, { kind: "run-child" }>;
 type InputCommand = Extract<KernelCommand, { kind: "read-input-value" | "read-input-page" }>;
 type ApprovalCommand = Extract<KernelCommand, { kind: "request-approval" }>;
+type PartitionCommand = Extract<KernelCommand, { kind: "invalidate-partition" | "notify-partition" }>;
 type ApprovalWork<Result> = (transaction: MigrationDb, context: FactoryAuthorizedApprovalCommand) => Promise<Result>;
 interface Head { source_sequence: number | string; digest: string }
 interface CommittedCommand<Command extends KernelCommand> {
   readonly command: Command;
+  readonly sourceSequence: number;
+  readonly commandState: KernelState;
   readonly compiled: CompiledFactory;
   readonly state: KernelState;
   readonly fence: FactoryRunFence;
   readonly initiator: FactoryPrincipal;
 }
+
+export interface FactoryAuthorizedPartitionCommand extends CommittedCommand<PartitionCommand> {}
 
 export interface FactoryAuthorizedCommand extends CommittedCommand<ExecutionCommand> {
   readonly node: TaskNode;
@@ -109,6 +114,28 @@ export class FactoryCommandAuthority {
     });
   }
 
+  async withCurrentPartition<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedPartitionCommand) => Promise<Result>): Promise<Result> {
+    return this.withCommitted(service, value, (command): command is PartitionCommand => command.kind === "invalidate-partition" || command.kind === "notify-partition", async (transaction, context) => {
+      const { command, compiled, state, commandState } = context;
+      const partition = compiled.partitions.find(candidate => candidate.id === command.sourcePartitionId);
+      const edge = partition?.outbound.find(candidate => candidate.nodeId === command.sourceNodeId && candidate.toNodeId === command.nodeId && candidate.toPartitionId === command.targetPartitionId);
+      const runtime = state.nodes[command.sourceNodeId];
+      const createdRuntime = commandState.nodes[command.sourceNodeId];
+      if (!partition || !edge || state.partition?.id !== command.sourcePartitionId || commandState.partition?.id !== command.sourcePartitionId || !runtime || !createdRuntime) throw new FactoryCommandAuthorityError("factory_command_stale");
+      if (command.kind === "notify-partition") {
+        const currentOutcome = runtime.status === "succeeded" || runtime.status === "failed" || runtime.status === "skipped" || runtime.status === "cancelled" ? runtime.status : undefined;
+        if (state.pendingRepair?.nodeIds.includes(command.sourceNodeId) || runtime.candidateGeneration !== command.candidateGeneration || runtime.terminalSequence !== command.terminalSequence || currentOutcome !== command.outcome || digestObject(runtime.output ?? null) !== digestObject(command.output ?? null) || runtime.error !== command.error) throw new FactoryCommandAuthorityError("factory_command_stale");
+      } else {
+        const createdPending = commandState.pendingRepair?.nodeIds.includes(command.sourceNodeId) ?? false;
+        const currentPending = state.pendingRepair?.nodeIds.includes(command.sourceNodeId) ?? false;
+        const createdExpected = createdPending || commandState.status === "stopping" ? createdRuntime.candidateGeneration + 1 : createdRuntime.candidateGeneration;
+        const currentExpected = currentPending || state.status === "stopping" ? runtime.candidateGeneration + 1 : runtime.candidateGeneration;
+        if (createdExpected !== command.candidateGeneration || currentExpected !== command.candidateGeneration) throw new FactoryCommandAuthorityError("factory_command_stale");
+      }
+      return work(transaction, context);
+    }, undefined, new Set(["running", "waiting", "stopping", "completed"]));
+  }
+
   withCurrentApproval<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: ApprovalWork<Result>): Promise<Result> {
     return this.approval(service, value, work);
   }
@@ -147,15 +174,17 @@ export class FactoryCommandAuthority {
     }, transaction);
   }
 
-  private async withCommitted<Command extends KernelCommand, Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, accepts: (command: KernelCommand) => command is Command, work: (transaction: MigrationDb, context: CommittedCommand<Command>) => Promise<Result>, suppliedTransaction?: MigrationDb): Promise<Result> {
+  private async withCommitted<Command extends KernelCommand, Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, accepts: (command: KernelCommand) => command is Command, work: (transaction: MigrationDb, context: CommittedCommand<Command>) => Promise<Result>, suppliedTransaction?: MigrationDb, allowedStatuses: ReadonlySet<KernelState["status"]> = new Set(["running", "waiting"])): Promise<Result> {
     const reference = Object.freeze({ tenantId: value.tenantId, projectId: value.projectId, logicalRunId: value.logicalRunId, interpreterId: value.interpreterId, commandId: value.commandId });
     assertFactoryIdentity(...Object.values(reference));
     this.assertService(service);
     if (reference.tenantId !== this.tenantId) throw new FactoryCommandAuthorityError("factory_command_forbidden");
     const command = await this.transitions.loadStoredCommand(reference, suppliedTransaction);
     if (!accepts(command)) throw new FactoryCommandAuthorityError("factory_command_forbidden");
+    const sourceSequence = await this.commandSource(suppliedTransaction ?? this.database, reference);
     const head = await this.head(suppliedTransaction ?? this.database, reference);
     const transition = await this.transitions.loadCommittedTransition(reference, Number(head.source_sequence), suppliedTransaction);
+    const commandTransition = sourceSequence === Number(head.source_sequence) ? transition : await this.transitions.loadCommittedTransition(reference, sourceSequence, suppliedTransaction);
     // Transition reads finish before the transaction. The run lock and exact head
     // comparison below close the race with a concurrently committed transition.
     const apply = async (transaction: MigrationDb): Promise<Result> => {
@@ -163,10 +192,17 @@ export class FactoryCommandAuthority {
       const current = await this.head(transaction, reference);
       if (Number(current.source_sequence) !== Number(head.source_sequence) || current.digest !== head.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
       const state = transition.nextState;
-      if (state.logicalRunId !== reference.logicalRunId || state.definitionDigest !== fence.definitionDigest || state.runDeadlineAtMs !== fence.deadlineAtMs || state.cancellationEpoch !== fence.cancellationEpoch || !["running", "waiting"].includes(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
-      return work(transaction, { command, compiled, state, fence, initiator });
+      if (state.logicalRunId !== reference.logicalRunId || state.definitionDigest !== fence.definitionDigest || state.runDeadlineAtMs !== fence.deadlineAtMs || state.cancellationEpoch !== fence.cancellationEpoch || !allowedStatuses.has(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
+      return work(transaction, { command, sourceSequence, commandState: commandTransition.nextState, compiled, state, fence, initiator });
     };
     return suppliedTransaction ? apply(suppliedTransaction) : this.database.transaction(apply);
+  }
+
+  private async commandSource(database: MigrationDb, reference: TrustedFactoryCommandReference): Promise<number> {
+    const row = rows<{ source_sequence: number | string }>(await database.execute(sql`SELECT source_sequence FROM factory_transition_commands WHERE tenant_id=${this.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
+    const sourceSequence = Number(row?.source_sequence);
+    if (!Number.isSafeInteger(sourceSequence) || sourceSequence < 1) throw new FactoryCommandAuthorityError("factory_command_corrupt");
+    return sourceSequence;
   }
 
   private attemptNode<Kind extends "task" | "subfactory" | "approval">({ command, compiled, state, fence }: CommittedCommand<ExecutionCommand | ChildCommand | ApprovalCommand>, kind: Kind): Extract<FactoryNode, { kind: Kind }> {
