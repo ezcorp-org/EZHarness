@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { compileFactory } from "@ezcorp/factory-sdk";
+import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { assertActivityPayloadSize, assertCommandBatchSize, assertContinuationSize, isPartitionSource, validateCompiledFactoryShape, validateDefinitionSource, validateInboxEnvelope, validateInboxEvent, validateLoadedDefinitionPage, validateManifestPage, validateObjectReference, validatePartitionSource, validateWorkflowInput } from "../src/validation.ts";
 
 const digest = `sha256:${"a".repeat(64)}`;
@@ -64,10 +65,11 @@ describe("orchestrator boundary validation", () => {
     assert.doesNotThrow(() => validateManifestPage(manifest));
     assert.doesNotThrow(() => validateManifestPage({ ...manifest, next: reference }));
     for (const value of [null, { ...manifest, schemaVersion: "bad" }, { ...manifest, pages: {} }, { ...manifest, pages: Array(513).fill({ ...reference, index: 0 }) }, { ...manifest, pages: [{ ...reference, index: -1 }] }, { ...manifest, pages: [{ ...reference, index: 1.5 }] }]) assert.throws(() => validateManifestPage(value), /manifest|index/);
-    assert.doesNotThrow(() => validateLoadedDefinitionPage({ index: 0, objectId: "object", digest, content: "{}" }, { ...reference, index: 0 }));
+    const encodedObject = encodeFactoryPageBase64(new TextEncoder().encode("{}"));
+    assert.doesNotThrow(() => validateLoadedDefinitionPage({ index: 0, objectId: "object", digest, contentBase64: encodedObject }, { ...reference, index: 0 }));
     assert.throws(() => validateLoadedDefinitionPage(null, { ...reference, index: 0 }), /loaded/);
-    assert.throws(() => validateLoadedDefinitionPage({ index: 1, objectId: "object", digest, content: "{}" }, { ...reference, index: 0 }), /identity/);
-    assert.throws(() => validateLoadedDefinitionPage({ index: 0, objectId: "object", digest, content: "x" }, { ...reference, index: 0 }), /byte count/);
+    assert.throws(() => validateLoadedDefinitionPage({ index: 1, objectId: "object", digest, contentBase64: encodedObject }, { ...reference, index: 0 }), /identity/);
+    assert.throws(() => validateLoadedDefinitionPage({ index: 0, objectId: "object", digest, contentBase64: encodeFactoryPageBase64(new TextEncoder().encode("x")) }, { ...reference, index: 0 }), /byte count/);
   });
   it("validates bounded partition sources and their continuation identity", () => {
     const partition = {

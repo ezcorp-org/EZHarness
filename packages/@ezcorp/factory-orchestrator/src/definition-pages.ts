@@ -1,4 +1,5 @@
 import type { CompiledFactory } from "@ezcorp/factory-sdk";
+import { decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import type {
   FactoryActivities,
   FactoryDefinitionPageReference,
@@ -55,7 +56,7 @@ export async function loadCompiledFactory(identity: FactoryIdentity, source: Fac
   for (const page of references) {
     const loaded = await reader.loadDefinitionPage({ ...identity, definitionDigest: source.definitionDigest, page });
     validateLoadedDefinitionPage(loaded, page);
-    content += loaded.content;
+    content += new TextDecoder("utf-8", { fatal: true }).decode(decodeFactoryPageBase64(loaded.contentBase64));
     encodedBytes += page.encodedBytes;
   }
   if (encodedBytes !== source.definitionEncodedBytes) throw new Error("factory definition byte count does not match its immutable manifest");

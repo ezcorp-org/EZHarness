@@ -1,4 +1,5 @@
 import { canonicalizeJson, sha256Hex } from "@ezcorp/factory-sdk/canonical";
+import { decodeFactoryPageBase64, encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import type { JsonValue } from "@ezcorp/factory-sdk/types";
 import type { KernelCommand, KernelEvent, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import type {
@@ -9,6 +10,7 @@ import type {
   FactoryTransitionManifest,
   ImmutableObjectReference,
   TransitionArtifact,
+  TransitionPageRequest,
   TransitionPageReference,
   TransitionRecord,
 } from "./contracts.ts";
@@ -16,7 +18,7 @@ import { MAX_PAGE_BYTES, MAX_TRANSITION_BYTES } from "./contracts.ts";
 import { assertActivityPayloadSize, validateObjectReference } from "./validation.ts";
 
 interface TransitionWriter {
-  stageTransitionPage(request: FactoryIdentity & { readonly sourceSequence: number; readonly index: number; readonly content: string; readonly encodedBytes: number }): Promise<TransitionPageReference>;
+  stageTransitionPage(request: TransitionPageRequest): Promise<TransitionPageReference>;
   finalizeTransitionArtifact(request: FactoryIdentity & { readonly sourceSequence: number; readonly encodedBytes: number; readonly eventId: string; readonly expectedEventHash?: string; readonly pages: readonly TransitionPageReference[] }): Promise<FinalizedTransitionArtifact>;
   recordTransition(record: TransitionRecord): Promise<void>;
 }
@@ -62,7 +64,7 @@ export async function persistTransition(
   const pages: TransitionPageReference[] = [];
   for (const [index, pageContent] of splitTransitionContent(content).entries()) {
     const pageBytes = encoder.encode(pageContent).byteLength;
-    const request = { ...identity, sourceSequence, index, content: pageContent, encodedBytes: pageBytes };
+    const request = { ...identity, sourceSequence, index, contentBase64: encodeFactoryPageBase64(encoder.encode(pageContent)), encodedBytes: pageBytes };
     assertActivityPayloadSize(request, `factory transition page ${index}`);
     const reference = await writer.stageTransitionPage(request);
     validatePageReference(reference, index, pageBytes);
@@ -103,9 +105,9 @@ export async function loadTransitionArtifact(identity: FactoryIdentity, sourceSe
     const page = await reader.loadTransitionPage({ ...identity, sourceSequence, page: reference });
     validatePageReference(page, reference.index, reference.encodedBytes);
     if (page.objectId !== reference.objectId || page.digest !== reference.digest) throw new Error("factory transition page identity does not match its immutable reference");
-    const bytes = encoder.encode(page.content);
+    const bytes = decodeFactoryPageBase64(page.contentBase64);
     if (bytes.byteLength !== reference.encodedBytes || `sha256:${sha256Hex(bytes)}` !== reference.digest) throw new Error("factory transition page bytes do not match their immutable reference");
-    content += page.content;
+    content += decoder.decode(bytes);
     encodedBytes += bytes.byteLength;
   }
   if (encodedBytes !== manifest.encodedBytes) throw new Error("factory transition byte count does not match its immutable manifest");

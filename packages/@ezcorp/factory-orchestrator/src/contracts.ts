@@ -1,5 +1,7 @@
 import type { CompiledExecutionManifest, CompiledPartitionArtifact, JsonValue } from "@ezcorp/factory-sdk";
 import type { KernelCommand, KernelEvent, KernelState } from "@ezcorp/factory-sdk/kernel-types";
+import { FACTORY_PAGE_BYTES_LIMIT } from "@ezcorp/factory-sdk/page-bytes";
+export { MAX_TRANSPORT_ENVELOPE_BYTES } from "@ezcorp/factory-sdk/transport-types";
 export type { ClaimedFactoryCommand, FactoryCommandQueue, FactoryTransportCommand } from "@ezcorp/factory-sdk/transport-types";
 
 export const FACTORY_WORKFLOW_TYPE = "factoryWorkflow";
@@ -11,7 +13,7 @@ export const MAX_INBOX_EVENTS = 128;
 export const CONTINUE_AFTER_EVENTS = 64;
 export const MAX_ACTIVITY_PAYLOAD_BYTES = 64 * 1024;
 export const MAX_DEFINITION_BYTES = 16 * 1024 * 1024;
-export const MAX_PAGE_BYTES = 32 * 1024;
+export const MAX_PAGE_BYTES = FACTORY_PAGE_BYTES_LIMIT;
 export const MAX_DEFINITION_PAGES = MAX_DEFINITION_BYTES / MAX_PAGE_BYTES;
 export const MAX_COMMAND_BATCH_BYTES = 512 * 1024;
 /** One persisted transition contains at most one bounded command batch and state payload. */
@@ -62,7 +64,7 @@ export interface FactoryDefinitionPage {
   readonly index: number;
   readonly objectId: string;
   readonly digest: string;
-  readonly content: string;
+  readonly contentBase64: string;
 }
 
 export interface FactoryIdentity {
@@ -119,7 +121,7 @@ export interface FactoryWorkflowResult {
 export interface TransitionPageRequest extends FactoryIdentity {
   readonly sourceSequence: number;
   readonly index: number;
-  readonly content: string;
+  readonly contentBase64: string;
   readonly encodedBytes: number;
 }
 
@@ -151,7 +153,7 @@ export interface FactoryTransitionManifest extends FactoryIdentity {
 }
 
 export interface FactoryTransitionPage extends TransitionPageReference {
-  readonly content: string;
+  readonly contentBase64: string;
 }
 
 /** Compact product audit fact committed only after immutable transition pages finalize. */

@@ -170,6 +170,7 @@
   "packages/@ezcorp/factory-orchestrator/src/inbox.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/index.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/partition-plan.ts": 100,
+  "packages/@ezcorp/factory-orchestrator/src/queue-client.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/transition-pages.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/validation.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/worker.ts": 100,

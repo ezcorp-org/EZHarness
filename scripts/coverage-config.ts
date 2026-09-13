@@ -171,6 +171,7 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "packages/@ezcorp/factory-orchestrator/src/inbox.ts",
   "packages/@ezcorp/factory-orchestrator/src/index.ts",
   "packages/@ezcorp/factory-orchestrator/src/partition-plan.ts",
+  "packages/@ezcorp/factory-orchestrator/src/queue-client.ts",
   "packages/@ezcorp/factory-orchestrator/src/transition-pages.ts",
   "packages/@ezcorp/factory-orchestrator/src/validation.ts",
   "packages/@ezcorp/factory-orchestrator/src/worker.ts",
