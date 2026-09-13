@@ -80,7 +80,7 @@ export interface FactoryRunLifecycleOptions {
   /** Stages immutable artifacts through the configured storage service; no effects. */
   readonly stageDefinitionInTransaction: (transaction: MigrationDb, compiled: CompiledFactory, identity: FactoryIdentity) => Promise<FactoryDefinitionSource>;
   /** Resolves host-issued artifact handles and validates their scoped bytes. */
-  readonly resolveParameters: (transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, parameters: FactoryRunStartBody["parameters"]) => Promise<JsonValue | FactoryResolvedParameters>;
+  readonly resolveParameters: (transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, parameters: FactoryRunStartBody["parameters"], compiled: CompiledFactory) => Promise<JsonValue | FactoryResolvedParameters>;
 }
 
 export class FactoryRunLifecycleError extends Error {
@@ -127,7 +127,7 @@ export class FactoryRunLifecycle {
       const { version, compiled } = await this.options.definitions.readVersionInTransaction(transaction, principal, key, body.factoryVersion);
       if (version.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
       if (compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_interpreter_unavailable");
-      const resolved = await this.options.resolveParameters(transaction, principal, key, body.parameters);
+      const resolved = await this.options.resolveParameters(transaction, principal, key, body.parameters, compiled);
       const resolvedDescriptor = typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && (resolved as { kind?: unknown }).kind === "factory.run-resolved-parameters";
       const input = resolvedDescriptor ? (resolved as FactoryResolvedParameters).input : resolved as JsonValue;
       const ports = compiled.definition.inputPorts;
