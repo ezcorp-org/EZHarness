@@ -19,7 +19,32 @@ legacy_source="${VERIFY_LEGACY_ADOPTION_LEGACY_SOURCE:-537f074e7303ecdf3cbef1a7a
 candidate_image="${VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE:?Set the candidate image}"
 candidate_id="${VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE_ID:?Set the exact candidate image ID}"
 candidate_source="${VERIFY_LEGACY_ADOPTION_CANDIDATE_SOURCE:?Set the full candidate source SHA}"
-asset_sha256="${VERIFY_LEGACY_ADOPTION_ASSET_SHA256:-bc318f06884e68874ba57613ca2ae88e93e9845445c2a0f19383606b041f77cc}"
+# `@electric-sql/pglite-pgvector@0.0.9`'s `dist/vector.tar.gz`. This pin is
+# what makes the derived legacy image a KNOWN quantity: the proof copies this
+# exact tarball out of the candidate into the PGlite 0.5.7 legacy main image,
+# so an asset that moved unread would silently change what the legacy half of
+# the proof runs.
+#
+# Upstream repacks the tarball on EVERY release, so the pin moves on every
+# pgvector bump even when the extension did not change. Never move it blind —
+# the derived image runs it under 0.5.7, not under the candidate's PGlite.
+# Compare the EXTRACTED trees, which ignores the tar mtimes that always differ:
+#
+#   for v in <old> <new>; do
+#     mkdir -p "pkg$v" "ext$v"
+#     curl -sSL "https://registry.npmjs.org/@electric-sql/pglite-pgvector/-/pglite-pgvector-$v.tgz" > "$v.tgz"
+#     tar xzf "$v.tgz" -C "pkg$v"
+#     tar xzf "pkg$v/package/dist/vector.tar.gz" -C "ext$v"
+#   done
+#   diff -r ext<old> ext<new>
+#
+# 0.0.8 -> 0.0.9 was empty: same `lib/postgresql/vector.so` (sha256
+# a56170fc4336f51589ad0698f030826ab2bb5d9a251a24ab70713c178076892c), same 3
+# headers, same 36 `vector--*.sql`, same `vector.control` at default_version
+# 0.8.1. Upstream agrees — 0.0.9 carries no change but a peer bump to PGlite
+# 0.5.8. A NON-empty diff means a real rebuild, which needs its own 0.5.7
+# evidence before this line moves.
+asset_sha256="${VERIFY_LEGACY_ADOPTION_ASSET_SHA256:-881caf1c550dc4ecde6bfae95018d90684c6a61189273f13e0071595819513a2}"
 run_id="${VERIFY_LEGACY_ADOPTION_RUN_ID:-$(openssl rand -hex 6)}"
 receipt_root="${VERIFY_LEGACY_ADOPTION_RECEIPT_DIR:-$(mktemp -d /tmp/ezcorp-legacy-adoption-receipts-XXXXXXXX)}"
 
