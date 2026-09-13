@@ -293,3 +293,11 @@ test("artifact input fields wait for an exact bounded result before activation",
   const loaded = advanceKernel(graph, started.nextState, event("loaded", { kind: "input-value-read", commandId: read.id, nodeId: read.nodeId, candidateGeneration: read.candidateGeneration, cancellationEpoch: read.cancellationEpoch, name: "data", artifact, path: ["label"], storageVersion: "v1", mediaType: "application/json", value: "ok" }));
   expect(loaded.commands).toContainEqual(expect.objectContaining({ kind: "request-admission", nodeId: "work" }));
 });
+
+test("artifact map collections request a bounded first page", () => {
+  const map: Extract<FactoryNode, { kind: "map" }> = { id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items" }, itemSchema: { type: "string" }, body: { nodes: [], outputs: {} }, mode: "all", maxItems: 96, maxConcurrency: 4, outputPorts: {} };
+  const graph = compiled([map], {}, { items: { type: "array", items: { type: "string" }, maxItems: 96 } });
+  const artifact = { artifactId: "items", digest, encodedBytes: 96 * 1024 };
+  const started = advanceKernel(graph, createKernelState(graph, "lazy-map", { items: [] }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
+  expect(started.commands).toContainEqual(expect.objectContaining({ kind: "read-input-page", nodeId: "map", name: "items", cursor: 0, maxItems: 32, artifact }));
+});
