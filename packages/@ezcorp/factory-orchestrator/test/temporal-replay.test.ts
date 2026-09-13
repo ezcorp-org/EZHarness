@@ -29,6 +29,7 @@ const eventHash = (event) => hash(canonicalizeJson(event));
 const packageDigest = hash("inert-package");
 const runner = { package: "inert", version: "1", digest: packageDigest, export: "run" };
 const node = { id: "work", kind: "task", runner, deadlineMs: 600_000 };
+const lazyDataInput = { data: { type: "object", properties: { label: { type: "string" } }, required: ["label"] } };
 
 function compileDefinition(definition) {
   const result = compileFactory(definition);
@@ -651,7 +652,7 @@ describe("factory Temporal workflow", () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const lazyFactory = compiled([
       { ...node, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } },
-    ], "lazy-field");
+    ], "lazy-field", lazyDataInput);
     const artifact = { artifactId: "lazy-field", digest: packageDigest, encodedBytes: 70_000 };
     const observed = [];
     const activities = {
@@ -688,7 +689,7 @@ describe("factory Temporal workflow", () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const childFactory = compiled([
       { ...node, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } },
-    ], "lazy-child");
+    ], "lazy-child", lazyDataInput);
     const parentFactory = compiled([{ id: "child", kind: "subfactory", factory: { id: "lazy-child", version: "1", digest: childFactory.digest }, releaseMode: "none", grants: [] }], "lazy-parent");
     const artifact = { artifactId: "lazy-child", digest: packageDigest, encodedBytes: 70_000 };
     let resolvedCommandId: string | undefined;
