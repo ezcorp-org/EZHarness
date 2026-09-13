@@ -140,6 +140,25 @@ export class FactoryTransitionArtifacts {
     return command.command;
   }
 
+  /** Loads one committed audit transition by its bounded global sequence. */
+  async loadCommittedTransition(identityValue: FactoryIdentity, sourceSequence: number): Promise<TransitionArtifact> {
+    const identity = { tenantId: identityValue.tenantId, projectId: identityValue.projectId, logicalRunId: identityValue.logicalRunId, interpreterId: identityValue.interpreterId };
+    try { assertFactoryIdentity(identity.tenantId, identity.projectId, identity.logicalRunId, identity.interpreterId); }
+    catch { throw new FactoryArtifactError("factory_transition_invalid"); }
+    if (!validSequence(sourceSequence)) throw new FactoryArtifactError("factory_transition_invalid");
+    const records = new FactoryRecords(this.artifacts.database, identity.tenantId);
+    let batch: FactoryAuditBatch | null;
+    try { batch = await records.readAuditBatchInTransaction(this.artifacts.database, { projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId }, sourceSequence); }
+    catch { throw new FactoryArtifactError("factory_transition_corrupt"); }
+    if (!batch) throw new FactoryArtifactError("factory_transition_not_found");
+    const manifest = auditedManifest(batch.payload);
+    let transition: TransitionArtifact;
+    try { transition = await loadTransitionArtifact(identity, sourceSequence, manifest, this); }
+    catch { throw new FactoryArtifactError("factory_transition_corrupt"); }
+    if (transition.event.id !== (batch.payload as { eventId: unknown }).eventId || eventDigest(transition.event) !== (batch.payload as { eventHash: unknown }).eventHash) throw new FactoryArtifactError("factory_transition_corrupt");
+    return transition;
+  }
+
   private async indexCommand(transaction: MigrationDb, snapshot: TransitionRecord, command: IndexedCommand): Promise<void> {
     const current = rows<CommandIndexRow>(await transaction.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${snapshot.tenantId} AND project_id=${snapshot.projectId} AND run_id=${snapshot.logicalRunId} AND interpreter_id=${snapshot.interpreterId} AND command_id=${command.commandId} FOR UPDATE`))[0];
     if (current) {

@@ -140,6 +140,20 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     check("factory_run_projections_sequence_check", sql`${table.sequence} > 0`),
   ]);
 
+  /** Retry state schedules read-model work only; the audit cursor remains authoritative. */
+  const factoryRunProjectionAttempts = pgTable("factory_run_projection_attempts", {
+    ...tenantProjectRunColumns(),
+    consumerId: text("consumer_id").notNull(),
+    attemptCount: bigint("attempt_count", { mode: "number" }).notNull().default(1),
+    lastErrorCode: text("last_error_code"),
+    lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }).notNull().defaultNow(),
+  }, (table) => [
+    primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.consumerId] }),
+    index("idx_factory_projection_attempts_pending").on(table.tenantId, table.consumerId, table.lastAttemptedAt, table.projectId, table.runId),
+    foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+    check("factory_run_projection_attempts_count_check", sql`${table.attemptCount} > 0`),
+  ]);
+
   const factoryInboxCursors = pgTable("factory_inbox_cursors", {
     ...tenantProjectRunColumns(),
     interpreterId: text("interpreter_id").notNull(),
@@ -397,6 +411,7 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     factoryTransitionCommands,
     factoryCommandOutbox,
     factoryRunProjections,
+    factoryRunProjectionAttempts,
     factoryInboxCursors,
     factoryInboxEvents,
     factoryGrants,

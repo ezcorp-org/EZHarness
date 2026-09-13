@@ -11,6 +11,25 @@
 
 Review: public page-stage/finalize/record/load tests reject uncommitted and foreign references, duplicate IDs, changed IDs, tampered indexes, audit payloads, and page blobs. They also prove retry convergence and one transaction for audit, index, and inbox receipt. Focused Bun coverage reports 125/125 executable lines for `transition-artifacts.ts`, 334/334 for `factory-schema.ts`, and 4/4 for the new migration at `/tmp/factory-platform-evidence/terra-c02-command-coverage.lcov`. The real PostgreSQL/S3 proof passes seven cases at `/tmp/factory-platform-evidence/terra-c02-command-postgres-s3.log`. Four typecheck legs and lint pass with zero errors and eight existing infos at `/tmp/factory-platform-evidence/terra-c02-command-types-lint.log`.
 
+## Factory transition status projector — Terra
+
+- [x] Reproduce a public started run that stays queued after a committed terminal transition.
+- [x] Add bounded audit projection cursor and atomic lifecycle read-model apply methods.
+- [x] Verify committed transition artifacts before deriving terminal status.
+- [x] Add a fair indexed installation drain that does not let a corrupt run starve later runs.
+- [x] Prove cursor recovery, ordering, cancellation, transaction rollback, scope denials, and drain fairness on PGlite and PostgreSQL/S3.
+- [x] Run coverage, four typecheck legs, and lint; record review.
+
+Review: A public started run remains `queued` until its verified committed root transition is projected. The projector checks the canonical audit and immutable page bytes before its cursor and lifecycle update commit in one transaction. `lag` is the committed audit maximum sequence minus the durable consumer cursor. `projectPending({ runs, batchesPerRun })` uses the scoped audit and projection indexes, orders by the oldest unprojected sequence, and records a corrupt run error while it continues with later runs. PGlite passes 17 cases/130 assertions at `/tmp/factory-platform-evidence/terra-run-projection-pglite.log`; real PostgreSQL/S3 passes the same suite at `/tmp/factory-platform-evidence/terra-run-projection-postgres-s3.log`. Focused artifact integration passes 12 cases/54 assertions at `/tmp/factory-platform-evidence/terra-run-projection-artifacts.log`. The new projector measures 64/64 executable lines in `/tmp/factory-platform-evidence/terra-run-projection-coverage.lcov`; all four typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-run-projection-final-types-lint.log` (eight existing lint infos).
+
+### Projector fairness follow-up
+
+- [x] Reproduce fixed-page starvation with a corrupt oldest run and `runs: 1`.
+- [x] Persist attempts and select untouched work before least-recently-attempted retries.
+- [x] Prove PGlite and PostgreSQL/S3 recovery, coverage, typechecks, and lint.
+
+Review: `factory_run_projection_attempts` stores each scheduler attempt and its visible error code without changing the audit cursor. The indexed drain selects every never-attempted run before the least-recently-attempted retry. The `runs: 1` test first returns the corrupt oldest run, then projects the healthy later run, and after restart returns the corrupt retry with attempt count two. PGlite passes 20 cases/140 assertions at `/tmp/factory-platform-evidence/terra-projection-fairness-pglite.log`; real PostgreSQL/S3 plus schema parity passes 19 cases/1,388 assertions at `/tmp/factory-platform-evidence/terra-projection-fairness-postgres-schema.log`. Coverage measures the new migration 6/6, Drizzle schema 347/347, and projector 68/68 lines at `/tmp/factory-platform-evidence/terra-projection-fairness-final-coverage.lcov`; all four typecheck legs and lint pass at `/tmp/factory-platform-evidence/terra-projection-fairness-final-types-lint.log` with eight existing infos.
+
 ## Factory assurance integrity — 2026-09-13
 
 - [x] Bind every persisted contract field and the approving authority into a canonical protected snapshot.
@@ -1305,10 +1324,22 @@ Review: Root and web frozen installs, the SDK build, the production web build, a
 
 ## C02 attempt token purpose
 
-- [ ] Reproduce a user-shaped token being accepted through the real mTLS execution gateway.
-- [ ] Sign and verify exact attempt claims with the shared installation HMAC envelope and a separate token purpose.
-- [ ] Reject user, public service, preview, malformed, foreign, expired and path-mismatched credentials before admission.
-- [ ] Preserve deadline-fenced effects and authenticated status/cancel after an attempt deadline.
-- [ ] Verify the actual Node client, measured gateway/token coverage, existing authentication regressions, all four type checks and lint.
+- [x] Reproduce a user-shaped token being accepted through the real mTLS execution gateway.
+- [x] Sign and verify exact attempt claims with the shared installation HMAC envelope and a separate token purpose.
+- [x] Reject user, public service, preview, malformed, foreign, expired and path-mismatched credentials before admission.
+- [x] Preserve deadline-fenced effects and authenticated status/cancel after an attempt deadline.
+- [x] Verify the actual Node client, measured gateway/token coverage, existing authentication regressions, all four type checks and lint.
 
 Plan review: the accepted C02 HTTPS operations are the test boundary. The token binds every existing journal authority coordinate and canonical request digest. It carries no user role or email. A short-lived control token may inspect or cancel an expired attempt; the journal continues to deny new effects and terminal advancement. Reuse the C01 HMAC envelope and the existing Node HTTPS fixture.
+
+
+Review: `attempt-token-purpose-red.log` retains the real Node-to-Bun mTLS reproduction: a user-shaped credential admitted work with HTTP 201. The dedicated attempt codec rejects that credential. `root-auth-integration-results.json` records eight successful producers at `d84359f84`, including root/web frozen installs, SDK build, 58 real PostgreSQL/S3 cases with 1,745 assertions, 24 authentication/schema cases, all four type checks, lint and gate integrity. The gateway also proves signed conflicting submissions return 409 and that expired attempts retain authenticated status/cancellation while new admission fails. Both the token codec and gateway have complete measured lines (31/31 and 28/28). These are private authentication and database integration proofs; concrete execution composition and production readiness remain open.
+
+## Production orchestration readiness reader
+
+- [ ] Read only an owned private bounded readiness file and bind it to the configured installation, tenant, namespace and task queue.
+- [ ] Require a fresh ready heartbeat, confirmed worker polling, a live dispatcher and a loaded credential generation.
+- [ ] Reject missing, stale, future, malformed, foreign, unsafe and failed state files without exposing their contents.
+- [ ] Prove the private-file boundary and measured coverage; integrate the actual production Node writer when available.
+
+Plan review: the Node bootstrap owner and root agreed the versioned private readiness-file contract. This reader uses the existing descriptor-based private-file module. The Node writer must verify authenticated namespace/task-queue polling before it can report ready. The reader alone is not a production boot proof.

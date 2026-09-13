@@ -442,11 +442,8 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
   const runtime = state.nodes[event.nodeId];
   if (!allowProtected && (node?.kind === "approval" || node?.kind === "release")) return state;
   if (node && !runtime) {
-    const parentId = mapParent(event.nodeId);
-    const parent = parentId ? state.nodes[parentId] : undefined;
-    const marker = parentId ? `${parentId}/items/` : "";
-    const item = parentId ? Number(event.nodeId.slice(marker.length).split("/")[0]) : Number.NaN;
-    if (parentId && parent?.map && Number.isSafeInteger(item) && (parent.map.completedIndexes.includes(item) || parent.map.failedIndexes.includes(item))) {
+    const parentId = completedMapAncestor(state, event.nodeId);
+    if (parentId) {
       return applyRepair(factory, state, { ...event, nodeId: parentId }, commands, allowProtected);
     }
   }
@@ -538,7 +535,7 @@ function completePendingRepair(factory: KernelFactoryPlan, state: KernelState, c
   const scopes = { ...next.scopes };
   const replacedScopes = Object.values(scopes).filter((scope) => scope.nodeIds.some((id) => repair.nodeIds.includes(id))).map((scope) => scope.id);
   for (const [id, scope] of Object.entries(scopes)) {
-    if (scope.parentNodeId && (repair.nodeIds.includes(scope.parentNodeId) || replacedScopes.some((prefix) => id === prefix || id.startsWith(`${prefix}/`)))) delete scopes[id];
+    if (scope.parentNodeId && (repair.nodeIds.includes(scope.parentNodeId) || replacedScopes.some((prefix) => id.startsWith(`${prefix}/`)))) delete scopes[id];
   }
   next = { ...next, scopes, pendingRepair: undefined, status: "running" };
   return activateReady(factory, next, commands, [repair.rootNodeId]);
@@ -1009,6 +1006,13 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
   const scopes = { ...state.scopes };
   const itemScope = `${parentId}/items/${item}`;
   for (const id of Object.keys(scopes)) if (id === itemScope || id.startsWith(`${itemScope}/`)) delete scopes[id];
+  const accountingScopeId = `${parentId}/items`;
+  const accountingScope = scopes[accountingScopeId];
+  if (accountingScope) scopes[accountingScopeId] = {
+    ...accountingScope,
+    nodeIds: accountingScope.nodeIds.filter((id) => !id.startsWith(prefix)),
+    roots: accountingScope.roots.filter((id) => !id.startsWith(prefix)),
+  };
   const next = withNode({ ...state, nodes, scopes }, parentId, { ...parent, map });
   const terminalItems = map.completedIndexes.length + map.failedIndexes.length;
   if (terminalItems === map.itemCount) {
@@ -1020,7 +1024,9 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
         return parentNode.mode === "all" ? value : map.failedIndexes.includes(index) ? { outcome: "failed", error: isRecord(outcome) ? outcome.error ?? "MAP_ITEM_FAILED" : "MAP_ITEM_FAILED" } : { outcome: "succeeded", value };
       });
     }
-    return completeControl(factory, next, parentId, output, commands);
+    const scopes = { ...next.scopes };
+    delete scopes[accountingScopeId];
+    return completeControl(factory, { ...next, scopes }, parentId, output, commands);
   }
   return next;
 }
@@ -1034,7 +1040,29 @@ function fillMapWindow(factory: KernelFactoryPlan, state: KernelState, parentNod
     const scopeId = `${parentId}/items/${nextItem}`;
     const expansion = instantiateScope(factory, next, parentId, scopeId, parentNode.body, [scopeId]);
     if (!expansion.ok) return failNode(factory, next, parentNode, parentId, expansion.error, "bound_exhausted", commands);
-    next = activateReady(factory, expansion.state, commands, expansion.roots);
+    const accountingScopeId = `${parentId}/items`;
+    const accountingScope = expansion.state.scopes[accountingScopeId];
+    const itemScope = expansion.state.scopes[scopeId]!;
+    const parentScope = Object.values(expansion.state.scopes).find((scope) => scope.nodeIds.includes(parentId));
+    const scopes = {
+      ...expansion.state.scopes,
+      [accountingScopeId]: accountingScope ? {
+        ...accountingScope,
+        expandedNodeCount: accountingScope.expandedNodeCount + parentNode.body.nodes.length,
+        nodeIds: distinct(accountingScope.nodeIds.concat(itemScope.nodeIds)),
+        roots: distinct(accountingScope.roots.concat(itemScope.roots)),
+      } : {
+        id: accountingScopeId,
+        parentNodeId: parentId,
+        depth: (parentScope?.depth ?? 0) + 1,
+        expandedNodeCount: parentNode.body.nodes.length,
+        spentCostMicros: "0",
+        unknownCostMicros: "0",
+        nodeIds: itemScope.nodeIds,
+        roots: itemScope.roots,
+      },
+    };
+    next = activateReady(factory, { ...expansion.state, scopes }, commands, expansion.roots);
     if (parentNode.body.nodes.length === 0) next = progressMap(factory, next, `${scopeId}/`, commands);
     if (Object.keys(next.nodes).some((id) => id.startsWith(`${scopeId}/`) && ["reserved", "running", "waiting", "retry_wait", "stopping"].includes(next.nodes[id]!.status))) activeItems.add(nextItem);
   }
@@ -1064,7 +1092,7 @@ function instantiateScope(factory: KernelFactoryPlan, state: KernelState, parent
   const roots: string[] = [];
   for (const prefix of prefixes) for (const child of graph.nodes) {
     const id = `${prefix}/${child.id}`;
-    nodes[id] = Object.hasOwn(nodes, id) ? { ...nodes[id]!, status: "blocked", discarded: false } : { status: "blocked", candidateGeneration: 0, nextAttempt: 1, attempts: [] };
+    nodes[id] = Object.hasOwn(nodes, id) ? { ...nodes[id]!, status: "blocked", discarded: false } : { status: "blocked", candidateGeneration: state.nodes[parentNodeId]?.candidateGeneration ?? 0, nextAttempt: 1, attempts: [] };
     nodeIds.push(id);
     if ((child.dependsOn?.length ?? 0) === 0) roots.push(id);
   }
@@ -1112,6 +1140,17 @@ function mapParent(nodeId: string): string | undefined {
   return markerAt < 0 ? undefined : nodeId.slice(0, markerAt);
 }
 
+function completedMapAncestor(state: KernelState, nodeId: string): string | undefined {
+  let childId = nodeId;
+  for (let parentId = mapParent(childId); parentId; parentId = mapParent(childId)) {
+    const parent = state.nodes[parentId];
+    const item = Number(childId.slice(`${parentId}/items/`.length).split("/")[0]);
+    if (parent?.map && Number.isSafeInteger(item) && (parent.map.completedIndexes.includes(item) || parent.map.failedIndexes.includes(item))) return parentId;
+    childId = parentId;
+  }
+  return undefined;
+}
+
 function locationHasQualifyingJoin(factory: KernelFactoryPlan, nodeId: string): boolean {
   const location = locateNode(factory, nodeId)!;
   return location.graph.nodes.some(node => node.kind === "join" && node.mode !== "all" && node.predecessors.includes(location.node.id));
@@ -1139,16 +1178,15 @@ interface NodeLocation {
 function locateNode(factory: KernelFactoryPlan, nodeId: string): NodeLocation | undefined {
   const parts = nodeId.split("/");
   let graph = factory.definition.graph;
-  for (let index = 0; index < parts.length; index += 1) {
+  for (let index = 0; ; ) {
     const node = graph.nodes.find(candidate => candidate.id === parts[index]);
     if (!node) return undefined;
     if (index === parts.length - 1) return { node, graph, scope: parts.slice(0, index).join("/") };
     const scope = parts[index + 1];
-    if (node.kind === "branch" && (scope === "then" || scope === "else")) { graph = node[scope]; index += 1; continue; }
-    if ((node.kind === "map" || node.kind === "loop") && scope === "items" && parts[index + 2] !== undefined) { graph = node.body; index += 2; continue; }
+    if (node.kind === "branch" && (scope === "then" || scope === "else")) { graph = node[scope]; index += 2; continue; }
+    if ((node.kind === "map" || node.kind === "loop") && scope === "items" && parts[index + 2] !== undefined) { graph = node.body; index += 3; continue; }
     return undefined;
   }
-  return undefined;
 }
 
 /** Resolve one expanded instance against the immutable compiled definition. */

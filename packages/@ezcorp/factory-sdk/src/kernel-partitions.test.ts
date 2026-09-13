@@ -476,4 +476,18 @@ describe("partition-local factory kernel", () => {
     source = advanceKernel(factory, source.nextState, { kind: "attempt-stopped", id: "a-stopped", atMs: 3, nodeId: "a", commandId: admission.id, candidateGeneration: 0, attempt: 1 });
     expect(command(source.commands, "notify-partition", "z")).toEqual(expect.objectContaining({ outcome: "cancelled", error: "USER_CANCELLED" }));
   });
+
+  test("completes an empty partition from running and quiescent stopping states", () => {
+    const compiled = partitionedFactory({ id: "z", kind: "task", runner, dependsOn: ["a"] });
+    const empty = { ...compiled.partitions[0]!, id: "empty", nodeIds: [], dependsOn: [], inbound: [], outbound: [] };
+    const factory = { ...compiled, partitions: [empty, ...compiled.partitions] };
+    const initial = createPartitionKernelState(factory, empty.id, "empty-partition", {}, 0);
+    const completed = advanceKernel(factory, initial, { kind: "start", id: "start-empty", atMs: 0 });
+    expect(completed.nextState.status).toBe("completed");
+    expect(command(completed.commands, "complete-partition")).toEqual(expect.objectContaining({ partitionId: empty.id }));
+
+    const stopping = advanceKernel(factory, { ...initial, status: "stopping", stopKind: "completed" }, { kind: "start", id: "finish-empty", atMs: 0 });
+    expect(stopping.nextState.status).toBe("completed");
+    expect(command(stopping.commands, "complete-partition")).toEqual(expect.objectContaining({ partitionId: empty.id }));
+  });
 });

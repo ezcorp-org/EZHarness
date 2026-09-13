@@ -1,7 +1,7 @@
 import { lockFactoryScope } from "./locks";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
 import { validateValue } from "@ezcorp/factory-sdk/validation";
-import type { BudgetBounds, CompiledFactory, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableReceipt, FactoryCommandResource, JsonValue } from "@ezcorp/factory-sdk";
+import type { BudgetBounds, CompiledFactory, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue } from "@ezcorp/factory-sdk";
 import type { FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -31,6 +31,11 @@ export interface FactoryRunFence {
   readonly deadlineAtMs: number;
   readonly definitionDigest: string;
   readonly status: FactoryRunDetails["status"];
+}
+export interface FactoryRunProjectionState {
+  readonly status: FactoryRunDetails["status"];
+  readonly output?: FactoryTransportValue;
+  readonly error?: FactoryRunError;
 }
 export interface FactoryRunLifecycleOptions {
   readonly definitions: FactoryDefinitions;
@@ -153,6 +158,24 @@ export class FactoryRunLifecycle {
       if (!command || command.logicalRunId !== input.key.runId) throw new FactoryRunLifecycleError("factory_command_not_found");
       return { commandId: command.id, runId: command.logicalRunId, kind: command.command.kind, state: command.state, attempts: command.attempts, createdAtMs: command.createdAt, ...(command.failureCode === undefined ? {} : { failureCode: command.failureCode }) };
     });
+  }
+
+  /** Applies a verified transition-derived view without changing human revision or fences. */
+  async applyProjectionInTransaction(transaction: MigrationDb, key: FactoryRunKey, next: FactoryRunProjectionState): Promise<boolean> {
+    const row = await this.row(transaction, key, true);
+    if (!['queued', 'running', 'waiting', 'cancelling', 'succeeded', 'failed', 'cancelled', 'uncertain'].includes(next.status)) throw new FactoryRunLifecycleError("factory_projection_invalid");
+    if (next.output !== undefined && next.error !== undefined) throw new FactoryRunLifecycleError("factory_projection_invalid");
+    if (["succeeded", "failed", "cancelled"].includes(row.status)) return false;
+    if ((row.status === "cancelling" && next.status !== "cancelled") || (row.status === "uncertain" && next.status === "succeeded")) return false;
+    const output = next.output === undefined ? null : encodeFactoryPayload(next.output);
+    const error = next.error === undefined ? null : encodeFactoryPayload(next.error);
+    await transaction.execute(sql`UPDATE factory_run_lifecycle SET status=${next.status}, output_json=${output}, error_json=${error}, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`);
+    return true;
+  }
+
+  /** Internal worker guard for a scoped durable read-model update. */
+  async assertProjectionScopeInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<void> {
+    await this.row(transaction, key, true);
   }
 
   private cancellationEventId(key: FactoryRunKey, epoch: number): string {
