@@ -104,3 +104,21 @@ test("without a resolved name the page keeps its generic heading", () => {
   expect(view.getByRole("heading", { level: 1 })).toHaveTextContent("Extension workspace");
   expect(document.title).toBe("Extension workspace");
 });
+
+test("the installations list links by extension name and keeps the id as secondary text", () => {
+  const input = data({ state: null, workspace: null, files: {}, installations: [{ id: "installation-a", status: "active", name: "memory-extractor" }] });
+  const view = render(AuthorPage, { data: input });
+  const link = view.getByRole("link", { name: /memory-extractor/ });
+  expect(link).toHaveAttribute("href", "?installation=installation-a");
+  expect(link).toHaveTextContent("memory-extractor");
+  expect(link).toHaveTextContent("installation-a");
+  expect(view.getByText("installation-a")).toHaveClass("installation-id");
+});
+
+test("an installation with no known name falls back to its id alone", () => {
+  const input = data({ state: null, workspace: null, files: {}, installations: [{ id: "installation-b", status: "disabled", name: null }] });
+  const view = render(AuthorPage, { data: input });
+  expect(view.getByRole("link", { name: /installation-b/ })).toHaveAttribute("href", "?installation=installation-b");
+  expect(view.container.querySelector(".installation-id")).toBeNull();
+  expect(view.getByText("disabled")).toHaveClass("installation-status");
+});
