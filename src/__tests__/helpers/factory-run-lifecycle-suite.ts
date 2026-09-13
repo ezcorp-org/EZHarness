@@ -278,7 +278,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const version = await definitions.publish(principal, definitionKey, 1, "durable-child-parent-publish");
     const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
     const run = await startRun(principal, definitionKey, request, 0, "durable-child-parent-start");
-    const { identity, transitions, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+    const { identity, activities, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
     const command = first.commands.find(value => value.kind === "run-child");
     expect(command?.kind).toBe("run-child");
     if (command?.kind !== "run-child") throw new Error("missing child command");
