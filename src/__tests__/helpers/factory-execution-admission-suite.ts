@@ -17,7 +17,11 @@ interface FactoryExecutionAdmissionFixture {
 export async function verifyFactoryExecutionAdmission(fixture: FactoryExecutionAdmissionFixture): Promise<void> {
   const rollback = fixture.admission({ case: "rollback" });
   await expect(fixture.db.transaction(async transaction => {
-    await fixture.journal.admitInTransaction(transaction, rollback);
+    const durable = { ...rollback, request: JSON.parse(JSON.stringify(factoryRunnerRequestIdentity(rollback.request))) as ReturnType<typeof factoryRunnerRequestIdentity> };
+    const admission = fixture.journal.admitDurableInTransaction(transaction, durable);
+    (durable.request.input as { value: { case: string } }).value.case = "mutated-after-call";
+    expect(await admission).toEqual({ requestHash: rollback.requestDigest, reused: false });
+    expect(await fixture.journal.nextOperationIndexInTransaction(transaction, rollback)).toBe(0);
     throw new Error("attempt queue enqueue failed");
   })).rejects.toThrow("attempt queue enqueue failed");
   expect(releaseRows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${rollback.attemptId}`))).toHaveLength(0);
@@ -30,6 +34,8 @@ export async function verifyFactoryExecutionAdmission(fixture: FactoryExecutionA
   expect(releaseRows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${exact.attemptId}`))).toHaveLength(1);
   expect(await fixture.journal.request(exact)).toEqual(factoryRunnerRequestIdentity(exact.request));
   expect(await fixture.db.transaction(transaction => fixture.journal.requestInTransaction(transaction, exact))).toEqual(factoryRunnerRequestIdentity(exact.request));
+  expect(await fixture.db.transaction(transaction => fixture.journal.admitDurableInTransaction(transaction, { ...exact, request: factoryRunnerRequestIdentity(exact.request) }))).toEqual({ requestHash: exact.requestDigest, reused: true });
+  expect(await fixture.db.transaction(transaction => fixture.journal.nextOperationIndexInTransaction(transaction, exact))).toBe(0);
 
   const changed = fixture.admission({ case: "changed" });
   await expect(fixture.journal.admit(changed)).rejects.toThrow("conflicts with a different canonical request");
