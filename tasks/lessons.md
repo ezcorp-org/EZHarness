@@ -1,5 +1,7 @@
 # Lessons
 
+- Keep definition list rows bounded. Persist compact semantic and resource metadata when a bounded source is saved; do not load or compile up to 200 full 16 MiB sources for one list request. Snapshot mutable request input before an authorization await.
+
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.
 - In asynchronous delivery tests, await an observed operation or use transport ordering. Do not use a fixed sleep as proof of completion.
 - When proving that asynchronous work did not happen, capture and await every operation started by the trigger. Waiting only for the expected positive callback cannot prove the denied phase is complete.

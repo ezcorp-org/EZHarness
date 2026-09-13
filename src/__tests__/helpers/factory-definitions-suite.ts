@@ -136,6 +136,10 @@ export function factoryDefinitionsConformance(createFixture: () => Promise<Fixtu
     expect((await store.listDrafts(actor, "definition-project", { search: "ALPHA" })).items.map(item => item.factoryId)).toContain(alpha.id);
     expect((await store.listDrafts(actor, "definition-project", { archived: true, search: "filter" })).items.map(item => item.factoryId)).toEqual([beta.id]);
     expect((await store.validateSource(actor, key(alpha.id), alpha)).ok).toBe(true);
+    const mutable = structuredClone(alpha);
+    const validation = store.validateSource(actor, key(alpha.id), mutable);
+    (mutable as { graph: FactoryDefinition["graph"] }).graph = { ...mutable.graph, nodes: mutable.graph.nodes.map((node, index) => index === 0 ? { ...node, dependsOn: ["changed-after-call"] } : node) };
+    await expect(validation).resolves.toMatchObject({ ok: true });
     await expect(store.validateSource(actor, key(beta.id), { ...alpha, id: beta.id })).resolves.toMatchObject({ ok: true });
     await expect(store.validateSource(actor, key(beta.id), alpha)).rejects.toMatchObject({ code: "factory_definition_identity_mismatch" });
     await expect(store.publish(actor, key(alpha.id), 1, "wrong-requested-version", "2.0.0")).rejects.toMatchObject({ code: "factory_version_conflict" });
@@ -149,6 +153,9 @@ export function factoryDefinitionsConformance(createFixture: () => Promise<Fixtu
     expect(page.nextCursor).toBe(page.items[0]!.factoryId);
     expect((await store.list(actor, "definition-project", page.nextCursor!, 200)).items.every(item => item.factoryId > page.nextCursor!)).toBe(true);
     expect((await store.list(actor, "definition-project")).items.every(item => !item.archived)).toBe(true);
+    await fixture.db.execute(sql`UPDATE factory_drafts SET source_json='not-json' WHERE factory_id='filter-alpha'`);
+    expect((await store.listDrafts(actor, "definition-project", { search: "filter-alpha" })).items[0]).toMatchObject({ factoryId: "filter-alpha", validationDiagnosticCount: 0 });
+    await expect(store.read(actor, key("filter-alpha"))).rejects.toThrow();
     expect((await store.list(actor, "definition-project", "zzzz")).nextCursor).toBeNull();
     await expect(store.read(administrator, { projectId: "definition-foreign", factoryId: "published" })).rejects.toMatchObject({ code: "factory_forbidden" });
     await expect(store.read(actor, key("missing"))).rejects.toMatchObject({ code: "factory_definition_not_found" });
