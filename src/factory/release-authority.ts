@@ -117,6 +117,7 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     return this.mutations.execute({ principal: actor, projectId: input.projectId, action: "factory.trust", idempotencyKey, input: { kind: "release.trust.publish", expectedRevision: input.expectedRevision, packageLock, validatorTrustDigest: input.validatorTrustDigest } }, async transaction => {
       if (!await lockFactoryScope(transaction, this.tenantId, input.projectId, "write")) throw new FactoryReleaseAuthorityError("factory_release_authority_scope");
       const current = await this.currentTrustRow(transaction, input.projectId, "update");
+      if (current) this.trustRecord(current, input.projectId);
       if (Number(current?.revision ?? 0) !== input.expectedRevision) throw new FactoryReleaseAuthorityError("factory_release_trust_conflict");
       const authority = await this.grants.authorizeInTransaction(transaction, actor, input.projectId, "factory.trust");
       const revision = input.expectedRevision + 1; counter(revision, 1);
@@ -153,7 +154,7 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     if (typeof enabled !== "boolean") throw new FactoryReleaseAuthorityError("factory_release_authority_invalid");
     return this.mutations.execute({ principal: actor, projectId, action: "factory.trust", idempotencyKey, input: { kind: "release.control.set", enabled, expectedEpoch } }, async transaction => {
       if (!await lockFactoryScope(transaction, this.tenantId, projectId, "write")) throw new FactoryReleaseAuthorityError("factory_release_authority_scope");
-      const current = rows<ControlRow>(await transaction.execute(sql`SELECT enabled,enable_epoch,changed_by,grant_revision,protected_digest FROM factory_release_controls WHERE tenant_id=${this.tenantId} AND project_id=${projectId} FOR UPDATE`))[0];
+      const current = await this.currentControlRow(transaction, projectId, "update");
       if (Number(current?.enable_epoch ?? 0) !== expectedEpoch || (current?.enabled ?? false) === enabled) throw new FactoryReleaseAuthorityError("factory_release_control_conflict");
       const authority = await this.grants.authorizeInTransaction(transaction, actor, projectId, "factory.trust");
       const enableEpoch = expectedEpoch + 1; counter(enableEpoch, 1);
@@ -233,22 +234,36 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
   private async requireTrust(transaction: MigrationDb, projectId: string, lock: "share" | "update", active: boolean): Promise<FactoryReleaseTrustRecord> {
     const row = await this.currentTrustRow(transaction, projectId, lock);
     if (!row) throw new FactoryReleaseAuthorityError("factory_release_trust_missing");
+    const trust = this.trustRecord(row, projectId);
+    if (active && trust.state !== "active") throw new FactoryReleaseAuthorityError("factory_release_trust_inactive");
+    if (active) await this.grants.authorizeInTransaction(transaction, { kind: "user", id: trust.approvedBy, authentication: "session" }, projectId, "factory.trust", trust.approvalGrantRevision);
+    return trust;
+  }
+
+  private trustRecord(row: TrustRow, projectId: string): FactoryReleaseTrustRecord {
     let packageLock: RunnerReference;
     try { packageLock = validatePackageLock(JSON.parse(row.package_lock_json) as RunnerReference); } catch { throw new FactoryReleaseAuthorityError("factory_release_trust_corrupt"); }
     const revision = Number(row.revision), approvalGrantRevision = Number(row.approval_grant_revision);
     counter(revision, 1); counter(approvalGrantRevision, 1); sha(row.package_trust_digest); sha(row.validator_trust_digest); sha(row.protected_digest);
     if (row.package_trust_digest !== hash(packageLock) || row.protected_digest !== trustSeal(this.tenantId, projectId, revision, row.state, packageLock, row.package_trust_digest, row.validator_trust_digest, row.approved_by, approvalGrantRevision)) throw new FactoryReleaseAuthorityError("factory_release_trust_corrupt");
-    if (active && row.state !== "active") throw new FactoryReleaseAuthorityError("factory_release_trust_inactive");
-    if (active) await this.grants.authorizeInTransaction(transaction, { kind: "user", id: row.approved_by, authentication: "session" }, projectId, "factory.trust", approvalGrantRevision);
     return { projectId, revision, state: row.state, packageLock, packageTrustDigest: row.package_trust_digest, validatorTrustDigest: row.validator_trust_digest, approvedBy: row.approved_by, approvalGrantRevision };
   }
 
   private async requireControl(transaction: MigrationDb, projectId: string): Promise<FactoryReleaseControl> {
-    const row = rows<ControlRow>(await transaction.execute(sql`SELECT enabled,enable_epoch,changed_by,grant_revision,protected_digest FROM factory_release_controls WHERE tenant_id=${this.tenantId} AND project_id=${projectId} FOR SHARE`))[0];
-    const epoch = Number(row?.enable_epoch), grantRevision = Number(row?.grant_revision);
-    if (!row?.enabled || !Number.isSafeInteger(epoch) || epoch < 1 || !Number.isSafeInteger(grantRevision) || grantRevision < 1 || row.protected_digest !== controlSeal(this.tenantId, projectId, row.enabled, epoch, row.changed_by, grantRevision)) throw new FactoryReleaseAuthorityError("factory_release_disabled");
+    const row = await this.currentControlRow(transaction, projectId, "share");
+    if (!row?.enabled) throw new FactoryReleaseAuthorityError("factory_release_disabled");
+    const epoch = Number(row.enable_epoch), grantRevision = Number(row.grant_revision);
     await this.grants.authorizeInTransaction(transaction, { kind: "user", id: row.changed_by, authentication: "session" }, projectId, "factory.trust", grantRevision);
     return { projectId, enabled: true, enableEpoch: epoch };
+  }
+
+  private async currentControlRow(transaction: MigrationDb, projectId: string, lock: "share" | "update"): Promise<ControlRow | undefined> {
+    const clause = lock === "update" ? sql`FOR UPDATE` : sql`FOR SHARE`;
+    const row = rows<ControlRow>(await transaction.execute(sql`SELECT enabled,enable_epoch,changed_by,grant_revision,protected_digest FROM factory_release_controls WHERE tenant_id=${this.tenantId} AND project_id=${projectId} ${clause}`))[0];
+    if (!row) return undefined;
+    const epoch = Number(row.enable_epoch), grantRevision = Number(row.grant_revision);
+    if (!Number.isSafeInteger(epoch) || epoch < 1 || !Number.isSafeInteger(grantRevision) || grantRevision < 1 || row.protected_digest !== controlSeal(this.tenantId, projectId, row.enabled, epoch, row.changed_by, grantRevision)) throw new FactoryReleaseAuthorityError("factory_release_control_corrupt");
+    return row;
   }
 
   private async verifyCandidate(transaction: MigrationDb, projectId: string, runId: string, nodeInstanceId: string, candidate: CandidateRow, trust: FactoryReleaseTrustRecord): Promise<void> {

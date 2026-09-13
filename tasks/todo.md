@@ -1248,8 +1248,8 @@ Review: `/tmp/factory-platform-evidence/assembled-platform-results.json` records
 ## Full backend regression after component integration
 
 - [x] Run the canonical backend suite at `3eeee3259`.
-- [x] Fix five SDK expansion/repair regressions and verify every SDK test file.
-- [x] Fix two bundled grant review failures and the Bun/Node/Python golden fixture failure.
+- [ ] Fix five SDK expansion/repair regressions and verify every SDK test file.
+- [ ] Fix two bundled grant review failures and the Bun/Node/Python golden fixture failure.
 - [ ] Repeat the canonical backend suite on the integrated corrections.
 
 Review: `/tmp/factory-platform-evidence/assembled-backend-3eeee3259.log` reports 26,078 passing tests and eight failures across five files. Focused component receipts did not cover those failures. Sol owns SDK corrections; Terra owns the bundled-review and Python corrections. Full regression remains open.
@@ -1279,7 +1279,7 @@ Review: `/tmp/factory-platform-evidence/root-c06-results.json` records five succ
 
 - [x] Integrate `433c1469c` as `cc9bb59ff`.
 - [x] Independently rerun both bundled review files and the complete Bun/Node/Python golden fixture file.
-- [x] Integrate and verify the five SDK expansion/repair corrections.
+- [ ] Integrate and verify the five SDK expansion/repair corrections.
 - [ ] Rerun the complete canonical backend suite.
 
 Review: `/tmp/factory-platform-evidence/root-backend-corrections.log` records all three complete focused files passing. A rejected review preserves its terminal human decision. Canonical bundled host-API grants retain the existing aggregate JSON size bound. An initial runner request starts its operation cursor at zero when no checkpoint exists.
@@ -1361,6 +1361,15 @@ Review: The run-grant adapter now snapshots its five used authority fields befor
 
 Review: the release authority store now derives a per-node current candidate only from an authenticated completed attempt, an exact settled operation journal, measured usage, and a verified immutable candidate-output object. Human trust binds the exact runner package and validator under a live `factory.trust` grant. Release control defaults to disabled and advances an explicit epoch. Candidate history is immutable, and its current pointer advances with a lifecycle-locked generation compare-and-swap. The shared PGlite suite passes 11 cases; the isolated PostgreSQL authority and schema run passes 13 cases with 1,486 assertions. Combined coverage passes 20 cases and measures release authority 169/169, its migration 24/24, artifacts 95/95, executions 224/224, and schema 1249/1249 executable lines. SDK builds, all four typecheck legs, lint, factory boundaries, and gate integrity pass. Evidence is under `/tmp/factory-platform-evidence/release-authority-*` and `tasks/factory/release-authority-GATES.md`.
 
+## Factory artifact access and deferred run parameters — Terra
+
+- [x] Inspect existing immutable artifact and workflow input contracts; send ownership and revised bounded contract.
+- [x] Add specific human cross-project artifact read grants and transactional opaque resolution.
+- [ ] Preserve oversized parameter maps as verified opaque handles through durable start and activity consumption.
+- [x] Prove PGlite and PostgreSQL/S3 scope, revocation, corruption, media/version, and bounded artifact bytes.
+- [x] Run coverage, typechecks, and lint; record review.
+
+Review: `FactoryArtifactAccess` grants only a human session's exact source artifact to one target project. The protected fact seals digest, byte count, kind, media type, storage version and issuer grant revision. Reads lock and compare the host row, call `FactoryArtifacts.loadInTransaction`, and return only opaque denials. `FactoryArtifacts.load` snapshots public authority before its transaction starts. `/tmp/factory-platform-evidence/terra-artifact-access-coverage.log` records 31 passing PGlite cases and 123 assertions, with artifact access 98/98, migration 6/6 and artifacts 99/99 measured lines. `/tmp/factory-platform-evidence/terra-artifact-access-postgres-s3.log` records the isolated PostgreSQL/S3 case passing. `/tmp/factory-platform-evidence/terra-artifact-access-types-lint.log` records root/web frozen installs, SDK build, all canonical typecheck legs and lint passing (eight pre-existing infos). The remaining large-input work needs a bounded lazy activity contract; this access leaf does not expand an artifact into a run request or Temporal history.
 ## Combined projection and backend review
 
 - [x] Verify the combined SDK expansion, repair and projection changes.
@@ -1371,6 +1380,16 @@ Review: the release authority store now derives a per-node current candidate onl
 
 Review: `root-projection-integration-results.json` records 155 SDK tests (1,101 assertions) and 20 PostgreSQL/S3 lifecycle/schema tests (1,431 assertions) passing at `55232b905`. It stopped on a readonly fixture type error. At corrected `618560260`, `root-projection-regression-results.json` records all four type checks, lint and gate integrity passing; the full backend pool reported 26,127 passes and one failure across 1,708 files. The actual module-graph CLI found a forbidden regular expression in service credential validation. `root-validator-boundary-green.log` records the replacement passing all 29 boundary and API schema cases, including malformed segments and non-base64url characters. Receipts are under `/tmp/factory-platform-evidence`. Full regression remains open until a complete passing run.
 
+## Application restart integration
+
+- [x] Reproduce the release-table migration failure through the real PGlite close/reopen path.
+- [x] Preserve an already scoped artifact primary key and all dependent foreign keys.
+- [x] Make older artifact index migrations retain newer partition and candidate identity dimensions.
+- [x] Add shared PGlite/PostgreSQL repeated-boot tests with 96 KiB artifacts, multiple nodes/generations and legacy key upgrade.
+- [ ] Re-run every failed backend file, PostgreSQL schema/restart and all static checks.
+- [ ] Repeat the complete backend pool after the correction.
+
+Review: `root-authority-integration-results.json` passes SDK build, 155 SDK tests (1,112 assertions), 85 PostgreSQL/S3 tests (2,148 assertions), all four type checks, lint and gate integrity at `647e63a53`. Its full backend pool fails 64 tests across 34 files, mostly repeat-migration checks. `root-authority-restart-red.log` reproduces the referenced-primary-key drop through actual database reopen and rollback. `root-migration-restart-focused.log` passes 17 restart/migration/maintenance cases. The initial scoped-key correction also passes ten real-init and idempotent migration cases, including a five-boot cycle. Full regression remains open.
 ## Shared private client and pool admission
 
 - [x] Reproduce private HTTP transport accepting a caller-supplied absolute URL.

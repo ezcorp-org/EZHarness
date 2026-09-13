@@ -902,6 +902,7 @@
   "src/factory/pool/service-token.ts": 100,
   "src/factory/pool/service-server.ts": 100,
   "src/factory/artifacts.ts": 100,
+  "src/factory/artifact-access.ts": 100,
   "src/factory/definition-artifacts.ts": 100,
   "src/factory/transition-artifacts.ts": 100,
   "src/factory/artifact-activities.ts": 100,
@@ -909,6 +910,7 @@
   "src/factory/file-key-wraps.ts": 100,
   "src/factory/encryption-key-wrap-store.ts": 100,
   "src/db/migrations/add-factory-artifacts.ts": 100,
+  "src/db/migrations/add-factory-artifact-read-grants.ts": 100,
   "src/db/migrations/add-factory-installation-key-wraps.ts": 100,
   "src/db/migrations/add-factory-artifact-partition-identity.ts": 100,
   "src/db/migrations/scope-factory-artifact-primary-key.ts": 100,
@@ -923,5 +925,6 @@
   "src/db/migrations/add-factory-releases.ts": 100,
   "src/factory/private-service.ts": 100,
   "src/factory/private-https.ts": 100,
-  "src/db/migrations/add-factory-release-authority.ts": 100
+  "src/db/migrations/add-factory-release-authority.ts": 100,
+  "src/db/migrations/factory-artifact-admission-index.ts": 100
 }

@@ -1,8 +1,11 @@
 import { sql } from "drizzle-orm";
 import type { MigrationDb } from "./types";
+import { ensureFactoryArtifactAdmissionIndex } from "./factory-artifact-admission-index";
 
 /** Durable terminal, trust, enablement, and current-candidate facts for C04 authority. */
 export async function up(database: MigrationDb): Promise<void> {
+  await database.execute(sql`ALTER TABLE factory_executions DROP CONSTRAINT IF EXISTS factory_executions_status_check`);
+  await database.execute(sql`ALTER TABLE factory_executions ADD CONSTRAINT factory_executions_status_check CHECK (status IN ('admitted','running','completed','cancel_accepted','stopped','failed'))`);
   await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_kind_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_encoded_bytes_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts ADD COLUMN IF NOT EXISTS candidate_node_instance_id TEXT`);
@@ -11,8 +14,7 @@ export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`ALTER TABLE factory_artifacts ADD CONSTRAINT factory_artifacts_encoded_bytes_check CHECK (encoded_bytes > 0 AND ((kind='candidate_output' AND encoded_bytes <= 16777216) OR (kind<>'candidate_output' AND encoded_bytes <= 32768)))`);
   await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_candidate_slot_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts ADD CONSTRAINT factory_artifacts_candidate_slot_check CHECK ((kind='candidate_output' AND candidate_node_instance_id IS NOT NULL AND candidate_generation >= 0) OR (kind<>'candidate_output' AND candidate_node_instance_id IS NULL AND candidate_generation IS NULL))`);
-  await database.execute(sql`DROP INDEX IF EXISTS factory_artifacts_admission_identity`);
-  await database.execute(sql`CREATE UNIQUE INDEX factory_artifacts_admission_identity ON factory_artifacts (tenant_id,project_id,run_id,COALESCE(interpreter_id,''),kind,COALESCE(source_sequence,-1),COALESCE(page_index,-1),COALESCE(partition_id,''),COALESCE(candidate_node_instance_id,''),COALESCE(candidate_generation,-1))`);
+  await ensureFactoryArtifactAdmissionIndex(database);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_execution_terminals (
     tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, run_id TEXT NOT NULL, node_instance_id TEXT NOT NULL, candidate_generation BIGINT NOT NULL CHECK (candidate_generation >= 0),
     attempt_id TEXT NOT NULL PRIMARY KEY REFERENCES factory_executions(attempt_id) ON DELETE RESTRICT, request_digest TEXT NOT NULL CHECK (request_digest ~ '^[0-9a-f]{64}$'),
