@@ -1,0 +1,215 @@
+import { assertJson, canonicalJson } from "@ezcorp/extension-contract";
+import { sql } from "drizzle-orm";
+import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
+import { releaseRows as rows } from "../db/queries/extension-releases";
+import { DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, type DurableDeliveryRecord, type DurableDeliveryStore } from "../delivery-queue/durable-delivery-queue";
+
+const MAX_COMMAND_BYTES = 64 * 1024;
+
+interface FactoryCommandBase {
+  readonly projectId: string;
+  readonly logicalRunId: string;
+  readonly body: unknown;
+}
+
+export type FactoryCommandInput =
+  | (FactoryCommandBase & { readonly kind: "start_run" })
+  | (FactoryCommandBase & { readonly kind: "decision"; readonly interpreterId: string; readonly decisionId: string })
+  | (FactoryCommandBase & { readonly kind: "partition_notification"; readonly interpreterId: string; readonly notificationId: string });
+
+export interface FactoryCommand {
+  readonly commandId: string;
+  readonly requestId: string;
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly logicalRunId: string;
+  readonly workflowId: string;
+  readonly kind: FactoryCommandInput["kind"];
+  readonly interpreterId?: string;
+  readonly eventId?: string;
+  readonly body: unknown;
+}
+
+export interface FactoryCommandDelivery extends DurableDeliveryRecord {
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly logicalRunId: string;
+  readonly deduplicationId: string;
+  readonly inputHash: string;
+  readonly command: FactoryCommand;
+}
+
+export class FactoryOutboxError extends Error {
+  constructor(readonly code: string, message = code) {
+    super(message);
+    this.name = "FactoryOutboxError";
+  }
+}
+
+type CommandRow = { payload: string; state: FactoryCommandDelivery["state"]; input_hash: string };
+
+function identity(...values: readonly string[]): void {
+  if (values.some(value => typeof value !== "string" || value.length === 0 || value.length > 512 || value.includes("\0"))) {
+    throw new FactoryOutboxError("factory_command_identity_invalid");
+  }
+}
+
+function assertBoundedCommand(command: FactoryCommand): void {
+  if (new TextEncoder().encode(canonicalJson(command)).byteLength > MAX_COMMAND_BYTES) {
+    throw new FactoryOutboxError("factory_command_payload_too_large");
+  }
+}
+
+function queueScope(tenantId: string, projectId: string): string {
+  return `${tenantId}\0${projectId}`;
+}
+
+function decode(row: CommandRow): FactoryCommandDelivery {
+  return { ...JSON.parse(row.payload), state: row.state, inputHash: row.input_hash };
+}
+
+class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery> {
+  private readonly scope: string;
+
+  constructor(private readonly database: MigrationDb, private readonly tenantId: string, private readonly projectId: string) {
+    this.scope = queueScope(tenantId, projectId);
+  }
+
+  private assertScope(scope: string | null): void {
+    if (scope !== this.scope) throw new FactoryOutboxError("factory_command_scope_mismatch");
+  }
+
+  async findDuplicate(scope: string, deduplicationId: string): Promise<FactoryCommandDelivery | null> {
+    this.assertScope(scope);
+    const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId} AND deduplication_id = ${deduplicationId}`));
+    return result[0] ? decode(result[0]) : null;
+  }
+
+  async insert(delivery: FactoryCommandDelivery): Promise<boolean> {
+    const inserted = rows(await this.database.execute(sql`INSERT INTO factory_command_outbox
+      (id, tenant_id, project_id, logical_run_id, deduplication_id, input_hash, state, available_at, lease_until, payload)
+      VALUES (${delivery.id}, ${this.tenantId}, ${this.projectId}, ${delivery.logicalRunId}, ${delivery.deduplicationId}, ${delivery.inputHash}, ${delivery.state}, ${delivery.availableAt}, ${delivery.leaseUntil}, ${JSON.stringify(delivery)})
+      ON CONFLICT (tenant_id, project_id, deduplication_id) DO NOTHING RETURNING id`));
+    return inserted.length === 1;
+  }
+
+  async claimCandidate(scope: string | null, now: number): Promise<FactoryCommandDelivery | null> {
+    this.assertScope(scope);
+    const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId}
+        AND ((state = 'queued' AND available_at <= ${now}) OR (state = 'leased' AND lease_until <= ${now}))
+      ORDER BY available_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`));
+    return result[0] ? decode(result[0]) : null;
+  }
+
+  async findById(scope: string, id: string): Promise<FactoryCommandDelivery | null> {
+    this.assertScope(scope);
+    const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId} AND id = ${id} FOR UPDATE`));
+    return result[0] ? decode(result[0]) : null;
+  }
+
+  async write(delivery: FactoryCommandDelivery): Promise<void> {
+    await this.database.execute(sql`UPDATE factory_command_outbox SET state = ${delivery.state}, available_at = ${delivery.availableAt},
+      lease_until = ${delivery.leaseUntil}, payload = ${JSON.stringify(delivery)}, updated_at = NOW()
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId} AND id = ${delivery.id}`);
+  }
+
+  async inspect(scope: string, id: string): Promise<FactoryCommandDelivery | null> {
+    this.assertScope(scope);
+    const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId} AND id = ${id}`));
+    return result[0] ? decode(result[0]) : null;
+  }
+}
+
+const stateMachine = new DurableDeliveryQueue<FactoryCommandDelivery>((code, message) => new FactoryOutboxError(code, message), () => crypto.randomUUID());
+
+function commandFor(tenantId: string, input: FactoryCommandInput): FactoryCommand {
+  identity(tenantId, input.projectId, input.logicalRunId);
+  assertJson(input.body);
+  if (input.kind !== "start_run") identity(input.interpreterId, input.kind === "decision" ? input.decisionId : input.notificationId);
+  const identityId = input.kind === "start_run" ? input.logicalRunId : input.kind === "decision" ? input.decisionId : input.notificationId;
+  const commandId = `factory-command:${durableInputHash({ tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, kind: input.kind, identityId }).slice(7)}`;
+  const command: FactoryCommand = {
+    commandId,
+    requestId: commandId,
+    tenantId,
+    projectId: input.projectId,
+    logicalRunId: input.logicalRunId,
+    workflowId: `${tenantId}/${input.logicalRunId}`,
+    kind: input.kind,
+    ...(input.kind === "start_run" ? {} : { interpreterId: input.interpreterId, eventId: identityId }),
+    body: input.body,
+  };
+  assertBoundedCommand(command);
+  return command;
+}
+
+/** Tenant/project-scoped transactional commands consumed by the Node dispatcher. */
+export class FactoryCommandOutbox {
+  private readonly scope: string;
+
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, readonly projectId: string, private readonly now: () => number = Date.now) {
+    identity(tenantId, projectId);
+    this.scope = queueScope(tenantId, projectId);
+  }
+
+  async enqueue(input: FactoryCommandInput): Promise<FactoryCommandDelivery> {
+    return this.database.transaction(transaction => this.enqueueInTransaction(transaction, input));
+  }
+
+  async enqueueInTransaction(transaction: MigrationDb, input: FactoryCommandInput): Promise<FactoryCommandDelivery> {
+    if (input.projectId !== this.projectId) throw new FactoryOutboxError("factory_command_scope_mismatch");
+    const command = commandFor(this.tenantId, input);
+    const inputHash = durableInputHash(command);
+    const store = new FactoryCommandStore(transaction, this.tenantId, this.projectId);
+    return stateMachine.enqueue(store, {
+      scope: this.scope,
+      deduplicationId: command.commandId,
+      inputHash,
+      hashExisting: delivery => delivery.inputHash,
+      create: () => ({
+        id: command.commandId,
+        tenantId: this.tenantId,
+        projectId: this.projectId,
+        logicalRunId: input.logicalRunId,
+        deduplicationId: command.commandId,
+        inputHash,
+        command,
+        state: "queued",
+        attempts: 0,
+        maxAttempts: 3,
+        availableAt: this.now(),
+        leaseUntil: 0,
+        createdAt: this.now(),
+      }),
+    });
+  }
+
+  async claim(leaseMs = 60_000): Promise<FactoryCommandDelivery | null> {
+    return this.database.transaction(transaction => stateMachine.claim(new FactoryCommandStore(transaction, this.tenantId, this.projectId), this.scope, this.now(), leaseMs));
+  }
+
+  async settle(delivery: FactoryCommandDelivery, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryCommandDelivery> {
+    if (delivery.tenantId !== this.tenantId || delivery.projectId !== this.projectId) throw new FactoryOutboxError("factory_command_scope_mismatch");
+    return this.database.transaction(transaction => stateMachine.settle(new FactoryCommandStore(transaction, this.tenantId, this.projectId), this.scope, delivery, this.now(), outcome, failureCode));
+  }
+
+  async inspect(commandId: string): Promise<FactoryCommandDelivery | null> {
+    identity(commandId);
+    return stateMachine.inspect(new FactoryCommandStore(this.database, this.tenantId, this.projectId), this.scope, commandId);
+  }
+
+  async dispatch(handler: (delivery: FactoryCommandDelivery) => Promise<void>): Promise<FactoryCommandDelivery | null> {
+    return dispatchDurableDelivery(() => this.claim(), (delivery, outcome, code) => this.settle(delivery, outcome, code), handler, error => error instanceof FactoryRetryableCommandError ? error.code : null);
+  }
+}
+
+export class FactoryRetryableCommandError extends Error {
+  constructor(readonly code: string) {
+    super("Factory command failed before Temporal acknowledged it.");
+    this.name = "FactoryRetryableCommandError";
+  }
+}

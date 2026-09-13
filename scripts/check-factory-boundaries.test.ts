@@ -20,7 +20,7 @@ const shared: SourceInput[] = [{
 
 describe("factory static boundaries", () => {
   test("accepts deterministic interpreted validation", () => {
-    expect(checkFactoryBoundaries(safeFactory, shared)).toEqual([]);
+    expect(checkFactoryBoundaries(safeFactory, shared, [])).toEqual([]);
   });
 
   test.each([
@@ -83,7 +83,7 @@ describe("factory static boundaries", () => {
 
   test("F13 distinguishes overload shape instead of banning a name alone", () => {
     const distinct = { path: "packages/@ezcorp/factory-sdk/src/compiler.ts", source: "function insertTransactionalAuditEntry(value: unknown) {}" };
-    expect(checkFactoryBoundaries([...safeFactory, distinct], shared)).toEqual([]);
+    expect(checkFactoryBoundaries([...safeFactory, distinct], shared, [])).toEqual([]);
   });
 
   test("F13 requires each declared shared-module import", () => {

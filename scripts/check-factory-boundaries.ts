@@ -36,15 +36,20 @@ export const SHARED_REUSE_MODULES = [
   "src/extensions/network-broker.ts",
   "src/extensions/host-api-broker.ts",
   "src/extensions/v4/deliveries.ts",
+  "src/delivery-queue/durable-delivery-queue.ts",
   "src/extensions/lifecycle-recovery-scheduler.ts",
   "src/extensions/v4/blobs.ts",
   "src/db/queries/audit-log.ts",
   "src/extensions/host-maintenance-daemon.ts",
 ] as const;
 
-// Stage 1 adds new compiler/kernel concepts and touches no C13 reuse row.
-// Add one entry with each later factory module that implements a C13 row.
-export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [];
+// Every factory module that implements a C13 row must import its named shared
+// implementation. This makes reuse an executable boundary, not a review note.
+export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
+  { factoryPath: "src/factory/outbox.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/records.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/records.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+];
 
 function parse(input: SourceInput): ts.SourceFile {
   return ts.createSourceFile(input.path, input.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
