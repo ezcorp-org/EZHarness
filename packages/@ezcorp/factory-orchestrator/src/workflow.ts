@@ -1,4 +1,5 @@
-import { factoryChildRunId, type JsonValue } from "@ezcorp/factory-sdk";
+import type { JsonValue } from "@ezcorp/factory-sdk";
+import { factoryChildRunId } from "@ezcorp/factory-sdk/transport-types";
 import type { KernelCommand, KernelEvent, KernelFactoryPlan, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { advanceKernel, createKernelState, createPartitionKernelState } from "@ezcorp/factory-sdk/kernel";
 import {
