@@ -42,7 +42,8 @@ export function simulateFactory(
     state = advanced.nextState;
     commands.push(...advanced.commands);
     for (const command of advanced.commands) pending.push(...eventsFor(command, state, factory, options, eventId));
-    pending.sort((left, right) => left.atMs - right.atMs || left.id.localeCompare(right.id));
+    // ECMAScript sort is stable: equal timestamps retain recorded enqueue order.
+    pending.sort((left, right) => left.atMs - right.atMs);
   }
   return { state, events, commands };
 

@@ -403,7 +403,7 @@ function finish(factory: CompiledFactory, state: KernelState, commands: KernelCo
     return { nextState: command.state, commands };
   }
   const nodes = Object.entries(state.nodes).filter(([id, runtime]) => !(runtime.status === "failed" && isCollectMapChild(factory, id))).map(([, runtime]) => runtime);
-  if (nodes.length > 0 && nodes.every((node) => node.status === "succeeded" || node.status === "skipped")) {
+  if (nodes.every((node) => node.status === "succeeded" || node.status === "skipped")) {
     const done = { ...state, status: "completed" as const };
     const command = commandFor(done, "complete-run");
     commands.push({ kind: "complete-run", id: command.id, output: graphOutput(factory, command.state) });

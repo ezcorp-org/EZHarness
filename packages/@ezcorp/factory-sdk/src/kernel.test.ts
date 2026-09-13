@@ -21,6 +21,13 @@ function compiled(nodes: readonly FactoryNode[], outputs: Record<string, { reado
 const event = <T extends object>(id: string, values: T): T & { readonly id: string; readonly atMs: number } => ({ id, atMs: 1, ...values });
 
 describe("factory kernel", () => {
+  test("completes a valid empty root graph immediately", () => {
+    const graph = compiled([], {});
+    const result = advanceKernel(graph, createKernelState(graph, "empty", {}, 0), event("start", { kind: "start" }));
+    expect(result.nextState.status).toBe("completed");
+    expect(result.commands).toEqual([{ kind: "complete-run", id: "empty:run:complete-run:1", output: {} }]);
+  });
+
   test("uses stable command identities and independently advances a ready successor", () => {
     const graph = compiled([
       { id: "first", kind: "task", runner },
