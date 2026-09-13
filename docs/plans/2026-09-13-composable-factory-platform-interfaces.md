@@ -2332,3 +2332,11 @@ this document.
 
 *End of freeze. Owners sign off in `tasks/factory/`; this file is the reference W00 hands to
 W01–W08.*
+
+## 16. Dated corrections after wave-1 integration (coordinator, 2026-09-13)
+
+Accepted deviations, recorded here so consumers read the landed contract rather than the sketch:
+
+- **Section 6 (W01).** The durable terminal result lives in two new columns on `factory_attempt_launches`, not in `factory_execution_terminals`, because that table requires a verified output-artifact foreign key and cannot hold failed, cancelled, or uncertain results. `FactoryHostLaunchProtocol.stop` currently takes W01's `FactoryPhysicalStopRequest` (attempt, reservation, holder generation, reason); W03 reconciles it with `FactoryTaskStopRequest` when section 3 lands. Cross-host replacement enforcement (signed-receipt consumption plus fencing) remains W03's, not W01's.
+- **Section 7 (W04).** `factory_artifacts` gains `material_key` and the admission-index helper a conditional `material_key` dimension; `FactoryArtifactAccessError` and `unavailable()` moved to `artifact-materials.ts` and are re-exported from `artifact-access.ts`; unsealed materials carry reserved `digest`/`storage_version` sentinels until `seal`; the material handle is one `factory_artifacts` row of kind `material` carrying the chunk manifest; `FactoryAttemptMaterials` adds `chunks()` and `readChunk()`; `maxObjectsPerOperation` counts versions as objects; `FactoryWorkspaceCheckpoints` implements open question 26's default (`workspace/` prefix), leaving the checkpoint payload shape to the runner. `add-factory-release-authority.ts` no longer re-adds its narrower `kind` check on every boot.
+- **Section 12 (W18).** `scripts/check-factory-boundaries.ts` now derives the C13 inventory from the real import graph (46 edges) and gains a workspace-package resolver; each later package still appends its rows, and the coordinator merges.
