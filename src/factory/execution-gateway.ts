@@ -14,8 +14,10 @@ export interface FactoryGatewayOptions {
 }
 
 type Claims = JWTPayload & Record<string, unknown>;
-type Connection = { input: Buffer; authorized: boolean; tenantId?: string };
+type Connection = { input: Buffer; authorized: boolean; tenantId?: string; processing: boolean; closed: boolean; timer?: ReturnType<typeof setTimeout> };
 const MAX_REQUEST_BYTES = 1_048_576;
+const MAX_HEADER_BYTES = 16 * 1024;
+const READ_TIMEOUT_MS = 15_000;
 
 function identity(value: Claims, attemptId: string): FactoryAttemptAuthority | null {
   const strings = ["attemptId", "tenantId", "projectId", "runId", "nodeInstanceId"].map(key => value[key]);
@@ -32,6 +34,9 @@ function reply(status: number, value: unknown): string {
 }
 
 function send(socket: Bun.Socket<Connection>, status: number, value: unknown): void {
+  if (socket.data.closed) return;
+  socket.data.closed = true;
+  clearTimeout(socket.data.timer);
   socket.write(reply(status, value));
   socket.end();
 }
@@ -42,23 +47,29 @@ export function startFactoryExecutionGateway(options: FactoryGatewayOptions): { 
     hostname: options.hostname ?? "127.0.0.1", port: options.port ?? 0,
     tls: { key: options.tls.key, cert: options.tls.cert, ca: options.tls.ca, requestCert: true, rejectUnauthorized: true },
     socket: {
-      open(socket) { socket.data = { input: Buffer.alloc(0), authorized: false }; },
+      open(socket) { socket.data = { input: Buffer.alloc(0), authorized: false, processing: false, closed: false, timer: setTimeout(() => send(socket, 400, { error: "request_timeout" }), READ_TIMEOUT_MS) }; },
       handshake(socket, authorized) { const commonName = socket.getPeerCertificate()?.subject?.CN; socket.data.authorized = authorized; socket.data.tenantId = typeof commonName === "string" ? commonName : undefined; },
       async data(socket, chunk) {
+        if (socket.data.closed) return;
+        if (socket.data.processing) { socket.data.closed = true; clearTimeout(socket.data.timer); socket.end(); return; }
         socket.data.input = Buffer.concat([socket.data.input, Buffer.from(chunk)]);
         if (socket.data.input.byteLength > MAX_REQUEST_BYTES) return send(socket, 413, { error: "request_too_large" });
         const split = socket.data.input.indexOf("\r\n\r\n");
+        if (split < 0 && socket.data.input.byteLength > MAX_HEADER_BYTES) return send(socket, 413, { error: "header_too_large" });
         if (split < 0) return;
+        if (split > MAX_HEADER_BYTES) return send(socket, 413, { error: "header_too_large" });
         try {
           const [first, ...lines] = socket.data.input.subarray(0, split).toString().split("\r\n");
           const [method, path, protocol] = first!.split(" ");
-          const headers = Object.fromEntries(lines.map(line => { const index = line.indexOf(":"); if (index < 1) throw new Error("Malformed HTTP header."); return [line.slice(0, index).toLowerCase(), line.slice(index + 1).trim()]; }));
+          const headers: Record<string, string> = {};
+          for (const line of lines) { const index = line.indexOf(":"); const name = line.slice(0, index).toLowerCase(); if (index < 1 || headers[name] !== undefined) throw new Error("Malformed or duplicate HTTP header."); headers[name] = line.slice(index + 1).trim(); }
           const match = new URL(path!, "https://factory.invalid").pathname.match(/^\/internal\/factory\/v1\/executions\/([^/]+)(\/cancel)?$/);
           const length = Number(headers["content-length"] ?? 0);
-          if (protocol !== "HTTP/1.1" || !Number.isSafeInteger(length) || length < 0 || length > MAX_REQUEST_BYTES - split - 4) throw new Error("Malformed request length.");
+          if (protocol !== "HTTP/1.1" || headers["transfer-encoding"] !== undefined || !Number.isSafeInteger(length) || length < 0 || length > MAX_REQUEST_BYTES - split - 4) throw new Error("Malformed request length.");
           if (socket.data.input.byteLength < split + 4 + length) return;
           if (socket.data.input.byteLength !== split + 4 + length) throw new Error("Only one request is accepted per connection.");
           if (headers["x-ezcorp-factory-version"] !== "1" || (method !== "GET" && headers["content-type"] !== "application/json")) throw new Error("Gateway version or content type is invalid.");
+          socket.data.processing = true;
           const request = length ? JSON.parse(socket.data.input.subarray(split + 4, split + 4 + length).toString("utf8")) : {};
           const token = headers.authorization;
           const claims = socket.data.authorized && token?.startsWith("Bearer ") ? await verifyJWT(token.slice(7), options.jwtSecret, options.installationId) as Claims | null : null;
