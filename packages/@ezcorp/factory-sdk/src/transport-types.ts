@@ -5,6 +5,30 @@ export const FACTORY_TRANSPORT_COMMAND_BYTES_LIMIT = 64 * 1024;
 /** Private HTTP adds a claim token and settlement metadata outside the Temporal payload. */
 export const MAX_TRANSPORT_ENVELOPE_BYTES = FACTORY_TRANSPORT_COMMAND_BYTES_LIMIT + 4 * 1024;
 
+/** Atomic Node process status consumed by Bun before factory admission opens. */
+export interface FactoryOrchestrationReadiness {
+  readonly schemaVersion: "factory.orchestrator-readiness.v1";
+  readonly installationId: string;
+  readonly tenantId: string;
+  readonly namespace: string;
+  readonly taskQueue: string;
+  readonly lifecycle: "starting" | "ready" | "stopping" | "failed";
+  readonly observedAtMs: number;
+  readonly workerPolling: boolean;
+  readonly dispatcherLive: boolean;
+  readonly credentialGeneration: number;
+  readonly errorCode?: string;
+}
+
+export interface FactoryOrchestrationReadinessOptions {
+  readonly installationId: string;
+  readonly tenantId: string;
+  readonly namespace: string;
+  readonly taskQueue: string;
+  readonly readinessFilePath: string;
+  readonly readinessHeartbeatMs?: number;
+}
+
 /** Pure durable command contract shared by Bun producers and the Node dispatcher. */
 export interface FactoryTransportCommand {
   readonly commandId: string;

@@ -7,9 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TLSSocket } from "node:tls";
 import { after, before, describe, it } from "node:test";
-import { MockActivityEnvironment } from "@temporalio/testing";
+import { MockActivityEnvironment, TestWorkflowEnvironment } from "@temporalio/testing";
 import { createGatewayFactoryActivities, createGatewayTransport, type GatewayTlsSecretPaths } from "../src/gateway-activities.ts";
 import { createGatewayFactoryCommandQueue } from "../src/queue-client.ts";
+import { factoryOrchestratorProductionDependencies, runFactoryOrchestratorProcess } from "../src/process.ts";
 import { createGatewayTransport as createSharedTransport } from "../../factory-transport/src/index.ts";
 
 const sha256 = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
@@ -96,7 +97,8 @@ before(async () => {
     const peer = (request.socket as TLSSocket).getPeerCertificate();
     if (peer.subject?.CN !== expectedClientCn) { response.writeHead(403).end(); return; }
     if (request.headers.authorization !== `Bearer ${expectedToken}`) { response.writeHead(401).end(); return; }
-    if (request.url === "/internal/factory/v1/outbox/claim") queueClaimBody === undefined ? response.writeHead(204).end() : response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(queueClaimBody));
+    if (request.url === "/internal/factory/v1/health") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ schemaVersion: "factory.private-service.v1", tenantId: "tenant" }));
+    else if (request.url === "/internal/factory/v1/outbox/claim") queueClaimBody === undefined ? response.writeHead(204).end() : response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(queueClaimBody));
     else if (request.url === "/internal/factory/v1/outbox/settle") response.writeHead(204).end();
     else if (request.url === "/internal/factory/v1/outbox/confirm-inbox") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode !== "wrong-confirmation" ? true : "yes"));
     else if (request.url === "/internal/factory/v1/definitions/resolve") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-resolve" ? { ...source, definitionDigest: sha256("wrong") } : source));
@@ -132,6 +134,42 @@ const transition = { ...identity, sourceSequence: 1, eventId: "start", eventHash
 const activity = (environment, fn, value) => environment.run(fn, value);
 
 describe("authenticated factory gateway activities", () => {
+  it("keeps production readiness closed when the real server cannot prove its task queue poller", { timeout: 30_000 }, async () => {
+    mode = "normal";
+    queueClaimBody = undefined;
+    const temporal = await TestWorkflowEnvironment.createTimeSkipping({ server: { executable: {
+      type: "existing-path",
+      path: process.env.FACTORY_TEMPORAL_TEST_SERVER ?? "/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server",
+    } } });
+    const controller = new AbortController();
+    const readiness = [];
+    const connection = Object.create(temporal.nativeConnection);
+    Object.defineProperty(connection, "close", { value: async () => {} });
+    try {
+      await assert.rejects(runFactoryOrchestratorProcess({
+        installationId: "installation", tenantId: "tenant", signal: controller.signal,
+        temporal: {
+          address: "unused", namespace: "default", serverName: "unused", caPath: "unused", certificatePath: "unused", privateKeyPath: "unused", apiKeyPath: "unused",
+          credentialRefreshMs: 1_000, pollingProbeTimeoutMs: 1_000,
+        },
+        gateway: { baseUrl: origin, tls: paths, serverName: "localhost", requestTimeoutMs: 1_000 },
+        payloadCodec: { encode: async (values) => values, decode: async (values) => values },
+        loadTemporalCredentials: async () => ({ ca: Buffer.from("ca"), certificate: Buffer.from("cert"), privateKey: Buffer.from("key"), apiKey: "token", tlsFingerprint: "tls" }),
+        readiness: { write: async (state) => {
+          readiness.push(state);
+          return { schemaVersion: "factory.orchestrator-readiness.v1", installationId: "installation", tenantId: "tenant", namespace: "default", taskQueue: "factory-orchestrator", observedAtMs: Date.now(), ...state };
+        } },
+        readinessHeartbeatMs: 1_000,
+      }, { ...factoryOrchestratorProductionDependencies, connect: async () => connection }), /process failed/);
+      assert.deepEqual(readiness.map((state) => [state.lifecycle, state.workerPolling, state.dispatcherLive]), [
+        ["starting", false, false], ["failed", false, false],
+      ]);
+      assert.equal(calls.some((call) => call.path === "/internal/factory/v1/health"), true);
+    } finally {
+      await temporal.teardown();
+    }
+  });
+
   it("shares a bounded credential-reloading HTTP transport without Temporal imports", async () => {
     mode = "normal";
     const options = { baseUrl: origin, tls: { ...paths }, requestTimeoutMs: 1000 };
