@@ -872,3 +872,19 @@ Review: the production suite retained all eight proof results. File Organizer (1
 Review: the current helper applies its only 10s guard before the signal, leaves post-signal exit unbounded, drains stderr only after exit, and does not kill/reap the child if readiness fails. The repair must address those lifecycle defects, not accept the existing retry as success.
 
 Performance review: the final four-worker, two-CPU run completes all six cases per worker in at most 15.98s, versus 18.59s for the original two-case suite in the same local setup. These are local single-run controls, not an overall CI speedup claim. The one-CPU red/green controls are retained under `tasks/pr-submit/tenth-shutdown-*`.
+
+## Production CI performance
+
+- [x] Measure the 58m35s baseline and identify independent proof groups.
+- [x] Review a Terra plan for image build/transfer and isolated proof shards.
+- [x] Implement bounded parallel jobs with one candidate image and strict receipt aggregation.
+- [x] Review image ownership cost; retain the existing Dockerfile because removing the traversal would change runtime permissions or add build complexity.
+- [x] Add failure controls for missing, duplicate, stale or failed shard evidence.
+- [x] Run focused checks, real image transfer and required local checks.
+- [ ] Submit a PR and measure a full hosted run against the baseline; require all existing proofs and coverage to pass.
+
+Review target: reduce production wall time from 58m35s to below 30 minutes on hosted CI without dropping a proof, shortening real recovery leases, adding retries, or running resource baselines beside competing proofs on one host. Report total runner time and transfer cost as well as wall time.
+
+Implementation review: five isolated proof groups share one attested image; the protected result validates all nine proof records, all eleven launcher cleanup records, exact candidate identity, and all four namespace cases. Local sequential callers keep the original eight proofs. Parent's real 4.4 GB image transfer produced a 1.496 GB archive in 30.69s, loaded both engines in 18.33s, and peaked at 129,392 KiB child RSS. No Dockerfile, coverage floor, recovery lease, or retry policy change.
+
+Local review: 25,660 backend tests, 3,624 orphan web tests, 7,379 Node tests and 2,170 Chromium cases pass. Full coverage reports 26,466 passes, zero failures and all 1,625 source floors satisfied. All 39 focused infrastructure tests pass with 431 assertions. Terra reviewed six fresh UI screenshots and independently audited the raw logs. The first browser attempt correctly refused another project's occupied port; a fresh complete run on a private port passed. Terra caught a readonly matcher type error; the final annotation passes full typecheck and preserves identical emitted JavaScript. Hosted CI must run all gates on the final PR source and establish the measured performance result.

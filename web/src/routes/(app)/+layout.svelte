@@ -261,6 +261,10 @@
 		return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "Home";
 	});
 
+	// Optional page-supplied trailing crumb (e.g. the extension name on the
+	// author page). Pages set `breadcrumbTail` in their load data.
+	let breadcrumbTail = $derived(page.data.breadcrumbTail || null);
+
 </script>
 
 <!--
@@ -492,6 +496,10 @@
 			<span class="text-[var(--color-text-muted)]">{isGlobalProject ? "global" : (activeProject?.name ?? "workspace")}</span>
 			<span class="deck-breadcrumb__sep">/</span>
 			<span class="text-[var(--color-text-secondary)]">{breadcrumbLabel}</span>
+			{#if breadcrumbTail}
+			<span class="deck-breadcrumb__sep">/</span>
+			<span class="text-[var(--color-text-primary)]" data-testid="deck-breadcrumb-tail">{breadcrumbTail}</span>
+			{/if}
 		</div>
 		{/if}
 		{#if isChatRoute}
