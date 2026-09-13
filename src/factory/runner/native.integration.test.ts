@@ -1,8 +1,23 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryRunnerOperationResult, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
-import { createFactoryAgentRuntime, type FactoryExecutionContext } from "../../runtime/factory-execution";
+import type { FactoryExecutionContext } from "../../runtime/factory-execution";
+import { AgentExecutor } from "../../runtime/executor";
+import { EventBus } from "../../runtime/events";
+import { closeTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
+import { createProject } from "../../db/queries/projects";
+import { createConversation } from "../../db/queries/conversations";
+import type { AgentEvents } from "../../types";
 import { runNativeFactoryRunner } from "./native";
+
+mockDbConnection();
+let conversationId = "";
+beforeAll(async () => {
+  await setupTestDb();
+  const project = await createProject({ name: "Native factory", path: "/tmp/native-factory" });
+  conversationId = (await createConversation(project.id, { title: "Native factory" })).id;
+});
+afterAll(closeTestDb);
 
 const raw = "a".repeat(64);
 const pinned = `sha256:${raw}`;
@@ -27,13 +42,8 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
   };
   const options = {
     execution: () => execution,
-    conversation: () => ({ conversationId: "factory-conversation", userMessage: "make output" }),
-    executor: { executeFactoryAttempt: async call => {
-      expect(call.execution).toBe(execution);
-      const stream = await createFactoryAgentRuntime(call.execution).streamFn(model, { systemPrompt: "", messages: [], tools: [] }, {});
-      await stream.result();
-      return { id: "native-run", agentName: "chat", status: "success", startedAt: 1, finishedAt: 2, inputTokens: 1, outputTokens: 1, logs: [], result: { success: true, output: { fullText: "done" } } };
-    } },
+    conversation: () => ({ conversationId, userMessage: "make output" }),
+    executor: new AgentExecutor(new Map(), new EventBus<AgentEvents>(), { persist: false }),
     journal: { operations: async () => [operation], journalCursor: async () => 5, usage: async () => operation.usage! },
     artifacts: { output: async () => ({ artifactId: "output", digest: pinned, encodedBytes: 4 }), checkpoint: async () => checkpoint },
   };
