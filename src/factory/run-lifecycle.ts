@@ -19,6 +19,11 @@ import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type Facto
 
 interface LifecycleRow { factory_id: string; factory_version: string; definition_digest: string; grant_revision: string | number; revision: string | number; cancellation_epoch: string | number; status: FactoryRunDetails["status"]; deadline_ms: string | number; parameters_json: string; parameters_digest: string; output_json: string | null; error_json: string | null; created_ms: string | number; updated_ms: string | number }
 export interface FactoryRunRequest { readonly run: FactoryRunDetails; readonly receipt: FactoryDurableReceipt }
+/** Lets host admission retain a bounded placeholder while the durable parameter descriptor carries artifact references. */
+export interface FactoryResolvedParameters {
+  readonly kind: "factory.run-resolved-parameters";
+  readonly input: JsonValue;
+}
 
 export interface FactoryRunFence {
   readonly tenantId: string;
@@ -46,7 +51,7 @@ export interface FactoryRunLifecycleOptions {
   /** Stages immutable artifacts through the configured storage service; no effects. */
   readonly stageDefinitionInTransaction: (transaction: MigrationDb, compiled: CompiledFactory, identity: FactoryIdentity) => Promise<FactoryDefinitionSource>;
   /** Resolves host-issued artifact handles and validates their scoped bytes. */
-  readonly resolveParameters: (transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, parameters: FactoryRunStartBody["parameters"]) => Promise<JsonValue>;
+  readonly resolveParameters: (transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryDefinitionKey, parameters: FactoryRunStartBody["parameters"]) => Promise<JsonValue | FactoryResolvedParameters>;
 }
 
 export class FactoryRunLifecycleError extends Error {
@@ -88,7 +93,10 @@ export class FactoryRunLifecycle {
       const { version, compiled } = await this.options.definitions.readVersionInTransaction(transaction, principal, key, body.factoryVersion);
       if (version.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
       if (compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_interpreter_unavailable");
-      const input = await this.options.resolveParameters(transaction, principal, key, body.parameters);
+      const resolved = await this.options.resolveParameters(transaction, principal, key, body.parameters);
+      const input = typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && (resolved as { kind?: unknown }).kind === "factory.run-resolved-parameters"
+        ? (resolved as FactoryResolvedParameters).input
+        : resolved as JsonValue;
       const ports = compiled.definition.inputPorts;
       if (typeof input !== "object" || input === null || Array.isArray(input) || Object.keys(input).some(name => !Object.hasOwn(ports, name)) || Object.entries(ports).some(([name, schema]) => !Object.hasOwn(input, name) || !validateValue(schema, input[name]!).ok)) throw new FactoryRunLifecycleError("factory_input_invalid");
       const startedAtMs = this.now();
