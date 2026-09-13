@@ -1315,3 +1315,12 @@ Plan review: the accepted C02 HTTPS operations are the test boundary. The token 
 
 
 Review: `attempt-token-purpose-red.log` retains the real Node-to-Bun mTLS reproduction: a user-shaped credential admitted work with HTTP 201. The dedicated attempt codec rejects that credential. `root-auth-integration-results.json` records eight successful producers at `d84359f84`, including root/web frozen installs, SDK build, 58 real PostgreSQL/S3 cases with 1,745 assertions, 24 authentication/schema cases, all four type checks, lint and gate integrity. The gateway also proves signed conflicting submissions return 409 and that expired attempts retain authenticated status/cancellation while new admission fails. Both the token codec and gateway have complete measured lines (31/31 and 28/28). These are private authentication and database integration proofs; concrete execution composition and production readiness remain open.
+
+## Production orchestration readiness reader
+
+- [ ] Read only an owned private bounded readiness file and bind it to the configured installation, tenant, namespace and task queue.
+- [ ] Require a fresh ready heartbeat, confirmed worker polling, a live dispatcher and a loaded credential generation.
+- [ ] Reject missing, stale, future, malformed, foreign, unsafe and failed state files without exposing their contents.
+- [ ] Prove the private-file boundary and measured coverage; integrate the actual production Node writer when available.
+
+Plan review: the Node bootstrap owner and root agreed the versioned private readiness-file contract. This reader uses the existing descriptor-based private-file module. The Node writer must verify authenticated namespace/task-queue polling before it can report ready. The reader alone is not a production boot proof.
