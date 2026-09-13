@@ -184,8 +184,13 @@ export class FactoryExecutionJournal {
     return stored.state === state
       && stored.provider_receipt_digest === (result.providerReceiptDigest ?? null)
       && stored.result_digest === (result.resultDigest ?? null)
-      && canonicalJson(stored.usage_json ?? null) === canonicalJson(result.usage ?? null)
-      && canonicalJson(stored.workspace_checkpoint ?? null) === canonicalJson(result.workspaceCheckpoint ?? null);
+      && this.canonicalStoredJson(stored.usage_json) === canonicalJson(result.usage ?? null)
+      && this.canonicalStoredJson(stored.workspace_checkpoint) === canonicalJson(result.workspaceCheckpoint ?? null);
+  }
+
+  private canonicalStoredJson(value: unknown): string {
+    if (typeof value !== "string") return canonicalJson(value ?? null);
+    try { return canonicalJson(JSON.parse(value)); } catch { return canonicalJson(value); }
   }
 
   private assertLiveInput(authority: FactoryAttemptAuthority): void {

@@ -82,6 +82,8 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     await journal.settle(attempt, one.operationId, "completed", { resultDigest: "one", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 1 } });
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: -1 });
     await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
+    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
+    await expect(journal.settle(attempt, zero.operationId, "completed", { resultDigest: "changed", usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } })).rejects.toThrow("cannot settle");
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: 1 });
   });
 });
