@@ -28,7 +28,14 @@ export class FactoryNativeRunnerPolicyError extends Error {
 }
 
 function snapshot<T>(value: T): T {
-  return JSON.parse(encodeFactoryPayload(value)) as T;
+  return deepFreeze(structuredClone(value));
+}
+
+function deepFreeze<T>(value: T, seen = new Set<object>()): T {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const child of Object.values(value)) deepFreeze(child, seen);
+  return Object.freeze(value);
 }
 
 function same(left: unknown, right: unknown): boolean {
@@ -102,6 +109,7 @@ export class FactoryNativeRunnerPolicy implements FactoryTaskRunnerPolicy {
   }
 
   async resolveInTransaction(transaction: MigrationDb, input: FactoryTaskRunnerPolicyInput): Promise<FactoryTaskRunnerResolution> {
+    input = snapshot(input);
     const { context, compute } = input;
     if (input.reference.tenantId !== this.tenantId || context.fence.tenantId !== this.tenantId) throw new FactoryNativeRunnerPolicyError("factory_native_policy_scope");
     await this.grants.authorizeInTransaction(transaction, input.initiator, input.reference.projectId, "factory.run", context.fence.grantRevision);
@@ -131,6 +139,6 @@ export class FactoryNativeRunnerPolicy implements FactoryTaskRunnerPolicy {
       maxTokens: source.budget.tokens,
       maxComputeMs: source.budget.computeMs,
     };
-    return Object.freeze({ grants: Object.freeze(capabilities.sort()), resources: Object.freeze(resources), ...(profile.model ? { model: profile.model } : {}), tools: Object.freeze(tools), brokerAudience: this.brokerAudience });
+    return snapshot({ grants: capabilities.sort(), resources, ...(profile.model ? { model: profile.model } : {}), tools, brokerAudience: this.brokerAudience });
   }
 }
