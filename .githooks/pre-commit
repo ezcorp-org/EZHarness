@@ -63,7 +63,11 @@ fi
 STAGED=()
 while IFS= read -r f; do
   [ -n "$f" ] && STAGED+=("$f")
-done < <(git diff --cached --name-only --diff-filter=ACMR)
+# core.quotePath=false: git C-quotes paths containing non-ASCII bytes by
+# default ("\303\251tat.ts"), and a quoted name matches none of the extension
+# cases below — so such a file would silently skip lint AND its tests.
+# gate-integrity.ts pins the same option for the same reason.
+done < <(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR)
 
 if [ "${#STAGED[@]}" -eq 0 ]; then
   exit 0
