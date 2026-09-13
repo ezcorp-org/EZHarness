@@ -199,6 +199,35 @@ export type KernelEvent =
       readonly choice: string;
     })
   | (KernelEventBase & {
+      readonly kind: "input-value-read";
+      readonly commandId: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
+      readonly cancellationEpoch: number;
+      readonly name: string;
+      readonly artifact: import("./types.js").FactoryArtifactReference;
+      readonly path: readonly import("./types.js").ReferencePathSegment[];
+      readonly storageVersion: string;
+      readonly mediaType: "application/json";
+      readonly value: JsonValue;
+    })
+  | (KernelEventBase & {
+      readonly kind: "input-page-read";
+      readonly commandId: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
+      readonly cancellationEpoch: number;
+      readonly name: string;
+      readonly artifact: import("./types.js").FactoryArtifactReference;
+      readonly path: readonly import("./types.js").ReferencePathSegment[];
+      readonly storageVersion: string;
+      readonly mediaType: "application/json";
+      readonly cursor: number;
+      readonly maxItems: number;
+      readonly items: readonly JsonValue[];
+      readonly nextCursor?: number;
+    })
+  | (KernelEventBase & {
       readonly kind: "timer-expired";
       readonly nodeId?: string;
       readonly commandId?: string;
@@ -256,6 +285,32 @@ export type KernelCommand =
       readonly factory: FactoryReference;
       readonly input: JsonValue;
       readonly deadlineAtMs: number;
+    }
+  | {
+      readonly kind: "read-input-value";
+      readonly id: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
+      readonly cancellationEpoch: number;
+      readonly name: string;
+      readonly artifact: import("./types.js").FactoryArtifactReference;
+      readonly path: readonly import("./types.js").ReferencePathSegment[];
+      readonly maxBytes: number;
+      readonly expectedStorageVersion?: string;
+    }
+  | {
+      readonly kind: "read-input-page";
+      readonly id: string;
+      readonly nodeId: string;
+      readonly candidateGeneration: number;
+      readonly cancellationEpoch: number;
+      readonly name: string;
+      readonly artifact: import("./types.js").FactoryArtifactReference;
+      readonly path: readonly import("./types.js").ReferencePathSegment[];
+      readonly cursor: number;
+      readonly maxItems: number;
+      readonly maxBytes: number;
+      readonly expectedStorageVersion?: string;
     }
   | {
       readonly kind: "request-approval";

@@ -82,6 +82,7 @@ export function simulationEventsFor(
       return [{ kind: "timer-expired", id: eventId("timer"), atMs: command.deadlineAtMs, nodeId: command.nodeId, commandId: command.id }];
     case "cancel-node":
       return [{ kind: "attempt-stopped", id: eventId("stopped"), atMs: state.nowMs, nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt }];
+    case "read-input-value": case "read-input-page":
     case "invalidate-partition": case "notify-partition":
     case "complete-partition":
     case "complete-run":
