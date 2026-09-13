@@ -128,6 +128,21 @@ object or chunk, 409 conflict, 413 past the envelope, 400 otherwise, each with i
       EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` records `postgres-artifacts`,
       `postgres-executions`, `postgres-migration-restart`.
 
+- [x] G12: C02.11 copy-on-write workspace checkpoints have a production implementer, and its
+      cursor is the one the SDK validator demands.
+      CHECK: `bun test --timeout 120000 ./src/factory/artifact-materials.integration.test.ts`
+      EXPECT: 21 pass, 0 fail. A checkpoint is one immutable material version under the reserved
+      prefix, its `journalCursor` equals the operation index, `validateFactoryRunnerResult`
+      accepts a completed result carrying it and rejects a mismatched cursor, a replay returns the
+      identical handle, changed bytes for the same operation are refused, and a checkpoint after
+      the deadline is refused by the same journal fence.
+      EVIDENCE: `/tmp/factory-platform-evidence/w04/receipts.jsonl` record `materials-pglite` and
+      its PostgreSQL counterpart `postgres-materials`.
+      NOTE: `FactoryWorkspaceCheckpoints` satisfies W01's seam structurally and imports nothing
+      from `src/factory/runner/**`, which W01 owns and this package must not modify. W01 widened
+      that seam to pass `operationIndex` and the verified `FactoryAttemptAuthority` in
+      `47de8ec6b`, so the implementer needs no second authority lookup and never parses a cursor
+      out of an identifier. Wiring it to the supervisor is one adapter line at integration.
 ## Deviations from the section 7 sketch, all inside the owned surface
 
 1. `factory_artifacts` gains a `material_key` column and the admission-index helper appends a

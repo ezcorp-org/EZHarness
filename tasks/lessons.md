@@ -593,3 +593,11 @@
   up for ninety minutes while its PID was gone, `podman exec` failed, and its port refused.
 - Never reach for `git stash` to answer a question. A lint baseline is a `git show`/`git diff`
   question; stashing touches a stack other sessions own.
+
+- An operation that is retried must return its first handle, not repeat its write. Composing
+  idempotent primitives does not make the composition idempotent: begin was idempotent and
+  writeChunk correctly refused a sealed material, so the replay failed until the composition
+  checked for the sealed record itself.
+- A generated JSON Schema with `additionalProperties: false` rejects a hand-built fixture that
+  carries one extra field. Copy the shape from the package's own valid fixture rather than
+  assembling it from the type.

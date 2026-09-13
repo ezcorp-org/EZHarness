@@ -1,4 +1,4 @@
-import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
+import type { FactoryArtifactReference, FactoryCheckpointReference, JsonValue } from "@ezcorp/factory-sdk";
 import { FACTORY_PAGE_BYTES_LIMIT } from "@ezcorp/factory-sdk/page-bytes";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
@@ -686,4 +686,69 @@ function abortOr(error: unknown): unknown {
   if (error instanceof FactoryArtifactAccessError) return error;
   try { unavailable(); } catch (denied) { return denied; }
   return error;
+}
+
+/**
+ * The exact input the runner's workspace-checkpoint seam supplies. It is
+ * declared structurally so this implementer never imports the supervisor, which
+ * W01 owns. `attempt` is the authority the journal already verified.
+ */
+export interface FactoryWorkspaceCheckpointInput {
+  readonly operationId: string;
+  readonly operationIndex: number;
+  readonly attempt: FactoryAttemptAuthority;
+  readonly result: JsonValue;
+}
+
+export interface FactoryWorkspaceCheckpointsOptions extends FactoryMaterialStoreOptions {
+  readonly journal: FactoryExecutionJournal;
+}
+
+/**
+ * The production implementer of the C02 copy-on-write workspace checkpoint.
+ * Each checkpoint is a new immutable material version under the reserved
+ * `workspace/` prefix, so nothing is ever overwritten and recovery reads the
+ * same verified bytes through the same scoped reader.
+ *
+ * The returned cursor equals the operation index, because a completed
+ * operation's checkpoint cursor must match it exactly.
+ */
+export class FactoryWorkspaceCheckpoints {
+  private readonly options: FactoryWorkspaceCheckpointsOptions;
+
+  constructor(options: FactoryWorkspaceCheckpointsOptions) {
+    this.options = options;
+    if (options.artifacts.database !== options.database) throw new FactoryMaterialError("factory_material_scope_invalid");
+  }
+
+  /** The object name one operation's checkpoint always occupies. */
+  static objectName(operationIndex: number): string {
+    if (!Number.isSafeInteger(operationIndex) || operationIndex < 0) throw new FactoryMaterialError("factory_material_checkpoint_cursor_invalid");
+    return `${FACTORY_WORKSPACE_MATERIAL_PREFIX}operation-${operationIndex}.json`;
+  }
+
+  async checkpoint(input: FactoryWorkspaceCheckpointInput, signal?: AbortSignal): Promise<FactoryCheckpointReference> {
+    const objectName = FactoryWorkspaceCheckpoints.objectName(input.operationIndex);
+    const materials = new FactoryAttemptMaterials({ ...this.options, authority: input.attempt });
+    const identity: FactoryMaterialIdentity = { ...materials.scope(input.operationId), objectName, version: 1 };
+    const content = new TextEncoder().encode(canonicalJson(input.result));
+    const parts: Uint8Array[] = [];
+    for (let offset = 0; offset < content.byteLength; offset += FACTORY_MATERIAL_LIMITS.maxChunkBytes) {
+      parts.push(content.subarray(offset, Math.min(content.byteLength, offset + FACTORY_MATERIAL_LIMITS.maxChunkBytes)));
+    }
+    const digest = factoryMaterialDigest(content);
+    const begun = await materials.begin(identity, "application/json", content.byteLength, parts.length, signal);
+    // A replayed checkpoint must return the handle it already issued, never
+    // rewrite a sealed material, and never accept different bytes for the same
+    // completed operation.
+    if (begun.sealed) {
+      if (begun.digest !== digest || begun.artifact === undefined) throw new FactoryMaterialError("factory_material_conflict");
+      return Object.freeze({ ...begun.artifact, journalCursor: input.operationIndex });
+    }
+    for (const [index, part] of parts.entries()) {
+      await materials.writeChunk(identity, { index, digest: factoryMaterialDigest(part), encodedBytes: part.byteLength }, part, signal);
+    }
+    const artifact = await materials.seal(identity, digest, signal);
+    return Object.freeze({ ...artifact, journalCursor: input.operationIndex });
+  }
 }

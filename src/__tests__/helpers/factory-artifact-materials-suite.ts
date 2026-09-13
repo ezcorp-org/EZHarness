@@ -14,6 +14,7 @@ import {
   FACTORY_WORKSPACE_MATERIAL_PREFIX,
   FactoryAttemptMaterials,
   FactoryScopedMaterials,
+  FactoryWorkspaceCheckpoints,
   factoryMaterialChunkObjectId,
   factoryMaterialDigest,
   type FactoryMaterialIdentity,
@@ -21,6 +22,7 @@ import {
 } from "../../factory/artifact-materials";
 import { EncryptedBlobStore, InstallationDataKey, StaticMasterKeyProvider, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../factory/encryption";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
+import { validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 
 export interface FactoryMaterialFixture {
   readonly db: TransactionalDb;
@@ -77,9 +79,10 @@ async function setup(overrides: Partial<FactoryAttemptAuthority> = {}) {
   const journal = new FactoryExecutionJournal(db, async () => {}, () => new Date(now));
   const materials = new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority });
   const reader = new FactoryScopedMaterials({ database: db, artifacts, blobs });
+  const checkpoints = new FactoryWorkspaceCheckpoints({ database: db, artifacts, blobs, journal });
   const scope: FactoryMaterialScope = { tenantId: TENANT, projectId, runId, attemptId, operationId: `${runId}:node-a:0:0` };
   const identity: FactoryMaterialIdentity = { ...scope, objectName: "data/export.json", version: 1 };
-  return { db, artifacts, blobs, inner, journal, materials, reader, authority, scope, identity, root, advance: (ms: number) => { now += ms; } };
+  return { db, artifacts, blobs, inner, journal, materials, reader, checkpoints, authority, scope, identity, root, advance: (ms: number) => { now += ms; } };
 }
 
 /** Writes a whole material through the public begin/writeChunk/seal path. */
@@ -358,6 +361,67 @@ test("an unreadable stored chunk fails the seal instead of issuing a handle", as
   await db.execute(sql`UPDATE factory_artifact_material_chunks SET blob_digest=${"e".repeat(64)} WHERE attempt_id=${identity.attemptId} AND chunk_index=0`);
   await expect(materials.seal(identity, factoryMaterialDigest(content))).rejects.toThrow();
   expect(rows(await db.execute(sql`SELECT sealed, object_id FROM factory_artifact_materials WHERE attempt_id=${identity.attemptId} AND object_name=${identity.objectName}`))).toEqual([{ sealed: false, object_id: null }]);
+});
+
+test("a workspace checkpoint is one immutable material whose cursor the runner result accepts", async () => {
+  const { checkpoints, reader, scope, authority, materials } = await setup();
+  const transcript = { transcript: [{ role: "assistant", text: "y".repeat(500) }], cursor: 5, tools: [{ name: "read", ok: true }], workspace: { files: ["src/main.ts"] }, model: { provider: "test", name: "m" } };
+  const reference = await checkpoints.checkpoint({ operationId: scope.operationId, operationIndex: 5, attempt: authority, result: transcript });
+
+  // The cursor the completed operation is validated against is the operation index.
+  expect(reference.journalCursor).toBe(5);
+  expect(reference.artifactId).toMatch(/^factory-artifact-/u);
+  expect(reference.artifactId.includes("/")).toBe(false);
+  expect(Object.isFrozen(reference)).toBe(true);
+
+  // The SDK accepts a completed runner result carrying exactly this checkpoint.
+  const usage = { kind: "measured" as const, inputTokens: 1, outputTokens: 1, computeMs: 1, costMicros: "1" };
+  const digest = "a".repeat(64);
+  const accepted = validateFactoryRunnerResult({
+    schemaVersion: "factory.runner.result.v1", status: "completed", resultDigest: digest,
+    journalCursor: 5, usage, output: { artifactId: "factory-artifact-output", digest: `sha256:${digest}`, encodedBytes: 4 },
+    operations: [{ operationId: `${authority.runId}:node-a:0:5`, operationIndex: 5, kind: "model", requestDigest: digest, state: "completed", resultDigest: digest, usage, workspaceCheckpoint: reference }],
+    workspaceCheckpoint: reference,
+  } as never);
+  expect(accepted.ok).toBe(true);
+
+  // A cursor that does not equal the operation index is exactly what the SDK rejects.
+  const rejected = validateFactoryRunnerResult({
+    schemaVersion: "factory.runner.result.v1", status: "completed", resultDigest: digest,
+    journalCursor: 5, usage, output: { artifactId: "factory-artifact-output", digest: `sha256:${digest}`, encodedBytes: 4 },
+    operations: [{ operationId: `${authority.runId}:node-a:0:5`, operationIndex: 5, kind: "model", requestDigest: digest, state: "completed", resultDigest: digest, usage, workspaceCheckpoint: { ...reference, journalCursor: 4 } }],
+    workspaceCheckpoint: reference,
+  } as never);
+  expect(rejected.ok).toBe(false);
+
+  // The checkpoint bytes read back verified through the one scoped reader.
+  expect(JSON.parse(new TextDecoder().decode(await reader.read(scope, reference)))).toEqual(transcript);
+  expect((await materials.list(scope))[0]).toMatchObject({ objectName: FactoryWorkspaceCheckpoints.objectName(5), sealed: true, version: 1 });
+});
+
+test("a replayed checkpoint returns the same handle and a changed one is refused", async () => {
+  const { checkpoints, scope, authority, db } = await setup();
+  const result = { transcript: ["a"], cursor: 0 };
+  const first = await checkpoints.checkpoint({ operationId: scope.operationId, operationIndex: 0, attempt: authority, result });
+  expect(await checkpoints.checkpoint({ operationId: scope.operationId, operationIndex: 0, attempt: authority, result })).toEqual(first);
+  await expect(checkpoints.checkpoint({ operationId: scope.operationId, operationIndex: 0, attempt: authority, result: { transcript: ["b"], cursor: 0 } })).rejects.toMatchObject({ code: "factory_material_conflict" });
+
+  // Successive operations checkpoint side by side; nothing is overwritten.
+  const second = await checkpoints.checkpoint({ operationId: scope.operationId, operationIndex: 1, attempt: authority, result: { transcript: ["a", "b"], cursor: 1 } });
+  expect(second.artifactId).not.toBe(first.artifactId);
+  expect(second.journalCursor).toBe(1);
+  expect(rows(await db.execute(sql`SELECT object_name FROM factory_artifact_materials WHERE attempt_id=${authority.attemptId} ORDER BY object_name`))).toEqual([
+    { object_name: FactoryWorkspaceCheckpoints.objectName(0) }, { object_name: FactoryWorkspaceCheckpoints.objectName(1) },
+  ]);
+  for (const index of [-1, 1.5, Number.NaN]) expect(() => FactoryWorkspaceCheckpoints.objectName(index)).toThrowError();
+  await expect(checkpoints.checkpoint({ operationId: scope.operationId, operationIndex: -1, attempt: authority, result })).rejects.toMatchObject({ code: "factory_material_checkpoint_cursor_invalid" });
+});
+
+test("a checkpoint after the attempt deadline is refused by the same journal fence", async () => {
+  const { checkpoints, scope, authority, db } = await setup();
+  await db.execute(sql`UPDATE factory_executions SET deadline_at=NOW() - INTERVAL '1 minute' WHERE attempt_id=${authority.attemptId}`);
+  await expect(checkpoints.checkpoint({ operationId: scope.operationId, operationIndex: 0, attempt: { ...authority, deadlineAt: new Date(Date.now() - 60_000) }, result: { cursor: 0 } })).rejects.toThrow();
+  expect(rows(await db.execute(sql`SELECT object_name FROM factory_artifact_materials WHERE attempt_id=${authority.attemptId}`))).toEqual([]);
 });
 });
 }

@@ -2032,6 +2032,13 @@ Owned surface: interface freeze section 7. Gates and receipts: `tasks/factory/w0
 - [x] Rejects changed bytes, tampered chunk rows, tampered manifests, cross-scope reads, late
       writes, stale epoch and reservation, duplicate names, missing versions, and unsafe paths.
 
+## Workspace checkpoints (C02.11)
+
+- [x] `FactoryWorkspaceCheckpoints` implements W01's widened seam structurally, storing each
+      checkpoint as one immutable material version under the reserved prefix.
+- [x] The returned cursor equals the operation index, which is what the SDK validator enforces.
+- [x] A replay returns the identical handle; changed bytes for the same operation are refused.
+
 ## Proof — `4841bcfb4`
 
 - [x] Real PostgreSQL 16.14 and S3: 26 pass, 205 assertions, including two restart proofs.
