@@ -611,3 +611,4 @@
   carries one extra field. Copy the shape from the package's own valid fixture rather than
   assembling it from the type.
 - A package that adds a `tests/postgres/*.test.ts` suite must register it in the `db-postgres.yml` producer list in the same change. Two branches can each pass alone and fail together: the registration gate arrived with W18 while the unregistered suite arrived with W04. Run the combined tree's registration gates at integration, not only each branch's.
+- Check host memory and other sessions' heavy processes before starting parallel producers on a shared box. A 30 GB host reached kernel OOM when an external 20 GB mutation run overlapped three workers; it killed the per-user systemd manager and the PostgreSQL proof container, which then falsely reported `Up` while refusing connections. Verify `pg_isready` inside the container, not the `podman ps` status.
