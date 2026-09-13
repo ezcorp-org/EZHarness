@@ -1,0 +1,212 @@
+[
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "sdk-build",
+  "exitCode": 0,
+  "start": "2026-09-13T17:27:26",
+  "end": "2026-09-13T17:27:26",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-sdk",
+   "build"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "sdk-tests",
+  "exitCode": 0,
+  "start": "2026-09-13T17:27:26",
+  "end": "2026-09-13T17:27:43",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "30000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave1a-staging-sdk-coverage",
+   "./packages/@ezcorp/factory-sdk/src"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "focused",
+  "exitCode": 0,
+  "start": "2026-09-13T17:27:43",
+  "end": "2026-09-13T17:28:45",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "30000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave1a-staging-product-coverage",
+   "./src/__tests__/factory-run-lifecycle.test.ts",
+   "./src/factory/release-authority.integration.test.ts",
+   "./src/factory/executions.integration.test.ts",
+   "./src/factory/run-inputs.integration.test.ts",
+   "./src/db/migrations/add-factory-child-runs.test.ts",
+   "./src/db/migrations/bind-factory-child-definition-source.test.ts",
+   "./src/db/migrations/bind-factory-child-start-clock.test.ts",
+   "./scripts/factory-task-execution-admission-registration.test.ts",
+   "./src/db/migrations/add-factory-command-approvals.test.ts",
+   "./src/factory/release-application.test.ts",
+   "./src/factory/application.test.ts",
+   "./src/factory/private-commands.test.ts",
+   "./src/__tests__/factory-private-service.test.ts",
+   "./src/factory/validator-materials.test.ts",
+   "./src/factory/assurance.test.ts",
+   "./src/factory/releases.integration.test.ts",
+   "./src/factory/attempt-queue.integration.test.ts",
+   "./src/delivery-queue/durable-delivery-queue.test.ts",
+   "./scripts/factory-validator-materials-registration.test.ts",
+   "./src/factory/package-preparation.integration.test.ts",
+   "./src/db/migrations/add-factory-package-preparations.test.ts",
+   "./src/db/migrations/add-factory-task-outcomes.test.ts",
+   "./src/factory/artifacts.integration.test.ts",
+   "./src/factory/protected-command-provenance.test.ts",
+   "./scripts/factory-protected-command-effects-registration.test.ts",
+   "./src/db/factory-schema.test.ts",
+   "./src/__tests__/gate-scripts.test.ts"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "web-coverage",
+  "exitCode": 0,
+  "start": "2026-09-13T17:28:45",
+  "end": "2026-09-13T17:34:33",
+  "command": [
+   "bash",
+   "scripts/web-vitest-coverage.sh",
+   "--output",
+   "/tmp/factory-platform-evidence/wave1a-staging-web-coverage"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "postgres",
+  "exitCode": 0,
+  "start": "2026-09-13T17:34:33",
+  "end": "2026-09-13T17:40:11",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "60000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave1a-staging-postgres-coverage",
+   "./tests/postgres/factory-artifacts.test.ts",
+   "./tests/postgres/factory-artifact-access.test.ts",
+   "./tests/postgres/factory-lazy-input.test.ts",
+   "./tests/postgres/factory-lazy-commands.test.ts",
+   "./tests/postgres/factory-boot.test.ts",
+   "./tests/postgres/factory-run-lifecycle-s3.test.ts",
+   "./tests/postgres/factory-run-inputs.test.ts",
+   "./tests/postgres/factory-definitions.test.ts",
+   "./tests/postgres/factory-private-service.test.ts",
+   "./tests/postgres/factory-package-preparation.test.ts",
+   "./tests/postgres/factory-executions.test.ts",
+   "./tests/postgres/factory-attempt-queue.test.ts",
+   "./tests/postgres/factory-budgets.test.ts",
+   "./tests/postgres/factory-encryption-s3.test.ts",
+   "./tests/postgres/factory-inbox.test.ts",
+   "./tests/postgres/factory-project-creation.test.ts",
+   "./tests/postgres/factory-records.test.ts",
+   "./tests/postgres/factory-execution-gateway.test.ts",
+   "./tests/postgres/factory-service-credentials.test.ts",
+   "./tests/postgres/factory-grants.test.ts",
+   "./tests/postgres/factory-migration-restart.test.ts",
+   "./tests/postgres/factory-schema.test.ts",
+   "./tests/postgres/factory-releases.test.ts",
+   "./tests/postgres/factory-release-authority.test.ts",
+   "./tests/postgres/factory-validator-materials.test.ts"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "types",
+  "exitCode": 0,
+  "start": "2026-09-13T17:40:11",
+  "end": "2026-09-13T17:40:49",
+  "command": [
+   "bun",
+   "run",
+   "typecheck"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "lint",
+  "exitCode": 0,
+  "start": "2026-09-13T17:40:49",
+  "end": "2026-09-13T17:40:51",
+  "command": [
+   "bun",
+   "run",
+   "lint"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "gate-integrity",
+  "exitCode": 0,
+  "start": "2026-09-13T17:40:51",
+  "end": "2026-09-13T17:40:53",
+  "command": [
+   "bun",
+   "scripts/gate-integrity.ts"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "boundaries",
+  "exitCode": 0,
+  "start": "2026-09-13T17:40:53",
+  "end": "2026-09-13T17:40:53",
+  "command": [
+   "bun",
+   "scripts/check-factory-boundaries.ts"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "orchestrator-build",
+  "exitCode": 0,
+  "start": "2026-09-13T17:40:53",
+  "end": "2026-09-13T17:40:53",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-orchestrator",
+   "build"
+  ]
+ },
+ {
+  "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+  "dirty": false,
+  "name": "node-coverage",
+  "exitCode": 0,
+  "start": "2026-09-13T17:40:53",
+  "end": "2026-09-13T17:43:16",
+  "command": [
+   "bash",
+   "scripts/factory-orchestrator-coverage.sh"
+  ]
+ }
+]

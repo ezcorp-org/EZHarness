@@ -1,0 +1,47 @@
+{
+ "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+ "producers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/wave1a-staging-sdk-coverage/lcov.info",
+   "head": "ba6766e6be2b96318fe4845dd30750c41c63977b"
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/wave1a-staging-product-coverage/lcov.info",
+   "head": "ba6766e6be2b96318fe4845dd30750c41c63977b"
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/wave1a-staging-postgres-coverage/lcov.info",
+   "head": "ba6766e6be2b96318fe4845dd30750c41c63977b"
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/wave1a-staging-node-coverage/lcov.info",
+   "head": "ba6766e6be2b96318fe4845dd30750c41c63977b"
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/wave1a-staging-web-coverage/lcov.info",
+   "head": "ba6766e6be2b96318fe4845dd30750c41c63977b",
+   "rerooted": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "merge",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "644987ada",
+   "exitCode": 1
+  },
+  {
+   "name": "patch",
+   "base": "644987ada",
+   "exitCode": 1
+  }
+ ]
+}
