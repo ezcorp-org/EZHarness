@@ -45,6 +45,7 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
   await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'request', '{}')`);
   const order: string[] = [];
+  const checkpointInputs: { operationId: string; operationIndex: number; attempt: { attemptId: string } }[] = [];
   let starts = 0;
   const runner: Runner = {
     build: async () => { throw new Error("build is external to the supervisor"); }, cancel: async () => {}, inspect: async () => ({ id: "unused", state: "unknown", diagnostics: [] }), collectArtifacts: async () => ({}),
@@ -69,9 +70,15 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
   const supervisor = new FactoryRunnerSupervisor({ runner, journal, authorizeAttempt: async () => { order.push("authorize"); }, invokeTool: async value => { order.push("effect"); return { stored: value }; } });
   const admitted = admission(authority());
   await journal.admit(admitted);
-  const request = { authority: admitted, artifactDigest: "a".repeat(64), operationIndex: 0, toolName: "write", toolInput: { path: "output.txt" }, workspace: { checkpoint: async () => { order.push("checkpoint"); return { revision: "snapshot-1" }; } } } as const;
+  const request = { authority: admitted, artifactDigest: "a".repeat(64), operationIndex: 0, toolName: "write", toolInput: { path: "output.txt" }, workspace: { checkpoint: async (input: { operationId: string; operationIndex: number; attempt: { attemptId: string } }) => { order.push("checkpoint"); checkpointInputs.push(input); return { revision: "snapshot-1" }; } } } as const;
   expect(await supervisor.invoke(request)).toEqual({ claimed: true, result: { effect: { stored: { path: "output.txt" } } } });
   expect(order).toEqual(["authorize", "runner", "authorize", "effect", "checkpoint", "close"]);
+  // The checkpoint writer receives its cursor and attempt directly, so it never
+  // parses an operation index back out of the operation ID.
+  expect(checkpointInputs).toHaveLength(1);
+  expect(checkpointInputs[0]!.operationIndex).toBe(0);
+  expect(checkpointInputs[0]!.operationId.endsWith(":0")).toBe(true);
+  expect(checkpointInputs[0]!.attempt.attemptId).toBe(admitted.attemptId);
   expect(await new FactoryExecutionJournal(db, async () => {}).status(request.authority)).toMatchObject({ status: "running", journalCursor: 0 });
   expect(await supervisor.invoke(request)).toEqual({ claimed: false, result: { effect: { stored: { path: "output.txt" } } } });
   expect(starts).toBe(1);
