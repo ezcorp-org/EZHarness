@@ -873,5 +873,8 @@
   "web/src/routes/(auth)/signup/[token]/+page.svelte": 80,
   "web/src/routes/+error.svelte": 80,
   "web/src/routes/+layout.svelte": 80,
-  "web/src/routes/+page.svelte": 80
+  "web/src/routes/+page.svelte": 80,
+  "src/factory/pool/service.ts": 100,
+  "src/factory/pool/service-token.ts": 100,
+  "src/factory/pool/service-server.ts": 100
 }

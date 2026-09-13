@@ -946,7 +946,7 @@ jobs:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage, factory-temporal]
+    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage, factory-temporal, external-postgres]
     if: always()
     steps:
       - name: Require coverage producers to have succeeded
@@ -956,7 +956,8 @@ jobs:
              [ "${{ needs.factory-temporal.result }}" != "success" ] || \
              [ "${{ needs.web-security-coverage.result }}" != "success" ] || \
              [ "${{ needs.test-web-shard.result }}" != "success" ] || \
-             [ "${{ needs.browser-route-coverage.result }}" != "success" ]; then
+             [ "${{ needs.browser-route-coverage.result }}" != "success" ] || \
+             [ "${{ needs.external-postgres.result }}" != "success" ]; then
             echo "::error::coverage producers failed — coverage data is incomplete"
             exit 1
           fi
