@@ -505,6 +505,8 @@ describe("factory Temporal workflow", () => {
     let approvalArrived!: () => void;
     let nextApproval = new Promise<void>((resolve) => { approvalArrived = resolve; });
     let publishCount = 0;
+    let targetInvalidationDelivered!: () => void;
+    const targetInvalidation = new Promise<void>((resolve) => { targetInvalidationDelivered = resolve; });
     const activities = {
       ...definitionActivities(repairFactory),
       recordTransition: async () => undefined,
@@ -531,6 +533,7 @@ describe("factory Temporal workflow", () => {
         if (command.kind === "invalidate-partition") {
           const { kind: _kind, id, ...invalidation } = command;
           await send(command.targetPartitionId, { kind: "partition-source-invalidated", id, atMs: Date.now(), ...invalidation });
+          if (command.targetPartitionId === targetPartition.id && command.nodeId === "z-approval") targetInvalidationDelivered();
           return null;
         }
         throw new Error(`unexpected ${command.kind}`);
@@ -551,6 +554,10 @@ describe("factory Temporal workflow", () => {
       assert.ok(oldApproval);
       const repair = { kind: "repair", id: "repair-partition-source", atMs: Date.now(), nodeId: "a", reason: "replace source" };
       await send(sourcePartition.id, repair);
+      await Promise.race([
+        targetInvalidation,
+        new Promise<never>((_resolve, reject) => { setTimeout(() => reject(new Error("target invalidation command was not delivered")), 5_000); }),
+      ]);
       for (let attempt = 0; attempt < 100; attempt += 1) {
         const state = await handles.get(targetPartition.id).query("factoryState");
         if (state.nodes["z-approval"].candidateGeneration === 1 && state.nodes["z-approval"].status === "blocked") break;
