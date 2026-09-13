@@ -289,7 +289,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const reference = { ...identity, commandId: command.id, factory: command.factory };
     const staged = await children.resolve(service, reference);
     expect(staged.definitionDigest).toBe(child.digest);
-    const childRunId = (await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${run.runId} AND parent_command_id=${command.id}`) as unknown as { rows: Array<{ child_run_id: string }> }).rows[0]!.child_run_id;
+    const childRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${run.runId} AND parent_command_id=${command.id}`))[0]!.child_run_id;
     expect(childRunId).toMatch(/^child-[a-f0-9]{64}$/);
     expect(rows(await fixture.db.execute(sql`SELECT logical_run_id FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id=${childRunId}`))).toEqual([]);
     expect(await children.resolve(service, reference)).toEqual(staged);
