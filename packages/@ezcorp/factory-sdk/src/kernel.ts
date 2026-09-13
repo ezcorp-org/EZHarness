@@ -1,6 +1,7 @@
 import { validateValue } from "./validation.js";
 import { evaluateExpression } from "./expressions.js";
 import { canonicalizeJson, isUnsignedDecimal, validateIJson } from "./canonical.js";
+import type { FactoryDurableInput } from "./types.js";
 import type {
   AdvanceResult,
   KernelCommand,
@@ -31,8 +32,9 @@ export function createKernelState(
   logicalRunId: string,
   input: JsonValue,
   nowMs: number,
+  durableInput?: FactoryDurableInput,
 ): KernelState {
-  return createInitialState(factory, factory.definition.graph.nodes.map((node) => node.id), logicalRunId, input, nowMs);
+  return createInitialState(factory, factory.definition.graph.nodes.map((node) => node.id), logicalRunId, input, nowMs, undefined, durableInput);
 }
 
 /** Create one bounded interpreter state from a compiler-owned execution partition. */
@@ -42,10 +44,15 @@ export function createPartitionKernelState(
   logicalRunId: string,
   input: JsonValue,
   nowMs: number,
+  durableInput?: FactoryDurableInput,
 ): KernelState {
   const partition = factory.partitions.find((candidate) => candidate.id === partitionId);
   if (!partition) throw new FactoryKernelError(`compiled partition ${partitionId} does not exist`);
-  return createInitialState(factory, partition.nodeIds, logicalRunId, input, nowMs, partitionId);
+  return createInitialState(factory, partition.nodeIds, logicalRunId, input, nowMs, partitionId, durableInput);
+}
+
+function snapshotDurableInput(value: FactoryDurableInput): FactoryDurableInput {
+  return JSON.parse(canonicalizeJson(value as unknown as JsonValue)) as FactoryDurableInput;
 }
 
 function createInitialState(
@@ -55,6 +62,7 @@ function createInitialState(
   input: JsonValue,
   nowMs: number,
   partitionId?: string,
+  durableInput?: FactoryDurableInput,
 ): KernelState {
   validateRecord(factory.definition.inputPorts, input, "run input");
   const nodes: Record<string, KernelNodeState> = Object.create(null) as Record<string, KernelNodeState>;
@@ -67,6 +75,7 @@ function createInitialState(
     logicalRunId,
     definitionDigest: factory.digest,
     input: snapshotValue(input),
+    ...(durableInput ? { durableInput: snapshotDurableInput(durableInput), lazyInput: { versions: {}, values: {}, pending: {} } } : {}),
     status: "created",
     runDeadlineAtMs: nowMs + Math.min(requested, MAX_RUN_DEADLINE_MS),
     nowMs,
@@ -143,6 +152,12 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
     case "approval-decided":
       next = applyApproval(factory, next, event, commands);
       break;
+    case "input-value-read":
+      next = applyInputValue(factory, next, event, commands);
+      break;
+    case "input-page-read":
+      next = applyInputPage(factory, next, event, commands);
+      break;
     case "timer-expired":
       next = applyTimer(factory, next, event, commands);
       break;
@@ -160,6 +175,38 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
   next = refillWaitingMaps(factory, next, commands);
   next = emitPartitionNotifications(factory, state, next, commands);
   return finish(factory, next, commands);
+}
+
+function applyInputValue(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { readonly kind: "input-value-read" }>, commands: KernelCommand[]): KernelState {
+  const pending = state.lazyInput?.pending[event.commandId];
+  if (pending?.kind !== "value" || pending.nodeId !== event.nodeId || pending.candidateGeneration !== event.candidateGeneration || pending.cancellationEpoch !== event.cancellationEpoch || pending.name !== event.name || lazyKey(pending.name, pending.path) !== lazyKey(event.name, event.path) || artifactKey(pending.artifact) !== artifactKey(event.artifact) || event.mediaType !== "application/json") throw new FactoryKernelError("lazy input result does not match its pending command");
+  if (new TextEncoder().encode(canonicalizeJson(event.value)).byteLength > pending.maxBytes) throw new FactoryKernelError("lazy input result exceeds its bound");
+  const key = artifactKey(event.artifact);
+  const bound = state.lazyInput!.versions[key];
+  if (bound !== undefined && bound !== event.storageVersion) throw new FactoryKernelError("lazy input storage version changed");
+  const lazyInput = { versions: { ...state.lazyInput!.versions, [key]: event.storageVersion }, values: { ...state.lazyInput!.values, [lazyKey(event.name, event.path)]: snapshotValue(event.value) }, pending: { ...state.lazyInput!.pending } };
+  delete (lazyInput.pending as Record<string, unknown>)[event.commandId];
+  return activateReady(factory, withNode({ ...state, lazyInput }, pending.nodeId, { ...state.nodes[pending.nodeId]!, status: "blocked", waitingReason: undefined, waitingDeadlineAtMs: undefined }), commands, [pending.nodeId]);
+}
+
+function applyInputPage(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { readonly kind: "input-page-read" }>, commands: KernelCommand[]): KernelState {
+  const pending = state.lazyInput?.pending[event.commandId];
+  if (pending?.kind !== "page" || pending.nodeId !== event.nodeId || pending.candidateGeneration !== event.candidateGeneration || pending.cancellationEpoch !== event.cancellationEpoch || pending.name !== event.name || pending.cursor !== event.cursor || pending.maxItems !== event.maxItems || artifactKey(pending.artifact) !== artifactKey(event.artifact) || lazyKey(pending.name, pending.path) !== lazyKey(event.name, event.path) || event.mediaType !== "application/json" || event.items.length > pending.maxItems || !Number.isSafeInteger(event.cursor) || event.cursor < 0 || (event.nextCursor !== undefined && (!Number.isSafeInteger(event.nextCursor) || event.nextCursor !== event.cursor + event.items.length || event.nextCursor <= event.cursor))) throw new FactoryKernelError("lazy input page does not match its pending command");
+  if (new TextEncoder().encode(canonicalizeJson(event.items as JsonValue)).byteLength > pending.maxBytes) throw new FactoryKernelError("lazy input page exceeds its bound");
+  const key = artifactKey(event.artifact); const bound = state.lazyInput!.versions[key];
+  if (bound !== undefined && bound !== event.storageVersion) throw new FactoryKernelError("lazy input storage version changed");
+  const pendingEntries = { ...state.lazyInput!.pending }; delete (pendingEntries as Record<string, unknown>)[event.commandId];
+  const lazyInput = { ...state.lazyInput!, versions: { ...state.lazyInput!.versions, [key]: event.storageVersion }, pending: pendingEntries };
+  const runtime = state.nodes[pending.nodeId];
+  if (!runtime?.map) throw new FactoryKernelError("lazy input page has no waiting map");
+  const node = nodeFor(factory, pending.nodeId);
+  if (node?.kind !== "map") throw new FactoryKernelError("lazy input page has no map definition");
+  const itemCount = event.nextCursor ?? event.cursor + event.items.length;
+  if (itemCount > node.maxItems) return failNode(factory, { ...state, lazyInput }, node, pending.nodeId, "MAP_ITEM_BOUND", "bound_exhausted", commands);
+  const map = { ...runtime.map, snapshot: event.items.map(snapshotValue), itemCount, pageOffset: event.cursor, nextCursor: event.nextCursor, lazy: { name: pending.name, artifact: pending.artifact, path: pending.path, storageVersion: event.storageVersion } };
+  const resumed = withNode({ ...state, lazyInput }, pending.nodeId, { ...runtime, map });
+  if (event.items.length === 0 && event.nextCursor === undefined) return completeMap(factory, resumed, node, pending.nodeId, commands);
+  return fillMapWindow(factory, resumed, node, pending.nodeId, commands);
 }
 
 function partitionEdgeKey(sourcePartitionId: string, sourceNodeId: string, nodeId: string): string {
@@ -560,6 +607,10 @@ function activateReady(factory: KernelFactoryPlan, state: KernelState, commands:
 }
 
 function dispatchReady(factory: KernelFactoryPlan, state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
+  const page = node.kind === "map" ? requestArtifactMapPage(state, node, nodeId, commands) : state;
+  if (page !== state) return page;
+  const pending = requestArtifactInputs(state, node, nodeId, commands);
+  if (pending !== state) return pending;
   const runtime = state.nodes[nodeId]!;
   if (node.kind === "branch") {
     const evaluated = evaluateExpression(node.condition, expressionContext(state, nodeId));
@@ -620,7 +671,7 @@ function dispatchChild(state: KernelState, node: Extract<FactoryNode, { kind: "s
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "run-child", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
-  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node, nodeId), deadlineAtMs });
+  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node, nodeId), ...(state.durableInput === undefined ? {} : { durableInput: state.durableInput }), deadlineAtMs });
   return waitForExternal(command.state, nodeId, runtime, attempt, commands);
 }
 
@@ -906,8 +957,84 @@ function validateRecord(schemas: Readonly<Record<string, import("./types").PortS
   }
 }
 
+function lazyKey(name: string, path: readonly import("./types.js").ReferencePathSegment[]): string { return canonicalizeJson([name, path] as unknown as JsonValue); }
+function artifactKey(artifact: import("./types.js").FactoryArtifactReference): string { return `${artifact.artifactId}\u0000${artifact.digest}\u0000${artifact.encodedBytes}`; }
+function artifactInput(state: KernelState, name: string): import("./types.js").FactoryArtifactReference | undefined {
+  const value = state.durableInput?.parameters[name];
+  return value?.kind === "artifact" ? value.artifact : undefined;
+}
+function inputReferences(value: unknown, output: { readonly name: string; readonly path: readonly import("./types.js").ReferencePathSegment[] }[] = []): readonly { readonly name: string; readonly path: readonly import("./types.js").ReferencePathSegment[] }[] {
+  if (!value || typeof value !== "object") return output;
+  if (!Array.isArray(value) && (value as { kind?: unknown }).kind === "ref") {
+    const ref = value as { root?: unknown; name?: unknown; path?: unknown };
+    if (ref.root === "input" && typeof ref.name === "string" && (ref.path === undefined || Array.isArray(ref.path))) output.push({ name: ref.name, path: (ref.path ?? []) as readonly import("./types.js").ReferencePathSegment[] });
+  }
+  for (const child of Array.isArray(value) ? value : Object.values(value as Record<string, unknown>)) inputReferences(child, output);
+  return output;
+}
+function hydrateArtifactReferences(value: unknown, state: KernelState): unknown {
+  if (!value || typeof value !== "object") return value;
+  if (!Array.isArray(value) && (value as { kind?: unknown }).kind === "ref") {
+    const ref = value as { root?: unknown; name?: unknown; path?: unknown };
+    if (ref.root === "input" && typeof ref.name === "string") {
+      const artifact = artifactInput(state, ref.name);
+      if (artifact) {
+        const path = (Array.isArray(ref.path) ? ref.path : []) as readonly import("./types.js").ReferencePathSegment[];
+        const cached = state.lazyInput?.values[lazyKey(ref.name, path)];
+        if (cached === undefined) throw new FactoryKernelError("artifact input is not yet loaded");
+        return { kind: "literal", value: cached };
+      }
+    }
+  }
+  if (Array.isArray(value)) return value.map(item => hydrateArtifactReferences(item, state));
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, hydrateArtifactReferences(item, state)]));
+}
+function requestArtifactMapPage(state: KernelState, node: Extract<FactoryNode, { kind: "map" }>, nodeId: string, commands: KernelCommand[]): KernelState {
+  const collection = node.collection;
+  if (collection.kind !== "ref" || collection.root !== "input") return state;
+  const path = collection.path ?? [];
+  const artifact = artifactInput(state, collection.name);
+  if (!artifact || !state.lazyInput) return state;
+  const command = commandFor(state, "read-input-page", nodeId);
+  const expectedStorageVersion = state.lazyInput.versions[artifactKey(artifact)];
+  const pending = { kind: "page" as const, nodeId, candidateGeneration: state.nodes[nodeId]!.candidateGeneration, cancellationEpoch: state.cancellationEpoch, name: collection.name, artifact, path, cursor: 0, maxItems: 32, maxBytes: 32 * 1024, ...(expectedStorageVersion === undefined ? {} : { expectedStorageVersion }) };
+  const lazyInput = { ...command.state.lazyInput!, pending: { ...command.state.lazyInput!.pending, [command.id]: pending } };
+  commands.push({ kind: "read-input-page", id: command.id, nodeId, candidateGeneration: pending.candidateGeneration, cancellationEpoch: pending.cancellationEpoch, name: pending.name, artifact, path, cursor: 0, maxItems: 32, maxBytes: pending.maxBytes, ...(pending.expectedStorageVersion === undefined ? {} : { expectedStorageVersion: pending.expectedStorageVersion }) });
+  return withNode({ ...command.state, lazyInput }, nodeId, { ...command.state.nodes[nodeId]!, status: "waiting", waitingReason: "external_reconciliation", map: { snapshot: [], itemCount: 0, pageOffset: 0, nextCursor: 0, lazy: { name: collection.name, artifact, path, ...(expectedStorageVersion === undefined ? {} : { storageVersion: expectedStorageVersion }) }, completedIndexes: [], failedIndexes: [], outcomes: {} } });
+}
+
+function requestNextArtifactMapPage(state: KernelState, node: Extract<FactoryNode, { kind: "map" }>, nodeId: string, commands: KernelCommand[]): KernelState {
+  const runtime = state.nodes[nodeId];
+  const map = runtime?.map;
+  const cursor = map?.nextCursor;
+  const lazy = map?.lazy;
+  if (!runtime || !map || !lazy || cursor === undefined || !state.lazyInput) return state;
+  if (Object.values(state.lazyInput.pending).some(pending => pending.kind === "page" && pending.nodeId === nodeId)) return state;
+  const command = commandFor(state, "read-input-page", nodeId);
+  const pending = { kind: "page" as const, nodeId, candidateGeneration: runtime.candidateGeneration, cancellationEpoch: state.cancellationEpoch, name: lazy.name, artifact: lazy.artifact, path: lazy.path, cursor, maxItems: 32, maxBytes: 32 * 1024, expectedStorageVersion: lazy.storageVersion };
+  const lazyInput = { ...command.state.lazyInput!, pending: { ...command.state.lazyInput!.pending, [command.id]: pending } };
+  commands.push({ kind: "read-input-page", id: command.id, nodeId, candidateGeneration: pending.candidateGeneration, cancellationEpoch: pending.cancellationEpoch, name: pending.name, artifact: pending.artifact, path: pending.path, cursor, maxItems: pending.maxItems, maxBytes: pending.maxBytes, expectedStorageVersion: lazy.storageVersion });
+  return withNode({ ...command.state, lazyInput }, nodeId, { ...runtime, map: { ...map, snapshot: [], nextCursor: undefined }, waitingReason: "external_reconciliation" });
+}
+
+function requestArtifactInputs(state: KernelState, node: FactoryNode, nodeId: string, commands: KernelCommand[]): KernelState {
+  if (!state.durableInput || !state.lazyInput) return state;
+  let next = state;
+  for (const reference of inputReferences(node.kind === "map" ? { ...node, collection: { kind: "literal", value: null } } : node)) {
+    const artifact = artifactInput(next, reference.name);
+    if (!artifact || next.lazyInput!.values[lazyKey(reference.name, reference.path)] !== undefined) continue;
+    if (Object.values(next.lazyInput!.pending).some(pending => pending.name === reference.name && lazyKey(pending.name, pending.path) === lazyKey(reference.name, reference.path))) continue;
+    const command = commandFor(next, "read-input-value", nodeId);
+    const expectedStorageVersion = next.lazyInput!.versions[artifactKey(artifact)];
+    const pending = { kind: "value" as const, nodeId, candidateGeneration: next.nodes[nodeId]!.candidateGeneration, cancellationEpoch: next.cancellationEpoch, name: reference.name, artifact, path: reference.path, maxBytes: 32 * 1024, ...(expectedStorageVersion === undefined ? {} : { expectedStorageVersion }) };
+    next = { ...command.state, lazyInput: { ...command.state.lazyInput!, pending: { ...command.state.lazyInput!.pending, [command.id]: pending } } };
+    commands.push({ kind: "read-input-value", id: command.id, nodeId: pending.nodeId, candidateGeneration: pending.candidateGeneration, cancellationEpoch: pending.cancellationEpoch, name: pending.name, artifact: pending.artifact, path: pending.path, maxBytes: pending.maxBytes, ...(pending.expectedStorageVersion === undefined ? {} : { expectedStorageVersion: pending.expectedStorageVersion }) });
+  }
+  return next === state ? state : withNode(next, nodeId, { ...next.nodes[nodeId]!, status: "waiting", waitingReason: "external_reconciliation" });
+}
+
 function resolveValue(source: ValueSource, state: KernelState, nodeId = ""): JsonValue {
-  const result = evaluateExpression(source, expressionContext(state, nodeId));
+  const result = evaluateExpression(hydrateArtifactReferences(source, state) as ValueSource, expressionContext(state, nodeId));
   if (!result.ok) throw new FactoryKernelError(result.message);
   return result.value;
 }
@@ -927,7 +1054,7 @@ function expressionContext(state: KernelState, nodeId = "", loopOverride?: Reado
       index += 1;
     } else if ((runtime?.map || runtime?.loop) && parts[index + 1] === "items") {
       const item = Number(parts[index + 2]);
-      if (runtime.map) map = { item: runtime.map.snapshot[item]!, index: item };
+      if (runtime.map) map = { item: runtime.map.snapshot[item - (runtime.map.pageOffset ?? 0)]!, index: item };
       if (runtime.loop) loop = { carried: runtime.loop.carried, index: item };
       scopes.push(`${parts.slice(0, index + 3).join("/")}/`);
       index += 2;
@@ -1016,25 +1143,34 @@ function progressMap(factory: KernelFactoryPlan, state: KernelState, nodeId: str
   const next = withNode({ ...state, nodes, scopes }, parentId, { ...parent, map });
   const terminalItems = map.completedIndexes.length + map.failedIndexes.length;
   if (terminalItems === map.itemCount) {
-    const output: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
-    for (const name of Object.keys(parentNode.outputPorts ?? {})) {
-      output[name] = Array.from({ length: map.itemCount }, (_, index) => {
-        const outcome = outcomes[index];
-        const value = isRecord(outcome) ? outcome[name] ?? null : null;
-        return parentNode.mode === "all" ? value : map.failedIndexes.includes(index) ? { outcome: "failed", error: isRecord(outcome) ? outcome.error ?? "MAP_ITEM_FAILED" : "MAP_ITEM_FAILED" } : { outcome: "succeeded", value };
-      });
-    }
-    const scopes = { ...next.scopes };
-    delete scopes[accountingScopeId];
-    return completeControl(factory, { ...next, scopes }, parentId, output, commands);
+    if (map.nextCursor !== undefined) return requestNextArtifactMapPage(next, parentNode, parentId, commands);
+    return completeMap(factory, next, parentNode, parentId, commands);
   }
   return next;
+}
+
+function completeMap(factory: KernelFactoryPlan, state: KernelState, parentNode: Extract<FactoryNode, { kind: "map" }>, parentId: string, commands: KernelCommand[]): KernelState {
+  const map = state.nodes[parentId]?.map;
+  if (!map) throw new FactoryKernelError("map completion requires map state");
+  const output: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
+  for (const name of Object.keys(parentNode.outputPorts ?? {})) {
+    output[name] = Array.from({ length: map.itemCount }, (_, index) => {
+      const outcome = map.outcomes[index];
+      const value = isRecord(outcome) ? outcome[name] ?? null : null;
+      return parentNode.mode === "all" ? value : map.failedIndexes.includes(index) ? { outcome: "failed", error: isRecord(outcome) ? outcome.error ?? "MAP_ITEM_FAILED" : "MAP_ITEM_FAILED" } : { outcome: "succeeded", value };
+    });
+  }
+  const scopes = { ...state.scopes };
+  delete scopes[`${parentId}/items`];
+  return completeControl(factory, { ...state, scopes }, parentId, output, commands);
 }
 
 function fillMapWindow(factory: KernelFactoryPlan, state: KernelState, parentNode: Extract<FactoryNode, { kind: "map" }>, parentId: string, commands: KernelCommand[]): KernelState {
   let next = state;
   const activeItems = new Set(Object.keys(next.nodes).filter((id) => id.startsWith(`${parentId}/items/`) && ["reserved", "running", "waiting", "retry_wait", "stopping"].includes(next.nodes[id]!.status)).map((id) => Number(id.slice(`${parentId}/items/`.length).split("/")[0])));
-  for (let nextItem = 0; next.nodes[parentId]?.status === "waiting" && nextItem < next.nodes[parentId]!.map!.itemCount && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
+  const pageStart = next.nodes[parentId]?.map?.pageOffset ?? 0;
+  const pageEnd = pageStart + (next.nodes[parentId]?.map?.snapshot.length ?? 0);
+  for (let nextItem = pageStart; next.nodes[parentId]?.status === "waiting" && nextItem < pageEnd && activeItems.size < parentNode.maxConcurrency; nextItem += 1) {
     const currentMap = next.nodes[parentId]!.map!;
     if (currentMap.completedIndexes.includes(nextItem) || currentMap.failedIndexes.includes(nextItem) || activeItems.has(nextItem)) continue;
     const scopeId = `${parentId}/items/${nextItem}`;

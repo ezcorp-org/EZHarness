@@ -83,7 +83,10 @@ export function startFactoryPrivateService(options: FactoryPrivateServiceOptions
         if (request.method === "POST" && path === "/internal/factory/v1/outbox/confirm-inbox") return json(200, await options.queue.confirmInboxIdentity(object(body.command) as unknown as FactoryTransportCommand));
         if (request.method === "POST" && path.startsWith("/internal/factory/v1/definitions/")) {
           const scoped = { ...body, ...scopedIdentity(body, tenantId) };
-          if (path === "/internal/factory/v1/definitions/resolve") return json(200, await options.commands.resolveFactory(service, { ...scopedIdentity(body, tenantId), factory: body.factory as Parameters<FactoryActivities["resolveFactory"]>[0]["factory"] }));
+          if (path === "/internal/factory/v1/definitions/resolve") {
+            assertFactoryIdentity(body.commandId as string);
+            return json(200, await options.commands.resolveFactory(service, { ...scopedIdentity(body, tenantId), commandId: body.commandId as string, factory: body.factory as Parameters<FactoryActivities["resolveFactory"]>[0]["factory"] }));
+          }
           if (path === "/internal/factory/v1/definitions/manifest") return manifestBytes(await options.artifacts.loadManifestPage(scoped as Parameters<FactoryActivities["loadManifestPage"]>[0]));
           if (path === "/internal/factory/v1/definitions/page") return bytes(decodeFactoryPageBase64((await options.artifacts.loadDefinitionPage(scoped as Parameters<FactoryActivities["loadDefinitionPage"]>[0])).contentBase64));
           if (path === "/internal/factory/v1/definitions/execution-manifest") return bytes(artifactJson.canonical(await options.artifacts.loadExecutionManifest(scoped as Parameters<FactoryActivities["loadExecutionManifest"]>[0])));

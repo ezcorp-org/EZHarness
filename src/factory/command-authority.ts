@@ -3,6 +3,7 @@ import type { CompiledFactory, FactoryNode, KernelCommand, KernelState, Subfacto
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
+import { digestObject } from "../extensions/v4/blobs";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryRunFence, FactoryRunLifecycle } from "./run-lifecycle";
 import type { FactoryTransitionArtifacts } from "./transition-artifacts";
@@ -10,6 +11,7 @@ import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } fr
 
 type ExecutionCommand = Extract<KernelCommand, { kind: "request-admission" | "dispatch-node" }>;
 type ChildCommand = Extract<KernelCommand, { kind: "run-child" }>;
+type InputCommand = Extract<KernelCommand, { kind: "read-input-value" | "read-input-page" }>;
 interface Head { source_sequence: number | string; digest: string }
 interface CommittedCommand<Command extends KernelCommand> {
   readonly command: Command;
@@ -28,6 +30,10 @@ export interface FactoryAuthorizedCommand {
 export interface FactoryAuthorizedChildCommand extends Omit<FactoryAuthorizedCommand, "command" | "node"> {
   readonly command: ChildCommand;
   readonly node: SubfactoryNode;
+}
+
+export interface FactoryAuthorizedInputCommand extends Omit<FactoryAuthorizedCommand, "command" | "node"> {
+  readonly command: InputCommand;
 }
 
 export class FactoryCommandAuthorityError extends Error {
@@ -66,6 +72,18 @@ export class FactoryCommandAuthority {
       const actual = context.command.factory;
       if (actual.id !== expected.id || actual.version !== expected.version || actual.digest !== expected.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
       return work(transaction, { command: context.command, node, state: context.state, fence: context.fence });
+    });
+  }
+
+  async withCurrentInput<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedInputCommand) => Promise<Result>): Promise<Result> {
+    return this.withCommitted(service, value, (command): command is InputCommand => command.kind === "read-input-value" || command.kind === "read-input-page", async (transaction, { command, compiled, state, fence }) => {
+      const runtime = Object.hasOwn(state.nodes, command.nodeId) ? state.nodes[command.nodeId] : undefined;
+      const entries = state.lazyInput?.pending;
+      const pending = entries && Object.hasOwn(entries, command.id) ? entries[command.id] : undefined;
+      const { id: _id, kind, ...coordinates } = command;
+      const expected = { ...coordinates, kind: kind === "read-input-value" ? "value" : "page" };
+      if (!nodeFor(compiled, command.nodeId) || !runtime || runtime.status !== "waiting" || runtime.waitingReason !== "external_reconciliation" || runtime.candidateGeneration !== command.candidateGeneration || command.cancellationEpoch !== fence.cancellationEpoch || fence.deadlineAtMs <= this.now() || !pending || digestObject(pending) !== digestObject(expected)) throw new FactoryCommandAuthorityError("factory_command_stale");
+      return work(transaction, { command, state, fence });
     });
   }
 

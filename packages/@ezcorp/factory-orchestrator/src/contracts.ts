@@ -1,4 +1,4 @@
-import type { CompiledExecutionManifest, CompiledPartitionArtifact, JsonValue } from "@ezcorp/factory-sdk";
+import type { CompiledExecutionManifest, CompiledPartitionArtifact, FactoryDurableInput, JsonValue } from "@ezcorp/factory-sdk";
 import type { KernelCommand, KernelEvent, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { FACTORY_PAGE_BYTES_LIMIT } from "@ezcorp/factory-sdk/page-bytes";
 export { MAX_TRANSPORT_ENVELOPE_BYTES } from "@ezcorp/factory-sdk/transport-types";
@@ -83,6 +83,8 @@ export interface FactoryWorkflowInput {
   readonly deadlineAtMs?: number;
   readonly definition: FactoryPlanSource;
   readonly input: JsonValue;
+  /** Optional tagged descriptor. Legacy JSON inputs remain JSON even if they contain a schemaVersion key. */
+  readonly durableInput?: FactoryDurableInput;
   readonly continuation?: FactoryContinuation;
 }
 
@@ -186,7 +188,7 @@ export interface FactoryActivities {
   finalizeTransitionArtifact(request: TransitionArtifactRequest): Promise<FinalizedTransitionArtifact>;
   recordTransition(record: TransitionRecord): Promise<void>;
   executeCommand(execution: CommandExecution): Promise<KernelEvent | null>;
-  resolveFactory(request: FactoryIdentity & { readonly factory: Extract<KernelCommand, { readonly kind: "run-child" }>["factory"] }): Promise<FactoryDefinitionSource>;
+  resolveFactory(request: FactoryIdentity & { readonly commandId: string; readonly factory: Extract<KernelCommand, { readonly kind: "run-child" }>["factory"] }): Promise<FactoryDefinitionSource>;
   loadManifestPage(request: FactoryIdentity & { readonly definition: FactoryDefinitionSource; readonly page: ImmutableObjectReference }): Promise<FactoryManifestPage>;
   loadDefinitionPage(request: FactoryIdentity & { readonly definitionDigest: string; readonly page: FactoryDefinitionPageReference }): Promise<FactoryDefinitionPage>;
   loadExecutionManifest(request: FactoryIdentity & { readonly definitionDigest: string; readonly manifest: ImmutableObjectReference }): Promise<CompiledExecutionManifest>;

@@ -1,4 +1,6 @@
 import type { JsonValue } from "@ezcorp/factory-sdk";
+import { factoryChildRunId } from "@ezcorp/factory-sdk/transport-types";
+import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { KernelCommand, KernelEvent, KernelFactoryPlan, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { advanceKernel, createKernelState, createPartitionKernelState } from "@ezcorp/factory-sdk/kernel";
 import {
@@ -77,12 +79,13 @@ function childInput(parent: FactoryWorkflowInput, command: Extract<KernelCommand
   return {
     tenantId: parent.tenantId,
     projectId: parent.projectId,
-    logicalRunId: `${parent.logicalRunId}/${command.nodeId}/${command.candidateGeneration}/${command.id}`,
+    logicalRunId: factoryChildRunId(parent.logicalRunId, command),
     interpreterId: parent.interpreterId,
     startedAtMs: parent.startedAtMs,
     deadlineAtMs: command.deadlineAtMs,
     definition,
     input: command.input,
+    ...(command.durableInput === undefined ? {} : { durableInput: command.durableInput }),
   };
 }
 
@@ -101,7 +104,7 @@ async function runCommand(
   if (command.kind === "run-child") {
     try {
       return await scope.run(async () => {
-        const definition = await reads.resolveFactory({ ...workflowIdentity(input), factory: command.factory });
+        const definition = await reads.resolveFactory({ ...workflowIdentity(input), commandId: command.id, factory: command.factory });
         const result = await executeChild<typeof factoryWorkflow>(FACTORY_WORKFLOW_TYPE, {
           workflowId: `${input.tenantId}/${command.id}`,
           args: [childInput(input, command, definition)],
@@ -127,6 +130,17 @@ function workflowIdentity(input: FactoryWorkflowInput): FactoryIdentity {
   return { tenantId: input.tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, interpreterId: input.interpreterId };
 }
 
+function durableInputJson(value: FactoryWorkflowInput["durableInput"]): JsonValue {
+  // Both sources were schema-validated before this comparison; this preserves a canonical transport snapshot.
+  return (value ?? null) as unknown as JsonValue;
+}
+
+function assertDurableInputContinuity(input: FactoryWorkflowInput, state: KernelState): void {
+  if (canonicalizeJson(durableInputJson(state.durableInput)) !== canonicalizeJson(durableInputJson(input.durableInput))) {
+    throw workflowFailure(new Error("continuation durable input does not match workflow input"), "FACTORY_INPUT_INVALID");
+  }
+}
+
 export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<FactoryWorkflowResult> {
   try {
     validateWorkflowInput(input);
@@ -145,13 +159,14 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     throw workflowFailure(error, "FACTORY_DEFINITION_INVALID");
   }
   const created = isPartitionSource(input.definition)
-    ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs)
-    : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs);
+    ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs, input.durableInput)
+    : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs, input.durableInput);
   const restored = input.continuation?.stateArtifact
     ? await loadTransitionArtifact(workflowIdentity(input), input.continuation.stateArtifact.sourceSequence, input.continuation.stateArtifact.manifest, reads)
     : undefined;
   let state = input.continuation?.state ?? restored?.nextState ?? (input.deadlineAtMs === undefined ? created : { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, input.deadlineAtMs) });
   if (state.definitionDigest !== input.definition.definitionDigest) throw workflowFailure(new Error("continuation definition digest does not match input"), "FACTORY_INPUT_INVALID");
+  if (input.continuation) assertDurableInputContinuity(input, state);
   if (isPartitionSource(input.definition) && state.partition?.id !== input.definition.partition.partitionId) throw workflowFailure(new Error("continuation partition ID does not match input"), "FACTORY_INPUT_INVALID");
   const inbox = [...(input.continuation?.inbox ?? [{ kind: "start", id: `${input.logicalRunId}:start`, atMs: input.startedAtMs } as KernelEvent])];
   const pendingInbox = new Map((input.continuation?.pendingInbox ?? []).map((delivery) => [delivery.sequence, delivery]));

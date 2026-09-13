@@ -281,3 +281,82 @@ describe("factory kernel", () => {
 });
 
 void ({} as JsonValue);
+
+test("artifact input fields wait for an exact bounded result before activation", () => {
+  const graph = compiled([{ id: "work", kind: "task", runner, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } } }], {}, { data: { type: "object", properties: { label: { type: "string" } }, required: ["label"] } });
+  const artifact = { artifactId: "artifact", digest, encodedBytes: 70_000 };
+  const started = advanceKernel(graph, createKernelState(graph, "lazy", { data: { label: "placeholder" } }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
+  const read = started.commands.find(command => command.kind === "read-input-value");
+  expect(read).toMatchObject({ name: "data", path: ["label"], artifact });
+  if (read?.kind !== "read-input-value") throw new Error("lazy input read was not emitted");
+  expect(() => advanceKernel(graph, started.nextState, event("wrong", { kind: "input-value-read", commandId: read.id, nodeId: read.nodeId, candidateGeneration: read.candidateGeneration, cancellationEpoch: read.cancellationEpoch, name: "data", artifact: { ...artifact, digest: `sha256:${"0".repeat(64)}` }, path: ["label"], storageVersion: "v1", mediaType: "application/json", value: "ok" }))).toThrow(FactoryKernelError);
+  const loaded = advanceKernel(graph, started.nextState, event("loaded", { kind: "input-value-read", commandId: read.id, nodeId: read.nodeId, candidateGeneration: read.candidateGeneration, cancellationEpoch: read.cancellationEpoch, name: "data", artifact, path: ["label"], storageVersion: "v1", mediaType: "application/json", value: "ok" }));
+  const admission = loaded.commands.find(command => command.kind === "request-admission");
+  expect(admission).toMatchObject({ nodeId: "work" });
+  if (admission?.kind !== "request-admission") throw new Error("lazy field admission was not emitted");
+  const dispatched = advanceKernel(graph, loaded.nextState, event("admitted", { kind: "admission-result", nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: admission.candidateGeneration, granted: true }));
+  expect(dispatched.commands).toContainEqual(expect.objectContaining({ kind: "dispatch-node", nodeId: "work", input: { value: "ok" } }));
+});
+
+test("artifact maps retain only one page while advancing exact absolute cursors", () => {
+  const map: Extract<FactoryNode, { kind: "map" }> = { id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items" }, itemSchema: { type: "string" }, body: { nodes: [], outputs: {} }, mode: "all", maxItems: 96, maxConcurrency: 4, outputPorts: {} };
+  const graph = compiled([map], {}, { items: { type: "array", items: { type: "string" }, maxItems: 96 } });
+  const artifact = { artifactId: "items", digest, encodedBytes: 96 * 1024 };
+  const started = advanceKernel(graph, createKernelState(graph, "lazy-map", { items: [] }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
+  const first = started.commands.find(command => command.kind === "read-input-page");
+  expect(first).toMatchObject({ nodeId: "map", name: "items", cursor: 0, maxItems: 32, artifact });
+  if (first?.kind !== "read-input-page") throw new Error("first map page was not emitted");
+  const page = (id: string, command: typeof first, items: readonly JsonValue[], nextCursor?: number) => event(id, { kind: "input-page-read" as const, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: [], storageVersion: "v1", mediaType: "application/json" as const, cursor: command.cursor, maxItems: command.maxItems, items, ...(nextCursor === undefined ? {} : { nextCursor }) });
+  expect(() => advanceKernel(graph, started.nextState, page("bad-page", first, ["a"], 2))).toThrow(FactoryKernelError);
+  const second = advanceKernel(graph, started.nextState, page("page-0", first, ["a", "b"], 2));
+  expect(() => advanceKernel(graph, second.nextState, page("stale-page", first, ["a", "b"], 2))).toThrow(FactoryKernelError);
+  expect(second.nextState.nodes.map?.map?.completedIndexes).toEqual([0, 1]);
+  expect(second.nextState.nodes.map?.map?.snapshot).toEqual([]);
+  const next = second.commands.find(command => command.kind === "read-input-page");
+  expect(next).toMatchObject({ cursor: 2, expectedStorageVersion: "v1" });
+  if (next?.kind !== "read-input-page") throw new Error("second map page was not emitted");
+  const third = advanceKernel(graph, second.nextState, page("page-2", next, ["c"], 3));
+  expect(third.nextState.nodes.map?.map?.completedIndexes).toEqual([0, 1, 2]);
+  const terminal = third.commands.find(command => command.kind === "read-input-page");
+  expect(terminal).toMatchObject({ cursor: 3, expectedStorageVersion: "v1" });
+  if (terminal?.kind !== "read-input-page") throw new Error("terminal map page was not emitted");
+  const complete = advanceKernel(graph, third.nextState, page("page-3", terminal, []));
+  expect(complete.nextState.nodes.map?.status).toBe("succeeded");
+  expect(complete.nextState.nodes.map?.map?.snapshot).toEqual([]);
+  expect(JSON.stringify(complete.nextState).length).toBeLessThan(32 * 1024);
+});
+
+
+test("artifact map pages preserve absolute map.item values across windows", () => {
+  const task: Extract<FactoryNode, { kind: "task" }> = { id: "work", kind: "task", runner, bindings: { value: { kind: "ref", root: "map", name: "item" } }, inputPorts: { value: { type: "string" } }, outputPorts: { value: { type: "string" } } };
+  const map: Extract<FactoryNode, { kind: "map" }> = { id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items" }, itemSchema: { type: "string" }, body: { nodes: [task], outputs: { value: { kind: "ref", root: "node", name: "work", path: ["value"] } } }, mode: "all", maxItems: 96, maxConcurrency: 4, outputPorts: { value: { type: "array", items: { type: "string" }, maxItems: 96 } } };
+  const graph = compiled([map], { result: { kind: "ref", root: "node", name: "map" } }, { items: { type: "array", items: { type: "string" }, maxItems: 96 } });
+  const artifact = { artifactId: "map-items", digest, encodedBytes: 96 * 1024 };
+  const started = advanceKernel(graph, createKernelState(graph, "lazy-window", { items: [] }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
+  const first = started.commands.find(command => command.kind === "read-input-page");
+  if (first?.kind !== "read-input-page") throw new Error("first map page missing");
+  const page = (id: string, command: Extract<typeof first, { kind: "read-input-page" }>, items: readonly JsonValue[], nextCursor?: number) => event(id, { kind: "input-page-read" as const, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: [], storageVersion: "v1", mediaType: "application/json" as const, cursor: command.cursor, maxItems: command.maxItems, items, ...(nextCursor === undefined ? {} : { nextCursor }) });
+  let step = advanceKernel(graph, started.nextState, page("window-0", first, ["a", "b"], 2));
+  const settlePage = (expected: readonly string[]) => {
+    const admissions = step.commands.filter(command => command.kind === "request-admission");
+    expect(admissions).toHaveLength(expected.length);
+    for (let index = 0; index < admissions.length; index += 1) {
+      const admission = admissions[index]!;
+      const dispatch = advanceKernel(graph, step.nextState, event(`admit-${admission.id}`, { kind: "admission-result" as const, nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: admission.candidateGeneration, granted: true }));
+      const work = dispatch.commands.find(command => command.kind === "dispatch-node");
+      expect(work).toMatchObject({ input: { value: expected[index] } });
+      if (work?.kind !== "dispatch-node") throw new Error("map task was not dispatched");
+      step = advanceKernel(graph, dispatch.nextState, event(`result-${work.id}`, { kind: "node-result" as const, nodeId: work.nodeId, commandId: work.id, candidateGeneration: work.candidateGeneration, attempt: work.attempt, output: { value: `${expected[index]}!` } }));
+    }
+  };
+  settlePage(["a", "b"]);
+  const second = step.commands.find(command => command.kind === "read-input-page");
+  expect(second).toMatchObject({ cursor: 2, expectedStorageVersion: "v1" });
+  if (second?.kind !== "read-input-page") throw new Error("second map page missing");
+  step = advanceKernel(graph, step.nextState, page("window-2", second, ["c"], 3));
+  settlePage(["c"]);
+  const terminal = step.commands.find(command => command.kind === "read-input-page");
+  if (terminal?.kind !== "read-input-page") throw new Error("terminal map page missing");
+  step = advanceKernel(graph, step.nextState, page("window-3", terminal, []));
+  expect(step.nextState.nodes.map?.output).toEqual({ value: ["a!", "b!", "c!"] });
+});

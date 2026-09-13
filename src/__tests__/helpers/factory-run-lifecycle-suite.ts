@@ -44,17 +44,17 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   const startRun = async (...args: Parameters<FactoryRunLifecycle["start"]>) => (await lifecycle.start(...args)).run;
   const cancelRun = async (...args: Parameters<FactoryRunLifecycle["cancel"]>) => (await lifecycle.cancel(...args)).run;
   const start = () => startRun(principal, key, body, 0, `start-${++sequence}`);
-  const committedInterpreter = async (runId: string, definitionKey = key, request = body) => {
+  const committedInterpreter = async (runId: string, definitionKey = key, request = body, runLifecycle = lifecycle, resolvedInput?: JsonValue) => {
     const identity = { tenantId, projectId, logicalRunId: runId, interpreterId: "root" };
     const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
     const transitions = new FactoryTransitionArtifacts(artifacts);
     const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
     const { compiled } = await definitions.readVersion(principal, definitionKey, request.factoryVersion);
-    const input = Object.fromEntries(Object.entries(request.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null]));
+    const input = resolvedInput ?? Object.fromEntries(Object.entries(request.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null]));
     const event = { kind: "start", id: "authority-start", atMs: now } as const;
-    const first = advanceKernel(compiled, createKernelState(compiled, runId, input, now), event);
+    const first = advanceKernel(compiled, createKernelState(compiled, runId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: request.parameters }), event);
     const admission = first.commands.find(command => command.kind === "request-admission")!;
-    const authority = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, ["orchestration"], () => now);
+    const authority = new FactoryCommandAuthority(fixture.db, tenantId, runLifecycle, transitions, ["orchestration"], () => now);
     return { identity, transitions, activities, compiled, event, first, admission, authority };
   };
   beforeAll(async () => {
@@ -98,7 +98,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await lifecycle.budgets.inspect({ ...runKey(run.runId), envelopeId: "root" })).toMatchObject({ limits: { tokens: "100" }, allocated: { tokens: "0" }, spent: { tokens: "0" } });
     const commands = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_command_outbox WHERE logical_run_id=${run.runId}`));
     expect(commands).toHaveLength(1);
-    expect(JSON.parse(commands[0]!.payload).command.body).toMatchObject({ tenantId, projectId, logicalRunId: run.runId, interpreterId: "root", startedAtMs: now, deadlineAtMs: now + duration });
+    expect(JSON.parse(commands[0]!.payload).command.body).toMatchObject({ tenantId, projectId, logicalRunId: run.runId, interpreterId: "root", startedAtMs: now, deadlineAtMs: now + duration, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters } });
     expect(await lifecycle.read(principal, runKey(run.runId))).toEqual(run);
     await expect(startRun(principal, key, { ...body, parameters: {} }, 0, "race-start")).rejects.toMatchObject({ code: "idempotency_conflict" });
   });
@@ -230,6 +230,52 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
         await expect(resolve()).rejects.toMatchObject({ code: "factory_run_stopped" });
       }
       await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+    }
+  });
+
+  test("lazy reads authorize the exact pending input and stop when its committed result advances", async () => {
+    const sourceRun = await start();
+    const sourceIdentity = { tenantId, projectId, logicalRunId: sourceRun.runId };
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const stored = await artifacts.stage(sourceIdentity, "candidate_output", new TextEncoder().encode('{"value":"stored value"}'), { interpreterScoped: false, candidateNodeInstanceId: "source", candidateGeneration: 1 });
+    const artifact = { artifactId: stored.objectId, digest: stored.digest, encodedBytes: stored.encodedBytes };
+    const definitionKey = { projectId, factoryId: "input-authority-factory" };
+    const inputPorts = { source: { type: "object" as const, properties: { value: { type: "string" as const } }, required: ["value"], additionalProperties: false } };
+    const task = referenceCodeV1.graph.nodes.find(node => node.kind === "task")!;
+    if (task.kind !== "task") throw new Error("missing reference task");
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts, outputPorts: {},
+      graph: { nodes: [{ ...task, id: "read-source", dependsOn: [], inputPorts: { value: { type: "string" } }, bindings: { value: { kind: "ref", root: "input", name: "source", path: ["value"] } } }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "input-authority-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "input-authority-publish");
+    const request: FactoryRunStartBody = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: { source: { kind: "artifact", artifact } } };
+    const runLifecycle = new FactoryRunLifecycle(fixture.db, tenantId, { ...options, async resolveParameters(transaction) {
+      const loaded = await artifacts.loadInTransaction(transaction, sourceIdentity, stored, ["candidate_output"]);
+      return { source: JSON.parse(new TextDecoder().decode(loaded.content)) };
+    } }, () => now);
+    const resolvedInput = { source: { value: "stored value" } };
+    const service = { tenantId, subject: "orchestration" };
+    for (const substituted of [false, true]) {
+      const { run } = await runLifecycle.start(principal, definitionKey, request, 0, `input-authority-${substituted}`);
+      const { identity, transitions, activities, compiled, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request, runLifecycle, resolvedInput);
+      const command = first.commands.find(value => value.kind === "read-input-value");
+      expect(command?.kind).toBe("read-input-value");
+      if (command?.kind !== "read-input-value") throw new Error("missing input command");
+      const reference = { ...identity, commandId: command.id };
+      const commands = first.commands.map(value => substituted && value.id === command.id ? { ...command, path: ["private"] } : value);
+      await persistTransition(identity, 1, event, first.nextState, commands, undefined, activities);
+      if (substituted) {
+        await expect(authority.withCurrentInput(service, reference, async () => "read")).rejects.toMatchObject({ code: "factory_command_stale" });
+      } else {
+        expect(await authority.withCurrentInput(service, reference, async (_transaction, context) => context.command)).toEqual(command);
+        await expect(authority.withCurrent(service, reference, async () => "task")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+        const read = { kind: "input-value-read", id: `${command.id}:value`, atMs: now + 1, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: command.path, storageVersion: "immutable-version", mediaType: "application/json", value: "stored value" } as const;
+        const next = advanceKernel(compiled, first.nextState, read);
+        await persistTransition(identity, 2, read, next.nextState, next.commands, undefined, activities);
+        await expect(authority.withCurrentInput(service, reference, async () => "read")).rejects.toMatchObject({ code: "factory_command_stale" });
+        const admission = next.commands.find(value => value.kind === "request-admission")!;
+        await expect(authority.withCurrentInput(service, { ...reference, commandId: admission.id }, async () => "read")).rejects.toMatchObject({ code: "factory_command_forbidden" });
+      }
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, runLifecycle).project(runKey(run.runId));
     }
   });
 

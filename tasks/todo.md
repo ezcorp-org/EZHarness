@@ -1519,6 +1519,16 @@ Review: a fresh flag-on Bun process against isolated PostgreSQL reproduced the p
 Plan review: the private worker supplies only the committed command reference. The host chooses a configured resource profile; node limits can reduce its budget. Pool delivery and later capacity polling remain separate. An acknowledged queued request does not admit runner execution.
 
 Review: current task admission derives one reservation identity shared by admission and dispatch, snapshots configured resource profiles, applies task budget/memory limits, and commits its budget hold with the exact existing compute outbox request. Repeated calls reuse the hold and delivery; missing outbox storage rolls everything back. An identity-only service guard supports recovery of an already committed receipt without re-admitting a superseded command. The combined focused run passes 25 tests with 187 assertions; all 15 current factory PostgreSQL/S3 CI files pass 102 tests with 2,322 assertions. Task admission coverage is 41/41 lines and 9/9 functions; authority is 43/43 and 9/9. Frozen installs, SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source hashes and exits are in `/tmp/factory-platform-evidence/root-task-admission-complete-source.json` and `root-task-admission-complete-integration-results.json`. A prior gate failure detected an imported assertion helper without a visible wrapper assertion; its PostgreSQL test now explicitly asserts successful completion of the real conformance helper. Durable pool polling and execution dispatch remain separate open work.
+## C07 deterministic SDK/kernel lazy input — Terra
+- [x] Preserve legacy inline workflow input and add an explicit durable artifact descriptor.
+- [x] Add deterministic read-value/read-page commands, bounded caches, stale-result denial, and artifact path/map handling.
+- [x] Wire orchestration activity contracts and workflow correlation, including command ID child resolution.
+- [x] Preserve descriptor at lifecycle start and prove field, paged map, replay, child, and corrupt-result cases.
+- [x] Run PostgreSQL/S3 conformance, owned coverage, SDK build, all types, lint, and integrity checks.
+
+Review: `FactoryWorkflowInput.durableInput` is an explicit `factory.lazy-input.v1` descriptor, separate from legacy `input` JSON. The kernel records only selected `(name,path)` values and a current map page. It emits `read-input-value` and `read-input-page` commands through the existing generic command activity, matches returned events to command/node/generation/cancellation/ref/path/page fences, pins storage version, and rejects substituted or stale values. Lazy maps keep their current window with absolute indices, then request the next cursor and terminate on an empty final page. Child descriptors use `factoryChildRunId` and pass the parent `run-child` command ID to the authoritative child resolver. A continuation must carry the exact same descriptor.
+
+Validation: locked Node Temporal replay passes 18/18 at `/tmp/factory-platform-evidence/terra-lazy-temporal-replay-passing.log`; it includes field hydration through recorded generic commands, a tagged child workflow, descriptor substitution denial, and existing replay/continuation cases. SDK source coverage passes 159/159 with `kernel.ts` 1151/1151 lines at `/tmp/factory-platform-evidence/terra-lazy-sdk-coverage-final.log`. The real PostgreSQL/S3 private-service conformance passes 5/5 at `/tmp/factory-platform-evidence/terra-lazy-private-resolve-postgres-s3.log`; it rejects missing/invalid resolve `commandId`. Its PGlite coverage has `private-service.ts` 97/97 lines at `/tmp/factory-platform-evidence/terra-lazy-private-resolve-coverage.log`. Root and web frozen installs complete, then SDK build, all canonical typecheck legs, and lint pass at `/tmp/factory-platform-evidence/terra-lazy-final-types-lint.log` (eight existing lint infos).
 
 ## Committed subfactory command authority — root
 
@@ -1530,3 +1540,12 @@ Review: current task admission derives one reservation identity shared by admiss
 Plan review: the child resolver receives an opaque command ID. It must authorize the committed parent attempt before it creates a separate child run and budget delegation. This leaf establishes that authority; durable child creation follows it.
 
 Review: only the current committed run-child attempt can resolve its exact compiled child factory id, version and digest. Task and child checks share the run/head/fence transaction. Real published parent/child definitions prove valid resolution, caller mutation capture, wrong command kind, substituted factory digest, deadline expiry and cancelled parent denial. PGlite and PostgreSQL/S3 each pass 21 tests / 174 assertions. Authority coverage is 59/59 lines and 16/16 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and check receipts are `/tmp/factory-platform-evidence/root-child-authority-source.json` and `root-child-authority-integration-results.json`. Durable child creation and budget delegation remain open.
+
+## Committed lazy-input authority — root
+
+- [ ] Test an actual published lazy input command through the current run and immutable transition store.
+- [ ] Share the committed-state transaction and compare every pending input coordinate.
+- [ ] Reject stale, cancelled, foreign, wrong-kind and substituted pending reads.
+- [ ] Verify PGlite, PostgreSQL/S3, coverage and all static checks before integration.
+
+Plan review: a private command ID is the only request authority; the reader validates the durable artifact binding within the same run transaction.
