@@ -58,3 +58,15 @@ test("map snapshots duplicate values, admits a rolling window, and collects by i
   expect(result.state.nodes.map?.output).toEqual(["first", "second", "third"]);
   expect(result.state.status).toBe("completed");
 });
+
+test("collect records one failed index and continues the other indexed items", () => {
+  const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
+  const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["first", "second", "third"] }, itemSchema: { type: "string" as const }, body, mode: "collect" as const, maxItems: 3, maxConcurrency: 2 };
+  const factory: CompiledFactory = { ...oneTask, definition: { ...oneTask.definition, graph: { nodes: [map], outputs: { result: { kind: "ref", root: "node", name: "map" } } } }, indexes: { nodeById: { map }, successors: { map: [] }, dependencyCounts: { map: 0 } } };
+  const result = simulateFactory(factory, "collect-failure", {}, {
+    execute: (_node, command) => command.nodeId.includes("/0/") ? { kind: "failure", error: "first failed" } : { kind: "success", output: command.nodeId.includes("/1/") ? "second" : "third" },
+  });
+  expect(result.state.status).toBe("completed");
+  expect(result.state.nodes.map?.output).toEqual([{ error: "first failed" }, "second", "third"]);
+  expect(result.commands.filter((command) => command.kind === "dispatch-node").map((command) => command.nodeId)).toEqual(["map/items/0/item", "map/items/1/item", "map/items/2/item"]);
+});

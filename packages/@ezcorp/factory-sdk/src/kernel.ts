@@ -355,6 +355,14 @@ function isReady(state: KernelState, node: FactoryNode, instanceId: string): boo
 function failNode(factory: CompiledFactory, state: KernelState, node: FactoryNode, nodeId: string, error: string, _kind: string, commands: KernelCommand[]): KernelState {
   const runtime = state.nodes[nodeId]!;
   const failed = withNode(state, nodeId, { ...runtime, status: "failed", error });
+  const mapParentId = mapParent(nodeId);
+  const parentRuntime = mapParentId ? state.nodes[mapParentId] : undefined;
+  const mapNode = mapParentId ? nodeFor(factory, mapParentId) : undefined;
+  if (parentRuntime && mapNode?.kind === "map" && mapNode.mode === "collect") return progressMap(factory, failed, nodeId, commands);
+  if (parentRuntime && mapNode?.kind === "map" && mapNode.mode === "all") {
+    const enclosing = withNode(failed, mapParentId!, { ...parentRuntime, status: "failed", error: "MAP_ITEM_FAILED" });
+    return beginStopping(enclosing, "MAP_ITEM_FAILED", commands, false);
+  }
   if (node.kind === "map" && node.mode === "collect") return activateReady(factory, failed, commands, successorsFor(factory, nodeId));
   return beginStopping(failed, error, commands, false);
 }
@@ -393,7 +401,7 @@ function finish(factory: CompiledFactory, state: KernelState, commands: KernelCo
     else commands.push({ kind: "cancel-run", id: command.id, reason: "CANCELLED" });
     return { nextState: command.state, commands };
   }
-  const nodes = Object.values(state.nodes);
+  const nodes = Object.entries(state.nodes).filter(([id, runtime]) => !(runtime.status === "failed" && isCollectMapChild(factory, id))).map(([, runtime]) => runtime);
   if (nodes.length > 0 && nodes.every((node) => node.status === "succeeded" || node.status === "skipped")) {
     const done = { ...state, status: "completed" as const };
     const command = commandFor(done, "complete-run");
@@ -503,6 +511,7 @@ function completeScopeIfReady(factory: CompiledFactory, state: KernelState, node
 }
 
 function progressMap(factory: CompiledFactory, state: KernelState, nodeId: string, commands: KernelCommand[]): KernelState {
+  if (state.status !== "running") return state;
   const marker = "/items/";
   const markerAt = nodeId.indexOf(marker);
   if (markerAt < 0) return state;
@@ -537,6 +546,18 @@ function progressMap(factory: CompiledFactory, state: KernelState, nodeId: strin
     activeItems.add(nextItem);
   }
   return next;
+}
+
+function mapParent(nodeId: string): string | undefined {
+  const marker = "/items/";
+  const markerAt = nodeId.indexOf(marker);
+  return markerAt < 0 ? undefined : nodeId.slice(0, markerAt);
+}
+
+function isCollectMapChild(factory: CompiledFactory, nodeId: string): boolean {
+  const parentId = mapParent(nodeId);
+  const parent = parentId ? nodeFor(factory, parentId) : undefined;
+  return parent?.kind === "map" && parent.mode === "collect";
 }
 
 function nodeFor(factory: CompiledFactory, nodeId: string): FactoryNode | undefined {
