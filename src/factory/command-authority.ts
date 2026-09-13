@@ -66,10 +66,18 @@ export class FactoryCommandAuthority {
   }
 
   async withCurrent<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>): Promise<Result> {
+    return this.execution(service, value, work);
+  }
+
+  withCurrentInTransaction<Result>(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>): Promise<Result> {
+    return this.execution(service, value, work, transaction);
+  }
+
+  private execution<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>, suppliedTransaction?: MigrationDb): Promise<Result> {
     return this.withCommitted(service, value, (command): command is ExecutionCommand => command.kind === "request-admission" || command.kind === "dispatch-node", async (transaction, context) => {
       const node = this.attemptNode(context, "task");
       return work(transaction, { ...context, node });
-    });
+    }, suppliedTransaction);
   }
 
   async withCurrentChild<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedChildCommand) => Promise<Result>): Promise<Result> {

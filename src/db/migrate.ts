@@ -3073,4 +3073,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await upFactoryAttemptQueue(db);
   const { up: addFactoryReleaseAuthority } = await import("./migrations/add-factory-release-authority");
   await addFactoryReleaseAuthority(db);
+  const { up: addFactoryTaskCompletions } = await import("./migrations/add-factory-task-completions");
+  await addFactoryTaskCompletions(db);
 }

@@ -404,7 +404,7 @@ function applyResult(factory: KernelFactoryPlan, state: KernelState, event: Extr
   const node = nodeFor(factory, event.nodeId);
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
   if (state.nowMs >= runtime.attempts.at(-1)!.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
-  if (!validateOutput(node, event.output)) return stopFailedAttempt(state, event.nodeId, "OUTPUT_INVALID", commands);
+  if (!validateNodeOutput(node, event.output)) return stopFailedAttempt(state, event.nodeId, "OUTPUT_INVALID", commands);
   const attempts = runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt);
   const next = withNode(state, event.nodeId, { ...runtime, status: "succeeded", output: snapshotValue(event.output), error: undefined, attempts });
   const progressed = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
@@ -941,7 +941,7 @@ function inputFor(state: KernelState, node: FactoryNode, nodeId: string): JsonVa
   return input;
 }
 
-function validateOutput(node: FactoryNode, output: JsonValue): boolean {
+export function validateNodeOutput(node: FactoryNode, output: JsonValue): boolean {
   try {
     validateRecord(node.outputPorts ?? {}, output, `node ${node.id} output`);
     return true;
@@ -1085,7 +1085,7 @@ function graphOutput(factory: KernelFactoryPlan, state: KernelState): JsonValue 
 
 function completeControl(factory: KernelFactoryPlan, state: KernelState, nodeId: string, output: JsonValue, commands: KernelCommand[]): KernelState {
   const node = nodeFor(factory, nodeId)!;
-  if (!validateOutput(node, output)) return failNode(factory, state, node, nodeId, "OUTPUT_INVALID", "output_invalid", commands);
+  if (!validateNodeOutput(node, output)) return failNode(factory, state, node, nodeId, "OUTPUT_INVALID", "output_invalid", commands);
   const done = withNode(state, nodeId, { ...state.nodes[nodeId]!, status: "succeeded", output, timer: undefined });
   const progressed = activateReady(factory, done, commands, successorsFor(factory, nodeId));
   return progressContainingScopes(factory, progressed, nodeId, commands);

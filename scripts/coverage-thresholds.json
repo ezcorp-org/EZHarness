@@ -182,6 +182,8 @@
   "src/factory/command-authority.ts": 100,
   "src/factory/task-admission.ts": 100,
   "src/factory/task-execution-admission.ts": 100,
+  "src/factory/task-completions.ts": 100,
+  "src/db/migrations/add-factory-task-completions.ts": 100,
   "src/factory/compute-admissions.ts": 100,
   "src/factory/executions.ts": 100,
   "src/db/migrations/add-factory-executions.ts": 100,

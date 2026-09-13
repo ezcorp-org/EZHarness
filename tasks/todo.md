@@ -1654,3 +1654,15 @@ Review: the Bun pool process reads one strict private config, verifies the exact
 Plan review: the application must construct a real input resolver from its scoped artifact and grant stores. The host checks full immutable bytes once at admission; the workflow receives bounded inline values and exact artifact descriptors. Existing low-level lifecycle resolver seams remain available for controlled store tests.
 
 Review: application composition now provides a concrete host input resolver. Admission and later lazy reads share one exact local/shared immutable artifact loader. Actual canonical I-JSON bytes satisfy the published port schema; only inline values and descriptors enter the durable start. Foreign or revoked shares, altered digest/storage, wrong ports and malformed JSON fail before a run is committed. PGlite integration passes 47 tests / 317 assertions; PostgreSQL and real ordinary S3 pass 39 tests / 262 assertions. Input loader coverage is 39/39 lines and 7/7 functions; run resolver is 25/25 and 4/4; shared lazy reader is 122/122 and 25/25. Application composition is 99/99 lines and 24/25 functions. SDK build, all four types, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-run-inputs-source.json` and `root-run-inputs-integration-results.json`. Full production startup remains open.
+
+## Durable successful task completion — root
+
+Plan review: test the public completion boundary with a published factory, admitted task, real durable journal, immutable output, budget ledger, and inbox. A retry must return the saved event after the interpreter advances. The completion transaction must roll back every product fact on failure. Runner launch and failed/uncertain terminal recovery remain separate open leaves.
+
+- [x] Reproduce a successful admitted task that has no durable completion adapter.
+- [x] Commit exact terminal evidence, measured spend, bounded workflow result, and sealed retry receipt in one transaction.
+- [x] Prove retry, corruption, cancellation, output limits, and write-fault rollback with PGlite and PostgreSQL/S3.
+- [ ] Verify changed-source coverage, all four typechecks, lint, gate registration, and integration.
+- [ ] Record exact evidence and review the completed leaf.
+
+Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product and registration 47 passed / 421 assertions; PostgreSQL/S3 plus schema parity 46 passed / 2,090 assertions. SDK build, all four typechecks, lint (zero errors / eight existing infos), gate integrity, and boundaries passed. Both database producers report task-completions 79/79 lines and 18/18 functions, migration 4/4 and 2/2; shared command authority 88/88 and 26/26, artifacts 106/106 and 28/28, input artifacts 39/39 and 7/7. Source snapshot and exact results: `/tmp/factory-platform-evidence/root-task-completion-final-source.json` and `root-task-completion-final-integration-results.json`. Committed patch/new-file coverage and parent integration remain pending.

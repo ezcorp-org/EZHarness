@@ -175,6 +175,26 @@ test("terminal completion binds exact durable request, settled evidence, measure
   await expect(journal.dispatch(measured, measuredOperation.operationId)).rejects.toThrow("stale, cancelled, or expired");
 });
 
+test("historical terminal reader verifies every stored binding and preserves its immutable result", async () => {
+  const admission = await admit(17, "node-terminal-reader");
+  const read = () => database.transaction(tx => journal.readCompletedTerminalInTransaction(tx, admission, artifacts));
+  await expect(read()).rejects.toThrow("receipt is unavailable");
+  await commitCandidate(admission, "terminal-reader", null);
+  const receipt = await read();
+  expect(receipt.terminal).toMatchObject({ attemptId: admission.attemptId, tenantId, projectId, runId, nodeInstanceId: admission.nodeInstanceId, candidateGeneration: 17 });
+  expect(receipt.result.status).toBe("completed");
+  expect(receipt.createdAtMs).toBeGreaterThan(0);
+  expect(await read()).toEqual(receipt);
+  await expect(database.transaction(tx => journal.readCompletedTerminalInTransaction(tx, { ...admission, projectId: "foreign-project" }, artifacts))).rejects.toThrow("receipt is unavailable");
+  const original = rows<Record<string, unknown>>(await database.execute(sql`SELECT * FROM factory_execution_terminals WHERE attempt_id=${admission.attemptId}`))[0]!;
+  for (const [column, value] of [["node_instance_id", "wrong-node"], ["output_bytes", 1], ["result_json", "{}"], ["terminal_fact_digest", `sha256:${"f".repeat(64)}`], ["request_digest", "e".repeat(64)]] as const) {
+    await database.execute(sql`UPDATE factory_execution_terminals SET ${sql.identifier(column)}=${value} WHERE attempt_id=${admission.attemptId}`);
+    try { await expect(read()).rejects.toThrow(); }
+    finally { await database.execute(sql`UPDATE factory_execution_terminals SET ${sql.identifier(column)}=${original[column]} WHERE attempt_id=${admission.attemptId}`); }
+  }
+  expect(await read()).toEqual(receipt);
+});
+
 test("candidate slots separate nodes and generations and deny a foreign-node terminal", async () => {
   const first = await admit(0, "node-a");
   const secondNode = await admit(0, "node-b");
