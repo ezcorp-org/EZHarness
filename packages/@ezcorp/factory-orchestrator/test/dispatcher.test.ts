@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
-import { dispatchClaim, dispatchNext, deliverFactoryCommand } from "../src/dispatcher.ts";
+import { dispatchClaim, dispatchNext, deliverFactoryCommand, FactoryPreSendError, reconcileClaim, reconcileFactoryCommand } from "../src/dispatcher.ts";
 
 const workflowInput = {
   tenantId: "tenant",
@@ -22,6 +22,7 @@ function command(kind = "start_run") {
     logicalRunId: "run",
     workflowId: "tenant/run",
     kind,
+    interpreterId: "interpreter",
     eventId: kind === "start_run" ? undefined : "event-1",
     eventSequence: kind === "start_run" ? undefined : 1,
     eventHash: kind === "start_run" ? undefined : `sha256:${"c".repeat(64)}`,
@@ -37,10 +38,22 @@ describe("factory outbox dispatcher", () => {
     assert.equal(captured[Symbol.for("__temporal_internal_client_workflow_start_options")].requestId, "command-1");
     assert.equal(captured.workflowId, "tenant/run");
     assert.equal(captured.retry.maximumAttempts, 1);
+    assert.equal(captured.workflowIdReusePolicy, "REJECT_DUPLICATE");
+    assert.deepEqual(captured.memo["ezcorp.factory.start.v1"], { commandId: "command-1", tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "interpreter" });
   });
 
-  it("does not acknowledge an unreconciled workflow identity conflict", async () => {
-    const client = { workflow: { start: async () => { throw new WorkflowExecutionAlreadyStartedError("exists", "tenant/run", "factoryWorkflow"); } } };
+  it("acknowledges only a repeated start with the same durable identity", async () => {
+    const existing = { commandId: "command-1", tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "interpreter" };
+    const client = {
+      workflow: {
+        start: async () => {
+          throw new WorkflowExecutionAlreadyStartedError("exists", "tenant/run", "factoryWorkflow");
+        },
+        getHandle: () => ({ describe: async () => ({ type: "factoryWorkflow", memo: { "ezcorp.factory.start.v1": existing } }) }),
+      },
+    };
+    await assert.doesNotReject(deliverFactoryCommand(client, command()));
+    client.workflow.getHandle = () => ({ describe: async () => ({ type: "factoryWorkflow", memo: { "ezcorp.factory.start.v1": { ...existing, commandId: "other" } } }) });
     await assert.rejects(deliverFactoryCommand(client, command()), WorkflowExecutionAlreadyStartedError);
   });
 
@@ -57,12 +70,46 @@ describe("factory outbox dispatcher", () => {
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command(), body: null }), /workflow input object/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command(), body: [] }), /workflow input object/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command(), body: 1 }), /workflow input object/);
+    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command(), tenantId: "other" }), /identity/);
+    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command(), workflowId: "other/run" }), /identity/);
     await assert.rejects(deliverFactoryCommand({ workflow: { start: async () => { throw new Error("start failed"); } } }, command()), /start failed/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventId: undefined }), /stable event identity/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventSequence: undefined }), /stable event identity/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventHash: undefined }), /stable event identity/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), body: null }), /inbox event/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventId: "different" }), /does not match/);
+  });
+
+  it("reconciles acknowledged and pending decisions by durable identity", async () => {
+    const value = command("decision");
+    const client = {
+      workflow: {
+        getHandle: () => ({
+          query: async () => ({ acknowledgedSequence: 0, pending: [{ sequence: value.eventSequence, eventId: value.eventId, eventHash: value.eventHash }] }),
+        }),
+      },
+    };
+    assert.equal(await reconcileFactoryCommand(client, value), "delivered");
+    client.workflow.getHandle = () => ({ query: async () => ({ acknowledgedSequence: 1, pending: [] }) });
+    assert.equal(await reconcileFactoryCommand(client, value), "delivered");
+    client.workflow.getHandle = () => ({ query: async () => ({ acknowledgedSequence: 0, pending: [] }) });
+    assert.equal(await reconcileFactoryCommand(client, value), "outcome_unknown");
+    client.workflow.getHandle = () => ({ query: async () => { throw new Error("unavailable"); } });
+    assert.equal(await reconcileFactoryCommand(client, value), "outcome_unknown");
+    assert.equal(await reconcileFactoryCommand(client, { ...value, eventSequence: undefined }), "outcome_unknown");
+  });
+
+  it("settles a recovered unknown claim only after identity reconciliation", async () => {
+    const value = command("decision");
+    const claim = { claimToken: "token", command: value };
+    const settled = [];
+    const queue = { claim: async () => null, settle: async (...args) => settled.push(args) };
+    const client = { workflow: { getHandle: () => ({ query: async () => ({ acknowledgedSequence: 1, pending: [] }) }) } };
+    assert.equal(await reconcileClaim(client, queue, claim), "delivered");
+    assert.deepEqual(settled.map((entry) => entry.slice(1)), [["delivered"]]);
+    client.workflow.getHandle = () => ({ query: async () => ({ acknowledgedSequence: 0, pending: [] }) });
+    assert.equal(await reconcileClaim(client, queue, claim), "outcome_unknown");
+    assert.equal(settled.length, 1);
   });
 
   it("settles only after an acknowledged delivery", async () => {
@@ -80,7 +127,7 @@ describe("factory outbox dispatcher", () => {
     const outcomes = [];
     const queue = { claim: async () => null, settle: async (_claim, outcome, code) => outcomes.push([outcome, code]) };
     const claim = { claimToken: "token", command: command("decision") };
-    const disconnected = { workflow: { getHandle: () => ({ signal: async () => { throw new TypeError("socket connection failed"); } }) } };
+    const disconnected = { workflow: { getHandle: () => ({ signal: async () => { throw new FactoryPreSendError("client proved the request was not sent"); } }) } };
     assert.equal(await dispatchClaim(disconnected, queue, claim), "retry");
     const uncertain = { workflow: { getHandle: () => ({ signal: async () => { throw new Error("deadline exceeded after send"); } }) } };
     assert.equal(await dispatchClaim(uncertain, queue, claim), "outcome_unknown");
@@ -88,6 +135,27 @@ describe("factory outbox dispatcher", () => {
     assert.equal(await dispatchClaim(typedButCertain, queue, claim), "outcome_unknown");
     const nonError = { workflow: { getHandle: () => ({ signal: async () => { throw "unknown"; } }) } };
     assert.equal(await dispatchClaim(nonError, queue, claim), "outcome_unknown");
-    assert.deepEqual(outcomes, [["retry", "TypeError"], ["outcome_unknown", "Error"], ["outcome_unknown", "TypeError"], ["outcome_unknown", "UNKNOWN"]]);
+    assert.deepEqual(outcomes, [["retry", "FactoryPreSendError"], ["outcome_unknown", "Error"], ["outcome_unknown", "TypeError"], ["outcome_unknown", "UNKNOWN"]]);
+  });
+
+  it("settles an uncertain send as delivered when the workflow receipt confirms it", async () => {
+    const outcomes = [];
+    const value = command("decision");
+    const queue = { claim: async () => null, settle: async (_claim, outcome, code) => outcomes.push([outcome, code]) };
+    let signals = 0;
+    const client = {
+      workflow: {
+        getHandle: () => ({
+          signal: async () => {
+            signals += 1;
+            throw new Error("connection closed after acknowledgement");
+          },
+          query: async () => ({ acknowledgedSequence: 1, pending: [] }),
+        }),
+      },
+    };
+    assert.equal(await dispatchClaim(client, queue, { claimToken: "token", command: value }), "delivered");
+    assert.equal(signals, 1);
+    assert.deepEqual(outcomes, [["delivered", undefined]]);
   });
 });

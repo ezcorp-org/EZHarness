@@ -5,12 +5,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { TestWorkflowEnvironment, type TestWorkflowEnvironment as TestEnvironment } from "@temporalio/testing";
+import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { bundleWorkflowCode, Worker, type WorkflowBundle } from "@temporalio/worker";
 import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
 import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
 import { compileFactory } from "@ezcorp/factory-sdk";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
+import { deliverFactoryCommand } from "../src/dispatcher.ts";
 
 const server = process.env.FACTORY_TEMPORAL_TEST_SERVER ?? "/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server";
 const queue = "factory-orchestrator";
@@ -106,6 +108,39 @@ after(async () => {
 });
 
 describe("factory Temporal workflow", () => {
+  it("reconciles a repeated durable start against the real Temporal workflow identity", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const logicalRunId = `repeated-start-${process.pid}`;
+    const workflowId = `tenant/${logicalRunId}`;
+    const command = {
+      commandId: `start-${logicalRunId}`,
+      requestId: `start-${logicalRunId}`,
+      tenantId: "tenant",
+      projectId: "project",
+      logicalRunId,
+      workflowId,
+      kind: "start_run",
+      interpreterId: "interpreter",
+      body: workflowInput(factory, { logicalRunId, startedAtMs }),
+    };
+    const activities = {
+      ...definitionActivities(factory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command: kernelCommand }) => {
+        if (kernelCommand.kind === "request-admission") return { kind: "admission-result", id: `${kernelCommand.id}:admitted`, atMs: startedAtMs + 1, nodeId: kernelCommand.nodeId, commandId: kernelCommand.id, candidateGeneration: kernelCommand.candidateGeneration, granted: true };
+        if (kernelCommand.kind === "dispatch-node") return { kind: "node-result", id: `${kernelCommand.id}:result`, atMs: startedAtMs + 2, nodeId: kernelCommand.nodeId, commandId: kernelCommand.id, candidateGeneration: kernelCommand.candidateGeneration, attempt: kernelCommand.attempt, output: {} };
+        throw new Error(`unexpected ${kernelCommand.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, activities });
+    await worker.runUntil(async () => {
+      await deliverFactoryCommand(environment.client, command);
+      await deliverFactoryCommand(environment.client, command);
+      await assert.rejects(deliverFactoryCommand(environment.client, { ...command, commandId: `${command.commandId}-conflict`, requestId: `${command.commandId}-conflict` }), WorkflowExecutionAlreadyStartedError);
+      assert.equal((await environment.client.workflow.getHandle(workflowId).result()).status, "completed");
+    });
+  });
+
   it("fails a malformed workflow input before it reads the definition", async () => {
     let definitionReads = 0;
     const baseActivities = definitionActivities(factory);
@@ -264,6 +299,12 @@ describe("factory Temporal workflow", () => {
         args: [workflowInput(factory, { logicalRunId: "cancel", startedAtMs })],
       });
       await started;
+      const future = { kind: "repair", id: "future-repair", atMs: startedAtMs + 2, nodeId: "work", reason: "queued after cancellation" };
+      await handle.signal("factoryInbox", { sequence: 2, eventId: future.id, eventHash: hash(JSON.stringify(future)), event: future });
+      assert.deepEqual(await handle.query("factoryInboxReceipt"), {
+        acknowledgedSequence: 0,
+        pending: [{ sequence: 2, eventId: future.id, eventHash: hash(JSON.stringify(future)) }],
+      });
       await handle.signal("factoryInbox", { sequence: 1, eventId: "cancel-event", eventHash: hash("cancel-event"), event: { kind: "cancel", id: "cancel-event", atMs: startedAtMs + 2, reason: "requested" } });
       const result = await handle.result();
       assert.equal(result.status, "cancelled", JSON.stringify(result));

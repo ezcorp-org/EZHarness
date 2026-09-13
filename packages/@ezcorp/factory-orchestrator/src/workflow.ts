@@ -19,6 +19,7 @@ import {
 } from "@temporalio/workflow";
 import {
   CONTINUE_AFTER_EVENTS,
+  FACTORY_INBOX_RECEIPT_QUERY,
   FACTORY_INBOX_SIGNAL,
   FACTORY_STATE_QUERY,
   FACTORY_WORKFLOW_TYPE,
@@ -28,6 +29,7 @@ import {
   type FactoryDefinitionSource,
   type FactoryInboxEnvelope,
   type FactoryIdentity,
+  type FactoryInboxReceipt,
   type FactoryWorkflowInput,
   type FactoryWorkflowResult,
 } from "./contracts.ts";
@@ -37,6 +39,7 @@ import { assertCommandBatchSize, assertContinuationSize, validateCompiledFactory
 
 const inboxSignal = defineSignal<[FactoryInboxEnvelope]>(FACTORY_INBOX_SIGNAL);
 const stateQuery = defineQuery<KernelState>(FACTORY_STATE_QUERY);
+const inboxReceiptQuery = defineQuery<FactoryInboxReceipt>(FACTORY_INBOX_RECEIPT_QUERY);
 const audit = proxyActivities<Pick<FactoryActivities, "recordTransition">>({
   startToCloseTimeout: "30 seconds",
   retry: { maximumAttempts: 3 },
@@ -190,6 +193,10 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     if (accepted.accepted?.event.kind === "cancel") for (const scope of activeScopes.values()) scope.cancel();
   });
   setHandler(stateQuery, () => state);
+  setHandler(inboxReceiptQuery, () => ({
+    acknowledgedSequence: acknowledgedInboxSequence,
+    pending: [...pendingInbox.values()].map(({ sequence, eventId, eventHash }) => ({ sequence, eventId, eventHash })),
+  }));
 
   for (;;) {
     if (workflowError) throw workflowError;

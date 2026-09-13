@@ -4,6 +4,7 @@ import type { KernelCommand, KernelEvent, KernelState } from "@ezcorp/factory-sd
 export const FACTORY_WORKFLOW_TYPE = "factoryWorkflow";
 export const FACTORY_INBOX_SIGNAL = "factoryInbox";
 export const FACTORY_STATE_QUERY = "factoryState";
+export const FACTORY_INBOX_RECEIPT_QUERY = "factoryInboxReceipt";
 export const FACTORY_TASK_QUEUE = "factory-orchestrator";
 export const MAX_INBOX_EVENTS = 128;
 export const CONTINUE_AFTER_EVENTS = 64;
@@ -79,6 +80,11 @@ export interface FactoryInboxEnvelope {
   readonly eventId: string;
   readonly eventHash: string;
   readonly event: KernelEvent;
+}
+
+export interface FactoryInboxReceipt {
+  readonly acknowledgedSequence: number;
+  readonly pending: readonly Pick<FactoryInboxEnvelope, "sequence" | "eventId" | "eventHash">[];
 }
 
 export interface FactoryWorkflowResult {
