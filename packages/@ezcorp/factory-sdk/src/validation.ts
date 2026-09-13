@@ -679,9 +679,9 @@ function validateApiPreconditions(request: Extract<FactoryApiRequest, { precondi
   const { idempotencyKey, expectedRevision } = request.preconditions;
   if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
   if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
-  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "service-credential.issue" || request.kind === "release.trust.publish" || request.kind === "release.control.set";
+  const allowsZero = request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "grant.set" || request.kind === "run.start" || request.kind === "service-credential.issue" || request.kind === "release.trust.publish" || request.kind === "release.control.set" || request.kind === "release.contract.put" || request.kind === "release.prepare" || request.kind === "release.approval.request" || request.kind === "release.approval.decide" || request.kind === "release.policy.put";
   if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
-  if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation requires revision 0.", ["preconditions", "expectedRevision"]);
+  if ((request.kind === "draft.create" || request.kind === "draft.import" || request.kind === "run.start" || request.kind === "release.prepare" || request.kind === "release.approval.decide" || request.kind === "release.policy.put") && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation or pending-state mutation requires revision 0.", ["preconditions", "expectedRevision"]);
   return { ok: true };
 }
 
@@ -752,6 +752,23 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     if (!runner.ok) return runner;
     if (!validDigest(request.body.validatorTrustDigest, true)) return issue("API_RELEASE_TRUST_DIGEST", "Release trust needs a prefixed lowercase sha256 validator digest.", ["body", "validatorTrustDigest"]);
   }
+  if (request.kind === "release.contract.put") {
+    if (!validDigest(request.body.contractDigest, true) || !validDigest(request.body.validatorLockDigest, true)) return issue("API_RELEASE_CONTRACT_DIGEST", "Release contract digests must be prefixed lowercase sha256 values.", ["body"]);
+    const claimIds = new Set(request.body.mandatoryClaims.map(claim => claim.id));
+    if (claimIds.size !== request.body.mandatoryClaims.length || request.body.mandatoryClaims.some(claim => !boundedText(claim.id) || !boundedText(claim.validatorId) || !safeCounter(claim.freshnessMs, 1))) return issue("API_RELEASE_CONTRACT_CLAIM", "Release contract claims must be unique, bounded, and fresh for a positive interval.", ["body", "mandatoryClaims"]);
+    const groupIds = new Set(request.body.claimGroups.map(group => group.id));
+    if (groupIds.size !== request.body.claimGroups.length || request.body.claimGroups.some(group => !boundedText(group.id) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || group.claimIds.some(id => !claimIds.has(id)))) return issue("API_RELEASE_CONTRACT_GROUP", "Release contract groups must be unique and reference valid claims.", ["body", "claimGroups"]);
+  }
+  if (request.kind === "release.prepare") {
+    if (!validDigest(request.body.candidateDigest, true) || !safeCounter(request.body.candidateGeneration) || !safeCounter(request.body.estimatedSpendMicros) || !safeCounter(request.body.deadlineMs, 1) || encodedBytes(request.body.request) > 1_048_576) return issue("API_RELEASE_PREPARE", "Release preparation needs an exact candidate, bounded counters, and a request no larger than 1 MiB.", ["body"]);
+  }
+  if (request.kind === "release.approval.decide" && !validDigest(request.body.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Release approval needs a lowercase sha256 context digest.", ["body", "contextDigest"]);
+  if (request.kind === "release.policy.put" && (!validDigest(request.body.contractDigest, true) || !safeCounter(request.body.maxOperations, 1) || !safeCounter(request.body.maxSpendMicros) || !safeCounter(request.body.expiresAtMs, 1))) return issue("API_RELEASE_POLICY", "Release policy bounds and contract digest are invalid.", ["body"]);
+  if (request.kind === "release.reconcile") {
+    if (request.preconditions.expectedRevision < 1 || request.body.providerEvidence === null || typeof request.body.providerEvidence !== "object" || Array.isArray(request.body.providerEvidence) || Object.keys(request.body.providerEvidence).length === 0 || encodedBytes(request.body.providerEvidence) > 1_048_576) return issue("API_RELEASE_RECONCILIATION", "Reconciliation needs an executing generation and bounded structured provider evidence.", ["body"]);
+    if ((request.body.action === "attach_receipt") !== (request.body.receipt !== undefined)) return issue("API_RELEASE_RECONCILIATION", "Only receipt attachment accepts an exact provider receipt.", ["body", "receipt"]);
+    if (request.body.receipt !== undefined && !validReleaseReceipt(request.body.receipt)) return issue("API_RELEASE_RECONCILIATION", "The provider receipt is invalid.", ["body", "receipt"]);
+  }
   const payloadDigest = "preconditions" in request ? validateFactoryApiPayloadDigest(request) : { ok: true } as const;
   if (!payloadDigest.ok) return payloadDigest;
   return { ok: true };
@@ -780,6 +797,18 @@ function validVersion(resource: Extract<FactoryApiResponse, { kind: "version.sum
     && validDigest(resource.compiledBlobDigest, false)
     && safeCounter(resource.compiledBytes, 1)
     && resource.compiledBytes <= FACTORY_LIMITS.maxDefinitionBytes;
+}
+
+function validReleaseReceipt(receipt: { requestDigest: string; effectDigest: string; dispatchGeneration: number }): boolean {
+  return validDigest(receipt.requestDigest, true) && validDigest(receipt.effectDigest, true) && safeCounter(receipt.dispatchGeneration, 1);
+}
+
+function validReleaseOperation(resource: Extract<FactoryApiResponse, { kind: "release.operation.resource" }>["resource"]): boolean {
+  return validDigest(resource.candidateDigest, true) && validDigest(resource.contractDigest, true)
+    && validDigest(resource.destinationDigest, true) && validDigest(resource.requestDigest, true)
+    && safeCounter(resource.candidateGeneration) && safeCounter(resource.executionEpoch, 1)
+    && safeCounter(resource.cancellationEpoch) && safeCounter(resource.releaseEnableEpoch, 1)
+    && safeCounter(resource.dispatchGeneration) && (resource.receipt === undefined || validReleaseReceipt(resource.receipt));
 }
 
 /** Strict, workflow-safe validation for C09 route responses. */
@@ -826,6 +855,10 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
     if (!runner.ok) return runner;
     if (!validDigest(response.resource.packageTrustDigest, true) || !validDigest(response.resource.validatorTrustDigest, true)) return issue("API_RELEASE_TRUST_DIGEST", "Release trust resource digests must be prefixed lowercase sha256 values.", ["resource"]);
   }
+  if (response.kind === "release.contract.resource" && (!validDigest(response.resource.contractDigest, true) || !validDigest(response.resource.validatorLockDigest, true))) return issue("API_RELEASE_CONTRACT_DIGEST", "Release contract response contains an invalid digest.", ["resource"]);
+  if (response.kind === "release.operation.resource" && !validReleaseOperation(response.resource)) return issue("API_RELEASE_OPERATION", "Release operation response contains invalid protected coordinates.", ["resource"]);
+  if (response.kind === "release.approval.resource" && !validDigest(response.resource.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Release approval response contains an invalid context digest.", ["resource", "contextDigest"]);
+  if (response.kind === "release.policy.resource" && !response.resource.revoked && !validDigest(response.resource.contractDigest, true)) return issue("API_RELEASE_POLICY", "Release policy response contains an invalid contract digest.", ["resource", "contractDigest"]);
   if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
   if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);
   if (encodedBytes(response as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_RESPONSE_BYTES", "Factory API response exceeds 16 MiB.", []);

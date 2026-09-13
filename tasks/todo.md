@@ -1423,3 +1423,18 @@ Review: `root-authority-integration-results.json` passes SDK build, 155 SDK test
 Plan review: reuse the existing worker transport and pool service routes. The new package owns HTTP only and cannot import the Temporal SDK. The root owns this extraction and pool client; the Node bootstrap owner keeps its stable gateway imports. `transport-path-red.log` records the real Node client accepting an absolute URL before the correction. No private credentials leave the local test server.
 
 Shared client review: `shared-transport-final-integration-results.json` records ten passing producers against the source manifest `shared-transport-source-manifest.json`: root/web frozen installs, shared transport/orchestrator builds, actual Node gateway tests, actual Bun mTLS client, PostgreSQL/S3 private service, all four type checks, lint, gate integrity and factory boundaries. The real PostgreSQL/private Node queue proof passes five cases (74 assertions); the Bun client passes one case (11 assertions). Direct Node coverage measures the shared transport completely at 121/121 lines. A request cannot replace the configured origin; options and body are captured before credential reads; credentials reload on each request; a slowly streaming response cannot extend the total network deadline. This closes transport extraction; the pool client and concrete product command policy remain open.
+# C04 release and assurance session API (2026-09-13)
+
+- [x] Seal the public endpoint, request, response, and application composition contract.
+- [x] Enforce operation generation and version preconditions inside release and assurance store transactions.
+- [x] Add SDK schemas and validators for public release and assurance resources.
+- [x] Add the strict store-backed application adapter and shared session handler dispatch.
+- [x] Add route files, API registry entries, and browser client methods.
+- [x] Prove store conformance, route auth/body handling, response redaction, client behavior, and API documentation registration.
+- [x] Run focused coverage, builds, all four typechecks, lint, boundaries, and patch coverage.
+- [x] Commit one immutable API checkpoint and record proof paths.
+
+## Review
+
+- The public API exposes assurance contracts, release preparation and reads, approval requests and decisions, automatic policies, and human reconciliation through the real stores. C01 scopes are exact: prepare/read use chat, reconciliation uses write plus a store-level human-session check, and contract/approval/policy mutations remain session-only. Every mutation uses canonical idempotency and exact generation/revision preconditions. Public resources omit raw requests, evidence, archive coordinates, sender tokens, and dispatch controls; provider selection uses only the persisted operation through a snapshotted resolver.
+- Focused backend coverage passes 38 tests with 206 assertions, and the final S3 adapter passes 3 tests with 26 assertions. SDK validation covers every added executable line. Final web coverage passes 27 tests with the shared handler at 214/214, browser client at 80/80, and each new route at 100%. Route, OpenAPI, and scope suites pass 50 tests with 115 assertions. SDK, harness-client, and transport builds, all four typechecks, the production web build, lint, factory boundaries, gate integrity, and diff checks pass. Proof paths are recorded in `tasks/factory/release-api-GATES.md`.

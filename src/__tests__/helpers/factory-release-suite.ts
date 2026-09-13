@@ -21,6 +21,7 @@ let close: () => Promise<void>;
 let grants: FactoryGrants;
 let assurance: FactoryAssurance;
 let releases: FactoryReleases;
+let materials: FactoryReleaseMaterialReader;
 let decisionId: string;
 let fenceStatus: FactoryReleaseAuthority["status"] = "running";
 const releaseEnableEpoch = 4;
@@ -113,8 +114,14 @@ const mutationKey = (kind: string) => `${kind}-${++mutationSequence}`;
 const prepareRelease = (actor: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey = mutationKey("prepare")) => releases.prepare(actor, input, idempotencyKey);
 const createReleasePolicy = (actor: FactoryPrincipal, policy: Parameters<FactoryReleases["createPolicy"]>[1], idempotencyKey = mutationKey("policy-create")) => releases.createPolicy(actor, policy, idempotencyKey);
 const revokeReleasePolicy = (actor: FactoryPrincipal, currentProjectId: string, policyId: string, expectedRevision: number, idempotencyKey = mutationKey("policy-revoke")) => releases.revokePolicy(actor, currentProjectId, policyId, expectedRevision, idempotencyKey);
-const requestReleaseApproval = (actor: FactoryPrincipal, currentProjectId: string, operationId: string, expiresAtMs: number, idempotencyKey = mutationKey("approval-request")) => releases.requestApproval(actor, currentProjectId, operationId, expiresAtMs, idempotencyKey);
-const reconcileRelease = (actor: FactoryPrincipal, input: Parameters<FactoryReleases["reconcile"]>[1], currentProvider: FactoryReleaseProvider, idempotencyKey = mutationKey("reconcile")) => releases.reconcile(actor, input, currentProvider, idempotencyKey);
+const requestReleaseApproval = async (actor: FactoryPrincipal, currentProjectId: string, operationId: string, expiresAtMs: number, idempotencyKey = mutationKey("approval-request")) => {
+  const operation = await releases.inspect(currentProjectId, operationId);
+  return releases.requestApproval(actor, currentProjectId, operationId, expiresAtMs, operation?.dispatchGeneration ?? 0, idempotencyKey);
+};
+const reconcileRelease = async (actor: FactoryPrincipal, input: Parameters<FactoryReleases["reconcile"]>[1], currentProvider: FactoryReleaseProvider, idempotencyKey = mutationKey("reconcile")) => {
+  const operation = await releases.inspect(input.projectId, input.operationId);
+  return releases.reconcile(actor, input, operation?.dispatchGeneration ?? 1, currentProvider, idempotencyKey);
+};
 
 async function approved(operation: FactoryReleaseOperation, requester: FactoryPrincipal = admin) {
   const approval = await assurance.requestApproval(admin, { projectId, operationId: operation.operationId, decisionId, destinationDigest: operation.destinationDigest, expectedGeneration: operation.dispatchGeneration + 1, expiresAtMs: now + 1_000 }, mutationKey("assurance-request"));
@@ -142,7 +149,7 @@ beforeAll(async () => {
   await assurance.approveContract(admin, { projectId, contractId: "contract", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "passed", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "all", claimIds: ["passed"], minimumPasses: 1, requireAllDecisive: true }] }, mutationKey("contract"));
   await assurance.captureEvidence({ ...candidate, validatorId: trusted.validatorId });
   decisionId = (await assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).decisionId;
-  const materials: FactoryReleaseMaterialReader = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
+  materials = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
   releases = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, new Destination(), archive, sender, () => now);
 });
 
@@ -191,6 +198,7 @@ test("approval request and its human notification commit together once", async (
   const approval = await requestReleaseApproval(admin, projectId, operation.operationId, now + 1_000, approvalKey);
   expect(await requestReleaseApproval(admin, projectId, operation.operationId, now + 1_000, approvalKey)).toEqual(approval);
   await expect(requestReleaseApproval(admin, projectId, operation.operationId, now + 999, approvalKey)).rejects.toMatchObject({ code: "idempotency_conflict" });
+  await expect(releases.requestApproval(admin, projectId, operation.operationId, now + 1_000, 1, mutationKey("approval-stale-generation"))).rejects.toMatchObject({ code: "factory_release_not_claimable" });
   const notification = await releases.claimNotification(projectId);
   expect(notification).toMatchObject({ kind: "approval_requested", operationId: operation.operationId, payload: { approvalId: approval.approvalId } });
   await releases.settleNotification(projectId, notification!, "delivered");
@@ -314,6 +322,7 @@ test("reconcile attaches a verified receipt, preserves uncertainty, or proves no
   const attach = await prepareRelease(admin, request("attach-receipt")); const attachApproval = await approved(attach); const attachClaim = await releases.claim(admin, projectId, attach.operationId, { kind: "approval", approvalId: attachApproval });
   provider.loseResponse = true; await releases.dispatch(attachClaim, provider); provider.loseResponse = false;
   const receipt = provider.receipts.get(attach.operationId)!;
+  await expect(releases.reconcile(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "stale generation", providerEvidence: { lookup: true }, receipt }, attachClaim.dispatchGeneration + 1, provider, mutationKey("reconcile-stale-generation"))).rejects.toMatchObject({ code: "factory_release_reconciliation_stale" });
   await expect(reconcileRelease(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt: { ...receipt, object: "foreign" } }, provider)).rejects.toMatchObject({ code: "factory_release_foreign_receipt" });
   expect(await reconcileRelease(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt }, provider)).toMatchObject({ state: "succeeded" });
 
@@ -339,6 +348,15 @@ test("reconcile attaches a verified receipt, preserves uncertainty, or proves no
   await expect(releases.claim(admin, projectId, absent.operationId, { kind: "approval", approvalId: absentApproval })).rejects.toThrow();
   const freshApproval = await approved(reopened); await expect(releases.claim(admin, projectId, reopened.operationId, { kind: "approval", approvalId: freshApproval })).resolves.toMatchObject({ dispatchGeneration: 2 });
   sender.stopped = false; provider.noEffect = false;
+});
+
+test("reconciliation proof calls are transaction-bounded and abortable", async () => {
+  const uncertain = await prepareRelease(admin, request("proof-timeout")); const approvalId = await approved(uncertain); const claim = await releases.claim(admin, projectId, uncertain.operationId, { kind: "approval", approvalId });
+  provider.loseResponse = true; await releases.dispatch(claim, provider); provider.loseResponse = false;
+  const never = () => new Promise<boolean>(() => {});
+  const bounded = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, new Destination(), archive, { proveStopped: never }, () => now, 1);
+  await expect(bounded.reconcile(admin, { projectId, operationId: uncertain.operationId, action: "confirm_no_effect", reason: "proof service did not answer", providerEvidence: { operationId: uncertain.operationId } }, claim.dispatchGeneration, { publish: provider.publish.bind(provider), proveNoEffect: never }, mutationKey("proof-timeout"))).rejects.toMatchObject({ code: "factory_release_reconciliation_timeout" });
+  expect(await releases.inspect(projectId, uncertain.operationId)).toMatchObject({ state: "uncertain" });
 });
 
 test("transactional audit failure rolls claim and policy counters back", async () => {

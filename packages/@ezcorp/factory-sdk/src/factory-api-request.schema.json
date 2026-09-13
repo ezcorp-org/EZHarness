@@ -1193,6 +1193,234 @@
             "body"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseContractBody"
+            },
+            "kind": {
+              "const": "release.contract.put",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseContractPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleasePrepareBody"
+            },
+            "kind": {
+              "const": "release.prepare",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseOperationPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseApprovalRequestBody"
+            },
+            "kind": {
+              "const": "release.approval.request",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseOperationPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseApprovalDecisionBody"
+            },
+            "kind": {
+              "const": "release.approval.decide",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseApprovalPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleasePolicyBody"
+            },
+            "kind": {
+              "const": "release.policy.put",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleasePolicyPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.policy.delete",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleasePolicyPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseReconciliationBody"
+            },
+            "kind": {
+              "const": "release.reconcile",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseOperationPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
         }
       ],
       "description": "Canonical C09 route input. `path` is populated from trusted routing state. Tenant identity is intentionally absent, and resource identity never appears in a request body."
@@ -1699,6 +1927,68 @@
       ],
       "type": "object"
     },
+    "FactoryProviderReceiptBody": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "dispatchGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "effectDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "object": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "providerReceiptId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "account",
+        "object",
+        "requestDigest",
+        "operationId",
+        "dispatchGeneration",
+        "providerReceiptId",
+        "version",
+        "effectDigest"
+      ],
+      "type": "object"
+    },
     "FactoryPublishBody": {
       "additionalProperties": false,
       "properties": {
@@ -1733,6 +2023,159 @@
       ],
       "type": "object"
     },
+    "FactoryReleaseApprovalDecisionBody": {
+      "additionalProperties": false,
+      "properties": {
+        "contextDigest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "denied"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "contextDigest",
+        "decision"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseApprovalPath": {
+      "additionalProperties": false,
+      "properties": {
+        "approvalId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseApprovalRequestBody": {
+      "additionalProperties": false,
+      "properties": {
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseContractBody": {
+      "additionalProperties": false,
+      "properties": {
+        "claimGroups": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claimIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "minimumPasses": {
+                "type": "number"
+              },
+              "requireAllDecisive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "claimIds",
+              "minimumPasses",
+              "requireAllDecisive"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "mandatoryClaims": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "freshnessMs": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "validatorId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "validatorId",
+              "freshnessMs"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "validatorLockDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "contractDigest",
+        "validatorLockDigest",
+        "mandatoryClaims",
+        "claimGroups"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseContractPath": {
+      "additionalProperties": false,
+      "properties": {
+        "contractId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "contractId",
+        "projectId"
+      ],
+      "type": "object"
+    },
     "FactoryReleaseControlBody": {
       "additionalProperties": false,
       "properties": {
@@ -1742,6 +2185,237 @@
       },
       "required": [
         "enabled"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseDestinationBody": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "object": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "account",
+        "object"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseOperationPath": {
+      "additionalProperties": false,
+      "properties": {
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryReleasePolicyBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "destinationAccount": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destinationPrefix": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destinationProvider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "maxOperations": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "maxSpendMicros": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "principalId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "principalKind": {
+          "$ref": "#/definitions/FactoryPrincipalKind"
+        }
+      },
+      "required": [
+        "principalKind",
+        "principalId",
+        "action",
+        "destinationProvider",
+        "destinationAccount",
+        "destinationPrefix",
+        "contractDigest",
+        "maxOperations",
+        "maxSpendMicros",
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryReleasePolicyPath": {
+      "additionalProperties": false,
+      "properties": {
+        "policyId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "policyId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryReleasePrepareBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "candidateDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "candidateGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "deadlineMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "decisionId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destination": {
+          "$ref": "#/definitions/FactoryReleaseDestinationBody"
+        },
+        "estimatedSpendMicros": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "nodeInstanceId",
+        "candidateGeneration",
+        "decisionId",
+        "candidateDigest",
+        "action",
+        "destination",
+        "request",
+        "estimatedSpendMicros",
+        "deadlineMs"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseReconciliationBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "attach_receipt",
+            "confirm_no_effect",
+            "keep_uncertain"
+          ],
+          "type": "string"
+        },
+        "providerEvidence": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/definitions/FactoryProviderReceiptBody"
+        }
+      },
+      "required": [
+        "action",
+        "reason",
+        "providerEvidence"
       ],
       "type": "object"
     },

@@ -643,6 +643,26 @@ export interface FactoryServiceCredentialPath extends FactoryServiceAccountPath 
   readonly credentialId: string;
 }
 
+export interface FactoryReleaseOperationPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly operationId: string;
+}
+
+export interface FactoryReleaseContractPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly contractId: string;
+}
+
+export interface FactoryReleaseApprovalPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly approvalId: string;
+}
+
+export interface FactoryReleasePolicyPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly policyId: string;
+}
+
 /** Values sourced from Idempotency-Key and If-Match, outside the JSON body. */
 export interface FactoryMutationPreconditions {
   /** @minLength 1 @maxLength 200 */
@@ -706,6 +726,79 @@ export interface FactoryReleaseTrustPublishBody {
 
 export interface FactoryReleaseControlBody {
   readonly enabled: boolean;
+}
+
+export interface FactoryReleaseContractBody {
+  /** @minLength 71 @maxLength 71 */
+  readonly contractDigest: string;
+  /** @minLength 71 @maxLength 71 */
+  readonly validatorLockDigest: string;
+  /** @maxItems 1000 */
+  readonly mandatoryClaims: readonly { readonly id: string; readonly validatorId: string; readonly freshnessMs: number }[];
+  /** @maxItems 1000 */
+  readonly claimGroups: readonly { readonly id: string; readonly claimIds: readonly string[]; readonly minimumPasses: number; readonly requireAllDecisive: boolean }[];
+}
+
+export interface FactoryReleaseDestinationBody {
+  /** @minLength 1 @maxLength 512 */ readonly provider: string;
+  /** @minLength 1 @maxLength 512 */ readonly account: string;
+  /** @minLength 1 @maxLength 512 */ readonly object: string;
+  /** @minLength 1 @maxLength 512 */ readonly expectedVersion?: string;
+}
+
+export interface FactoryReleasePrepareBody {
+  /** @minLength 1 @maxLength 512 */ readonly runId: string;
+  /** @minLength 1 @maxLength 512 */ readonly nodeInstanceId: string;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly candidateGeneration: number;
+  /** @minLength 1 @maxLength 512 */ readonly decisionId: string;
+  /** @minLength 71 @maxLength 71 */ readonly candidateDigest: string;
+  /** @minLength 1 @maxLength 512 */ readonly action: string;
+  readonly destination: FactoryReleaseDestinationBody;
+  readonly request: JsonValue;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly estimatedSpendMicros: number;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly deadlineMs: number;
+}
+
+export interface FactoryReleaseApprovalRequestBody {
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly expiresAtMs: number;
+}
+
+export interface FactoryReleaseApprovalDecisionBody {
+  /** @minLength 64 @maxLength 64 */ readonly contextDigest: string;
+  readonly decision: "approved" | "denied";
+}
+
+export interface FactoryReleasePolicyBody {
+  readonly principalKind: FactoryPrincipalKind;
+  /** @minLength 1 @maxLength 512 */ readonly principalId: string;
+  /** @minLength 1 @maxLength 512 */ readonly action: string;
+  /** @minLength 1 @maxLength 512 */ readonly destinationProvider: string;
+  /** @minLength 1 @maxLength 512 */ readonly destinationAccount: string;
+  /** @minLength 1 @maxLength 512 */ readonly destinationPrefix: string;
+  /** @minLength 71 @maxLength 71 */ readonly contractDigest: string;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly maxOperations: number;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly maxSpendMicros: number;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly expiresAtMs: number;
+}
+
+export interface FactoryProviderReceiptBody {
+  /** @minLength 1 @maxLength 512 */ readonly provider: string;
+  /** @minLength 1 @maxLength 512 */ readonly account: string;
+  /** @minLength 1 @maxLength 512 */ readonly object: string;
+  /** @minLength 71 @maxLength 71 */ readonly requestDigest: string;
+  /** @minLength 1 @maxLength 512 */ readonly operationId: string;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly dispatchGeneration: number;
+  /** @minLength 1 @maxLength 512 */ readonly providerReceiptId: string;
+  /** @minLength 1 @maxLength 512 */ readonly version: string;
+  /** @minLength 71 @maxLength 71 */ readonly effectDigest: string;
+}
+
+export interface FactoryReleaseReconciliationBody {
+  readonly action: "attach_receipt" | "confirm_no_effect" | "keep_uncertain";
+  /** @minLength 1 @maxLength 4096 */ readonly reason: string;
+  readonly providerEvidence: JsonValue;
+  readonly receipt?: FactoryProviderReceiptBody;
 }
 
 /** Parameters are named factory input ports. Large values use artifact handles. */
@@ -790,7 +883,15 @@ export type FactoryApiRequest =
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "service-credential.revoke"; readonly path: FactoryServiceCredentialPath; readonly preconditions: FactoryMutationPreconditions }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.trust.publish"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseTrustPublishBody }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.trust.revoke"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions }
-  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.control.set"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseControlBody };
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.control.set"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseControlBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.contract.put"; readonly path: FactoryReleaseContractPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseContractBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.prepare"; readonly path: FactoryProjectPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleasePrepareBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.get"; readonly path: FactoryReleaseOperationPath }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.approval.request"; readonly path: FactoryReleaseOperationPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseApprovalRequestBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.approval.decide"; readonly path: FactoryReleaseApprovalPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseApprovalDecisionBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.policy.put"; readonly path: FactoryReleasePolicyPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleasePolicyBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.policy.delete"; readonly path: FactoryReleasePolicyPath; readonly preconditions: FactoryMutationPreconditions }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "release.reconcile"; readonly path: FactoryReleaseOperationPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryReleaseReconciliationBody };
 
 export interface FactoryDraftSummary {
   /** @minLength 1 @maxLength 512 */
@@ -933,6 +1034,48 @@ export interface FactoryReleaseControlResource {
   readonly enableEpoch: number;
 }
 
+export interface FactoryReleaseContractResource extends FactoryReleaseContractBody {
+  /** @minLength 1 @maxLength 512 */ readonly contractId: string;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly revision: number;
+}
+
+export interface FactoryReleaseOperationResource {
+  /** @minLength 1 @maxLength 512 */ readonly operationId: string;
+  /** @minLength 1 @maxLength 512 */ readonly runId: string;
+  /** @minLength 1 @maxLength 512 */ readonly nodeInstanceId: string;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly candidateGeneration: number;
+  /** @minLength 1 @maxLength 512 */ readonly decisionId: string;
+  /** @minLength 71 @maxLength 71 */ readonly candidateDigest: string;
+  /** @minLength 71 @maxLength 71 */ readonly contractDigest: string;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly executionEpoch: number;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly cancellationEpoch: number;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly releaseEnableEpoch: number;
+  /** @minLength 1 @maxLength 512 */ readonly action: string;
+  readonly destination: FactoryReleaseDestinationBody;
+  /** @minLength 71 @maxLength 71 */ readonly destinationDigest: string;
+  /** @minLength 71 @maxLength 71 */ readonly requestDigest: string;
+  /** @minimum 0 @maximum 9007199254740991 */ readonly estimatedSpendMicros: number;
+  /** @minimum 1 @maximum 9007199254740991 */ readonly deadlineMs: number;
+  readonly state: "pending" | "executing" | "succeeded" | "failed" | "uncertain";
+  /** @minimum 0 @maximum 9007199254740991 */ readonly dispatchGeneration: number;
+  readonly dispatchStarted: boolean;
+  readonly archiveReady: boolean;
+  /** @minLength 1 @maxLength 512 */ readonly outcomeCode?: string;
+  readonly receipt?: FactoryProviderReceiptBody;
+}
+
+export interface FactoryReleaseApprovalResource {
+  /** @minLength 1 @maxLength 512 */ readonly approvalId: string;
+  /** @minLength 1 @maxLength 512 */ readonly operationId?: string;
+  /** @minLength 64 @maxLength 64 */ readonly contextDigest: string;
+  readonly status: "pending" | "approved" | "denied";
+  /** @minimum 1 @maximum 9007199254740991 */ readonly expiresAtMs?: number;
+}
+
+export type FactoryReleasePolicyResource =
+  | (FactoryReleasePolicyBody & { /** @minLength 1 @maxLength 512 */ readonly policyId: string; readonly revision: 1; readonly revoked: false })
+  | { /** @minLength 1 @maxLength 512 */ readonly policyId: string; /** @minimum 2 @maximum 9007199254740991 */ readonly revision: number; readonly revoked: true };
+
 /** Durable transport state; delivery does not mean the run completed. */
 export interface FactoryCommandResource {
   /** @minLength 1 @maxLength 512 */
@@ -1008,6 +1151,10 @@ export type FactoryApiResponse =
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "service-credential.resource"; readonly resource: FactoryServiceCredentialResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.trust.resource"; readonly resource: FactoryReleaseTrustResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.control.resource"; readonly resource: FactoryReleaseControlResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.contract.resource"; readonly resource: FactoryReleaseContractResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.operation.resource"; readonly resource: FactoryReleaseOperationResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.approval.resource"; readonly resource: FactoryReleaseApprovalResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "release.policy.resource"; readonly resource: FactoryReleasePolicyResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "command.resource"; readonly resource: FactoryCommandResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "mutation.accepted"; readonly receipt: FactoryDurableReceipt }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "error"; readonly error: FactoryApiError };

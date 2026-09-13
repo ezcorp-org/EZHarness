@@ -1060,6 +1060,94 @@
           "additionalProperties": false,
           "properties": {
             "kind": {
+              "const": "release.contract.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryReleaseContractResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.operation.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryReleaseOperationResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.approval.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryReleaseApprovalResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.policy.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryReleasePolicyResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
               "const": "command.resource",
               "type": "string"
             },
@@ -1594,6 +1682,68 @@
       ],
       "type": "string"
     },
+    "FactoryProviderReceiptBody": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "dispatchGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "effectDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "object": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "providerReceiptId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "account",
+        "object",
+        "requestDigest",
+        "operationId",
+        "dispatchGeneration",
+        "providerReceiptId",
+        "version",
+        "effectDigest"
+      ],
+      "type": "object"
+    },
     "FactoryReference": {
       "additionalProperties": false,
       "properties": {
@@ -1614,6 +1764,134 @@
       ],
       "type": "object"
     },
+    "FactoryReleaseApprovalResource": {
+      "additionalProperties": false,
+      "properties": {
+        "approvalId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "contextDigest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "approved",
+            "denied"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "contextDigest",
+        "status"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseContractResource": {
+      "additionalProperties": false,
+      "properties": {
+        "claimGroups": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claimIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "minimumPasses": {
+                "type": "number"
+              },
+              "requireAllDecisive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "claimIds",
+              "minimumPasses",
+              "requireAllDecisive"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "contractId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "mandatoryClaims": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "freshnessMs": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "validatorId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "validatorId",
+              "freshnessMs"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "validatorLockDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "claimGroups",
+        "contractDigest",
+        "contractId",
+        "mandatoryClaims",
+        "revision",
+        "validatorLockDigest"
+      ],
+      "type": "object"
+    },
     "FactoryReleaseControlResource": {
       "additionalProperties": false,
       "properties": {
@@ -1631,6 +1909,277 @@
         "enableEpoch"
       ],
       "type": "object"
+    },
+    "FactoryReleaseDestinationBody": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "object": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "account",
+        "object"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseOperationResource": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "archiveReady": {
+          "type": "boolean"
+        },
+        "cancellationEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "candidateDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "candidateGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "deadlineMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "decisionId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destination": {
+          "$ref": "#/definitions/FactoryReleaseDestinationBody"
+        },
+        "destinationDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "dispatchGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "dispatchStarted": {
+          "type": "boolean"
+        },
+        "estimatedSpendMicros": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "executionEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "outcomeCode": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/definitions/FactoryProviderReceiptBody"
+        },
+        "releaseEnableEpoch": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "requestDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "executing",
+            "succeeded",
+            "failed",
+            "uncertain"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "runId",
+        "nodeInstanceId",
+        "candidateGeneration",
+        "decisionId",
+        "candidateDigest",
+        "contractDigest",
+        "executionEpoch",
+        "cancellationEpoch",
+        "releaseEnableEpoch",
+        "action",
+        "destination",
+        "destinationDigest",
+        "requestDigest",
+        "estimatedSpendMicros",
+        "deadlineMs",
+        "state",
+        "dispatchGeneration",
+        "dispatchStarted",
+        "archiveReady"
+      ],
+      "type": "object"
+    },
+    "FactoryReleasePolicyResource": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "contractDigest": {
+              "maxLength": 71,
+              "minLength": 71,
+              "type": "string"
+            },
+            "destinationAccount": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "destinationPrefix": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "destinationProvider": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "expiresAtMs": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "number"
+            },
+            "maxOperations": {
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "number"
+            },
+            "maxSpendMicros": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "number"
+            },
+            "policyId": {
+              "type": "string"
+            },
+            "principalId": {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            "principalKind": {
+              "$ref": "#/definitions/FactoryPrincipalKind"
+            },
+            "revision": {
+              "const": 1,
+              "type": "number"
+            },
+            "revoked": {
+              "const": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "action",
+            "contractDigest",
+            "destinationAccount",
+            "destinationPrefix",
+            "destinationProvider",
+            "expiresAtMs",
+            "maxOperations",
+            "maxSpendMicros",
+            "policyId",
+            "principalId",
+            "principalKind",
+            "revision",
+            "revoked"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "policyId": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "number"
+            },
+            "revoked": {
+              "const": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "policyId",
+            "revision",
+            "revoked"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FactoryReleaseTrustResource": {
       "additionalProperties": false,
