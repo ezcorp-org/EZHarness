@@ -106,3 +106,32 @@ jobs:
           path: coverage-factory-provisioning/lcov.info
           retention-days: 3
           if-no-files-found: error
+
+      # Reuse the strict local Compose provisioner: it creates job-local
+      # credentials below a private runtime directory, starts SeaweedFS, and
+      # seeds versioned tenant buckets without exposing credential values.
+      - name: Start factory object storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_dir="$RUNNER_TEMP/factory-storage-runtime"
+          install -d -m 700 "$runtime_dir"
+          export XDG_RUNTIME_DIR="$runtime_dir"
+          setup_output="$(scripts/setup-factory-storage.sh up)"
+          storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
+          test -n "$storage_dir"
+          test -d "$storage_dir"
+          echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+          echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
+
+      # The lifecycle test is supplied by the factory composition leaf. Keep
+      # its explicit filename here so removing its producer makes this required
+      # external-service lane fail instead of silently narrowing its proof.
+      - name: Run factory artifacts and lifecycle on Postgres and S3
+        shell: bash
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --coverage ./tests/postgres/factory-artifacts.test.ts ./tests/postgres/factory-run-lifecycle-s3.test.ts
+
+      - name: Stop factory object storage
+        if: always()
+        shell: bash
+        run: scripts/setup-factory-storage.sh down
