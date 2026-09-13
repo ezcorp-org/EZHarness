@@ -41,6 +41,11 @@ export interface ClaimedFactoryAttempt {
   readonly request: FactoryDurableRunnerRequest;
 }
 
+export interface StoredFactoryAttempt {
+  readonly delivery: FactoryAttemptDelivery;
+  readonly request: FactoryDurableRunnerRequest;
+}
+
 export class FactoryAttemptQueueError extends Error {
   constructor(readonly code: string, message = code) {
     super(message);
@@ -256,6 +261,14 @@ export class FactoryAttemptQueue {
   async readInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<FactoryAttemptDelivery | null> {
     identity(projectId, attemptId);
     return stateMachine.inspect(new FactoryAttemptStore(transaction, this.tenantId, projectId), scope(this.tenantId, projectId), attemptId);
+  }
+
+  /** Recover the exact journal request and its queue reference in one transaction. */
+  async readStoredInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<StoredFactoryAttempt | null> {
+    const delivery = await this.readInTransaction(transaction, projectId, attemptId);
+    if (!delivery) return null;
+    const request = await this.journal.requestInTransaction(transaction, authorityFor(delivery.reference));
+    return Object.freeze({ delivery, request });
   }
 
   private async enqueueSnapshotInTransaction(transaction: MigrationDb, input: FactoryAttemptAdmission | FactoryDurableAttemptAdmission, now: number, durable = false): Promise<FactoryAttemptDelivery> {

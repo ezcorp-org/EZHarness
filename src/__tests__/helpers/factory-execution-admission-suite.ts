@@ -19,7 +19,8 @@ export async function verifyFactoryExecutionAdmission(fixture: FactoryExecutionA
   await expect(fixture.db.transaction(async transaction => {
     const durable = { ...rollback, request: JSON.parse(JSON.stringify(factoryRunnerRequestIdentity(rollback.request))) as ReturnType<typeof factoryRunnerRequestIdentity> };
     const admission = fixture.journal.admitDurableInTransaction(transaction, durable);
-    (durable.request.input as { value: { case: string } }).value.case = "mutated-after-call";
+    if (durable.request.input.kind !== "inline" || typeof durable.request.input.value !== "object" || durable.request.input.value === null || Array.isArray(durable.request.input.value)) throw new Error("fixture request input is not an object");
+    Object.assign(durable.request.input.value, { case: "mutated-after-call" });
     expect(await admission).toEqual({ requestHash: rollback.requestDigest, reused: false });
     expect(await fixture.journal.nextOperationIndexInTransaction(transaction, rollback)).toBe(0);
     throw new Error("attempt queue enqueue failed");
