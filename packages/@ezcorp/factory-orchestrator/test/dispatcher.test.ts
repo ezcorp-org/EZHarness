@@ -91,7 +91,9 @@ describe("factory outbox dispatcher", () => {
     };
     assert.equal(await reconcileFactoryCommand(client, value), "delivered");
     client.workflow.getHandle = () => ({ query: async () => ({ acknowledgedSequence: 1, pending: [] }) });
-    assert.equal(await reconcileFactoryCommand(client, value), "delivered");
+    assert.equal(await reconcileFactoryCommand(client, value), "outcome_unknown");
+    assert.equal(await reconcileFactoryCommand(client, value, { confirmInboxIdentity: async (candidate) => candidate.eventId === value.eventId && candidate.eventHash === value.eventHash }), "delivered");
+    assert.equal(await reconcileFactoryCommand(client, { ...value, eventId: "forged", body: { ...value.body, id: "forged" } }, { confirmInboxIdentity: async () => false }), "outcome_unknown");
     client.workflow.getHandle = () => ({ query: async () => ({ acknowledgedSequence: 0, pending: [] }) });
     assert.equal(await reconcileFactoryCommand(client, value), "outcome_unknown");
     client.workflow.getHandle = () => ({ query: async () => { throw new Error("unavailable"); } });
@@ -103,7 +105,7 @@ describe("factory outbox dispatcher", () => {
     const value = command("decision");
     const claim = { claimToken: "token", command: value };
     const settled = [];
-    const queue = { claim: async () => null, settle: async (...args) => settled.push(args) };
+    const queue = { claim: async () => null, settle: async (...args) => settled.push(args), confirmInboxIdentity: async () => true };
     const client = { workflow: { getHandle: () => ({ query: async () => ({ acknowledgedSequence: 1, pending: [] }) }) } };
     assert.equal(await reconcileClaim(client, queue, claim), "delivered");
     assert.deepEqual(settled.map((entry) => entry.slice(1)), [["delivered"]]);
@@ -125,7 +127,7 @@ describe("factory outbox dispatcher", () => {
 
   it("retries known pre-send connection failures and parks uncertain errors", async () => {
     const outcomes = [];
-    const queue = { claim: async () => null, settle: async (_claim, outcome, code) => outcomes.push([outcome, code]) };
+    const queue = { claim: async () => null, settle: async (_claim, outcome, code) => outcomes.push([outcome, code]), confirmInboxIdentity: async () => true };
     const claim = { claimToken: "token", command: command("decision") };
     const disconnected = { workflow: { getHandle: () => ({ signal: async () => { throw new FactoryPreSendError("client proved the request was not sent"); } }) } };
     assert.equal(await dispatchClaim(disconnected, queue, claim), "retry");
@@ -141,7 +143,7 @@ describe("factory outbox dispatcher", () => {
   it("settles an uncertain send as delivered when the workflow receipt confirms it", async () => {
     const outcomes = [];
     const value = command("decision");
-    const queue = { claim: async () => null, settle: async (_claim, outcome, code) => outcomes.push([outcome, code]) };
+    const queue = { claim: async () => null, settle: async (_claim, outcome, code) => outcomes.push([outcome, code]), confirmInboxIdentity: async () => true };
     let signals = 0;
     const client = {
       workflow: {

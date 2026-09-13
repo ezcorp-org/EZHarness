@@ -360,3 +360,6 @@
 
 - After I send a commit SHA to another agent, I must not amend or rewrite that commit.
 - Any correction, generated artifact update, or coverage fix must be a new follow-up commit so active consumers can cherry-pick safely.
+## 2026-09-12 — Ambiguous delivery reconciliation
+
+- A high-water inbox sequence cannot prove that a specific event was applied. Reconcile an uncertain delivery only from the exact event ID and hash in the live inbox or an immutable product tombstone; otherwise retain `outcome_unknown`.

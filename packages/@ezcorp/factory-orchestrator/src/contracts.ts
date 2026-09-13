@@ -144,4 +144,6 @@ export interface ClaimedFactoryCommand {
 export interface FactoryCommandQueue {
   claim(): Promise<ClaimedFactoryCommand | null>;
   settle(claim: ClaimedFactoryCommand, outcome: "delivered" | "retry" | "outcome_unknown", errorCode?: string): Promise<void>;
+  /** Exact immutable product-inbox tombstone lookup for an already applied decision. */
+  confirmInboxIdentity?(command: FactoryTransportCommand): Promise<boolean>;
 }

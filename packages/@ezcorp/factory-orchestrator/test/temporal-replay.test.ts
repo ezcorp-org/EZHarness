@@ -12,7 +12,7 @@ import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
 import { compileFactory } from "@ezcorp/factory-sdk";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
-import { deliverFactoryCommand } from "../src/dispatcher.ts";
+import { deliverFactoryCommand, reconcileFactoryCommand } from "../src/dispatcher.ts";
 
 const server = process.env.FACTORY_TEMPORAL_TEST_SERVER ?? "/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server";
 const queue = "factory-orchestrator";
@@ -469,6 +469,20 @@ describe("factory Temporal workflow", () => {
       await taskIsRunning;
       const current = environment.client.workflow.getHandle(workflowId);
       assert.notEqual((await current.describe()).runId, firstRunId);
+      const forged = {
+        commandId: "forged-decision",
+        requestId: "forged-decision",
+        tenantId: "tenant",
+        projectId: "project",
+        logicalRunId: "continued-approval",
+        workflowId,
+        kind: "decision",
+        eventId: "forged-at-acknowledged-sequence",
+        eventSequence: 2,
+        eventHash: hash("forged-at-acknowledged-sequence"),
+        body: { kind: "cancel", id: "forged-at-acknowledged-sequence", atMs: Date.now(), reason: "must not match" },
+      };
+      assert.equal(await reconcileFactoryCommand(environment.client, forged, { confirmInboxIdentity: async () => false }), "outcome_unknown");
       const cancel = { kind: "cancel", id: "cancel-after-continuation", atMs: Date.now(), reason: "requested" };
       await current.signal("factoryInbox", { sequence: 3, eventId: cancel.id, eventHash: hash(JSON.stringify(cancel)), event: cancel });
       const result = await handle.result();

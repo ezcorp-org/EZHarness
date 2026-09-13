@@ -54,7 +54,11 @@ function sameStartIdentity(actual: unknown, expected: Record<string, string | un
   return Object.entries(expected).every(([key, value]) => (actual as Record<string, unknown>)[key] === value);
 }
 
-export async function reconcileFactoryCommand(client: Client, command: FactoryTransportCommand): Promise<"delivered" | "outcome_unknown"> {
+export async function reconcileFactoryCommand(
+  client: Client,
+  command: FactoryTransportCommand,
+  identityStore?: Pick<FactoryCommandQueue, "confirmInboxIdentity">,
+): Promise<"delivered" | "outcome_unknown"> {
   try {
     const handle = client.workflow.getHandle(command.workflowId);
     if (command.kind === "start_run") {
@@ -65,10 +69,9 @@ export async function reconcileFactoryCommand(client: Client, command: FactoryTr
     }
     if (!command.eventId || !command.eventSequence || !command.eventHash) return "outcome_unknown";
     const receipt = await handle.query<FactoryInboxReceipt>(FACTORY_INBOX_RECEIPT_QUERY);
-    if (receipt.acknowledgedSequence >= command.eventSequence) return "delivered";
-    return receipt.pending.some((item) => item.sequence === command.eventSequence && item.eventId === command.eventId && item.eventHash === command.eventHash)
-      ? "delivered"
-      : "outcome_unknown";
+    if (receipt.pending.some((item) => item.sequence === command.eventSequence && item.eventId === command.eventId && item.eventHash === command.eventHash)) return "delivered";
+    if (receipt.acknowledgedSequence < command.eventSequence || !identityStore?.confirmInboxIdentity) return "outcome_unknown";
+    return await identityStore.confirmInboxIdentity(command) ? "delivered" : "outcome_unknown";
   } catch {
     return "outcome_unknown";
   }
@@ -111,7 +114,7 @@ export async function dispatchClaim(client: Client, queue: FactoryCommandQueue, 
     await queue.settle(claim, "delivered");
     return "delivered";
   } catch (error) {
-    if (await reconcileFactoryCommand(client, claim.command) === "delivered") {
+    if (await reconcileFactoryCommand(client, claim.command, queue) === "delivered") {
       await queue.settle(claim, "delivered");
       return "delivered";
     }
@@ -122,7 +125,7 @@ export async function dispatchClaim(client: Client, queue: FactoryCommandQueue, 
 }
 
 export async function reconcileClaim(client: Client, queue: FactoryCommandQueue, claim: ClaimedFactoryCommand): Promise<"delivered" | "outcome_unknown"> {
-  const verdict = await reconcileFactoryCommand(client, claim.command);
+  const verdict = await reconcileFactoryCommand(client, claim.command, queue);
   if (verdict === "delivered") await queue.settle(claim, "delivered");
   return verdict;
 }
