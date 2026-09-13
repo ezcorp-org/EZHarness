@@ -583,6 +583,25 @@ export class FactoryAttemptMaterials extends FactoryMaterialStore implements Fac
     });
   }
 
+  /**
+   * Reads one committed chunk of this attempt's own material. It works before a
+   * seal, so a restarted writer can compare what landed instead of re-uploading.
+   */
+  async readChunk(value: FactoryMaterialIdentity, index: number, signal?: AbortSignal): Promise<Uint8Array> {
+    const identity = this.assertOwnScope(value);
+    signal?.throwIfAborted();
+    const found = await this.database.transaction(async transaction => {
+      await this.journal.authorizeMaterialReadInTransaction(transaction, this.authority);
+      const material = await this.materialInTransaction(transaction, identity, "share");
+      if (!material) throw new FactoryMaterialError("factory_material_not_found");
+      const chunk = (await this.chunksInTransaction(transaction, identity)).find(value => value.index === index);
+      if (!chunk) throw new FactoryMaterialError("factory_material_chunk_not_found");
+      return { material, chunk };
+    });
+    signal?.throwIfAborted();
+    return this.readChunkBytes(found.material, found.chunk);
+  }
+
   private assertOwnScope(value: FactoryMaterialIdentity): FactoryMaterialIdentity {
     const identity = snapshotFactoryMaterialIdentity(value);
     this.assertOwnScopeOnly(identity);

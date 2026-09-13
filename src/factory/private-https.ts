@@ -24,18 +24,25 @@ export interface FactoryPrivateHttpsOptions {
   handle(request: FactoryPrivateRequest): Promise<FactoryPrivateResponse>;
 }
 
+type ParsedRequest = { method: string; path: string; headers: Readonly<Record<string, string>>; split: number; length: number };
 type Connection = {
-  input: Buffer; peerIdentity?: string; processing: boolean; closed: boolean;
+  parts: Buffer[]; received: number; request?: ParsedRequest;
+  peerIdentity?: string; processing: boolean; closed: boolean;
   output?: Buffer; offset: number; timer?: ReturnType<typeof setTimeout>;
 };
 const MAX_HEADER_BYTES = 16 * 1024;
+/**
+ * One private request may carry a whole auxiliary material chunk. The body is
+ * buffered per connection, so this ceiling bounds memory as well as framing.
+ */
+export const FACTORY_PRIVATE_MAX_ENVELOPE_BYTES = 9 * 1024 * 1024;
 
 /** One bounded request per private mTLS connection; peer identity comes only from TLS. */
 export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): { url: string; stop(): void } {
   const maxBody = options.maxBodyBytes ?? 64 * 1024;
   const maxResponse = options.maxResponseBytes ?? 64 * 1024;
   const timeout = options.requestTimeoutMs ?? 15_000;
-  if (!Number.isSafeInteger(maxBody) || maxBody < 1 || maxBody > 1024 * 1024 || !Number.isSafeInteger(maxResponse) || maxResponse < 1 || maxResponse > 1024 * 1024 || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Invalid private HTTPS limits.");
+  if (!Number.isSafeInteger(maxBody) || maxBody < 1 || maxBody > FACTORY_PRIVATE_MAX_ENVELOPE_BYTES || !Number.isSafeInteger(maxResponse) || maxResponse < 1 || maxResponse > FACTORY_PRIVATE_MAX_ENVELOPE_BYTES || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000) throw new Error("Invalid private HTTPS limits.");
   function flush(socket: Bun.Socket<Connection>): void {
     const state = socket.data;
     if (state.closed || !state.output) return;
@@ -60,39 +67,50 @@ export function startFactoryPrivateHttps(options: FactoryPrivateHttpsOptions): {
     hostname: options.hostname ?? "127.0.0.1", port: options.port ?? 0,
     tls: { ...options.tls, requestCert: true, rejectUnauthorized: true },
     socket: {
-      open(socket) { socket.data = { input: Buffer.alloc(0), processing: false, closed: false, offset: 0, timer: setTimeout(() => fail(socket, 400, "request_timeout"), timeout) }; },
+      open(socket) { socket.data = { parts: [], received: 0, processing: false, closed: false, offset: 0, timer: setTimeout(() => fail(socket, 400, "request_timeout"), timeout) }; },
       handshake(socket, authorized) { const name = socket.getPeerCertificate()?.subject?.CN; if (authorized && typeof name === "string" && name.length > 0) socket.data.peerIdentity = name; },
       async data(socket, chunk) {
         const state = socket.data;
         if (state.closed || state.output) return;
         if (state.processing) { state.closed = true; clearTimeout(state.timer); socket.terminate(); return; }
-        state.input = Buffer.concat([state.input, Buffer.from(chunk)]);
-        if (state.input.byteLength > MAX_HEADER_BYTES + maxBody + 4) return fail(socket, 413, "request_too_large");
-        const split = state.input.indexOf("\r\n\r\n");
-        if (split > MAX_HEADER_BYTES || (split < 0 && state.input.byteLength > MAX_HEADER_BYTES)) return fail(socket, 413, "header_too_large");
-        if (split < 0) return;
+        state.parts.push(Buffer.from(chunk));
+        state.received += chunk.byteLength;
+        if (state.received > MAX_HEADER_BYTES + maxBody + 4) return fail(socket, 413, "request_too_large");
         try {
-          const [first, ...lines] = state.input.subarray(0, split).toString("latin1").split("\r\n");
-          const requestLine = /^([A-Z]+) (\/[!-~]*) HTTP\/1\.1$/.exec(first!);
-          if (!requestLine || requestLine[2]!.startsWith("//")) throw new Error("Invalid request line.");
-          const headers: Record<string, string> = Object.create(null);
-          for (const line of lines) {
-            const match = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([\t\x20-\x7E\x80-\xFF]*)$/.exec(line);
-            if (!match) throw new Error("Invalid header.");
-            const name = match[1]!.toLowerCase();
-            if (Object.hasOwn(headers, name)) throw new Error("Duplicate header.");
-            headers[name] = match[2]!.trim();
+          if (!state.request) {
+            // Only the header prefix is re-joined, and it is bounded, so a large
+            // body never pays a quadratic copy while it arrives.
+            const prefix = state.parts.length === 1 ? state.parts[0]! : Buffer.concat(state.parts);
+            state.parts = [prefix];
+            const split = prefix.indexOf("\r\n\r\n");
+            if (split > MAX_HEADER_BYTES || (split < 0 && prefix.byteLength > MAX_HEADER_BYTES)) return fail(socket, 413, "header_too_large");
+            if (split < 0) return;
+            const [first, ...lines] = prefix.subarray(0, split).toString("latin1").split("\r\n");
+            const requestLine = /^([A-Z]+) (\/[!-~]*) HTTP\/1\.1$/.exec(first!);
+            if (!requestLine || requestLine[2]!.startsWith("//")) throw new Error("Invalid request line.");
+            const headers: Record<string, string> = Object.create(null);
+            for (const line of lines) {
+              const match = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([\t\x20-\x7E\x80-\xFF]*)$/.exec(line);
+              if (!match) throw new Error("Invalid header.");
+              const name = match[1]!.toLowerCase();
+              if (Object.hasOwn(headers, name)) throw new Error("Duplicate header.");
+              headers[name] = match[2]!.trim();
+            }
+            const rawLength = headers["content-length"] ?? "0";
+            if (!/^\d+$/.test(rawLength) || headers["transfer-encoding"] !== undefined) throw new Error("Invalid framing.");
+            const length = Number(rawLength);
+            if (!Number.isSafeInteger(length) || length > maxBody) return fail(socket, 413, "request_too_large");
+            state.request = { method: requestLine[1]!, path: requestLine[2]!, headers: Object.freeze(headers), split, length };
           }
-          const rawLength = headers["content-length"] ?? "0";
-          if (!/^\d+$/.test(rawLength) || headers["transfer-encoding"] !== undefined) throw new Error("Invalid framing.");
-          const length = Number(rawLength);
-          if (!Number.isSafeInteger(length) || length > maxBody) return fail(socket, 413, "request_too_large");
-          if (state.input.byteLength < split + 4 + length) return;
-          if (state.input.byteLength !== split + 4 + length) throw new Error("Pipelining is unsupported.");
+          const framed = state.request.split + 4 + state.request.length;
+          if (state.received < framed) return;
+          if (state.received !== framed) throw new Error("Pipelining is unsupported.");
           if (!state.peerIdentity) return fail(socket, 401, "unauthorized");
+          const input = state.parts.length === 1 ? state.parts[0]! : Buffer.concat(state.parts);
+          state.parts = [input];
           state.processing = true;
           clearTimeout(state.timer);
-          try { respond(socket, await options.handle({ peerIdentity: state.peerIdentity, method: requestLine[1]!, path: requestLine[2]!, headers: Object.freeze(headers), body: state.input.subarray(split + 4) })); }
+          try { respond(socket, await options.handle({ peerIdentity: state.peerIdentity, method: state.request.method, path: state.request.path, headers: state.request.headers, body: input.subarray(state.request.split + 4) })); }
           catch { fail(socket, 500, "handler_failed"); }
         } catch { fail(socket, 400, "invalid_request"); }
       },
