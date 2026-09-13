@@ -12,6 +12,7 @@
         "@ezcorp/ai-kit": "workspace:*",
         "@ezcorp/extension-contract": "workspace:*",
         "@ezcorp/extension-runner": "workspace:*",
+        "@ezcorp/factory-sdk": "workspace:*",
         "@ezcorp/harness-client": "workspace:*",
         "@ezcorp/sdk": "workspace:*",
         "@huggingface/transformers": "^4.2.0",
@@ -67,6 +68,14 @@
       "version": "4.0.0",
       "dependencies": {
         "@ezcorp/extension-contract": "workspace:*",
+      },
+    },
+    "packages/@ezcorp/factory-sdk": {
+      "name": "@ezcorp/factory-sdk",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "1.3.14",
+        "typescript": "^5.9.3",
       },
     },
     "packages/@ezcorp/harness-client": {
@@ -245,6 +254,8 @@
     "@ezcorp/extension-contract": ["@ezcorp/extension-contract@workspace:packages/@ezcorp/extension-contract"],
 
     "@ezcorp/extension-runner": ["@ezcorp/extension-runner@workspace:packages/@ezcorp/extension-runner"],
+
+    "@ezcorp/factory-sdk": ["@ezcorp/factory-sdk@workspace:packages/@ezcorp/factory-sdk"],
 
     "@ezcorp/harness-client": ["@ezcorp/harness-client@workspace:packages/@ezcorp/harness-client"],
 
