@@ -144,7 +144,8 @@ test("a human approval can authorize a bounded service release without forging a
   const request = { projectId, operationId: "service-release-operation", decisionId: decision.decisionId, destinationDigest: digest("f"), expectedGeneration: 4, expiresAtMs: now + 500 };
   const approval = await assurance.requestApproval(admin, request); await assurance.decideApproval(admin, projectId, approval.approvalId, approval.contextDigest, true);
   await fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...request, approvalId: approval.approvalId, requester: service, runId: candidate.runId }));
-  expect(rows<{ user_id: string | null; metadata: { principalKind: string; principalId: string } }>(await fixture.db.execute(sql`SELECT user_id, metadata FROM audit_log WHERE id=${`factory-assurance-approval-consumed:${approval.approvalId}`}`))).toMatchObject([{ user_id: null, metadata: { principalKind: "service", principalId: service.id } }]);
+  const audit = rows<{ user_id: string | null; metadata: string | { principalKind: string; principalId: string } }>(await fixture.db.execute(sql`SELECT user_id, metadata FROM audit_log WHERE id=${`factory-assurance-approval-consumed:${approval.approvalId}`}`)).map(row => ({ ...row, metadata: typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata }));
+  expect(audit).toMatchObject([{ user_id: null, metadata: { principalKind: "service", principalId: service.id } }]);
 });
 
 test("a corrupt decision row cannot be presented for human consent", async () => {
