@@ -9,7 +9,7 @@ let admin: SQL; let client: SQL; let database: string; let service: PoolAdmissio
 const tenantOne: PoolPrincipal = { kind: "tenant", tenantId: "tenant-01", subject: "tenant-one", scopes: ["pool:tenant:tenant-01", "pool:grant:tenant-01:grant-a"] };
 const tenantTwo: PoolPrincipal = { kind: "tenant", tenantId: "tenant-02", subject: "tenant-two", scopes: ["pool:tenant:tenant-02", "pool:grant:tenant-02:grant-a"] };
 const supervisor: PoolPrincipal = { kind: "supervisor", supervisorId: "gpu-supervisor-a", subject: "supervisor-a", hostIds: ["gpu-a"], scopes: ["pool:supervisor:gpu-supervisor-a"] };
-const request = (reservationId: string, resources = { cpu: 1 }) => ({ reservationId, grantRevision: 1, grantScope: "tenant-01:grant-a", resources, admissionDeadline: new Date(Date.now() + 60_000).toISOString() });
+const request = (reservationId: string, resources: import("../../src/factory/pool/ledger").PoolResourceVector = { cpu: 1 }) => ({ reservationId, grantRevision: 1, grantScope: "tenant-01:grant-a", resources, admissionDeadline: new Date(Date.now() + 60_000).toISOString() });
 
 beforeAll(async () => {
   admin = new SQL(url!, { max: 1 }); database = `factory_pool_service_${randomUUID().replaceAll("-", "")}`; await admin.unsafe(`CREATE DATABASE "${database}"`);
