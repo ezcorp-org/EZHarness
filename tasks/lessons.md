@@ -596,3 +596,4 @@
 - A readiness stub must answer with the exact receipt the dispatch carries. Returning a base fixture while the test dispatches a freshly built artifact makes a correct drift check look like a product failure.
 - Model a jsonb column default as SQL, never as a JavaScript object. Real PostgreSQL schema parity stringifies a non-SQL default, so an object default compares as `[object Object]` against the engine's normalized JSON literal.
 - A blocked producer is not a passing producer. Keep its receipt, label it blocked, and rerun it from the final source once the host recovers; two real defects in my own fix appeared only in that rerun.
+- Hand a downstream seam every coordinate it needs. A checkpoint writer that receives only an operation ID has to parse its cursor back out of that string, and the SDK validator requires the cursor to equal the operation index exactly. Pass the index and the attempt authority instead.
