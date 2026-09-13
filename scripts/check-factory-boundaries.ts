@@ -53,6 +53,11 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/releases.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/releases.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-adapters.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/executions.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/executions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
 ];
 
 function parse(input: SourceInput): ts.SourceFile {

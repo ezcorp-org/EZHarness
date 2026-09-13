@@ -1,10 +1,14 @@
 import { sql } from "drizzle-orm";
 import { lockFactoryScope } from "./locks";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
+import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
+import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
+import { digestObject } from "../extensions/v4/blobs";
+import type { FactoryArtifacts } from "./artifacts";
 
 export type FactoryOperationState = "prepared" | "dispatched" | "completed" | "failed" | "uncertain";
 
@@ -50,6 +54,24 @@ export interface FactoryJournalOperationStatus {
   result?: JsonValue;
 }
 
+export interface FactoryExecutionTerminalFact {
+  readonly attemptId: string;
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly nodeInstanceId: string;
+  readonly candidateGeneration: number;
+  readonly candidateDigest: string;
+  readonly requestDigest: string;
+  readonly resultDigest: string;
+  readonly terminalResultDigest: string;
+  readonly outputArtifactId: string;
+  readonly outputBytes: number;
+  readonly executionEpoch: number;
+  readonly cancellationEpoch: number;
+  readonly terminalFactDigest: string;
+}
+
 /** Durable evidence used to reconstruct a C02 result without replaying effects. */
 export interface FactoryJournalOperationEvidence extends FactoryJournalOperation {
   state: FactoryOperationState;
@@ -93,6 +115,7 @@ function snapshotSettlement(value: FactoryOperationSettlement): FactoryOperation
 /** Durable C02 journal; the gateway authenticates and supplies its authority. */
 export class FactoryExecutionJournal {
   constructor(private readonly db: TransactionalDb, private readonly authorizeInTransaction: FactoryAttemptAuthorizer, private readonly now: () => Date = () => new Date()) {}
+  get database(): TransactionalDb { return this.db; }
 
   async admit(input: FactoryAttemptAdmission): Promise<{ requestHash: string; reused: boolean }> {
     const authority = snapshotAuthority(input);
@@ -196,27 +219,40 @@ export class FactoryExecutionJournal {
     return (await this.evidence(authority)).operations;
   }
 
+  /** Trusted completion boundary: verify one successful runner result against the journal and exact stored output bytes. */
+  async recordCompletedTerminalInTransaction(database: MigrationDb, authority: FactoryAttemptAuthority, result: FactoryRunnerResult, artifacts: FactoryArtifacts): Promise<FactoryExecutionTerminalFact> {
+    authority = snapshotAuthority(authority);
+    result = JSON.parse(canonicalJson(result)) as FactoryRunnerResult;
+    const validation = validateFactoryRunnerResult(result);
+    if (!validation.ok || result.status !== "completed" || result.usage.kind !== "measured") throw new Error(`Factory terminal result is invalid: ${validation.ok ? "not_completed" : validation.issues[0]?.code ?? "unknown"}.`);
+    await this.lockLive(database, authority);
+    const attempt = releaseRows<{ request_hash: string; request_json: unknown }>(await database.execute(sql`SELECT request_hash,request_json FROM factory_executions WHERE attempt_id=${authority.attemptId} FOR UPDATE`))[0];
+    if (!attempt) throw new Error("Factory terminal attempt is unavailable.");
+    const requestIdentity = this.storedJson(attempt.request_json) as { runner?: unknown };
+    if (digestObject(requestIdentity) !== attempt.request_hash || attempt.request_hash !== authority.requestDigest || !requestIdentity.runner) throw new Error("Factory terminal request identity is corrupt.");
+    const evidence = await this.operationEvidenceInTransaction(database, authority.attemptId);
+    if (evidence.journalCursor !== result.journalCursor || canonicalJson(evidence.operations) !== canonicalJson(result.operations) || evidence.operations.some(operation => operation.state === "prepared" || operation.state === "dispatched" || operation.state === "uncertain" || operation.usage === undefined || (operation.usage as { kind?: string }).kind !== "measured")) throw new Error("Factory terminal result does not match settled journal evidence.");
+    const measured = evidence.operations.map(operation => operation.usage as { inputTokens: number; outputTokens: number; computeMs: number; costMicros: string });
+    const aggregate = { kind: "measured", inputTokens: measured.reduce((sum, usage) => sum + usage.inputTokens, 0), outputTokens: measured.reduce((sum, usage) => sum + usage.outputTokens, 0), computeMs: measured.reduce((sum, usage) => sum + usage.computeMs, 0), costMicros: measured.reduce((sum, usage) => sum + BigInt(usage.costMicros), 0n).toString() };
+    if (canonicalJson(aggregate) !== canonicalJson(result.usage) || result.output.digest !== `sha256:${result.resultDigest}`) throw new Error("Factory terminal result does not match measured usage or output digest.");
+    const output = await artifacts.loadInTransaction(database, { tenantId: authority.tenantId, projectId: authority.projectId, logicalRunId: authority.runId }, { objectId: result.output.artifactId, digest: result.output.digest, encodedBytes: result.output.encodedBytes }, ["candidate_output"]);
+    if (output.reference.digest !== result.output.digest || output.reference.encodedBytes !== result.output.encodedBytes || output.candidateNodeInstanceId !== authority.nodeInstanceId || output.candidateGeneration !== authority.candidateGeneration) throw new Error("Factory terminal output is unavailable.");
+    const resultJson = canonicalJson(result);
+    const terminalResultDigest = `sha256:${digestObject(result)}`;
+    const terminalFactDigest = `sha256:${digestObject({ attemptId: authority.attemptId, tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, requestDigest: authority.requestDigest, resultDigest: result.resultDigest, terminalResultDigest, output: result.output, executionEpoch: authority.executionEpoch, cancellationEpoch: authority.cancellationEpoch })}`;
+    await database.execute(sql`INSERT INTO factory_execution_terminals (tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_id,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest) VALUES (${authority.tenantId},${authority.projectId},${authority.runId},${authority.nodeInstanceId},${authority.candidateGeneration},${authority.attemptId},${authority.requestDigest},${result.resultDigest},${terminalResultDigest},${resultJson},${result.output.artifactId},${result.output.digest},${result.output.encodedBytes},${authority.executionEpoch},${authority.cancellationEpoch},${terminalFactDigest}) ON CONFLICT (attempt_id) DO NOTHING`);
+    const saved = releaseRows<{ tenant_id: string; project_id: string; run_id: string; node_instance_id: string; candidate_generation: number | string; request_digest: string; result_digest: string; terminal_result_digest: string; result_json: string; output_artifact_id: string; output_digest: string; output_bytes: number | string; execution_epoch: number | string; cancellation_epoch: number | string; terminal_fact_digest: string }>(await database.execute(sql`SELECT tenant_id,project_id,run_id,node_instance_id,candidate_generation,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest FROM factory_execution_terminals WHERE attempt_id=${authority.attemptId} FOR SHARE`))[0];
+    if (!saved || saved.terminal_fact_digest !== terminalFactDigest || saved.result_json !== resultJson || saved.output_digest !== result.output.digest) throw new Error("Factory terminal fact conflicts with durable evidence.");
+    await insertTransactionalAuditEntry(database, `factory-execution-terminal:${authority.attemptId}`, null, "factory.execution.terminal.completed", authority.runId, { tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId, nodeInstanceId: authority.nodeInstanceId, candidateGeneration: authority.candidateGeneration, attemptId: authority.attemptId, terminalFactDigest });
+    return { attemptId: authority.attemptId, tenantId: saved.tenant_id, projectId: saved.project_id, runId: saved.run_id, nodeInstanceId: saved.node_instance_id, candidateGeneration: Number(saved.candidate_generation), candidateDigest: saved.output_digest, requestDigest: saved.request_digest, resultDigest: saved.result_digest, terminalResultDigest: saved.terminal_result_digest, outputArtifactId: saved.output_artifact_id, outputBytes: Number(saved.output_bytes), executionEpoch: Number(saved.execution_epoch), cancellationEpoch: Number(saved.cancellation_epoch), terminalFactDigest: saved.terminal_fact_digest };
+  }
+
   /** Read operation facts and their committed cursor under the same attempt lock. */
   async evidence(authority: FactoryAttemptAuthority): Promise<{ operations: FactoryJournalOperationEvidence[]; journalCursor: number }> {
     authority = snapshotAuthority(authority);
     return this.db.transaction(async (database) => {
       await this.lockScopedRead(database, authority);
-      const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id, operation_index, kind, state, request_digest, result_digest, provider_receipt_digest, usage_json, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${authority.attemptId} ORDER BY operation_index ASC`));
-      const operations = stored.map((operation) => ({
-        operationId: operation.operation_id,
-        operationIndex: Number(operation.operation_index),
-        kind: operation.kind,
-        state: operation.state,
-        requestDigest: operation.request_digest,
-        ...(operation.result_digest === null ? {} : { resultDigest: operation.result_digest }),
-        ...(operation.provider_receipt_digest === null ? {} : { providerReceiptDigest: operation.provider_receipt_digest }),
-        ...(operation.usage_json === null ? {} : { usage: this.storedJson(operation.usage_json) as JsonValue }),
-        ...(operation.workspace_checkpoint === null ? {} : { workspaceCheckpoint: this.storedJson(operation.workspace_checkpoint) as JsonValue }),
-      }));
-      const row = releaseRows<{ journal_cursor: number | string }>(await database.execute(sql`SELECT journal_cursor FROM factory_executions WHERE attempt_id=${authority.attemptId}`))[0]!;
-      const journalCursor = Number(row.journal_cursor);
-      if (!Number.isSafeInteger(journalCursor) || journalCursor < -1) throw new Error("Factory journal cursor is corrupt.");
-      return { operations, journalCursor };
+      return this.operationEvidenceInTransaction(database, authority.attemptId);
     });
   }
 
@@ -277,6 +313,15 @@ export class FactoryExecutionJournal {
       && this.canonicalStoredJson(stored.result_json) === canonicalJson(result.result ?? null)
       && this.canonicalStoredJson(stored.usage_json) === canonicalJson(result.usage ?? null)
       && this.canonicalStoredJson(stored.workspace_checkpoint) === canonicalJson(result.workspaceCheckpoint ?? null);
+  }
+
+  private async operationEvidenceInTransaction(database: MigrationDb, attemptId: string): Promise<{ operations: FactoryJournalOperationEvidence[]; journalCursor: number }> {
+    const stored = releaseRows<{ operation_id: string; operation_index: number | string; kind: "model" | "tool"; state: FactoryOperationState; request_digest: string; result_digest: string | null; provider_receipt_digest: string | null; usage_json: unknown; workspace_checkpoint: unknown }>(await database.execute(sql`SELECT operation_id,operation_index,kind,state,request_digest,result_digest,provider_receipt_digest,usage_json,workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${attemptId} ORDER BY operation_index`));
+    const operations = stored.map(operation => ({ operationId: operation.operation_id, operationIndex: Number(operation.operation_index), kind: operation.kind, state: operation.state, requestDigest: operation.request_digest, ...(operation.result_digest === null ? {} : { resultDigest: operation.result_digest }), ...(operation.provider_receipt_digest === null ? {} : { providerReceiptDigest: operation.provider_receipt_digest }), ...(operation.usage_json === null ? {} : { usage: this.storedJson(operation.usage_json) as JsonValue }), ...(operation.workspace_checkpoint === null ? {} : { workspaceCheckpoint: this.storedJson(operation.workspace_checkpoint) as JsonValue }) } satisfies FactoryJournalOperationEvidence));
+    const row = releaseRows<{ journal_cursor: number | string }>(await database.execute(sql`SELECT journal_cursor FROM factory_executions WHERE attempt_id=${attemptId}`))[0];
+    const journalCursor = Number(row?.journal_cursor);
+    if (!Number.isSafeInteger(journalCursor) || journalCursor < -1) throw new Error("Factory journal cursor is corrupt.");
+    return { operations, journalCursor };
   }
 
   private canonicalStoredJson(value: unknown): string {
