@@ -45,19 +45,62 @@ export const SHARED_REUSE_MODULES = [
 
 // Every factory module that implements a C13 row must import its named shared
 // implementation. This makes reuse an executable boundary, not a review note.
+//
+// COMPLETE, not a sample. W18 derived this list from the real integ/w00 import
+// graph: 46 edges exist, 12 were declared, so 34 reuse relationships were
+// un-gated and a work package could have dropped one without any check
+// noticing. scripts/factory-c13-inventory.test.ts re-derives the graph on
+// every run and fails when an edge has no row here, so the next package that
+// starts reusing a shared module must append its row rather than wait for an
+// audit. Regenerate with that test's `sharedImportEdges` helper; keep the
+// rows sorted by factory path so appends from different packages merge.
 export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
+  { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/assurance.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/assurance.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/attempt-queue.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/budgets.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/budgets.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/child-runs.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/command-authority.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/compute-admissions.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/definitions.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/definitions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/executions.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/executions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/grants.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/grants.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/inbox.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/lazy-input.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/native-runner-policy.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/outbox.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/protected-command-effects.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/extensions/v4/blobs.ts" },
-  { factoryPath: "src/factory/releases.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
-  { factoryPath: "src/factory/releases.ts", sharedModule: "src/db/queries/audit-log.ts" },
-  { factoryPath: "src/factory/releases.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-adapters.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/extensions/v4/blobs.ts" },
-  { factoryPath: "src/factory/executions.ts", sharedModule: "src/db/queries/audit-log.ts" },
-  { factoryPath: "src/factory/executions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
-  { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/releases.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/releases.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
+  { factoryPath: "src/factory/releases.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/run-controls.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/run-lifecycle.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/run-lifecycle.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/runner/native.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/service-credentials.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/service-credentials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/task-admission.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/task-completions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/task-outcomes.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/transition-artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/validator-materials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
 ];
 
 function parse(input: SourceInput): ts.SourceFile {
