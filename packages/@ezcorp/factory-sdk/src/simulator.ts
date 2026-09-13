@@ -70,8 +70,8 @@ function eventsFor(
     case "run-child":
       return outcomeEvents(options.child?.(command) ?? { kind: "success", output: command.input }, command, state.nowMs, eventId);
     case "request-approval": {
-      const choice = options.approval?.(command) ?? command.choices[0];
-      return choice === undefined ? [{ kind: "timer-expired", id: eventId("approval-expired"), atMs: command.deadlineAtMs, nodeId: command.nodeId, commandId: command.id }] : [{ kind: "approval-decided", id: eventId("approval"), atMs: state.nowMs, nodeId: command.nodeId, commandId: command.id, choice }];
+      const choice = options.approval ? options.approval(command) : command.choices[0];
+      return choice === undefined ? [] : [{ kind: "approval-decided", id: eventId("approval"), atMs: state.nowMs, nodeId: command.nodeId, commandId: command.id, choice }];
     }
     case "request-acceptance":
       return outcomeEvents(options.acceptance?.(command) ?? { kind: "success", output: command.candidate }, command, state.nowMs, eventId);

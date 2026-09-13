@@ -119,6 +119,7 @@ export function advanceKernel(factory: CompiledFactory, state: KernelState, even
       next = applyRepair(factory, next, event, commands);
       break;
   }
+  next = completePendingRepair(factory, next, commands);
   return finish(factory, next, commands);
 }
 
@@ -274,14 +275,44 @@ function scheduleTimer(state: KernelState, nodeId: string, deadlineAtMs: number,
 }
 
 function applyRepair(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "repair" }>, commands: KernelCommand[]): KernelState {
+  if (state.pendingRepair || state.status === "stopping") return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
-  if (!node || !runtime || runtime.status === "running" || runtime.status === "reserved" || runtime.status === "waiting") return state;
-  if (runtime.attempts.some((attempt) => !attempt.stopped || attempt.uncertain)) return state;
-  const repaired = withNode(state, event.nodeId, {
-    status: "ready", candidateGeneration: runtime.candidateGeneration + 1, nextAttempt: 1, attempts: runtime.attempts, error: undefined,
-  });
-  return dispatchReady(factory, repaired, node, event.nodeId, commands);
+  if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
+  // A repair cannot replay publication or turn remediation into new consent.
+  if (node.kind === "approval" || node.kind === "release") return state;
+  const affected = new Set<string>();
+  const queue = [event.nodeId];
+  for (let index = 0; index < queue.length; index += 1) {
+    const id = queue[index]!;
+    if (affected.has(id)) continue;
+    affected.add(id);
+    queue.push(...successorsFor(factory, id));
+    for (const childId of Object.keys(state.nodes)) if (childId.startsWith(`${id}/`)) queue.push(childId);
+  }
+  if ([...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)) return state;
+  if ([...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain))) return state;
+  let next: KernelState = { ...state, pendingRepair: { rootNodeId: event.nodeId, nodeIds: [...affected], reason: event.reason } };
+  for (const id of affected) next = cancelScope(next, id, commands, true);
+  return completePendingRepair(factory, next, commands);
+}
+
+function completePendingRepair(factory: CompiledFactory, state: KernelState, commands: KernelCommand[]): KernelState {
+  const repair = state.pendingRepair;
+  if (!repair || state.status === "stopping" || repair.nodeIds.some(id => state.nodes[id]!.attempts.some(attempt => !attempt.stopped || attempt.uncertain))) return state;
+  let next = state;
+  for (const id of repair.nodeIds) {
+    const previous = state.nodes[id]!;
+    if (!Number.isSafeInteger(previous.candidateGeneration + 1)) throw new FactoryKernelError("candidate generation exhausted");
+    next = withNode(next, id, {
+      status: id === repair.rootNodeId ? "ready" : "blocked", candidateGeneration: previous.candidateGeneration + 1, nextAttempt: 1, attempts: previous.attempts,
+      priorCandidates: (previous.priorCandidates ?? []).concat({ candidateGeneration: previous.candidateGeneration, status: previous.status, output: previous.output, error: previous.error }),
+    });
+  }
+  const scopes = { ...next.scopes };
+  for (const [id, scope] of Object.entries(scopes)) if (scope.parentNodeId && repair.nodeIds.includes(scope.parentNodeId)) delete scopes[id];
+  next = { ...next, scopes, pendingRepair: undefined, status: "running" };
+  return activateReady(factory, next, commands, [repair.rootNodeId]);
 }
 
 function activateReady(factory: CompiledFactory, state: KernelState, commands: KernelCommand[], candidates?: readonly string[]): KernelState {
@@ -496,7 +527,7 @@ function exhaustLoop(factory: CompiledFactory, state: KernelState, node: Extract
 
 function beginStopping(state: KernelState, reason: string, commands: KernelCommand[], cancelled: boolean): KernelState {
   if (state.status === "stopping") return state;
-  let next: KernelState = { ...state, status: "stopping", stopReason: reason, stopKind: cancelled ? "cancelled" : "failed", cancellationEpoch: state.cancellationEpoch + 1 };
+  let next: KernelState = { ...state, status: "stopping", stopReason: reason, stopKind: cancelled ? "cancelled" : "failed", pendingRepair: undefined, cancellationEpoch: state.cancellationEpoch + 1 };
   for (const [nodeId, runtime] of Object.entries(next.nodes)) {
     const active = runtime.attempts.filter((attempt) => !attempt.stopped);
     if (active.length === 0) {
@@ -732,7 +763,7 @@ function instantiateScope(factory: CompiledFactory, state: KernelState, parentNo
   const roots: string[] = [];
   for (const prefix of prefixes) for (const child of graph.nodes) {
     const id = `${prefix}/${child.id}`;
-    nodes[id] = { status: "blocked", candidateGeneration: 0, nextAttempt: 1, attempts: [] };
+    nodes[id] = Object.hasOwn(nodes, id) ? { ...nodes[id]!, status: "blocked" } : { status: "blocked", candidateGeneration: 0, nextAttempt: 1, attempts: [] };
     nodeIds.push(id);
     if ((child.dependsOn?.length ?? 0) === 0) roots.push(id);
   }
