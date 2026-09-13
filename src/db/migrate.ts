@@ -3033,6 +3033,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryBudgets(db);
   const { up: addFactoryDefinitions } = await import("./migrations/add-factory-definitions");
   await addFactoryDefinitions(db);
+  const { up: addFactoryRunLifecycle } = await import("./migrations/add-factory-run-lifecycle");
+  await addFactoryRunLifecycle(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);

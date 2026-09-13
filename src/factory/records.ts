@@ -1,3 +1,4 @@
+import { lockFactoryScope } from "./locks";
 import { sql } from "drizzle-orm";
 import { canonicalJson, assertJson } from "@ezcorp/extension-contract";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -115,8 +116,8 @@ export class FactoryRecords {
   async createRunInTransaction(transaction: MigrationDb, input: FactoryRunRequest, enqueue: (transaction: MigrationDb, request: FactoryRunRequest) => Promise<void>): Promise<{ readonly created: boolean }> {
     const { payload, request } = runRequest(input);
     const digest = digestObject(request);
-    const installation = rows<{ execution_epoch: number }>(await transaction.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${this.tenantId} FOR UPDATE`))[0];
-    if (!installation || installation.execution_epoch !== request.executionEpoch) throw new FactoryRecordError("factory_epoch_changed");
+    const installation = await lockFactoryScope(transaction, this.tenantId, request.projectId, "write");
+    if (!installation || installation.executionEpoch !== request.executionEpoch) throw new FactoryRecordError("factory_epoch_changed");
     const inserted = rows(await transaction.execute(sql`INSERT INTO factory_runs
       (tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload)
       VALUES (${this.tenantId}, ${request.projectId}, ${request.runId}, ${request.definitionDigest}, ${request.interpreterBuild}, ${request.executionEpoch}, ${digest}, ${payload})
@@ -133,6 +134,7 @@ export class FactoryRecords {
 
   async readRunRequestInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunRequest> {
     identity(key.projectId, key.runId);
+    if (!await lockFactoryScope(transaction, this.tenantId, key.projectId)) throw new FactoryRecordError("factory_run_not_found");
     const row = rows<{ request_digest: string; request_payload: string }>(await transaction.execute(sql`SELECT request_digest, request_payload FROM factory_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR SHARE`))[0];
     if (!row) throw new FactoryRecordError("factory_run_not_found");
     const { request } = runRequest(JSON.parse(row.request_payload));

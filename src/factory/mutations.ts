@@ -14,6 +14,7 @@ export interface FactoryMutation {
   readonly principal: FactoryPrincipal;
   readonly action: FactoryAction;
   readonly idempotencyKey: string;
+  readonly expectedGrantRevision?: number;
   /** Includes the operation name, target identity and expected revision. */
   readonly input: unknown;
 }
@@ -27,11 +28,11 @@ export class FactoryMutations {
 
   async execute<Result>(request: FactoryMutation, apply: (transaction: MigrationDb) => Promise<Result>): Promise<Result> {
     if (typeof request.idempotencyKey !== "string" || !isBoundedIdempotencyKey(request.idempotencyKey)) throw new FactoryMutationError("invalid_idempotency_key");
-    const { projectId, idempotencyKey, action } = request;
+    const { projectId, idempotencyKey, action, expectedGrantRevision } = request;
     const principal = { ...request.principal };
     const digest = idempotencyInputDigest({ action, input: request.input });
     return this.database.transaction(async transaction => {
-      await this.grants.authorizeInTransaction(transaction, principal, projectId, action);
+      await this.grants.authorizeInTransaction(transaction, principal, projectId, action, expectedGrantRevision);
       const inserted = rows(await transaction.execute(sql`INSERT INTO factory_mutation_receipts
         (tenant_id, project_id, principal_kind, principal_id, idempotency_key, input_digest)
         VALUES (${this.tenantId}, ${projectId}, ${principal.kind}, ${principal.id}, ${idempotencyKey}, ${digest})

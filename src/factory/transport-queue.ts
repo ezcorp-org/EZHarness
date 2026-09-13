@@ -1,4 +1,4 @@
-import type { ClaimedFactoryCommand, FactoryCommandQueue, FactoryTransportCommand } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
+import type { ClaimedFactoryCommand, FactoryCommandQueue, FactoryTransportCommand } from "@ezcorp/factory-sdk/transport-types";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryInbox } from "./inbox";
 import { type FactoryCommandOutbox, FactoryOutboxError, type FactoryCommand } from "./outbox";

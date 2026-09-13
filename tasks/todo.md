@@ -998,3 +998,13 @@ Review: This leaf supports complete platform recovery. Queued intention alone is
 Component review: 29 targeted tests pass (203 assertions); actual PostgreSQL 8 cases pass (66 assertions). Measured lines: inbox89/89, transport queue26/26, outbox145/145, records138/138, additive inbox migration7/7. All four typecheck sections pass; focused Biome passes after import cleanup. Evidence is under /tmp/factory-platform-evidence/inbox-*. The pure transport type import will move to the SDK when the current orchestrator branch is integrated. Full platform gates remain pending.
 
 Additional integration check: model every new factory database table in schema.ts as required by the database instructions; current raw SQL modules alone do not satisfy that contract.
+
+## Factory atomic run lifecycle
+
+- [x] Expose shared budget transaction methods and prove composition rollback.
+- [x] Start pinned runs with current grants, installation epoch, immutable definition, root budget and outbox in one transaction.
+- [x] Persist run revision and cancellation epoch; reject stale effects immediately after cancel or deadline.
+- [x] Prove run reads, idempotency, cancellation races, budgets and scope through actual PostgreSQL and PGlite.
+- [x] Validate full types, lint and measured coverage before application wiring.
+
+Component review: 51 PGlite/store tests pass with 380 assertions. The same actual PostgreSQL suites pass 44 tests with 334 assertions. Run lifecycle104/104, locks7/7, budgets172/172, records140/140, mutations34/34, transport26/26 and the additive migration5/5 measured lines pass. All four type sections and focused lint pass. The canonical factory test set passes137/137; the real Temporal producer passes with all11 orchestrator sources at100%. This proves the component revision, not application boot, browser integration, GPU isolation or the full platform.

@@ -1,3 +1,4 @@
+import { lockFactoryScope } from "./locks";
 import { sql } from "drizzle-orm";
 import { isUnsignedDecimal, type BudgetBounds } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -56,55 +57,61 @@ export class FactoryBudgets {
   constructor(private readonly database: TransactionalDb, private readonly tenantId: string, private readonly authorizeAdmission: FactoryBudgetAdmission, private readonly now: () => number = Date.now) { assertFactoryIdentity(tenantId); }
 
   async openEnvelope(value: FactoryBudgetEnvelope): Promise<{ created: boolean }> {
+    const snapshot = JSON.parse(encodeFactoryPayload(value)) as FactoryBudgetEnvelope;
+    return this.database.transaction(transaction => this.openEnvelopeInTransaction(transaction, snapshot));
+  }
+
+  async openEnvelopeInTransaction(transaction: MigrationDb, value: FactoryBudgetEnvelope): Promise<{ created: boolean }> {
     const input = JSON.parse(encodeFactoryPayload(value)) as FactoryBudgetEnvelope;
     assertFactoryIdentity(input.envelopeId);
     const limits = amount({ costMicros: input.limits.maxCostMicros, tokens: input.limits.maxTokens, computeMs: input.limits.maxComputeMs });
     if (!Number.isSafeInteger(input.deadlineAtMs) || input.deadlineAtMs <= this.now()) throw new FactoryBudgetError("factory_budget_deadline");
-    const digest = digestObject(JSON.parse(encodeFactoryPayload(input)));
-    return this.database.transaction(async transaction => {
-      await this.lockRun(transaction, input);
-      await this.authorizeAdmission(transaction, input);
-      const prior = await this.envelope(transaction, input, false);
-      if (prior) {
-        if (prior.request_digest !== digest) throw new FactoryBudgetError("factory_budget_conflict");
-        return { created: false };
-      }
-      if (input.parentId !== undefined) {
-        assertFactoryIdentity(input.parentId);
-        const parentKey = { ...input, envelopeId: input.parentId };
-        const parent = (await this.envelope(transaction, parentKey))!;
-        this.assertAvailable(parent, limits);
-        if (input.deadlineAtMs > Number(parent.deadline_ms)) throw new FactoryBudgetError("factory_budget_widening");
-        await this.writeTotals(transaction, parentKey, combine(decode(parent.allocated), limits), decode(parent.spent));
-      }
-      await transaction.execute(sql`INSERT INTO factory_budget_envelopes (tenant_id, project_id, run_id, envelope_id, parent_id, request_digest, limits, allocated, spent, deadline_ms, state) VALUES (${this.tenantId}, ${input.projectId}, ${input.runId}, ${input.envelopeId}, ${input.parentId ?? null}, ${digest}, ${encode(limits)}, ${encode(zero)}, ${encode(zero)}, ${input.deadlineAtMs}, 'open')`);
-      await this.audit(transaction, input, "envelope-created", input.envelopeId, { digest, parentId: input.parentId ?? null, limits: totals(limits), deadlineAtMs: input.deadlineAtMs });
-      return { created: true };
-    });
+    const digest = digestObject(input);
+    await this.lockRun(transaction, input);
+    await this.authorizeAdmission(transaction, input);
+    const prior = await this.envelope(transaction, input, false);
+    if (prior) {
+      if (prior.request_digest !== digest) throw new FactoryBudgetError("factory_budget_conflict");
+      return { created: false };
+    }
+    if (input.parentId !== undefined) {
+      assertFactoryIdentity(input.parentId);
+      const parentKey = { ...input, envelopeId: input.parentId };
+      const parent = (await this.envelope(transaction, parentKey))!;
+      this.assertAvailable(parent, limits);
+      if (input.deadlineAtMs > Number(parent.deadline_ms)) throw new FactoryBudgetError("factory_budget_widening");
+      await this.writeTotals(transaction, parentKey, combine(decode(parent.allocated), limits), decode(parent.spent));
+    }
+    await transaction.execute(sql`INSERT INTO factory_budget_envelopes (tenant_id, project_id, run_id, envelope_id, parent_id, request_digest, limits, allocated, spent, deadline_ms, state) VALUES (${this.tenantId}, ${input.projectId}, ${input.runId}, ${input.envelopeId}, ${input.parentId ?? null}, ${digest}, ${encode(limits)}, ${encode(zero)}, ${encode(zero)}, ${input.deadlineAtMs}, 'open')`);
+    await this.audit(transaction, input, "envelope-created", input.envelopeId, { digest, parentId: input.parentId ?? null, limits: totals(limits), deadlineAtMs: input.deadlineAtMs });
+    return { created: true };
   }
 
   async reserve(input: FactoryBudgetRequest, enqueue: (transaction: MigrationDb, request: FactoryBudgetRequest) => Promise<void>): Promise<{ created: boolean }> {
+    const snapshot = JSON.parse(encodeFactoryPayload(input)) as FactoryBudgetRequest;
+    return this.database.transaction(transaction => this.reserveInTransaction(transaction, snapshot, enqueue));
+  }
+
+  async reserveInTransaction(transaction: MigrationDb, input: FactoryBudgetRequest, enqueue: (transaction: MigrationDb, request: FactoryBudgetRequest) => Promise<void>): Promise<{ created: boolean }> {
     assertFactoryIdentity(input.envelopeId, input.reservationId);
     // Snapshot before awaiting; callers cannot alter the held amount or outbox request.
     const request = JSON.parse(encodeFactoryPayload(input)) as FactoryBudgetRequest;
     const held = amount(request.amount);
     const digest = digestObject(request);
-    return this.database.transaction(async transaction => {
-      await this.lockRun(transaction, request);
-      await this.authorizeAdmission(transaction, request);
-      const prior = await this.reservation(transaction, request, false);
-      if (prior) {
-        if (prior.request_digest !== digest) throw new FactoryBudgetError("factory_budget_conflict");
-        return { created: false };
-      }
-      const envelope = (await this.envelope(transaction, request))!;
-      this.assertAvailable(envelope, held);
-      await this.writeTotals(transaction, request, combine(decode(envelope.allocated), held), decode(envelope.spent));
-      await transaction.execute(sql`INSERT INTO factory_budget_reservations (tenant_id, project_id, run_id, reservation_id, envelope_id, request_digest, amount, state) VALUES (${this.tenantId}, ${request.projectId}, ${request.runId}, ${request.reservationId}, ${request.envelopeId}, ${digest}, ${encode(held)}, 'held')`);
-      await this.audit(transaction, request, "reserved", request.reservationId, { digest, envelopeId: request.envelopeId, amount: totals(held) });
-      await enqueue(transaction, request);
-      return { created: true };
-    });
+    await this.lockRun(transaction, request);
+    await this.authorizeAdmission(transaction, request);
+    const prior = await this.reservation(transaction, request, false);
+    if (prior) {
+      if (prior.request_digest !== digest) throw new FactoryBudgetError("factory_budget_conflict");
+      return { created: false };
+    }
+    const envelope = (await this.envelope(transaction, request))!;
+    this.assertAvailable(envelope, held);
+    await this.writeTotals(transaction, request, combine(decode(envelope.allocated), held), decode(envelope.spent));
+    await transaction.execute(sql`INSERT INTO factory_budget_reservations (tenant_id, project_id, run_id, reservation_id, envelope_id, request_digest, amount, state) VALUES (${this.tenantId}, ${request.projectId}, ${request.runId}, ${request.reservationId}, ${request.envelopeId}, ${digest}, ${encode(held)}, 'held')`);
+    await this.audit(transaction, request, "reserved", request.reservationId, { digest, envelopeId: request.envelopeId, amount: totals(held) });
+    await enqueue(transaction, request);
+    return { created: true };
   }
 
   async markRunning(key: FactoryBudgetReservationKey, allocation: FactoryComputeAllocation): Promise<void> {
@@ -193,6 +200,7 @@ export class FactoryBudgets {
 
   private async lockRun(transaction: MigrationDb, key: FactoryRunKey): Promise<void> {
     assertFactoryIdentity(key.projectId, key.runId);
+    if (!await lockFactoryScope(transaction, this.tenantId, key.projectId)) throw new FactoryBudgetError("factory_budget_scope");
     const run = rows(await transaction.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR UPDATE`))[0];
     if (!run) throw new FactoryBudgetError("factory_budget_scope");
   }
