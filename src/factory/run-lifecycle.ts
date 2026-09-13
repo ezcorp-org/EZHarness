@@ -37,6 +37,12 @@ export interface FactoryRunFence {
   readonly definitionDigest: string;
   readonly status: FactoryRunDetails["status"];
 }
+
+/** Projection status and revision can advance without changing execution authority. */
+export type FactoryExecutionFence = Omit<FactoryRunFence, "revision" | "status">;
+export function factoryExecutionFence(fence: FactoryExecutionFence): FactoryExecutionFence {
+  return { tenantId: fence.tenantId, projectId: fence.projectId, runId: fence.runId, executionEpoch: fence.executionEpoch, cancellationEpoch: fence.cancellationEpoch, grantRevision: fence.grantRevision, deadlineAtMs: fence.deadlineAtMs, definitionDigest: fence.definitionDigest };
+}
 export interface FactoryRunProjectionState {
   readonly status: FactoryRunDetails["status"];
   readonly output?: FactoryTransportValue;

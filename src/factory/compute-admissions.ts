@@ -11,6 +11,7 @@ import { parsePoolDecision, type PoolAdmissionClient } from "./pool/client";
 import { normalizePoolResourceVector, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseStatus } from "./pool/ledger";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import { factoryTaskReservationId, type FactoryComputeAdmissionRequest } from "./task-admission";
+import { factoryExecutionFence } from "./run-lifecycle";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const POLL_INTERVAL_MS = 1_000;
@@ -294,7 +295,7 @@ export class FactoryComputeAdmissions {
   }
 
   private assertContext(input: FactoryComputeAdmissionRequest, context: FactoryAuthorizedCommand): void {
-    if (context.command.kind !== "request-admission" || encodeFactoryPayload(context.fence) !== encodeFactoryPayload(input.fence) || factoryTaskReservationId(input.reference, context) !== input.request.reservationId || new Date(context.command.deadlineAtMs).toISOString() !== input.request.admissionDeadline) throw new FactoryComputeAdmissionError("factory_compute_admission_stale");
+    if (context.command.kind !== "request-admission" || encodeFactoryPayload(factoryExecutionFence(context.fence)) !== encodeFactoryPayload(factoryExecutionFence(input.fence)) || factoryTaskReservationId(input.reference, context) !== input.request.reservationId || new Date(context.command.deadlineAtMs).toISOString() !== input.request.admissionDeadline) throw new FactoryComputeAdmissionError("factory_compute_admission_stale");
   }
 
   private async commitDecision(service: TrustedFactoryServiceIdentity, claim: ClaimedAdmission, decision: PoolDecision): Promise<FactoryComputeAdmissionDispatchResult> {

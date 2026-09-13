@@ -1600,3 +1600,12 @@ Review: settlement and envelope closure now accept the caller transaction, while
 Plan review: the product row is enlisted with the held budget before the pool command becomes visible. A short committed poll lease protects fair selection, but every HTTP call runs without a database lock. Only an exact request replay can recover an admitted token. The first admitted commit uses command authority, then locks budget, compute state, and inbox in that order. A stored terminal receipt needs only the trusted installation service check because the kernel is expected to advance after admission.
 
 Review: `FactoryComputeAdmissions` now records one canonical request beside the held product budget, drains the installation pool outbox into a fair durable poll queue, and replays only that exact request to recover a token-bearing lease. The admitted commit rechecks the current command, marks the budget running, stores stable response/event bytes, and enqueues the inbox decision in one transaction. Authority loss cancels known remote allocations while retaining the hold; uncertain cancellation remains recoverable. The transaction-bound admitted reader locks budget before compute state and verifies the stored token and generation before runner admission. The final producer passes 33 tests with 231 assertions across focused PGlite, isolated PostgreSQL, actual Bun mTLS, and actual command authority. Owned coverage is 306/306 lines; the dispatcher also measures 68/68 functions. PostgreSQL schema parity passes two tests with 1,638 assertions. All four typecheck legs, lint, boundaries, gate integrity, and registration tests pass. Coverage is at `/tmp/factory-compute-admissions-final/lcov.info`.
+
+## Task-to-compute transaction wiring — root
+
+- [ ] Prove task admission can be dispatched without a separate manual enlist transaction.
+- [ ] Require the concrete compute admission store in task admission and enlist before outbox enqueue.
+- [ ] Prove outbox/enlist failures roll back the budget and all compute facts.
+- [ ] Validate the combined approval, attempt queue, compute, notification and repaired Node changes.
+
+Plan review: there must be no configuration path that creates a held task budget and pool outbox entry without its recoverable compute row.
