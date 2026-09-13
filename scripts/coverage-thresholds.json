@@ -180,6 +180,7 @@
   "packages/@ezcorp/factory-orchestrator/src/workflow.ts": 100,
   "src/runtime/factory-execution.ts": 100,
   "src/factory/command-authority.ts": 100,
+  "src/factory/task-admission.ts": 100,
   "src/factory/executions.ts": 100,
   "src/db/migrations/add-factory-executions.ts": 100,
   "src/db/migrations/add-factory-transition-commands.ts": 100,

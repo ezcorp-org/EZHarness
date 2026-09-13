@@ -34,10 +34,17 @@ export class FactoryCommandAuthority {
     this.subjects = captured;
   }
 
+  /** Receipt recovery checks service identity without admitting a superseded command again. */
+  assertService(service: TrustedFactoryServiceIdentity): void {
+    assertFactoryIdentity(service.tenantId, service.subject);
+    if (service.tenantId !== this.tenantId || !this.subjects.has(service.subject)) throw new FactoryCommandAuthorityError("factory_command_forbidden");
+  }
+
   async withCurrent<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>): Promise<Result> {
     const reference = Object.freeze({ tenantId: value.tenantId, projectId: value.projectId, logicalRunId: value.logicalRunId, interpreterId: value.interpreterId, commandId: value.commandId });
     assertFactoryIdentity(...Object.values(reference));
-    if (service.tenantId !== this.tenantId || reference.tenantId !== this.tenantId || !this.subjects.has(service.subject)) throw new FactoryCommandAuthorityError("factory_command_forbidden");
+    this.assertService(service);
+    if (reference.tenantId !== this.tenantId) throw new FactoryCommandAuthorityError("factory_command_forbidden");
     const command = await this.transitions.loadStoredCommand(reference);
     if (command.kind !== "request-admission" && command.kind !== "dispatch-node") throw new FactoryCommandAuthorityError("factory_command_forbidden");
     const head = await this.head(this.database, reference);
