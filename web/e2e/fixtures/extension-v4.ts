@@ -2,6 +2,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import { expect } from "./hydration.js";
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord, InstallationRecord, LifecycleApproval } from "../../../src/extensions/v4/types";
+import { buildElapsedMs, nextBuildClock, type BuildClock } from "./extension-build-clock.js";
 
 export interface CreatedWorkspace { installation: InstallationRecord; workspace: WorkspaceRecord; openUrl: string }
 
@@ -12,28 +13,41 @@ export async function extensionClient(request: APIRequestContext, baseURL: strin
   return { client: new HarnessClient({ baseUrl: baseURL, apiKey: key }), key };
 }
 
-export async function buildWorkspace(client: HarnessClient, created: CreatedWorkspace): Promise<InstallationState> {
+export async function buildWorkspace(client: HarnessClient, created: CreatedWorkspace, deadline: BuildDeadline = buildDeadline()): Promise<InstallationState> {
   const operation = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision, idempotencyKey: crypto.randomUUID() });
-  return waitForExtensionBuild(client, created.installation.id, operation.id);
+  return waitForExtensionBuild(client, created.installation.id, operation.id, deadline);
 }
 
 /**
- * Two bounds for one isolated candidate build, both fail-closed.
+ * Two fail-closed bounds for the isolated candidate build.
  *
  * The real server owns ONE isolated runner, and right after the first
  * administrator becomes active it builds every bundled extension through it
  * (src/extensions/bundled-bootstrap.ts): 29 serial builds, several minutes on
  * a CI host. A candidate build queued behind them is parked as `queued` with
- * a retryable `runner_busy` diagnostic and re-claimed on a bounded 1s→30s
- * backoff (src/extensions/v4/lifecycle.ts). That parking is not build time —
- * on a green run this lane spent 3.5 of the round-trip spec's 4.0 minutes in
- * it — so it gets its own bound, and the build budget starts when the runner
- * takes the operation. A single 240s budget over both phases failed exactly
- * when the boot queue ran a little long (CI runs 34538349926, 34753665125).
+ * a retryable `runner_busy` diagnostic (src/extensions/v4/lifecycle.ts). That
+ * parking is not build time — on a green run this lane spent 3.5 of the
+ * round-trip spec's 4.0 minutes in it — so the build budget only runs while
+ * the runner holds the operation (see extension-build-clock.ts), and the
+ * parking is bounded by a `BuildDeadline` that a spec with several builds
+ * SHARES across them, so its worst case stays inside its test timeout. A
+ * single 240s budget over both phases failed exactly when the boot queue ran
+ * a little long (CI runs 34538349926, 34753665125).
+ *
+ * Budget arithmetic for a spec: RUNNER_WAIT_BUDGET_MS (one shared deadline) +
+ * ACTIVATION_BUDGET_MS per activation + its own UI steps must fit
+ * `test.setTimeout`, and that must fit the ci.yml job `timeout-minutes` with
+ * the rest of the lane.
  */
 const BUILD_BUDGET_MS = 240_000;
-const RUNNER_WAIT_BUDGET_MS = 600_000;
+const RUNNER_WAIT_BUDGET_MS = 480_000;
 const INSPECT_WAIT_MS = 1_000;
+
+/** One allowance for runner parking plus builds, shared by every build wait it is passed to. */
+export interface BuildDeadline { readonly until: number }
+export function buildDeadline(now = Date.now()): BuildDeadline {
+  return { until: now + RUNNER_WAIT_BUDGET_MS };
+}
 /**
  * Activation is one server call that verifies the candidate, prepares
  * migrations and publishes the release to the runtime before the page's
@@ -44,13 +58,8 @@ const INSPECT_WAIT_MS = 1_000;
  */
 const ACTIVATION_BUDGET_MS = 120_000;
 
-function parkedBehindBusyRunner(operation: LifecycleOperation): boolean {
-  return operation.state === "queued" && operation.diagnostics.some((diagnostic) => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
-}
-
-export async function waitForExtensionBuild(client: HarnessClient, installationId: string, operationId: string): Promise<InstallationState> {
-  const startedAt = Date.now();
-  let buildStartedAt: number | undefined;
+export async function waitForExtensionBuild(client: HarnessClient, installationId: string, operationId: string, deadline: BuildDeadline = buildDeadline()): Promise<InstallationState> {
+  let clock: BuildClock = {};
   for (;;) {
     const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: INSPECT_WAIT_MS });
     const operation = state.operations[operationId]!;
@@ -59,12 +68,11 @@ export async function waitForExtensionBuild(client: HarnessClient, installationI
       expect(state.releases[operation.releaseId!]).toBeDefined();
       return state;
     }
-    if (parkedBehindBusyRunner(operation)) buildStartedAt = undefined;
-    else buildStartedAt ??= Date.now();
+    const now = Date.now();
+    clock = nextBuildClock(clock, operation, now);
     const detail = `state=${operation.state} diagnostics=${JSON.stringify(operation.diagnostics)}`;
-    const buildMs = buildStartedAt === undefined ? 0 : Date.now() - buildStartedAt;
-    expect(buildMs, `The real isolated candidate build must finish within ${BUILD_BUDGET_MS}ms once the runner takes it (${detail}).`).toBeLessThanOrEqual(BUILD_BUDGET_MS);
-    expect(Date.now() - startedAt, `The real isolated candidate build must finish within ${RUNNER_WAIT_BUDGET_MS}ms including time parked behind the busy runner (${detail}).`).toBeLessThanOrEqual(RUNNER_WAIT_BUDGET_MS);
+    expect(buildElapsedMs(clock, now), `The real isolated candidate build must finish within ${BUILD_BUDGET_MS}ms once the runner takes it (${detail}).`).toBeLessThanOrEqual(BUILD_BUDGET_MS);
+    expect(now, `The real isolated candidate build must finish within the ${RUNNER_WAIT_BUDGET_MS}ms shared allowance for runner parking and builds (${detail}).`).toBeLessThanOrEqual(deadline.until);
   }
 }
 
@@ -74,17 +82,17 @@ export async function requestRelease(client: HarnessClient, state: InstallationS
   return result.approval;
 }
 
-export async function createAndActivateExtension({ page, request, baseURL, name }: {
-  page: Page; request: APIRequestContext; baseURL: string; name: string;
+export async function createAndActivateExtension({ page, request, baseURL, name, deadline = buildDeadline() }: {
+  page: Page; request: APIRequestContext; baseURL: string; name: string; deadline?: BuildDeadline;
 }): Promise<{ client: HarnessClient; state: InstallationState }> {
   const { client } = await extensionClient(request, baseURL);
   const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "create", name });
-  const state = await buildWorkspace(client, created);
+  const state = await buildWorkspace(client, created, deadline);
   const release = Object.values(state.releases)[0]!;
   return { client, state: await approveAndActivateWorkspace(page, client, created, state, release.id) };
 }
 
-async function approveAndActivateWorkspace(page: Page, client: HarnessClient, created: CreatedWorkspace, state: InstallationState, releaseId: string): Promise<InstallationState> {
+export async function approveAndActivateWorkspace(page: Page, client: HarnessClient, created: CreatedWorkspace, state: InstallationState, releaseId: string): Promise<InstallationState> {
   await requestRelease(client, state, releaseId);
   await page.goto(created.openUrl);
   const approve = page.getByRole("button", { name: "Approve exact release", exact: true });

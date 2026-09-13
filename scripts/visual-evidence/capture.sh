@@ -15,8 +15,9 @@
 #   capture.sh <selected-evidence-specs-file>                  run the capture
 #   capture.sh --has-real-auth <selected-evidence-specs-file>  exit 0 when the
 #       selection needs the real-auth tier (__ALL__ or at least one real-auth
-#       lane member), 1 otherwise; ci.yml asks this before installing the
-#       extension runner so the answer has one home.
+#       lane member), 1 when it does not, 2 on a usage or manifest error;
+#       ci.yml asks this before installing the extension runner so the answer
+#       has one home, and treats 2 as an error, never as "no real tier".
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,13 +44,19 @@ fi
 # member. Spec paths carry no literal backslashes, so stripping them undoes the
 # escaping. One awk process: an early `grep -q` under pipefail would turn the
 # writer's SIGPIPE into a false negative.
+#
+# The parser expects the manifest's committed shape: `"real-auth": [` on its
+# own line, one quoted path per line, `]` closing the lane. It FAILS CLOSED
+# (exit 2, via the caller) when that header is never seen, so a reformatted
+# manifest cannot quietly answer "not a member" for every spec; and
+# src/__tests__/visual-evidence-capture.test.ts runs it against the real file.
 is_real_auth_spec() {
   local spec="${1//\\/}"
   awk -v want="\"web/${spec}\"" '
-    /"real-auth": \[/ { in_lane = 1; next }
+    /"real-auth": \[/ { in_lane = 1; seen = 1; next }
     in_lane && /^[[:space:]]*\]/ { exit }
     in_lane && index($0, want) { found = 1; exit }
-    END { exit !found }
+    END { if (!seen) exit 2; exit !found }
   ' "${LANES_JSON}"
 }
 
@@ -79,11 +86,15 @@ while IFS= read -r spec || [[ -n "${spec}" ]]; do
         echo "visual-evidence capture: selection sentinel cannot be mixed with specs" >&2
         exit 2
       }
-      if is_real_auth_spec "${spec}"; then
-        REAL_AUTH_SPECS+=("${spec}")
-      else
-        MOCK_SPECS+=("${spec}")
-      fi
+      is_real_auth_spec "${spec}"
+      case $? in
+        0) REAL_AUTH_SPECS+=("${spec}") ;;
+        1) MOCK_SPECS+=("${spec}") ;;
+        *)
+          echo "visual-evidence capture: no \"real-auth\" lane found in ${LANES_JSON}" >&2
+          exit 2
+          ;;
+      esac
       ;;
     *)
       echo "visual-evidence capture: unsupported selected spec '${spec}'" >&2

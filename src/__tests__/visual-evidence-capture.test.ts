@@ -20,7 +20,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function makeSandbox(withLanes = true) {
+function makeSandbox(withLanes: boolean | "no-real-auth-lane" = true) {
   const root = mkdtempSync(join(tmpdir(), "visual-evidence-capture-"));
   roots.push(root);
   const scriptDir = join(root, "scripts", "visual-evidence");
@@ -30,19 +30,9 @@ function makeSandbox(withLanes = true) {
     // Same shape as web/e2e/lanes.json. `root-real` stands in for the eight
     // real-auth journeys that live at the e2e/ ROOT (chip-reorder, ...):
     // the tier must come from lane membership, not from the path prefix.
-    writeFileSync(
-      join(root, "web", "e2e", "lanes.json"),
-      JSON.stringify(
-        {
-          lanes: {
-            "mock-full": ["web/e2e/mock.spec.ts"],
-            "real-auth": ["web/e2e/real-auth/real.spec.ts", "web/e2e/root-real.spec.ts"],
-          },
-        },
-        null,
-        2,
-      ),
-    );
+    const lanes: Record<string, string[]> = { "mock-full": ["web/e2e/mock.spec.ts"] };
+    if (withLanes === true) lanes["real-auth"] = ["web/e2e/real-auth/real.spec.ts", "web/e2e/root-real.spec.ts"];
+    writeFileSync(join(root, "web", "e2e", "lanes.json"), JSON.stringify({ lanes }, null, 2));
   }
   mkdirSync(scriptDir, { recursive: true });
   mkdirSync(binDir, { recursive: true });
@@ -83,7 +73,7 @@ function runCapture(
   env: Record<string, string> = {},
   seedStaleReport = false,
   args: string[] = [],
-  withLanes = true,
+  withLanes: boolean | "no-real-auth-lane" = true,
 ) {
   const { root, script, binDir } = makeSandbox(withLanes);
   const specsFile = join(root, "selected.txt");
@@ -182,6 +172,7 @@ describe("visual-evidence capture", () => {
   test.each([
     ["a root-level real-auth member", "e2e/root-real\\.spec\\.ts\n", 0],
     ["a directory real-auth member", "e2e/real-auth/real\\.spec\\.ts\n", 0],
+    ["a mixed selection", "e2e/mock\\.spec\\.ts\ne2e/root-real\\.spec\\.ts\n", 0],
     ["the __ALL__ fallback", "__ALL__\n", 0],
     ["a mock-only selection", "e2e/mock\\.spec\\.ts\n", 1],
     ["the __NONE__ sentinel", "__NONE__\n", 1],
@@ -193,17 +184,47 @@ describe("visual-evidence capture", () => {
     expect(existsSync(join(result.root, "web/blob-report"))).toBe(false);
   });
 
+  test.each([
+    ["a missing manifest", false as const, "lane manifest missing"],
+    ["a manifest without a real-auth lane", "no-real-auth-lane" as const, 'no "real-auth" lane found'],
+  ])("--has-real-auth exits 2, not 1, for %s", (_label, withLanes, message) => {
+    const result = runCapture("e2e/mock\\.spec\\.ts\n", {}, false, ["--has-real-auth"], withLanes);
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain(message);
+    expect(result.lines).toHaveLength(0);
+  });
+
+  test("the awk lane parser agrees with the real lanes.json", () => {
+    // The sandbox above proves the routing; this proves the parser still reads
+    // the committed manifest. `--has-real-auth` returns before the blob dir is
+    // touched, so running the real script in the real repo writes nothing.
+    const dir = mkdtempSync(join(tmpdir(), "lanes-query-"));
+    roots.push(dir);
+    const ask = (spec: string) => {
+      const file = join(dir, "selection.txt");
+      writeFileSync(file, `${spec}\n`);
+      return Bun.spawnSync(["bash", CAPTURE_SOURCE, "--has-real-auth", file], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" }).exitCode;
+    };
+    expect(ask("e2e/chip-reorder\\.spec\\.ts")).toBe(0);
+    expect(ask("e2e/real-auth/auth-fixture\\.spec\\.ts")).toBe(0);
+    expect(ask("e2e/theme-sidebar\\.spec\\.ts")).toBe(1);
+  });
+
   test("CI installs the extension runner from the same lane answer", () => {
     expect(readFileSync(CI_WORKFLOW, "utf8")).toContain(
       'bash scripts/visual-evidence/capture.sh --has-real-auth "$SPECS_FILE"',
     );
   });
 
-  test("fails closed when the lane manifest is missing", () => {
-    const result = runCapture("e2e/mock\\.spec\\.ts\n", {}, false, [], false);
+  test.each([
+    ["the lane manifest is missing", false as const, "lane manifest missing"],
+    ["the manifest has no real-auth lane", "no-real-auth-lane" as const, 'no "real-auth" lane found'],
+  ])("fails closed when %s", (_label, withLanes, message) => {
+    const result = runCapture("e2e/mock\\.spec\\.ts\n", {}, false, [], withLanes);
 
     expect(result.code).toBe(2);
-    expect(result.stderr).toContain("lane manifest missing");
+    expect(result.stderr).toContain(message);
     expect(result.lines).toHaveLength(0);
   });
 });
