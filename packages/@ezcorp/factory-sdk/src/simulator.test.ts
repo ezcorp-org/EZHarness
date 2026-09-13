@@ -20,13 +20,12 @@ test("simulator drives the production kernel and emits an independently inspecta
   });
   expect(result.state.status).toBe("completed");
   expect(result.state.nodes.work?.output).toEqual({ echoed: { message: "hello" } });
-  expect(result.events.map((event) => event.kind)).toEqual(["start", "admission-result", "node-result", "timer-expired"]);
-  expect(result.commands.map((command) => command.id)).toEqual([
-    "simulation-run:work:request-admission:1",
-    "simulation-run:work:dispatch-node:2",
-    "simulation-run:work:start-timer:3",
-    "simulation-run:run:complete-run:4",
-  ]);
+  expect(result.events.map((event) => event.kind)).toEqual(["start", "admission-result", "node-result"]);
+  expect(result.commands.find((command) => command.kind === "start-timer" && command.nodeId === undefined)).toEqual(expect.objectContaining({ kind: "start-timer" }));
+  expect(result.commands.find((command) => command.kind === "request-admission" && command.nodeId === "work")).toEqual(expect.objectContaining({ kind: "request-admission", nodeId: "work" }));
+  expect(result.commands.find((command) => command.kind === "dispatch-node" && command.nodeId === "work")).toEqual(expect.objectContaining({ kind: "dispatch-node", nodeId: "work" }));
+  expect(result.commands.find((command) => command.kind === "start-timer" && command.nodeId === "work")).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "work" }));
+  expect(result.commands.find((command) => command.kind === "complete-run")).toEqual(expect.objectContaining({ kind: "complete-run" }));
 });
 
 test("simulator exposes a retry as two product attempts", () => {

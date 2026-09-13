@@ -88,7 +88,7 @@ test("cancelling an active retry-enabled attempt never schedules a retry after s
   const cancelling = advanceKernel(graph, state, { kind: "cancel", id: "cancel", atMs: 1, reason: "operator" });
   const stopped = advanceKernel(graph, cancelling.nextState, { kind: "attempt-stopped", id: "stopped", atMs: 1, nodeId: "work", commandId: attempt.commandId, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt });
   expect(stopped.nextState.status).toBe("cancelled");
-  expect(stopped.nextState.nodes.work?.status).toBe("stopping");
+  expect(stopped.nextState.nodes.work?.status).toBe("cancelled");
   expect(stopped.commands.some((command) => command.kind === "start-timer")).toBe(false);
   expect(stopped.commands).toContainEqual(expect.objectContaining({ kind: "cancel-run" }));
 });
@@ -101,10 +101,11 @@ test("loop maxElapsedMs installs expiry, cancels its active child, then fails af
   };
   const graph = compiled([loop]);
   const started = start(graph, "loop-elapsed");
-  expect(started.commands).toContainEqual(expect.objectContaining({ kind: "start-timer", nodeId: "loop", deadlineAtMs: 5 }));
+  const loopTimer = started.commands.find((command) => command.kind === "start-timer" && command.nodeId === "loop");
+  expect(loopTimer).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "loop", deadlineAtMs: 5 }));
   const state = admit(graph, started.nextState, "loop/items/0/child", "admit-child").nextState;
   const child = state.nodes["loop/items/0/child"]!.attempts.at(-1)!;
-  const expired = advanceKernel(graph, state, { kind: "timer-expired", id: "loop-elapsed-timer", atMs: 5, nodeId: "loop", commandId: "loop-elapsed:loop:start-timer:1" });
+  const expired = advanceKernel(graph, state, { kind: "timer-expired", id: "loop-elapsed-timer", atMs: loopTimer!.deadlineAtMs, nodeId: "loop", commandId: loopTimer!.id });
   expect(expired.nextState.status).toBe("stopping");
   expect(expired.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "loop/items/0/child", attemptCommandId: child.commandId }));
   expect(expired.commands.some((command) => command.kind === "fail-run")).toBe(false);

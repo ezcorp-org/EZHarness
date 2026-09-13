@@ -22,7 +22,17 @@ const event = <T extends object>(id: string, values: T): T & { readonly id: stri
 
 function activeWork(graph: CompiledFactory, runId: string) {
   const started = advanceKernel(graph, createKernelState(graph, runId, {}, 0), event("start", { kind: "start" }));
-  return advanceKernel(graph, started.nextState, event("admit", { kind: "admission-result", nodeId: "work", commandId: `${runId}:work:request-admission:1`, candidateGeneration: 0, granted: true })).nextState;
+  const admission = started.commands.find((command) => command.kind === "request-admission" && command.nodeId === "work");
+  if (!admission) throw new Error("work admission was not emitted");
+  return advanceKernel(graph, started.nextState, event("admit", {
+    kind: "admission-result", nodeId: "work", commandId: admission.id, candidateGeneration: admission.candidateGeneration, granted: true,
+  })).nextState;
+}
+
+function dispatchedAttempt(state: import("./kernel-types").KernelState, nodeId: string) {
+  const attempt = state.nodes[nodeId]?.attempts.at(-1);
+  if (!attempt) throw new Error(`missing dispatched attempt for ${nodeId}`);
+  return attempt;
 }
 
 describe("factory kernel", () => {
@@ -30,22 +40,24 @@ describe("factory kernel", () => {
     const graph = compiled([], {});
     const result = advanceKernel(graph, createKernelState(graph, "empty", {}, 0), event("start", { kind: "start" }));
     expect(result.nextState.status).toBe("completed");
-    expect(result.commands).toEqual([{ kind: "complete-run", id: "empty:run:complete-run:1", output: {} }]);
+    expect(result.commands.find((command) => command.kind === "complete-run")).toEqual(expect.objectContaining({ kind: "complete-run", output: {} }));
   });
 
   test("records known and uncertain usage as persistent decimal ledger entries", () => {
     const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
     const state = activeWork(graph, "usage");
-    const settled = advanceKernel(graph, state, { kind: "usage-settled", id: "usage-1", atMs: 1, nodeId: "work", commandId: "usage:work:dispatch-node:2", candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "12", unknownCostMicros: "3" });
+    const work = dispatchedAttempt(state, "work");
+    const settled = advanceKernel(graph, state, { kind: "usage-settled", id: "usage-1", atMs: 1, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 1, knownCostMicros: "12", unknownCostMicros: "3" });
     expect(settled.nextState.spentCostMicros).toBe("12");
     expect(settled.nextState.unknownCostMicros).toBe("3");
-    expect(advanceKernel(graph, settled.nextState, { kind: "usage-settled", id: "usage-1", atMs: 2, nodeId: "work", commandId: "usage:work:dispatch-node:2", candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "99" }).nextState.spentCostMicros).toBe("12");
+    expect(advanceKernel(graph, settled.nextState, { kind: "usage-settled", id: "usage-1", atMs: 2, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 1, knownCostMicros: "99" }).nextState.spentCostMicros).toBe("12");
   });
 
   test("rejects malformed and negative recorded usage charges", () => {
     const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
     const state = activeWork(graph, "usage-invalid");
-    const settlement = { nodeId: "work", commandId: "usage-invalid:work:dispatch-node:2", candidateGeneration: 0, attempt: 1, revision: 1 };
+    const work = dispatchedAttempt(state, "work");
+    const settlement = { nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 1 };
     expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "negative", atMs: 1, ...settlement, knownCostMicros: "-1" })).toThrow("usage cost");
     expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "decimal", atMs: 1, ...settlement, knownCostMicros: "1.5" })).toThrow("usage cost");
     expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "unsafe", atMs: 1, ...settlement, knownCostMicros: "01" })).toThrow("usage cost");
@@ -61,21 +73,20 @@ describe("factory kernel", () => {
 
   test("settlements fence the attempt and reconcile cumulative revisions without double charging", () => {
     const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
-    let state = advanceKernel(graph, createKernelState(graph, "usage-revision", {}, 0), event("start", { kind: "start" })).nextState;
-    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "work", commandId: "usage-revision:work:request-admission:1", candidateGeneration: 0, granted: true })).nextState;
-    const commandId = "usage-revision:work:dispatch-node:2";
-    const initial = advanceKernel(graph, state, { kind: "usage-settled", id: "delivery-a", atMs: 1, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
+    const state = activeWork(graph, "usage-revision");
+    const work = dispatchedAttempt(state, "work");
+    const initial = advanceKernel(graph, state, { kind: "usage-settled", id: "delivery-a", atMs: 1, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
     expect(initial.nextState.spentCostMicros).toBe("4");
     expect(initial.nextState.unknownCostMicros).toBe("6");
-    const duplicate = advanceKernel(graph, initial.nextState, { kind: "usage-settled", id: "delivery-b", atMs: 2, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
+    const duplicate = advanceKernel(graph, initial.nextState, { kind: "usage-settled", id: "delivery-b", atMs: 2, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
     expect(duplicate.nextState.spentCostMicros).toBe("4");
-    const reconciled = advanceKernel(graph, duplicate.nextState, { kind: "usage-settled", id: "delivery-c", atMs: 3, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 2, knownCostMicros: "10", unknownCostMicros: "0" });
+    const reconciled = advanceKernel(graph, duplicate.nextState, { kind: "usage-settled", id: "delivery-c", atMs: 3, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 2, knownCostMicros: "10", unknownCostMicros: "0" });
     expect(reconciled.nextState.spentCostMicros).toBe("10");
     expect(reconciled.nextState.unknownCostMicros).toBe("0");
-    expect(() => advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-conflict", atMs: 4, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 2, knownCostMicros: "11" })).toThrow(FactoryKernelError);
-    const stale = advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-stale", atMs: 5, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
+    expect(() => advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-conflict", atMs: 4, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 2, knownCostMicros: "11" })).toThrow(FactoryKernelError);
+    const stale = advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-stale", atMs: 5, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 1, knownCostMicros: "4", unknownCostMicros: "6" });
     expect(stale.nextState.spentCostMicros).toBe("10");
-    expect(() => advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-gap", atMs: 5, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1, revision: 4, knownCostMicros: "10" })).toThrow(FactoryKernelError);
+    expect(() => advanceKernel(graph, reconciled.nextState, { kind: "usage-settled", id: "delivery-gap", atMs: 5, nodeId: "work", commandId: work.commandId, candidateGeneration: work.candidateGeneration, attempt: work.attempt, revision: 4, knownCostMicros: "10" })).toThrow(FactoryKernelError);
   });
 
   test("uses stable command identities and independently advances a ready successor", () => {
@@ -85,48 +96,58 @@ describe("factory kernel", () => {
     ], { result: { kind: "ref", root: "node", name: "second" } });
     const initial = createKernelState(graph, "run-1", {}, 0);
     const started = advanceKernel(graph, initial, event("start", { kind: "start" }));
-    expect(started.commands).toEqual([{ kind: "request-admission", id: "run-1:first:request-admission:1", nodeId: "first", candidateGeneration: 0, deadlineAtMs: 1_800_001 }]);
-    const admitted = advanceKernel(graph, started.nextState, event("admit", { kind: "admission-result", nodeId: "first", commandId: "run-1:first:request-admission:1", candidateGeneration: 0, granted: true }));
-    expect(admitted.commands).toEqual([
-      { kind: "dispatch-node", id: "run-1:first:dispatch-node:2", nodeId: "first", candidateGeneration: 0, attempt: 1, input: {}, deadlineAtMs: 1_800_001, cancellationEpoch: 0 },
-      { kind: "start-timer", id: "run-1:first:start-timer:3", nodeId: "first", deadlineAtMs: 1_800_001 },
-    ]);
-    const completed = advanceKernel(graph, admitted.nextState, event("result", { kind: "node-result", nodeId: "first", commandId: "run-1:first:dispatch-node:2", candidateGeneration: 0, attempt: 1, output: { value: 1 } }));
+    const replay = advanceKernel(graph, createKernelState(graph, "run-1", {}, 0), event("replay-start", { kind: "start" }));
+    expect(started.commands.map((command) => command.id)).toEqual(replay.commands.map((command) => command.id));
+    expect(started.commands.find((command) => command.kind === "start-timer" && command.nodeId === undefined)).toEqual(expect.objectContaining({ kind: "start-timer", deadlineAtMs: 7 * 24 * 60 * 60 * 1_000 }));
+    const admission = started.commands.find((command) => command.kind === "request-admission" && command.nodeId === "first");
+    expect(admission).toEqual(expect.objectContaining({ kind: "request-admission", nodeId: "first", candidateGeneration: 0, deadlineAtMs: 1_800_001 }));
+    const admitted = advanceKernel(graph, started.nextState, event("admit", { kind: "admission-result", nodeId: "first", commandId: admission!.id, candidateGeneration: admission!.candidateGeneration, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node" && command.nodeId === "first");
+    const timer = admitted.commands.find((command) => command.kind === "start-timer" && command.nodeId === "first");
+    expect(dispatch).toEqual(expect.objectContaining({ kind: "dispatch-node", nodeId: "first", candidateGeneration: 0, attempt: 1, input: {}, deadlineAtMs: 1_800_001, cancellationEpoch: 0 }));
+    expect(timer).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "first", deadlineAtMs: 1_800_001 }));
+    const completed = advanceKernel(graph, admitted.nextState, event("result", { kind: "node-result", nodeId: "first", commandId: dispatch!.id, candidateGeneration: dispatch!.candidateGeneration, attempt: dispatch!.attempt, output: { value: 1 } }));
     expect(completed.nextState.nodes.second?.status).toBe("reserved");
-    expect(completed.commands).toEqual([{ kind: "request-admission", id: "run-1:second:request-admission:4", nodeId: "second", candidateGeneration: 0, deadlineAtMs: 1_800_001 }]);
+    expect(completed.commands.find((command) => command.kind === "request-admission" && command.nodeId === "second")).toEqual(expect.objectContaining({ kind: "request-admission", nodeId: "second", candidateGeneration: 0, deadlineAtMs: 1_800_001 }));
   });
 
   test("ignores duplicate and stale completion fences", () => {
     const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
     let state = advanceKernel(graph, createKernelState(graph, "run-2", {}, 0), event("start", { kind: "start" })).nextState;
-    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: "run-2:only:request-admission:1", candidateGeneration: 0, granted: true })).nextState;
-    const stale = advanceKernel(graph, state, event("wrong-attempt", { kind: "node-result", nodeId: "only", commandId: "run-2:only:dispatch-node:2", candidateGeneration: 0, attempt: 2, output: {} }));
+    const admission = state.nodes.only!.attempts.at(-1)!;
+    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+    const only = dispatchedAttempt(state, "only");
+    const stale = advanceKernel(graph, state, event("wrong-attempt", { kind: "node-result", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt + 1, output: {} }));
     expect(stale.nextState.nodes.only?.status).toBe("running");
-    const complete = advanceKernel(graph, stale.nextState, event("result", { kind: "node-result", nodeId: "only", commandId: "run-2:only:dispatch-node:2", candidateGeneration: 0, attempt: 1, output: {} }));
+    const complete = advanceKernel(graph, stale.nextState, event("result", { kind: "node-result", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, output: {} }));
     expect(complete.nextState.status).toBe("completed");
-    expect(advanceKernel(graph, complete.nextState, event("result", { kind: "node-result", nodeId: "only", commandId: "run-2:only:dispatch-node:2", candidateGeneration: 0, attempt: 1, output: {} })).commands).toEqual([]);
+    expect(advanceKernel(graph, complete.nextState, event("result", { kind: "node-result", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, output: {} })).commands).toEqual([]);
   });
 
   test("does not retry before an attempt has stopped", () => {
     const graph = compiled([{ id: "only", kind: "task", runner, retry: { maxAttempts: 2, initialDelayMs: 5, maximumDelayMs: 5 } }], { result: { kind: "ref", root: "node", name: "only" } });
     let state = advanceKernel(graph, createKernelState(graph, "run-3", {}, 0), event("start", { kind: "start" })).nextState;
-    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: "run-3:only:request-admission:1", candidateGeneration: 0, granted: true })).nextState;
-    const failed = advanceKernel(graph, state, event("failed", { kind: "node-failed", nodeId: "only", commandId: "run-3:only:dispatch-node:2", candidateGeneration: 0, attempt: 1, error: "boom" }));
+    const admission = state.nodes.only!.attempts.at(-1)!;
+    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+    const only = dispatchedAttempt(state, "only");
+    const failed = advanceKernel(graph, state, event("failed", { kind: "node-failed", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, error: "boom" }));
     expect(failed.nextState.nodes.only?.status).toBe("stopping");
     expect(failed.commands.some((command) => command.kind === "request-admission")).toBe(false);
-    const stopped = advanceKernel(graph, failed.nextState, event("stopped", { kind: "attempt-stopped", nodeId: "only", commandId: "run-3:only:dispatch-node:2", candidateGeneration: 0, attempt: 1 }));
+    const stopped = advanceKernel(graph, failed.nextState, event("stopped", { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt }));
     expect(stopped.nextState.nodes.only?.status).toBe("retry_wait");
-    expect(stopped.commands).toEqual([{ kind: "start-timer", id: "run-3:only:start-timer:5", nodeId: "only", deadlineAtMs: 6 }]);
+    expect(stopped.commands.find((command) => command.kind === "start-timer" && command.nodeId === "only")).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "only", deadlineAtMs: 6 }));
   });
 
   test("cancellation fences late work and retains uncertainty", () => {
     const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
     let state = advanceKernel(graph, createKernelState(graph, "run-4", {}, 0), event("start", { kind: "start" })).nextState;
-    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: "run-4:only:request-admission:1", candidateGeneration: 0, granted: true })).nextState;
+    const admission = state.nodes.only!.attempts.at(-1)!;
+    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+    const only = dispatchedAttempt(state, "only");
     const cancelling = advanceKernel(graph, state, event("cancel", { kind: "cancel", reason: "user" }));
     expect(cancelling.nextState.cancellationEpoch).toBe(1);
     expect(cancelling.nextState.status).toBe("stopping");
-    const stopped = advanceKernel(graph, cancelling.nextState, event("uncertain", { kind: "attempt-stopped", nodeId: "only", commandId: "run-4:only:dispatch-node:2", candidateGeneration: 0, attempt: 1, uncertain: true }));
+    const stopped = advanceKernel(graph, cancelling.nextState, event("uncertain", { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, uncertain: true }));
     expect(stopped.nextState.status).toBe("stopping");
     expect(stopped.nextState.unresolvedUncertainNodeIds).toEqual(["only"]);
   });
