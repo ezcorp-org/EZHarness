@@ -7,6 +7,7 @@ import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryPrincipal } from "./grants";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryRunFence, FactoryRunLifecycle } from "./run-lifecycle";
+import { verifyFactoryChildBinding, type FactoryChildBindingRow } from "./child-runs";
 import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
@@ -20,6 +21,7 @@ interface Head { source_sequence: number | string; digest: string }
 interface CommittedCommand<Command extends KernelCommand> {
   readonly command: Command;
   readonly sourceSequence: number;
+  readonly commandDigest: string;
   readonly commandState: KernelState;
   readonly compiled: CompiledFactory;
   readonly state: KernelState;
@@ -85,10 +87,18 @@ export class FactoryCommandAuthority {
   }
 
   async withCurrent<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>): Promise<Result> {
+    return this.execution(service, value, work);
+  }
+
+  withCurrentInTransaction<Result>(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>): Promise<Result> {
+    return this.execution(service, value, work, transaction);
+  }
+
+  private execution<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedCommand) => Promise<Result>, suppliedTransaction?: MigrationDb): Promise<Result> {
     return this.withCommitted(service, value, (command): command is ExecutionCommand => command.kind === "request-admission" || command.kind === "dispatch-node", async (transaction, context) => {
       const node = this.attemptNode(context, "task");
       return work(transaction, { ...context, node });
-    });
+    }, suppliedTransaction);
   }
 
   async withCurrentChild<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedChildCommand) => Promise<Result>): Promise<Result> {
@@ -115,13 +125,14 @@ export class FactoryCommandAuthority {
   }
 
   async withCurrentPartition<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedPartitionCommand) => Promise<Result>): Promise<Result> {
+    const sourceInterpreterId = value.interpreterId;
     return this.withCommitted(service, value, (command): command is PartitionCommand => command.kind === "invalidate-partition" || command.kind === "notify-partition", async (transaction, context) => {
       const { command, compiled, state, commandState } = context;
       const partition = compiled.partitions.find(candidate => candidate.id === command.sourcePartitionId);
       const edge = partition?.outbound.find(candidate => candidate.nodeId === command.sourceNodeId && candidate.toNodeId === command.nodeId && candidate.toPartitionId === command.targetPartitionId);
       const runtime = state.nodes[command.sourceNodeId];
       const createdRuntime = commandState.nodes[command.sourceNodeId];
-      if (!partition || !edge || state.partition?.id !== command.sourcePartitionId || commandState.partition?.id !== command.sourcePartitionId || !runtime || !createdRuntime) throw new FactoryCommandAuthorityError("factory_command_stale");
+      if (sourceInterpreterId !== command.sourcePartitionId || !partition || !edge || state.partition?.id !== command.sourcePartitionId || commandState.partition?.id !== command.sourcePartitionId || !runtime || !createdRuntime) throw new FactoryCommandAuthorityError("factory_command_stale");
       if (command.kind === "notify-partition") {
         const currentOutcome = runtime.status === "succeeded" || runtime.status === "failed" || runtime.status === "skipped" || runtime.status === "cancelled" ? runtime.status : undefined;
         if (state.pendingRepair?.nodeIds.includes(command.sourceNodeId) || runtime.candidateGeneration !== command.candidateGeneration || runtime.terminalSequence !== command.terminalSequence || currentOutcome !== command.outcome || digestObject(runtime.output ?? null) !== digestObject(command.output ?? null) || runtime.error !== command.error) throw new FactoryCommandAuthorityError("factory_command_stale");
@@ -179,9 +190,10 @@ export class FactoryCommandAuthority {
     assertFactoryIdentity(...Object.values(reference));
     this.assertService(service);
     if (reference.tenantId !== this.tenantId) throw new FactoryCommandAuthorityError("factory_command_forbidden");
-    const command = await this.transitions.loadStoredCommand(reference, suppliedTransaction);
+    const stored = await this.transitions.loadStoredCommandEntry(reference, suppliedTransaction);
+    const command = stored.command;
     if (!accepts(command)) throw new FactoryCommandAuthorityError("factory_command_forbidden");
-    const sourceSequence = await this.commandSource(suppliedTransaction ?? this.database, reference);
+    const sourceSequence = stored.sourceSequence;
     const head = await this.head(suppliedTransaction ?? this.database, reference);
     const transition = await this.transitions.loadCommittedTransition(reference, Number(head.source_sequence), suppliedTransaction);
     const commandTransition = sourceSequence === Number(head.source_sequence) ? transition : await this.transitions.loadCommittedTransition(reference, sourceSequence, suppliedTransaction);
@@ -189,23 +201,17 @@ export class FactoryCommandAuthority {
     // comparison below close the race with a concurrently committed transition.
     const apply = async (transaction: MigrationDb): Promise<Result> => {
       const { fence, compiled, initiator } = await this.lifecycle.readExecutionPlanInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId });
+      await this.assertLiveAncestors(transaction, reference.projectId, reference.logicalRunId, new Set());
       const current = await this.head(transaction, reference);
       if (Number(current.source_sequence) !== Number(head.source_sequence) || current.digest !== head.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
       const state = transition.nextState;
       if (state.logicalRunId !== reference.logicalRunId || state.definitionDigest !== fence.definitionDigest || state.runDeadlineAtMs !== fence.deadlineAtMs || state.cancellationEpoch !== fence.cancellationEpoch || !allowedStatuses.has(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
-      return work(transaction, { command, sourceSequence, commandState: commandTransition.nextState, compiled, state, fence, initiator });
+      return work(transaction, { command, sourceSequence: stored.sourceSequence, commandDigest: stored.commandDigest, commandState: commandTransition.nextState, compiled, state, fence, initiator });
     };
     return suppliedTransaction ? apply(suppliedTransaction) : this.database.transaction(apply);
   }
 
-  private async commandSource(database: MigrationDb, reference: TrustedFactoryCommandReference): Promise<number> {
-    const row = rows<{ source_sequence: number | string }>(await database.execute(sql`SELECT source_sequence FROM factory_transition_commands WHERE tenant_id=${this.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
-    const sourceSequence = Number(row?.source_sequence);
-    if (!Number.isSafeInteger(sourceSequence) || sourceSequence < 1) throw new FactoryCommandAuthorityError("factory_command_corrupt");
-    return sourceSequence;
-  }
-
-  private attemptNode<Kind extends "task" | "subfactory" | "approval">({ command, compiled, state, fence }: CommittedCommand<ExecutionCommand | ChildCommand | ApprovalCommand>, kind: Kind): Extract<FactoryNode, { kind: Kind }> {
+  private attemptNode<Kind extends "task" | "subfactory" | "approval">({ command, compiled, state, fence }: Pick<CommittedCommand<ExecutionCommand | ChildCommand | ApprovalCommand>, "command" | "compiled" | "state" | "fence">, kind: Kind): Extract<FactoryNode, { kind: Kind }> {
     const node = nodeFor(compiled, command.nodeId);
     const runtime = Object.hasOwn(state.nodes, command.nodeId) ? state.nodes[command.nodeId] : undefined;
     const attempt = runtime?.attempts.at(-1);
@@ -213,6 +219,31 @@ export class FactoryCommandAuthority {
     const expectedStatus = command.kind === "request-admission" ? "reserved" : command.kind === "dispatch-node" ? "running" : "waiting";
     if (node?.kind !== kind || !runtime || !attempt || !Number.isSafeInteger(generation) || runtime.candidateGeneration !== generation || attempt.candidateGeneration !== generation || attempt.commandId !== command.id || attempt.stopped || attempt.uncertain || attempt.deadlineAtMs !== command.deadlineAtMs || !Number.isSafeInteger(command.deadlineAtMs) || command.deadlineAtMs <= this.now() || command.deadlineAtMs > fence.deadlineAtMs || runtime.status !== expectedStatus || (command.kind === "dispatch-node" && (command.attempt !== attempt.attempt || command.cancellationEpoch !== fence.cancellationEpoch))) throw new FactoryCommandAuthorityError("factory_command_stale");
     return node as Extract<FactoryNode, { kind: Kind }>;
+  }
+
+  /** A child command remains live only while every sealed parent attempt remains current. */
+  private async assertLiveAncestors(transaction: MigrationDb, projectId: string, runId: string, visited: Set<string>): Promise<void> {
+    if (visited.size >= 16 || visited.has(runId)) throw new FactoryCommandAuthorityError("factory_command_corrupt");
+    visited.add(runId);
+    const binding = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${runId}`))[0];
+    if (!binding) return;
+    try { verifyFactoryChildBinding(binding); }
+    catch { throw new FactoryCommandAuthorityError("factory_command_corrupt"); }
+    const parent = { tenantId: this.tenantId, projectId, logicalRunId: binding.parent_run_id, interpreterId: binding.parent_interpreter_id, commandId: binding.parent_command_id };
+    const [stored, plan] = await Promise.all([
+      this.transitions.loadStoredCommandEntry(parent, transaction),
+      this.lifecycle.readExecutionPlanInTransaction(transaction, { projectId, runId: binding.parent_run_id }),
+    ]);
+    if (stored.sourceSequence !== Number(binding.parent_source_sequence) || stored.commandDigest !== binding.parent_command_digest || stored.command.kind !== "run-child") throw new FactoryCommandAuthorityError("factory_command_stale");
+    const before = await this.head(transaction, parent);
+    const transition = await this.transitions.loadCommittedTransition(parent, Number(before.source_sequence), transaction);
+    const current = await this.head(transaction, parent);
+    if (current.digest !== before.digest || Number(current.source_sequence) !== Number(before.source_sequence)) throw new FactoryCommandAuthorityError("factory_command_stale");
+    const state = transition.nextState;
+    if (state.logicalRunId !== parent.logicalRunId || state.definitionDigest !== plan.fence.definitionDigest || state.runDeadlineAtMs !== plan.fence.deadlineAtMs || state.cancellationEpoch !== plan.fence.cancellationEpoch || !["running", "waiting"].includes(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
+    const node = this.attemptNode({ command: stored.command, compiled: plan.compiled, state, fence: plan.fence }, "subfactory");
+    if (node.factory.id !== stored.command.factory.id || node.factory.version !== stored.command.factory.version || node.factory.digest !== stored.command.factory.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
+    await this.assertLiveAncestors(transaction, projectId, binding.parent_run_id, visited);
   }
 
   private async head(database: MigrationDb, reference: TrustedFactoryCommandReference): Promise<Head> {

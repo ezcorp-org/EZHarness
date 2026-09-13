@@ -14,7 +14,7 @@ import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, crea
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
 import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
-import type { FactoryWorkflowResult } from "../src/contracts.ts";
+import { factoryWorkflowId, type FactoryWorkflowResult } from "../src/contracts.ts";
 import { deliverFactoryCommand, reconcileFactoryCommand } from "../src/dispatcher.ts";
 
 const server = process.env.FACTORY_TEMPORAL_TEST_SERVER ?? "/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server";
@@ -746,6 +746,8 @@ describe("factory Temporal workflow", () => {
     });
     assert.ok(resolvedCommandId);
     assert.match(childLogicalRunId ?? "", /^child-[a-f0-9]{64}$/);
+    const child = await environment.client.workflow.getHandle(factoryWorkflowId("tenant", childLogicalRunId!)).describe();
+    assert.equal(child.type, "factoryWorkflow");
   });
 
   it("fails an undeclared durable input once before recording a transition or effect", { timeout: 45_000 }, async () => {

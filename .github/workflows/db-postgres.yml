@@ -155,6 +155,7 @@ jobs:
           ./tests/postgres/factory-private-service.test.ts
           ./tests/postgres/factory-releases.test.ts
           ./tests/postgres/factory-release-authority.test.ts
+          ./tests/postgres/factory-validator-materials.test.ts
           ./tests/postgres/factory-executions.test.ts
           ./tests/postgres/factory-attempt-queue.test.ts
           ./tests/postgres/factory-execution-gateway.test.ts

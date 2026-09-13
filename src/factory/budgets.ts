@@ -13,6 +13,14 @@ export interface FactoryBudgetEnvelope extends FactoryBudgetKey { readonly paren
 export interface FactoryBudgetRequest extends FactoryBudgetKey { readonly reservationId: string; readonly amount: FactoryBudgetAmount; readonly computeRequest: unknown }
 export interface FactoryBudgetReservationKey extends FactoryRunKey { readonly reservationId: string }
 export interface FactoryComputeAllocation { readonly allocationToken: string; readonly reservationGeneration: number }
+/** A child receives only the current unallocated portion of its parent root. */
+export interface FactoryChildBudgetDelegation {
+  readonly parent: FactoryRunKey;
+  readonly child: FactoryRunKey;
+  readonly parentEnvelopeId: string;
+  readonly childEnvelopeId: string;
+  readonly deadlineAtMs: number;
+}
 export type FactoryBudgetAdmission = (transaction: MigrationDb, key: FactoryRunKey) => Promise<void>;
 export type FactoryBudgetTotals = Readonly<Record<"costMicros" | "tokens" | "computeMs", string>>;
 interface EnvelopeRow { envelope_id: string; parent_id: string | null; request_digest: string; limits: string; allocated: string; spent: string; deadline_ms: number | string; state: "open" | "closed"; admission_blocked: boolean }
@@ -85,6 +93,53 @@ export class FactoryBudgets {
     await transaction.execute(sql`INSERT INTO factory_budget_envelopes (tenant_id, project_id, run_id, envelope_id, parent_id, request_digest, limits, allocated, spent, deadline_ms, state) VALUES (${this.tenantId}, ${input.projectId}, ${input.runId}, ${input.envelopeId}, ${input.parentId ?? null}, ${digest}, ${encode(limits)}, ${encode(zero)}, ${encode(zero)}, ${input.deadlineAtMs}, 'open')`);
     await this.audit(transaction, input, "envelope-created", input.envelopeId, { digest, parentId: input.parentId ?? null, limits: totals(limits), deadlineAtMs: input.deadlineAtMs });
     return { created: true };
+  }
+
+  /** Reserves the current parent remainder and gives that exact portion to a child root. */
+  async openChildDelegationInTransaction(transaction: MigrationDb, value: FactoryChildBudgetDelegation): Promise<Required<BudgetBounds>> {
+    const input = JSON.parse(encodeFactoryPayload(value)) as FactoryChildBudgetDelegation;
+    assertFactoryIdentity(input.parent.projectId, input.parent.runId, input.child.projectId, input.child.runId, input.parentEnvelopeId, input.childEnvelopeId);
+    if (input.parent.projectId !== input.child.projectId) throw new FactoryBudgetError("factory_budget_scope");
+    if (!Number.isSafeInteger(input.deadlineAtMs) || input.deadlineAtMs <= this.now()) throw new FactoryBudgetError("factory_budget_deadline");
+    await this.lockRun(transaction, input.parent);
+    await this.authorizeAdmission(transaction, input.parent);
+    const root = (await this.envelope(transaction, { ...input.parent, envelopeId: "root" }))!;
+    this.assertAvailable(root, zero);
+    if (input.deadlineAtMs > Number(root.deadline_ms)) throw new FactoryBudgetError("factory_budget_widening");
+    const limits = decode(root.limits);
+    const available = combine(combine(limits, decode(root.allocated), true), decode(root.spent), true);
+    if (dimensions.every(dimension => available[dimension] === 0n)) {
+      if (dimensions.some(dimension => decode(root.allocated)[dimension] > 0n)) throw new FactoryBudgetError("factory_budget_held");
+      throw new FactoryBudgetError("factory_budget_exhausted");
+    }
+    const delegated: Required<BudgetBounds> = { maxCostMicros: String(available.costMicros), maxTokens: Number(available.tokens), maxComputeMs: Number(available.computeMs) };
+    if (![delegated.maxTokens, delegated.maxComputeMs].every(Number.isSafeInteger)) throw new FactoryBudgetError("factory_budget_corrupt");
+    await this.openEnvelopeInTransaction(transaction, { projectId: input.parent.projectId, runId: input.parent.runId, envelopeId: input.parentEnvelopeId, parentId: "root", limits: delegated, deadlineAtMs: input.deadlineAtMs });
+    await this.openEnvelopeInTransaction(transaction, { projectId: input.child.projectId, runId: input.child.runId, envelopeId: input.childEnvelopeId, limits: delegated, deadlineAtMs: input.deadlineAtMs });
+    return delegated;
+  }
+
+  /** Closes a settled child root then transfers only its recorded actual spend to the parent portion. */
+  async settleChildDelegationInTransaction(transaction: MigrationDb, value: FactoryChildBudgetDelegation, settlementDigest: string): Promise<FactoryBudgetTotals> {
+    const input = JSON.parse(encodeFactoryPayload(value)) as FactoryChildBudgetDelegation;
+    if (!/^sha256:[a-f0-9]{64}$/.test(settlementDigest)) throw new FactoryBudgetError("factory_budget_receipt_invalid");
+    await this.lockRun(transaction, input.parent);
+    await this.lockRun(transaction, input.child);
+    const parentKey = { ...input.parent, envelopeId: input.parentEnvelopeId };
+    const childKey = { ...input.child, envelopeId: input.childEnvelopeId };
+    const parent = (await this.envelope(transaction, parentKey))!;
+    const child = (await this.envelope(transaction, childKey))!;
+    if (parent.state === "closed") return totals(decode(parent.spent));
+    if (child.state === "open") await this.closeEnvelopeInTransaction(transaction, childKey);
+    const closedChild = (await this.envelope(transaction, childKey))!;
+    const spent = decode(closedChild.spent);
+    const delegated = decode(parent.limits);
+    const overspent = dimensions.some(dimension => spent[dimension] > delegated[dimension]);
+    if (overspent) await transaction.execute(sql`UPDATE factory_budget_envelopes SET admission_blocked=TRUE WHERE tenant_id=${this.tenantId} AND project_id=${input.parent.projectId} AND run_id=${input.parent.runId} AND envelope_id='root'`);
+    await this.writeTotals(transaction, parentKey, zero, spent);
+    await this.closeEnvelopeInTransaction(transaction, parentKey);
+    await this.audit(transaction, input.parent, "child-settled", input.child.runId, { settlementDigest, parentEnvelopeId: input.parentEnvelopeId, childEnvelopeId: input.childEnvelopeId, spent: totals(spent), overspent });
+    return totals(spent);
   }
 
   async reserve(input: FactoryBudgetRequest, enqueue: (transaction: MigrationDb, request: FactoryBudgetRequest) => Promise<void>): Promise<{ created: boolean }> {

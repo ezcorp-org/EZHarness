@@ -1644,6 +1644,15 @@ Plan review: there must be no configuration path that creates a held task budget
 
 Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.
 
+## C07 durable child runs and delegated budgets — Terra
+
+- [x] Inspect C03/F03 and the current command, lifecycle, and same-run budget models.
+- [ ] Add an immutable parent-command to child-run binding with scoped foreign keys and migration parity.
+- [ ] Create the pinned child run, lifecycle, root outbox, and bounded delegated budget in the parent command authority transaction.
+- [ ] Settle child spending into the reserved parent sub-envelope only after all child holds resolve.
+- [ ] Prove retries, restart, concurrent exhaustion, cancellation, repair, deadline, wrong definitions, PGlite, PostgreSQL/S3, coverage, types, and lint.
+
+Plan review: the parent command ID remains the only child-start authority. A child owns a separate logical run and root envelope, while the parent reserves exactly that envelope through a same-run child sub-envelope. Settlement transfers only verified child spending and returns unused allowance; no child receives fresh parent limits.
 ## Terminal invalid-input startup — root
 
 - [ ] Turn initial kernel input validation failure into a non-retryable workflow failure.
@@ -1687,3 +1696,115 @@ Review: application composition now provides a concrete host input resolver. Adm
 - [x] Run the full canonical backend suite.
 
 Review: focused PGlite 41 passed / 369 assertions; PostgreSQL/S3 120 passed / 2,587 assertions. Static checks passed. Chromium passed 1 case after selecting unused port 19873; the first attempt failed because port 4173 was occupied. The preserved PNG is `/tmp/factory-platform-evidence/root-release-inbox-authorized.png`. Backend passed 26,231 tests with zero failures across 1,727 files. Receipts: `root-input-execution-combined-integration-results.json` and `root-input-execution-remainder-integration-results.json` under `/tmp/factory-platform-evidence`. These proofs close this integration batch, not the full feature or its open launch gates. The new successful task-completion leaf is still under test in the side worktree.
+
+## C07 durable child runs and delegated budgets — final review
+
+- [x] Persist and seal each child inherited start clock; reject legacy rows without an explicit backfill.
+- [x] Verify sealed ancestor source heads before child task authority.
+- [x] Prove nested child clocks, parent supersession, deadline denial, unknown-hold denial, sibling held/retry progress, and nonzero settlement.
+- [x] Run PGlite, PostgreSQL/S3, migration restart, changed-source LCOV, SDK build, all canonical typechecks, and lint.
+
+Review: final source coverage is 100% for `child-runs.ts`, `command-authority.ts`, `run-lifecycle.ts`, `factory-schema.ts`, and the child start-clock migration. The registration lines in `migrate.ts` are exercised by the full migration restart test; its whole-file aggregate is 95.93% because the module has unrelated historical branches.
+
+## C07 durable child review corrections
+
+- [x] Keep a child attempt live across unrelated parent audit-head advances.
+- [x] Reject the child after an actual repair replaces its sealed parent attempt.
+- [x] Make concurrent terminal settlement converge on one stored receipt.
+- [x] Register 100% coverage thresholds for child binding and all three migrations.
+
+Review: ancestor validation loads the stored sealed `run-child` command, reads the latest verified parent transition, and applies the same attempt checks used by command authority. This permits harmless parent progress but rejects replaced, stopped, cancelled, expired, or mismatched attempts.
+## Durable successful task completion — root
+
+Plan review: test the public completion boundary with a published factory, admitted task, real durable journal, immutable output, budget ledger, and inbox. A retry must return the saved event after the interpreter advances. The completion transaction must roll back every product fact on failure. Runner launch and failed/uncertain terminal recovery remain separate open leaves.
+
+- [x] Reproduce a successful admitted task that has no durable completion adapter.
+- [x] Commit exact terminal evidence, measured spend, bounded workflow result, and sealed retry receipt in one transaction.
+- [x] Prove retry, corruption, cancellation, output limits, and write-fault rollback with PGlite and PostgreSQL/S3.
+- [x] Verify changed-source coverage, all four typechecks, lint, gate registration, and integration.
+- [x] Record exact evidence and review the completed leaf.
+
+Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product and registration 47 passed / 421 assertions; PostgreSQL/S3 plus schema parity 46 passed / 2,090 assertions. SDK build, all four typechecks, lint (zero errors / eight existing infos), gate integrity, and boundaries passed. Both database producers report task-completions 79/79 lines and 18/18 functions, migration 4/4 and 2/2; shared command authority 88/88 and 26/26, artifacts 106/106 and 28/28, input artifacts 39/39 and 7/7. Source snapshot and exact results: `/tmp/factory-platform-evidence/root-task-completion-final-source.json` and `root-task-completion-final-integration-results.json`. Committed patch/new-file coverage and parent integration remain pending.
+
+Committed review: `a7dae2809` passed merged new-file and patch coverage gates (`root-task-completion-committed-coverage-results.json`). Its clean committed source is recorded in `root-task-completion-final-source.json`; the earlier broad log records its pre-commit base separately. Parent integration with child runs, native policy, and generic approvals is documented below. Full launch and non-success terminal handling remain open.
+
+## Parent integration — native policy, child runs, successful completion
+
+- [x] Preserve the first combined-suite failure and reproduce it in the lifecycle lane.
+- [x] Use the concrete native policy in the shared completion fixture.
+- [ ] Finish combined PostgreSQL/S3, types, static checks, Node orchestration, and coverage.
+
+Review checkpoint: combined source `965deee9e` failed because the completion fixture omitted the now-required native resource resolution. This also left an unprojected fixture run before the fairness test. The corrected fixture uses `FactoryNativeRunnerPolicy`; the lifecycle lane passes 30 tests / 323 assertions with no failures. Both logs are retained under `/tmp/factory-platform-evidence/root-child-completion-*`.
+
+# Factory assurance command dispatch (2026-09-13)
+
+- [x] Inspect committed kernel command shapes, current C04 stores, transition indexing, run lifecycle, and root command authority.
+- [x] Send the exact proposed adapter and required authority context to root before source edits.
+- [x] Persist the exact current generic approval command and protected human context.
+- [x] Return `null` for a pending human wait and one stable correlated event for the durable answer.
+- [x] Extend the existing notification inbox, session API, SDK, browser client, and UI with exact declared choices.
+- [x] Prove operator, owner, tenant administrator, foreign, revoked, tampered, rollback, duplicate, and replay behavior in PGlite.
+- [x] Pass PostgreSQL, focused coverage, SDK build, all four type checks, lint, boundaries, patch coverage, browser evidence, and gate integrity.
+- [x] Commit an immutable generic approval checkpoint with its integration contract and evidence.
+
+## Plan review
+
+- The first bounded leaf uses `FactoryCommandAuthority.withCurrentApproval` and the dormant C13 API contract. The store accepts only the trusted service and stored command reference. It locks current run authority before the approval row, stores the exact choices and review context, and writes the decision plus the existing interpreter inbox event in one transaction.
+- A generic workflow approval is separate from C04 release consent. Acceptance and release commands remain later leaves because their committed command shapes do not yet identify an exact producer candidate and prepared release operation.
+
+## Review
+
+- A current generic approval command now creates one protected pending decision. The store obtains its command, node, attempt, fence, choices, actor scope, context, and initiator from `FactoryCommandAuthority`; it accepts no caller evidence. A pending execution returns `null`.
+- A current human with explicit `factory.approve` can choose only a declared answer. Owner review also requires the durable run initiator. Tenant-contract-admin review also requires current `factory.trust`. The decision transaction locks run authority before the approval and inbox rows, then commits one audited decision and one stable `approval-decided` event. Exact retries reuse that row and event after current reviewer authorization.
+- The existing factory inbox and session API expose the generic request beside release notifications. Foreign and revoked principals cannot read or decide it. Release approval remains a separate C04 consent path.
+- PGlite and isolated PostgreSQL each pass 26 lifecycle cases with 248 assertions. Focused SDK, migration, release, API, web, Chromium, coverage, build, all typecheck legs, lint, boundaries, patch coverage, and gate integrity pass. Exact commands, logs, measured lines, and source hashes are in `tasks/factory/generic-command-approval-GATES.md`.
+
+## Parent integration — generic approvals and child completion
+
+- [x] Merge the Sol generic approval and Terra child bindings with root task completion.
+- [x] Preserve and repair combined fixture and database model defects.
+- [x] Pass SDK, product, PostgreSQL schema, all four types, lint, boundary and Node checks.
+- [x] Pass web components, route registry, Playwright Chromium, and inspect the captured image.
+
+Review: focused product source `d19468631` passed 67 tests / 579 assertions. All 18 canonical PostgreSQL/S3 files ran: 128 tests passed; one schema assertion exposed the child definition default mismatch. Correction `fa766f7e8` passed both canonical schema tests, all four typechecks, lint, gate integrity, boundaries, orchestrator build, and all 77 Node tests. The original failed log remains available. Web component/API selection passed 35 tests across four files. The separate Bun route registry passed; it is not part of the Vitest selection. The Chromium approval inbox passed and its image was inspected at `/tmp/factory-platform-evidence/root-generic-approval-parent-inbox.png`. No clipped controls or overlap was seen. The generic context is displayed as compact JSON; review its readability in the final UI pass.
+
+Receipts: `/tmp/factory-platform-evidence/root-product-command-merge-combined-integration-results.json`, `root-product-command-merge-remainder-integration-results.json`, `root-generic-approval-parent-remainder-integration-results.json`, and `root-generic-approval-parent-route-registry.log`. This integration proof does not close the platform launch gates or the new private runtime dispatch leaf.
+
+## Private GitHub publication environment
+
+- [x] Create a private disposable publication-test repository as authorized by the user.
+- [x] Verify actual private visibility and the default branch through the GitHub API.
+- [x] Record repository and existing credential references without secret values.
+- [ ] Prove the real protected release-adapter path against the new repository.
+
+Review: `ezcorp-org/factory-platform-publication-tests` is private with default branch `main`. Existing GitHub CLI credentials are referenced by `/home/dev/.config/gh/hosts.yml`. No publication-test PR has been created yet.
+## Factory trusted validator materials — 2026-09-13
+
+- [x] Reproduce that callback-supplied validator JSON can currently become acceptance evidence without a concrete trusted attempt.
+- [x] Add immutable compiled validator materials, admitted-attempt assignments, and terminal-derived validator results.
+- [x] Bind human contract approval to exact registered compiled material and active release trust.
+- [x] Prove current candidate, runner, environment, configuration, artifact, measured terminal, grant, freshness, and retry fences.
+- [x] Prove migration parity and real PostgreSQL/S3 behavior.
+- [x] Run focused coverage, all four typecheck legs, lint, gate, and module-boundary checks; record the review.
+
+Plan review: use the published compiled acceptance contract and constructor-owned trusted runtime inventory. The candidate artifact comes from the current sealed release candidate. The validator result comes from an assigned admitted attempt's measured terminal. Release enable remains a dispatch fence and does not block validation. Root task completion and boot remain unchanged.
+
+Review: a contract can now be approved only when it matches immutable material rebuilt from the exact published compiled factory. The gateway assigns one exact current candidate and protected claim to an admitted validator request with a constructor-owned runner/runtime lock. It then derives evidence only from the journal's verified measured completion and the immutable host artifact, and seals the first database issuance time for stable retries. PGlite focused integration passes 35 tests / 190 assertions; isolated PostgreSQL and ordinary S3 pass 4 tests / 20 assertions; PostgreSQL schema parity passes 2 tests / 1,897 assertions. Focused LCOV measures validator materials 243/243 lines, its migration 8/8, and release authority 202/202. All four type checks, lint, registration, factory boundaries, and gate integrity pass. Root production composition and the full C04 release journey remain separate work.
+## Private command dispatch composition — root
+
+Plan review: the private gateway routes only a stored command reference. Test its public execution boundary against the existing published lifecycle, committed transition, task admission, lazy input, child, and approval stores. The constructor requires explicit handlers for cancellation, protected assurance/release, and partition delivery; it must never accept a missing effect handler or dispatch an orchestration-local command. The root runtime will provide those concrete effect bindings in its following composition leaf.
+
+- [x] Add a scoped immutable command router over existing product handlers.
+- [x] Prove actual durable task admission, generic approval, lazy input, and child resolution through the router.
+- [x] Reject missing handlers, foreign service/scope, wrong command class, and mutable references.
+- [x] Verify PostgreSQL/S3, measured coverage, SDK build, all four types, lint, and parent integration.
+
+Private dispatch validation: PGlite 40/506 assertions; PostgreSQL/S3 40/2,380; router 46/46 lines and 13/13 functions. SDK build, all four types, lint, boundaries, and gate integrity passed. The first type failure was a unit fixture missing the complete child source envelope; the corrected replay passed. Exact receipts are recorded in tasks/factory/private-command-dispatch-GATES.md. Parent integration remains open.
+
+## Parent integration — command routing, validator evidence, and attempt dispatch
+
+- [x] Merge immutable Sol validator and dispatcher leaves, current-approval correction, and root private command routing.
+- [x] Preserve all concurrent fixture and task changes while resolving integration conflicts.
+- [x] Pass product/database integration, both builds, four type checks, static checks, real Node orchestration, and committed patch/new-file coverage.
+
+Review: source ac656591e passed 124 product tests / 1,171 assertions and 142 PostgreSQL/S3 tests / 3,410 assertions across all 19 registered PostgreSQL files. SDK and orchestrator builds, all four type checks, lint, boundaries, and gate integrity passed. Node passed 77 tests with zero failures in 110,428 ms. Patch/new-file coverage passed against fe7be0bbe. Receipts: /tmp/factory-platform-evidence/root-private-validator-dispatch-merge-combined-integration-results.json and root-private-validator-dispatch-merge-coverage-results.json. These results close this integration batch. The subsequent real partition-start test exposed a command-count defect now being fixed in the root side worktree; full startup, end-to-end journeys, soak, and all platform launch gates remain open.

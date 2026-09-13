@@ -473,12 +473,9 @@
 - Authorize a reconciliation operator before loading protected operation details or resolving a provider. Keep the store's transactional authorization as the final current-authority fence.
 - Deep-snapshot public request bodies before the first await. A response or provider call must never observe mutations to the caller's nested objects while durable work is pending.
 - Live Temporal workflows use shared server/task-queue state. Acquire `/tmp/ezcorp-validation-heavy.lock` before every Temporal producer, write START only after acquisition, and await fixture teardown before another launch. SDK builds must run before any workflow bundle that imports a changed runtime SDK export.
-- When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
-
 ## Producer source freeze
 
 - Do not queue a coverage or integration producer until all source, tests, registration, and gate edits are complete. If the source changes while my own producer waits for the shared heavy lock, cancel only my queued producer and restart it from the final source snapshot.
-
 ## 2026-09-13 — Durable input validation
 
 - A durable artifact descriptor cannot be validated through a placeholder JSON value. Validate its immutable host facts separately, and validate only inline parameters against workflow port schemas until a recorded bounded read resolves an artifact field.
@@ -489,11 +486,32 @@
 ## 2026-09-13 — Async partition test liveness
 - For a cross-partition Temporal assertion, wait for the recorded delivery activity to finish before querying the target state. Polling a target before the source effect is scheduled tests host timing, not invalidation behavior.
 
+## 2026-09-13 — Child authority and delegation
+
+- A child run can be independently durable without becoming independently authorized. Recheck every live ancestor binding and fence before each child task, child, or approval admission; an old child receipt may recover only its exact prior result.
+- A child budget uses a sealed parent portion, not a fresh copy of parent limits. Lock parent before child, reserve the parent sub-envelope with child creation, and settle only measured child spending after every child hold resolves.
+
+## 2026-09-13 — Child workflow scheduling identity
+
+- One logical child run has one scheduling authority. A child launched through `executeChild` must use its durable child logical ID and must never also enqueue a root `start_run` command.
 
 ## 2026-09-13 — Compute admission execution fences
 
 - Persist and compare only execution authority fields in a compute admission fence. Public projection revisions and status can advance from queued to running without changing execution authority.
 - Test canonical zero-based candidate generations at every writer and reader boundary. A terminal reader must accept generation zero when the kernel defines it as the first generation.
+
+## 2026-09-13 — Child start clocks
+
+- A child has no root `start_run` outbox, so it must persist the original root clock inside its sealed binding. Never infer it from row creation time or use a zero default for legacy rows.
+- A reader of that clock must verify the entire binding digest, not only a timestamp and a digest-shaped string. A legacy populated binding without the fact must stop migration for explicit backfill.
+
+## 2026-09-13 — Child ancestor liveness
+
+- A sealed child binding pins the parent command and its attempt, not the parent audit head. Recheck that exact command against the latest verified parent state; unrelated timers, sibling results, and approvals may advance the head while the child remains valid.
+- Idempotent settlement must reread the binding after budget locks. A concurrent winner can change open to settled while the loser waits; return its same durable receipt instead of reporting a conflict.
+
+- When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
+- Before importing a support commit into an older isolated worktree, compare its parent ancestry with the worktree base. If the support commit depends on intermediate modules, merge the validated descendant that contains the full ancestry instead of cherry-picking the leaf alone.
 # Generic approval currentness (2026-09-13)
 
 - Do not equate an approval command's creation transition with the interpreter head. Validate the stored command against the latest committed runtime attempt. Unrelated committed progress can advance the head while that approval remains current.

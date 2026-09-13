@@ -3052,6 +3052,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryProjectionAttempts(db);
   const { up: addFactoryTransitionCommands } = await import("./migrations/add-factory-transition-commands");
   await addFactoryTransitionCommands(db);
+  const { up: addFactoryChildRuns } = await import("./migrations/add-factory-child-runs");
+  await addFactoryChildRuns(db);
+  const { up: bindFactoryChildDefinitionSource } = await import("./migrations/bind-factory-child-definition-source");
+  await bindFactoryChildDefinitionSource(db);
+  const { up: bindFactoryChildStartClock } = await import("./migrations/bind-factory-child-start-clock");
+  await bindFactoryChildStartClock(db);
   const { up: addFactoryAssurance } = await import("./migrations/add-factory-assurance");
   await addFactoryAssurance(db);
   const { up: strengthenFactoryAssurance } = await import("./migrations/strengthen-factory-assurance");
@@ -3075,4 +3081,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await upFactoryAttemptQueue(db);
   const { up: addFactoryReleaseAuthority } = await import("./migrations/add-factory-release-authority");
   await addFactoryReleaseAuthority(db);
+  const { up: addFactoryTaskCompletions } = await import("./migrations/add-factory-task-completions");
+  await addFactoryTaskCompletions(db);
+  const { up: addFactoryValidatorMaterials } = await import("./migrations/add-factory-validator-materials");
+  await addFactoryValidatorMaterials(db);
 }

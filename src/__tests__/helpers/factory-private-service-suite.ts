@@ -7,7 +7,7 @@ import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import { EncryptedBlobStore, InstallationDataKey, StaticMasterKeyProvider } from "../../factory/encryption";
 import { DatabaseInstallationKeyWrapStore } from "../../factory/encryption-key-wrap-store";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../../db/migrations/types";
@@ -22,7 +22,7 @@ import { FactoryInbox } from "../../factory/inbox";
 import { FactoryTransportQueue } from "../../factory/transport-queue";
 import { FactoryRecords } from "../../factory/records";
 import { startFactoryPrivateService } from "../../factory/private-service";
-import { certificates, nodeHttpsRequest, nodeFactoryQueueCycle, type Certificates } from "./factory-certificates";
+import { certificates, nodeHttpsRequest, nodeFactoryQueueCycle, signedServiceToken, type Certificates } from "./factory-certificates";
 
 export function factoryPrivateServiceConformance(create: () => Promise<{ db: TransactionalDb; blobs: BlobStore; close(): Promise<void> }>): void {
   const directories: string[] = [];
@@ -38,10 +38,7 @@ export function factoryPrivateServiceConformance(create: () => Promise<{ db: Tra
   const issuer = "https://factory.example.test";
   const audience = "factory-private-service";
   function token(overrides: Record<string, unknown> = {}): string {
-    const header = Buffer.from(JSON.stringify({ alg: "RS256", kid: "test" })).toString("base64url");
-    const payload = Buffer.from(JSON.stringify({ sub: "tenant-a", iss: issuer, aud: audience, exp: Math.floor(Date.now() / 1000) + 60, scope: ["factory:orchestrate"], ...overrides })).toString("base64url");
-    const input = `${header}.${payload}`;
-    return `${input}.${sign("RSA-SHA256", Buffer.from(input), keys.privateKey).toString("base64url")}`;
+    return signedServiceToken(keys.privateKey, { sub: "tenant-a", iss: issuer, aud: audience, exp: Math.floor(Date.now() / 1000) + 60, scope: ["factory:orchestrate"], ...overrides });
   }
   beforeAll(async () => {
     fixture = await create();

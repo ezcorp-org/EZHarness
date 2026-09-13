@@ -22,6 +22,12 @@ export const MAX_TRANSITION_ARTIFACT_BYTES = MAX_TRANSITION_BYTES;
 export const MAX_TRANSITION_PAGES = Math.ceil(MAX_TRANSITION_BYTES / MAX_PAGE_BYTES);
 export const MAX_INFLIGHT_COMMANDS = 32;
 
+/** Canonical Temporal workflow identity for a root or compiler partition interpreter. */
+export function factoryWorkflowId(tenantId: string, logicalRunId: string, partitionId?: string): string {
+  const root = `${tenantId}/${logicalRunId}`;
+  return partitionId === undefined || partitionId === "root" ? root : `${root}/partitions/${partitionId}`;
+}
+
 export interface ImmutableObjectReference {
   readonly objectId: string;
   readonly digest: string;

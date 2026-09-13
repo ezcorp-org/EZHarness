@@ -16,8 +16,11 @@ export interface FactoryMandatoryClaim { readonly id: string; readonly validator
 export interface FactoryClaimGroup { readonly id: string; readonly claimIds: readonly string[]; readonly minimumPasses: number; readonly requireAllDecisive: boolean }
 export interface FactoryContractRevision { readonly projectId: string; readonly contractId: string; readonly revision: number; readonly contractDigest: string; readonly validatorLockDigest: string; readonly mandatoryClaims: readonly FactoryMandatoryClaim[]; readonly claimGroups: readonly FactoryClaimGroup[] }
 export interface FactoryTrustedEvidence extends FactoryCandidateKey { readonly validatorId: string; readonly validatorLockDigest: string; readonly issuerGrantRevision: number; readonly candidateDigest: string; readonly artifact: FactoryArtifactReference; readonly environmentDigest: string; readonly configurationDigest: string; readonly runnerDigest: string; readonly claims: readonly { id: string; passed: boolean; decisive: boolean }[]; readonly issuedAtMs: number; readonly expiresAtMs: number }
-/** Only the configured gateway may construct this from its exact attempt, validator lock, journal, and host-issued artifact record. */
-export interface FactoryTrustedValidatorGateway { resolveValidatorInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> }
+/** Only the configured gateway may bind an approved contract and construct evidence from protected host facts. */
+export interface FactoryTrustedValidatorGateway {
+  assertContractInTransaction(transaction: MigrationDb, tenantId: string, contract: FactoryContractRevision): Promise<void>;
+  resolveValidatorInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence>;
+}
 export interface FactoryAcceptanceDecision extends FactoryCandidateKey { readonly decisionId: string; readonly candidateDigest: string; readonly evidenceSetDigest: string; readonly contractDigest: string; readonly contractSnapshotDigest: string; readonly executionEpoch: number; readonly cancellationEpoch: number }
 export interface FactoryApprovalRequest { readonly projectId: string; readonly operationId: string; readonly decisionId: string; readonly destinationDigest: string; readonly expectedGeneration: number; readonly expiresAtMs: number }
 /** Returned only by the composition-owned reader after it takes project, installation, run, and lifecycle locks. */
@@ -61,6 +64,7 @@ export class FactoryAssurance {
     [actor, input] = snapshot([actor, input]);
     this.contract(input);
     await this.executeAuthorizedMutation(actor, input.projectId, "factory.trust", idempotencyKey, { kind: "assurance.contract.approve", contract: input }, async (transaction, approvalGrantRevision) => {
+      await this.gateway.assertContractInTransaction(transaction, this.tenantId, input);
       const current = rows<{ revision: number | string } & ContractRow>(await transaction.execute(sql`SELECT revision,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,approved_by,approval_grant_revision,protected_snapshot_digest FROM factory_acceptance_contracts WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND contract_id=${input.contractId} ORDER BY revision DESC LIMIT 1 FOR UPDATE`))[0];
       if (current) this.assertProtectedContractRow(current, input.projectId, input.contractId, Number(current.revision));
       if ((current ? Number(current.revision) : 0) !== input.revision - 1) throw new FactoryAssuranceError("factory_assurance_stale");

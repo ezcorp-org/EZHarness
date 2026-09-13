@@ -361,6 +361,7 @@ test("artifact map pages preserve absolute map.item values across windows", () =
   expect(step.nextState.nodes.map?.output).toEqual({ value: ["a!", "b!", "c!"] });
 });
 
+
 test("durable artifact ports do not require an inline placeholder while inline ports remain strict", () => {
   const graph = compiled([], {}, {
     payload: { type: "object", properties: { required: { type: "string", const: "authoritative" } }, required: ["required"] },

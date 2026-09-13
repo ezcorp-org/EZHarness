@@ -1,4 +1,4 @@
-import type { FactoryRunnerRequest, FactoryRunnerResult, RunnerReference } from "@ezcorp/factory-sdk";
+import type { FactoryArtifactReference, FactoryRunnerRequest, FactoryRunnerResult, RunnerReference } from "@ezcorp/factory-sdk";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -6,7 +6,7 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryArtifacts } from "./artifacts";
-import type { FactoryAcceptedRelease } from "./assurance";
+import type { FactoryAcceptedRelease, FactoryCandidateKey } from "./assurance";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority, FactoryExecutionTerminalFact } from "./executions";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { lockFactoryScope } from "./locks";
@@ -45,6 +45,23 @@ export interface FactoryReleaseControl {
   readonly projectId: string;
   readonly enabled: boolean;
   readonly enableEpoch: number;
+}
+
+/** Current host-issued candidate material that may be read by protected validators. */
+export interface FactoryValidationCandidate {
+  readonly projectId: string;
+  readonly runId: string;
+  readonly nodeInstanceId: string;
+  readonly candidateGeneration: number;
+  readonly candidateDigest: string;
+  readonly artifact: FactoryArtifactReference;
+  readonly definitionDigest: string;
+  readonly executionEpoch: number;
+  readonly cancellationEpoch: number;
+  readonly deadlineMs: number;
+  readonly trustRevision: number;
+  readonly issuerGrantRevision: number;
+  readonly validatorLockDigest: string;
 }
 
 export interface FactoryCurrentCandidateCommit {
@@ -206,6 +223,31 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     if (!candidate || Number(candidate.execution_epoch) !== fence.executionEpoch || Number(candidate.cancellation_epoch) !== fence.cancellationEpoch || Number(candidate.trust_revision) !== trust.revision || candidate.package_trust_digest !== trust.packageTrustDigest || candidate.validator_trust_digest !== trust.validatorTrustDigest) throw new FactoryReleaseAuthorityError("factory_release_authority_stale");
     await this.verifyCandidate(transaction, projectId, runId, nodeInstanceId, candidate, trust);
     return { runId, nodeInstanceId, candidateGeneration: Number(candidate.candidate_generation), candidateDigest: candidate.candidate_digest, executionEpoch: fence.executionEpoch, cancellationEpoch: fence.cancellationEpoch, releaseEnableEpoch: control.enableEpoch, deadlineMs: fence.deadlineAtMs, status: fence.status, packageTrustDigest: trust.packageTrustDigest, validatorTrustDigest: trust.validatorTrustDigest };
+  }
+
+  /** Validation needs current trusted material, but release enable is a later dispatch fence. */
+  async lockValidationCandidateInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey): Promise<FactoryValidationCandidate> {
+    key = JSON.parse(canonicalJson(key)) as FactoryCandidateKey;
+    if (tenantId !== this.tenantId) throw new FactoryReleaseAuthorityError("factory_release_authority_scope");
+    assertFactoryIdentity(key.projectId, key.runId, key.nodeInstanceId);
+    counter(key.candidateGeneration, 0);
+    const fence = await this.lifecycle.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: key.runId });
+    const trust = await this.requireTrust(transaction, key.projectId, "share", true);
+    const candidate = rows<CandidateRow>(await transaction.execute(sql`SELECT c.candidate_generation,c.candidate_digest,c.attempt_id,c.pointer_revision,h.execution_epoch,h.cancellation_epoch,h.terminal_fact_digest,h.output_artifact_id,h.output_bytes,h.trust_revision,h.package_trust_digest,h.validator_trust_digest,h.proof_digest FROM factory_release_current_candidates c JOIN factory_release_candidate_history h ON h.tenant_id=c.tenant_id AND h.project_id=c.project_id AND h.run_id=c.run_id AND h.node_instance_id=c.node_instance_id AND h.candidate_generation=c.candidate_generation WHERE c.tenant_id=${this.tenantId} AND c.project_id=${key.projectId} AND c.run_id=${key.runId} AND c.node_instance_id=${key.nodeInstanceId} AND c.candidate_generation=${key.candidateGeneration} FOR SHARE`))[0];
+    if (!candidate || Number(candidate.execution_epoch) !== fence.executionEpoch || Number(candidate.cancellation_epoch) !== fence.cancellationEpoch || Number(candidate.trust_revision) !== trust.revision || candidate.package_trust_digest !== trust.packageTrustDigest || candidate.validator_trust_digest !== trust.validatorTrustDigest) throw new FactoryReleaseAuthorityError("factory_release_authority_stale");
+    await this.verifyCandidate(transaction, key.projectId, key.runId, key.nodeInstanceId, candidate, trust);
+    return {
+      ...key,
+      candidateDigest: candidate.candidate_digest,
+      artifact: { artifactId: candidate.output_artifact_id, digest: candidate.candidate_digest, encodedBytes: Number(candidate.output_bytes) },
+      definitionDigest: fence.definitionDigest,
+      executionEpoch: fence.executionEpoch,
+      cancellationEpoch: fence.cancellationEpoch,
+      deadlineMs: fence.deadlineAtMs,
+      trustRevision: trust.revision,
+      issuerGrantRevision: trust.approvalGrantRevision,
+      validatorLockDigest: trust.validatorTrustDigest,
+    };
   }
 
   async readPinnedInTransaction(transaction: MigrationDb, tenantId: string, accepted: FactoryAcceptedRelease): Promise<FactoryReleaseMaterial> {

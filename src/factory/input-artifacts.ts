@@ -1,9 +1,9 @@
-import { canonicalizeJson, FACTORY_LIMITS, validateIJson, type FactoryArtifactReference, type JsonValue } from "@ezcorp/factory-sdk";
+import { FACTORY_LIMITS, type FactoryArtifactReference, type JsonValue } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { MigrationDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { FactoryArtifactAccessError, type FactoryArtifactAccess } from "./artifact-access";
-import type { FactoryArtifacts, FactoryArtifactKind } from "./artifacts";
+import { artifactJson, type FactoryArtifacts, type FactoryArtifactKind } from "./artifacts";
 import { assertFactoryIdentity } from "./records";
 
 export class FactoryInputArtifactError extends Error {
@@ -37,9 +37,8 @@ export class FactoryInputArtifacts {
     assertFactoryIdentity(projectId);
     const loaded = await this.load(transaction, projectId, artifact);
     try {
-      const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(loaded.content));
-      if (!validateIJson(value).ok || !Buffer.from(loaded.content).equals(Buffer.from(canonicalizeJson(value as JsonValue)))) throw new FactoryInputArtifactError();
-      return { artifact, mediaType: "application/json", storageVersion: loaded.storageVersion, value: value as JsonValue };
+      const value = artifactJson.parse(loaded.content);
+      return { artifact, mediaType: "application/json", storageVersion: loaded.storageVersion, value };
     } catch { throw new FactoryInputArtifactError(); }
   }
 
