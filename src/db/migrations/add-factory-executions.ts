@@ -17,12 +17,24 @@ export async function up(database: MigrationDb): Promise<void> {
     deadline_at TIMESTAMP WITH TIME ZONE NOT NULL,
     request_hash TEXT NOT NULL,
     request_json JSONB NOT NULL,
+    operation_initial_index BIGINT NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK (status IN ('admitted', 'running', 'cancel_accepted', 'stopped', 'failed')),
     journal_cursor BIGINT NOT NULL DEFAULT -1,
     cancel_accepted_at TIMESTAMP WITH TIME ZONE,
     stopped_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (tenant_id, project_id, run_id) REFERENCES factory_runs(tenant_id, project_id, run_id) ON DELETE RESTRICT
+  )`);
+  await database.execute(sql`ALTER TABLE factory_executions ADD COLUMN IF NOT EXISTS operation_initial_index BIGINT NOT NULL DEFAULT 0`);
+  await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_execution_operation_cursors (
+    tenant_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    node_instance_id TEXT NOT NULL,
+    candidate_generation BIGINT NOT NULL,
+    next_operation_index BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (tenant_id, project_id, run_id, node_instance_id, candidate_generation),
     FOREIGN KEY (tenant_id, project_id, run_id) REFERENCES factory_runs(tenant_id, project_id, run_id) ON DELETE RESTRICT
   )`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_execution_operations (

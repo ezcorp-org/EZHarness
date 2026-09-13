@@ -58,7 +58,7 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.admit({ ...attempt, request: { b: 2, a: 1 } })).toMatchObject({ reused: false });
   expect(await journal.admit({ ...attempt, request: { a: 1, b: 2 } })).toMatchObject({ reused: true });
   await expect(journal.admit({ ...attempt, request: { a: 3 } })).rejects.toThrow("conflicts");
-  await expect(journal.admit({ ...attempt, tenantId: "tenant-b", request: { a: 1, b: 2 } })).rejects.toThrow("conflicts");
+  await expect(journal.admit({ ...attempt, tenantId: "tenant-b", request: { a: 1, b: 2 } })).rejects.toThrow("epoch is stale");
   await expect(journal.admit({ ...authority({ attemptId: "unknown-project", projectId: "missing" }), request: {} })).rejects.toThrow();
 
   const first = operation(0);
@@ -69,29 +69,36 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   const ahead = operation(1);
   await journal.prepare(attempt, ahead);
   await expect(journal.prepare(attempt, operation(3))).rejects.toThrow("not contiguous");
-  await journal.dispatch(attempt, first.operationId);
-  await journal.dispatch(attempt, ahead.operationId);
-  await journal.dispatch(attempt, first.operationId);
+  expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: true });
+  expect(await journal.dispatch(attempt, ahead.operationId)).toEqual({ claimed: true });
+  expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
   await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "result" })).rejects.toThrow("needs result, usage, and workspace checkpoint");
   await journal.settle(attempt, ahead.operationId, "completed", { resultDigest: "ahead", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-2" } });
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: -1 });
   await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
+  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
+  await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
 
   const second = operation(2);
   await journal.prepare(attempt, second);
   await journal.dispatch(attempt, second.operationId);
-  expect(await journal.cancel(attempt)).toBe(true);
+  const expired = authority({ deadlineAt: new Date(Date.now() - 1) });
+  expect(await journal.cancel(expired)).toBe(true);
   expect(await journal.cancel(attempt)).toBe(false);
   expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
   await expect(journal.settle(attempt, second.operationId, "failed", { resultDigest: "late" })).rejects.toThrow("stale, cancelled, or expired");
-  const expired = authority({ deadlineAt: new Date(Date.now() - 1) });
-  await journal.reconcileLate(expired, second.operationId, "provider-receipt");
+  await journal.reconcileLate(expired, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: { charged: 1 }, workspaceCheckpoint: { revision: "late" } });
   expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
   expect(await journal.confirmStopped(expired)).toBe(true);
   expect(await journal.status(attempt)).toMatchObject({ status: "stopped" });
   expect(await journal.confirmStopped(attempt)).toBe(false);
 
+  const resumed = authority({ attemptId: "attempt-resumed", attemptNumber: 4 });
+  expect(await journal.admit({ ...resumed, request: { resume: true } })).toMatchObject({ reused: false });
+  await expect(journal.prepare(resumed, operation(0))).rejects.toThrow("not contiguous");
+  await journal.prepare(resumed, operation(3));
+
   await expect(journal.status(authority({ grantRevision: 99 }))).rejects.toThrow("unavailable");
-  await expect(journal.cancel(expired)).rejects.toThrow("stale or expired");
+  expect(await journal.cancel(expired)).toBe(false);
 });

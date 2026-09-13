@@ -56,7 +56,7 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     const attempt = authority();
     expect(await journal.admit({ ...attempt, request: { b: 2, a: 1 } })).toMatchObject({ reused: false });
     expect(await journal.admit({ ...attempt, request: { a: 1, b: 2 } })).toMatchObject({ reused: true });
-    await expect(journal.admit({ ...attempt, tenantId: "foreign-tenant", request: { a: 1, b: 2 } })).rejects.toThrow("conflicts");
+    await expect(journal.admit({ ...attempt, tenantId: "foreign-tenant", request: { a: 1, b: 2 } })).rejects.toThrow("epoch is stale");
     expect(releaseRows(await db.execute(sql`SELECT attempt_id FROM factory_executions`))).toHaveLength(1);
   });
 
