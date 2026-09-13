@@ -37,11 +37,11 @@ function compileDefinition(definition) {
   return result.factory;
 }
 
-function compiled(nodes, id) {
+function compiled(nodes, id, inputPorts = {}) {
   const childReferences = nodes.filter((item) => item.kind === "subfactory").map((item) => item.factory);
   const definition = {
     schemaVersion: "factory.v1", id, version: "1", interpreterCompatibility: "1",
-    inputPorts: {}, outputPorts: {}, graph: { nodes, outputs: {} },
+    inputPorts, outputPorts: {}, graph: { nodes, outputs: {} },
     acceptance: { id: "test-acceptance", version: "1", claims: [{ id: "test", validator: runner, required: true, protected: true }], groups: [] },
     packages: [{ name: runner.package, version: runner.version, digest: runner.digest }], factories: childReferences,
     capabilities: [], effects: [...new Set(["none", ...nodes.flatMap((item) => item.effects ?? [])])], bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
@@ -836,7 +836,7 @@ describe("factory Temporal workflow", () => {
           continuation: { state, inbox: [], pendingInbox: [], sourceSequence: 0, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 },
         })],
       });
-      await assert.rejects(handle.result(), /continuation durable input does not match workflow input/);
+      await assert.rejects(handle.result(), (error) => (error as { cause?: { message?: unknown } }).cause?.message === "continuation durable input does not match workflow input");
     });
     assert.equal(effects, 0);
   });
