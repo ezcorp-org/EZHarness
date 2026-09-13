@@ -13,12 +13,12 @@ The full spec lives in `docs/development-lifecycle.md`; this is the architectura
 ### Branching & promotion (trunk-based)
 
 1. Work happens on a short-lived branch off `main` (`feat/…`, `fix/…`, `ci/…`, `docs/…`, `chore/…`, `security/…`), rebased on `main`, deleted after merge.
-2. A PR opens against `main`. The **14 CI checks below** must go green and a **non-author** must approve (CODEOWNERS for gate-file diffs). **10 of the 14 are actually enforced by branch protection today** — see [What branch protection enforces](#what-branch-protection-enforces) before assuming a red check blocks a merge.
+2. A PR opens against `main`. The **15 CI checks below** must go green and a **non-author** must approve (CODEOWNERS for gate-file diffs). **10 of the 15 are actually enforced by branch protection today** — see [What branch protection enforces](#what-branch-protection-enforces) before assuming a red check blocks a merge.
 3. **Squash-merge** keeps linear history — no direct pushes, no force-push, no admin bypass.
 4. To release: bump `version` in `package.json`, push tag `app-vX.Y.Z`. `release-image.yml` verifies + builds the multi-arch image to GHCR and publishes the GitHub Release marked `latest`.
 5. Deployed instances poll `releases/latest` and surface the update banner (see `docs/update-check.md`).
 
-### The 14 CI checks (`.github/workflows/ci.yml`)
+### The 15 CI checks (`.github/workflows/ci.yml`)
 
 Job `name:` → what it proves. The **Enforced** column is whether branch
 protection currently *requires* the context — an unenforced check still runs
@@ -41,6 +41,7 @@ and still goes red, it just doesn't block the merge button. Verify with
 | **Gate integrity** | NO | `scripts/gate-integrity.ts` — anti-tamper / anti-cheat meta-check (diff-scoped). |
 | **Visual evidence** | NO | a frontend-visual change ships a changed, diff-scoped `@evidence` Playwright spec; when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched **and** must pass. |
 | **Web security coverage** | yes | `scripts/security-coverage.sh` — the security-suite lcov leg the `Per-file coverage gate` depends on; enforced by branch protection but historically absent from this table. |
+| **Factory schema and kernel** | NO | Builds the factory SDK, runs its focused schema/compiler/kernel/simulator/reference tests, and enforces the F07 deterministic-validator and F13 shared-lifecycle boundaries. |
 
 Bun is **pinned** to `1.3.14` in every job (an unannounced bun release can change install/test semantics).
 
@@ -48,7 +49,7 @@ Bun is **pinned** to `1.3.14` in every job (an unannounced bun release can chang
 
 The table's **Enforced** column and the `contexts` array in
 `docs/development-lifecycle.md`'s branch-protection snippet **do not match the
-live setting**. As of 2026-08-09 the applied config
+live setting**. As of 2026-09-13 the applied config
 (`gh api repos/ezcorp-org/EZHarness/branches/main/protection/required_status_checks`)
 requires **10** contexts:
 
@@ -57,7 +58,7 @@ requires **10** contexts:
 > Lint (biome) · Manifest lockfile drift check · Per-file coverage gate ·
 > Web security coverage
 
-Four checks this repo documents as required are **not** in that list — they run
+Five checks this repo documents as required are **not** in that list — they run
 on every PR and report status, but a red result does not block the merge
 button:
 
@@ -67,9 +68,10 @@ button:
 - **Visual evidence**
 - **Svelte check**
 - **E2E (real auth + real DB)**
+- **Factory schema and kernel**
 
-Conversely **Web security coverage** is enforced but was missing from the
-documented `contexts` array.
+The Stage 1 read-only comparison and exact proposed replacement are recorded in
+`docs/validation/factory/stage-1/required-check-inspection.md`.
 
 Closing the gap is a one-time admin action (re-apply the `gh api -X PUT …`
 snippet in `docs/development-lifecycle.md`), not a code change — it cannot be

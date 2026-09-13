@@ -87,7 +87,16 @@ FAILED_FILES=()
 # migrations / gh-projects concurrency / auth / secrets / mention-wiring) that
 # the CI `backend-critical` job gates strictly on pass/fail — see
 # critical_backend_files() in lib/test-file-sets.sh.
-if [ -n "$RESIDUAL_ONLY" ]; then
+# FACTORY_ONLY=1 runs the factory SDK tests for the dedicated Stage 1 lane. The
+# files remain in P and C as well, so this lane is an additional focused proof,
+# not a replacement for canonical pass/fail and coverage registration.
+if [ -n "$FACTORY_ONLY" ]; then
+  mapfile -t FILES < <(factory_sdk_test_files)
+  if [ "${#FILES[@]}" -lt 1 ]; then
+    echo "::error::factory SDK test set is empty — package discovery is broken" >&2
+    exit 1
+  fi
+elif [ -n "$RESIDUAL_ONLY" ]; then
   mapfile -t FILES < <(residual_passfail_files)
   # Membership assert: route-contract.test.ts lives in P\C (see
   # lib/test-file-sets.sh) and this job is its ONLY pass/fail home. A

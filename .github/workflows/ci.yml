@@ -41,6 +41,22 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  factory-schema-kernel:
+    name: Factory schema and kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Build factory SDK
+        run: bun run --cwd packages/@ezcorp/factory-sdk build
+      - name: Enforce deterministic validation and C13 reuse
+        run: bun scripts/check-factory-boundaries.ts
+      - name: Run factory schema, compiler, kernel, simulator, and reference fixtures
+        env:
+          FACTORY_ONLY: "1"
+        run: bash scripts/test.sh
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest

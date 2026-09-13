@@ -1,0 +1,298 @@
+#!/usr/bin/env bun
+import { existsSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import ts from "typescript";
+import { REPO_ROOT } from "./coverage-config.ts";
+
+export interface SourceInput {
+  path: string;
+  source: string;
+}
+
+export interface BoundaryViolation {
+  path: string;
+  line: number;
+  rule: "validator-code-generation" | "f13-duplicate" | "f13-required-import";
+  message: string;
+}
+
+export interface RequiredImport {
+  factoryPath: string;
+  sharedModule: string;
+}
+
+const VALIDATOR_PATHS = new Set([
+  "packages/@ezcorp/factory-sdk/src/expressions.ts",
+  "packages/@ezcorp/factory-sdk/src/validation.ts",
+]);
+
+export const SHARED_REUSE_MODULES = [
+  "packages/@ezcorp/extension-runner/src/podman.ts",
+  "packages/@ezcorp/extension-runner/src/dependencies.ts",
+  "src/extensions/v4/lifecycle.ts",
+  "src/extensions/project-pull-request-broker.ts",
+  "src/extensions/secrets-store.ts",
+  "src/extensions/credential-broker.ts",
+  "src/extensions/network-broker.ts",
+  "src/extensions/host-api-broker.ts",
+  "src/extensions/v4/deliveries.ts",
+  "src/extensions/lifecycle-recovery-scheduler.ts",
+  "src/extensions/v4/blobs.ts",
+  "src/db/queries/audit-log.ts",
+  "src/extensions/host-maintenance-daemon.ts",
+] as const;
+
+// Stage 1 adds new compiler/kernel concepts and touches no C13 reuse row.
+// Add one entry with each later factory module that implements a C13 row.
+export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [];
+
+function parse(input: SourceInput): ts.SourceFile {
+  return ts.createSourceFile(input.path, input.source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+}
+
+function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function callName(expression: ts.Expression): string | undefined {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return `${callName(expression.expression) ?? ""}.${expression.name.text}`;
+  return undefined;
+}
+
+function validatorViolations(input: SourceInput, validatorPaths: ReadonlySet<string>): BoundaryViolation[] {
+  if (!validatorPaths.has(input.path)) return [];
+  const sourceFile = parse(input);
+  const violations: BoundaryViolation[] = [];
+  const add = (node: ts.Node, message: string) => violations.push({
+    path: input.path,
+    line: lineOf(sourceFile, node),
+    rule: "validator-code-generation",
+    message,
+  });
+
+  function visit(node: ts.Node): void {
+    if (ts.isRegularExpressionLiteral(node)) add(node, "regular expressions are forbidden in the deterministic validator");
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const moduleName = node.moduleSpecifier.text;
+      if (/^(?:node:)?(?:child_process|cluster|dgram|dns|http|https|net|tls|vm|worker_threads)$/.test(moduleName)) {
+        add(node, `runtime module '${moduleName}' is forbidden in the deterministic validator`);
+      }
+    }
+    if (ts.isIdentifier(node) && ["eval", "Function", "RegExp", "fetch", "WebSocket"].includes(node.text)) {
+      const parent = node.parent;
+      const isDeclarationName = (ts.isFunctionDeclaration(parent) || ts.isVariableDeclaration(parent) || ts.isParameter(parent)) && parent.name === node;
+      const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
+      if (!isDeclarationName && !isPropertyName) add(node, `'${node.text}' is forbidden in the deterministic validator`);
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      const name = callName(node);
+      if (name && ["Date.now", "performance.now", "Bun.spawn", "Bun.spawnSync"].includes(name)) add(node, `'${name}' is forbidden in the deterministic validator`);
+    }
+    if (ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression)) {
+      const name = node.argumentExpression.text;
+      if (["eval", "Function", "RegExp", "fetch", "WebSocket", "spawn", "spawnSync", "now"].includes(name)) {
+        add(node, `computed access to '${name}' is forbidden in the deterministic validator`);
+      }
+    }
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      const name = callName(node.expression);
+      if (name === "Date" && (!node.arguments || node.arguments.length === 0)) {
+        add(node, "an argument-free Date reads ambient time");
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return violations;
+}
+
+interface FunctionSignature {
+  name: string;
+  parameters: number;
+  requiredParameters: number;
+}
+
+interface ClassSignature {
+  name: string;
+  fingerprint: string;
+  node: ts.ClassDeclaration;
+  file: ts.SourceFile;
+}
+
+function signature(name: string, parameters: ts.NodeArray<ts.ParameterDeclaration>): FunctionSignature {
+  return {
+    name,
+    parameters: parameters.length,
+    requiredParameters: parameters.filter((parameter) => !parameter.questionToken && !parameter.initializer && !parameter.dotDotDotToken).length,
+  };
+}
+
+function declaredFunctions(input: SourceInput, exportedOnly: boolean): Array<FunctionSignature & { node: ts.Node; file: ts.SourceFile }> {
+  const file = parse(input);
+  const functions: Array<FunctionSignature & { node: ts.Node; file: ts.SourceFile }> = [];
+  const isExported = (node: ts.Node) => ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+
+  for (const statement of file.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name && (!exportedOnly || isExported(statement))) {
+      functions.push({ ...signature(statement.name.text, statement.parameters), node: statement, file });
+    }
+    if (ts.isVariableStatement(statement) && (!exportedOnly || isExported(statement))) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
+          functions.push({ ...signature(declaration.name.text, declaration.initializer.parameters), node: declaration, file });
+        }
+      }
+    }
+  }
+  return functions;
+}
+
+function declaredClasses(input: SourceInput, exportedOnly: boolean): ClassSignature[] {
+  const file = parse(input);
+  const classes: ClassSignature[] = [];
+  const isExported = (node: ts.Node) => ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+  for (const statement of file.statements) {
+    if (!ts.isClassDeclaration(statement) || !statement.name || (exportedOnly && !isExported(statement))) continue;
+    const members = statement.members.flatMap((member) => {
+      if (ts.isConstructorDeclaration(member)) return [`constructor/${signature("constructor", member.parameters).requiredParameters}/${member.parameters.length}`];
+      if (ts.isMethodDeclaration(member) && member.name && (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name))) {
+        const item = signature(member.name.text, member.parameters);
+        return [`${item.name}/${item.requiredParameters}/${item.parameters}`];
+      }
+      return [];
+    }).sort();
+    classes.push({ name: statement.name.text, fingerprint: members.join(";"), node: statement, file });
+  }
+  return classes;
+}
+
+function normalizedImportPath(factoryPath: string, specifier: string): string {
+  const absolute = resolve(REPO_ROOT, factoryPath, "..", specifier);
+  const withExtension = absolute.endsWith(".ts") ? absolute : `${absolute}.ts`;
+  return relative(REPO_ROOT, withExtension).replaceAll("\\", "/");
+}
+
+export function checkFactoryBoundaries(
+  factoryFiles: readonly SourceInput[],
+  sharedFiles: readonly SourceInput[],
+  requiredImports: readonly RequiredImport[] = REQUIRED_SHARED_IMPORTS,
+  validatorPaths: ReadonlySet<string> = VALIDATOR_PATHS,
+): BoundaryViolation[] {
+  const violations = factoryFiles.flatMap((file) => validatorViolations(file, validatorPaths));
+  const sharedSignatures = new Map<string, FunctionSignature>();
+  for (const shared of sharedFiles) {
+    for (const item of declaredFunctions(shared, true)) {
+      sharedSignatures.set(`${item.name}/${item.requiredParameters}/${item.parameters}`, item);
+    }
+  }
+
+  const sharedClasses = new Map<string, ClassSignature>();
+  for (const shared of sharedFiles) {
+    for (const item of declaredClasses(shared, true)) sharedClasses.set(`${item.name}/${item.fingerprint}`, item);
+  }
+
+  for (const factory of factoryFiles) {
+    for (const item of declaredFunctions(factory, false)) {
+      const key = `${item.name}/${item.requiredParameters}/${item.parameters}`;
+      if (sharedSignatures.has(key)) {
+        violations.push({
+          path: factory.path,
+          line: lineOf(item.file, item.node),
+          rule: "f13-duplicate",
+          message: `function '${item.name}' duplicates a C13 shared-module signature (${item.requiredParameters} required, ${item.parameters} total parameters)`,
+        });
+      }
+    }
+    for (const item of declaredClasses(factory, false)) {
+      if (sharedClasses.has(`${item.name}/${item.fingerprint}`)) {
+        violations.push({
+          path: factory.path,
+          line: lineOf(item.file, item.node),
+          rule: "f13-duplicate",
+          message: `class '${item.name}' duplicates a C13 shared-module API signature`,
+        });
+      }
+    }
+  }
+
+  const byPath = new Map(factoryFiles.map((file) => [file.path, file]));
+  for (const requirement of requiredImports) {
+    const input = byPath.get(requirement.factoryPath);
+    if (!input) {
+      violations.push({ path: requirement.factoryPath, line: 1, rule: "f13-required-import", message: "factory module is missing" });
+      continue;
+    }
+    const file = parse(input);
+    const imports = file.statements.flatMap((statement) => ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)
+      ? [normalizedImportPath(input.path, statement.moduleSpecifier.text)]
+      : []);
+    if (!imports.includes(requirement.sharedModule)) {
+      violations.push({
+        path: input.path,
+        line: 1,
+        rule: "f13-required-import",
+        message: `must import the C13 shared module '${requirement.sharedModule}'`,
+      });
+    }
+  }
+  return violations;
+}
+
+function localImportClosure(factoryFiles: readonly SourceInput[], roots: ReadonlySet<string>): Set<string> {
+  const byPath = new Map(factoryFiles.map((file) => [file.path, file]));
+  const closure = new Set(roots);
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const path = pending.pop()!;
+    const input = byPath.get(path);
+    if (!input) continue;
+    for (const statement of parse(input).statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !statement.moduleSpecifier.text.startsWith(".")) continue;
+      const imported = normalizedImportPath(path, statement.moduleSpecifier.text);
+      if (byPath.has(imported) && !closure.has(imported)) {
+        closure.add(imported);
+        pending.push(imported);
+      }
+    }
+  }
+  return closure;
+}
+
+async function sourceInput(path: string): Promise<SourceInput> {
+  return { path, source: await Bun.file(resolve(REPO_ROOT, path)).text() };
+}
+
+export async function inspectRepositoryBoundaries(): Promise<BoundaryViolation[]> {
+  const roots = [
+    "packages/@ezcorp/factory-sdk/src",
+    "src/factory",
+    "web/src/lib/factory",
+    "web/src/routes/api/factories",
+  ];
+  if (!existsSync(resolve(REPO_ROOT, roots[0]!))) throw new Error("factory SDK source root is missing");
+  const factoryPaths = roots.flatMap((root) => existsSync(resolve(REPO_ROOT, root))
+    ? [...new Bun.Glob("**/*.ts").scanSync({ cwd: resolve(REPO_ROOT, root) })]
+      .filter((path) => !path.endsWith(".test.ts") && !path.endsWith(".d.ts"))
+      .map((path) => `${root}/${path}`)
+    : []).sort();
+  for (const required of VALIDATOR_PATHS) {
+    if (!factoryPaths.includes(required)) throw new Error(`required validator source is missing: ${required}`);
+  }
+  const factoryFiles = await Promise.all(factoryPaths.map(sourceInput));
+  return checkFactoryBoundaries(
+    factoryFiles,
+    await Promise.all(SHARED_REUSE_MODULES.map(sourceInput)),
+    REQUIRED_SHARED_IMPORTS,
+    localImportClosure(factoryFiles, VALIDATOR_PATHS),
+  );
+}
+
+if (import.meta.main) {
+  const violations = await inspectRepositoryBoundaries();
+  if (violations.length > 0) {
+    for (const violation of violations) console.error(`${violation.path}:${violation.line} [${violation.rule}] ${violation.message}`);
+    process.exit(1);
+  }
+  console.log("Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).");
+}

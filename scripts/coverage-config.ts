@@ -116,6 +116,7 @@ export const SOURCE_GLOBS: readonly string[] = [
   "packages/@ezcorp/harness-client/src/**/*.ts",
   "packages/@ezcorp/extension-contract/src/**/*.ts",
   "packages/@ezcorp/extension-runner/src/**/*.ts",
+  "packages/@ezcorp/factory-sdk/src/**/*.ts",
   "docs/extensions/examples/**/*.ts",
   // First-party BUNDLED extensions (registered in src/extensions/bundled.ts).
   // They ship in the product exactly like `src/**` does — the reference

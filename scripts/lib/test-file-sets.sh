@@ -79,6 +79,13 @@ script_test_files() {
   find scripts -name "*.test.ts" ! -path "*/node_modules/*"
 }
 
+# Factory SDK tests use the same isolated Bun producer as the extension v4
+# packages. Keep one definition and consume it from both P and C so a factory
+# test cannot be measured without also gating pass/fail.
+factory_sdk_test_files() {
+  find packages/@ezcorp/factory-sdk -name "*.test.ts" ! -path "*/node_modules/*"
+}
+
 passfail_files() {
   {
     # `set +e` is essential: the callers run under `set -e`, and a find against
@@ -98,6 +105,7 @@ passfail_files() {
     # reason — never by silently shrinking back to a dir allowlist.
     find src -name "*.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    factory_sdk_test_files
     find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
     # in NO pool: its three test files (memory-extractor index + manifest-load,
@@ -336,6 +344,7 @@ coverage_host_files() {
       ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \) \
       ! -path "src/__tests__/production-image-lifecycle-launch.integration.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    factory_sdk_test_files
     find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also

@@ -110,11 +110,11 @@ not have. Run it before you declare a multi-branch program finished.
 ## The gate (required checks on `main`)
 
 > **The applied branch protection has drifted from this table.** Measured
-> 2026-08-09, `gh api …/branches/main/protection/required_status_checks`
-> requires **10** contexts, not the 13 listed below: **Gate integrity**,
-> **Visual evidence**, **Svelte check** and **E2E (real auth + real DB)** are
-> NOT enforced (they run and report, but don't block merge), while
-> **Web security coverage** IS enforced and is absent from this table.
+> 2026-09-13, `gh api …/branches/main/protection/required_status_checks`
+> requires **10** contexts, not the 15 listed below: **Gate integrity**,
+> **Visual evidence**, **Svelte check**, **E2E (real auth + real DB)**, and
+> **Factory schema and kernel** are not enforced. The read-only reconciliation
+> is recorded in `docs/validation/factory/stage-1/required-check-inspection.md`.
 > Re-applying the [snippet below](#applying-branch-protection-one-time)
 > reconciles it — an admin action, not a code change.
 > See [platform/dev-lifecycle-and-gates.md](features/platform/dev-lifecycle-and-gates.md#what-branch-protection-enforces).
@@ -138,6 +138,8 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 | **Per-file coverage gate** | each gated file ≥ its threshold; **+ new-file gate + patch coverage** ride in this job, and it fails unless all coverage producers (backend shards, extras legs, **Web security coverage**) succeeded | undertested code / incomplete coverage data |
 | **Gate integrity** | the PR doesn't weaken the gate or fake tests green | gate tampering / vacuous tests |
 | **Visual evidence** | a frontend-visual change ships a changed `@evidence` Playwright spec — and, when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched (deterministic, browser-free, fails closed, fails open to the coarse rule on a bad map; bypass via maintainer-only `evidence-exempt` label) | frontend shipped with no visual spec/screenshot, or evidenced by an unrelated spec |
+| **Web security coverage** | the dedicated Bun coverage producer for web security helpers succeeds | incomplete canonical coverage data |
+| **Factory schema and kernel** | factory SDK build, focused tests, and F07/F13 static boundaries pass | invalid factory IR or a parallel lifecycle implementation |
 
 ### Dependency audit (running, NOT yet required)
 `.github/workflows/deps-audit.yml` runs `scripts/audit-deps.ts` on every PR,
@@ -334,7 +336,8 @@ gh api -X PUT repos/ezcorp-org/EZHarness/branches/main/protection \
       "Web tests (bun-leg orphans)", "E2E (mock, no Docker)",
       "E2E (real auth + real DB)", "Lint (biome)",
       "Manifest lockfile drift check", "Per-file coverage gate",
-      "Gate integrity", "Visual evidence"
+      "Gate integrity", "Visual evidence", "Web security coverage",
+      "Factory schema and kernel"
     ]
   },
   "enforce_admins": true,
