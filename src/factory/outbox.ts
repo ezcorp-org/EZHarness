@@ -14,6 +14,7 @@ interface FactoryCommandBase {
 
 export type FactoryCommandInput =
   | (FactoryCommandBase & { readonly kind: "start_run" })
+  | (FactoryCommandBase & { readonly kind: "compute_admission"; readonly reservationId: string })
   | (FactoryCommandBase & { readonly kind: "decision"; readonly interpreterId: string; readonly decisionId: string })
   | (FactoryCommandBase & { readonly kind: "partition_notification"; readonly interpreterId: string; readonly notificationId: string });
 
@@ -71,7 +72,7 @@ function decode(row: CommandRow): FactoryCommandDelivery {
 class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery> {
   private readonly scope: string;
 
-  constructor(private readonly database: MigrationDb, private readonly tenantId: string, private readonly projectId: string) {
+  constructor(private readonly database: MigrationDb, private readonly tenantId: string, private readonly projectId: string, private readonly destination: "temporal" | "pool") {
     this.scope = queueScope(tenantId, projectId);
   }
 
@@ -98,6 +99,7 @@ class FactoryCommandStore implements DurableDeliveryStore<FactoryCommandDelivery
     this.assertScope(scope);
     const result = rows<CommandRow>(await this.database.execute(sql`SELECT payload, state, input_hash FROM factory_command_outbox
       WHERE tenant_id = ${this.tenantId} AND project_id = ${this.projectId}
+        AND ((payload::jsonb->'command'->>'kind' = 'compute_admission') = ${this.destination === 'pool'})
         AND ((state = 'queued' AND available_at <= ${now}) OR (state = 'leased' AND lease_until <= ${now}))
       ORDER BY available_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`));
     return result[0] ? decode(result[0]) : null;
@@ -129,8 +131,9 @@ const stateMachine = new DurableDeliveryQueue<FactoryCommandDelivery>((code, mes
 function commandFor(tenantId: string, input: FactoryCommandInput): FactoryCommand {
   identity(tenantId, input.projectId, input.logicalRunId);
   assertJson(input.body);
-  if (input.kind !== "start_run") identity(input.interpreterId, input.kind === "decision" ? input.decisionId : input.notificationId);
-  const identityId = input.kind === "start_run" ? input.logicalRunId : input.kind === "decision" ? input.decisionId : input.notificationId;
+  if (input.kind === "compute_admission") identity(input.reservationId);
+  else if (input.kind !== "start_run") identity(input.interpreterId, input.kind === "decision" ? input.decisionId : input.notificationId);
+  const identityId = input.kind === "start_run" ? input.logicalRunId : input.kind === "compute_admission" ? input.reservationId : input.kind === "decision" ? input.decisionId : input.notificationId;
   const commandId = `factory-command:${durableInputHash({ tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, kind: input.kind, identityId }).slice(7)}`;
   const command: FactoryCommand = {
     commandId,
@@ -140,7 +143,7 @@ function commandFor(tenantId: string, input: FactoryCommandInput): FactoryComman
     logicalRunId: input.logicalRunId,
     workflowId: `${tenantId}/${input.logicalRunId}`,
     kind: input.kind,
-    ...(input.kind === "start_run" ? {} : { interpreterId: input.interpreterId, eventId: identityId }),
+    ...(input.kind === "start_run" || input.kind === "compute_admission" ? {} : { interpreterId: input.interpreterId, eventId: identityId }),
     body: input.body,
   };
   assertBoundedCommand(command);
@@ -151,7 +154,7 @@ function commandFor(tenantId: string, input: FactoryCommandInput): FactoryComman
 export class FactoryCommandOutbox {
   private readonly scope: string;
 
-  constructor(private readonly database: TransactionalDb, readonly tenantId: string, readonly projectId: string, private readonly now: () => number = Date.now) {
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, readonly projectId: string, private readonly now: () => number = Date.now, private readonly destination: "temporal" | "pool" = "temporal") {
     identity(tenantId, projectId);
     this.scope = queueScope(tenantId, projectId);
   }
@@ -164,7 +167,7 @@ export class FactoryCommandOutbox {
     if (input.projectId !== this.projectId) throw new FactoryOutboxError("factory_command_scope_mismatch");
     const command = commandFor(this.tenantId, input);
     const inputHash = durableInputHash(command);
-    const store = new FactoryCommandStore(transaction, this.tenantId, this.projectId);
+    const store = new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination);
     return stateMachine.enqueue(store, {
       scope: this.scope,
       deduplicationId: command.commandId,
@@ -189,17 +192,17 @@ export class FactoryCommandOutbox {
   }
 
   async claim(leaseMs = 60_000): Promise<FactoryCommandDelivery | null> {
-    return this.database.transaction(transaction => stateMachine.claim(new FactoryCommandStore(transaction, this.tenantId, this.projectId), this.scope, this.now(), leaseMs));
+    return this.database.transaction(transaction => stateMachine.claim(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, this.now(), leaseMs));
   }
 
   async settle(delivery: FactoryCommandDelivery, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<FactoryCommandDelivery> {
     if (delivery.tenantId !== this.tenantId || delivery.projectId !== this.projectId) throw new FactoryOutboxError("factory_command_scope_mismatch");
-    return this.database.transaction(transaction => stateMachine.settle(new FactoryCommandStore(transaction, this.tenantId, this.projectId), this.scope, delivery, this.now(), outcome, failureCode));
+    return this.database.transaction(transaction => stateMachine.settle(new FactoryCommandStore(transaction, this.tenantId, this.projectId, this.destination), this.scope, delivery, this.now(), outcome, failureCode));
   }
 
   async inspect(commandId: string): Promise<FactoryCommandDelivery | null> {
     identity(commandId);
-    return stateMachine.inspect(new FactoryCommandStore(this.database, this.tenantId, this.projectId), this.scope, commandId);
+    return stateMachine.inspect(new FactoryCommandStore(this.database, this.tenantId, this.projectId, this.destination), this.scope, commandId);
   }
 
   async dispatch(handler: (delivery: FactoryCommandDelivery) => Promise<void>): Promise<FactoryCommandDelivery | null> {

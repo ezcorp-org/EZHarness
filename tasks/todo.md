@@ -908,7 +908,7 @@ Plan: `tasks/factory/PLAN.md`. Acceptance ledger: `tasks/factory/GATES.md`.
 
 ### Review
 
-Pending implementation and measured verification.
+Implementation continues across all six stages. Local storage/GPU checks and the compiler, kernel, product grant/budget stores, journal, pool and Temporal foundations have measured component proofs. Full application routes, protected assurance/release, package lifecycle, console/domain packs, deployment/restore and the ten-installation soak remain incomplete. Final application regression and full coverage must run after integration.
 
 ### Local factory test campaign (user update)
 
@@ -950,3 +950,12 @@ Pending implementation and measured verification.
 - [x] Bind signed attempt claims and peer tenant identity at the HTTPS gateway before durable admission or effects.
 - [ ] Prove real HTTPS, PostgreSQL, response loss/recovery, conflict, cancellation, stale callback, and reattach behavior.
 - [ ] Run changed-line and new-source coverage, typecheck, lint, and focused real-Postgres tests.
+
+## Factory product budget store
+
+- [x] Persist hierarchical budget limits, exact decimal charges and unknown holds with atomic audit and compute outbox.
+- [x] Share budget conformance across PGlite and real PostgreSQL; race reservations and settlements, retain overspend, and prove rollback.
+- [x] Parent product coverage producer:57 pass /0 fail /10 files; new product stores/journal/pool/gateway/supervisor source lines100%.
+- [ ] Wire all store authority into application routes and each real runner effect, then complete full platform proofs.
+
+Review: tasks/factory/budgets.md has store evidence; tasks/factory/GATES.md remains the full-scope ledger.

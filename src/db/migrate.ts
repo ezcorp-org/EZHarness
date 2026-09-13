@@ -3027,6 +3027,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryRecords(db);
   const { up: addFactoryGrants } = await import("./migrations/add-factory-grants");
   await addFactoryGrants(db);
+  const { up: addFactoryBudgets } = await import("./migrations/add-factory-budgets");
+  await addFactoryBudgets(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);
