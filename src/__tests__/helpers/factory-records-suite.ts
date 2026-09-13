@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import { FactoryCommandOutbox } from "../../factory/outbox";
 import { FactoryRecords, type FactoryAuditInput, type FactoryRunRequest } from "../../factory/records";
 import { up } from "../../db/migrations/add-factory-records";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
@@ -27,8 +28,8 @@ function request(overrides: Partial<FactoryRunRequest> = {}): FactoryRunRequest 
 }
 
 async function enqueue(transaction: MigrationDb, run: FactoryRunRequest): Promise<void> {
-  await transaction.execute(sql`INSERT INTO factory_command_outbox (tenant_id, project_id, logical_run_id, id, deduplication_id, input_hash, state, available_at, payload)
-    VALUES ('tenant-one', ${run.projectId}, ${run.runId}, ${run.runId}, ${run.runId}, ${`sha256:${"0".repeat(64)}`}, 'queued', 0, '{}')`);
+  const outbox = new FactoryCommandOutbox(fixture.db, "tenant-one", run.projectId);
+  await outbox.enqueueInTransaction(transaction, { kind: "start_run", projectId: run.projectId, logicalRunId: run.runId, body: run });
 }
 
 async function started(): Promise<FactoryRunRequest> {
@@ -73,6 +74,38 @@ describe("durable factory records through the application database", () => {
     expect(rows(await fixture.db.execute(sql`SELECT id FROM factory_command_outbox WHERE logical_run_id = ${run.runId}`))).toHaveLength(0);
     expect(rows(await fixture.db.execute(sql`SELECT id FROM audit_log WHERE target = ${run.runId}`))).toHaveLength(0);
     expect(await records.createRun(run, enqueue)).toEqual({ created: true });
+  });
+
+  test("two dispatchers claim one start and reject a stale or foreign settlement", async () => {
+    const run = await started();
+    // Other tests leave queued commands. Restrict this proof to its newly
+    // started command without changing its production delivery fields.
+    await fixture.db.execute(sql`UPDATE factory_command_outbox SET state = 'delivered' WHERE logical_run_id <> ${run.runId}`);
+    let now = 10;
+    const makeQueue = (tenant = "tenant-one", project = run.projectId) => new FactoryCommandOutbox(fixture.db, tenant, project, () => now);
+    // The start was created with wall time; advance the controlled queue clock
+    // to that recorded timestamp rather than rewriting the row.
+    const entry = rows<{ available_at: string }>(await fixture.db.execute(sql`SELECT available_at FROM factory_command_outbox WHERE logical_run_id = ${run.runId}`))[0]!;
+    now = Number(entry.available_at);
+    const queue = makeQueue();
+    const claims = await Promise.all([queue.claim(100), makeQueue().claim(100)]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    const original = claims.find(value => value !== null)!;
+    expect(original.command.workflowId).toBe(`tenant-one/${run.runId}`);
+    expect(await makeQueue("tenant-two").claim()).toBeNull();
+    expect(await makeQueue("tenant-one", "other-project").inspect(original.id)).toBeNull();
+    await expect(makeQueue("tenant-two").settle(original, "delivered")).rejects.toMatchObject({ code: "factory_command_scope_mismatch" });
+    expect((await queue.settle(original, "retry", "transport_unavailable")).state).toBe("queued");
+    now += 1_001;
+    const replacement = await queue.claim(100);
+    expect(replacement?.leaseToken).not.toBe(original.leaseToken);
+    await expect(queue.settle(original, "delivered")).rejects.toThrow();
+    now += 101;
+    expect(await queue.claim()).toBeNull();
+    expect((await queue.inspect(original.id))?.state).toBe("outcome_unknown");
+    await expect(queue.settle(replacement!, "delivered")).rejects.toMatchObject({ code: "delivery_lease_lost" });
+    expect(await queue.claim()).toBeNull();
+    expect((await queue.inspect(original.id))?.attempts).toBe(2);
   });
 
   test("independent interpreter producers receive one contiguous run sequence", async () => {
