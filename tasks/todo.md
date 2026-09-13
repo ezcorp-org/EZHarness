@@ -1701,3 +1701,13 @@ Plan review: test the public completion boundary with a published factory, admit
 - [ ] Record exact evidence and review the completed leaf.
 
 Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product and registration 47 passed / 421 assertions; PostgreSQL/S3 plus schema parity 46 passed / 2,090 assertions. SDK build, all four typechecks, lint (zero errors / eight existing infos), gate integrity, and boundaries passed. Both database producers report task-completions 79/79 lines and 18/18 functions, migration 4/4 and 2/2; shared command authority 88/88 and 26/26, artifacts 106/106 and 28/28, input artifacts 39/39 and 7/7. Source snapshot and exact results: `/tmp/factory-platform-evidence/root-task-completion-final-source.json` and `root-task-completion-final-integration-results.json`. Committed patch/new-file coverage and parent integration remain pending.
+
+## C05 factory v4 package preparation — Terra
+
+- [ ] Define the scoped immutable v4 release mapping and sealed receipt schema.
+- [ ] Add a production catalog adapter that reads the existing v4 repository and blob store without copying release storage.
+- [ ] Create a two-phase preparation flow: durable intent, out-of-transaction RunnerClient build/collect, then revalidated receipt commit.
+- [ ] Wrap the existing trusted runner so dispatch requires a matching current prepared receipt and cannot run after trust or grant revocation.
+- [ ] Prove PGlite, PostgreSQL/S3, real Podman preparation/recovery, revocation, coverage, SDK build, type checks, and lint.
+
+Plan review: v4 source and artifacts remain in the established immutable repository. Factory state records only the scoped source mapping, the exact trust revision, and the verified local build receipt. No runner build or blob read occurs under a product transaction.
