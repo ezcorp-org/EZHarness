@@ -2107,3 +2107,32 @@ it now joins the bounded header prefix and the body once.
 
 The shared proof PostgreSQL container died mid-package and was restored by its owner. The failing
 run is preserved in the receipts rather than deleted.
+
+# W04a — Independent archive writer and publication readiness
+
+Branch `wp/w04a-archive-writer` from `integ/w00` at `37f2ed3f9`. Surface owned: the archive-writer
+role, its readiness result, the archive prerequisite before a dispatch claim, and the
+receipt-before-settlement recovery. Evidence: `/tmp/factory-platform-evidence/w04a/`.
+
+- [ ] Type and role checkpoint: `src/factory/archive-writer.ts` carries the archive-writer role,
+      the readiness result, the failure-domain evidence record, the member manifest, and the
+      archive inventory. Unit tests cover every branch.
+- [ ] Compose the existing immutable archive adapter as the gateway's archive-writer role. It
+      holds the `archive.json` credential set only and records the failure domain honestly.
+- [ ] Before a dispatch claim, archive the recovery intent plus every candidate, evidence, and
+      request object the material references, read through W04's `FactoryScopedArtifactReader`,
+      and verify each archived member reads back byte for byte.
+- [ ] Publication stays pending when any member is unavailable or corrupt. Test each separately.
+- [ ] After a confirmed provider effect, archive the receipt before product settlement; recover
+      the same operation by identity from the archive without a second dispatch.
+- [ ] Crash at each boundary: after the intent write, after a member write, after the material
+      write, after the claim, after the provider effect, and after the receipt archive.
+- [ ] Access restrictions on the real local SeaweedFS services for all ten tenant identities:
+      product and restore credentials cannot read, overwrite, or delete an archive object.
+- [ ] The archive stays readable while the ordinary store is down, and product settlement stays
+      blocked until it returns.
+- [ ] Register `tests/postgres/factory-archive-writer.test.ts` in `.github/workflows/db-postgres.yml`
+      in the same change; W18's registration gate fails closed otherwise.
+- [ ] Record the deployed-independence requirement as an explicit unmet criterion in
+      `tasks/factory/w04a-GATES.md`. Same-host volumes prove credential separation only.
+- [ ] Full verification per `common.md`, then the Review paragraph and the lessons entry.

@@ -55,6 +55,7 @@ export const SHARED_REUSE_MODULES = [
 // audit. Regenerate with that test's `sharedImportEdges` helper; keep the
 // rows sorted by factory path so appends from different packages merge.
 export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
+  { factoryPath: "src/factory/archive-writer.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
