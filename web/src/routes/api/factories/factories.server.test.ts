@@ -36,7 +36,7 @@ const runs = { start: vi.fn(), read: vi.fn(), list: vi.fn(), cancel: vi.fn(), re
 const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn() };
 const credentials = { issue: vi.fn(), revoke: vi.fn(), authenticate: vi.fn() };
 const releaseAuthority = { publishTrust: vi.fn(), revokeTrust: vi.fn(), setReleaseEnabled: vi.fn() };
-const releaseOperations = { putContract: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), requestApproval: vi.fn(), decideApproval: vi.fn(), putPolicy: vi.fn(), deletePolicy: vi.fn(), reconcile: vi.fn() };
+const releaseOperations = { putContract: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), requestApproval: vi.fn(), decideApproval: vi.fn(), listNotifications: vi.fn(), putPolicy: vi.fn(), deletePolicy: vi.fn(), reconcile: vi.fn() };
 
 const sourceDigest = createHash("sha256").update(canonicalizeJson(referenceCodeV1 as unknown as Parameters<typeof canonicalizeJson>[0])).digest("hex");
 const compiledResult = compileFactory(referenceCodeV1);
@@ -72,6 +72,7 @@ const releaseCollection = await import("./projects/[projectId]/releases/+server"
 const releaseItem = await import("./projects/[projectId]/releases/[operationId]/+server");
 const releaseApprovalRequest = await import("./projects/[projectId]/releases/[operationId]/approvals/+server");
 const releaseApprovalDecision = await import("./projects/[projectId]/release/approvals/[approvalId]/+server");
+const releaseNotifications = await import("./projects/[projectId]/release/notifications/+server");
 const releasePolicyRoute = await import("./projects/[projectId]/release/policies/[policyId]/+server");
 const releaseReconciliation = await import("./projects/[projectId]/releases/[operationId]/reconciliations/+server");
 const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "queued", createdAtMs: 1, updatedAtMs: 1 };
@@ -122,6 +123,7 @@ beforeEach(() => {
   releaseOperations.prepare.mockResolvedValue(operation);
   releaseOperations.inspect.mockResolvedValue(operation);
   releaseOperations.requestApproval.mockResolvedValue({ approvalId: "approval-1", operationId: "operation-1", contextDigest: sourceDigest, status: "pending", expiresAtMs: 2_000_000_000_000 });
+  releaseOperations.listNotifications.mockResolvedValue({ items: [{ notificationId: "notification-1", operationId: "operation-1", createdAtMs: 1, kind: "approval_requested", approvalId: "approval-1", contextDigest: sourceDigest, expiresAtMs: 2_000_000_000_000 }], nextCursor: "notification-1" });
   releaseOperations.decideApproval.mockResolvedValue({ approvalId: "approval-1", contextDigest: sourceDigest, status: "approved" });
   releaseOperations.putPolicy.mockResolvedValue({ policyId: "policy-1", revision: 1, revoked: false, principalKind: "service", principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "release/", contractDigest: `sha256:${sourceDigest}`, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: 2_000_000_000_000 });
   releaseOperations.deletePolicy.mockResolvedValue({ policyId: "policy-1", revision: 2, revoked: true });
@@ -434,6 +436,14 @@ describe("factory release and assurance routes", () => {
     expect((await releasePolicyRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/policies/policy-1`, { params: { projectId, policyId: "policy-1" }, body: policyBody, revision: 0, key: "policy-put" }))).status).toBe(200);
     expect((await releasePolicyRoute.DELETE(event("DELETE", `/api/factories/projects/${projectId}/release/policies/policy-1`, { params: { projectId, policyId: "policy-1" }, revision: 1, key: "policy-delete" }))).status).toBe(200);
     expect((await releaseContractRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/contracts/contract-1`, { auth: "api-key", scopes: ["write"], params: { projectId, contractId: "contract-1" }, body: contractBody, revision: 0, key: "api-key" }))).status).toBe(403);
+  });
+
+  test("lists bounded release inbox items only for an interactive session", async () => {
+    const response = await releaseNotifications.GET(event("GET", `/api/factories/projects/${projectId}/release/notifications?limit=25&cursor=notification-0`, { params: { projectId } }));
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({ kind: "release.notification.page", page: { items: [{ kind: "approval_requested", approvalId: "approval-1" }], nextCursor: "notification-1" } });
+    expect(releaseOperations.listNotifications).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), projectId, { limit: 25, cursor: "notification-0" });
+    expect((await releaseNotifications.GET(event("GET", `/api/factories/projects/${projectId}/release/notifications`, { auth: "api-key", scopes: ["read"], params: { projectId } }))).status).toBe(403);
   });
 
   test("routes reconciliation through write scope while the real adapter retains its human store gate", async () => {

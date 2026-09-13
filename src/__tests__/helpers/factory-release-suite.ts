@@ -6,6 +6,8 @@ import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { FactoryAssurance, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
+import { FactoryNotificationDelivery } from "../../factory/notification-delivery";
+import { FactoryReleaseApplication } from "../../factory/release-application";
 import { FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
 
 export function factoryReleaseConformance(setup: () => Promise<{ db: TransactionalDb; close: () => Promise<void> }>): void {
@@ -210,6 +212,81 @@ test("approval request and its human notification commit together once", async (
   await requestReleaseApproval(admin, projectId, failedNotificationOperation.operationId, now + 1_000);
   const unknown = await releases.dispatchNotification(projectId, async () => { throw new Error("notification response lost"); });
   expect(unknown).toMatchObject({ kind: "approval_requested", operationId: failedNotificationOperation.operationId, state: "outcome_unknown" });
+});
+
+test("durable release notifications form one current-authorized human inbox", async () => {
+  const reviewer: FactoryPrincipal = { kind: "user", id: "release-reviewer", authentication: "session" };
+  await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${reviewer.id},'release-reviewer@example.test','x','reviewer','member')`);
+  await database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('release-reviewer-member',${projectId},${reviewer.id},'member')`);
+  for (const action of ["factory.approve", "factory.operate", "factory.release"] as const) await grants.set(admin, { projectId, principal: reviewer, action, expectedRevision: 0, expiresAtMs: null });
+  const approvalOperation = await prepareRelease(admin, request("human-inbox-approval"));
+  const approval = await requestReleaseApproval(admin, projectId, approvalOperation.operationId, now + 1_000);
+
+  const uncertainOperation = await prepareRelease(admin, request("human-inbox-uncertain"));
+  const uncertainApproval = await approved(uncertainOperation);
+  const uncertainClaim = await releases.claim(admin, projectId, uncertainOperation.operationId, { kind: "approval", approvalId: uncertainApproval });
+  provider.loseResponse = true;
+  await releases.dispatch(uncertainClaim, provider);
+  provider.loseResponse = false;
+
+  const settledOperation = await prepareRelease(admin, request("human-inbox-settled"));
+  const settledApproval = await approved(settledOperation);
+  const settledClaim = await releases.claim(admin, projectId, settledOperation.operationId, { kind: "approval", approvalId: settledApproval });
+  await releases.dispatch(settledClaim, provider);
+
+  const delivery = new FactoryNotificationDelivery(releases);
+  while (await delivery.deliverNext(projectId)) {}
+  const firstPage = await delivery.listForHuman(reviewer, projectId, { limit: 2 });
+  expect(firstPage.items).toHaveLength(2);
+  expect(firstPage.nextCursor).not.toBeNull();
+  const secondPage = await delivery.listForHuman(reviewer, projectId, { limit: 200, cursor: firstPage.nextCursor! });
+  const visible = [...firstPage.items, ...secondPage.items];
+  expect(visible).toEqual(expect.arrayContaining([
+    expect.objectContaining({ kind: "approval_requested", operationId: approvalOperation.operationId, approvalId: approval.approvalId, contextDigest: approval.contextDigest }),
+    expect.objectContaining({ kind: "release_uncertain", operationId: uncertainOperation.operationId, dispatchGeneration: 1, outcomeCode: "provider_response_unknown" }),
+    expect.objectContaining({ kind: "release_settled", operationId: settledOperation.operationId, dispatchGeneration: 1 }),
+  ]));
+
+  const restarted = new FactoryNotificationDelivery(releases);
+  expect(await restarted.deliverNext(projectId)).toBeNull();
+  const replay = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(new Set(replay.items.map(item => item.notificationId)).size).toBe(replay.items.length);
+  for (const target of [approvalOperation, uncertainOperation, settledOperation]) {
+    expect(replay.items.filter(item => item.operationId === target.operationId)).toHaveLength(1);
+  }
+
+  await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('release-foreign','foreign-release@example.test','x','foreign','user')`);
+  const foreign = { kind: "user", id: "release-foreign", authentication: "session" } as const;
+  expect(await restarted.listForHuman(foreign, projectId, { limit: 200 })).toEqual({ items: [], nextCursor: null });
+  expect(await restarted.listForHuman({ ...admin, authentication: "api-key" }, projectId, { limit: 200 })).toEqual({ items: [], nextCursor: null });
+  const application = new FactoryReleaseApplication(tenantId, grants, assurance, releases, { resolve: () => provider });
+  await expect(application.decideApproval(foreign, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("foreign-inbox-decision"))).rejects.toThrow("factory_forbidden");
+
+  await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.release", expectedRevision: 1 });
+  let scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(scoped.items.some(item => item.operationId === settledOperation.operationId)).toBe(false);
+  expect(scoped.items.some(item => item.operationId === approvalOperation.operationId)).toBe(true);
+  await grants.set(admin, { projectId, principal: reviewer, action: "factory.release", expectedRevision: 2, expiresAtMs: null });
+
+  await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.operate", expectedRevision: 1 });
+  scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(scoped.items.some(item => item.operationId === uncertainOperation.operationId)).toBe(false);
+  expect(scoped.items.some(item => item.operationId === settledOperation.operationId)).toBe(true);
+  await grants.set(admin, { projectId, principal: reviewer, action: "factory.operate", expectedRevision: 2, expiresAtMs: null });
+
+  await grants.revoke(admin, { projectId, principal: reviewer, action: "factory.approve", expectedRevision: 1 });
+  scoped = await restarted.listForHuman(reviewer, projectId, { limit: 200 });
+  expect(scoped.items.some(item => item.operationId === approvalOperation.operationId)).toBe(false);
+  await expect(application.decideApproval(reviewer, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("revoked-inbox-decision"))).rejects.toThrow("factory_forbidden");
+  await grants.set(admin, { projectId, principal: reviewer, action: "factory.approve", expectedRevision: 2, expiresAtMs: null });
+
+  await application.decideApproval(reviewer, projectId, approval.approvalId, { contextDigest: approval.contextDigest, decision: "approved" }, 0, mutationKey("inbox-decision"));
+  expect((await restarted.listForHuman(reviewer, projectId, { limit: 200 })).items.some(item => item.operationId === approvalOperation.operationId)).toBe(false);
+
+  const sealed = rows<{ notification_id: string; input_hash: string }>(await database.execute(sql`SELECT notification_id,input_hash FROM factory_notifications WHERE payload::jsonb->>'operationId'=${settledOperation.operationId}`))[0]!;
+  await database.execute(sql`UPDATE factory_notifications SET input_hash=${digest("0")} WHERE notification_id=${sealed.notification_id}`);
+  await expect(restarted.listForHuman(reviewer, projectId, { limit: 200 })).rejects.toMatchObject({ code: "factory_notification_corrupt" });
+  await database.execute(sql`UPDATE factory_notifications SET input_hash=${sealed.input_hash} WHERE notification_id=${sealed.notification_id}`);
 });
 
 test("claim atomically consumes one exact approval and rejects cancellation, revocation, races, and destination changes", async () => {

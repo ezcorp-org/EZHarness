@@ -762,6 +762,7 @@ describe("registry ⇄ filesystem parity", () => {
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
       "GET /api/extensions/:name/preview",
+      "GET /api/factories/projects/:projectId/release/notifications",
       "GET /api/service-accounts",
       "GET /api/workflows/delegated-runs",
       "GET /api/workflows/delegations",

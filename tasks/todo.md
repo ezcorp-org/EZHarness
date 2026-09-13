@@ -1549,3 +1549,20 @@ Review: only the current committed run-child attempt can resolve its exact compi
 - [ ] Verify PGlite, PostgreSQL/S3, coverage and all static checks before integration.
 
 Plan review: a private command ID is the only request authority; the reader validates the durable artifact binding within the same run transaction.
+
+# Factory release notification delivery (2026-09-13)
+
+- [x] Reproduce the durable notification's absence from the in-app factory console.
+- [x] Add a delivery adapter that reuses the existing durable queue and exposes only delivered actionable items.
+- [x] Recheck current human grants and underlying approval/operation state in scoped release queries.
+- [x] Add the session-only SDK/API/browser read path and route decisions through the existing assurance endpoint.
+- [x] Add the factory console inbox with duplicate-safe approval and uncertain-release rendering.
+- [x] Prove delivery, restart deduplication, foreign/revoked denial, real assurance decisions, and UI behavior.
+- [x] Pass focused coverage, e2e, builds, all four typechecks, lint, boundaries, and patch coverage.
+- [x] Commit an immutable notification-delivery checkpoint and record proof paths.
+
+## Review
+
+- Factory approval, uncertain-release, and settled-release notifications now use the existing durable release queue as the in-app inbox. Delivery is one atomic queued-to-delivered transaction. Reads authorize the current session user and load a bounded current-state projection in one transaction. Pending and uncertain items disappear when they stop being actionable; settled items remain completion receipts for principals with `factory.release`.
+- The factory page shows the inbox and sends approval decisions through the existing assurance API. It exposes no archive, sender, provider-evidence, or pinned-material details. Restart delivery and browser merging retain one item per durable notification identity.
+- PGlite passes 19 cases with 120 assertions, and isolated PostgreSQL passes 14 cases with 92 assertions. Focused SDK, web, OpenAPI, route, browser evidence, coverage, builds, all four type checks, lint, boundaries, patch coverage, and gate integrity pass. Proof paths and exact measured-line counts are in `tasks/factory/release-notification-delivery-GATES.md`.
