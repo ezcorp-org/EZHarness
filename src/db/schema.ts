@@ -2918,6 +2918,7 @@ export const factoryArtifacts = pgTable("factory_artifacts", {
   definitionDigest: text("definition_digest"),
   sourceSequence: bigint("source_sequence", { mode: "number" }),
   pageIndex: integer("page_index"),
+  partitionId: text("partition_id"),
   digest: text("digest").notNull(),
   blobDigest: text("blob_digest").notNull(),
   storageVersion: text("storage_version").notNull(),

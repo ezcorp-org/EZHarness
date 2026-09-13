@@ -881,5 +881,6 @@
   "src/factory/definition-artifacts.ts": 100,
   "src/factory/transition-artifacts.ts": 100,
   "src/factory/artifact-activities.ts": 100,
-  "src/db/migrations/add-factory-artifacts.ts": 100
+  "src/db/migrations/add-factory-artifacts.ts": 100,
+  "src/db/migrations/add-factory-artifact-partition-identity.ts": 100
 }

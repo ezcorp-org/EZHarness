@@ -1,10 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { sql } from "drizzle-orm";
-import { S3BlobStore, s3ObjectKey } from "../../src/extensions/v4/blobs";
+import { s3ObjectKey } from "../../src/extensions/v4/blobs";
 import { artifactJson, FactoryArtifacts } from "../../src/factory/artifacts";
 import { createFactoryArtifactActivities } from "../../src/factory/artifact-activities";
 import { FactoryDefinitionArtifacts } from "../../src/factory/definition-artifacts";
@@ -12,29 +11,25 @@ import { FactoryInbox } from "../../src/factory/inbox";
 import { FactoryTransitionArtifacts } from "../../src/factory/transition-artifacts";
 import { persistTransition } from "../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 import { setupFactoryPostgres } from "./helpers/factory-test-database";
+import { createFactoryOrdinaryStorage } from "./helpers/factory-storage";
 
 const closes: Array<() => Promise<void>> = [];
 afterEach(async () => { await Promise.all(closes.splice(0).map(close => close())); });
 
 async function fixture() {
   const database = await setupFactoryPostgres(); closes.push(database.close);
-  const config = JSON.parse(await readFile("/run/user/1001/ezcorp-factory-storage.8yWJyCIQ/ordinary.json", "utf8")) as { identities: Array<{ name: string; credentials: Array<{ accessKey: string; secretKey: string }> }> };
-  const credential = config.identities.find(identity => identity.name === "tenant-01")?.credentials[0];
-  if (!credential) throw new Error("Local ordinary storage tenant identity is missing.");
-  const credentials = { accessKeyId: credential.accessKey, secretAccessKey: credential.secretKey };
-  const client = new S3Client({ endpoint: "http://127.0.0.1:18333", region: "us-east-1", forcePathStyle: true, credentials });
   const prefix = `ordinary/factory-artifacts/${randomUUID()}`;
-  const blobs = new S3BlobStore({ endpoint: "http://127.0.0.1:18333", bucket: "tenant-01", prefix, credentials, client });
+  const storage = await createFactoryOrdinaryStorage(prefix); closes.push(async () => storage.close());
   const identity = { tenantId: "artifact-tenant", projectId: `artifact-${randomUUID()}`, logicalRunId: `run-${randomUUID()}`, interpreterId: "worker-a" };
   await database.db.execute(sql`INSERT INTO projects(id, name, path) VALUES (${identity.projectId}, 'Artifact', '/tmp/artifact')`);
   await database.db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, ${identity.tenantId}, 1)`);
   await database.db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES (${identity.tenantId}, ${identity.projectId})`);
   await database.db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES (${identity.tenantId}, ${identity.projectId}, ${identity.logicalRunId}, ${`sha256:${"a".repeat(64)}`}, 'test', 1, 'request', '{}')`);
-  return { database: database.db, client, blobs, identity, prefix };
+  return { database: database.db, client: storage.client, blobs: storage.blobs, identity, bucket: storage.bucket, prefix: storage.prefix };
 }
 
 test("PostgreSQL scoped S3 references retain original bytes and reject foreign and changed version records", async () => {
-  const { database, client, blobs, identity, prefix } = await fixture();
+  const { database, client, blobs, identity, bucket, prefix } = await fixture();
   const artifacts = new FactoryArtifacts(database, blobs, "artifact-tenant");
   const content = new TextEncoder().encode("immutable artifact bytes");
   const reference = await artifacts.stage(identity, "execution_manifest", content, { definitionDigest: `sha256:${"a".repeat(64)}`, interpreterScoped: false });
@@ -42,17 +37,16 @@ test("PostgreSQL scoped S3 references retain original bytes and reject foreign a
   await expect(artifacts.load({ ...identity, projectId: "foreign" }, reference, ["execution_manifest"])).rejects.toMatchObject({ code: "factory_artifact_not_found" });
   const selected = await database.execute(sql`SELECT blob_digest, storage_version FROM factory_artifacts WHERE object_id=${reference.objectId}`) as unknown as { rows?: unknown[] } | unknown[];
   const row = (Array.isArray(selected) ? selected : selected.rows) as Array<{ blob_digest: string; storage_version: string }>;
-  await client.send(new PutObjectCommand({ Bucket: "tenant-01", Key: s3ObjectKey(prefix, row[0]!.blob_digest), Body: new TextEncoder().encode("changed artifact bytes") }));
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: s3ObjectKey(prefix, row[0]!.blob_digest), Body: new TextEncoder().encode("changed artifact bytes") }));
   expect((await artifacts.load(identity, reference, ["execution_manifest"])).content).toEqual(content);
   const changed = await blobs.version(row[0]!.blob_digest);
   expect(changed).not.toBe(row[0]!.storage_version);
   await database.execute(sql`UPDATE factory_artifacts SET storage_version=${changed} WHERE object_id=${reference.objectId}`);
   await expect(artifacts.load(identity, reference, ["execution_manifest"])).rejects.toMatchObject({ code: "artifact_corrupt" });
-  client.destroy();
 });
 
 test("twelve concurrent PostgreSQL admissions converge and changed bytes fail", async () => {
-  const { database, client, blobs, identity } = await fixture();
+  const { database, blobs, identity } = await fixture();
   const artifacts = new FactoryArtifacts(database, blobs, "artifact-tenant");
   const content = new TextEncoder().encode("concurrent immutable page");
   const options = { definitionDigest: `sha256:${"e".repeat(64)}`, pageIndex: 7, interpreterScoped: false };
@@ -61,11 +55,22 @@ test("twelve concurrent PostgreSQL admissions converge and changed bytes fail", 
   await expect(artifacts.stage(identity, "definition_page", new TextEncoder().encode("changed page"), options)).rejects.toMatchObject({ code: "factory_artifact_conflict" });
   const rows = await database.execute(sql`SELECT object_id FROM factory_artifacts WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} AND kind='definition_page' AND page_index=7`) as unknown as { rows?: unknown[] } | unknown[];
   expect(Array.isArray(rows) ? rows : rows.rows).toHaveLength(1);
-  client.destroy();
+});
+
+test("uses compiler partition IDs without hash collisions or signed-index overflow", async () => {
+  const { blobs, database, identity } = await fixture();
+  const definitions = new FactoryDefinitionArtifacts(new FactoryArtifacts(database, blobs, identity.tenantId));
+  const definitionDigest = `sha256:${"f".repeat(64)}`;
+  const first = await definitions.stagePartition({ id: "Aa" } as never, identity, definitionDigest);
+  const second = await definitions.stagePartition({ id: "BB" } as never, identity, definitionDigest);
+  const overflow = await definitions.stagePartition({ id: "zzzzzz" } as never, identity, definitionDigest);
+  expect(new Set([first.objectId, second.objectId, overflow.objectId]).size).toBe(3);
+  const rows = await database.execute(sql`SELECT partition_id, page_index FROM factory_artifacts WHERE tenant_id=${identity.tenantId} AND project_id=${identity.projectId} AND run_id=${identity.logicalRunId} AND kind='partition' ORDER BY partition_id`) as unknown as { rows?: Array<{ partition_id: string; page_index: number | null }> } | Array<{ partition_id: string; page_index: number | null }>;
+  expect(Array.isArray(rows) ? rows : rows.rows).toEqual([{ partition_id: "Aa", page_index: null }, { partition_id: "BB", page_index: null }, { partition_id: "zzzzzz", page_index: null }]);
 });
 
 test("PostgreSQL outer rollback leaves no staged reference or accepted factory fact", async () => {
-  const { database, client, blobs, identity } = await fixture();
+  const { database, blobs, identity } = await fixture();
   const artifacts = new FactoryArtifacts(database, blobs, identity.tenantId);
   const pending = { ...identity, logicalRunId: `rolled-back-${randomUUID()}` };
   await expect(database.transaction(async transaction => {
@@ -79,11 +84,10 @@ test("PostgreSQL outer rollback leaves no staged reference or accepted factory f
   expect(Array.isArray(references) ? references : references.rows).toEqual([]);
   expect(Array.isArray(runs) ? runs : runs.rows).toEqual([]);
   expect(Array.isArray(outbox) ? outbox : outbox.rows).toEqual([]);
-  client.destroy();
 });
 
 test("PostgreSQL and S3 commit paged Node transitions with exact inbox receipts", async () => {
-  const { database, client, blobs, identity } = await fixture();
+  const { database, blobs, identity } = await fixture();
   const artifacts = new FactoryArtifacts(database, blobs, identity.tenantId);
   const definitions = new FactoryDefinitionArtifacts(artifacts);
   const transitions = new FactoryTransitionArtifacts(artifacts);
@@ -113,5 +117,4 @@ test("PostgreSQL and S3 commit paged Node transitions with exact inbox receipts"
   const record = { ...identity, sourceSequence: 1, eventId: event.id, eventHash: command.eventHash, inboxSequence: command.eventSequence, artifactManifest: JSON.parse(source.payload).artifactManifest };
   await Promise.all([transitions.recordTransition(record), transitions.recordTransition(record)]);
   expect(await inbox.confirmApplied(key, { inboxSequence: command.eventSequence, eventId: event.id, eventHash: command.eventHash })).toBe(true);
-  client.destroy();
 });
