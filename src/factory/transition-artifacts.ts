@@ -1,23 +1,48 @@
 import { encodeFactoryPageBase64, decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { JsonValue } from "@ezcorp/factory-sdk";
-import { MAX_PAGE_BYTES, MAX_TRANSITION_ARTIFACT_BYTES, MAX_TRANSITION_PAGES, type FactoryIdentity, type FactoryTransitionManifest, type FactoryTransitionPage, type FinalizedTransitionArtifact, type ImmutableObjectReference, type TransitionArtifact, type TransitionArtifactRequest, type TransitionPageReference, type TransitionPageRequest, type TransitionRecord } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
+import type { KernelCommand } from "@ezcorp/factory-sdk/kernel-types";
+import { sql } from "drizzle-orm";
+import { loadTransitionArtifact } from "../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
+import { MAX_ACTIVITY_PAYLOAD_BYTES, MAX_COMMAND_BATCH_BYTES, MAX_INFLIGHT_COMMANDS, MAX_PAGE_BYTES, MAX_TRANSITION_ARTIFACT_BYTES, MAX_TRANSITION_PAGES, type FactoryIdentity, type FactoryTransitionManifest, type FactoryTransitionPage, type FinalizedTransitionArtifact, type ImmutableObjectReference, type TransitionArtifact, type TransitionArtifactRequest, type TransitionPageReference, type TransitionPageRequest, type TransitionRecord } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
+import type { MigrationDb } from "../db/migrations/types";
+import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestBytes } from "../extensions/v4/blobs";
 import { FACTORY_ARTIFACT_MAX_BYTES, FactoryArtifactError, artifactJson } from "./artifacts";
 import type { FactoryArtifacts } from "./artifacts";
 import { FactoryInbox } from "./inbox";
-import { encodeFactoryPayload, FactoryRecords } from "./records";
+import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type FactoryAuditBatch } from "./records";
 
 function eventDigest(event: unknown): string { return `sha256:${digestBytes(artifactJson.canonical(event))}`; }
 
 export type LoadedTransitionManifest = FactoryTransitionManifest;
 export type LoadedTransitionPage = FactoryTransitionPage;
+export interface StoredFactoryCommandReference extends FactoryIdentity { readonly commandId: string; }
+type IndexedCommand = { readonly commandId: string; readonly digest: string; readonly command: KernelCommand; };
+type CommandIndexRow = { source_sequence: number | string; command_digest: string };
 
 function validSequence(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 1; }
 function sameReference(left: ImmutableObjectReference, right: ImmutableObjectReference): boolean { return left.objectId === right.objectId && left.digest === right.digest && left.encodedBytes === right.encodedBytes; }
 function object(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function reference(value: unknown): value is ImmutableObjectReference { return object(value) && typeof value.objectId === "string" && typeof value.digest === "string" && typeof value.encodedBytes === "number" && Number.isSafeInteger(value.encodedBytes) && value.encodedBytes >= 1; }
 function pageReference(value: unknown): value is TransitionPageReference { return object(value) && reference(value) && typeof value.index === "number" && Number.isSafeInteger(value.index) && value.index >= 0; }
+/** Canonical C08 command limits are rechecked before an audited command is indexed or returned. */
+function indexedCommands(commands: unknown): readonly IndexedCommand[] {
+  if (!Array.isArray(commands) || commands.length > MAX_INFLIGHT_COMMANDS || artifactJson.canonical(commands).byteLength > MAX_COMMAND_BATCH_BYTES) throw new FactoryArtifactError("factory_transition_commands_invalid");
+  const seen = new Set<string>();
+  return commands.map(command => {
+    if (!object(command) || typeof command.id !== "string" || typeof command.kind !== "string" || command.id.length === 0 || command.id.length > 512 || command.id.includes("\0") || seen.has(command.id)) throw new FactoryArtifactError("factory_transition_commands_invalid");
+    const bytes = artifactJson.canonical(command);
+    if (bytes.byteLength > MAX_ACTIVITY_PAYLOAD_BYTES) throw new FactoryArtifactError("factory_transition_commands_invalid");
+    seen.add(command.id);
+    return { commandId: command.id, digest: `sha256:${digestBytes(bytes)}`, command: command as KernelCommand };
+  });
+}
+
+function auditedManifest(payload: unknown): ImmutableObjectReference {
+  if (!object(payload) || payload.kind !== "factory.transition" || typeof payload.eventId !== "string" || !payload.eventId || typeof payload.eventHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(payload.eventHash) || !reference(payload.artifactManifest)) throw new FactoryArtifactError("factory_transition_audit_invalid");
+  return payload.artifactManifest;
+}
 
 /** Activity implementation that keeps transition bytes ahead of compact records. */
 export class FactoryTransitionArtifacts {
@@ -77,12 +102,50 @@ export class FactoryTransitionArtifacts {
     if (!Number.isSafeInteger(snapshot.sourceSequence) || snapshot.sourceSequence < 1 || !snapshot.eventId || !/^sha256:[0-9a-f]{64}$/.test(snapshot.eventHash) || (snapshot.inboxSequence !== undefined && (!Number.isSafeInteger(snapshot.inboxSequence) || snapshot.inboxSequence < 1))) throw new FactoryArtifactError("factory_transition_invalid");
     const manifest = await this.loadTransitionManifest({ ...snapshot, manifest: snapshot.artifactManifest }).catch(error => { if (error instanceof FactoryArtifactError) throw new FactoryArtifactError("factory_transition_unfinalized"); throw error; });
     if (manifest.eventId !== snapshot.eventId || manifest.eventHash !== snapshot.eventHash) throw new FactoryArtifactError("factory_transition_unfinalized");
+    let transition: TransitionArtifact;
+    try { transition = await loadTransitionArtifact(snapshot, snapshot.sourceSequence, snapshot.artifactManifest, this); }
+    catch { throw new FactoryArtifactError("factory_transition_unfinalized"); }
+    if (transition.event.id !== snapshot.eventId || eventDigest(transition.event) !== snapshot.eventHash) throw new FactoryArtifactError("factory_transition_unfinalized");
+    const commands = indexedCommands(transition.commands);
     const records = new FactoryRecords(this.artifacts.database, snapshot.tenantId);
     const inbox = new FactoryInbox(this.artifacts.database, snapshot.tenantId);
     await this.artifacts.database.transaction(async transaction => {
       const prior = snapshot.sourceSequence === 1 ? null : await records.readAuditBatchInTransaction(transaction, { projectId: snapshot.projectId, runId: snapshot.logicalRunId, interpreterId: snapshot.interpreterId }, snapshot.sourceSequence - 1);
       await inbox.commitTransitionInTransaction(transaction, { projectId: snapshot.projectId, runId: snapshot.logicalRunId, interpreterId: snapshot.interpreterId, sourceSequence: snapshot.sourceSequence, predecessorDigest: prior?.digest ?? null, payload: { kind: "factory.transition", eventId: snapshot.eventId, eventHash: snapshot.eventHash, ...(snapshot.inboxSequence === undefined ? {} : { inboxSequence: snapshot.inboxSequence }), artifactManifest: snapshot.artifactManifest } });
+      for (const command of commands) await this.indexCommand(transaction, snapshot, command);
     });
+  }
+
+  /** Resolves one indexed command, then proves its audit and immutable transition before returning it. */
+  async loadStoredCommand(referenceValue: StoredFactoryCommandReference): Promise<KernelCommand> {
+    try { assertFactoryIdentity(referenceValue.tenantId, referenceValue.projectId, referenceValue.logicalRunId, referenceValue.interpreterId, referenceValue.commandId); }
+    catch { throw new FactoryArtifactError("factory_transition_command_invalid"); }
+    const indexed = rows<CommandIndexRow>(await this.artifacts.database.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${referenceValue.tenantId} AND project_id=${referenceValue.projectId} AND run_id=${referenceValue.logicalRunId} AND interpreter_id=${referenceValue.interpreterId} AND command_id=${referenceValue.commandId}`))[0];
+    if (!indexed) throw new FactoryArtifactError("factory_transition_command_not_found");
+    const sourceSequence = Number(indexed.source_sequence);
+    if (!validSequence(sourceSequence) || !/^sha256:[0-9a-f]{64}$/.test(indexed.command_digest)) throw new FactoryArtifactError("factory_transition_command_corrupt");
+    const records = new FactoryRecords(this.artifacts.database, referenceValue.tenantId);
+    let batch: FactoryAuditBatch | null;
+    try { batch = await records.readAuditBatchInTransaction(this.artifacts.database, { projectId: referenceValue.projectId, runId: referenceValue.logicalRunId, interpreterId: referenceValue.interpreterId }, sourceSequence); }
+    catch { throw new FactoryArtifactError("factory_transition_command_corrupt"); }
+    if (!batch) throw new FactoryArtifactError("factory_transition_command_not_found");
+    const manifest = auditedManifest(batch.payload);
+    let transition: TransitionArtifact;
+    try { transition = await loadTransitionArtifact(referenceValue, sourceSequence, manifest, this); }
+    catch { throw new FactoryArtifactError("factory_transition_command_corrupt"); }
+    if (transition.event.id !== (batch.payload as { eventId: unknown }).eventId || eventDigest(transition.event) !== (batch.payload as { eventHash: unknown }).eventHash) throw new FactoryArtifactError("factory_transition_command_corrupt");
+    const command = indexedCommands(transition.commands).find(value => value.commandId === referenceValue.commandId);
+    if (!command || command.digest !== indexed.command_digest) throw new FactoryArtifactError("factory_transition_command_corrupt");
+    return command.command;
+  }
+
+  private async indexCommand(transaction: MigrationDb, snapshot: TransitionRecord, command: IndexedCommand): Promise<void> {
+    const current = rows<CommandIndexRow>(await transaction.execute(sql`SELECT source_sequence, command_digest FROM factory_transition_commands WHERE tenant_id=${snapshot.tenantId} AND project_id=${snapshot.projectId} AND run_id=${snapshot.logicalRunId} AND interpreter_id=${snapshot.interpreterId} AND command_id=${command.commandId} FOR UPDATE`))[0];
+    if (current) {
+      if (Number(current.source_sequence) !== snapshot.sourceSequence || current.command_digest !== command.digest) throw new FactoryArtifactError("factory_transition_command_conflict");
+      return;
+    }
+    await transaction.execute(sql`INSERT INTO factory_transition_commands (tenant_id, project_id, run_id, interpreter_id, command_id, source_sequence, command_digest) VALUES (${snapshot.tenantId}, ${snapshot.projectId}, ${snapshot.logicalRunId}, ${snapshot.interpreterId}, ${command.commandId}, ${snapshot.sourceSequence}, ${command.digest})`);
   }
 
   private parseManifest(content: Uint8Array, identity: FactoryIdentity & { readonly sourceSequence: number }, self: ImmutableObjectReference, code: string): LoadedTransitionManifest {

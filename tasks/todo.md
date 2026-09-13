@@ -1,5 +1,16 @@
 # Extension v4 independent validation
 
+## Trusted factory command lookup — Terra
+
+- [x] Reproduce rejection for an uncommitted or foreign command reference.
+- [x] Add a scoped command index with its audit foreign key and migration parity.
+- [x] Commit command indexing with transition audit and inbox receipt.
+- [x] Verify index, audit, manifest, pages, and command digest before return.
+- [x] Prove PGlite and PostgreSQL/S3 retries, rollback, and corruption denials.
+- [x] Run coverage, four typecheck legs, and lint; record review.
+
+Review: public page-stage/finalize/record/load tests reject uncommitted and foreign references, duplicate IDs, changed IDs, tampered indexes, audit payloads, and page blobs. They also prove retry convergence and one transaction for audit, index, and inbox receipt. Focused Bun coverage reports 125/125 executable lines for `transition-artifacts.ts`, 334/334 for `factory-schema.ts`, and 4/4 for the new migration at `/tmp/factory-platform-evidence/terra-c02-command-coverage.lcov`. The real PostgreSQL/S3 proof passes seven cases at `/tmp/factory-platform-evidence/terra-c02-command-postgres-s3.log`. Four typecheck legs and lint pass with zero errors and eight existing infos at `/tmp/factory-platform-evidence/terra-c02-command-types-lint.log`.
+
 ## Factory assurance integrity — 2026-09-13
 
 - [x] Bind every persisted contract field and the approving authority into a canonical protected snapshot.

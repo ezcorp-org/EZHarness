@@ -178,6 +178,7 @@
   "src/runtime/factory-execution.ts": 100,
   "src/factory/executions.ts": 100,
   "src/db/migrations/add-factory-executions.ts": 100,
+  "src/db/migrations/add-factory-transition-commands.ts": 100,
   "src/db/migrations/add-factory-inbox.ts": 100,
   "src/db/migrations/add-factory-budgets.ts": 100,
   "src/db/migrations/add-factory-definitions.ts": 100,
