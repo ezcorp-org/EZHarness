@@ -95,6 +95,8 @@ staged_test_targets() {
       "$dir/$base.server.test.ts" \
       "$dir/__tests__/$base.test.ts" \
       "$dir/__tests__/$base.unit.test.ts" \
+      "$dir/__tests__/$base.component.test.ts" \
+      "$dir/__tests__/$base.server.test.ts" \
       "src/__tests__/$base.test.ts" \
       "web/src/__tests__/$base.test.ts" \
       "web/src/__tests__/$base.unit.test.ts"; do

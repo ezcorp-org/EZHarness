@@ -183,6 +183,10 @@ export function qualityGateRatchetViolations(baseJson: string, headJson: string)
     ["crap", "warnScore", "down"],
     ["crap", "maxFullRepoViolations", "down"],
     ["mutation", "scoreThreshold", "up"],
+    // Not a quality threshold, but a budget: raising it lets a PR sit longer in
+    // the queue, and LOWERING it can turn a would-be real score into a
+    // "budget exceeded" abort. Ratcheted so neither drifts unreviewed.
+    ["mutation", "prBudgetMinutes", "down"],
   ];
   const SCOPES: [section: string, key: string][] = [
     ["crap", "enforceGlobs"],
@@ -213,10 +217,23 @@ export function qualityGateRatchetViolations(baseJson: string, headJson: string)
     const h = head[section]?.[key];
     if (!Array.isArray(b)) continue;
     const headSet = new Set(Array.isArray(h) ? (h as string[]) : []);
+    const baseSet = new Set(b as string[]);
     for (const pat of b as string[]) {
-      // Only POSITIVE patterns define scope; a dropped "!…" exclusion widens it.
+      // A dropped POSITIVE pattern narrows the gated set.
       if (!pat.startsWith("!") && !headSet.has(pat)) {
         out.push(`quality-gates.json: ${section}.${key} lost "${pat}" — that un-gates a tree`);
+      }
+    }
+    // An ADDED NEGATIVE pattern narrows it just as effectively, and checking
+    // only removals missed it entirely: one `"!src/lib/payments/**"` line
+    // permanently exempted a subtree from mutation testing with no violation
+    // raised. mutation.ts's matchMutateGlobs() honours `!`, so this was live.
+    for (const pat of Array.isArray(h) ? (h as string[]) : []) {
+      if (pat.startsWith("!") && !baseSet.has(pat)) {
+        out.push(
+          `quality-gates.json: ${section}.${key} gained exclusion "${pat}" — ` +
+            `that un-gates a tree just as surely as deleting a pattern`,
+        );
       }
     }
   }
