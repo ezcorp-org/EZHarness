@@ -904,7 +904,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version # single pin source; see note at top
       - run: git fetch --no-tags origin main
@@ -947,9 +948,13 @@ jobs:
         env:
           BASE_REF: origin/main
         run: bun scripts/crap-score.ts --changed
-      # always(): the summary is most useful precisely when a gate above failed.
+      # Runs even when a gate above FAILED — that is when the summary is most
+      # useful. But it must not run when the job never got a bun: the
+      # producers-check step above sits BEFORE setup-bun, so on a producer
+      # cascade a bare always() fired with no interpreter and added a bogus
+      # `bun: command not found` (exit 127) on top of the real failure.
       - name: Quality summary
-        if: always()
+        if: always() && steps.bun.outcome == 'success'
         run: bun scripts/quality-report.ts --text
       - name: Upload quality reports
         if: always()
@@ -977,7 +982,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version # single pin source; see note at top
       # StrykerJS 10 requires Node >= 22, and the vitest runner is a Node
@@ -1014,7 +1020,7 @@ jobs:
           BASE_REF: origin/main
         run: bun scripts/mutation.ts --changed --report-only
       - name: Quality summary
-        if: always()
+        if: always() && steps.bun.outcome == 'success'
         run: bun scripts/quality-report.ts --text
       - name: Upload mutation report
         if: always()

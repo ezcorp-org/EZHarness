@@ -61,10 +61,25 @@ jobs:
       # A nightly that is red on day one gets muted, and a muted gate gates
       # nothing. Promote to enforcing by flipping the default below once a run
       # is clean; the diff-scoped PR gate blocks for real in the meantime.
+      # `${{ inputs.enforce && '' || '--report-only' }}` was DEAD CODE and always
+      # yielded --report-only: GitHub's `&&`/`||` return VALUES, so a truthy
+      # `enforce` produced `''`, which is itself falsy, so `||` then handed back
+      # the right operand every time. enforce=true, enforce=false and the
+      # scheduled (null inputs) case were indistinguishable — the documented
+      # promotion switch could never enforce, and would have failed silently.
+      # Compare against the string instead of relying on truthiness.
       - name: Full mutation run
+        env:
+          # Decide in the shell, not in a GitHub expression. Scheduled runs have
+          # no `inputs`, so this is empty then — which is the report-only path.
+          ENFORCE: ${{ inputs.enforce }}
         run: |
-          bun scripts/mutation.ts --full \
-            ${{ inputs.enforce && '' || '--report-only' }}
+          if [ "$ENFORCE" = "true" ]; then
+            echo "enforce=true — a below-threshold score will FAIL this run"
+            bun scripts/mutation.ts --full
+          else
+            bun scripts/mutation.ts --full --report-only
+          fi
 
       # ── Full-repo CRAP ratchet ────────────────────────────────────────────
       # Needs the merged lcov, which only the coverage pipeline produces, so the
@@ -75,6 +90,16 @@ jobs:
         id: cov
         continue-on-error: true
         run: bun run test:coverage
+      # continue-on-error above keeps a coverage-pipeline problem from being
+      # reported as a mutation failure — but it must not be SILENT. A dead
+      # producer shrinks the denominator the two steps below measure, and
+      # without this the run would look clean while gating on partial data.
+      # (crap-score.ts and check-global-coverage.ts both now hard-fail on an
+      # empty lcov; this surfaces the degraded-but-non-empty case.)
+      - name: Flag degraded coverage data
+        if: steps.cov.outcome != 'success'
+        run: |
+          echo "::warning::coverage rebuild exited ${{ steps.cov.outcome }} — the CRAP ratchet and coverage floor below are measured on POSSIBLY INCOMPLETE data. Treat their verdicts as advisory for this run."
       - name: CRAP ratchet (full repo)
         if: always()
         run: bun scripts/crap-score.ts

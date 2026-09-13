@@ -185,11 +185,36 @@ export function scoreFile(
       const start = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
       const end = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
 
+      // Lines belonging to NESTED functions are not this function's coverage,
+      // for the same reason complexityOf() does not count their branches: a
+      // callback is scored as its own entry. Measuring the whole span while
+      // counting only the outer complexity mixes two functions into one CRAP
+      // score, and it is wrong in BOTH directions — an untested inline
+      // `.map()` callback drags a fully-covered parent down (measured: a
+      // complexity-5 function at true 100% scored 60%, CRAP 6.60 instead of
+      // 5.00), and a well-tested helper can equally hide an untested parent.
+      // Inline callbacks are the idiomatic common case here, so this was not
+      // an edge case.
+      const nestedLines = new Set<number>();
+      const markNested = (n: ts.Node): void => {
+        if (n !== node && isFunctionLike(n)) {
+          const ns = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+          const ne = sf.getLineAndCharacterOfPosition(n.getEnd()).line + 1;
+          // Skip `ns` itself: the nested function OPENS on a line the parent
+          // also owns (`return items.map((x) => {`), and that line carries the
+          // parent's own call expression.
+          for (let l = ns + 1; l <= ne; l++) nestedLines.add(l);
+          return;
+        }
+        ts.forEachChild(n, markNested);
+      };
+      ts.forEachChild(node, markNested);
+
       let measuredCount = 0;
       let coveredCount = 0;
       const uncovered: number[] = [];
       for (let ln = start; ln <= end; ln++) {
-        if (!measured.has(ln)) continue;
+        if (nestedLines.has(ln) || !measured.has(ln)) continue;
         measuredCount++;
         if (hits.has(ln)) coveredCount++;
         else uncovered.push(ln);
@@ -228,6 +253,21 @@ const topN = topArg >= 0 ? Number(process.argv[topArg + 1] ?? 15) : 15;
 
 const gates = await loadGates();
 const { hits, measured } = await loadLcov();
+
+// FAIL CLOSED on an empty-but-present lcov. loadLcov() already throws when the
+// file is MISSING, but a present-and-empty one (a dead producer, a truncated
+// artifact download, a merge that wrote a header and nothing else) parses to
+// zero records — and zero records means zero candidates, zero violations, and
+// a ratchet that reports PASS while measuring nothing. check-global-coverage.ts
+// has the same guard; this one was missing it.
+if (measured.size === 0) {
+  console.error(
+    "✗ CRAP: coverage/lcov.info contains no measured lines — the coverage " +
+      "producers did not run, or the merged artifact is truncated. Refusing to " +
+      "pass a ratchet with no data.",
+  );
+  process.exit(1);
+}
 
 const enforceGlobs = gates.crap.enforceGlobs.map((p) => new Glob(escapeGlob(p)));
 const inScope = (f: string): boolean =>
