@@ -39,6 +39,11 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
+    "./api": {
+      "bun": "./src/api.ts",
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
     "./kernel": {
       "bun": "./src/kernel.ts",
       "types": "./dist/kernel.d.ts",

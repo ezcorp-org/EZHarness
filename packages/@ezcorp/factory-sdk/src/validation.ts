@@ -1,4 +1,5 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
+import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
 import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
 import {
@@ -725,6 +726,8 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
   if (request.kind === "run.control" && encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_CONTROL_BYTES", "Run control exceeds the 64 KiB durable command bound.", []);
   if (request.kind === "approval.decide" && !validDigest(request.body.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Approval decision needs a lowercase sha256 context digest.", ["body", "contextDigest"]);
   if (request.kind === "grant.set" && request.path.principalKind === "service" && request.body.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grants require an expiry.", ["body", "expiresAtMs"]);
+  const payloadDigest = "preconditions" in request ? validateFactoryApiPayloadDigest(request) : { ok: true } as const;
+  if (!payloadDigest.ok) return payloadDigest;
   return { ok: true };
 }
 

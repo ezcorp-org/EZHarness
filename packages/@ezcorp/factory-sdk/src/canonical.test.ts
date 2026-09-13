@@ -1,7 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical";
+import { createHash } from "node:crypto";
+import { canonicalizeJson, isUnsignedDecimal, jsonEqual, sha256Hex, unicodeLength, validateIJson } from "./canonical";
 
 describe("canonical I-JSON", () => {
+  test("matches standard SHA-256 vectors for text and bytes", () => {
+    expect(sha256Hex("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    expect(sha256Hex("abc")).toBe("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    expect(sha256Hex(new TextEncoder().encode("factory 🌳"))).toBe(sha256Hex("factory 🌳"));
+    for (const length of [1, 55, 56, 63, 64, 65, 1_024]) {
+      const value = "x".repeat(length);
+      expect(sha256Hex(value)).toBe(createHash("sha256").update(value).digest("hex"));
+    }
+  });
   test("canonicalizes keys, arrays, numbers, and negative zero", () => {
     expect(canonicalizeJson({ z: [true, null, -0], a: "😀" })).toBe('{"a":"😀","z":[true,null,0]}');
     expect(jsonEqual(-0, 0)).toBe(true);

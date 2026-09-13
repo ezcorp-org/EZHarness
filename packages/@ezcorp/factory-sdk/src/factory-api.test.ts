@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "./canonical";
+import { factoryApiMutationPayload, factoryApiPayloadDigest, validateFactoryApiPayloadDigest } from "./api";
 import { compileFactory } from "./compiler";
 import { referenceCodeV1 } from "./references";
 import { factoryApiRequestJsonSchema, factoryApiResponseJsonSchema, isFactoryApiRequest, isFactoryApiResponse } from "./schema";
@@ -24,7 +25,7 @@ function code(result: ReturnType<typeof validateFactoryApiRequest> | ReturnType<
 }
 
 function requests(): FactoryApiRequest[] {
-  return [
+  const values: FactoryApiRequest[] = [
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "draft.create", path: project, preconditions: { ...preconditions, expectedRevision: 0 }, body: definitionBody },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "draft.update", path: draft, preconditions, body: definitionBody },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "draft.delete", path: draft, preconditions },
@@ -49,6 +50,9 @@ function requests(): FactoryApiRequest[] {
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.set", path: { ...project, principalKind: "service", principalId: "agent-1", action: "factory.run" }, preconditions: { ...preconditions, expectedRevision: 0 }, body: { expiresAtMs: 2_000_000_000_000 } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "grant.revoke", path: { ...project, principalKind: "user", principalId: "user-1", action: "factory.author" }, preconditions },
   ];
+  return values.map((request) => "preconditions" in request
+    ? { ...request, preconditions: { ...request.preconditions, payloadDigest: factoryApiPayloadDigest(request) } } as FactoryApiRequest
+    : request);
 }
 
 function draftSummary(): FactoryDraftSummary {
@@ -110,6 +114,24 @@ describe("factory product API schema", () => {
     expect(code(validateFactoryApiRequest({ ...requests()[4]!, query: { limit: 201 } }))).toBe("API_REQUEST_SCHEMA");
     expect(code(validateFactoryApiRequest({ ...requests()[4]!, query: { cursor: "bad\ncursor" } }))).toBe("API_QUERY");
     expect(code(validateFactoryApiRequest({ ...requests()[21]!, body: { expiresAtMs: null } }))).toBe("API_GRANT_EXPIRY");
+  });
+
+  test("hashes the canonical mutation payload and rejects changed key reuse", () => {
+    const update = requests()[1]!;
+    expect(validateFactoryApiPayloadDigest(update)).toEqual({ ok: true });
+    expect(factoryApiMutationPayload(update)).toEqual({
+      schemaVersion: update.schemaVersion,
+      kind: update.kind,
+      path: update.path,
+      preconditions: { expectedRevision: 1 },
+      body: update.body,
+    });
+    expect(validateFactoryApiRequest({ ...update, preconditions: { ...update.preconditions, idempotencyKey: "rotated-key" } })).toEqual({ ok: true });
+    const changed = { ...update, body: { source: { ...referenceCodeV1, version: "changed" } } } as FactoryApiRequest;
+    expect(code(validateFactoryApiRequest(changed))).toBe("API_PAYLOAD_DIGEST_MISMATCH");
+    const read = requests()[3]!;
+    expect(validateFactoryApiPayloadDigest(read)).toMatchObject({ ok: false, issues: [{ code: "API_NOT_MUTATION" }] });
+    expect(() => factoryApiMutationPayload(read)).toThrow("not a mutation");
   });
 
   test("rejects mismatched definitions, malformed digests, and oversized transport", () => {
