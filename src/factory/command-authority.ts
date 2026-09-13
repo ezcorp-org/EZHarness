@@ -18,6 +18,8 @@ type ApprovalWork<Result> = (transaction: MigrationDb, context: FactoryAuthorize
 interface Head { source_sequence: number | string; digest: string }
 interface CommittedCommand<Command extends KernelCommand> {
   readonly command: Command;
+  readonly sourceSequence: number;
+  readonly commandDigest: string;
   readonly compiled: CompiledFactory;
   readonly state: KernelState;
   readonly fence: FactoryRunFence;
@@ -118,7 +120,8 @@ export class FactoryCommandAuthority {
     assertFactoryIdentity(...Object.values(reference));
     this.assertService(service);
     if (reference.tenantId !== this.tenantId) throw new FactoryCommandAuthorityError("factory_command_forbidden");
-    const command = await this.transitions.loadStoredCommand(reference, suppliedTransaction);
+    const stored = await this.transitions.loadStoredCommandEntry(reference, suppliedTransaction);
+    const command = stored.command;
     if (!accepts(command)) throw new FactoryCommandAuthorityError("factory_command_forbidden");
     const head = await this.head(suppliedTransaction ?? this.database, reference);
     const transition = await this.transitions.loadCommittedTransition(reference, Number(head.source_sequence), suppliedTransaction);
@@ -130,7 +133,7 @@ export class FactoryCommandAuthority {
       if (Number(current.source_sequence) !== Number(head.source_sequence) || current.digest !== head.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
       const state = transition.nextState;
       if (state.logicalRunId !== reference.logicalRunId || state.definitionDigest !== fence.definitionDigest || state.runDeadlineAtMs !== fence.deadlineAtMs || state.cancellationEpoch !== fence.cancellationEpoch || !["running", "waiting"].includes(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
-      return work(transaction, { command, compiled, state, fence, initiator });
+      return work(transaction, { command, sourceSequence: stored.sourceSequence, commandDigest: stored.commandDigest, compiled, state, fence, initiator });
     };
     return suppliedTransaction ? apply(suppliedTransaction) : this.database.transaction(apply);
   }
