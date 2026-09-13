@@ -414,6 +414,12 @@ export type FactoryTransportValue =
   | { readonly kind: "inline"; readonly value: JsonValue }
   | { readonly kind: "artifact"; readonly artifact: FactoryArtifactReference };
 
+/** Durable artifact descriptors stay out of kernel JSON state until a bounded host read. */
+export interface FactoryDurableInput {
+  readonly schemaVersion: "factory.lazy-input.v1";
+  readonly parameters: Readonly<Record<string, FactoryTransportValue>>;
+}
+
 /** Authority carried by the signed attempt token and checked on every effect. */
 export interface FactoryRunnerAuthority {
   readonly attemptId: string;
