@@ -168,9 +168,10 @@ function applyAdmission(factory: CompiledFactory, state: KernelState, event: Ext
   if (!runtime || !node || runtime.status !== "reserved" || runtime.candidateGeneration !== event.candidateGeneration) return state;
   const attempt = runtime.attempts.at(-1);
   if (!attempt || attempt.commandId !== event.commandId || attempt.stopped) return state;
+  if (state.nowMs >= attempt.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
   if (!event.granted) return failNode(factory, state, node, event.nodeId, "ADMISSION_DENIED", "admission_denied", commands);
   const input = inputFor(state, node, event.nodeId);
-  const deadlineAtMs = nodeDeadline(state, node);
+  const deadlineAtMs = attempt.deadlineAtMs;
   const command = commandFor(state, "dispatch-node", event.nodeId);
   const running = {
     ...runtime,
@@ -181,14 +182,14 @@ function applyAdmission(factory: CompiledFactory, state: KernelState, event: Ext
     kind: "dispatch-node", id: command.id, nodeId: event.nodeId, candidateGeneration: runtime.candidateGeneration,
     attempt: attempt.attempt, input, deadlineAtMs, cancellationEpoch: state.cancellationEpoch,
   });
-  const dispatched = { ...command.state, nodes: { ...command.state.nodes, [event.nodeId]: running } };
-  return scheduleTimer(dispatched, event.nodeId, deadlineAtMs, "deadline", commands);
+  return withNode(command.state, event.nodeId, running);
 }
 
 function applyResult(factory: CompiledFactory, state: KernelState, event: Extract<KernelEvent, { kind: "node-result" }>, commands: KernelCommand[]): KernelState {
   const runtime = state.nodes[event.nodeId];
   const node = nodeFor(factory, event.nodeId);
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
+  if (state.nowMs >= runtime.attempts.at(-1)!.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
   if (!validateOutput(node, event.output)) return stopFailedAttempt(state, event.nodeId, "OUTPUT_INVALID", commands);
   const attempts = runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt);
   const next = withNode(state, event.nodeId, { ...runtime, status: "succeeded", output: snapshotValue(event.output), error: undefined, attempts });
@@ -200,6 +201,7 @@ function applyFailure(factory: CompiledFactory, state: KernelState, event: Extra
   const runtime = state.nodes[event.nodeId];
   const node = nodeFor(factory, event.nodeId);
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
+  if (state.nowMs >= runtime.attempts.at(-1)!.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
   return stopFailedAttempt(state, event.nodeId, event.error, commands);
 }
 
@@ -360,7 +362,7 @@ function requestAdmission(state: KernelState, node: FactoryNode, nodeId: string,
   const command = commandFor(state, "request-admission", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
   commands.push({ kind: "request-admission", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, deadlineAtMs });
-  return withNode(command.state, nodeId, { ...runtime, status: "reserved", attempts: runtime.attempts.concat(attempt) });
+  return scheduleTimer(withNode(command.state, nodeId, { ...runtime, status: "reserved", attempts: runtime.attempts.concat(attempt), waitingReason: "admission", waitingDeadlineAtMs: deadlineAtMs }), nodeId, deadlineAtMs, "deadline", commands);
 }
 
 function dispatchChild(state: KernelState, node: Extract<FactoryNode, { kind: "subfactory" }>, nodeId: string, commands: KernelCommand[]): KernelState {
@@ -369,7 +371,7 @@ function dispatchChild(state: KernelState, node: Extract<FactoryNode, { kind: "s
   const command = commandFor(state, "run-child", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
   commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node, nodeId), deadlineAtMs });
-  return withNode(command.state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: deadlineAtMs });
+  return waitForExternal(command.state, nodeId, runtime, attempt, commands);
 }
 
 function dispatchAcceptance(state: KernelState, node: Extract<FactoryNode, { kind: "acceptance" }>, nodeId: string, commands: KernelCommand[]): KernelState {
@@ -378,7 +380,7 @@ function dispatchAcceptance(state: KernelState, node: Extract<FactoryNode, { kin
   const command = commandFor(state, "request-acceptance", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
   commands.push({ kind: "request-acceptance", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, candidate: resolveValue(node.candidate, state, nodeId), evidence: resolveValue(node.evidence, state, nodeId), deadlineAtMs });
-  return withNode(command.state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: deadlineAtMs });
+  return waitForExternal(command.state, nodeId, runtime, attempt, commands);
 }
 
 function dispatchRelease(state: KernelState, node: Extract<FactoryNode, { kind: "release" }>, nodeId: string, commands: KernelCommand[]): KernelState {
@@ -389,7 +391,12 @@ function dispatchRelease(state: KernelState, node: Extract<FactoryNode, { kind: 
   const input = { acceptedCandidate: resolveValue(node.acceptedCandidate, state, nodeId), destination: resolveValue(node.destination, state, nodeId) };
   validateRecord(node.inputPorts ?? {}, input, `node ${nodeId} input`);
   commands.push({ kind: "request-release", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, input, deadlineAtMs });
-  return withNode(command.state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: deadlineAtMs });
+  return waitForExternal(command.state, nodeId, runtime, attempt, commands);
+}
+
+function waitForExternal(state: KernelState, nodeId: string, runtime: KernelNodeState, attempt: import("./kernel-types.js").KernelAttempt, commands: KernelCommand[]): KernelState {
+  const waiting = withNode(state, nodeId, { ...runtime, status: "waiting", attempts: runtime.attempts.concat(attempt), waitingReason: "external_reconciliation", waitingDeadlineAtMs: attempt.deadlineAtMs });
+  return scheduleTimer(waiting, nodeId, attempt.deadlineAtMs, "deadline", commands);
 }
 
 function settleJoin(factory: CompiledFactory, state: KernelState, node: Extract<FactoryNode, { kind: "join" }>, nodeId: string, commands: KernelCommand[]): KernelState {

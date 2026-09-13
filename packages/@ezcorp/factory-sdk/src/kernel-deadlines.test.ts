@@ -12,6 +12,7 @@ function compiled(nodes: readonly FactoryNode[]): CompiledFactory {
     schemaVersion: "factory.v1", id: "deadline-regression", version: "1", interpreterCompatibility: "1",
     inputPorts: {}, outputPorts: {}, graph: { nodes, outputs: {} }, acceptance: referenceCodeV1.acceptance,
     packages: [{ name: runner.package, version: runner.version, digest }, ...referenceCodeV1.packages], capabilities: [], effects: ["none"],
+    factories: nodes.flatMap(node => node.kind === "subfactory" ? [node.factory] : []),
     bounds: { maxExpandedNodes: 100, maxScopeDepth: 16 },
   };
   const result = compileFactory(definition);
@@ -52,7 +53,7 @@ test("an old attempt deadline cannot dispatch a newer retry early", () => {
   const admitted = admit(graph, state, "work", "admit-first");
   state = admitted.nextState;
   const first = state.nodes.work!.attempts.at(-1)!;
-  const oldTimer = admitted.commands.find((command) => command.kind === "start-timer")!;
+  const oldTimer = admitted.nextState.nodes.work!.timer!;
   state = advanceKernel(graph, state, { kind: "node-failed", id: "first-failed", atMs: 1, nodeId: "work", commandId: first.commandId, candidateGeneration: first.candidateGeneration, attempt: first.attempt, error: "transient" }).nextState;
   state = advanceKernel(graph, state, { kind: "attempt-stopped", id: "first-stopped", atMs: 1, nodeId: "work", commandId: first.commandId, candidateGeneration: first.candidateGeneration, attempt: first.attempt }).nextState;
   expect(state.nodes.work?.status).toBe("retry_wait");
@@ -68,7 +69,7 @@ test("a running attempt deadline requests cancellation and waits for confirmatio
   const admitted = admit(graph, state, "work", "admit-work");
   state = admitted.nextState;
   const attempt = state.nodes.work!.attempts.at(-1)!;
-  const timer = admitted.commands.find((command) => command.kind === "start-timer")!;
+  const timer = admitted.nextState.nodes.work!.timer!;
 
   const expired = advanceKernel(graph, state, { kind: "timer-expired", id: "work-deadline", atMs: timer.deadlineAtMs, nodeId: "work", commandId: timer.id });
   expect(expired.nextState.status).toBe("stopping");
@@ -116,4 +117,39 @@ test("loop maxElapsedMs installs expiry, cancels its active child, then fails af
   const stopped = advanceKernel(graph, expired.nextState, { kind: "attempt-stopped", id: "loop-child-stopped", atMs: 5, nodeId: "loop/items/0/child", commandId: child.commandId, candidateGeneration: child.candidateGeneration, attempt: child.attempt });
   expect(stopped.nextState.status).toBe("failed");
   expect(stopped.nextState.nodes.loop?.status).toBe("failed");
+});
+
+test("admission waits have an absolute node deadline that a late grant cannot reset", () => {
+  const graph = compiled([{ id: "work", kind: "task", runner, deadlineMs: 10 }]);
+  const started = start(graph, "admission-expiry");
+  const request = started.commands.find(command => command.kind === "request-admission")!;
+  expect(started.commands).toContainEqual(expect.objectContaining({ kind: "start-timer", nodeId: "work", deadlineAtMs: 10 }));
+  const late = advanceKernel(graph, started.nextState, { kind: "admission-result", id: "late-grant", atMs: 10, nodeId: "work", commandId: request.id, candidateGeneration: 0, granted: true });
+  expect(late.commands.some(command => command.kind === "dispatch-node")).toBe(false);
+  expect(late.nextState.nodes.work?.status).toBe("stopping");
+  expect(late.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", attemptCommandId: request.id }));
+});
+
+test("late results cannot beat the node deadline when its timer delivery is delayed", () => {
+  const graph = compiled([{ id: "work", kind: "task", runner, deadlineMs: 10 }]);
+  const state = admit(graph, start(graph, "late-result").nextState, "work", "admit").nextState;
+  const attempt = state.nodes.work!.attempts.at(-1)!;
+  const result = advanceKernel(graph, state, { kind: "node-result", id: "late-result", atMs: 10, nodeId: "work", commandId: attempt.commandId, candidateGeneration: 0, attempt: 1, output: {} });
+  expect(result.nextState.nodes.work?.status).toBe("stopping");
+  expect(result.nextState.nodes.work?.output).toBeUndefined();
+  expect(result.commands.some(command => command.kind === "complete-run")).toBe(false);
+});
+
+test("subfactory and acceptance waits install their own fenced deadline timers", () => {
+  const child: FactoryNode = { id: "child", kind: "subfactory", factory: { id: runner.package, version: runner.version, digest }, releaseMode: "none", grants: [], deadlineMs: 10 };
+  const acceptance: FactoryNode = { id: "accept", kind: "acceptance", contract: referenceCodeV1.acceptance.id, candidate: { kind: "literal", value: {} }, evidence: { kind: "literal", value: [] }, deadlineMs: 10 };
+  for (const node of [child, acceptance]) {
+    const graph = compiled([node]);
+    const started = start(graph, `external-${node.id}`);
+    const timer = started.commands.find(command => command.kind === "start-timer" && command.nodeId === node.id);
+    expect(timer).toEqual(expect.objectContaining({ deadlineAtMs: 10 }));
+    const expired = advanceKernel(graph, started.nextState, { kind: "timer-expired", id: "expire", atMs: 10, nodeId: node.id, commandId: timer!.id });
+    expect(expired.nextState.status).toBe("stopping");
+    expect(expired.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: node.id }));
+  }
 });

@@ -111,7 +111,7 @@ describe("factory kernel", () => {
     expect(admission).toEqual(expect.objectContaining({ kind: "request-admission", nodeId: "first", candidateGeneration: 0, deadlineAtMs: 1_800_001 }));
     const admitted = advanceKernel(graph, started.nextState, event("admit", { kind: "admission-result", nodeId: "first", commandId: admission!.id, candidateGeneration: admission!.candidateGeneration, granted: true }));
     const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node" && command.nodeId === "first");
-    const timer = admitted.commands.find((command) => command.kind === "start-timer" && command.nodeId === "first");
+    const timer = started.commands.find((command) => command.kind === "start-timer" && command.nodeId === "first");
     expect(dispatch).toEqual(expect.objectContaining({ kind: "dispatch-node", nodeId: "first", candidateGeneration: 0, attempt: 1, input: {}, deadlineAtMs: 1_800_001, cancellationEpoch: 0 }));
     expect(timer).toEqual(expect.objectContaining({ kind: "start-timer", nodeId: "first", deadlineAtMs: 1_800_001 }));
     const completed = advanceKernel(graph, admitted.nextState, event("result", { kind: "node-result", nodeId: "first", commandId: dispatch!.id, candidateGeneration: dispatch!.candidateGeneration, attempt: dispatch!.attempt, output: { value: 1 } }));
