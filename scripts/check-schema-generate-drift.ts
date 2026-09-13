@@ -69,60 +69,87 @@ async function digestFiles(files: readonly string[]): Promise<Map<string, string
   return new Map(entries.filter((entry): entry is readonly [string, string] => entry !== undefined));
 }
 
-export async function runSchemaDriftCheck(options: {
-  generate?: (packageDirectory: string) => Promise<number>;
-  log?: Pick<Console, "log" | "error">;
-} = {}): Promise<number> {
-  const log = options.log ?? console;
-  const manifest = await Bun.file(resolve(REPO_ROOT, `${SDK_PACKAGE}/package.json`)).json() as { scripts?: Record<string, string> };
+/**
+ * Everything that must be true BEFORE the generator runs, decided purely so it
+ * is testable without a malformed repository on disk. Any issue aborts: there
+ * is no point regenerating schemas when the manifest, the `--out` list, or the
+ * committed set is already wrong, and not running a generator over a broken
+ * tree is also the safer order.
+ */
+export function schemaGenerationPlan(
+  manifest: { scripts?: Record<string, string> },
+  onDisk: readonly string[],
+): { expected: string[]; issues: string[] } {
   const generateScript = manifest.scripts?.["schema:generate"];
-  if (!generateScript) {
-    log.error(`schema drift gate FAILED: ${SDK_PACKAGE}/package.json has no 'schema:generate' script`);
-    return 1;
-  }
+  if (!generateScript) return { expected: [], issues: [`${SDK_PACKAGE}/package.json has no 'schema:generate' script`] };
   const expected = generatedSchemaOutputs(generateScript);
-  if (expected.length === 0) {
-    log.error("schema drift gate FAILED: 'schema:generate' names no --out target");
-    return 1;
-  }
+  if (expected.length === 0) return { expected: [], issues: ["'schema:generate' names no --out target"] };
+  const present = new Set(onDisk);
+  return {
+    expected,
+    issues: [
+      ...expected.filter((file) => !present.has(file)).map((file) => `${file} is declared by 'schema:generate' but absent from the repository`),
+      ...ungeneratedSchemaFiles(onDisk, expected),
+    ],
+  };
+}
+
+/** Run the package's own `schema:generate`, returning its exit code. */
+export async function spawnSchemaGenerate(packageDirectory: string, log: Pick<Console, "error">): Promise<number> {
+  const proc = Bun.spawn(["bun", "run", "--cwd", packageDirectory, "schema:generate"], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
+  const [, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  if (exitCode !== 0) log.error(`schema:generate exited ${exitCode}: ${stderr.trim().slice(0, 2000)}`);
+  return exitCode;
+}
+
+/** The package manifest and the committed schema set, read from the repository. */
+export async function readSchemaPlanInputs(): Promise<PlanInputs> {
+  const manifest = await Bun.file(resolve(REPO_ROOT, `${SDK_PACKAGE}/package.json`)).json() as { scripts?: Record<string, string> };
   const onDisk = (await readdir(resolve(REPO_ROOT, SDK_SOURCE_DIR)))
     .filter((name) => name.endsWith(".schema.json"))
     .map((name) => `${SDK_SOURCE_DIR}/${name}`)
     .sort();
-  const stray = ungeneratedSchemaFiles(onDisk, expected);
+  return { manifest, onDisk };
+}
 
-  const before = await digestFiles(expected);
-  const missing = expected.filter((file) => !before.has(file));
-  if (missing.length > 0) {
-    for (const file of missing) log.error(`schema drift gate FAILED: ${file} is declared by 'schema:generate' but absent from the repository`);
+export interface PlanInputs {
+  manifest: { scripts?: Record<string, string> };
+  onDisk: string[];
+}
+
+export async function runSchemaDriftCheck(options: {
+  generate?: (packageDirectory: string) => Promise<number>;
+  readInputs?: () => Promise<PlanInputs>;
+  log?: Pick<Console, "log" | "error">;
+} = {}): Promise<number> {
+  const log = options.log ?? console;
+  const { manifest, onDisk } = await (options.readInputs ?? readSchemaPlanInputs)();
+  const plan = schemaGenerationPlan(manifest, onDisk);
+  if (plan.issues.length > 0) {
+    log.error(`schema drift gate FAILED (${plan.issues.length} issue(s)):`);
+    for (const issue of plan.issues) log.error(`  ${issue}`);
     return 1;
   }
 
+  const before = await digestFiles(plan.expected);
   const backup = await mkdtemp(join(tmpdir(), "factory-schema-drift-"));
   try {
-    for (const file of expected) await cp(resolve(REPO_ROOT, file), join(backup, file.replaceAll("/", "_")));
-    const generate = options.generate ?? (async (packageDirectory: string) => {
-      const proc = Bun.spawn(["bun", "run", "--cwd", packageDirectory, "schema:generate"], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
-      const [, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-      if (exitCode !== 0) log.error(`schema:generate exited ${exitCode}: ${stderr.trim().slice(0, 2000)}`);
-      return exitCode;
-    });
-    const exitCode = await generate(SDK_PACKAGE);
-    const after = await digestFiles(expected);
+    for (const file of plan.expected) await cp(resolve(REPO_ROOT, file), join(backup, file.replaceAll("/", "_")));
+    const exitCode = await (options.generate ?? ((directory: string) => spawnSchemaGenerate(directory, log)))(SDK_PACKAGE);
+    const after = await digestFiles(plan.expected);
     const drifted = exitCode === 0 ? driftedSchemas(before, after) : [];
     // Always restore the committed bytes: the gate reports drift, it does not land it.
-    for (const file of expected) await cp(join(backup, file.replaceAll("/", "_")), resolve(REPO_ROOT, file));
+    for (const file of plan.expected) await cp(join(backup, file.replaceAll("/", "_")), resolve(REPO_ROOT, file));
     if (exitCode !== 0) {
       log.error("schema drift gate FAILED: 'schema:generate' did not complete, so drift cannot be ruled out");
       return 1;
     }
-    const issues = [...drifted, ...stray];
-    if (issues.length > 0) {
-      log.error(`schema drift gate FAILED (${issues.length} issue(s)):`);
-      for (const issue of issues) log.error(`  ${issue}`);
+    if (drifted.length > 0) {
+      log.error(`schema drift gate FAILED (${drifted.length} issue(s)):`);
+      for (const issue of drifted) log.error(`  ${issue}`);
       return 1;
     }
-    log.log(`schema drift gate passed: ${expected.length} generated schema(s) match 'schema:generate' byte for byte.`);
+    log.log(`schema drift gate passed: ${plan.expected.length} generated schema(s) match 'schema:generate' byte for byte.`);
     return 0;
   } finally {
     await rm(backup, { recursive: true, force: true });

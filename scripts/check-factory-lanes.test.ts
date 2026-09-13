@@ -130,6 +130,26 @@ describe("C11 lane inventory rejects deliberate violations", () => {
     );
   });
 
+  test("a job that exists under the wrong check name cannot satisfy branch protection", () => {
+    const workflow = [
+      "jobs:",
+      "  factory-temporal:",
+      "    name: Temporal stuff",
+      "    runs-on: ubuntu-latest",
+      "    steps:",
+      "      - run: bash scripts/factory-orchestrator-coverage.sh",
+      "      - run: echo temporal-test-server_1.38.0_linux_amd64",
+      "      - uses: actions/upload-artifact@v7",
+      "        with:",
+      "          name: lcov-cov-factory-orchestrator",
+      "          if-no-files-found: error",
+    ].join("\n");
+    const lane = FACTORY_LANES.find((entry) => entry.job === "factory-temporal")!;
+    expect(factoryLaneIssues({ [CI_WORKFLOW]: workflow }, [lane])).toEqual([
+      "Factory Temporal integration: job 'factory-temporal' does not declare the exact required-check name",
+    ]);
+  });
+
   test("continue-on-error disarms a lane and is rejected", () => {
     const workflow = [
       "jobs:",
