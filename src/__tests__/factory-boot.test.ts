@@ -3,6 +3,9 @@ import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { signJWT } from "../auth/jwt";
+import { initDb } from "../db/connection";
+import { resolveShellSandbox } from "../runtime/tools/shell";
 import {
   FACTORY_REQUIRED_SERVICES,
   FactoryBootError,
@@ -236,5 +239,31 @@ describe("factory boot flag and readiness", () => {
       { EZCORP_FACTORY_ENABLED: "1", EZCORP_INSTALLATION_ID: undefined },
     );
     expect(child.exitCode).toBe(0);
+  });
+
+  test("the captured process factory policy controls direct JWT and database seams", async () => {
+    const user = { id: "user", email: "user@example.test", name: "user", role: "member" as const };
+    if (factoryBootConfig.enabled) {
+      await expect(signJWT(user, "factory-boundary-secret")).rejects.toThrow("EZCORP_INSTALLATION_ID");
+      await expect(initDb()).rejects.toThrow("external PostgreSQL");
+      return;
+    }
+    expect(await signJWT(user, "self-hosted-boundary-secret")).toBeString();
+  });
+
+  test("the captured process sandbox policy controls shell fallback seams", async () => {
+    const root = await mkdtemp(join(tmpdir(), "factory-shell-policy-"));
+    const workspace = join(root, ".ezcorp", "data", "workspace");
+    try {
+      if (factoryBootConfig.requireSandbox) {
+        expect(() => resolveShellSandbox("true", undefined)).toThrow("Required shell sandbox wiring");
+        expect(() => resolveShellSandbox("true", { workspaceDir: workspace, projectRoot: root }))
+          .toThrow("Required shell sandbox isolation");
+        return;
+      }
+      expect(resolveShellSandbox("true", undefined)).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
