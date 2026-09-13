@@ -1741,3 +1741,11 @@ Review checkpoint: combined source `965deee9e` failed because the completion fix
 - [ ] Prove PGlite, PostgreSQL/S3, real Podman preparation/recovery, revocation, coverage, SDK build, type checks, and lint.
 
 Plan review: v4 source and artifacts remain in the established immutable repository. Factory state records only the scoped source mapping, the exact trust revision, and the verified local build receipt. No runner build or blob read occurs under a product transaction.
+
+## C02 fresh Bun/Python launcher — Terra
+
+- [ ] Map the native runner, Python process, V4 package receipt, pool, task completion, and dispatcher seams.
+- [ ] Agree the trusted run request, result, artifact, usage, checkpoint, reattach, and pool lifecycle contract.
+- [ ] Implement one fresh isolated Bun/Python attempt launcher with receipt readiness and broker-only effects.
+- [ ] Prove real CPU no-GPU fail-closed, Podman/Python execution and recovery, then supported AMD GPU execution for the first ten local installations.
+- [ ] Run focused coverage, PostgreSQL/S3, canonical static checks, and lint.
