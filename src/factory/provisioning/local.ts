@@ -6,17 +6,18 @@ import { SQL } from "bun";
 
 export interface LocalInstallationRequest { tenantId: string; hostname: string; administratorEmail: string }
 export interface TemporalNamespaces { create(input: { tenantId: string; namespace: string; secretDirectory: string }): Promise<void> }
-export interface LocalProvisionerOptions { controlDatabaseUrl: string; productDatabaseAdminUrl: string; ordinaryConfigPath: string; archiveConfigPath: string; secretsRoot: string; temporal: TemporalNamespaces }
+export interface LocalProvisionerOptions { controlDatabaseUrl: string; productDatabaseAdminUrl: string; ordinaryConfigPath: string; archiveConfigPath: string; secretsRoot: string; temporal: TemporalNamespaces; afterExternalResourceCreated?: (resource: "role" | "database") => Promise<void> }
 export interface LocalInstallation { tenantId: string; installationId: string; productDatabase: string; productRole: string; temporalNamespace: string; secretBundlePath: string; state: "ready" | "partial" }
 interface S3Identity { name: string; credentials: Array<{ accessKey: string; secretKey: string }> }
 interface S3Config { identities: S3Identity[] }
 interface SecretBundle { installationId: string; tenantId: string; product: { database: string; role: string; credentialsPath: string }; storage: { ordinaryCredentialsPath: string; archiveCredentialsPath: string }; application: { jwtSecretPath: string; encryptionSecretPath: string }; temporal: { namespace: string; credentialsPath: string }; invitationId: string }
-interface InstallationRecord extends Record<string, string | undefined> { role_oid?: string; database_oid?: string }
+interface InstallationRecord extends Record<string, string | undefined> { role_oid?: string; database_oid?: string; role_plan?: string; database_plan?: string }
 type ProvisionOutcome = { installation: LocalInstallation } | { failure: string };
 
 const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
 const localName = (prefix: string, tenantId: string) => `${prefix}_${createHash("sha256").update(tenantId).digest("hex").slice(0, 20)}`;
 const secret = () => randomBytes(32).toString("base64url");
+const resourceMarker = (kind: "role" | "database", record: InstallationRecord): string => `factory-provisioner-${kind}:${stored(record, "installation_id")}:${stored(record, `${kind}_plan`)}`;
 const stored = (record: Record<string, string | undefined>, field: string): string => { const value = record[field]; if (!value) throw new Error(`Installation record has no ${field}.`); return value; };
 const owner = (): number => { const uid = process.getuid?.(); if (uid === undefined) throw new Error("Local secret storage requires a POSIX owner."); return uid; };
 function assertRequest(request: LocalInstallationRequest): void { if (!/^tenant-\d{2}$/.test(request.tenantId)) throw new Error("Local provisioner requires a generated tenant-XX identity."); if (!/^[a-z0-9][a-z0-9.-]{0,252}$/.test(request.hostname)) throw new Error("Installation hostname is malformed."); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.administratorEmail)) throw new Error("First administrator email is malformed."); }
@@ -89,23 +90,25 @@ export class LocalFactoryProvisioner {
   async setup(): Promise<void> {
     await this.control.begin(async (control) => {
       await control.unsafe("SELECT pg_advisory_xact_lock(hashtext('factory-provisioner-schema-v1'))");
-      await control.unsafe("CREATE TABLE IF NOT EXISTS factory_installations (tenant_id text PRIMARY KEY, installation_id text NOT NULL UNIQUE, hostname text NOT NULL UNIQUE, administrator_email text NOT NULL, product_database text NOT NULL UNIQUE, product_role text NOT NULL UNIQUE, temporal_namespace text NOT NULL UNIQUE, secret_bundle_path text NOT NULL, state text NOT NULL CHECK (state IN ('partial','ready')), current_step text NOT NULL, invitation_id text NOT NULL, role_oid oid, database_oid oid)");
+      await control.unsafe("CREATE TABLE IF NOT EXISTS factory_installations (tenant_id text PRIMARY KEY, installation_id text NOT NULL UNIQUE, hostname text NOT NULL UNIQUE, administrator_email text NOT NULL, product_database text NOT NULL UNIQUE, product_role text NOT NULL UNIQUE, temporal_namespace text NOT NULL UNIQUE, secret_bundle_path text NOT NULL, state text NOT NULL CHECK (state IN ('partial','ready')), current_step text NOT NULL, invitation_id text NOT NULL, role_oid oid, database_oid oid, role_plan text, database_plan text)");
       await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS role_oid oid");
       await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS database_oid oid");
+      await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS role_plan text");
+      await control.unsafe("ALTER TABLE factory_installations ADD COLUMN IF NOT EXISTS database_plan text");
     });
   }
   async provision(request: LocalInstallationRequest): Promise<LocalInstallation> {
     assertRequest(request); await this.setup();
+    const database = localName("factory_product", request.tenantId), role = localName("factory_role", request.tenantId), namespace = request.tenantId, directory = resolve(this.options.secretsRoot, request.tenantId);
+    // This commit is the durable intent that makes an external DDL crash recoverable.
+    await this.control`INSERT INTO factory_installations(tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_plan, database_plan) VALUES (${request.tenantId}, ${randomUUID()}, ${request.hostname}, ${request.administratorEmail}, ${database}, ${role}, ${namespace}, ${directory}, 'partial', 'recorded', ${randomUUID()}, ${randomUUID()}, ${randomUUID()}) ON CONFLICT (tenant_id) DO NOTHING`;
     const outcome = await this.control.begin<ProvisionOutcome>(async (control) => {
       await control`SELECT pg_advisory_xact_lock(hashtextextended(${`factory-provisioner-v1:${request.tenantId}`}::text, 0))`;
       try {
-      const database = localName("factory_product", request.tenantId), role = localName("factory_role", request.tenantId), namespace = request.tenantId, directory = resolve(this.options.secretsRoot, request.tenantId);
-      const existing = (await control`SELECT tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_oid::text, database_oid::text FROM factory_installations WHERE tenant_id = ${request.tenantId}`)[0] as InstallationRecord | undefined;
+      const existing = (await control`SELECT tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_oid::text, database_oid::text, role_plan, database_plan FROM factory_installations WHERE tenant_id = ${request.tenantId}`)[0] as InstallationRecord | undefined;
       if (existing?.hostname && (existing.hostname !== request.hostname || existing.administrator_email !== request.administratorEmail)) throw new Error("Provisioning request conflicts with its persisted tenant identity.");
       if (existing?.state === "ready") { await this.verifyReady(existing); await this.options.temporal.create({ tenantId: stored(existing, "tenant_id"), namespace: stored(existing, "temporal_namespace"), secretDirectory: stored(existing, "secret_bundle_path") }); return { installation: this.ready(existing) }; }
-      const installationId = existing?.installation_id ?? randomUUID(), invitationId = existing?.invitation_id ?? randomUUID();
-      await control`INSERT INTO factory_installations(tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id) VALUES (${request.tenantId}, ${installationId}, ${request.hostname}, ${request.administratorEmail}, ${database}, ${role}, ${namespace}, ${directory}, 'partial', 'recorded', ${invitationId}) ON CONFLICT (tenant_id) DO NOTHING`;
-      const persisted = (await control`SELECT tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_oid::text, database_oid::text FROM factory_installations WHERE tenant_id = ${request.tenantId}`)[0] as InstallationRecord | undefined;
+      const persisted = existing;
       if (!persisted || persisted.hostname !== request.hostname || persisted.administrator_email !== request.administratorEmail || persisted.product_database !== database || persisted.product_role !== role || persisted.temporal_namespace !== namespace || persisted.secret_bundle_path !== directory) throw new Error("Concurrent provisioning record conflicts with its deterministic tenant resources.");
       const stableInstallationId = stored(persisted, "installation_id"), stableInvitationId = stored(persisted, "invitation_id");
       const secrets = await privateDirectory(directory);
@@ -114,22 +117,32 @@ export class LocalFactoryProvisioner {
         await writePrivateJson(secrets, files.product, { role, password: secret() }); await writePrivateJson(secrets, files.ordinary, await identity(this.options.ordinaryConfigPath, request.tenantId)); await writePrivateJson(secrets, files.archive, await identity(this.options.archiveConfigPath, request.tenantId)); await writePrivateText(secrets, files.jwt); await writePrivateText(secrets, files.encryption);
         await writePrivateJson(secrets, files.bundle, { installationId: stableInstallationId, tenantId: request.tenantId, product: { database, role, credentialsPath: join(directory, files.product) }, storage: { ordinaryCredentialsPath: join(directory, files.ordinary), archiveCredentialsPath: join(directory, files.archive) }, application: { jwtSecretPath: join(directory, files.jwt), encryptionSecretPath: join(directory, files.encryption) }, temporal: { namespace, credentialsPath: join(directory, files.temporal) }, invitationId: stableInvitationId } satisfies SecretBundle);
         const credentials = JSON.parse(await readPrivate(secrets, files.product)) as { password: string }; if (!/^[A-Za-z0-9_-]{43}$/.test(credentials.password)) throw new Error("Product credential has an invalid format.");
-        const roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean } | undefined;
-        if (roleRecord && (!persisted.role_oid || persisted.role_oid !== roleRecord.oid || !roleRecord.rolcanlogin)) throw new Error("Product role exists without recorded provisioning provenance.");
+        const expectedRoleMarker = resourceMarker("role", persisted);
+        let roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
+        if (roleRecord && (!roleRecord.rolcanlogin || roleRecord.marker !== expectedRoleMarker || (persisted.role_oid && persisted.role_oid !== roleRecord.oid))) throw new Error("Product role exists without recorded provisioning provenance.");
         if (!roleRecord) {
-          const statement = (await this.productAdmin`SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', ${role}::text, ${credentials.password}::text) AS statement`)[0] as { statement: string };
-          await this.productAdmin.unsafe(statement.statement);
-          const created = (await this.productAdmin`SELECT oid::text FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string } | undefined; if (!created) throw new Error("Product role creation did not persist.");
-          await control`UPDATE factory_installations SET current_step = 'role', role_oid = ${created.oid}::oid WHERE tenant_id = ${request.tenantId}`; persisted.role_oid = created.oid;
+          const statements = (await this.productAdmin`SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', ${role}::text, ${credentials.password}::text) AS create_statement, format('COMMENT ON ROLE %I IS %L', ${role}::text, ${expectedRoleMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
+          await this.productAdmin.begin(async (product) => { await product.unsafe(statements.create_statement); await product.unsafe(statements.marker_statement); });
+          roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
+          if (!roleRecord?.rolcanlogin || roleRecord.marker !== expectedRoleMarker) throw new Error("Product role creation did not persist its trusted marker.");
+          await this.options.afterExternalResourceCreated?.("role");
         }
-        const databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string } | undefined;
-        if (databaseRecord && (!persisted.database_oid || persisted.database_oid !== databaseRecord.oid || databaseRecord.owner !== role)) throw new Error("Product database exists without recorded provisioning provenance.");
+        if (!roleRecord) throw new Error("Product role creation did not persist.");
+        if (persisted.role_oid !== roleRecord.oid) { await control`UPDATE factory_installations SET current_step = 'role', role_oid = ${roleRecord.oid}::oid WHERE tenant_id = ${request.tenantId}`; persisted.role_oid = roleRecord.oid; }
+        const expectedDatabaseMarker = resourceMarker("database", persisted);
+        let databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
+        if (databaseRecord && (databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker || (persisted.database_oid && persisted.database_oid !== databaseRecord.oid))) throw new Error("Product database exists without recorded provisioning provenance.");
         if (!databaseRecord) {
-          await this.productAdmin.unsafe(`CREATE DATABASE ${quote(database)} OWNER ${quote(role)}`);
-          const created = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string } | undefined; if (!created || created.owner !== role) throw new Error("Product database creation did not persist.");
-          await control`UPDATE factory_installations SET current_step = 'database', database_oid = ${created.oid}::oid WHERE tenant_id = ${request.tenantId}`; persisted.database_oid = created.oid;
+          const statements = (await this.productAdmin`SELECT format('CREATE DATABASE %I OWNER %I', ${database}::text, ${role}::text) AS create_statement, format('COMMENT ON DATABASE %I IS %L', ${database}::text, ${expectedDatabaseMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
+          await this.productAdmin.unsafe(statements.create_statement); await this.productAdmin.unsafe(statements.marker_statement);
+          databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
+          if (!databaseRecord || databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker) throw new Error("Product database creation did not persist its trusted marker.");
+          await this.options.afterExternalResourceCreated?.("database");
         }
+        if (!databaseRecord) throw new Error("Product database creation did not persist.");
+        if (persisted.database_oid !== databaseRecord.oid) { await control`UPDATE factory_installations SET current_step = 'database', database_oid = ${databaseRecord.oid}::oid WHERE tenant_id = ${request.tenantId}`; persisted.database_oid = databaseRecord.oid; }
         await this.productAdmin.unsafe(`REVOKE ALL ON DATABASE ${quote(database)} FROM PUBLIC`); await this.productAdmin.unsafe(`GRANT CONNECT, TEMPORARY ON DATABASE ${quote(database)} TO ${quote(role)}`);
+        await this.verifyProductLogin(database, role, credentials.password);
       } finally { await secrets.close(); }
       await this.options.temporal.create({ tenantId: request.tenantId, namespace, secretDirectory: directory });
       await control`UPDATE factory_installations SET state = 'ready', current_step = 'invitation' WHERE tenant_id = ${request.tenantId}`;
@@ -138,6 +151,10 @@ export class LocalFactoryProvisioner {
     });
     if ("failure" in outcome) throw new Error(outcome.failure);
     return outcome.installation;
+  }
+  private async verifyProductLogin(database: string, role: string, password: string): Promise<void> {
+    const productUrl = new URL(this.options.productDatabaseAdminUrl); productUrl.pathname = `/${database}`; productUrl.username = role; productUrl.password = password;
+    const product = new SQL(productUrl.toString(), { max: 1 }); try { const row = (await product`SELECT current_database() AS name`)[0] as { name: string } | undefined; if (row?.name !== database) throw new Error("Product credential connected to the wrong database."); } finally { await product.close(); }
   }
   private ready(existing: InstallationRecord): LocalInstallation { return { tenantId: stored(existing, "tenant_id"), installationId: stored(existing, "installation_id"), productDatabase: stored(existing, "product_database"), productRole: stored(existing, "product_role"), temporalNamespace: stored(existing, "temporal_namespace"), secretBundlePath: stored(existing, "secret_bundle_path"), state: "ready" }; }
   private async verifyReady(existing: InstallationRecord): Promise<void> {
@@ -153,12 +170,11 @@ export class LocalFactoryProvisioner {
       const archive = JSON.parse(await readPrivate(secrets, "archive-storage.json")) as { accessKey?: string; secretKey?: string };
       const expectedOrdinary = await identity(this.options.ordinaryConfigPath, stored(existing, "tenant_id")); const expectedArchive = await identity(this.options.archiveConfigPath, stored(existing, "tenant_id"));
       if (ordinary.accessKey !== expectedOrdinary.accessKey || ordinary.secretKey !== expectedOrdinary.secretKey || archive.accessKey !== expectedArchive.accessKey || archive.secretKey !== expectedArchive.secretKey) throw new Error("Ready installation storage credentials are invalid.");
-      const productUrl = new URL(this.options.productDatabaseAdminUrl); productUrl.pathname = `/${database}`; productUrl.username = role; productUrl.password = credentials.password;
-      const product = new SQL(productUrl.toString(), { max: 1 }); try { await product`SELECT current_database()`; } finally { await product.close(); }
+      await this.verifyProductLogin(database, role, credentials.password);
     } finally { await secrets.close(); }
-    const roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean } | undefined;
-    const databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string } | undefined;
-    if (!roleRecord?.rolcanlogin || roleRecord.oid !== existing.role_oid || !databaseRecord || databaseRecord.oid !== existing.database_oid || databaseRecord.owner !== role) throw new Error("Ready installation lost verified product resources.");
+    const roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
+    const databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
+    if (!roleRecord?.rolcanlogin || roleRecord.oid !== existing.role_oid || roleRecord.marker !== resourceMarker("role", existing) || !databaseRecord || databaseRecord.oid !== existing.database_oid || databaseRecord.owner !== role || databaseRecord.marker !== resourceMarker("database", existing)) throw new Error("Ready installation lost verified product resources.");
     await this.productAdmin.unsafe(`REVOKE ALL ON DATABASE ${quote(database)} FROM PUBLIC`); await this.productAdmin.unsafe(`GRANT CONNECT, TEMPORARY ON DATABASE ${quote(database)} TO ${quote(role)}`);
   }
 }
