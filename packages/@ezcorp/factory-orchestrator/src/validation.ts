@@ -87,6 +87,23 @@ export function validateLoadedDefinitionPage(page: FactoryDefinitionPage, refere
   if (decodeFactoryPageBase64(page.contentBase64).byteLength !== reference.encodedBytes) throw new Error("loaded factory definition page byte count does not match its immutable reference");
 }
 
+function validateDurableInput(value: unknown): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("durable input must be an object");
+  const input = value as { schemaVersion?: unknown; parameters?: unknown };
+  if (input.schemaVersion !== "factory.lazy-input.v1" || typeof input.parameters !== "object" || input.parameters === null || Array.isArray(input.parameters)) throw new Error("durable input is invalid");
+  for (const [name, parameter] of Object.entries(input.parameters)) {
+    requiredIdentity(name, "durable input parameter name");
+    if (typeof parameter !== "object" || parameter === null || Array.isArray(parameter)) throw new Error("durable input parameter is invalid");
+    const transport = parameter as { kind?: unknown; value?: unknown; artifact?: unknown };
+    if (transport.kind === "inline") continue;
+    if (transport.kind !== "artifact" || typeof transport.artifact !== "object" || transport.artifact === null) throw new Error("durable input parameter is invalid");
+    const artifact = transport.artifact as { artifactId?: unknown; digest?: unknown; encodedBytes?: unknown };
+    requiredIdentity(typeof artifact.artifactId === "string" ? artifact.artifactId : "", "durable input artifact ID");
+    digest(artifact.digest, "durable input artifact digest");
+    boundedInteger(artifact.encodedBytes, FACTORY_LIMITS.maxDefinitionBytes, "durable input artifact byte count");
+  }
+}
+
 export function validateWorkflowInput(input: FactoryWorkflowInput): void {
   requiredIdentity(input.tenantId, "tenant ID");
   requiredIdentity(input.projectId, "project ID");
@@ -95,6 +112,7 @@ export function validateWorkflowInput(input: FactoryWorkflowInput): void {
   if (!Number.isSafeInteger(input.startedAtMs) || input.startedAtMs < 0) throw new Error("start timestamp must be a non-negative safe integer");
   if (input.deadlineAtMs !== undefined && (!Number.isSafeInteger(input.deadlineAtMs) || input.deadlineAtMs < input.startedAtMs)) throw new Error("workflow deadline must be a safe timestamp at or after start");
   assertActivityPayloadSize(input, "factory workflow input");
+  if (input.durableInput !== undefined) validateDurableInput(input.durableInput);
   if (isPartitionSource(input.definition)) validatePartitionSource(input.definition);
   else validateDefinitionSource(input.definition);
   if (input.continuation && (input.continuation.state === undefined) === (input.continuation.stateArtifact === undefined)) throw new Error("continuation requires exactly one state source");
