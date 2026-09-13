@@ -525,6 +525,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("outbox failure rolls back run, budget, audit and mutation receipt", async () => {
     const before = rows(await fixture.db.execute(sql`SELECT run_id FROM factory_runs`)).length;
+    const budgetsBefore = rows(await fixture.db.execute(sql`SELECT envelope_id FROM factory_budget_envelopes`)).length;
     const artifactsBefore = rows(await fixture.db.execute(sql`SELECT object_id FROM factory_artifacts`)).length;
     await fixture.db.execute(sql`CREATE FUNCTION reject_lifecycle_command() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'command failed'; END $$`);
     await fixture.db.execute(sql`CREATE TRIGGER reject_lifecycle_command BEFORE INSERT ON factory_command_outbox FOR EACH ROW EXECUTE FUNCTION reject_lifecycle_command()`);
@@ -534,7 +535,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await fixture.db.execute(sql`DROP FUNCTION reject_lifecycle_command()`);
     }
     expect(rows(await fixture.db.execute(sql`SELECT run_id FROM factory_runs`))).toHaveLength(before);
-    expect(rows(await fixture.db.execute(sql`SELECT run_id FROM factory_budget_envelopes`))).toHaveLength(before);
+    expect(rows(await fixture.db.execute(sql`SELECT envelope_id FROM factory_budget_envelopes`))).toHaveLength(budgetsBefore);
     expect(rows(await fixture.db.execute(sql`SELECT object_id FROM factory_artifacts`))).toHaveLength(artifactsBefore);
     expect(rows(await fixture.db.execute(sql`SELECT idempotency_key FROM factory_mutation_receipts WHERE idempotency_key='rollback-start'`))).toEqual([]);
     expect((await startRun(principal, key, body, 0, "rollback-start")).status).toBe("queued");

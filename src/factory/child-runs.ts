@@ -1,12 +1,13 @@
 import type { FactoryReference } from "@ezcorp/factory-sdk";
 import { factoryChildRunId } from "@ezcorp/factory-sdk/transport-types";
 import { sql } from "drizzle-orm";
-import type { FactoryDefinitionSource } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
+import type { FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryCommandAuthority, FactoryAuthorizedChildCommand } from "./command-authority";
 import type { FactoryRunLifecycle } from "./run-lifecycle";
+import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
@@ -75,7 +76,7 @@ function bindingFact(row: Omit<ChildBindingRow, "binding_digest" | "state">): ob
 
 /** Durable child receipt. Parent command authority admits once; retries return its sealed source. */
 export class FactoryChildRuns {
-  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly authority: FactoryCommandAuthority, private readonly lifecycle: FactoryRunLifecycle) {
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly authority: FactoryCommandAuthority, private readonly lifecycle: FactoryRunLifecycle, private readonly transitions?: FactoryTransitionArtifacts) {
     assertFactoryIdentity(tenantId);
     if (authority.tenantId !== tenantId || lifecycle.tenantId !== tenantId) throw new FactoryChildRunError("factory_child_forbidden");
   }
@@ -91,6 +92,31 @@ export class FactoryChildRuns {
       const prior = await this.binding(transaction, input, true);
       if (prior) return this.receipt(prior, input.factory);
       return this.create(transaction, input, context);
+    });
+  }
+
+  /** Settles only a verified terminal child transition; callers never provide spend totals. */
+  async settle(service: TrustedFactoryServiceIdentity, key: { readonly projectId: string; readonly childRunId: string }): Promise<void> {
+    assertFactoryIdentity(key.projectId, key.childRunId);
+    this.authority.assertService(service);
+    if (!this.transitions) throw new FactoryChildRunError("factory_child_forbidden");
+    await this.database.transaction(async transaction => {
+      const binding = await this.bindingByChild(transaction, key.projectId, key.childRunId);
+      if (!binding) throw new FactoryChildRunError("factory_child_not_found");
+      this.receipt(binding, { id: binding.child_factory_id, version: binding.child_factory_version, digest: binding.child_definition_digest });
+      if (binding.state === "settled") return;
+      const lifecycle = rows<{ status: string }>(await transaction.execute(sql`SELECT status FROM factory_run_lifecycle WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.childRunId} FOR UPDATE`))[0];
+      if (!lifecycle || !["succeeded", "failed", "cancelled"].includes(lifecycle.status)) throw new FactoryChildRunError("factory_child_conflict");
+      const head = rows<{ source_sequence: number | string }>(await transaction.execute(sql`SELECT source_sequence FROM factory_audit_batches WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.childRunId} AND interpreter_id='root' ORDER BY source_sequence DESC LIMIT 1`))[0];
+      if (!head || !Number.isSafeInteger(Number(head.source_sequence)) || Number(head.source_sequence) < 1) throw new FactoryChildRunError("factory_child_corrupt");
+      const identity: FactoryIdentity = { tenantId: this.tenantId, projectId: key.projectId, logicalRunId: key.childRunId, interpreterId: "root" };
+      const transition = await this.transitions!.loadCommittedTransition(identity, Number(head.source_sequence), transaction);
+      const terminal = transition.commands.find(command => command.kind === "complete-run" || command.kind === "fail-run" || command.kind === "cancel-run");
+      const expected = lifecycle.status === "succeeded" ? "complete-run" : lifecycle.status === "failed" ? "fail-run" : "cancel-run";
+      if (!terminal || terminal.kind !== expected) throw new FactoryChildRunError("factory_child_corrupt");
+      const settlementDigest = `sha256:${digestObject({ bindingDigest: binding.binding_digest, childRunId: key.childRunId, sourceSequence: Number(head.source_sequence), terminal })}`;
+      await this.lifecycle.budgets.settleChildDelegationInTransaction(transaction, { parent: { projectId: key.projectId, runId: binding.parent_run_id }, child: { projectId: key.projectId, runId: key.childRunId }, parentEnvelopeId: binding.parent_envelope_id, childEnvelopeId: binding.child_envelope_id, deadlineAtMs: Number(binding.deadline_ms) }, settlementDigest);
+      await transaction.execute(sql`UPDATE factory_child_runs SET state='settled',settlement_digest=${settlementDigest},updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.childRunId} AND state='open'`);
     });
   }
 
@@ -140,6 +166,11 @@ export class FactoryChildRuns {
   private async binding(transaction: MigrationDb, input: Pick<FactoryChildRunRequest, "projectId" | "logicalRunId" | "interpreterId" | "commandId">, lock: boolean): Promise<ChildBindingRow | null> {
     const result = rows<ChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND parent_run_id=${input.logicalRunId} AND parent_interpreter_id=${input.interpreterId} AND parent_command_id=${input.commandId} ${lock ? sql`FOR UPDATE` : sql``}`));
     return result[0] ?? null;
+  }
+
+  private async bindingByChild(transaction: MigrationDb, projectId: string, childRunId: string): Promise<ChildBindingRow | null> {
+    const found = rows<ChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${childRunId} FOR UPDATE`));
+    return found[0] ?? null;
   }
 
   private receipt(row: ChildBindingRow, expected: FactoryReference): FactoryDefinitionSource {
