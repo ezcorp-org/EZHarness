@@ -29,15 +29,16 @@ export interface FactoryBootConfig {
 export function captureFactoryBootConfig(
   env: Readonly<Record<string, string | undefined>>,
 ): FactoryBootConfig {
-  return {
+  const projectRoot = resolve(env.EZCORP_PROJECT_ROOT ?? process.cwd());
+  return Object.freeze({
     enabled: env.EZCORP_FACTORY_ENABLED === "1",
     requireSandbox:
       env.EZCORP_FACTORY_ENABLED === "1" || env.EZCORP_REQUIRE_SANDBOX === "1",
     installationId: env.EZCORP_INSTALLATION_ID,
     secretsDir: env.EZCORP_SECRETS_DIR,
-    projectRoot: resolve(env.EZCORP_PROJECT_ROOT ?? process.cwd()),
-    grantableRoots: [resolve(env.EZCORP_PROJECT_ROOT ?? process.cwd()), resolve(process.cwd())],
-  };
+    projectRoot,
+    grantableRoots: Object.freeze([projectRoot, resolve(process.cwd())]),
+  });
 }
 
 export const factoryBootConfig = captureFactoryBootConfig(process.env);
@@ -116,7 +117,8 @@ function isWithin(root: string, path: string): boolean {
     // secrets-dir symlink into a grantable root fail closed as well.
     const canonicalRoot = realpathSync(resolve(root));
     const canonicalPath = realpathSync(resolve(path));
-    return canonicalPath === canonicalRoot || canonicalPath.startsWith(`${canonicalRoot}${sep}`);
+    const rootPrefix = canonicalRoot.endsWith(sep) ? canonicalRoot : `${canonicalRoot}${sep}`;
+    return canonicalPath === canonicalRoot || canonicalPath.startsWith(rootPrefix);
   } catch {
     // A missing or unresolvable mount cannot prove isolation.
     return true;

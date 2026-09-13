@@ -34,7 +34,7 @@
  *     test runners (Vitest in `web/`).
  *
  * ── Residual gap (stated, not silently implied covered) ────────────────
- * `VALUE_PATTERNS` below is shape-based — it only catches a credential
+ * `SENSITIVE_CREDENTIAL_VALUE_PATTERNS` is shape-based — it only catches a credential
  * with a recognizable prefix (`sk-`, `AIza`, `ghp_`, …) or a `Bearer`/JWT
  * envelope. A BYOK key with NO recognizable shape (e.g. a bare-hex SerpAPI
  * key) still leaks once it is a URL query-parameter VALUE, which is
@@ -62,7 +62,10 @@
 // purpose (Bun.CryptoHasher fast path).
 import { logger } from "../logger";
 import { redactUrlSecretsInToken } from "./mcp-secret-redaction";
-import { SENSITIVE_ENVIRONMENT_PATTERN } from "./sensitive-environment";
+import {
+  SENSITIVE_CREDENTIAL_VALUE_PATTERNS,
+  SENSITIVE_ENVIRONMENT_PATTERN,
+} from "./sensitive-environment";
 
 const log = logger.child("audit-redaction");
 
@@ -102,39 +105,6 @@ const TRUNCATION_KEEP_BYTES = 4096;
  *  are nowhere near this. */
 const URL_SCAN_MAX_CHARS = 2048;
 
-// ── Value-pattern regexes ─────────────────────────────────────────────
-//
-// Each regex is intentionally narrow to avoid false positives on
-// adjacent text. The closed set:
-//   - OpenAI keys: `sk-`, `sk-live-`, `sk-test-`, `sk-proj-`
-//   - Anthropic keys: `sk-ant-`
-//   - Google keys: `AIza...` (39 chars total)
-//   - AWS access keys: `AKIA[0-9A-Z]{16}`
-//   - GitHub PAT (modern): `ghp_` / `gho_` / `ghu_` / `ghs_` / `ghr_` + 36
-//   - Bearer tokens: `Bearer <opaque>` (with a length floor so it
-//     doesn't match the literal word "Bearer" alone)
-//   - JWT compact form: three base64url segments separated by dots,
-//     starting with `eyJ` (`{"alg":...`-prefix base64-encoded)
-const VALUE_PATTERNS: ReadonlyArray<RegExp> = [
-  // OpenAI keys, all variants. Matches:
-  //   sk-<20+ chars>           (legacy)
-  //   sk-live_<20+>            (rotated, underscore separator)
-  //   sk-test-<20+>            (test, dash separator)
-  //   sk-proj-<20+> / sk-proj_<20+>
-  // The optional `(?:live|test|proj)[-_]` group sits before the bulk
-  // body so plain `sk-...` matches without requiring a second separator.
-  /sk-(?:(?:live|test|proj)[-_])?[A-Za-z0-9_-]{20,}/g,
-  /sk-ant-[A-Za-z0-9_-]{32,}/g,
-  // Google API keys: `AIza` + 35 base64-url chars; published format is
-  // 39 chars total. Some real-world keys are slightly longer; we accept
-  // 35–40 trailing chars to avoid false negatives.
-  /\bAIza[0-9A-Za-z_-]{35,40}\b/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g,
-  /\bBearer\s+[A-Za-z0-9._\-+/=]{16,}/gi,
-  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
-];
-
 // ── Key-pattern regex (case-insensitive, applied to property names) ──
 //
 // Mirrors the shared classifier used by shell and install permissions.
@@ -155,8 +125,7 @@ function isSensitiveKey(key: string): boolean {
  * of a long token.
  */
 function redactString(value: string): { value: string; matched: boolean } {
-  for (const re of VALUE_PATTERNS) {
-    re.lastIndex = 0;
+  for (const re of SENSITIVE_CREDENTIAL_VALUE_PATTERNS) {
     if (re.test(value)) {
       return { value: REDACTED, matched: true };
     }

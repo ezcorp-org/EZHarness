@@ -66,6 +66,12 @@ describe("factory boot flag and readiness", () => {
     }
   });
 
+  test("freezes the boot-captured factory policy and grant roots", () => {
+    const config = captureFactoryBootConfig({ EZCORP_FACTORY_ENABLED: "1" });
+    expect(Object.isFrozen(config)).toBe(true);
+    expect(Object.isFrozen(config.grantableRoots)).toBe(true);
+  });
+
   test("feature-off boot does not require factory dependencies", () => {
     expect(() => assertFactoryBootReadiness(undefined, [], {
       enabled: false,
@@ -92,6 +98,17 @@ describe("factory boot flag and readiness", () => {
 
   test("a secrets directory inside the grantable root is refused", () => {
     expect(() => assertFactoryBootReadiness("postgres://db", [], readyFactoryConfig({ secretsDir: process.cwd() }))).toThrow(/outside the grantable project root/);
+  });
+
+  test("an unresolvable secrets directory and the filesystem root both fail closed", () => {
+    expect(() => assertFactoryBootReadiness("postgres://db", [], readyFactoryConfig({
+      secretsDir: join(tmpdir(), "missing-factory-secrets-dir"),
+    }))).toThrow(/EZCORP_SECRETS_DIR/);
+    expect(() => assertFactoryBootReadiness("postgres://db", [], readyFactoryConfig({
+      projectRoot: "/",
+      grantableRoots: ["/"],
+      secretsDir: tmpdir(),
+    }))).toThrow(/outside the grantable project root/);
   });
 
   test("a secrets symlink into a grantable root is refused", async () => {
@@ -189,17 +206,26 @@ describe("factory boot flag and readiness", () => {
   });
 
   test("a factory MCP request fails before the degraded no-context spawn path", async () => {
-    const child = await runFactoryChild(
-      `const { buildSandboxedMcpSpec } = await import('./src/extensions/mcp-sandbox.ts');
-       try {
-         await buildSandboxedMcpSpec({ transport: 'stdio', name: 'probe', command: 'touch', args: ['/tmp/should-not-run'] }, { schemaVersion: 2, name: 'probe', version: '1.0.0', description: '', author: { name: 'test' }, permissions: {} }, { grantedAt: {} }, 'probe');
-         process.exit(1);
-       } catch (error) {
-         if (!(error instanceof Error) || !error.message.includes('EZCORP_MCP_REQUIRE_SANDBOX=1')) process.exit(1);
-       }`,
-      { EZCORP_FACTORY_ENABLED: "1" },
-    );
-    expect(child.exitCode).toBe(0);
+    const root = await mkdtemp(join(tmpdir(), "factory-mcp-"));
+    const marker = join(root, "spawned");
+    try {
+      const child = await runFactoryChild(
+        `const { buildSandboxedMcpSpec } = await import('./src/extensions/mcp-sandbox.ts');
+         try {
+           const result = await buildSandboxedMcpSpec({ transport: 'stdio', name: 'probe', command: 'touch', args: [${JSON.stringify(marker)}] }, { schemaVersion: 2, name: 'probe', version: '1.0.0', description: '', author: { name: 'test' }, permissions: {} }, { grantedAt: {} }, 'probe');
+           const process = Bun.spawn([result.spec.command, ...(result.spec.args ?? [])], { env: result.spec.env });
+           await process.exited;
+           process.exit(1);
+         } catch (error) {
+           if (!(error instanceof Error) || !error.message.includes('EZCORP_MCP_REQUIRE_SANDBOX=1')) process.exit(1);
+         }`,
+        { EZCORP_FACTORY_ENABLED: "1" },
+      );
+      expect(child.exitCode).toBe(0);
+      expect(existsSync(marker)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("factory JWT issuance cannot fall back to a secret-derived installation ID", async () => {
