@@ -26,7 +26,7 @@ export async function privateDirectory(path: string, options: PrivateDirectoryOp
       let child: FileHandle;
       try { child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
       catch (error) {
-        if (!options.createLeaf || index !== components.length - 1 || (error as NodeJS.ErrnoException).code !== "ENOENT" || !reachedOwnedDirectory) throw error;
+        if (!options.createLeaf || (error as NodeJS.ErrnoException).code !== "ENOENT" || !reachedOwnedDirectory) throw error;
         await mkdir(`/proc/self/fd/${directory.fd}/${component}`, { mode: 0o700 });
         child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       }
