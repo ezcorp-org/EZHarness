@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
-import { FactoryAssurance, FactoryAssuranceError, type FactoryCandidateKey, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
+import { FactoryAssurance, FactoryAssuranceError, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
 
 interface Fixture { readonly db: TransactionalDb; close(): Promise<void> }
 export function factoryAssuranceConformance(createFixture: () => Promise<Fixture>): void {
@@ -17,10 +17,14 @@ let fixture: Fixture;
 let grants: FactoryGrants;
 let trusted: FactoryTrustedEvidence;
 let fenceStatus: "running" | "cancelling" = "running";
-class Gateway implements FactoryTrustedValidatorGateway {
+class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
   async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenant !== tenantId || key.projectId !== trusted.projectId || key.runId !== trusted.runId || key.nodeInstanceId !== trusted.nodeInstanceId || key.candidateGeneration !== trusted.candidateGeneration || validatorId !== trusted.validatorId) throw new Error("configured validator did not authorize this exact candidate");
     return structuredClone(trusted);
+  }
+  async resolveCurrentEvidenceInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorIds: readonly string[]): Promise<readonly FactoryTrustedEvidence[]> {
+    if (tenant !== tenantId || key.projectId !== trusted.projectId || key.runId !== trusted.runId || key.nodeInstanceId !== trusted.nodeInstanceId || key.candidateGeneration !== trusted.candidateGeneration || validatorIds.length !== 1 || validatorIds[0] !== trusted.validatorId) throw new Error("current candidate journal does not match");
+    return [structuredClone(trusted)];
   }
 }
 class ReleaseFenceReader implements FactoryReleaseFenceReader {
@@ -43,7 +47,7 @@ beforeAll(async () => {
   await grants.set(admin, { projectId, principal: admin, action: "factory.approve", expectedRevision: 0, expiresAtMs: null });
   await grants.set(admin, { projectId, principal: admin, action: "factory.release", expectedRevision: 0, expiresAtMs: null });
   trusted = { ...candidate, validatorId: "protected-validator", validatorLockDigest: digest("b"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "host-issued-artifact", digest: digest("a"), encodedBytes: 42 }, environmentDigest: digest("e"), configurationDigest: digest("f"), runnerDigest: digest("c"), claims: [{ id: "tests", passed: true, decisive: true }, { id: "review", passed: true, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 1000 };
-  assurance = new FactoryAssurance(fixture.db, tenantId, grants, new Gateway(), new ReleaseFenceReader(), () => now);
+  assurance = new FactoryAssurance(fixture.db, tenantId, grants, new Gateway(), new ReleaseFenceReader(), new Gateway(), () => now);
 });
 afterAll(async () => { await fixture?.close(); });
 
@@ -69,11 +73,14 @@ test("fresh mandatory claims and exact approval context are consumed once", asyn
 });
 
 test("forged validator provenance, stale evidence, and corrupt validator locks fail closed", async () => {
-  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), () => now);
+  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), new Gateway(), () => now);
   await expect(forged.captureEvidence({ ...candidate, validatorId: trusted.validatorId })).rejects.toMatchObject({ code: "factory_assurance_trust" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET validator_lock_digest=${digest("f")} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
   await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_evidence_stale" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET validator_lock_digest=${trusted.validatorLockDigest} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
+  await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET claims=${JSON.stringify([{ id: "tests", passed: false, decisive: true }, { id: "review", passed: true, decisive: true }])} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND candidate_generation=1`);
+  await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_corrupt" });
+  await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET claims=${JSON.stringify(trusted.claims)} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND candidate_generation=1`);
   const stale = { ...candidate, candidateGeneration: 2 };
   trusted = { ...trusted, ...stale, issuedAtMs: now - 101, expiresAtMs: now + 1000 };
   await assurance.captureEvidence({ ...stale, validatorId: trusted.validatorId });
@@ -84,7 +91,21 @@ test("forged validator provenance, stale evidence, and corrupt validator locks f
 test("expired or failed evidence never becomes an acceptance decision", async () => {
   trusted = { ...trusted, claims: [{ id: "tests", passed: false, decisive: true }, { id: "review", passed: true, decisive: true }] };
   await expect(assurance.captureEvidence({ ...candidate, validatorId: trusted.validatorId })).rejects.toThrow("factory_assurance_conflict");
-  expect(() => new FactoryAssurance(fixture.db, "other-tenant", grants, new Gateway(), new ReleaseFenceReader(), () => now)).toThrow(FactoryAssuranceError);
+  trusted = { ...trusted, claims: [{ id: "tests", passed: true, decisive: true }, { id: "review", passed: true, decisive: true }] };
+  expect(() => new FactoryAssurance(fixture.db, "other-tenant", grants, new Gateway(), new ReleaseFenceReader(), new Gateway(), () => now)).toThrow(FactoryAssuranceError);
+});
+
+test("duplicate claim identifiers and another run cannot mint release authority", async () => {
+  await expect(assurance.approveContract(admin, { projectId, contractId: "duplicate", revision: 1, contractDigest: digest("a"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "same", validatorId: trusted.validatorId, freshnessMs: 1 }, { id: "same", validatorId: trusted.validatorId, freshnessMs: 1 }], claimGroups: [] })).rejects.toMatchObject({ code: "factory_assurance_invalid" });
+  const decision = await assurance.accept({ ...candidate, contractId: "contract", revision: 1 });
+  const request = { projectId, operationId: "foreign-run-operation", decisionId: decision.decisionId, destinationDigest: digest("a"), expectedGeneration: 4, expiresAtMs: now + 500 };
+  const approval = await assurance.requestApproval(admin, request);
+  await assurance.decideApproval(admin, projectId, approval.approvalId, true);
+  const environmentDigest = trusted.environmentDigest;
+  trusted = { ...trusted, environmentDigest: digest("b") };
+  await expect(fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...request, approvalId: approval.approvalId, requester: admin, runId: candidate.runId }))).rejects.toMatchObject({ code: "factory_assurance_stale" });
+  trusted = { ...trusted, environmentDigest };
+  await expect(fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...request, approvalId: approval.approvalId, requester: admin, runId: "other-run" }))).rejects.toThrow("trusted release fence");
 });
 
 test("cancellation and revoked trust deny a release claim inside its transaction", async () => {

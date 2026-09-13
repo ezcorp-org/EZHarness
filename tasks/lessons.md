@@ -383,3 +383,10 @@
 - An artifact staging callback must accept the caller's transaction and run after the scoped run row is inserted. A separate storage transaction can violate foreign keys or deadlock an enclosing transaction; prove composition with real PostgreSQL and S3.
 - Permission tables can contain alternative authorities. Test a run-only initiator separately from an owner who also holds operate permission, and recheck authority when returning a cached cancellation result.
 - Compare each modeled foreign key's exact columns, target and delete rule with the PostgreSQL catalog. Counting keys alone can miss a wrong relationship.
+
+## 2026-09-13 assurance review
+
+- Bind an acceptance decision to the full run, node, candidate generation, and lifecycle fence. Do not use a project-wide decision ID as release authority.
+- Recompute every protected evidence digest from all persisted fields before a claim. A stored digest alone does not prove a mutable row still has its approved facts.
+- Use `Set.has` before `Set.add`; `Set.add` always returns the set and cannot detect duplicates.
+- Snapshot untrusted inputs before the first await and test the exact digest object in both creation and consumption paths.

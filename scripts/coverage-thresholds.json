@@ -886,5 +886,6 @@
   "src/db/migrations/scope-factory-artifact-primary-key.ts": 100,
   "src/extensions/v4/approval-context.ts": 100,
   "src/factory/assurance.ts": 100,
-  "src/db/migrations/add-factory-assurance.ts": 100
+  "src/db/migrations/add-factory-assurance.ts": 100,
+  "src/db/migrations/strengthen-factory-assurance.ts": 100
 }
