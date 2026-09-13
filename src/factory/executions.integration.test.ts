@@ -8,7 +8,8 @@ import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "./executions";
 import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
-import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
+import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
+import { verifyFactoryExecutionAdmission } from "../__tests__/helpers/factory-execution-admission-suite";
 
 const databases: PGlite[] = [];
 
@@ -72,6 +73,13 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
 
   const authorizations: string[] = [];
   const journal = new FactoryExecutionJournal(db, async (_transaction, current) => { authorizations.push(current.attemptId); });
+  const transactionalAuthority = authority({ attemptId: "transactional-attempt", nodeInstanceId: "transactional-node", candidateGeneration: 17, attemptNumber: 1 });
+  await verifyFactoryExecutionAdmission({
+    db,
+    journal,
+    admission: input => admission(transactionalAuthority, input),
+    foreignAuthority: admission({ ...transactionalAuthority, tenantId: "tenant-b" }),
+  });
   const attempt = admission(authority());
   expect(await journal.admit(attempt)).toMatchObject({ reused: false });
   expect(await journal.admit({ ...attempt, request: { ...attempt.request, broker: { ...attempt.request.broker, attemptToken: "reissued-broker-token" } } })).toMatchObject({ reused: true });
@@ -139,10 +147,13 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
 
   const mutable = admission(authority({ attemptId: "attempt-snapshot", attemptNumber: 9 }));
   const expected = { ...mutable, deadlineAt: new Date(mutable.deadlineAt) };
+  const expectedRequest = factoryRunnerRequestIdentity(mutable.request);
   const snapshotJournal = new FactoryExecutionJournal(db, async () => {
     (mutable as { tenantId: string }).tenantId = "tenant-b";
     mutable.deadlineAt.setTime(0);
+    (mutable.request.input as unknown as { value: { a: number } }).value.a = 900;
   });
   expect(await snapshotJournal.admit(mutable)).toMatchObject({ reused: false });
   expect(await snapshotJournal.status(expected)).toMatchObject({ status: "admitted" });
+  expect(await snapshotJournal.request(expected)).toEqual(expectedRequest);
 });

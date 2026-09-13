@@ -26,6 +26,11 @@ const credential = { serviceAccountId: "service one", credentialId: "credential/
 const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: "sha256:" + digest, export: "release" } as const;
 const trust = { revision: 1, state: "active" as const, packageLock, packageTrustDigest: "sha256:" + compiledDigest, validatorTrustDigest: "sha256:" + digest, approvedBy: "admin-1", approvalGrantRevision: 1 };
 const control = { enabled: true, enableEpoch: 1 };
+const releaseBody = { runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 0, decisionId: "decision-1", candidateDigest: "sha256:" + digest, action: "publish", destination: { provider: "s3", account: "tenant-1", object: "release.json" }, request: { contentType: "application/json" }, estimatedSpendMicros: 1, deadlineMs: 2_000_000_000_000 } as const;
+const releaseOperation = { operationId: "operation/one", runId: releaseBody.runId, nodeInstanceId: releaseBody.nodeInstanceId, candidateGeneration: releaseBody.candidateGeneration, decisionId: releaseBody.decisionId, candidateDigest: releaseBody.candidateDigest, action: releaseBody.action, destination: releaseBody.destination, estimatedSpendMicros: releaseBody.estimatedSpendMicros, deadlineMs: releaseBody.deadlineMs, contractDigest: "sha256:" + compiledDigest, executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1, destinationDigest: "sha256:" + digest, requestDigest: "sha256:" + compiledDigest, state: "pending" as const, dispatchGeneration: 0, dispatchStarted: false, archiveReady: true };
+const releaseContract = { contractId: "contract/one", revision: 1, contractDigest: "sha256:" + digest, validatorLockDigest: "sha256:" + compiledDigest, mandatoryClaims: [], claimGroups: [] };
+const releaseApproval = { approvalId: "approval/one", operationId: releaseOperation.operationId, contextDigest: digest, status: "pending" as const, expiresAtMs: releaseBody.deadlineMs };
+const releasePolicy = { policyId: "policy/one", revision: 1 as const, revoked: false as const, principalKind: "service" as const, principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "releases/", contractDigest: "sha256:" + digest, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: releaseBody.deadlineMs };
 
 function api(value: FactoryApiResponse, status = 200): Response {
 	return Response.json(value, { status });
@@ -57,6 +62,14 @@ function response(kind: FactoryApiResponse["kind"]): FactoryApiResponse {
 			return { schemaVersion: "factory.api.response.v1", kind, resource: trust };
 		case "release.control.resource":
 			return { schemaVersion: "factory.api.response.v1", kind, resource: control };
+		case "release.contract.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseContract };
+		case "release.operation.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseOperation };
+		case "release.approval.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releaseApproval };
+		case "release.policy.resource":
+			return { schemaVersion: "factory.api.response.v1", kind, resource: releasePolicy };
 		default:
 			throw new Error("unsupported fixture");
 	}
@@ -71,6 +84,12 @@ describe("FactoryApiClient", () => {
 		fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
 			const path = String(input);
 			calls.push({ path, init });
+			if (path.includes("/release/contracts/")) return api(response("release.contract.resource"));
+			if (path.includes("/release/approvals/")) return api(response("release.approval.resource"));
+			if (path.includes("/release/policies/")) return api(response("release.policy.resource"));
+			if (path.endsWith("/approvals")) return api(response("release.approval.resource"));
+			if (path.endsWith("/reconciliations")) return api(response("release.operation.resource"));
+			if (path.includes("/releases")) return api(response("release.operation.resource"));
 			if (path.endsWith("/release/trust")) return api(response("release.trust.resource"));
 			if (path.endsWith("/release/control")) return api(response("release.control.resource"));
 			if (path.includes("/service-accounts/") && init?.method === "DELETE") return api(response("service-credential.resource"));
@@ -84,6 +103,31 @@ describe("FactoryApiClient", () => {
 			if (path.includes("/definitions/")) return api(init?.method === "PUT" || init?.method === "DELETE" ? response("draft.summary") : response("draft.details"));
 			return api(init?.method === "POST" ? response("draft.summary") : response("draft.page"));
 		});
+	});
+
+	test("routes public release operations with exact preconditions and encoded identities", async () => {
+		const client = new FactoryApiClient({ fetch: fetcher as unknown as typeof fetch, idempotencyKey: operation => "key:" + operation });
+		expect(await client.putReleaseContract("project/one", "contract/one", { contractDigest: releaseContract.contractDigest, validatorLockDigest: releaseContract.validatorLockDigest, mandatoryClaims: [], claimGroups: [] }, 0)).toEqual(releaseContract);
+		expect(await client.prepareRelease("project/one", releaseBody)).toEqual(releaseOperation);
+		expect(await client.getRelease("project/one", "operation/one")).toEqual(releaseOperation);
+		expect(await client.requestReleaseApproval("project/one", "operation/one", releaseBody.deadlineMs, 0)).toEqual(releaseApproval);
+		expect(await client.decideReleaseApproval("project/one", "approval/one", digest, "approved")).toEqual(releaseApproval);
+		expect(await client.putReleasePolicy("project/one", "policy/one", releasePolicy)).toEqual(releasePolicy);
+		expect(await client.deleteReleasePolicy("project/one", "policy/one", 1)).toEqual(releasePolicy);
+		expect(await client.reconcileRelease("project/one", "operation/one", 1, { action: "keep_uncertain", reason: "Still unknown", providerEvidence: { lookup: true } })).toEqual(releaseOperation);
+		expect(calls.map(call => call.path)).toEqual([
+			"/api/factories/projects/project%2Fone/release/contracts/contract%2Fone",
+			"/api/factories/projects/project%2Fone/releases",
+			"/api/factories/projects/project%2Fone/releases/operation%2Fone",
+			"/api/factories/projects/project%2Fone/releases/operation%2Fone/approvals",
+			"/api/factories/projects/project%2Fone/release/approvals/approval%2Fone",
+			"/api/factories/projects/project%2Fone/release/policies/policy%2Fone",
+			"/api/factories/projects/project%2Fone/release/policies/policy%2Fone",
+			"/api/factories/projects/project%2Fone/releases/operation%2Fone/reconciliations",
+		]);
+		expect(new Headers(calls[3]!.init?.headers).get("If-Match")).toBe("0");
+		expect(new Headers(calls[7]!.init?.headers).get("If-Match")).toBe("1");
+		expect(calls[6]!.init?.method).toBe("DELETE");
 	});
 
 	test("routes every authoring operation with encoded identity and mutation preconditions", async () => {

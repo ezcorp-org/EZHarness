@@ -8,6 +8,8 @@ import { FactoryRunLifecycleError } from "$server/factory/run-lifecycle";
 import { FactoryMutationError } from "$server/factory/mutations";
 import { FactoryServiceCredentialError } from "$server/factory/service-credentials";
 import { FactoryReleaseAuthorityError } from "$server/factory/release-authority";
+import { FactoryReleaseError } from "$server/factory/releases";
+import { FactoryAssuranceError } from "$server/factory/assurance";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 
@@ -34,6 +36,7 @@ const runs = { start: vi.fn(), read: vi.fn(), list: vi.fn(), cancel: vi.fn(), re
 const grants = { list: vi.fn(), set: vi.fn(), revoke: vi.fn() };
 const credentials = { issue: vi.fn(), revoke: vi.fn(), authenticate: vi.fn() };
 const releaseAuthority = { publishTrust: vi.fn(), revokeTrust: vi.fn(), setReleaseEnabled: vi.fn() };
+const releaseOperations = { putContract: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), requestApproval: vi.fn(), decideApproval: vi.fn(), putPolicy: vi.fn(), deletePolicy: vi.fn(), reconcile: vi.fn() };
 
 const sourceDigest = createHash("sha256").update(canonicalizeJson(referenceCodeV1 as unknown as Parameters<typeof canonicalizeJson>[0])).digest("hex");
 const compiledResult = compileFactory(referenceCodeV1);
@@ -64,6 +67,13 @@ const credentialIssue = await import("./projects/[projectId]/service-accounts/[s
 const credentialRevoke = await import("./projects/[projectId]/service-accounts/[serviceAccountId]/credentials/[credentialId]/+server");
 const releaseTrust = await import("./projects/[projectId]/release/trust/+server");
 const releaseControl = await import("./projects/[projectId]/release/control/+server");
+const releaseContractRoute = await import("./projects/[projectId]/release/contracts/[contractId]/+server");
+const releaseCollection = await import("./projects/[projectId]/releases/+server");
+const releaseItem = await import("./projects/[projectId]/releases/[operationId]/+server");
+const releaseApprovalRequest = await import("./projects/[projectId]/releases/[operationId]/approvals/+server");
+const releaseApprovalDecision = await import("./projects/[projectId]/release/approvals/[approvalId]/+server");
+const releasePolicyRoute = await import("./projects/[projectId]/release/policies/[policyId]/+server");
+const releaseReconciliation = await import("./projects/[projectId]/releases/[operationId]/reconciliations/+server");
 const run = { runId: "run-1", factoryId: referenceCodeV1.id, factoryVersion: referenceCodeV1.version, definitionDigest: compiled.digest, grantRevision: 1, revision: 1, status: "queued", createdAtMs: 1, updatedAtMs: 1 };
 const receipt = { resourceId: run.runId, commandId: "command-1", statusUrl: "/api/factories/projects/project-1/runs/run-1/commands/command-1" };
 const shared = await import("./_shared");
@@ -76,6 +86,7 @@ beforeEach(() => {
     grants,
     credentials,
     releaseAuthority,
+    releaseOperations,
     runs,
     availableResourceClasses: new Set(["cpu"]),
   } as unknown as FactoryApplication;
@@ -105,6 +116,16 @@ beforeEach(() => {
   releaseAuthority.publishTrust.mockResolvedValue({ projectId: "project-1", revision: 1, state: "active", packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "member-1", approvalGrantRevision: 1 });
   releaseAuthority.revokeTrust.mockResolvedValue({ projectId: "project-1", revision: 2, state: "revoked", packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "member-1", approvalGrantRevision: 1 });
   releaseAuthority.setReleaseEnabled.mockResolvedValue({ projectId: "project-1", enabled: true, enableEpoch: 1 });
+  const destination = { provider: "s3", account: "tenant-1", object: "release.json" };
+  const operation = { tenantId: "tenant-1", projectId: "project-1", operationId: "operation-1", runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 0, decisionId: "decision-1", candidateDigest: `sha256:${sourceDigest}`, contractDigest: `sha256:${compiledBlobDigest}`, executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1, action: "publish", destination, destinationDigest: `sha256:${sourceDigest}`, request: { protected: true }, requestDigest: `sha256:${compiledBlobDigest}`, material: { secret: true }, materialDigest: `sha256:${sourceDigest}`, estimatedSpendMicros: 1, deadlineMs: 2_000_000_000_000, state: "pending", dispatchGeneration: 0, dispatchStarted: false, senderToken: "secret-token", archiveReady: true, intentArchive: { key: "secret", digest: `sha256:${sourceDigest}` } };
+  releaseOperations.putContract.mockResolvedValue({ contractId: "contract-1", revision: 1, contractDigest: `sha256:${sourceDigest}`, validatorLockDigest: `sha256:${compiledBlobDigest}`, mandatoryClaims: [], claimGroups: [] });
+  releaseOperations.prepare.mockResolvedValue(operation);
+  releaseOperations.inspect.mockResolvedValue(operation);
+  releaseOperations.requestApproval.mockResolvedValue({ approvalId: "approval-1", operationId: "operation-1", contextDigest: sourceDigest, status: "pending", expiresAtMs: 2_000_000_000_000 });
+  releaseOperations.decideApproval.mockResolvedValue({ approvalId: "approval-1", contextDigest: sourceDigest, status: "approved" });
+  releaseOperations.putPolicy.mockResolvedValue({ policyId: "policy-1", revision: 1, revoked: false, principalKind: "service", principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "release/", contractDigest: `sha256:${sourceDigest}`, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: 2_000_000_000_000 });
+  releaseOperations.deletePolicy.mockResolvedValue({ policyId: "policy-1", revision: 2, revoked: true });
+  releaseOperations.reconcile.mockResolvedValue({ ...operation, state: "uncertain", outcomeCode: "operator_kept_uncertain" });
 });
 
 function event(method: string, pathname: string, options: { body?: unknown; revision?: number; key?: string; auth?: "session" | "api-key" | "internal"; anonymous?: boolean; scopes?: string[]; params?: Record<string, string> } = {}) {
@@ -375,6 +396,80 @@ describe("factory release authority routes", () => {
       const response = await releaseTrust.DELETE(event("DELETE", "/api/factories/projects/project-1/release/trust", { params: path, revision: 1, key: `release-${code}` }));
       expect(response.status).toBe(status);
       expect(await json(response)).toMatchObject({ kind: "error", error: { code } });
+    }
+  });
+});
+
+describe("factory release and assurance routes", () => {
+  const projectId = "project-1";
+  const operationId = "operation-1";
+  const prepareBody = { runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 0, decisionId: "decision-1", candidateDigest: `sha256:${sourceDigest}`, action: "publish", destination: { provider: "s3", account: "tenant-1", object: "release.json" }, request: { contentType: "application/json" }, estimatedSpendMicros: 1, deadlineMs: 2_000_000_000_000 };
+
+  test("prepares and reads a sanitized operation through chat-scoped service authority", async () => {
+    const preparedEvent = event("POST", `/api/factories/projects/${projectId}/releases`, { anonymous: true, params: { projectId }, body: prepareBody, revision: 0, key: "prepare-1" }) as { locals: App.Locals };
+    preparedEvent.locals.factoryServicePrincipal = { tokenUse: "factory-service", serviceAccountId: "service-1", projectId, credentialId: "credential-1", revision: 1, scopes: ["chat"], issuedAtMs: 1_000, expiresAtMs: 2_000_000_000_000 };
+    const prepared = await releaseCollection.POST(preparedEvent as never);
+    expect(prepared.status).toBe(200);
+    const resource = (await json(prepared) as Extract<FactoryApiResponse, { kind: "release.operation.resource" }>).resource;
+    expect(resource).toMatchObject({ operationId, destination: prepareBody.destination, archiveReady: true });
+    expect(resource).not.toHaveProperty("senderToken"); expect(resource).not.toHaveProperty("material"); expect(resource).not.toHaveProperty("request"); expect(resource).not.toHaveProperty("intentArchive");
+    expect(releaseOperations.prepare).toHaveBeenCalledWith(expect.objectContaining({ kind: "service", id: "service-1" }), projectId, prepareBody, "prepare-1");
+
+    const readEvent = event("GET", `/api/factories/projects/${projectId}/releases/${operationId}`, { anonymous: true, params: { projectId, operationId } }) as { locals: App.Locals };
+    readEvent.locals.factoryServicePrincipal = preparedEvent.locals.factoryServicePrincipal;
+    expect((await releaseItem.GET(readEvent as never)).status).toBe(200);
+    readEvent.locals.factoryServicePrincipal = { ...preparedEvent.locals.factoryServicePrincipal, scopes: ["read"] };
+    expect((await releaseItem.GET(readEvent as never)).status).toBe(403);
+  });
+
+  test("keeps contract, approvals, and policies on human sessions with exact If-Match values", async () => {
+    const contractBody = { contractDigest: `sha256:${sourceDigest}`, validatorLockDigest: `sha256:${compiledBlobDigest}`, mandatoryClaims: [], claimGroups: [] };
+    expect((await releaseContractRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/contracts/contract-1`, { params: { projectId, contractId: "contract-1" }, body: contractBody, revision: 0, key: "contract-1" }))).status).toBe(200);
+    expect(releaseOperations.putContract).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), projectId, "contract-1", contractBody, 0, "contract-1");
+
+    expect((await releaseApprovalRequest.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/approvals`, { params: { projectId, operationId }, body: { expiresAtMs: 2_000_000_000_000 }, revision: 0, key: "request-approval" }))).status).toBe(200);
+    expect((await releaseApprovalDecision.PUT(event("PUT", `/api/factories/projects/${projectId}/release/approvals/approval-1`, { params: { projectId, approvalId: "approval-1" }, body: { contextDigest: sourceDigest, decision: "approved" }, revision: 0, key: "decide-approval" }))).status).toBe(200);
+
+    const policyBody = { principalKind: "service", principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "release/", contractDigest: `sha256:${sourceDigest}`, maxOperations: 1, maxSpendMicros: 1, expiresAtMs: 2_000_000_000_000 };
+    expect((await releasePolicyRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/policies/policy-1`, { params: { projectId, policyId: "policy-1" }, body: policyBody, revision: 0, key: "policy-put" }))).status).toBe(200);
+    expect((await releasePolicyRoute.DELETE(event("DELETE", `/api/factories/projects/${projectId}/release/policies/policy-1`, { params: { projectId, policyId: "policy-1" }, revision: 1, key: "policy-delete" }))).status).toBe(200);
+    expect((await releaseContractRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/contracts/contract-1`, { auth: "api-key", scopes: ["write"], params: { projectId, contractId: "contract-1" }, body: contractBody, revision: 0, key: "api-key" }))).status).toBe(403);
+  });
+
+  test("routes reconciliation through write scope while the real adapter retains its human store gate", async () => {
+    const body = { action: "keep_uncertain", reason: "Provider outcome is still unknown", providerEvidence: { lookup: true } };
+    const response = await releaseReconciliation.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/reconciliations`, { params: { projectId, operationId }, body, revision: 1, key: "reconcile-1" }));
+    expect(response.status).toBe(200);
+    expect(releaseOperations.reconcile).toHaveBeenCalledWith(expect.objectContaining({ authentication: "session" }), projectId, operationId, body, 1, "reconcile-1");
+    expect((await releaseReconciliation.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/reconciliations`, { auth: "api-key", scopes: ["read"], params: { projectId, operationId }, body, revision: 1, key: "reconcile-read" }))).status).toBe(403);
+    releaseOperations.reconcile.mockRejectedValueOnce(new FactoryReleaseError("factory_release_human_required"));
+    expect((await releaseReconciliation.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/reconciliations`, { auth: "api-key", scopes: ["write"], params: { projectId, operationId }, body, revision: 1, key: "reconcile-key" }))).status).toBe(403);
+    expect(releaseOperations.reconcile).toHaveBeenLastCalledWith(expect.objectContaining({ authentication: "api-key" }), projectId, operationId, body, 1, "reconcile-key");
+  });
+
+  test("rejects malformed bodies and missing composition before any store mutation", async () => {
+    expect((await releaseCollection.POST(event("POST", `/api/factories/projects/${projectId}/releases`, { params: { projectId }, body: { ...prepareBody, candidateDigest: "bad" }, revision: 0, key: "bad" }))).status).toBe(400);
+    expect((await releaseApprovalRequest.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/approvals`, { params: { projectId, operationId }, body: { expiresAtMs: 2 }, key: "missing-match" }))).status).toBe(412);
+    state.application = { ...(state.application as object), releaseOperations: undefined };
+    expect((await releaseItem.GET(event("GET", `/api/factories/projects/${projectId}/releases/${operationId}`, { params: { projectId, operationId } }))).status).toBe(503);
+    expect(releaseOperations.prepare).not.toHaveBeenCalled();
+  });
+
+  test("maps release and assurance failures without exposing protected state", async () => {
+    releaseOperations.inspect.mockRejectedValueOnce(new FactoryReleaseError("factory_release_not_found"));
+    expect((await releaseItem.GET(event("GET", `/api/factories/projects/${projectId}/releases/${operationId}`, { params: { projectId, operationId } }))).status).toBe(404);
+    releaseOperations.reconcile.mockRejectedValueOnce(new FactoryReleaseError("factory_release_reconciliation_stale"));
+    expect((await releaseReconciliation.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/reconciliations`, { params: { projectId, operationId }, body: { action: "keep_uncertain", reason: "Unknown", providerEvidence: { lookup: true } }, revision: 1, key: "stale" }))).status).toBe(412);
+    releaseOperations.reconcile.mockRejectedValueOnce(new FactoryReleaseError("factory_release_reconciliation_timeout"));
+    expect((await releaseReconciliation.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/reconciliations`, { params: { projectId, operationId }, body: { action: "keep_uncertain", reason: "Unknown", providerEvidence: { lookup: true } }, revision: 1, key: "timeout" }))).status).toBe(503);
+    const contractBody = { contractDigest: `sha256:${sourceDigest}`, validatorLockDigest: `sha256:${compiledBlobDigest}`, mandatoryClaims: [], claimGroups: [] };
+    for (const [code, status] of [["factory_assurance_not_found", 404], ["factory_assurance_stale", 412], ["factory_assurance_invalid", 400], ["factory_assurance_claim_failed", 422], ["factory_assurance_corrupt", 500]] as const) {
+      releaseOperations.putContract.mockRejectedValueOnce(new FactoryAssuranceError(code));
+      expect((await releaseContractRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/contracts/contract-1`, { params: { projectId, contractId: "contract-1" }, body: contractBody, revision: 0, key: `assurance-${code}` }))).status).toBe(status);
+    }
+    for (const [code, status] of [["factory_release_absence_unproved", 422], ["factory_release_reconciliation_invalid", 400], ["factory_release_corrupt", 500]] as const) {
+      releaseOperations.reconcile.mockRejectedValueOnce(new FactoryReleaseError(code));
+      expect((await releaseReconciliation.POST(event("POST", `/api/factories/projects/${projectId}/releases/${operationId}/reconciliations`, { params: { projectId, operationId }, body: { action: "keep_uncertain", reason: "Unknown", providerEvidence: { lookup: true } }, revision: 1, key: `release-${code}` }))).status).toBe(status);
     }
   });
 });

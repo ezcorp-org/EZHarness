@@ -108,7 +108,7 @@ function assertCounter(value: number, label: string, minimum = 0): void {
   if (!Number.isSafeInteger(value) || value < minimum) throw new Error(`Pool ${label} is malformed.`);
 }
 
-function normaliseVector(vector: PoolResourceVector): Record<PoolResourceClass, number> {
+export function normalizePoolResourceVector(vector: PoolResourceVector): PoolResourceVector {
   if (!vector || typeof vector !== "object" || Array.isArray(vector)) throw new Error("Pool resource vector is malformed.");
   const output = Object.create(null) as Record<PoolResourceClass, number>;
   let count = 0;
@@ -124,13 +124,13 @@ function normaliseVector(vector: PoolResourceVector): Record<PoolResourceClass, 
   return output;
 }
 
-function decodeVector(value: unknown): Record<PoolResourceClass, number> {
+function decodeVector(value: unknown): PoolResourceVector {
   const decoded = typeof value === "string" ? JSON.parse(value) : value;
-  return normaliseVector(decoded as PoolResourceVector);
+  return normalizePoolResourceVector(decoded as PoolResourceVector);
 }
 
 function vectorJson(vector: PoolResourceVector): string {
-  const normal = normaliseVector(vector);
+  const normal = normalizePoolResourceVector(vector);
   const ordered = Object.create(null) as Record<string, number>;
   for (const resource of POOL_RESOURCE_CLASSES) if (normal[resource] !== undefined) ordered[resource] = normal[resource];
   return JSON.stringify(ordered);
@@ -141,7 +141,7 @@ function vectorEqual(left: PoolResourceVector, right: PoolResourceVector): boole
 }
 
 function asDate(value: unknown): Date {
-  const output = new Date(String(value));
+  const output = value instanceof Date ? new Date(value) : new Date(String(value));
   if (!Number.isFinite(output.getTime())) throw new Error("Pool ledger stored an invalid timestamp.");
   return output;
 }
@@ -151,7 +151,7 @@ function iso(date: Date): string {
   return date.toISOString();
 }
 
-function activeResources(row: RequestRow): Record<PoolResourceClass, number> {
+function activeResources(row: RequestRow): PoolResourceVector {
   const vector = decodeVector(row.resources_json);
   if (row.reason === "awaiting-gpu-reimage") {
     const gpu = vector["gpu-host"];
@@ -263,6 +263,17 @@ export async function setupFactoryPoolLedger(database: Pick<PoolSql, "unsafe">):
 export class FactoryPoolLedger {
   constructor(private readonly database: PoolSql, private readonly clock: PoolClock = { now: () => new Date() }) {}
 
+  /** Validate and snapshot a request before any caller writes related durable facts. */
+  validateRequest(input: PoolRequest): PoolRequest {
+    assertOpaque(input.reservationId, "reservation id"); assertOpaque(input.tenantId, "tenant id"); assertCounter(input.grantRevision, "grant revision");
+    const resources = normalizePoolResourceVector(input.resources); iso(input.admissionDeadline);
+    if (input.admissionDeadline.getTime() <= this.clock.now().getTime()) throw new Error("Pool admission deadline has expired.");
+    if (input.priority !== undefined) assertCounter(input.priority, "priority");
+    if (input.readySequence !== undefined) assertCounter(input.readySequence, "ready sequence");
+    if (input.nodeId !== undefined) assertOpaque(input.nodeId, "node id");
+    return { reservationId: input.reservationId, tenantId: input.tenantId, grantRevision: input.grantRevision, resources, admissionDeadline: new Date(input.admissionDeadline), ...(input.priority === undefined ? {} : { priority: input.priority }), ...(input.readySequence === undefined ? {} : { readySequence: input.readySequence }), ...(input.nodeId === undefined ? {} : { nodeId: input.nodeId }) };
+  }
+
   async configureCapacity(resourceClass: Exclude<PoolResourceClass, "gpu-host">, totalUnits: number): Promise<void> {
     if (resourceClass !== "cpu" && resourceClass !== "memory" && resourceClass !== "provider") throw new Error("GPU capacity is derived only from registered hosts.");
     assertCounter(totalUnits, "capacity");
@@ -291,7 +302,7 @@ export class FactoryPoolLedger {
     assertOpaque(policy.tenantId, "tenant id");
     const weight = policy.weight ?? 1;
     assertCounter(weight, "tenant weight", 1);
-    const minimum = policy.reservedMinimum ? normaliseVector(policy.reservedMinimum) : Object.create(null) as Record<PoolResourceClass, number>;
+    const minimum = policy.reservedMinimum ? normalizePoolResourceVector(policy.reservedMinimum) : Object.create(null) as Record<PoolResourceClass, number>;
     await this.database.begin(async (transaction) => {
       await this.lock(transaction);
       await transaction.unsafe("INSERT INTO factory_pool_tenants(tenant_id, weight) VALUES ($1, $2) ON CONFLICT(tenant_id) DO UPDATE SET weight = EXCLUDED.weight", [policy.tenantId, weight]);
@@ -310,7 +321,7 @@ export class FactoryPoolLedger {
   }
 
   async request(input: PoolRequest): Promise<PoolDecision> {
-    this.assertRequest(input);
+    input = this.validateRequest(input);
     const now = this.clock.now();
     return this.database.begin(async (transaction) => {
       await this.lock(transaction);
@@ -320,7 +331,7 @@ export class FactoryPoolLedger {
         if (existing.tenant_id !== input.tenantId || Number(existing.grant_revision) !== input.grantRevision || !vectorEqual(decodeVector(existing.resources_json), input.resources) || Number(existing.priority) !== (input.priority ?? 0) || Number(existing.ready_sequence) !== (input.readySequence ?? 0) || existing.node_id !== (input.nodeId ?? "") || asDate(existing.admission_deadline).getTime() !== input.admissionDeadline.getTime()) throw new Error("Pool reservation id conflicts with a different admission request.");
         return this.decisionFor(existing, now);
       }
-      const vector = normaliseVector(input.resources);
+      const vector = normalizePoolResourceVector(input.resources);
       const capacities = await this.capacities(transaction, "FOR SHARE");
       for (const resourceClass of POOL_RESOURCE_CLASSES) {
         const units = vector[resourceClass];
@@ -531,15 +542,6 @@ export class FactoryPoolLedger {
       if (!row || row.tenant_id !== fence.tenantId || Number(row.grant_revision) !== fence.grantRevision || Number(row.allocation_generation) !== fence.allocationGeneration || row.allocation_token !== fence.allocationToken || !["held", "running"].includes(row.state)) throw new Error("Pool lease is fenced.");
       return work(transaction, row, now);
     });
-  }
-
-  private assertRequest(input: PoolRequest): void {
-    assertOpaque(input.reservationId, "reservation id"); assertOpaque(input.tenantId, "tenant id"); assertCounter(input.grantRevision, "grant revision");
-    normaliseVector(input.resources); iso(input.admissionDeadline);
-    if (input.admissionDeadline.getTime() <= this.clock.now().getTime()) throw new Error("Pool admission deadline has expired.");
-    if (input.priority !== undefined) assertCounter(input.priority, "priority");
-    if (input.readySequence !== undefined) assertCounter(input.readySequence, "ready sequence");
-    if (input.nodeId !== undefined) assertOpaque(input.nodeId, "node id");
   }
 
   private async lock(transaction: PoolSql): Promise<void> {

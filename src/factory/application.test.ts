@@ -4,6 +4,7 @@ import type { TransactionalDb } from "../db/migrations/types";
 import type { BlobStore } from "../extensions/v4/types";
 import { FactoryGrants } from "./grants";
 import { configureFactoryApplication, createFactoryApplication, definitionAvailability, draftAvailability, getFactoryApplication } from "./application";
+import type { FactoryReleaseApplication } from "./release-application";
 
 const database = {} as TransactionalDb;
 const blobs = {} as BlobStore;
@@ -56,6 +57,16 @@ describe("factory application composition", () => {
     expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [""] })).toThrow();
     const grants = new FactoryGrants(database, "tenant-2");
     expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, grants, runOptions, availableResourceClasses: [] })).toThrow("factory_scope_mismatch");
+  });
+
+  test("snapshots strict release composition after the core authority stores exist", () => {
+    const releaseOperations = { tenantId: "tenant-1" } as FactoryReleaseApplication;
+    let captured: object | undefined;
+    const application = createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [], createReleaseOperations: context => { captured = context; return releaseOperations; } });
+    expect(application.releaseOperations).toBe(releaseOperations);
+    expect(Object.isFrozen(captured)).toBe(true);
+    expect(captured).toMatchObject({ tenantId: "tenant-1", releaseAuthority: application.releaseAuthority, grants: application.grants });
+    expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [], createReleaseOperations: () => ({ tenantId: "foreign" }) as FactoryReleaseApplication })).toThrow("factory_scope_mismatch");
   });
 
   test("finds deep resource requirements and fails closed on invalid semantics", () => {

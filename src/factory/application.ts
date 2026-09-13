@@ -12,6 +12,7 @@ import { FactoryDefinitionArtifacts } from "./definition-artifacts";
 import { FactoryServiceCredentials } from "./service-credentials";
 import { FactoryExecutionJournal } from "./executions";
 import { FactoryReleaseAuthorityStore } from "./release-authority";
+import type { FactoryReleaseApplication } from "./release-application";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -27,6 +28,7 @@ export interface FactoryApplication {
   readonly artifacts: FactoryArtifacts;
   readonly journal: FactoryExecutionJournal;
   readonly releaseAuthority: FactoryReleaseAuthorityStore;
+  readonly releaseOperations?: FactoryReleaseApplication;
   readonly availableResourceClasses: ReadonlySet<string>;
 }
 
@@ -37,6 +39,7 @@ export interface FactoryApplicationOptions {
   readonly runOptions: Omit<FactoryRunLifecycleOptions, "definitions" | "grants" | "stageDefinitionInTransaction">;
   readonly grants?: FactoryGrants;
   readonly availableResourceClasses: Iterable<string>;
+  readonly createReleaseOperations?: (context: Readonly<Pick<FactoryApplication, "tenantId" | "grants" | "runs" | "artifacts" | "journal" | "releaseAuthority">>) => FactoryReleaseApplication;
 }
 
 let configuredApplication: FactoryApplication | null = null;
@@ -82,6 +85,9 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   });
   const journal = new FactoryExecutionJournal(options.database, runs.authorizeAttemptInTransaction);
   const releaseAuthority = new FactoryReleaseAuthorityStore(options.database, options.tenantId, grants, runs, journal, artifacts);
+  const releaseOperations = options.createReleaseOperations?.(Object.freeze({ tenantId: options.tenantId, grants, runs, artifacts, journal, releaseAuthority }));
+  if (releaseOperations && releaseOperations.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
+  if (releaseOperations) Object.freeze(releaseOperations);
   return Object.freeze({
     tenantId: options.tenantId,
     grants,
@@ -91,6 +97,7 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
     artifacts,
     journal,
     releaseAuthority,
+    ...(releaseOperations ? { releaseOperations } : {}),
     availableResourceClasses: immutableSet(resources),
   });
 }

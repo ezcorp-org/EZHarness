@@ -10,8 +10,10 @@ class MemoryS3 {
   losePutResponse = false;
   corruptReads = false;
   omitVersions = false;
+  lastAbortSignal?: AbortSignal;
 
-  async send(command: unknown): Promise<Record<string, unknown>> {
+  async send(command: unknown, options?: unknown): Promise<Record<string, unknown>> {
+    this.lastAbortSignal = typeof options === "object" && options !== null && "abortSignal" in options ? (options as { abortSignal?: AbortSignal }).abortSignal : undefined;
     if (command instanceof HeadObjectCommand) {
       const item = this.current.get(command.input.Key!);
       if (!item || command.input.VersionId && command.input.VersionId !== item.version) throw { name: "NotFound", $metadata: { httpStatusCode: 404 } };
@@ -101,6 +103,8 @@ test("S3 response loss exposes uncertainty and an exact live lookup proves effec
   await expect(provider.publish(operation)).rejects.toMatchObject({ code: "factory_s3_version_changed" });
   expect(await provider.proveNoEffect(operation, { operationId: operation.operationId, reason: "operator lookup" })).toBe(false);
   const absent = claim({ destination: { provider: "s3", account: "tenant-a", object: "absent.txt" } });
-  expect(await provider.proveNoEffect(absent, { operationId: absent.operationId, reason: "operator lookup" })).toBe(true);
+  const controller = new AbortController();
+  expect(await provider.proveNoEffect(absent, { operationId: absent.operationId, reason: "operator lookup" }, controller.signal)).toBe(true);
+  expect(client.lastAbortSignal).toBe(controller.signal);
   expect(await provider.proveNoEffect(absent, { operationId: "foreign", reason: "operator lookup" })).toBe(false);
 });

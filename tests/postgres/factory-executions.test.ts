@@ -11,6 +11,7 @@ import { releaseRows } from "../../src/db/queries/extension-releases";
 import * as schema from "../../src/db/schema";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../src/factory/executions";
 import { nativeFactoryJournal } from "../../src/factory/runner/native";
+import { verifyFactoryExecutionAdmission } from "../../src/__tests__/helpers/factory-execution-admission-suite";
 
 const url = process.env.FACTORY_TEST_POSTGRES_URL;
 if (!url) throw new Error("FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL conformance.");
@@ -69,6 +70,16 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     expect(await journal.admit({ ...attempt, request: { ...attempt.request, broker: { ...attempt.request.broker, attemptToken: "reissued-postgres-token" } } })).toMatchObject({ reused: true });
     await expect(journal.admit(admission(authority({ tenantId: "foreign-tenant" }), { a: 1, b: 2 }))).rejects.toThrow("epoch is stale");
     expect(releaseRows(await db.execute(sql`SELECT attempt_id FROM factory_executions`))).toHaveLength(1);
+  });
+
+  test("transactional admission and durable request recovery match PGlite", async () => {
+    const transactionalAuthority = authority({ attemptId: "transactional-attempt", nodeInstanceId: "transactional-node", candidateGeneration: 17 });
+    await verifyFactoryExecutionAdmission({
+      db,
+      journal,
+      admission: input => admission(transactionalAuthority, input),
+      foreignAuthority: admission({ ...transactionalAuthority, tenantId: "foreign-tenant" }),
+    });
   });
 
   test("racing attempt authorities admit at most one canonical identity", async () => {
