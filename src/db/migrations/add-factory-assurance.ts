@@ -24,7 +24,7 @@ export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_acceptance_decisions (
     tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, decision_id TEXT NOT NULL, contract_id TEXT NOT NULL, contract_revision BIGINT NOT NULL,
     contract_digest TEXT NOT NULL CHECK (contract_digest ~ '^sha256:[0-9a-f]{64}$'), candidate_digest TEXT NOT NULL CHECK (candidate_digest ~ '^sha256:[0-9a-f]{64}$'), evidence_set_digest TEXT NOT NULL CHECK (evidence_set_digest ~ '^sha256:[0-9a-f]{64}$'), decision_digest TEXT NOT NULL CHECK (decision_digest ~ '^sha256:[0-9a-f]{64}$'), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (tenant_id, project_id, decision_id), UNIQUE (tenant_id, project_id, contract_id, contract_revision, candidate_digest),
+    PRIMARY KEY (tenant_id, project_id, decision_id),
     FOREIGN KEY (tenant_id, project_id, contract_id, contract_revision) REFERENCES factory_acceptance_contracts(tenant_id, project_id, contract_id, revision) ON DELETE RESTRICT
   )`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_release_approvals (

@@ -29,7 +29,7 @@ class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidate
 }
 class ReleaseFenceReader implements FactoryReleaseFenceReader {
   async readCurrentInTransaction(_transaction: MigrationDb, tenant: string, currentProjectId: string, runId: string) {
-    if (tenant !== tenantId || currentProjectId !== projectId || runId !== candidate.runId) throw new Error("trusted release fence was not found");
+    if (tenant !== tenantId || currentProjectId !== projectId || ![candidate.runId, "assurance-run-2"].includes(runId)) throw new Error("trusted release fence was not found");
     return { runId, executionEpoch: 1, cancellationEpoch: fenceStatus === "running" ? 0 : 1, status: fenceStatus, deadlineMs: now + 1_000 };
   }
 }
@@ -121,6 +121,20 @@ test("duplicate claim identifiers and another run cannot mint release authority"
   await expect(fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...request, approvalId: approval.approvalId, requester: admin, runId: candidate.runId }))).rejects.toMatchObject({ code: "factory_assurance_stale" });
   trusted = { ...trusted, environmentDigest };
   await expect(fixture.db.transaction(tx => assurance.consumeApprovalInTransaction(tx, { ...request, approvalId: approval.approvalId, requester: admin, runId: "other-run" }))).rejects.toThrow("trusted release fence");
+});
+
+test("same content in a distinct run receives a separate acceptance and approval scope", async () => {
+  const second = { ...candidate, runId: "assurance-run-2" };
+  const records = new FactoryRecords(fixture.db, tenantId);
+  await records.createRun({ projectId, runId: second.runId, definitionDigest: digest("d"), interpreterBuild: "factory-v1", executionEpoch: 1, input: {}, principalId: admin.id }, async () => {});
+  const original = trusted;
+  trusted = { ...trusted, ...second };
+  await assurance.captureEvidence({ ...second, validatorId: trusted.validatorId });
+  const decision = await assurance.accept({ ...second, contractId: "contract", revision: 1 });
+  expect(decision.runId).toBe(second.runId);
+  const approval = await assurance.requestApproval(admin, { projectId, operationId: "second-run-release", decisionId: decision.decisionId, destinationDigest: digest("a"), expectedGeneration: 4, expiresAtMs: now + 500 });
+  expect(approval.approvalId).toBeTruthy();
+  trusted = original;
 });
 
 test("cancellation and revoked trust deny a release claim inside its transaction", async () => {
