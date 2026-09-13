@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Authoring, validation, compilation, and deterministic execution contracts for EZCorp factories.",
-  "files": ["dist", "src", "README.md"],
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "bun": "./src/index.ts",
@@ -19,6 +23,16 @@
       "bun": "./src/schema.ts",
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js"
+    },
+    "./kernel": {
+      "bun": "./src/kernel.ts",
+      "types": "./dist/kernel.d.ts",
+      "import": "./dist/kernel.js"
+    },
+    "./kernel-types": {
+      "bun": "./src/kernel-types.ts",
+      "types": "./dist/kernel-types.d.ts",
+      "import": "./dist/kernel-types.js"
     }
   },
   "scripts": {
