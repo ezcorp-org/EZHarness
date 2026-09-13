@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { TLSSocket } from "node:tls";
 import { after, before, describe, it } from "node:test";
 import { MockActivityEnvironment } from "@temporalio/testing";
 import { createGatewayFactoryActivities, type GatewayTlsSecretPaths } from "../src/gateway-activities.ts";
@@ -15,6 +16,8 @@ let origin = "";
 let port = 0;
 let server: Server;
 let mode = "normal";
+let expectedClientCn = "factory-orchestrator";
+let expectedToken = "gateway-token";
 let paths: GatewayTlsSecretPaths;
 const calls = [];
 const definitionDigest = sha256("compiled-definition");
@@ -43,6 +46,10 @@ async function createPki() {
   openssl("x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-out", "server.pem", "-days", "1", "-extfile", "server.ext");
   openssl("req", "-newkey", "rsa:2048", "-nodes", "-keyout", "client.key", "-out", "client.csr", "-subj", "/CN=factory-orchestrator");
   openssl("x509", "-req", "-in", "client.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-out", "client.pem", "-days", "1", "-extfile", "client.ext");
+  await copyFile(join(directory, "client.key"), join(directory, "client-original.key"));
+  await copyFile(join(directory, "client.pem"), join(directory, "client-original.pem"));
+  openssl("req", "-newkey", "rsa:2048", "-nodes", "-keyout", "client-rotated.key", "-out", "client-rotated.csr", "-subj", "/CN=factory-orchestrator-rotated");
+  openssl("x509", "-req", "-in", "client-rotated.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-out", "client-rotated.pem", "-days", "1", "-extfile", "client.ext");
   openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", "other-ca.key", "-out", "other-ca.pem", "-subj", "/CN=Other CA", "-days", "1");
   await writeFile(join(directory, "token"), "gateway-token\n", { mode: 0o600 });
   await writeFile(join(directory, "empty-token"), " \n", { mode: 0o600 });
@@ -71,7 +78,9 @@ before(async () => {
     if (mode === "http-error") { response.writeHead(503).end("unavailable"); return; }
     if (mode === "large") { response.writeHead(200).end("x".repeat(33 * 1024)); return; }
     if (mode === "invalid-json") { response.writeHead(200).end("not-json"); return; }
-    if (request.headers.authorization !== "Bearer gateway-token") { response.writeHead(401).end(); return; }
+    const peer = (request.socket as TLSSocket).getPeerCertificate();
+    if (peer.subject?.CN !== expectedClientCn) { response.writeHead(403).end(); return; }
+    if (request.headers.authorization !== `Bearer ${expectedToken}`) { response.writeHead(401).end(); return; }
     if (request.url === "/internal/factory/v1/definitions/resolve") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-resolve" ? { ...source, definitionDigest: sha256("wrong") } : source));
     else if (request.url === "/internal/factory/v1/definitions/manifest") response.writeHead(200, { "content-type": "application/json" }).end(manifestBody);
     else if (request.url === "/internal/factory/v1/definitions/page") response.writeHead(200, { "content-type": "application/json" }).end(definitionBody);
@@ -100,6 +109,8 @@ const activity = (environment, fn, value) => environment.run(fn, value);
 describe("authenticated factory gateway activities", () => {
   it("uses verified mutual TLS, scoped routes, and immutable page digests", async () => {
     mode = "normal";
+    expectedClientCn = "factory-orchestrator";
+    expectedToken = "gateway-token";
     calls.length = 0;
     const activities = await createGatewayFactoryActivities({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
     const environment = new MockActivityEnvironment();
@@ -126,6 +137,29 @@ describe("authenticated factory gateway activities", () => {
       ["POST", "/internal/factory/v1/executions/dispatch/cancel"],
     ]);
     assert.ok(calls.every((call) => call.authorization === "Bearer gateway-token" && call.version === "1"));
+  });
+
+  it("reloads the service token and client identity after credential rotation", async () => {
+    mode = "normal";
+    expectedClientCn = "factory-orchestrator";
+    expectedToken = "gateway-token";
+    const activities = await createGatewayFactoryActivities({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
+    const environment = new MockActivityEnvironment();
+    await activity(environment, activities.recordTransition, transition);
+    try {
+      await copyFile(join(directory, "client-rotated.key"), paths.privateKeyPath);
+      await copyFile(join(directory, "client-rotated.pem"), paths.certificatePath);
+      await writeFile(paths.serviceTokenPath, "gateway-token-rotated\n", { mode: 0o600 });
+      expectedClientCn = "factory-orchestrator-rotated";
+      expectedToken = "gateway-token-rotated";
+      await activity(environment, activities.recordTransition, transition);
+    } finally {
+      await copyFile(join(directory, "client-original.key"), paths.privateKeyPath);
+      await copyFile(join(directory, "client-original.pem"), paths.certificatePath);
+      await writeFile(paths.serviceTokenPath, "gateway-token\n", { mode: 0o600 });
+      expectedClientCn = "factory-orchestrator";
+      expectedToken = "gateway-token";
+    }
   });
 
   it("rejects no client certificate, an untrusted CA, and a hostname mismatch", async () => {

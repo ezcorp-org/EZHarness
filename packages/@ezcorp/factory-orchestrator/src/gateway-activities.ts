@@ -138,12 +138,13 @@ async function loadCredentials(paths: GatewayTlsSecretPaths): Promise<{ ca: Buff
 export async function createGatewayFactoryActivities(options: GatewayActivitiesOptions): Promise<FactoryActivities> {
   const endpoint = new URL(options.baseUrl);
   if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error("factory gateway requires a plain private HTTPS origin");
-  const credentials = await loadCredentials(options.tls);
-  const transport = createTransport(endpoint, credentials, options.serverName ?? endpoint.hostname, options.requestTimeoutMs ?? 30_000);
+  await loadCredentials(options.tls);
   const request = async (method: "GET" | "POST" | "PUT", path: string, body?: unknown, limit = MAX_ACTIVITY_PAYLOAD_BYTES): Promise<GatewayResponse> => {
     const context = Context.current();
     const heartbeat = setInterval(() => context.heartbeat(), options.heartbeatIntervalMs ?? 5_000);
     try {
+      const credentials = await loadCredentials(options.tls);
+      const transport = createTransport(endpoint, credentials, options.serverName ?? endpoint.hostname, options.requestTimeoutMs ?? 30_000);
       return requireSuccess(await transport.request(method, path, body, limit, context.cancellationSignal));
     } finally {
       clearInterval(heartbeat);
