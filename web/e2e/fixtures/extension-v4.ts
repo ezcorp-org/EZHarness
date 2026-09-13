@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { expect, test } from "./hydration.js";
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord, InstallationRecord, LifecycleApproval } from "../../../src/extensions/v4/types";
@@ -120,13 +120,28 @@ export async function approveAndActivateWorkspace(page: Page, client: HarnessCli
   await expect(approve).toBeDisabled();
   await page.getByLabel("I reviewed this release and its permissions.").check();
   await approve.click();
-  await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled({ timeout: withinTestTimeout(ACTIVATION_BUDGET_MS) });
+  await activateApprovedRelease(page);
   const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
   expect(active.installation.activeReleaseId).toBe(releaseId);
   expect(active.installation.enabled).toBe(true);
   expect(active.installation.acknowledgedGeneration).toBe(active.installation.generation);
   return active;
+}
+
+/**
+ * The installation reports `enabled` only after activation has verified the
+ * candidate, prepared migrations and published the release to the runtime.
+ * Every spec that activates from the page waits here, so the bound has one
+ * home (CI run 34765290249 failed a spec's own inline copy at the 5s default).
+ */
+export async function expectInstallationEnabled(page: Page): Promise<void> {
+  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled({ timeout: withinTestTimeout(ACTIVATION_BUDGET_MS) });
+}
+
+/** Click "Activate approved release" inside `scope` and wait, bounded, for the installation to report enabled. */
+export async function activateApprovedRelease(page: Page, scope: Page | Locator = page): Promise<void> {
+  await scope.getByRole("button", { name: "Activate approved release", exact: true }).click();
+  await expectInstallationEnabled(page);
 }
 
 export async function importAndActivateBundledExtension({ page, request, baseURL, name }: {
