@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { executionLimits } from "@ezcorp/extension-runner";
+import type { FactoryCheckpointReference } from "@ezcorp/factory-sdk";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority, FactoryJournalOperation } from "../executions";
 import { FACTORY_GUEST_TOOL_METHOD, factoryGuestFrameInput } from "./guest-frames";
 
@@ -12,7 +13,7 @@ import { FACTORY_GUEST_TOOL_METHOD, factoryGuestFrameInput } from "./guest-frame
  * equal its index, which the SDK result validator enforces.
  */
 export interface FactoryWorkspaceCheckpoint {
-  checkpoint(input: { operationId: string; operationIndex: number; attempt: FactoryAttemptAuthority; result: JsonValue }): Promise<JsonValue>;
+  checkpoint(input: { operationId: string; operationIndex: number; attempt: FactoryAttemptAuthority; result: JsonValue }): Promise<FactoryCheckpointReference>;
 }
 
 /** Internal single-tool adapter. The C02 runner wire is FactoryRunnerRequest in factory-sdk. */
@@ -76,7 +77,10 @@ export class FactoryRunnerSupervisor {
       const result = await worker.request("extension/invoke", { name: input.toolName, input: input.toolInput, context: invocation }) as JsonValue;
       if (!effectClaimed) throw new Error("Factory runner returned before its tool effect dispatched.");
       const checkpoint = await input.workspace.checkpoint({ operationId: operationEntry.operationId, operationIndex: operationEntry.operationIndex, attempt: input.authority, result });
-      await this.options.journal.settle(input.authority, operationEntry.operationId, "completed", { resultDigest: digest(result), result, usage: {}, workspaceCheckpoint: checkpoint });
+      // The journal stores canonical JSON, and a declared interface never
+      // satisfies JsonValue's index signature, so snapshot it once here.
+      const checkpointJson = JSON.parse(canonicalJson(checkpoint)) as JsonValue;
+      await this.options.journal.settle(input.authority, operationEntry.operationId, "completed", { resultDigest: digest(result), result, usage: {}, workspaceCheckpoint: checkpointJson });
       return { claimed: true, result };
     } finally {
       this.active.delete(input.authority.attemptId);

@@ -45,6 +45,8 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
   await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
   await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'request', '{}')`);
   const order: string[] = [];
+  // Mirrors the real sealed-material reference W04's checkpoint writer returns.
+  const checkpointReference = (journalCursor: number) => ({ artifactId: `checkpoint-${journalCursor}`, digest: `sha256:${"c".repeat(64)}`, encodedBytes: 96, journalCursor });
   const checkpointInputs: { operationId: string; operationIndex: number; attempt: { attemptId: string } }[] = [];
   let starts = 0;
   const runner: Runner = {
@@ -70,7 +72,7 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
   const supervisor = new FactoryRunnerSupervisor({ runner, journal, authorizeAttempt: async () => { order.push("authorize"); }, invokeTool: async value => { order.push("effect"); return { stored: value }; } });
   const admitted = admission(authority());
   await journal.admit(admitted);
-  const request = { authority: admitted, artifactDigest: "a".repeat(64), operationIndex: 0, toolName: "write", toolInput: { path: "output.txt" }, workspace: { checkpoint: async (input: { operationId: string; operationIndex: number; attempt: { attemptId: string } }) => { order.push("checkpoint"); checkpointInputs.push(input); return { revision: "snapshot-1" }; } } } as const;
+  const request = { authority: admitted, artifactDigest: "a".repeat(64), operationIndex: 0, toolName: "write", toolInput: { path: "output.txt" }, workspace: { checkpoint: async (input: { operationId: string; operationIndex: number; attempt: { attemptId: string } }) => { order.push("checkpoint"); checkpointInputs.push(input); return checkpointReference(input.operationIndex); } } } as const;
   expect(await supervisor.invoke(request)).toEqual({ claimed: true, result: { effect: { stored: { path: "output.txt" } } } });
   expect(order).toEqual(["authorize", "runner", "authorize", "effect", "checkpoint", "close"]);
   // The checkpoint writer receives its cursor and attempt directly, so it never

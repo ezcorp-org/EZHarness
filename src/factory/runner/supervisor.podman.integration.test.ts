@@ -61,7 +61,7 @@ test("real rootless Podman Bun tool crosses the factory journal and checkpoint b
     const build = await runner.build({ operationId: crypto.randomUUID(), sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits });
     expect(build.diagnostics).toEqual([]);
     const authority = admission({ attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 60_000) });
-    const request = { authority, artifactDigest: build.artifactDigest!, operationIndex: 0, toolName: "echo", toolInput: { text: "workspace bytes" } as JsonValue, workspace: { checkpoint: async ({ result }: { result: JsonValue }) => ({ revision: "checkpoint-1", result }) } };
+    const request = { authority, artifactDigest: build.artifactDigest!, operationIndex: 0, toolName: "echo", toolInput: { text: "workspace bytes" } as JsonValue, workspace: { checkpoint: async ({ operationIndex }: { operationIndex: number }) => ({ artifactId: "checkpoint-workspace", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 96, journalCursor: operationIndex }) } };
     const journal = new FactoryExecutionJournal(db, async () => {});
     await journal.admit(authority);
     const supervisor = new FactoryRunnerSupervisor({ runner, journal, authorizeAttempt: async () => {}, invokeTool: async input => ({ persisted: input }) });
@@ -108,7 +108,7 @@ test("a fresh factory supervisor attaches through the v4 service to a surviving 
     const journal = new FactoryExecutionJournal(db, async () => {});
     await journal.admit(authority);
     const supervisor = new FactoryRunnerSupervisor({ runner: new RunnerClient({ socketPath, token }), journal, authorizeAttempt: async () => {}, invokeTool: async input => ({ persisted: input }) });
-    expect(await supervisor.invoke({ authority, artifactDigest: build.artifactDigest!, operationIndex: 0, toolName: "echo", toolInput: { text: "survived" }, workspace: { checkpoint: async ({ result }) => ({ revision: "recovered", result }) } })).toEqual({ claimed: true, result: { stored: { persisted: { text: "survived" } } } });
+    expect(await supervisor.invoke({ authority, artifactDigest: build.artifactDigest!, operationIndex: 0, toolName: "echo", toolInput: { text: "survived" }, workspace: { checkpoint: async ({ operationIndex }) => ({ artifactId: "checkpoint-survived", digest: `sha256:${"d".repeat(64)}`, encodedBytes: 96, journalCursor: operationIndex }) } })).toEqual({ claimed: true, result: { stored: { persisted: { text: "survived" } } } });
   } finally {
     await service?.close();
     await runner.close();
