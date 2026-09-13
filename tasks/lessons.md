@@ -567,3 +567,9 @@
 - Read the root package scripts before invoking a focused web test. This repository has no `test:web` script; run `test:component` from `web` and pass paths relative to that working directory.
 - When light checks run in parallel, wait for every producer to close before applying even a small lint fix. Rerun every check whose source snapshot changed.
 - A change to a shared verifier (JWT `iss`/`aud`) must be proven with the canonical web Vitest pool, not only focused factory suites. A legacy test that hand-signs tokens must mint them through the production signer so the test exercises the enforced envelope instead of bypassing it.
+
+- `podman ps` can report a container `Up` from stale state. When the systemd user session dies, podman cannot reach the user bus, `crun` fails with `sd-bus call: Access denied`, and the reported status keeps describing a process that no longer exists. Check `State.Pid` against the process table and probe the port before trusting a service container, and read a `Connection closed` from a client as a possible dead server rather than a client defect.
+
+- Adding a wildcard threshold key without registering its producer in the canonical pipeline reds every local coverage run through the whole-tree dropout signal. A new runtime's coverage registration is not complete until the producer runs in `scripts/test-coverage.sh` as well as in CI; check which of the three modes should carry it, because a leg that needs a toolchain CI installs in one job must stay out of legs-only.
+
+- Derive a registration requirement from the artifacts on disk, not from a written list. Five PostgreSQL suites and thirty-four C13 reuse edges were missing precisely because both inventories were hand-kept; a check that re-derives them fails closed on the next omission instead of waiting for the next audit.
