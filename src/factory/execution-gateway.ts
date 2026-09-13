@@ -4,6 +4,8 @@ import type { FactoryExecutionJournal, FactoryAttemptAuthority } from "./executi
 
 export interface FactoryGatewayOptions {
   journal: FactoryExecutionJournal;
+  /** Confirms current grant revision before the gateway creates any durable work. */
+  authorizeAttempt(authority: FactoryAttemptAuthority): Promise<void>;
   jwtSecret: string;
   installationId: string;
   tls: { key: string; cert: string; ca: string };
@@ -25,7 +27,7 @@ function identity(value: Claims, attemptId: string): FactoryAttemptAuthority | n
 
 function reply(status: number, value: unknown): string {
   const body = JSON.stringify(value);
-  const reason = status === 201 ? "Created" : status === 200 ? "OK" : status === 202 ? "Accepted" : status === 400 ? "Bad Request" : status === 401 ? "Unauthorized" : status === 405 ? "Method Not Allowed" : "Payload Too Large";
+  const reason = status === 201 ? "Created" : status === 200 ? "OK" : status === 202 ? "Accepted" : status === 400 ? "Bad Request" : status === 401 ? "Unauthorized" : status === 405 ? "Method Not Allowed" : status === 409 ? "Conflict" : "Payload Too Large";
   return `HTTP/1.1 ${status} ${reason}\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\nconnection: close\r\n\r\n${body}`;
 }
 
@@ -63,13 +65,14 @@ export function startFactoryExecutionGateway(options: FactoryGatewayOptions): { 
           const attempt = match && claims ? identity(claims, decodeURIComponent(match[1]!)) : null;
           if (!attempt || socket.data.tenantId !== attempt.tenantId) send(socket, 401, { error: "unauthorized" });
           else if (method === "PUT" && !match![2]) {
+            await options.authorizeAttempt(attempt);
             const admitted = await options.journal.admit({ ...attempt, request });
             send(socket, admitted.reused ? 200 : 201, { attemptId: attempt.attemptId, ...admitted });
           }
           else if (method === "GET" && !match![2]) send(socket, 200, await options.journal.status(attempt));
           else if (method === "POST" && match![2] === "/cancel") send(socket, 202, { accepted: await options.journal.cancel(attempt) });
           else send(socket, 405, { error: "method_not_allowed" });
-        } catch { send(socket, 400, { error: "invalid_request" }); }
+        } catch (error) { send(socket, error instanceof Error && error.message.includes("conflicts") ? 409 : 400, { error: "invalid_request" }); }
       },
     },
   });
