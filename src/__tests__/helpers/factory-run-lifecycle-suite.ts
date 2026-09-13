@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { sql } from "drizzle-orm";
-import { referenceCodeV1, validateFactoryApiResponse, createKernelState, advanceKernel, type FactoryDefinition, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, validateFactoryApiResponse, createKernelState, createPartitionKernelState, advanceKernel, type FactoryDefinition, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
@@ -941,6 +941,72 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       }
       await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
     }
+  });
+
+  test("partition notifications retain exact source authority across progress and repairs", async () => {
+    const definitionKey = { projectId, factoryId: "partition-command-authority" };
+    const template = referenceCodeV1.graph.nodes.find(node => node.id === "snapshot-repository");
+    if (template?.kind !== "task") throw new Error("task fixture missing");
+    const largePort = { type: "string" as const, description: "x".repeat(18_000) };
+    const partitionNodes = [
+      { ...template, id: "partition-node-000", inputPorts: {}, bindings: {}, outputPorts: { value: largePort }, dependsOn: [] },
+      { ...template, id: "partition-hold", inputPorts: {}, bindings: {}, outputPorts: {}, dependsOn: [] },
+      { ...template, id: "partition-node-001", inputPorts: {}, bindings: {}, outputPorts: { value: largePort }, dependsOn: ["partition-node-000"] },
+    ];
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, inputPorts: {}, outputPorts: {}, graph: { nodes: partitionNodes, outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "partition-authority-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "partition-authority-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest, parameters: {} };
+    const run = await startRun(principal, definitionKey, request, 0, "partition-authority-start");
+    const { compiled } = await definitions.readVersion(principal, definitionKey, version.version);
+    const partition = compiled.partitions.find(candidate => candidate.outbound.length > 0);
+    const edge = partition?.outbound[0];
+    if (!partition || !edge) throw new Error("partition edge fixture missing");
+    const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: partition.id };
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const transitions = new FactoryTransitionArtifacts(artifacts);
+    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
+    const startEvent = { kind: "start", id: `partition-authority-start:${run.runId}`, atMs: now } as const;
+    const started = advanceKernel(compiled, createPartitionKernelState(compiled, partition.id, run.runId, {}, now), startEvent);
+    await persistTransition(identity, 1, startEvent, started.nextState, started.commands, undefined, activities);
+    const admission = started.commands.find(command => command.kind === "request-admission" && command.nodeId === edge.nodeId);
+    if (admission?.kind !== "request-admission") throw new Error("partition admission fixture missing");
+    const admittedEvent = { kind: "admission-result", id: `${admission.id}:admitted`, atMs: now + 1, nodeId: edge.nodeId, commandId: admission.id, candidateGeneration: 0, granted: true } as const;
+    const admitted = advanceKernel(compiled, started.nextState, admittedEvent);
+    await persistTransition(identity, 2, admittedEvent, admitted.nextState, admitted.commands, undefined, activities);
+    const dispatch = admitted.commands.find(command => command.kind === "dispatch-node" && command.nodeId === edge.nodeId);
+    if (dispatch?.kind !== "dispatch-node") throw new Error("partition dispatch fixture missing");
+    const resultEvent = { kind: "node-result", id: `${dispatch.id}:result`, atMs: now + 2, nodeId: edge.nodeId, commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { value: "old" } } as const;
+    const completed = advanceKernel(compiled, admitted.nextState, resultEvent);
+    await persistTransition(identity, 3, resultEvent, completed.nextState, completed.commands, undefined, activities);
+    const notification = completed.commands.find(command => command.kind === "notify-partition" && command.sourceNodeId === edge.nodeId);
+    if (notification?.kind !== "notify-partition") throw new Error("partition notification fixture missing");
+    const authority = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, ["orchestration"], () => now);
+    const service = { tenantId, subject: "orchestration" };
+    const notificationReference = { ...identity, commandId: notification.id };
+    expect(await authority.withCurrentPartition(service, notificationReference, async (_transaction, context) => ({ command: context.command, sequence: context.sourceSequence, atMs: context.commandState.nowMs }))).toEqual({ command: notification, sequence: 3, atMs: now + 2 });
+
+    const harmless = { kind: "repair", id: `partition-unrelated:${run.runId}`, atMs: now + 3, nodeId: "missing-node", reason: "unrelated" } as const;
+    const advanced = advanceKernel(compiled, completed.nextState, harmless);
+    await persistTransition(identity, 4, harmless, advanced.nextState, advanced.commands, undefined, activities);
+    expect(await authority.withCurrentPartition(service, notificationReference, async () => "current")).toBe("current");
+
+    const repair = { kind: "repair", id: `partition-repair:${run.runId}`, atMs: now + 4, nodeId: edge.nodeId, reason: "replace source" } as const;
+    const repaired = advanceKernel(compiled, advanced.nextState, repair);
+    await persistTransition(identity, 5, repair, repaired.nextState, repaired.commands, undefined, activities);
+    const invalidation = repaired.commands.find(command => command.kind === "invalidate-partition" && command.sourceNodeId === edge.nodeId);
+    if (invalidation?.kind !== "invalidate-partition") throw new Error("partition invalidation fixture missing");
+    await expect(authority.withCurrentPartition(service, notificationReference, async () => "stale")).rejects.toMatchObject({ code: "factory_command_stale" });
+    const invalidationReference = { ...identity, commandId: invalidation.id };
+    expect(await authority.withCurrentPartition(service, invalidationReference, async (_transaction, context) => context.command)).toEqual(invalidation);
+    const nextRepair = { kind: "repair", id: `partition-repair-next:${run.runId}`, atMs: now + 5, nodeId: edge.nodeId, reason: "replace source again" } as const;
+    const pending = advanceKernel(compiled, repaired.nextState, nextRepair);
+    await persistTransition(identity, 6, nextRepair, pending.nextState, pending.commands, undefined, activities);
+    const nextInvalidation = pending.commands.find(command => command.kind === "invalidate-partition" && command.sourceNodeId === edge.nodeId);
+    if (nextInvalidation?.kind !== "invalidate-partition") throw new Error("next partition invalidation fixture missing");
+    await expect(authority.withCurrentPartition(service, invalidationReference, async () => "stale")).rejects.toMatchObject({ code: "factory_command_stale" });
+    expect(await authority.withCurrentPartition(service, { ...identity, commandId: nextInvalidation.id }, async (_transaction, context) => context.command)).toEqual(nextInvalidation);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
   });
 
   test("generic approval command persists one human request and one exact inbox decision", async () => {
