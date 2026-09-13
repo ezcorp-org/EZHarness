@@ -79,3 +79,59 @@ test("a max-length external result fails before it can become a graph output", (
   expect(invalid.nextState.nodes.work?.status).toBe("stopping");
   expect(invalid.nextState.nodes.work?.error).toBe("OUTPUT_INVALID");
 });
+
+test("a delayed ordinary result at the run deadline cannot complete active work", () => {
+  const factory = compiled([{ id: "work", kind: "task", runner, outputPorts: { result: string } }]);
+  let state = start(factory, "ordinary-at-run-deadline");
+  state = admit(factory, state, "work");
+  const attempt = state.nodes.work!.attempts.at(-1)!;
+  const delayed = advanceKernel(factory, state, {
+    kind: "node-result", id: "delayed-result", atMs: state.runDeadlineAtMs, nodeId: "work", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output: { result: "late" },
+  });
+  expect(delayed.nextState.stopReason).toBe("RUN_DEADLINE_EXPIRED");
+  expect(delayed.nextState.nodes.work?.status).toBe("stopping");
+  expect(delayed.nextState.nodes.work?.output).toBeUndefined();
+  expect(delayed.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "work" }));
+});
+
+test("usage beyond a loop budget stops the active scope immediately", () => {
+  const loop: Extract<FactoryNode, { kind: "loop" }> = {
+    id: "loop", kind: "loop", initialInput: { kind: "literal", value: "seed" }, carriedSchema: string,
+    resultSchema: { type: "object", properties: { result: string }, required: ["result"], additionalProperties: false }, outputPorts: { result: string },
+    body: { nodes: [{ id: "work", kind: "task", runner, outputPorts: { result: string } }], outputs: { result: { kind: "ref", root: "node", name: "work", path: ["result"] } } },
+    until: { kind: "literal", value: false }, nextInput: { kind: "literal", value: "seed" }, maxIterations: 2, maxElapsedMs: 1_000, budget: { maxCostMicros: "5" }, onExhausted: "fail",
+  };
+  const factory = compiled([loop]);
+  let state = start(factory, "budget-over");
+  state = admit(factory, state, "loop/items/0/work");
+  const attempt = state.nodes["loop/items/0/work"]!.attempts.at(-1)!;
+  const settled = advanceKernel(factory, state, {
+    kind: "usage-settled", id: "over-cost", atMs: 1, nodeId: "loop/items/0/work", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, revision: 1, knownCostMicros: "6",
+  });
+  expect(settled.nextState.nodes.loop?.loop?.spentCostMicros).toBe("6");
+  expect(settled.nextState.stopReason).toBe("LOOP_BUDGET_EXHAUSTED");
+  expect(settled.nextState.nodes["loop/items/0/work"]?.status).toBe("stopping");
+  expect(settled.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "loop/items/0/work" }));
+});
+
+test("an unrequested stopped callback fences a late completion without fabricating a retry", () => {
+  const factory = compiled([{ id: "work", kind: "task", runner, outputPorts: { result: string } }]);
+  let state = start(factory, "normal-stop");
+  state = admit(factory, state, "work");
+  const attempt = state.nodes.work!.attempts.at(-1)!;
+  const stopped = advanceKernel(factory, state, {
+    kind: "attempt-stopped", id: "normal-stop", atMs: 1, nodeId: "work", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt,
+  });
+  expect(stopped.nextState.nodes.work?.status).toBe("running");
+  expect(stopped.nextState.nodes.work?.attempts.at(-1)?.stopped).toBe(true);
+  expect(stopped.commands).toEqual([]);
+  const late = advanceKernel(factory, stopped.nextState, {
+    kind: "node-result", id: "late-result", atMs: 2, nodeId: "work", commandId: attempt.commandId,
+    candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, output: { result: "late" },
+  });
+  expect(late.nextState.nodes.work?.output).toBeUndefined();
+  expect(late.commands).toEqual([]);
+});
