@@ -3065,4 +3065,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   }
   await db.execute(sql`UPDATE modes SET allowed_tools = array_remove(array_remove(allowed_tools, 'extension-author/create_extension'), 'extension-author__create_extension') WHERE slug = 'ez'`);
   await upFactoryExecutions(db);
+  const { up: addFactoryReleaseAuthority } = await import("./migrations/add-factory-release-authority");
+  await addFactoryReleaseAuthority(db);
 }

@@ -1351,3 +1351,12 @@ Plan review: the Node bootstrap owner and root agreed the versioned private read
 - [x] Record the review and immutable follow-up commit.
 
 Review: The run-grant adapter now snapshots its five used authority fields before any database wait and passes the exact durable service credential into `FactoryGrants`. PGlite and PostgreSQL each pass 12 cases with 70 assertions, including revoked-credential effect denial and a caller-mutation race. Focused LCOV measures all 19 run-grant lines and all seven functions. The SDK build, all four type-check legs, lint, and gate integrity pass. The canonical parent regression remains parent-owned under the shared heavy-validation lock.
+## Factory durable release authority facts
+
+- [x] Define exact terminal, candidate output, trust, release-control, history, and current-pointer records.
+- [x] Bind terminal completion to the admitted request, journal evidence, measured usage, and verified output bytes.
+- [x] Bind candidate artifact admission to exact node instance and generation, independent of interpreter identity.
+- [x] Enforce human trust, current grants, explicit enable epochs, lifecycle fences, and pointer CAS.
+- [x] Pass PGlite/PostgreSQL, coverage, type, lint, boundary, and gate checks; record review.
+
+Review: the release authority store now derives a per-node current candidate only from an authenticated completed attempt, an exact settled operation journal, measured usage, and a verified immutable candidate-output object. Human trust binds the exact runner package and validator under a live `factory.trust` grant. Release control defaults to disabled and advances an explicit epoch. Candidate history is immutable, and its current pointer advances with a lifecycle-locked generation compare-and-swap. The shared PGlite suite passes 11 cases; the isolated PostgreSQL authority and schema run passes 13 cases with 1,486 assertions. Combined coverage passes 20 cases and measures release authority 169/169, its migration 24/24, artifacts 95/95, executions 224/224, and schema 1249/1249 executable lines. SDK builds, all four typecheck legs, lint, factory boundaries, and gate integrity pass. Evidence is under `/tmp/factory-platform-evidence/release-authority-*` and `tasks/factory/release-authority-GATES.md`.

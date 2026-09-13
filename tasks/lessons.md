@@ -441,3 +441,9 @@
 
 - Persist the complete public service credential identity with a durable request. Reconstructing only the service account ID loses the credential revision and revocation fence during later authorization.
 - Audit every adapter that reconstructs a principal from that durable request. Lifecycle and journal authorization must both carry the credential fence into the current grant check.
+## 2026-09-13 — Release authority fact scope
+
+- A current-candidate reader must include the exact node instance. A run can contain several candidate-producing nodes, so run scope alone cannot select release authority.
+- A real PostgreSQL proof must use the shared per-test database helper and `FACTORY_TEST_POSTGRES_URL`. Never point a release test at the shared application `DATABASE_URL`.
+- Candidate authority must originate from an authenticated terminal journal fact and verified stored output bytes. Do not derive it from a caller digest, a latest acceptance row, or an allow-all reader.
+- A candidate artifact slot needs its own node-instance and generation columns. Do not reuse interpreter identity or transition sequence fields for candidate identity.
