@@ -133,8 +133,11 @@ test("transition recording commits its exact inbox receipt or rolls back the aud
   const activity = createFactoryArtifactActivities(definitions, transitions);
   const inbox = new FactoryInbox(db, identity.tenantId);
   const event: Extract<KernelEvent, { kind: "cancel" }> = { id: "accepted-event", kind: "cancel", atMs: 1, reason: "x" };
-  const delivery = await inbox.enqueue({ projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId }, event);
+  const key = { projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId };
+  const delivery = await inbox.enqueue(key, event);
   const command = delivery.command as { eventSequence: number; eventHash: string };
+  const notification = await inbox.enqueue(key, { id: "partition-notification", kind: "cancel", atMs: 2, reason: "x" }, "partition_notification");
+  expect((notification.command as { kind: string }).kind).toBe("partition_notification");
   await persistTransition(identity, 1, event, {} as never, [], { sequence: command.eventSequence, eventId: event.id, eventHash: command.eventHash }, activity);
   expect(await inbox.confirmApplied({ projectId: identity.projectId, runId: identity.logicalRunId, interpreterId: identity.interpreterId }, { inboxSequence: command.eventSequence, eventId: event.id, eventHash: command.eventHash })).toBe(true);
 
