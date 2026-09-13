@@ -237,6 +237,9 @@ export const V8_CANONICAL_SOURCES: readonly string[] = [
   "web/src/lib/components/tool-cards/ExtensionIframeCard.svelte",
 ];
 
+/** V8-canonical files measured specifically by the standard Web Vitest producer. */
+export const WEB_VITEST_CANONICAL_SOURCES: readonly string[] = V8_CANONICAL_SOURCES.filter((source) => source.startsWith("web/"));
+
 /**
  * These shared UI sources are owned by Chromium AST/source-map coverage.
  * Their native browser journeys exercise focus, keyboard, pointer, layout,

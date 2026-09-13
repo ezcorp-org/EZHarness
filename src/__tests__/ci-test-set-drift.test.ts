@@ -41,6 +41,7 @@ const SET_FUNCTIONS = [
   "sdk_leg_files",
   "harness_client_leg_files",
   "aikit_leg_files",
+  "factory_orchestrator_test_files",
 ] as const;
 
 /**

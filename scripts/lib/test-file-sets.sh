@@ -86,6 +86,12 @@ factory_sdk_test_files() {
   find packages/@ezcorp/factory-sdk -name "*.test.ts" ! -path "*/node_modules/*"
 }
 
+# Node-only Temporal tests. The factory-orchestrator coverage producer consumes
+# this exact set after installing its pinned test server.
+factory_orchestrator_test_files() {
+  find packages/@ezcorp/factory-orchestrator/test -name "*.test.ts" ! -path "*/node_modules/*" | sort -u
+}
+
 passfail_files() {
   {
     # `set +e` is essential: the callers run under `set -e`, and a find against
