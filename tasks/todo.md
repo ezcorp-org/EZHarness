@@ -1404,7 +1404,7 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 
 ## Factory bounded lazy input — Terra
 
-- [ ] Trace FactoryTransportValue, ValueSource, expressions/map, durable run/start and activity seams.
-- [ ] Propose bounded reference/page protocol and ownership.
-- [ ] Implement host authorization, immutable paging and conformance tests.
+- [x] Trace FactoryTransportValue, ValueSource, expressions/map, durable run/start and activity seams.
+- [x] Propose bounded reference/page protocol and ownership.
+- [x] Implement host authorization, immutable paging and conformance tests.
 - [ ] Validate coverage, types and lint.
