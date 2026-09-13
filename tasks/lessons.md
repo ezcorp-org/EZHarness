@@ -565,3 +565,4 @@
 - A physical-stop proof needs the configured host principal as a signed required fact. Provider allocations without a stable host identity cannot use this stop-settlement path.
 - A launch claim must identify its one winner. A `launching` row alone does not grant another caller permission to start or invoke a guest; after a recovery boundary, use a durable result or report uncertainty.
 - Compare a prepared package receipt with the full canonical runner reference, including model and configuration fields. A stopped worker is physically absent only after a terminal runtime observation, never because an inspect call says `unknown`.
+- A restart proof must use a fresh real supervisor, not a fake runner that implements attach. The real adapter must reconstruct a live framed connection and remove a surviving container after restart. GPU devices belong to the held per-attempt allocation; a global host runner device list cannot authorize every attempt on that host.
