@@ -120,7 +120,7 @@ test("published lifecycle preserves a required large artifact as durable workflo
   const body = { factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: 1, parameters: { payload: { kind: "artifact" as const, artifact: durableArtifact } } };
   const started = await lifecycle.start(actor, key, body, 0, "durable-start");
   const outbox = (await fixture.db.execute(sql`SELECT payload FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${targetProjectId} AND logical_run_id=${started.run.runId}`)).rows[0] as { payload: string };
-  const workflow = JSON.parse(outbox.payload).command.body as { input: Record<string, unknown>; durableInput: unknown; startedAtMs: number };
+  const workflow = JSON.parse(outbox.payload).command.body as { input: import("@ezcorp/factory-sdk").JsonValue; durableInput: unknown; startedAtMs: number };
   expect(workflow.input).toEqual({});
   expect(workflow.durableInput).toEqual({ schemaVersion: "factory.lazy-input.v1", parameters: body.parameters });
   const { compiled } = await definitions.readVersion(actor, key, version.version);

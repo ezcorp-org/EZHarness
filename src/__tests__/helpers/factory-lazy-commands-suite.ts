@@ -84,7 +84,8 @@ async function fixture(value: string | readonly string[], mutate?: RecordedMutat
   const identity = { tenantId, projectId, logicalRunId: run.run.runId, interpreterId: "root" };
   const { compiled } = await definitions.readVersion(principal, definitionKey, version.version);
   const start = { kind: "start", id: "lazy-command-start-event", atMs: now } as const;
-  const first = advanceKernel(compiled, createKernelState(compiled, identity.logicalRunId, paged ? { items: value } : { source: { value } }, now, { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters }), start);
+  const input: JsonValue = paged ? { items: [...value] } : { source: { value: value as string } };
+  const first = advanceKernel(compiled, createKernelState(compiled, identity.logicalRunId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters }), start);
   const command = first.commands.find((entry): entry is Extract<typeof entry, { kind: "read-input-value" | "read-input-page" }> => entry.kind === "read-input-value" || entry.kind === "read-input-page");
   if (!command || (!paged && command.kind !== "read-input-value") || (paged && command.kind !== "read-input-page")) throw new Error("lazy command was not emitted");
   const transitions = new FactoryTransitionArtifacts(artifacts);
