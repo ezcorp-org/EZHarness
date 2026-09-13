@@ -45,15 +45,22 @@ fi
 # escaping. One awk process: an early `grep -q` under pipefail would turn the
 # writer's SIGPIPE into a false negative.
 #
-# The parser expects the manifest's committed shape: `"real-auth": [` on its
-# own line, one quoted path per line, `]` closing the lane. It FAILS CLOSED
-# (exit 2, via the caller) when that header is never seen, so a reformatted
-# manifest cannot quietly answer "not a member" for every spec; and
+# The parser reads the manifest's committed shape: `"real-auth": [` starting
+# the lane, one quoted path per line or the whole array on that same line,
+# `]` closing it. It FAILS CLOSED (exit 2, via the caller) when that header is
+# never seen — a minified manifest, or one whose key spacing changed — so a
+# reformat cannot quietly answer "not a member" for every spec; and
 # src/__tests__/visual-evidence-capture.test.ts runs it against the real file.
 is_real_auth_spec() {
   local spec="${1//\\/}"
   awk -v want="\"web/${spec}\"" '
-    /"real-auth": \[/ { in_lane = 1; seen = 1; next }
+    /"real-auth": \[/ {
+      seen = 1
+      if (index($0, want)) { found = 1; exit }
+      if (index($0, "]")) exit
+      in_lane = 1
+      next
+    }
     in_lane && /^[[:space:]]*\]/ { exit }
     in_lane && index($0, want) { found = 1; exit }
     END { if (!seen) exit 2; exit !found }

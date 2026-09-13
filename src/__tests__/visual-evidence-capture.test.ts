@@ -20,7 +20,9 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function makeSandbox(withLanes: boolean | "no-real-auth-lane" = true) {
+type LanesShape = boolean | "no-real-auth-lane" | "single-line" | "minified";
+
+function makeSandbox(withLanes: LanesShape = true) {
   const root = mkdtempSync(join(tmpdir(), "visual-evidence-capture-"));
   roots.push(root);
   const scriptDir = join(root, "scripts", "visual-evidence");
@@ -31,8 +33,13 @@ function makeSandbox(withLanes: boolean | "no-real-auth-lane" = true) {
     // real-auth journeys that live at the e2e/ ROOT (chip-reorder, ...):
     // the tier must come from lane membership, not from the path prefix.
     const lanes: Record<string, string[]> = { "mock-full": ["web/e2e/mock.spec.ts"] };
-    if (withLanes === true) lanes["real-auth"] = ["web/e2e/real-auth/real.spec.ts", "web/e2e/root-real.spec.ts"];
-    writeFileSync(join(root, "web", "e2e", "lanes.json"), JSON.stringify({ lanes }, null, 2));
+    if (withLanes !== "no-real-auth-lane") lanes["real-auth"] = ["web/e2e/real-auth/real.spec.ts", "web/e2e/root-real.spec.ts"];
+    let text = JSON.stringify({ lanes }, null, 2);
+    // The array on one line is a shape the parser must read; the minified
+    // file (no space after the key) is a shape it must refuse, not mis-tier.
+    if (withLanes === "single-line") text = text.replace(/"real-auth": \[[^\]]*\]/s, `"real-auth": ${JSON.stringify(lanes["real-auth"])}`);
+    if (withLanes === "minified") text = JSON.stringify({ lanes });
+    writeFileSync(join(root, "web", "e2e", "lanes.json"), text);
   }
   mkdirSync(scriptDir, { recursive: true });
   mkdirSync(binDir, { recursive: true });
@@ -73,7 +80,7 @@ function runCapture(
   env: Record<string, string> = {},
   seedStaleReport = false,
   args: string[] = [],
-  withLanes: boolean | "no-real-auth-lane" = true,
+  withLanes: LanesShape = true,
 ) {
   const { root, script, binDir } = makeSandbox(withLanes);
   const specsFile = join(root, "selected.txt");
@@ -185,8 +192,19 @@ describe("visual-evidence capture", () => {
   });
 
   test.each([
+    ["a root-level member in a single-line lane array", "e2e/root-real\\.spec\\.ts\n", 0],
+    ["a mock-only selection in a single-line lane array", "e2e/mock\\.spec\\.ts\n", 1],
+  ])("--has-real-auth reads %s", (_label, specs, code) => {
+    const result = runCapture(specs, {}, false, ["--has-real-auth"], "single-line");
+
+    expect(result.code).toBe(code);
+    expect(result.lines).toHaveLength(0);
+  });
+
+  test.each([
     ["a missing manifest", false as const, "lane manifest missing"],
     ["a manifest without a real-auth lane", "no-real-auth-lane" as const, 'no "real-auth" lane found'],
+    ["a minified manifest", "minified" as const, 'no "real-auth" lane found'],
   ])("--has-real-auth exits 2, not 1, for %s", (_label, withLanes, message) => {
     const result = runCapture("e2e/mock\\.spec\\.ts\n", {}, false, ["--has-real-auth"], withLanes);
 

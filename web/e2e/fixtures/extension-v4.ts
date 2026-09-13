@@ -1,5 +1,5 @@
 import type { APIRequestContext, Page } from "@playwright/test";
-import { expect } from "./hydration.js";
+import { expect, test } from "./hydration.js";
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord, InstallationRecord, LifecycleApproval } from "../../../src/extensions/v4/types";
 import { buildElapsedMs, nextBuildClock, type BuildClock } from "./extension-build-clock.js";
@@ -24,29 +24,41 @@ export async function buildWorkspace(client: HarnessClient, created: CreatedWork
  * The real server owns ONE isolated runner, and right after the first
  * administrator becomes active it builds every bundled extension through it
  * (src/extensions/bundled-bootstrap.ts): 29 serial builds, several minutes on
- * a CI host. A candidate build queued behind them is parked as `queued` with
- * a retryable `runner_busy` diagnostic (src/extensions/v4/lifecycle.ts). That
- * parking is not build time — on a green run this lane spent 3.5 of the
- * round-trip spec's 4.0 minutes in it — so the build budget only runs while
- * the runner holds the operation (see extension-build-clock.ts), and the
- * parking is bounded by a `BuildDeadline` that a spec with several builds
- * SHARES across them, so its worst case stays inside its test timeout. A
+ * a CI host. A candidate build queued behind them is re-queued with a
+ * retryable `runner_busy` diagnostic (src/extensions/v4/lifecycle.ts). The
+ * server does not log that parking, so its share is inferred: on the green
+ * run 34753638464 the round-trip spec took 4.0 minutes while its two builds
+ * take well under a minute each on a quiet host. Queued time is therefore not
+ * build time — the build budget only runs while the runner holds the
+ * operation (extension-build-clock.ts) — and it is bounded by a
+ * `BuildDeadline` that a spec with several builds SHARES across them. A
  * single 240s budget over both phases failed exactly when the boot queue ran
  * a little long (CI runs 34538349926, 34753665125).
  *
- * Budget arithmetic for a spec: RUNNER_WAIT_BUDGET_MS (one shared deadline) +
- * ACTIVATION_BUDGET_MS per activation + its own UI steps must fit
- * `test.setTimeout`, and that must fit the ci.yml job `timeout-minutes` with
- * the rest of the lane.
+ * Every bound is also capped below the running test's own timeout: a bare
+ * Playwright timeout would hide which bound tripped and which state the
+ * operation was in. Budget arithmetic for a spec that needs the full
+ * allowance: RUNNER_WAIT_BUDGET_MS (one shared deadline) + ACTIVATION_BUDGET_MS
+ * per activation + its own UI steps must fit `test.setTimeout`, and that must
+ * fit the ci.yml job `timeout-minutes` with the rest of the lane.
  */
 const BUILD_BUDGET_MS = 240_000;
 const RUNNER_WAIT_BUDGET_MS = 480_000;
 const INSPECT_WAIT_MS = 1_000;
+/** Leave this much of the test timeout for the fixture message and teardown. */
+const TEST_TIMEOUT_MARGIN_MS = 15_000;
+
+/** `budgetMs`, or less when the running test's timeout could not hold it. */
+function withinTestTimeout(budgetMs: number): number {
+  const testTimeout = test.info().timeout;
+  if (testTimeout <= 0) return budgetMs;
+  return Math.min(budgetMs, Math.max(testTimeout - TEST_TIMEOUT_MARGIN_MS, 1_000));
+}
 
 /** One allowance for runner parking plus builds, shared by every build wait it is passed to. */
 export interface BuildDeadline { readonly until: number }
 export function buildDeadline(now = Date.now()): BuildDeadline {
-  return { until: now + RUNNER_WAIT_BUDGET_MS };
+  return { until: now + withinTestTimeout(RUNNER_WAIT_BUDGET_MS) };
 }
 /**
  * Activation is one server call that verifies the candidate, prepares
@@ -54,13 +66,20 @@ export function buildDeadline(now = Date.now()): BuildDeadline {
  * refresh reports `enabled` (src/extensions/v4/lifecycle.ts `activate`,
  * extension-lifecycle-service.ts `publish`). Playwright's 5s default assumed
  * an idle host; on CI run 34755508391 the button was still disabled at 5s
- * while the boot-time bundled builds were still loading the runtime.
+ * while the boot-time bundled builds were still loading the runtime. No run
+ * has measured how long it took, so this is a ceiling on a documented state,
+ * not a measured duration; it is capped below the test timeout like the rest.
  */
 const ACTIVATION_BUDGET_MS = 120_000;
 
 export async function waitForExtensionBuild(client: HarnessClient, installationId: string, operationId: string, deadline: BuildDeadline = buildDeadline()): Promise<InstallationState> {
   let clock: BuildClock = {};
   for (;;) {
+    // The server long-polls for `waitMs` (extension-control.ts `inspect`), so
+    // one turn is about a second — unless its own read took that long, in
+    // which case it returns at once. Pace the client too, so a slow
+    // single-writer PGlite never sees a tight loop competing with the build.
+    const requestedAt = Date.now();
     const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: INSPECT_WAIT_MS });
     const operation = state.operations[operationId]!;
     if (!/^(queued|building|verifying)$/.test(operation.state)) {
@@ -72,7 +91,9 @@ export async function waitForExtensionBuild(client: HarnessClient, installationI
     clock = nextBuildClock(clock, operation, now);
     const detail = `state=${operation.state} diagnostics=${JSON.stringify(operation.diagnostics)}`;
     expect(buildElapsedMs(clock, now), `The real isolated candidate build must finish within ${BUILD_BUDGET_MS}ms once the runner takes it (${detail}).`).toBeLessThanOrEqual(BUILD_BUDGET_MS);
-    expect(now, `The real isolated candidate build must finish within the ${RUNNER_WAIT_BUDGET_MS}ms shared allowance for runner parking and builds (${detail}).`).toBeLessThanOrEqual(deadline.until);
+    expect(now, `The real isolated candidate build must finish within its shared allowance for queueing and builds (${RUNNER_WAIT_BUDGET_MS}ms, or less inside a shorter test timeout) (${detail}).`).toBeLessThanOrEqual(deadline.until);
+    const remaining = INSPECT_WAIT_MS - (Date.now() - requestedAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
   }
 }
 
@@ -100,7 +121,7 @@ export async function approveAndActivateWorkspace(page: Page, client: HarnessCli
   await page.getByLabel("I reviewed this release and its permissions.").check();
   await approve.click();
   await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled({ timeout: ACTIVATION_BUDGET_MS });
+  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled({ timeout: withinTestTimeout(ACTIVATION_BUDGET_MS) });
   const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
   expect(active.installation.activeReleaseId).toBe(releaseId);
   expect(active.installation.enabled).toBe(true);
