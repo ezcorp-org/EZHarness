@@ -1654,3 +1654,12 @@ Review: the Bun pool process reads one strict private config, verifies the exact
 Plan review: the application must construct a real input resolver from its scoped artifact and grant stores. The host checks full immutable bytes once at admission; the workflow receives bounded inline values and exact artifact descriptors. Existing low-level lifecycle resolver seams remain available for controlled store tests.
 
 Review: application composition now provides a concrete host input resolver. Admission and later lazy reads share one exact local/shared immutable artifact loader. Actual canonical I-JSON bytes satisfy the published port schema; only inline values and descriptors enter the durable start. Foreign or revoked shares, altered digest/storage, wrong ports and malformed JSON fail before a run is committed. PGlite integration passes 47 tests / 317 assertions; PostgreSQL and real ordinary S3 pass 39 tests / 262 assertions. Input loader coverage is 39/39 lines and 7/7 functions; run resolver is 25/25 and 4/4; shared lazy reader is 122/122 and 25/25. Application composition is 99/99 lines and 24/25 functions. SDK build, all four types, lint, gate integrity and boundaries pass. Exact source and exits: `/tmp/factory-platform-evidence/root-run-inputs-source.json` and `root-run-inputs-integration-results.json`. Full production startup remains open.
+
+## Parent integration proof — input resolver and task admission
+
+- [x] Verify current merged source `106371c8ce53651e398614e1bcd11d7aa1d865cc` with focused PGlite and all 18 canonical factory PostgreSQL/S3 files.
+- [x] Verify SDK build, all four typechecks, lint, gate integrity, boundaries, and actionlint.
+- [x] Verify 33 focused web cases, the real Chromium release-inbox interaction, and inspect its captured image.
+- [x] Run the full canonical backend suite.
+
+Review: focused PGlite 41 passed / 369 assertions; PostgreSQL/S3 120 passed / 2,587 assertions. Static checks passed. Chromium passed 1 case after selecting unused port 19873; the first attempt failed because port 4173 was occupied. The preserved PNG is `/tmp/factory-platform-evidence/root-release-inbox-authorized.png`. Backend passed 26,231 tests with zero failures across 1,727 files. Receipts: `root-input-execution-combined-integration-results.json` and `root-input-execution-remainder-integration-results.json` under `/tmp/factory-platform-evidence`. These proofs close this integration batch, not the full feature or its open launch gates. The new successful task-completion leaf is still under test in the side worktree.
