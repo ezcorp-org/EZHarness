@@ -11,7 +11,6 @@ import type { FactoryExecutionJournal, FactoryAttemptAdmission, FactoryAttemptAu
 
 const MAX_ATTEMPTS = 3;
 const CLAIM_SCAN_LIMIT = 32;
-const localClaimTails = new WeakMap<object, Map<string, Promise<void>>>();
 
 export interface FactoryAttemptReference {
   readonly attemptId: string;
@@ -97,31 +96,6 @@ function snapshotAdmission(input: FactoryAttemptAdmission): FactoryAttemptAdmiss
 
 function scope(tenantId: string, projectId: string): string {
   return `${tenantId}\0${projectId}`;
-}
-
-async function serializeLocalClaim<T>(database: object, queueScope: string, run: () => Promise<T>): Promise<T> {
-  let tails = localClaimTails.get(database);
-  if (!tails) {
-    tails = new Map();
-    localClaimTails.set(database, tails);
-  }
-  const previous = tails.get(queueScope) ?? Promise.resolve();
-  let release!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; });
-  const tail = previous.then(() => gate);
-  tails.set(queueScope, tail);
-  await previous;
-  try {
-    return await run();
-  } finally {
-    release();
-    if (tails.get(queueScope) === tail) tails.delete(queueScope);
-  }
-}
-
-async function lockCandidate(database: MigrationDb, reference: FactoryAttemptReference): Promise<boolean> {
-  const key = `factory-attempt-queue-v1:${reference.tenantId}:${reference.projectId}:${reference.attemptId}`;
-  return rows<{ acquired: boolean }>(await database.execute(sql`SELECT pg_try_advisory_xact_lock(hashtextextended(${key}::text, 0)) AS acquired`))[0]?.acquired === true;
 }
 
 function storedJson(value: unknown): unknown {
@@ -229,10 +203,6 @@ export class FactoryAttemptQueue {
   }
 
   async claim(leaseMs = 60_000): Promise<ClaimedFactoryAttempt | null> {
-    return serializeLocalClaim(this.database, this.tenantId, () => this.claimSerialized(leaseMs));
-  }
-
-  private async claimSerialized(leaseMs: number): Promise<ClaimedFactoryAttempt | null> {
     const now = this.now();
     const candidates = rows<AttemptRow>(await this.database.execute(sql`SELECT * FROM factory_attempt_queue WHERE tenant_id=${this.tenantId}
       AND ((state='queued' AND available_at<=${now}) OR (state='leased' AND lease_until<=${now}))
@@ -253,7 +223,6 @@ export class FactoryAttemptQueue {
       try {
         const claimed = await this.database.transaction(async transaction => {
           const request = await this.journal.requestInTransaction(transaction, authorityFor(delivery.reference));
-          if (!await lockCandidate(transaction, delivery.reference)) return null;
           const current = await stateMachine.claim(new FactoryAttemptStore(transaction, delivery.tenantId, delivery.projectId, delivery.id), queueScope, now, leaseMs);
           return current ? { delivery: current, request } : null;
         });
