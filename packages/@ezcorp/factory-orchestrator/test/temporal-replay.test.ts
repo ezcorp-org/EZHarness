@@ -811,6 +811,36 @@ describe("factory Temporal workflow", () => {
     });
   });
 
+  it("rejects a continuation that substitutes its durable descriptor", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const artifact = { artifactId: "persisted", digest: packageDigest, encodedBytes: 70_000 };
+    const replacement = { artifactId: "replacement", digest: packageDigest, encodedBytes: 70_000 };
+    const state = createKernelState(factory, "durable-continuation", {}, startedAtMs, {
+      schemaVersion: "factory.lazy-input.v1",
+      parameters: { data: { kind: "artifact", artifact } },
+    });
+    let effects = 0;
+    const activities = {
+      ...definitionActivities(factory),
+      recordTransition: async () => { effects += 1; },
+      executeCommand: async () => { effects += 1; throw new Error("mismatched continuation must not execute"); },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: `tenant/durable-continuation-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
+        args: [workflowInput(factory, {
+          logicalRunId: "durable-continuation",
+          startedAtMs,
+          durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: replacement } } },
+          continuation: { state, inbox: [], pendingInbox: [], sourceSequence: 0, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 },
+        })],
+      });
+      await assert.rejects(handle.result(), /continuation durable input does not match workflow input/);
+    });
+    assert.equal(effects, 0);
+  });
+
   it("persists ordered approval inbox positions across repeated continuations and accepts cancellation after them", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const approval = { id: "approval", kind: "approval", choices: ["approve"], context: { kind: "literal", value: null }, actorScope: "owner", expiresInMs: 60_000, onDenied: "fail", onExpired: "fail" };
