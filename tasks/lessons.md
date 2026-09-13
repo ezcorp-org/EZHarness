@@ -520,6 +520,8 @@
 - For every migration default, model the same default in `schema.ts`. Run the canonical schema parity test; focused feature tests do not detect a missing ORM default.
 - When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
 - Before importing a support commit into an older isolated worktree, compare its parent ancestry with the worktree base. If the support commit depends on intermediate modules, merge the validated descendant that contains the full ancestry instead of cherry-picking the leaf alone.
+
+- A repair of an active candidate stops that attempt before it creates the replacement. Its retained prior-candidate status is therefore `cancelled`, even when the repair signal first observed it as `running`.
 # Generic approval currentness (2026-09-13)
 
 - Do not equate an approval command's creation transition with the interpreter head. Validate the stored command against the latest committed runtime attempt. Unrelated committed progress can advance the head while that approval remains current.
@@ -538,3 +540,7 @@
 # Package trust identity — 2026-09-13
 
 - When a public reference accepts optional identity fields, every database key and foreign key must use the canonical complete reference. A seal alone does not prevent row collisions.
+## Command authority extension on moving integration bases
+
+- Before extending a shared authority module, compare it with the current integration head. Reuse its stored command entry, source sequence, command digest, and ancestor validation. Do not reconstruct an origin query that the integrated module already supplies.
+- A partition command must bind the requested interpreter ID to its declared source partition, in addition to validating the loaded state partition and compiled edge.
