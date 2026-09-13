@@ -8,7 +8,7 @@ import { closeTestDb, mockDbConnection, setupTestDb } from "../../__tests__/help
 import { createProject } from "../../db/queries/projects";
 import { createConversation } from "../../db/queries/conversations";
 import type { AgentEvents } from "../../types";
-import { runNativeFactoryRunner } from "./native";
+import { nativeFactoryJournal, runNativeFactoryRunner } from "./native";
 
 mockDbConnection();
 let conversationId = "";
@@ -58,4 +58,20 @@ test("native Bun entrypoint executes through the shared factory runtime and deri
     artifacts: { output: async () => ({ artifactId: "output", digest: pinned, encodedBytes: 4 }), checkpoint: async () => checkpoint },
   })).rejects.toThrow("does not match the signed runner request");
   await expect(runNativeFactoryRunner({}, {} as any)).rejects.toThrow("RUNNER_REQUEST_SCHEMA");
+});
+
+test("native journal adapter maps complete authority and preserves measured and held durable usage", async () => {
+  const calls: unknown[] = [];
+  const adapter = nativeFactoryJournal({
+    operations: async authority => { calls.push(authority); return [operation]; },
+    status: async authority => { calls.push(authority); return { journalCursor: 5 }; },
+  } as any);
+  expect(await adapter.journalCursor(request)).toBe(5);
+  expect(await adapter.operations(request)).toEqual([operation]);
+  expect(await adapter.usage(request)).toEqual(operation.usage);
+  const held = nativeFactoryJournal({ operations: async () => [{ ...operation, usage: { kind: "unknown", reason: "receipt", heldCostMicros: "7" } }], status: async () => ({ journalCursor: 5 }) } as any);
+  expect(await held.usage(request)).toEqual({ kind: "unknown", reason: "durable operation usage is incomplete", heldCostMicros: "7" });
+  const missing = nativeFactoryJournal({ operations: async () => [{ ...operation, usage: undefined }], status: async () => ({ journalCursor: 5 }) } as any);
+  await expect(missing.usage(request)).rejects.toThrow("Durable operation usage is unavailable");
+  expect(calls).toHaveLength(3);
 });
