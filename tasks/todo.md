@@ -1541,10 +1541,19 @@ Plan review: the child resolver receives an opaque command ID. It must authorize
 
 Review: only the current committed run-child attempt can resolve its exact compiled child factory id, version and digest. Task and child checks share the run/head/fence transaction. Real published parent/child definitions prove valid resolution, caller mutation capture, wrong command kind, substituted factory digest, deadline expiry and cancelled parent denial. PGlite and PostgreSQL/S3 each pass 21 tests / 174 assertions. Authority coverage is 59/59 lines and 16/16 functions. SDK build, all four type checks, lint, gate integrity and boundaries pass. Exact source and check receipts are `/tmp/factory-platform-evidence/root-child-authority-source.json` and `root-child-authority-integration-results.json`. Durable child creation and budget delegation remain open.
 
+## Committed lazy-input authority — root
+
+- [ ] Test an actual published lazy input command through the current run and immutable transition store.
+- [x] Share the committed-state transaction and compare every pending input coordinate.
+- [ ] Reject stale, cancelled, foreign, wrong-kind and substituted pending reads.
+- [ ] Verify PGlite, PostgreSQL/S3, coverage and all static checks before integration.
+
+Plan review: a private command ID is the only request authority; the reader validates the durable artifact binding within the same run transaction.
+
 ## C07 authoritative lazy command execution — Terra
 
 - [x] Validate durable artifact descriptors and inline values separately, so required artifact ports do not need placeholder JSON in lifecycle or kernel state.
-- [ ] Define the authority callback contract and match a stored lazy command to the current committed pending state.
+- [x] Define the authority callback contract and match a stored lazy command to the current committed pending state.
 - [ ] Add a DB-transactional `lazy-commands.ts` adapter that maps only verified reader output to bounded kernel events.
 - [ ] Prove PGlite, PostgreSQL/S3, and private HTTPS generic-command behavior including stale, cancelled, substituted, version, and oversized denials.
 - [ ] Run owned coverage, SDK build, all canonical typechecks, lint, and integrity checks.
