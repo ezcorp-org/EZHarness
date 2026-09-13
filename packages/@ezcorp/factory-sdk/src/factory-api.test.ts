@@ -41,8 +41,8 @@ function requests(): FactoryApiRequest[] {
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.get", path: { ...project, runId: "run-1" } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.list", path: project, query: { status: "running", factoryId: referenceCodeV1.id } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.control", path: { ...project, runId: "run-1" }, preconditions, body: { action: "cancel", reason: "User request" } },
-    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.control", path: { ...project, runId: "run-1" }, preconditions, body: { action: "repair", parameters: { instruction: { kind: "inline", value: "fix tests" } } } },
-    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.control", path: { ...project, runId: "run-1" }, preconditions, body: { action: "replan", parameters: {} } },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.control", path: { ...project, runId: "run-1" }, preconditions, body: { action: "repair", nodeId: "compile", parameters: { instruction: { kind: "inline", value: "fix tests" } } } },
+    { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "run.control", path: { ...project, runId: "run-1" }, preconditions, body: { action: "replan", nodeId: "compile", parameters: {} } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "approval.get", path: { ...project, runId: "run-1", approvalId: "approval-1" } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "approval.list", path: project, query: { limit: 200 } },
     { schemaVersion: FACTORY_API_REQUEST_SCHEMA_VERSION, kind: "approval.decide", path: { ...project, runId: "run-1", approvalId: "approval-1" }, preconditions, body: { decision: "approved", contextDigest: sourceDigest } },
@@ -95,6 +95,10 @@ describe("factory product API schema", () => {
       expect(isFactoryApiResponse(response)).toBe(true);
       expect(validateFactoryApiResponse(response)).toEqual({ ok: true });
     }
+    const runList = requests()[13] as Extract<FactoryApiRequest, { kind: "run.list" }>;
+    expect(validateFactoryApiRequest({ ...runList, query: { ...runList.query, status: "cancelling" } })).toEqual({ ok: true });
+    const runDetails = responses()[7] as Extract<FactoryApiResponse, { kind: "run.details" }>;
+    expect(validateFactoryApiResponse({ ...runDetails, resource: { ...runDetails.resource, status: "cancelling" } })).toEqual({ ok: true });
   });
 
   test("rejects unknown fields, caller tenancy, missing headers, and unsafe revisions", () => {
@@ -154,8 +158,10 @@ describe("factory product API schema", () => {
     expect(code(validateFactoryApiRequest({ ...create, body: { source: largeDefinition } }))).toBe("API_DEFINITION_BYTES");
     expect(code(validateFactoryApiRequest({ ...start, body: { ...start.body, factoryVersion: "bad\nversion" } }))).toBe("API_VERSION");
     const repair = requests()[15] as Extract<FactoryApiRequest, { kind: "run.control" }>;
-    expect(code(validateFactoryApiRequest({ ...repair, body: { action: "repair", parameters: { value: { kind: "inline", value: "x".repeat(FACTORY_LIMITS.maxInlineValueBytes + 1) } } } }))).toBe("API_PARAMETER_BYTES");
-    expect(code(validateFactoryApiRequest({ ...repair, body: { action: "repair", parameters: { value: { kind: "inline", value: "x".repeat(FACTORY_LIMITS.maxInlineValueBytes - 2) } } } }))).toBe("API_CONTROL_BYTES");
+    expect(code(validateFactoryApiRequest({ ...repair, body: { action: "repair", parameters: repair.body.parameters } }))).toBe("API_REQUEST_SCHEMA");
+    expect(code(validateFactoryApiRequest({ ...repair, body: { action: "repair", nodeId: "bad\nnode", parameters: repair.body.parameters } }))).toBe("API_CONTROL_NODE");
+    expect(code(validateFactoryApiRequest({ ...repair, body: { action: "repair", nodeId: repair.body.nodeId, parameters: { value: { kind: "inline", value: "x".repeat(FACTORY_LIMITS.maxInlineValueBytes + 1) } } } }))).toBe("API_PARAMETER_BYTES");
+    expect(code(validateFactoryApiRequest({ ...repair, body: { action: "repair", nodeId: repair.body.nodeId, parameters: { value: { kind: "inline", value: "x".repeat(FACTORY_LIMITS.maxInlineValueBytes - 2) } } } }))).toBe("API_CONTROL_BYTES");
   });
 
   test("rejects inconsistent and oversized response resources", () => {

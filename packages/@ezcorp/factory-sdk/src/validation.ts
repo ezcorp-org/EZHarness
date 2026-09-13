@@ -720,6 +720,7 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     if (encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_RUN_START_BYTES", "Run start exceeds the 64 KiB durable command bound.", []);
   }
   if (request.kind === "run.control" && request.body.action !== "cancel") {
+    if (!boundedText(request.body.nodeId, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_CONTROL_NODE", "Repair and replan need a bounded node target.", ["body", "nodeId"]);
     const parameters = validateApiTransportValues(request.body.parameters, ["body", "parameters"]);
     if (!parameters.ok) return parameters;
   }

@@ -594,7 +594,7 @@ export type FactoryAction =
 
 export type FactoryAvailability = "available" | "unavailable";
 export type FactoryPrincipalKind = "user" | "service";
-export type FactoryRunStatus = "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled" | "uncertain";
+export type FactoryRunStatus = "queued" | "running" | "waiting" | "cancelling" | "succeeded" | "failed" | "cancelled" | "uncertain";
 
 export interface FactoryProjectPath {
   /** @minLength 1 @maxLength 512 */
@@ -701,6 +701,8 @@ export interface FactoryRunCancelBody {
 
 export interface FactoryRunRevisionBody {
   readonly action: "repair" | "replan";
+  /** Root of the bounded node subtree to replace. @minLength 1 @maxLength 512 */
+  readonly nodeId: string;
   /** @minLength 1 @maxLength 2048 */
   readonly reason?: string;
   readonly parameters: Readonly<Record<string, FactoryTransportValue>>;

@@ -1630,6 +1630,12 @@
           ],
           "type": "string"
         },
+        "nodeId": {
+          "description": "Root of the bounded node subtree to replace.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
         "parameters": {
           "additionalProperties": {
             "$ref": "#/definitions/FactoryTransportValue"
@@ -1644,6 +1650,7 @@
       },
       "required": [
         "action",
+        "nodeId",
         "parameters"
       ],
       "type": "object"
@@ -1687,6 +1694,7 @@
         "queued",
         "running",
         "waiting",
+        "cancelling",
         "succeeded",
         "failed",
         "cancelled",
