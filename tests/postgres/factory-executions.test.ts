@@ -74,12 +74,12 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
 
   test("transactional admission and durable request recovery match PGlite", async () => {
     const transactionalAuthority = authority({ attemptId: "transactional-attempt", nodeInstanceId: "transactional-node", candidateGeneration: 17 });
-    await verifyFactoryExecutionAdmission({
+    await expect(verifyFactoryExecutionAdmission({
       db,
       journal,
       admission: input => admission(transactionalAuthority, input),
       foreignAuthority: admission({ ...transactionalAuthority, tenantId: "foreign-tenant" }),
-    });
+    })).resolves.toBeUndefined();
   });
 
   test("racing attempt authorities admit at most one canonical identity", async () => {
