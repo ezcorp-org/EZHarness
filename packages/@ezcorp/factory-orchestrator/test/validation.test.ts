@@ -108,6 +108,12 @@ describe("orchestrator boundary validation", () => {
     for (const id of [undefined, "", "x".repeat(513)]) assert.throws(() => validateInboxEvent({ id, atMs: 1, kind: "cancel" }), /stable ID/);
     for (const atMs of [undefined, -1, 1.5]) assert.throws(() => validateInboxEvent({ id: "event", atMs, kind: "cancel" }), /timestamp/);
     assert.throws(() => validateInboxEvent({ id: "event", atMs: 1 }), /kind/);
+    assert.doesNotThrow(() => validateInboxEvent({ id: "repair", atMs: 1, kind: "repair", nodeId: "task", reason: "retry", inputOverride: { instruction: "fixed" } }));
+    assert.doesNotThrow(() => validateInboxEvent({ id: "replan", atMs: 1, kind: "replan", nodeId: "child", replacement: { id: "factory", version: "2", digest } }));
+    assert.throws(() => validateInboxEvent({ id: "repair", atMs: 1, kind: "repair", nodeId: "", inputOverride: {} }), /node ID/);
+    assert.throws(() => validateInboxEvent({ id: "repair", atMs: 1, kind: "repair", nodeId: "task", replacement: { id: "factory", version: "2", digest } }), /unknown fields/);
+    assert.throws(() => validateInboxEvent({ id: "replan", atMs: 1, kind: "replan", nodeId: "child", replacement: { id: "factory", version: "latest", digest } }), /must be exact/);
+    assert.throws(() => validateInboxEvent({ id: "replan", atMs: 1, kind: "replan", nodeId: "child", replacement: { id: "factory", version: "2", digest, extra: true } }), /unknown fields/);
   });
   it("rejects continuation snapshots larger than 64 KiB", () => {
     assert.doesNotThrow(() => assertContinuationSize({ state: {}, inbox: [], pendingInbox: [], sourceSequence: 1, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 }));

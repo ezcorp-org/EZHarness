@@ -7,7 +7,11 @@ function registrationIssues(workflow: string, thresholds: string): string[] {
   if (!thresholds.includes('"src/factory/task-execution-admission.ts": 100')) issues.push("task execution admission source 100% floor");
   if (!thresholds.includes('"src/factory/native-runner-policy.ts": 100')) issues.push("native runner policy source 100% floor");
   if (!thresholds.includes('"src/factory/task-completions.ts": 100')) issues.push("task completion source 100% floor");
+  if (!thresholds.includes('"src/factory/task-outcomes.ts": 100')) issues.push("task outcome source 100% floor");
+  if (!thresholds.includes('"src/factory/attempt-dispatcher.ts": 100')) issues.push("attempt dispatcher source 100% floor");
+  if (!thresholds.includes('"src/factory/partition-commands.ts": 100')) issues.push("partition command source 100% floor");
   if (!thresholds.includes('"src/db/migrations/add-factory-task-completions.ts": 100')) issues.push("task completion migration 100% floor");
+  if (!thresholds.includes('"src/db/migrations/add-factory-task-outcomes.ts": 100')) issues.push("task outcome migration 100% floor");
   return issues;
 }
 
@@ -25,6 +29,10 @@ describe("factory task execution admission registration", () => {
     expect(registrationIssues(workflow, thresholds.replace('"src/factory/task-execution-admission.ts": 100', '"src/factory/task-execution-admission.ts": 99'))).toContain("task execution admission source 100% floor");
     expect(registrationIssues(workflow, thresholds.replace('"src/factory/native-runner-policy.ts": 100', '"src/factory/native-runner-policy.ts": 99'))).toContain("native runner policy source 100% floor");
     expect(registrationIssues(workflow, thresholds.replace('"src/factory/task-completions.ts": 100', '"src/factory/task-completions.ts": 99'))).toContain("task completion source 100% floor");
+    expect(registrationIssues(workflow, thresholds.replace('"src/factory/task-outcomes.ts": 100', '"src/factory/task-outcomes.ts": 99'))).toContain("task outcome source 100% floor");
+    expect(registrationIssues(workflow, thresholds.replace('"src/factory/attempt-dispatcher.ts": 100', '"src/factory/attempt-dispatcher.ts": 99'))).toContain("attempt dispatcher source 100% floor");
+    expect(registrationIssues(workflow, thresholds.replace('"src/factory/partition-commands.ts": 100', '"src/factory/partition-commands.ts": 99'))).toContain("partition command source 100% floor");
     expect(registrationIssues(workflow, thresholds.replace('"src/db/migrations/add-factory-task-completions.ts": 100', '"src/db/migrations/add-factory-task-completions.ts": 99'))).toContain("task completion migration 100% floor");
+    expect(registrationIssues(workflow, thresholds.replace('"src/db/migrations/add-factory-task-outcomes.ts": 100', '"src/db/migrations/add-factory-task-outcomes.ts": 99'))).toContain("task outcome migration 100% floor");
   });
 });

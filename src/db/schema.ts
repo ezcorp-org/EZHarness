@@ -1389,6 +1389,13 @@ export type NewKBChunk = typeof knowledgeBaseChunks.$inferInsert;
 
 // ── Extensions ────────────────────────────────────────────────────
 
+export const extensionReleaseInstallations = pgTable("extension_release_installations", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  scope: text("scope").notNull(),
+  payload: text("payload").notNull(),
+}, table => [index("extension_release_installations_owner").on(table.ownerId, table.scope)]);
+
 export const extensions = pgTable("extensions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull().unique(),
@@ -2967,11 +2974,11 @@ export const factoryReleaseCandidateHistory = pgTable("factory_release_candidate
 
 export const factoryRunnerPackageBindings = pgTable("factory_runner_package_bindings", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), referenceJson: text("reference_json").notNull(),
-  installationId: text("installation_id").notNull(), releaseId: text("release_id").notNull(), releaseDigest: text("release_digest").notNull(), sourceDigest: text("source_digest").notNull(), artifactDigest: text("artifact_digest").notNull(), imageDigest: text("image_digest").notNull(), manifestDigest: text("manifest_digest").notNull(), issuerId: text("issuer_id").notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  installationId: text("installation_id").notNull().references(() => extensionReleaseInstallations.id, { onDelete: "restrict" }), releaseId: text("release_id").notNull(), releaseDigest: text("release_digest").notNull(), sourceDigest: text("source_digest").notNull(), artifactDigest: text("artifact_digest").notNull(), imageDigest: text("image_digest").notNull(), manifestDigest: text("manifest_digest").notNull(), issuerId: text("issuer_id").notNull().references(() => users.id, { onDelete: "restrict" }), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.packageName, table.packageVersion, table.packageDigest, table.exportName, table.referenceDigest] }), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
 
 export const factoryRunnerPackageTrustRevisions = pgTable("factory_runner_package_trust_revisions", {
-  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), revision: bigint("revision", { mode: "number" }).notNull(), state: text("state").notNull().$type<"active" | "revoked">(), packageTrustDigest: text("package_trust_digest").notNull(), approvedBy: text("approved_by").notNull(), approvalGrantRevision: bigint("approval_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), revision: bigint("revision", { mode: "number" }).notNull(), state: text("state").notNull().$type<"active" | "revoked">(), packageTrustDigest: text("package_trust_digest").notNull(), approvedBy: text("approved_by").notNull().references(() => users.id, { onDelete: "restrict" }), approvalGrantRevision: bigint("approval_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest,t.revision] }), foreignKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest], foreignColumns: [factoryRunnerPackageBindings.tenantId,factoryRunnerPackageBindings.projectId,factoryRunnerPackageBindings.packageName,factoryRunnerPackageBindings.packageVersion,factoryRunnerPackageBindings.packageDigest,factoryRunnerPackageBindings.exportName,factoryRunnerPackageBindings.referenceDigest] }).onDelete("restrict")]);
 export const factoryRunnerPackageTrustCurrent = pgTable("factory_runner_package_trust_current", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), revision: bigint("revision", { mode: "number" }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2987,6 +2994,41 @@ export const factoryRunnerPreparationReceipts = pgTable("factory_runner_preparat
 export const factoryReleaseCurrentCandidates = pgTable("factory_release_current_candidates", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), candidateDigest: text("candidate_digest").notNull(), attemptId: text("attempt_id").notNull(), pointerRevision: bigint("pointer_revision", { mode: "number" }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId] }), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration], foreignColumns: [factoryReleaseCandidateHistory.tenantId, factoryReleaseCandidateHistory.projectId, factoryReleaseCandidateHistory.runId, factoryReleaseCandidateHistory.nodeInstanceId, factoryReleaseCandidateHistory.candidateGeneration] }).onDelete("restrict")]);
+
+export const factoryValidatorMaterials = pgTable("factory_validator_materials", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), factoryId: text("factory_id").notNull(), factoryVersion: text("factory_version").notNull(), definitionDigest: text("definition_digest").notNull(),
+  contractId: text("contract_id").notNull(), contractVersion: text("contract_version").notNull(), contractDigest: text("contract_digest").notNull(), validatorLockDigest: text("validator_lock_digest").notNull(),
+  mandatoryClaims: text("mandatory_claims").notNull(), claimGroups: text("claim_groups").notNull(), validatorsJson: text("validators_json").notNull(), materialDigest: text("material_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.factoryId, table.factoryVersion] }),
+  uniqueIndex("factory_validator_materials_lock_key").on(table.tenantId, table.projectId, table.validatorLockDigest),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.factoryId, table.factoryVersion], foreignColumns: [factoryVersions.tenantId, factoryVersions.projectId, factoryVersions.factoryId, factoryVersions.version] }).onDelete("restrict"),
+]);
+
+export const factoryValidatorAssignments = pgTable("factory_validator_assignments", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), candidateNodeInstanceId: text("candidate_node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), validatorId: text("validator_id").notNull(),
+  validatorAttemptId: text("validator_attempt_id").notNull(), validatorAuthorityJson: text("validator_authority_json").notNull(), definitionDigest: text("definition_digest").notNull(), validatorLockDigest: text("validator_lock_digest").notNull(),
+  candidateDigest: text("candidate_digest").notNull(), candidateArtifactId: text("candidate_artifact_id").notNull(), candidateArtifactDigest: text("candidate_artifact_digest").notNull(), candidateArtifactBytes: bigint("candidate_artifact_bytes", { mode: "number" }).notNull(),
+  runnerJson: text("runner_json").notNull(), runnerDigest: text("runner_digest").notNull(), environmentDigest: text("environment_digest").notNull(), configurationDigest: text("configuration_digest").notNull(), freshnessMs: bigint("freshness_ms", { mode: "number" }).notNull(),
+  trustRevision: bigint("trust_revision", { mode: "number" }).notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), assignmentDigest: text("assignment_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.candidateNodeInstanceId, table.candidateGeneration, table.validatorId] }),
+  uniqueIndex("factory_validator_assignments_attempt_key").on(table.validatorAttemptId),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.validatorLockDigest], foreignColumns: [factoryValidatorMaterials.tenantId, factoryValidatorMaterials.projectId, factoryValidatorMaterials.validatorLockDigest] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.candidateNodeInstanceId, table.candidateGeneration], foreignColumns: [factoryReleaseCandidateHistory.tenantId, factoryReleaseCandidateHistory.projectId, factoryReleaseCandidateHistory.runId, factoryReleaseCandidateHistory.nodeInstanceId, factoryReleaseCandidateHistory.candidateGeneration] }).onDelete("restrict"),
+  foreignKey({ columns: [table.validatorAttemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.candidateArtifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+]);
+
+export const factoryValidatorResults = pgTable("factory_validator_results", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), validatorAttemptId: text("validator_attempt_id").notNull(), terminalFactDigest: text("terminal_fact_digest").notNull(),
+  artifactId: text("artifact_id").notNull(), artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), claimsJson: text("claims_json").notNull(), issuedAtMs: bigint("issued_at_ms", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), evidenceDigest: text("evidence_digest").notNull(), resultDigest: text("result_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId] }),
+  foreignKey({ columns: [table.validatorAttemptId], foreignColumns: [factoryValidatorAssignments.validatorAttemptId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.validatorAttemptId], foreignColumns: [factoryExecutionTerminals.attemptId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.artifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+]);
 /** Exact human-issued source-to-target artifact reads; the protected digest binds all usable metadata. */
 export const factoryArtifactReadGrants = pgTable("factory_artifact_read_grants", {
   tenantId: text("tenant_id").notNull(), sourceProjectId: text("source_project_id").notNull(), sourceRunId: text("source_run_id").notNull(), sourceArtifactId: text("source_artifact_id").notNull(), targetProjectId: text("target_project_id").notNull(),
@@ -3065,6 +3107,11 @@ export const factoryTaskCompletions = pgTable("factory_task_completions", {
   attemptId: text("attempt_id").notNull().references(() => factoryExecutionTerminals.attemptId, { onDelete: "restrict" }), inputDigest: text("input_digest").notNull(), authorityJson: text("authority_json").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }), uniqueIndex("factory_task_completions_attempt_id_key").on(table.attemptId), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict")]);
 
+export const factoryTaskOutcomes = pgTable("factory_task_outcomes", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  attemptId: text("attempt_id").notNull(), reservationId: text("reservation_id").notNull(), inputDigest: text("input_digest").notNull(), authorityJson: text("authority_json").notNull(), resultJson: text("result_json").notNull(), evidenceDigest: text("evidence_digest").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }), uniqueIndex("factory_task_outcomes_attempt_id_key").on(table.attemptId), foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"), check("factory_task_outcomes_input_digest_check", sql`${table.inputDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_evidence_digest_check", sql`${table.evidenceDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_receipt_digest_check", sql`${table.receiptDigest} ~ '^sha256:[0-9a-f]{64}$'`)]);
+
 export const factoryCommandApprovals = pgTable("factory_command_approvals", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(),
   runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
@@ -3082,4 +3129,12 @@ export const factoryCommandApprovals = pgTable("factory_command_approvals", {
   index("idx_factory_command_approvals_pending").on(table.tenantId, table.projectId, table.status, table.deadlineAtMs, table.approvalId),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.sourceSequence], foreignColumns: [factoryAuditBatches.tenantId, factoryAuditBatches.projectId, factoryAuditBatches.runId, factoryAuditBatches.interpreterId, factoryAuditBatches.sourceSequence] }).onDelete("restrict"),
+]);
+
+export const factoryProtectedCommandEffects = pgTable("factory_protected_command_effects", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  kind: text("kind").notNull().$type<"request-acceptance" | "request-release">(), commandDigest: text("command_digest").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"),
 ]);

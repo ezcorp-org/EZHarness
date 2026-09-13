@@ -31,6 +31,7 @@ let destinationVersion: string | null = null;
 let trusted: FactoryTrustedEvidence;
 
 class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
+  async assertContractInTransaction(): Promise<void> {}
   async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenant !== tenantId || key.projectId !== projectId || key.runId !== candidate.runId || key.nodeInstanceId !== candidate.nodeInstanceId || key.candidateGeneration !== candidate.candidateGeneration || validatorId !== trusted.validatorId) throw new Error("current candidate mismatch");
     return structuredClone(trusted);

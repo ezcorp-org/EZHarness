@@ -13,6 +13,6 @@ export { defineFactory, FactoryAuthoringError } from "./authoring.js";
 export { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";
 export { firstValidationIssue, isSchemaContained, resolveSchemaReference, validateCompiledExecutionManifest, validateCompiledFactory, validateCompiledPartitionArtifact, validateFactoryApiRequest, validateFactoryApiResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult, validatePortSchema, validateValue, validateDurableInputPorts } from "./validation.js";
 export type * from "./kernel-types.js";
-export { FactoryKernelError, advanceKernel, createKernelState, createPartitionKernelState } from "./kernel.js";
+export { FactoryKernelError, advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState, currentEffectCommandMatches } from "./kernel.js";
 export { simulateFactory } from "./simulator.js";
 export type { FactorySimulatorOptions, SimulationResult, SimulatedOutcome } from "./simulator.js";

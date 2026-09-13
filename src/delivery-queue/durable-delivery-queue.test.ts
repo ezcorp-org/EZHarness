@@ -60,4 +60,36 @@ describe("shared durable delivery queue concurrency", () => {
     expect(await queue.cancel(store, "scope", current.id, "not valid!")).toMatchObject({ failureCode: "delivery_cancelled" });
     await expect(queue.cancel({ ...store, findById: async () => null }, "scope", "missing")).rejects.toMatchObject({ code: "not_found" });
   });
+
+  test("lets only the current lease owner settle pre-execution work as cancelled", async () => {
+    let current: Record = { ...record, state: "leased", attempts: 1, leaseToken: "owner", leaseUntil: 10 };
+    const store: DurableDeliveryStore<Record> = {
+      findDuplicate: async () => null,
+      insert: async () => false,
+      claimCandidate: async () => null,
+      findById: async () => current,
+      write: async value => { current = { ...value }; },
+      inspect: async () => current,
+    };
+    expect(await queue.settle(store, "scope", current, 1, "cancelled", "authority_revoked")).toMatchObject({ state: "cancelled", failureCode: "authority_revoked", leaseUntil: 0 });
+    current = { ...record, state: "leased", attempts: 1, leaseToken: "new-owner", leaseUntil: 10 };
+    await expect(queue.settle(store, "scope", { ...current, leaseToken: "stale-owner" }, 1, "cancelled")).rejects.toMatchObject({ code: "delivery_lease_lost" });
+  });
+
+  test("recovers only a verified unknown outcome and keeps the receipt idempotent", async () => {
+    let current: Record = { ...record, state: "outcome_unknown", leaseToken: "expired-owner", leaseUntil: 3, failureCode: "external_outcome_unknown" };
+    const store: DurableDeliveryStore<Record> = {
+      findDuplicate: async () => null,
+      insert: async () => false,
+      claimCandidate: async () => null,
+      findById: async () => current,
+      write: async value => { current = { ...value }; },
+      inspect: async () => current,
+    };
+    expect(await queue.recoverDelivered(store, "scope", current.id)).toEqual({ ...record, state: "delivered", leaseUntil: 0 });
+    expect(await queue.recoverDelivered(store, "scope", current.id)).toEqual(current);
+    current = { ...record, state: "cancelled" };
+    await expect(queue.recoverDelivered(store, "scope", current.id)).rejects.toMatchObject({ code: "delivery_recovery_invalid" });
+    await expect(queue.recoverDelivered({ ...store, findById: async () => null }, "scope", "missing")).rejects.toMatchObject({ code: "not_found" });
+  });
 });

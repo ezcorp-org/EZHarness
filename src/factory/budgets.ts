@@ -191,15 +191,18 @@ export class FactoryBudgets {
   }
 
   async markUncertain(key: FactoryBudgetReservationKey, reason: string): Promise<void> {
+    await this.database.transaction(transaction => this.markUncertainInTransaction(transaction, key, reason));
+  }
+
+  async markUncertainInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, reason: string): Promise<void> {
+    const key = { ...value };
     assertFactoryIdentity(reason);
-    await this.database.transaction(async transaction => {
-      await this.lockRun(transaction, key);
-      const row = (await this.reservation(transaction, key))!;
-      if (row.state === "uncertain" && row.uncertainty === reason) return;
-      if (row.state === "settled" || row.state === "uncertain") throw new FactoryBudgetError("factory_budget_conflict");
-      await transaction.execute(sql`UPDATE factory_budget_reservations SET state='uncertain', uncertainty=${reason} WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId}`);
-      await this.audit(transaction, key, "uncertain", key.reservationId, { reason, held: totals(decode(row.amount)) });
-    });
+    await this.lockRun(transaction, key);
+    const row = (await this.reservation(transaction, key))!;
+    if (row.state === "uncertain" && row.uncertainty === reason) return;
+    if (row.state === "settled" || row.state === "uncertain") throw new FactoryBudgetError("factory_budget_conflict");
+    await transaction.execute(sql`UPDATE factory_budget_reservations SET state='uncertain', uncertainty=${reason} WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId}`);
+    await this.audit(transaction, key, "uncertain", key.reservationId, { reason, held: totals(decode(row.amount)) });
   }
 
   /** Only a trusted provider/stop receipt resolves a hold, including a zero-use hold. */

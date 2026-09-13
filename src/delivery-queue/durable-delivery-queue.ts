@@ -93,7 +93,7 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     return record;
   }
 
-  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string): Promise<Record> {
+  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<Record> {
     const current = await store.findById(scope, claimed.id);
     if (!current) throw this.error("not_found", "Delivery not found.");
     if (current.state !== "leased" || current.leaseToken !== claimed.leaseToken || current.leaseUntil <= now) {
@@ -124,6 +124,20 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
 
   async inspect(store: DurableDeliveryStore<Record>, scope: string, id: string): Promise<Record | null> {
     return store.inspect(scope, id);
+  }
+
+  /** A verified external receipt may resolve work regardless of a lost queue acknowledgement. */
+  async recoverDelivered(store: DurableDeliveryStore<Record>, scope: string, id: string): Promise<Record> {
+    const current = await store.findById(scope, id);
+    if (!current) throw this.error("not_found", "Delivery not found.");
+    if (current.state === "delivered") return current;
+    if (!["queued", "leased", "outcome_unknown"].includes(current.state)) throw this.error("delivery_recovery_invalid", "This delivery cannot accept a recovered receipt.");
+    current.state = "delivered";
+    current.leaseUntil = 0;
+    delete current.leaseToken;
+    delete current.failureCode;
+    await store.write(current);
+    return current;
   }
 }
 

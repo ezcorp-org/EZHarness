@@ -7,7 +7,7 @@ import type { CompiledFactory, FactoryDefinition, FactoryNode, KernelCommand, Ke
 const digest = `sha256:${"d".repeat(64)}`;
 const runner = { package: "inert", version: "1", digest, export: "run" } as const;
 
-function partitionedFactory(target: FactoryNode | readonly FactoryNode[]): CompiledFactory {
+function partitionedFactory(target: FactoryNode | readonly FactoryNode[], source: FactoryNode = { id: "a", kind: "task", runner, outputPorts: { value: { type: "number" } } }): CompiledFactory {
   const padding: FactoryNode[] = Array.from({ length: 128 }, (_, index) => ({
     id: `slow-${index.toString().padStart(3, "0")}`,
     kind: "task",
@@ -22,7 +22,7 @@ function partitionedFactory(target: FactoryNode | readonly FactoryNode[]): Compi
     outputPorts: {},
     graph: {
       nodes: [
-        { id: "a", kind: "task", runner, outputPorts: { value: { type: "number" } } },
+        source,
         ...padding,
         ...(Array.isArray(target) ? target : [target]),
       ],
@@ -203,6 +203,22 @@ describe("partition-local factory kernel", () => {
     expect(admission.candidateGeneration).toBe(1);
     expect(repaired.nextState.nodes.a?.candidateGeneration).toBe(1);
     expect(Object.keys(repaired.nextState.nodes)).not.toContain("z");
+  });
+
+  test("notifies a regenerated terminal source in the same repair advance", () => {
+    const factory = partitionedFactory(
+      { id: "z", kind: "join", mode: "all", predecessors: ["a"] },
+      { id: "a", kind: "join", mode: "all", predecessors: [] },
+    );
+    const sourcePartition = factory.partitions.find((partition) => partition.nodeIds.includes("a"))!;
+    const started = start(factory, sourcePartition.id, "repair-terminal-source");
+    const original = command(started.commands, "notify-partition", "z");
+    const repaired = advanceKernel(factory, started.nextState, { kind: "repair", id: "repair-terminal-a", atMs: 5, nodeId: "a", reason: "replace source" });
+    const invalidation = command(repaired.commands, "invalidate-partition", "z");
+    const replacement = command(repaired.commands, "notify-partition", "z");
+    expect(invalidation.candidateGeneration).toBe(1);
+    expect(replacement).toEqual(expect.objectContaining({ outcome: "succeeded", candidateGeneration: 1 }));
+    expect(replacement.terminalSequence).toBeGreaterThan(original.terminalSequence);
   });
 
   test("invalidates a waiting approval before a repaired source completes again", () => {

@@ -338,6 +338,48 @@ describe("factory Temporal workflow", () => {
     assert.deepEqual(order, ["audit:1", "effect:request-admission", "audit:2", "effect:dispatch-node", "audit:3"]);
   });
 
+  it("replays a sealed repair input and preserves the prior candidate", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const repairFactory = compiled([{ ...node, inputPorts: { instruction: { type: "string" } }, bindings: { instruction: { kind: "literal", value: "first" } }, repairableInputs: ["instruction"] }], "repair-replay");
+    let firstStarted = () => undefined;
+    const started = new Promise<void>(resolve => { firstStarted = resolve; });
+    let releaseFirst = () => undefined;
+    const replacementStarted = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const dispatched = [];
+    const activities = {
+      ...definitionActivities(repairFactory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") {
+          dispatched.push({ generation: command.candidateGeneration, input: command.input });
+          if (command.candidateGeneration === 0) { firstStarted(); await replacementStarted; }
+          else releaseFirst();
+          return { kind: "node-result", id: `${command.id}:result`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: {} };
+        }
+        if (command.kind === "cancel-node") {
+          return { kind: "attempt-stopped", id: `${command.id}:stopped`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt };
+        }
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const workflowId = `tenant/repair-replay-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(repairFactory, { logicalRunId: "repair-replay", startedAtMs })] });
+      await started;
+      const repair = { kind: "repair", id: "repair-replay:event", atMs: startedAtMs + 1, nodeId: "work", reason: "correct instruction", inputOverride: { instruction: "second" } };
+      await handle.signal("factoryInbox", { sequence: 1, eventId: repair.id, eventHash: eventHash(repair), event: repair });
+      const result = await handle.result();
+      assert.equal(result.status, "completed");
+      assert.deepEqual(dispatched, [{ generation: 0, input: { instruction: "first" } }, { generation: 1, input: { instruction: "second" } }]);
+      const state = await handle.query("factoryState");
+      assert.deepEqual(state.nodes.work.priorCandidates, [{ candidateGeneration: 0, status: "cancelled", inputOverride: { instruction: "first" } }]);
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+  });
+
   it("advances independent successors while another branch is blocked", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const parallelFactory = compiled([

@@ -519,6 +519,17 @@
 
 - For every migration default, model the same default in `schema.ts`. Run the canonical schema parity test; focused feature tests do not detect a missing ORM default.
 - When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
+- Before importing a support commit into an older isolated worktree, compare its parent ancestry with the worktree base. If the support commit depends on intermediate modules, merge the validated descendant that contains the full ancestry instead of cherry-picking the leaf alone.
+
+- A repair of an active candidate stops that attempt before it creates the replacement. Its retained prior-candidate status is therefore `cancelled`, even when the repair signal first observed it as `running`.
+# Generic approval currentness (2026-09-13)
+
+- Do not equate an approval command's creation transition with the interpreter head. Validate the stored command against the latest committed runtime attempt. Unrelated committed progress can advance the head while that approval remains current.
+- Notification visibility and decision authority must use the same current-command reader. A projection-only head equality check can hide a decision that the store still accepts.
+
+## 2026-09-13 — Partition command batches
+
+- Do not use the simultaneous-activity limit as a persisted command-batch limit. A valid partition can emit more commands than it executes at once. Test real published partition transitions through product storage, not only an in-memory Temporal activity fixture.
 
 ## 2026-09-13 — Preparation receipts need durable authority
 
@@ -529,6 +540,23 @@
 # Package trust identity — 2026-09-13
 
 - When a public reference accepts optional identity fields, every database key and foreign key must use the canonical complete reference. A seal alone does not prevent row collisions.
+## Command authority extension on moving integration bases
+
+- Before extending a shared authority module, compare it with the current integration head. Reuse its stored command entry, source sequence, command digest, and ancestor validation. Do not reconstruct an origin query that the integrated module already supplies.
+- A partition command must bind the requested interpreter ID to its declared source partition, in addition to validating the loaded state partition and compiled edge.
+
+## 2026-09-13 — Package authority parent review
+
+- A sealed historical revision does not prove current authority. Validate mutable current pointers against the latest immutable revision before dispatch or mutation.
+- Bind an extension installation's project scope at every catalog read; a project grant does not grant access to another project's package.
+- A concurrent preparation may observe the other worker's completed intent. Verify its facts and receipt, then return the same receipt. Do not reject completion solely because its phase changed.
+- Reused preparation receipts need the same current release/evidence checks as dispatch readiness.
+- Model every migration foreign key, including references to pre-existing v4 tables. Run the canonical PostgreSQL schema proof before calling an integration complete.
+## 2026-09-13: Preserve optional quorum evidence and subfactory provenance
+
+- A claim referenced by a quorum group is protected evidence even when `required` is false. Register and validate every group claim. Apply `required` only as an individual gate; apply the group threshold separately.
+- A subfactory result is not the parent task's terminal result. Bind a sealed alias to the exact current parent attempt, child binding, child acceptance decision, and child artifact. Recheck both parent and child lifecycle fences before reuse.
+- A mutable current pointer must equal the maximum immutable revision in its scope. Validate that invariant while the pointer is locked so a rollback cannot reactivate revoked trust.
 
 # C02 topology — 2026-09-13
 

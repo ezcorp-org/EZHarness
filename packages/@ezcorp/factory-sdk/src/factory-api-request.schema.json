@@ -2153,6 +2153,9 @@
               "id": {
                 "type": "string"
               },
+              "required": {
+                "type": "boolean"
+              },
               "validatorId": {
                 "type": "string"
               }
@@ -2541,14 +2544,11 @@
       ],
       "type": "object"
     },
-    "FactoryRunRevisionBody": {
+    "FactoryRunRepairBody": {
       "additionalProperties": false,
       "properties": {
         "action": {
-          "enum": [
-            "repair",
-            "replan"
-          ],
+          "const": "repair",
           "type": "string"
         },
         "nodeId": {
@@ -2575,6 +2575,53 @@
         "parameters"
       ],
       "type": "object"
+    },
+    "FactoryRunReplanBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "replan",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "Current subfactory node instance to replace.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/definitions/FactoryTransportValue"
+          },
+          "type": "object"
+        },
+        "reason": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "replacement": {
+          "$ref": "#/definitions/FactoryReference",
+          "description": "Exact published child revision."
+        }
+      },
+      "required": [
+        "action",
+        "nodeId",
+        "replacement",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "FactoryRunRevisionBody": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryRunRepairBody"
+        },
+        {
+          "$ref": "#/definitions/FactoryRunReplanBody"
+        }
+      ]
     },
     "FactoryRunStartBody": {
       "additionalProperties": false,
@@ -3525,6 +3572,13 @@
           ],
           "type": "string"
         },
+        "repairableInputs": {
+          "description": "Literal-bound input ports that an authorized repair or replan may replace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "resources": {
           "$ref": "#/definitions/ResourceBounds"
         },
@@ -3592,6 +3646,13 @@
             "$ref": "#/definitions/PortSchema"
           },
           "type": "object"
+        },
+        "repairableInputs": {
+          "description": "Literal-bound input ports that an authorized repair may replace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "resources": {
           "$ref": "#/definitions/ResourceBounds"

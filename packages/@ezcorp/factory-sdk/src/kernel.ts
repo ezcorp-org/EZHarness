@@ -168,6 +168,9 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
     case "repair":
       next = applyRepair(factory, next, event, commands);
       break;
+    case "replan":
+      next = applyRepair(factory, next, event, commands);
+      break;
     case "partition-source-invalidated":
       next = applyPartitionInvalidation(factory, next, event, commands);
       break;
@@ -314,9 +317,10 @@ function emitPartitionNotifications(
   const partition = partitionFor(factory, state.partition.id);
   let next = state;
   for (const edge of partition?.outbound ?? []) {
-    const status = state.nodes[edge.nodeId]?.status;
-    if (!status || !terminalStatus(status) || previous.nodes[edge.nodeId]?.status === status) continue;
     const runtime = state.nodes[edge.nodeId]!;
+    const status = runtime?.status;
+    const previousRuntime = previous.nodes[edge.nodeId];
+    if (!status || !terminalStatus(status) || (previousRuntime?.status === status && previousRuntime.candidateGeneration === runtime.candidateGeneration && previousRuntime.terminalSequence === runtime.terminalSequence)) continue;
     const command = commandFor(next, "notify-partition", edge.nodeId);
     next = command.state;
     commands.push({
@@ -487,11 +491,29 @@ function scheduleTimer(state: KernelState, nodeId: string, deadlineAtMs: number,
   return withNode(timer.state, nodeId, { ...timer.state.nodes[nodeId]!, timer: { id: timer.id, deadlineAtMs, purpose } });
 }
 
-function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "repair" }>, commands: KernelCommand[], allowProtected = false): KernelState {
+type RevisionEvent = Extract<KernelEvent, { kind: "repair" | "replan" }>;
+
+function sealedRepairInput(state: KernelState, node: Extract<FactoryNode, { kind: "task" | "subfactory" }>, nodeId: string, supplied?: JsonValue): { readonly prior: JsonValue; readonly next: JsonValue } {
+  const current = inputFor(state, node, nodeId);
+  const prior = snapshotValue(current);
+  if (supplied === undefined) return { prior, next: prior };
+  if (!isRecord(current) || !isRecord(supplied)) throw new FactoryKernelError(`node ${nodeId} repair input must be an object`);
+  const currentNames = Object.keys(current).sort();
+  const suppliedNames = Object.keys(supplied).sort();
+  if (currentNames.length !== suppliedNames.length || currentNames.some((name, index) => name !== suppliedNames[index])) throw new FactoryKernelError(`node ${nodeId} repair input must preserve every bound port`);
+  const repairable = new Set(node.repairableInputs ?? []);
+  for (const name of repairable) if (node.bindings?.[name]?.kind !== "literal" || !Object.hasOwn(node.inputPorts ?? {}, name)) throw new FactoryKernelError(`node ${nodeId} has an invalid repairable input declaration`);
+  for (const name of currentNames) if (!repairable.has(name) && canonicalizeJson(current[name]!) !== canonicalizeJson(supplied[name]!)) throw new FactoryKernelError(`node ${nodeId} repair input changes a protected binding`);
+  validateRecord(node.inputPorts ?? {}, supplied, `node ${nodeId} repair input`);
+  return { prior, next: snapshotValue(supplied) };
+}
+
+function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: RevisionEvent, commands: KernelCommand[], allowProtected = false): KernelState {
   if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
   if (!allowProtected && (node?.kind === "approval" || node?.kind === "release")) return state;
+  if (event.kind === "replan" && (node?.kind !== "subfactory" || event.replacement.id !== node.factory.id)) return state;
   if (node && !runtime) {
     const parentId = completedMapAncestor(state, event.nodeId);
     if (parentId) {
@@ -499,6 +521,13 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
     }
   }
   if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
+  const sealedInput = node.kind === "task" || node.kind === "subfactory"
+    ? sealedRepairInput(state, node, event.nodeId, event.inputOverride)
+    : event.inputOverride === undefined ? undefined : (() => { throw new FactoryKernelError("only task and subfactory nodes accept repair input"); })();
+  const inputOverride = sealedInput?.next;
+  const priorInput = sealedInput?.prior;
+  const priorFactory = node.kind === "subfactory" ? runtime.factoryOverride ?? node.factory : undefined;
+  const factoryOverride = event.kind === "replan" ? { ...event.replacement } : undefined;
   // A repair cannot replay publication or turn remediation into new consent.
   const aggregateIds: string[] = [];
   let childId = event.nodeId;
@@ -533,7 +562,7 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Extr
       nodeIds: [...new Set([...priorRepair.nodeIds, ...affected])],
       aggregateIds: [...new Set([...priorRepair.aggregateIds, ...aggregateIds])],
       awaitDependencies: true,
-    } : { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason, ...(allowProtected ? { awaitDependencies: true } : {}) },
+    } : { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason, ...(priorInput === undefined ? {} : { priorInput }), ...(inputOverride === undefined ? {} : { inputOverride }), ...(priorFactory === undefined ? {} : { priorFactory }), ...(factoryOverride === undefined ? {} : { factoryOverride }), ...(allowProtected ? { awaitDependencies: true } : {}) },
   };
   if (state.partition) {
     const partition = partitionFor(factory, state.partition.id);
@@ -567,7 +596,11 @@ function completePendingRepair(factory: KernelFactoryPlan, state: KernelState, c
     const previous = state.nodes[id]!;
     const replacedScope = repair.nodeIds.some(parentId => id.startsWith(`${parentId}/`));
     next = withNode(next, id, {
-      ...newCandidate(previous), status: id === repair.rootNodeId && !repair.awaitDependencies ? "ready" : replacedScope ? "cancelled" : "blocked", discarded: replacedScope,
+      ...newCandidate(previous, id === repair.rootNodeId ? { input: repair.priorInput, factory: repair.priorFactory } : undefined),
+      ...(id === repair.rootNodeId && repair.inputOverride !== undefined ? { inputOverride: repair.inputOverride } : {}),
+      ...(id === repair.rootNodeId && repair.factoryOverride !== undefined ? { factoryOverride: repair.factoryOverride } : {}),
+      status: id === repair.rootNodeId && !repair.awaitDependencies ? "ready" : replacedScope ? "cancelled" : "blocked",
+      discarded: replacedScope,
     });
   }
   for (const id of repair.aggregateIds) {
@@ -592,9 +625,24 @@ function completePendingRepair(factory: KernelFactoryPlan, state: KernelState, c
   return activateReady(factory, next, commands, [repair.rootNodeId]);
 }
 
-function newCandidate(previous: KernelNodeState): KernelNodeState {
+function newCandidate(previous: KernelNodeState, prior?: { readonly input?: JsonValue; readonly factory?: import("./types.js").FactoryReference }): KernelNodeState {
   if (!Number.isSafeInteger(previous.candidateGeneration + 1)) throw new FactoryKernelError("candidate generation exhausted");
-  return { status: "blocked", candidateGeneration: previous.candidateGeneration + 1, nextAttempt: 1, attempts: previous.attempts, priorCandidates: (previous.priorCandidates ?? []).concat({ candidateGeneration: previous.candidateGeneration, status: previous.status, output: previous.output, error: previous.error }) };
+  return {
+    status: "blocked",
+    candidateGeneration: previous.candidateGeneration + 1,
+    nextAttempt: 1,
+    attempts: previous.attempts,
+    ...(previous.inputOverride === undefined ? {} : { inputOverride: previous.inputOverride }),
+    ...(previous.factoryOverride === undefined ? {} : { factoryOverride: previous.factoryOverride }),
+    priorCandidates: (previous.priorCandidates ?? []).concat({
+      candidateGeneration: previous.candidateGeneration,
+      status: previous.status,
+      ...(previous.output === undefined ? {} : { output: previous.output }),
+      ...(previous.error === undefined ? {} : { error: previous.error }),
+      ...(prior?.input === undefined && previous.inputOverride === undefined ? {} : { inputOverride: prior?.input ?? previous.inputOverride }),
+      ...(prior?.factory === undefined && previous.factoryOverride === undefined ? {} : { factoryOverride: prior?.factory ?? previous.factoryOverride }),
+    }),
+  };
 }
 
 function activateReady(factory: KernelFactoryPlan, state: KernelState, commands: KernelCommand[], candidates?: readonly string[]): KernelState {
@@ -675,7 +723,7 @@ function dispatchChild(state: KernelState, node: Extract<FactoryNode, { kind: "s
   const deadlineAtMs = nodeDeadline(state, node);
   const command = commandFor(state, "run-child", nodeId);
   const attempt = { candidateGeneration: runtime.candidateGeneration, attempt: runtime.nextAttempt, commandId: command.id, startedAtMs: state.nowMs, deadlineAtMs, stopped: false, uncertain: false };
-  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: node.factory, input: inputFor(state, node, nodeId), ...(state.durableInput === undefined ? {} : { durableInput: state.durableInput }), deadlineAtMs });
+  commands.push({ kind: "run-child", id: command.id, nodeId, candidateGeneration: runtime.candidateGeneration, factory: runtime.factoryOverride ?? node.factory, input: inputFor(state, node, nodeId), ...(state.durableInput === undefined ? {} : { durableInput: state.durableInput }), deadlineAtMs });
   return waitForExternal(command.state, nodeId, runtime, attempt, commands);
 }
 
@@ -930,6 +978,11 @@ function matchesAttempt(runtime: KernelNodeState, event: Extract<KernelEvent, { 
 }
 
 function inputFor(state: KernelState, node: FactoryNode, nodeId: string): JsonValue {
+  const override = state.nodes[nodeId]?.inputOverride;
+  if (override !== undefined) {
+    validateRecord(node.inputPorts ?? {}, override, `node ${nodeId} input`);
+    return override;
+  }
   const bindings = node.bindings;
   if (!bindings || Object.keys(bindings).length === 0) {
     validateRecord(node.inputPorts ?? {}, state.input, `node ${nodeId} input`);
@@ -1332,6 +1385,55 @@ function locateNode(factory: KernelFactoryPlan, nodeId: string): NodeLocation | 
 /** Resolve one expanded instance against the immutable compiled definition. */
 export function nodeFor(factory: KernelFactoryPlan, nodeId: string): FactoryNode | undefined {
   return locateNode(factory, nodeId)?.node;
+}
+
+/** Recomputes protected acceptance/release inputs from the current kernel state. */
+export function currentEffectCommandMatches(factory: KernelFactoryPlan, state: KernelState, command: Extract<KernelCommand, { kind: "request-acceptance" | "request-release" }>): boolean {
+  const node = nodeFor(factory, command.nodeId);
+  try {
+    if (command.kind === "request-acceptance" && node?.kind === "acceptance") return canonicalizeJson({ candidate: resolveValue(node.candidate, state, command.nodeId), evidence: resolveValue(node.evidence, state, command.nodeId) }) === canonicalizeJson({ candidate: command.candidate, evidence: command.evidence });
+    if (command.kind === "request-release" && node?.kind === "release") return canonicalizeJson({ acceptedCandidate: resolveValue(node.acceptedCandidate, state, command.nodeId), destination: resolveValue(node.destination, state, command.nodeId) }) === canonicalizeJson(command.input);
+  } catch { return false; }
+  return false;
+}
+
+/** Rejects forged repair/replan state before a durable continuation resumes. */
+export function assertKernelContinuationState(factory: KernelFactoryPlan, value: unknown): asserts value is KernelState {
+  if (!isRecord(value) || !isRecord(value.nodes)) throw new FactoryKernelError("kernel continuation state is invalid");
+  const checkReference = (node: FactoryNode, candidate: unknown, label: string): void => {
+    if (candidate === undefined) return;
+    if (node.kind !== "subfactory" || !isRecord(candidate) || candidate.id !== node.factory.id || typeof candidate.version !== "string" || candidate.version.length < 1 || candidate.version === "latest" || candidate.version.includes("*") || typeof candidate.digest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(candidate.digest)) throw new FactoryKernelError(`${label} is invalid`);
+  };
+  const checkInput = (node: FactoryNode, candidate: unknown, label: string): void => {
+    if (candidate === undefined) return;
+    if ((node.kind !== "task" && node.kind !== "subfactory") || !validateIJson(candidate).ok) throw new FactoryKernelError(`${label} is invalid`);
+    validateRecord(node.inputPorts ?? {}, candidate as JsonValue, label);
+  };
+  for (const [nodeId, candidate] of Object.entries(value.nodes)) {
+    if (!isRecord(candidate)) throw new FactoryKernelError("kernel continuation node state is invalid");
+    const node = nodeFor(factory, nodeId);
+    if (!node) throw new FactoryKernelError("kernel continuation node is unknown");
+    checkInput(node, candidate.inputOverride, `node ${nodeId} input override`);
+    checkReference(node, candidate.factoryOverride, `node ${nodeId} factory override`);
+    if (candidate.priorCandidates !== undefined) {
+      if (!Array.isArray(candidate.priorCandidates)) throw new FactoryKernelError("kernel prior candidates are invalid");
+      for (const prior of candidate.priorCandidates) {
+        if (!isRecord(prior)) throw new FactoryKernelError("kernel prior candidate is invalid");
+        checkInput(node, prior.inputOverride, `node ${nodeId} prior input override`);
+        checkReference(node, prior.factoryOverride, `node ${nodeId} prior factory override`);
+      }
+    }
+  }
+  if (value.pendingRepair !== undefined) {
+    const repair = value.pendingRepair;
+    if (!isRecord(repair) || typeof repair.rootNodeId !== "string" || !Array.isArray(repair.nodeIds) || !Array.isArray(repair.aggregateIds) || new Set(repair.nodeIds).size !== repair.nodeIds.length || new Set(repair.aggregateIds).size !== repair.aggregateIds.length || !repair.nodeIds.includes(repair.rootNodeId)) throw new FactoryKernelError("pending repair is invalid");
+    const node = nodeFor(factory, repair.rootNodeId);
+    if (!node) throw new FactoryKernelError("pending repair node is unknown");
+    checkInput(node, repair.priorInput, "pending repair prior input");
+    checkInput(node, repair.inputOverride, "pending repair input override");
+    checkReference(node, repair.priorFactory, "pending repair prior factory");
+    checkReference(node, repair.factoryOverride, "pending repair factory override");
+  }
 }
 
 function successorsFor(factory: KernelFactoryPlan, nodeId: string): readonly string[] {

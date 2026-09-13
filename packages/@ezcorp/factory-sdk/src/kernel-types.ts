@@ -74,7 +74,18 @@ export interface KernelNodeState {
   readonly discarded?: boolean;
   /** Failure belongs to an explicit collecting map or qualifying join. */
   readonly failureHandled?: boolean;
-  readonly priorCandidates?: readonly { readonly candidateGeneration: number; readonly status: KernelNodeStatus; readonly output?: JsonValue; readonly error?: string }[];
+  /** Exact node input sealed for this repaired candidate. */
+  readonly inputOverride?: JsonValue;
+  /** Exact published child revision sealed for this replanned candidate. */
+  readonly factoryOverride?: FactoryReference;
+  readonly priorCandidates?: readonly {
+    readonly candidateGeneration: number;
+    readonly status: KernelNodeStatus;
+    readonly output?: JsonValue;
+    readonly error?: string;
+    readonly inputOverride?: JsonValue;
+    readonly factoryOverride?: FactoryReference;
+  }[];
   readonly attempts: readonly KernelAttempt[];
   readonly selected?: "then" | "else";
   readonly waitingReason?: "approval" | "admission" | "remediation" | "external_reconciliation";
@@ -139,7 +150,17 @@ export interface KernelState {
   readonly scopes: Readonly<Record<string, KernelScopeState>>;
   readonly appliedEventIds: readonly string[];
   readonly unresolvedUncertainNodeIds: readonly string[];
-  readonly pendingRepair?: { readonly rootNodeId: string; readonly nodeIds: readonly string[]; readonly aggregateIds: readonly string[]; readonly reason: string; readonly awaitDependencies?: boolean };
+  readonly pendingRepair?: {
+    readonly rootNodeId: string;
+    readonly nodeIds: readonly string[];
+    readonly aggregateIds: readonly string[];
+    readonly reason: string;
+    readonly priorInput?: JsonValue;
+    readonly inputOverride?: JsonValue;
+    readonly priorFactory?: FactoryReference;
+    readonly factoryOverride?: FactoryReference;
+    readonly awaitDependencies?: boolean;
+  };
   readonly partition?: {
     readonly id: string;
     readonly completedEdges: Readonly<Record<string, string>>;
@@ -247,6 +268,14 @@ export type KernelEvent =
       readonly kind: "repair";
       readonly nodeId: string;
       readonly reason: string;
+      readonly inputOverride?: JsonValue;
+    })
+  | (KernelEventBase & {
+      readonly kind: "replan";
+      readonly nodeId: string;
+      readonly reason: string;
+      readonly replacement: FactoryReference;
+      readonly inputOverride?: JsonValue;
     })
   | (KernelEventBase & {
       readonly kind: "partition-source-invalidated";

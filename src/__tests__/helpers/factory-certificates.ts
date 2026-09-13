@@ -1,4 +1,5 @@
 import { connect } from "node:tls";
+import { sign, type KeyObject } from "node:crypto";
 import { expect } from "bun:test";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,17 +12,24 @@ async function command(args: string[]): Promise<void> {
   expect(await child.exited, await new Response(child.stderr).text()).toBe(0);
 }
 
-export async function certificates(directories: string[]): Promise<Certificates> {
+export async function certificates(directories: string[], clientSubject = "tenant-a"): Promise<Certificates> {
   const root = await mkdtemp(join(tmpdir(), "factory-gateway-"));
   directories.push(root);
   await command(["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, "ca.key"), "-out", join(root, "ca.pem"), "-days", "1", "-subj", "/CN=factory-test-ca"]);
-  for (const [name, subject, extension] of [["server", "localhost", "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth"], ["client", "tenant-a", "extendedKeyUsage=clientAuth"], ["foreign", "tenant-b", "extendedKeyUsage=clientAuth"]] as const) {
+  for (const [name, subject, extension] of [["server", "localhost", "subjectAltName=DNS:localhost,IP:127.0.0.1\nextendedKeyUsage=serverAuth"], ["client", clientSubject, "extendedKeyUsage=clientAuth"], ["foreign", "tenant-b", "extendedKeyUsage=clientAuth"]] as const) {
     await command(["req", "-newkey", "rsa:2048", "-nodes", "-keyout", join(root, `${name}.key`), "-out", join(root, `${name}.csr`), "-subj", `/CN=${subject}`]);
     await Bun.write(join(root, `${name}.ext`), extension);
     await command(["x509", "-req", "-in", join(root, `${name}.csr`), "-CA", join(root, "ca.pem"), "-CAkey", join(root, "ca.key"), "-CAcreateserial", "-out", join(root, `${name}.pem`), "-days", "1", "-extfile", join(root, `${name}.ext`)]);
   }
   const get = (name: string) => readFile(join(root, name), "utf8");
   return { ca: await get("ca.pem"), serverKey: await get("server.key"), serverCert: await get("server.pem"), clientKey: await get("client.key"), clientCert: await get("client.pem"), foreignKey: await get("foreign.key"), foreignCert: await get("foreign.pem") };
+}
+
+export function signedServiceToken(privateKey: KeyObject, claims: Readonly<Record<string, unknown>>): string {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", kid: "test" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+  const input = `${header}.${payload}`;
+  return `${input}.${sign("RSA-SHA256", Buffer.from(input), privateKey).toString("base64url")}`;
 }
 
 
