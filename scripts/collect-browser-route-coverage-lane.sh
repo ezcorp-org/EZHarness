@@ -5,7 +5,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 lane="${1:-}"
-case "$lane" in mock-gate|mock-full|evidence|fresh-setup|real-auth) ;; *) echo "usage: $0 <mock-gate|mock-full|evidence|fresh-setup|real-auth>" >&2; exit 2;; esac
+case "$lane" in mock-gate|mock-full|evidence|fresh-setup|real-auth|factory-services) ;; *) echo "usage: $0 <mock-gate|mock-full|evidence|fresh-setup|real-auth|factory-services>" >&2; exit 2;; esac
 : "${EZCORP_BROWSER_COVERAGE:=1}"
 : "${EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST:?browser coverage requires the printed route manifest}"
 if [[ -z "${EZCORP_BROWSER_COVERAGE_SOURCE_REVISION:-}" ]]; then
@@ -37,6 +37,21 @@ case "$lane" in
     bun scripts/check-playwright-evidence-blob.ts "$repo_root/web/blob-report"
     ;;
   fresh-setup|real-auth) bun scripts/run-real-e2e.ts "$lane" ;;
+  factory-services)
+    # Service-backed factory journeys on a labelled runner. Every input is
+    # REQUIRED: a missing service must fail readiness, never collect an empty
+    # green lane. W14 owns this lane's specs and its Playwright configuration;
+    # until both land the lane is registered and unpopulated, and the two
+    # guards below say so instead of exiting 0.
+    : "${FACTORY_TEST_POSTGRES_URL:?factory-services requires a real PostgreSQL URL}"
+    : "${EZCORP_FACTORY_STORAGE_SECRETS_DIR:?factory-services requires the factory object-storage credential directory}"
+    : "${FACTORY_TEMPORAL_TEST_SERVER:?factory-services requires the pinned Temporal test server}"
+    config="web/playwright.factory-services.config.ts"
+    [ -f "$repo_root/$config" ] || { echo "factory-services lane requires $config — W14 owns this lane's specs and configuration" >&2; exit 1; }
+    mapfile -t args < <(bun scripts/e2e-lane-args.ts "$lane")
+    [ "${#args[@]}" -gt 0 ] || { echo "empty browser coverage lane: $lane" >&2; exit 1; }
+    (cd web && bunx playwright test --config "$(basename "$config")" --project=chromium --workers=1 --reporter=list "${args[@]}")
+    ;;
 esac
 mapfile -t receipts < <(find "$output_dir" -maxdepth 1 -type f -name 'chromium-worker-*.json' -print | sort)
 [ "${#receipts[@]}" -gt 0 ] || { echo "browser coverage lane wrote no receipts: $lane" >&2; exit 1; }

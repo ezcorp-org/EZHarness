@@ -151,7 +151,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
  */
 export function workflowJobBlock(workflow: string, job: string): string | undefined {
   const lines = workflow.split("\n");
-  const start = lines.findIndex((line) => line === `  ${job}:`);
+  const start = lines.indexOf(`  ${job}:`);
   if (start < 0) return undefined;
   const body: string[] = [];
   for (let index = start + 1; index < lines.length; index++) {

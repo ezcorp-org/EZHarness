@@ -53,8 +53,12 @@ archive_playwright_artifacts() {
 	fi
 }
 
-lane_status=0
-for lane in mock-gate mock-full evidence fresh-setup real-auth; do
+# One collection path for every lane, so an added lane cannot receive weaker
+# artifact archiving or a different failure rule than the mandatory five.
+collect_lane() {
+	local lane=$1
+	local lane_output
+	local this_lane_status
 	case "$lane" in
 		fresh-setup|real-auth) lane_output="$output_dir/real-auth/$lane" ;;
 		*) lane_output="$output_dir/$lane" ;;
@@ -70,9 +74,28 @@ for lane in mock-gate mock-full evidence fresh-setup real-auth; do
 	archive_playwright_artifacts "$lane_output" "$lane"
 	if [ "$this_lane_status" -ne 0 ]; then
 		echo "::error::browser coverage lane failed: $lane" >&2
-		lane_status=1
+		return 1
 	fi
+	return 0
+}
+
+lane_status=0
+for lane in mock-gate mock-full evidence fresh-setup real-auth; do
+	collect_lane "$lane" || lane_status=1
 done
+
+# Service-backed lanes need a labelled runner, real Temporal, real object
+# storage, and real credentials, so an ordinary local or ubuntu run cannot
+# produce them. They are opt-in rather than skipped-by-default: declaring
+# EZCORP_BROWSER_COVERAGE_SERVICE_LANES=1 makes each one REQUIRED here AND in
+# merge-browser-route-coverage.sh, so a declared service lane that produces no
+# receipt fails the run instead of yielding a five-lane "complete" result.
+export EZCORP_BROWSER_COVERAGE_SERVICE_LANES="${EZCORP_BROWSER_COVERAGE_SERVICE_LANES:-0}"
+if [ "$EZCORP_BROWSER_COVERAGE_SERVICE_LANES" = "1" ]; then
+	for lane in factory-services; do
+		collect_lane "$lane" || lane_status=1
+	done
+fi
 
 merge_status=0
 if ! bash scripts/merge-browser-route-coverage.sh "$output_dir" "$output_dir/merged"; then
