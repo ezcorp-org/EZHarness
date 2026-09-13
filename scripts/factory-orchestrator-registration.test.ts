@@ -19,6 +19,7 @@ describe("factory Temporal gate registration", () => {
     const producer = await readFile("scripts/factory-orchestrator-coverage.sh", "utf8");
     expect(producer).toContain("factory_orchestrator_test_files");
     expect(producer).toContain("FACTORY_ORCHESTRATOR_TESTS[@]");
+    expect(producer).toContain("timeout --signal=TERM --kill-after=30s 600s");
     expect(workflow).toContain("name: Factory Temporal integration");
     expect(workflow).toContain("temporal-test-server_1.38.0_linux_amd64.tar.gz");
     expect(workflow).toContain("41df834fe8e1ac59619e13908f41b63e4d1054f37634a2f89033d8cf6af71b96");

@@ -96,8 +96,13 @@ export function validateWorkflowInput(input: FactoryWorkflowInput): void {
   assertActivityPayloadSize(input, "factory workflow input");
   if (isPartitionSource(input.definition)) validatePartitionSource(input.definition);
   else validateDefinitionSource(input.definition);
-  if (input.continuation && input.continuation.state.definitionDigest !== input.definition.definitionDigest) throw new Error("continuation definition digest does not match input");
-  if (input.continuation && isPartitionSource(input.definition) && input.continuation.state.partition?.id !== input.definition.partition.partitionId) throw new Error("continuation partition ID does not match input");
+  if (input.continuation && (input.continuation.state === undefined) === (input.continuation.stateArtifact === undefined)) throw new Error("continuation requires exactly one state source");
+  if (input.continuation?.state && input.continuation.state.definitionDigest !== input.definition.definitionDigest) throw new Error("continuation definition digest does not match input");
+  if (input.continuation?.state && isPartitionSource(input.definition) && input.continuation.state.partition?.id !== input.definition.partition.partitionId) throw new Error("continuation partition ID does not match input");
+  if (input.continuation?.stateArtifact) {
+    if (input.continuation.stateArtifact.sourceSequence !== input.continuation.sourceSequence) throw new Error("continuation artifact sequence does not match input");
+    validateObjectReference(input.continuation.stateArtifact.manifest, "continuation transition manifest");
+  }
   if (input.continuation && (!Number.isSafeInteger(input.continuation.acknowledgedInboxSequence) || input.continuation.acknowledgedInboxSequence < 0)) throw new Error("continuation inbox sequence must be a non-negative safe integer");
 }
 

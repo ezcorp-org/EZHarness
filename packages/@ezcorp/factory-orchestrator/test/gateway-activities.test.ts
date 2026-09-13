@@ -31,7 +31,11 @@ const executionManifest = { objectId: "execution-manifest", digest: sha256(execu
 const partitionBody = Buffer.from(JSON.stringify({ schemaVersion: "factory.partition.v1", factoryDigest: definitionDigest, id: "partition-0", nodeIds: [], dependsOn: [], inbound: [], outbound: [], nodes: [] }));
 const partition = { objectId: "partition-0", partitionId: "partition-0", digest: sha256(partitionBody), encodedBytes: partitionBody.byteLength };
 const transitionPage = { index: 0, objectId: "transition-page", digest: sha256("page"), encodedBytes: 4 };
-const finalizedTransition = { manifest: { objectId: "transition-manifest", digest: sha256("manifest"), encodedBytes: 128 }, eventHash: sha256("event") };
+const transitionManifestValue = { schemaVersion: "factory.transition-manifest.v1", tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "build", sourceSequence: 1, eventId: "start", eventHash: sha256("event"), encodedBytes: 4, pages: [transitionPage] };
+const transitionManifestBody = Buffer.from(JSON.stringify(transitionManifestValue));
+const finalizedTransition = { manifest: { objectId: "transition-manifest", digest: sha256(transitionManifestBody), encodedBytes: transitionManifestBody.byteLength }, eventHash: transitionManifestValue.eventHash };
+const transitionManifest = { ...transitionManifestValue, self: finalizedTransition.manifest };
+const loadedTransitionPage = { ...transitionPage, content: "page" };
 
 function openssl(...args) {
   execFileSync("openssl", args, { cwd: directory, stdio: "ignore" });
@@ -88,6 +92,8 @@ before(async () => {
     else if (request.url === "/internal/factory/v1/definitions/partition") response.writeHead(200, { "content-type": "application/json" }).end(partitionBody);
     else if (request.url === "/internal/factory/v1/transitions/1/pages/0") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-transition-page" ? { ...transitionPage, index: 1 } : transitionPage));
     else if (request.url === "/internal/factory/v1/transitions/1/finalize") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-transition-finalize" ? { ...finalizedTransition, eventHash: "wrong" } : finalizedTransition));
+    else if (request.url === "/internal/factory/v1/transitions/1/manifest") response.writeHead(200, { "content-type": "application/json" }).end(transitionManifestBody);
+    else if (request.url === "/internal/factory/v1/transitions/1/page") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(loadedTransitionPage));
     else if (request.url === "/internal/factory/v1/transitions") response.writeHead(204).end();
     else if (request.url?.includes("/cancel")) response.writeHead(204).end();
     else response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ kind: "admission-result", id: "event", atMs: 1, nodeId: "node", commandId: "command", candidateGeneration: 0, granted: true }));
@@ -121,6 +127,8 @@ describe("authenticated factory gateway activities", () => {
     assert.deepEqual(await activity(environment, activities.loadPartitionArtifact, { ...identity, definitionDigest, partition }), JSON.parse(partitionBody));
     assert.deepEqual(await activity(environment, activities.stageTransitionPage, { ...identity, sourceSequence: 1, index: 0, content: "page", encodedBytes: 4 }), transitionPage);
     assert.deepEqual(await activity(environment, activities.finalizeTransitionArtifact, { ...identity, sourceSequence: 1, encodedBytes: 4, eventId: "start", pages: [transitionPage] }), finalizedTransition);
+    assert.deepEqual(await activity(environment, activities.loadTransitionManifest, { ...identity, sourceSequence: 1, manifest: finalizedTransition.manifest }), transitionManifest);
+    assert.deepEqual(await activity(environment, activities.loadTransitionPage, { ...identity, sourceSequence: 1, page: transitionPage }), loadedTransitionPage);
     assert.equal(await activity(environment, activities.recordTransition, transition), undefined);
     const admission = { ...identity, command: { kind: "request-admission", id: "admit", nodeId: "node", candidateGeneration: 0, deadlineAtMs: 10 } };
     assert.equal((await activity(environment, activities.executeCommand, admission)).kind, "admission-result");
@@ -132,7 +140,8 @@ describe("authenticated factory gateway activities", () => {
       ["POST", "/internal/factory/v1/definitions/resolve"], ["POST", "/internal/factory/v1/definitions/manifest"],
       ["POST", "/internal/factory/v1/definitions/page"], ["POST", "/internal/factory/v1/definitions/execution-manifest"],
       ["POST", "/internal/factory/v1/definitions/partition"], ["PUT", "/internal/factory/v1/transitions/1/pages/0"],
-      ["POST", "/internal/factory/v1/transitions/1/finalize"], ["POST", "/internal/factory/v1/transitions"],
+      ["POST", "/internal/factory/v1/transitions/1/finalize"], ["POST", "/internal/factory/v1/transitions/1/manifest"],
+      ["POST", "/internal/factory/v1/transitions/1/page"], ["POST", "/internal/factory/v1/transitions"],
       ["POST", "/internal/factory/v1/commands/admit"], ["PUT", "/internal/factory/v1/executions/dispatch"],
       ["POST", "/internal/factory/v1/executions/dispatch/cancel"],
     ]);
@@ -145,6 +154,7 @@ describe("authenticated factory gateway activities", () => {
     expectedToken = "gateway-token";
     const activities = await createGatewayFactoryActivities({ baseUrl: origin, tls: paths, requestTimeoutMs: 1_000 });
     const environment = new MockActivityEnvironment();
+    const callCount = calls.length;
     await activity(environment, activities.recordTransition, transition);
     try {
       await copyFile(join(directory, "client-rotated.key"), paths.privateKeyPath);
@@ -160,6 +170,8 @@ describe("authenticated factory gateway activities", () => {
       expectedClientCn = "factory-orchestrator";
       expectedToken = "gateway-token";
     }
+    assert.equal(calls.length, callCount + 2);
+    assert.equal(calls.at(-1)?.authorization, "Bearer gateway-token-rotated");
   });
 
   it("rejects no client certificate, an untrusted CA, and a hostname mismatch", async () => {

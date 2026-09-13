@@ -18,7 +18,8 @@ node_modules/.bin/tsc -b packages/@ezcorp/factory-orchestrator/tsconfig.build.js
 NODE_V8_COVERAGE="$TEMP_ROOT/v8" \
 FACTORY_BUNDLE_CODE_PATH="$TEMP_ROOT/workflow-bundle.js" \
 FACTORY_BUNDLE_MAP_PATH="$TEMP_ROOT/workflow-bundle.map.json" \
-node --test --experimental-strip-types --experimental-test-coverage \
+timeout --signal=TERM --kill-after=30s 600s \
+  node --test --experimental-strip-types --experimental-test-coverage \
   --test-coverage-include='packages/@ezcorp/factory-orchestrator/src/**/*.ts' \
   --test-reporter=lcov "${FACTORY_ORCHESTRATOR_TESTS[@]}" > "$TEMP_ROOT/direct.lcov"
 

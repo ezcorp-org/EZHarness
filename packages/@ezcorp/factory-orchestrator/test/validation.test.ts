@@ -34,6 +34,10 @@ describe("orchestrator boundary validation", () => {
   it("accepts bounded workflow identities and deadlines", () => {
     assert.doesNotThrow(() => validateWorkflowInput(valid));
     assert.doesNotThrow(() => validateWorkflowInput({ ...valid, deadlineAtMs: 1 }));
+    assert.doesNotThrow(() => validateWorkflowInput({
+      ...valid,
+      continuation: { stateArtifact: { sourceSequence: 7, manifest: reference }, inbox: [], pendingInbox: [], sourceSequence: 7, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 },
+    }));
   });
   it("rejects missing, oversized, and invalid workflow fields", () => {
     for (const field of ["tenantId", "projectId", "logicalRunId", "interpreterId"]) {
@@ -48,6 +52,9 @@ describe("orchestrator boundary validation", () => {
     assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: `sha256:${"b".repeat(64)}` }, acknowledgedInboxSequence: 0 } }), /digest/);
     assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: digest }, acknowledgedInboxSequence: -1 } }), /inbox sequence/);
     assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: digest }, acknowledgedInboxSequence: 1.5 } }), /inbox sequence/);
+    const artifactContinuation = { stateArtifact: { sourceSequence: 7, manifest: reference }, inbox: [], pendingInbox: [], sourceSequence: 7, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 };
+    assert.throws(() => validateWorkflowInput({ ...valid, continuation: { ...artifactContinuation, sourceSequence: 8 } }), /artifact sequence/);
+    assert.throws(() => validateWorkflowInput({ ...valid, continuation: { ...artifactContinuation, stateArtifact: { ...artifactContinuation.stateArtifact, manifest: { ...reference, digest: "bad" } } } }), /SHA-256/);
   });
   it("validates immutable definition and manifest page contracts", () => {
     assert.doesNotThrow(() => validateDefinitionSource(definition));

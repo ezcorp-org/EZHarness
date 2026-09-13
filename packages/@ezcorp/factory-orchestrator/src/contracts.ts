@@ -15,8 +15,9 @@ export const MAX_PAGE_BYTES = 32 * 1024;
 export const MAX_DEFINITION_PAGES = MAX_DEFINITION_BYTES / MAX_PAGE_BYTES;
 export const MAX_COMMAND_BATCH_BYTES = 512 * 1024;
 /** One persisted transition contains at most one bounded command batch and state payload. */
-export const MAX_TRANSITION_ARTIFACT_BYTES = MAX_COMMAND_BATCH_BYTES + MAX_ACTIVITY_PAYLOAD_BYTES;
-export const MAX_TRANSITION_PAGES = Math.ceil(MAX_TRANSITION_ARTIFACT_BYTES / MAX_PAGE_BYTES);
+export const MAX_TRANSITION_BYTES = MAX_COMMAND_BATCH_BYTES + MAX_ACTIVITY_PAYLOAD_BYTES;
+export const MAX_TRANSITION_ARTIFACT_BYTES = MAX_TRANSITION_BYTES;
+export const MAX_TRANSITION_PAGES = Math.ceil(MAX_TRANSITION_BYTES / MAX_PAGE_BYTES);
 export const MAX_INFLIGHT_COMMANDS = 32;
 
 export interface ImmutableObjectReference {
@@ -83,14 +84,18 @@ export interface FactoryWorkflowInput {
   readonly continuation?: FactoryContinuation;
 }
 
-export interface FactoryContinuation {
-  readonly state: KernelState;
+interface FactoryContinuationBase {
   readonly inbox: readonly KernelEvent[];
   readonly pendingInbox: readonly FactoryInboxEnvelope[];
   readonly sourceSequence: number;
   readonly handledSinceContinuation: number;
   readonly acknowledgedInboxSequence: number;
 }
+
+export type FactoryContinuation = FactoryContinuationBase & (
+  | { readonly state: KernelState; readonly stateArtifact?: never }
+  | { readonly state?: never; readonly stateArtifact: { readonly sourceSequence: number; readonly manifest: ImmutableObjectReference } }
+);
 
 export interface FactoryInboxEnvelope {
   readonly sequence: number;
@@ -135,6 +140,20 @@ export interface FinalizedTransitionArtifact {
   readonly eventHash: string;
 }
 
+export interface FactoryTransitionManifest extends FactoryIdentity {
+  readonly schemaVersion: "factory.transition-manifest.v1";
+  readonly sourceSequence: number;
+  readonly eventId: string;
+  readonly eventHash: string;
+  readonly encodedBytes: number;
+  readonly pages: readonly TransitionPageReference[];
+  readonly self: ImmutableObjectReference;
+}
+
+export interface FactoryTransitionPage extends TransitionPageReference {
+  readonly content: string;
+}
+
 /** Compact product audit fact committed only after immutable transition pages finalize. */
 export interface TransitionRecord extends FactoryIdentity {
   readonly sourceSequence: number;
@@ -170,4 +189,6 @@ export interface FactoryActivities {
   loadDefinitionPage(request: FactoryIdentity & { readonly definitionDigest: string; readonly page: FactoryDefinitionPageReference }): Promise<FactoryDefinitionPage>;
   loadExecutionManifest(request: FactoryIdentity & { readonly definitionDigest: string; readonly manifest: ImmutableObjectReference }): Promise<CompiledExecutionManifest>;
   loadPartitionArtifact(request: FactoryIdentity & { readonly definitionDigest: string; readonly partition: FactoryPartitionReference }): Promise<CompiledPartitionArtifact>;
+  loadTransitionManifest(request: FactoryIdentity & { readonly sourceSequence: number; readonly manifest: ImmutableObjectReference }): Promise<FactoryTransitionManifest>;
+  loadTransitionPage(request: FactoryIdentity & { readonly sourceSequence: number; readonly page: TransitionPageReference }): Promise<FactoryTransitionPage>;
 }
