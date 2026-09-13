@@ -860,15 +860,16 @@ describe("factory Temporal workflow", () => {
 
   it("rejects a continuation that substitutes its durable descriptor", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const continuationFactory = compiled([node], "durable-continuation-factory", lazyDataInput);
     const artifact = { artifactId: "persisted", digest: packageDigest, encodedBytes: 70_000 };
     const replacement = { artifactId: "replacement", digest: packageDigest, encodedBytes: 70_000 };
-    const state = createKernelState(factory, "durable-continuation", {}, startedAtMs, {
+    const state = createKernelState(continuationFactory, "durable-continuation", {}, startedAtMs, {
       schemaVersion: "factory.lazy-input.v1",
       parameters: { data: { kind: "artifact", artifact } },
     });
     let effects = 0;
     const activities = {
-      ...definitionActivities(factory),
+      ...definitionActivities(continuationFactory),
       recordTransition: async () => { effects += 1; },
       executeCommand: async () => { effects += 1; throw new Error("mismatched continuation must not execute"); },
     };
@@ -876,7 +877,7 @@ describe("factory Temporal workflow", () => {
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/durable-continuation-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
-        args: [workflowInput(factory, {
+        args: [workflowInput(continuationFactory, {
           logicalRunId: "durable-continuation",
           startedAtMs,
           durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: replacement } } },
