@@ -146,3 +146,11 @@ deploy/preview-dns/Corefile
 # index backup, MERGE_HEAD copies). 1.1MB of it was committed by accident
 # once already — see the ez-factory integration merge.
 .merge-snapshot/
+
+# Python tool artefacts from scripts/python-quality.sh (uv writes .venv/.gitignore itself)
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage-python/

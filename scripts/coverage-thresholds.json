@@ -162,6 +162,8 @@
   "packages/@ezcorp/factory-sdk/src/simulator.ts": 100,
   "packages/@ezcorp/factory-sdk/src/types.ts": 100,
   "packages/@ezcorp/factory-sdk/src/validation.ts": 100,
+  "src/factory/runner/python/**": 100,
+  "src/factory/runner/python/c02_runner.py": 100,
   "packages/@ezcorp/factory-transport/src/**": 100,
   "packages/@ezcorp/factory-transport/src/index.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/**": 100,
