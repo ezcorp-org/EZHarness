@@ -1,0 +1,78 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+
+  "_comment": [
+    "Mutation testing — StrykerJS 10 on the Vitest leg.",
+    "",
+    "DRIVE THIS WITH `bun scripts/mutation.ts`, not `npx stryker` directly.",
+    "The break threshold deliberately does NOT live here: it lives in",
+    "scripts/quality-gates.json alongside every other gate number, and the",
+    "runner passes it as --thresholds.break. Two copies of a threshold is one",
+    "copy too many.",
+    "",
+    "WHY VITEST AND NOT THE BUN POOL: Stryker ships no Bun test runner, and the",
+    "backend suite's per-file mock.module() isolation fights perTest coverage",
+    "analysis. The Vitest leg is the surface Stryker can actually drive — which",
+    "is the path docs/development-lifecycle.md planned. Scope is therefore",
+    "web/src/lib/** pure logic; the Bun-tested backend is not mutated.",
+    "",
+    "ignorePatterns: Stryker seeds its sandbox from git, so the GITIGNORED",
+    ".svelte-kit/ is left out — and web/tsconfig.json extends",
+    "./.svelte-kit/tsconfig.json. Without the un-ignore below every run dies in",
+    "dependency optimization with 'Tsconfig not found / Could not resolve",
+    "node:module'. Run `bunx svelte-kit sync` before Stryker if it is absent.",
+    "",
+    "The `mutate` list below is a FALLBACK for a bare `npx stryker run`. The",
+    "runner always passes an explicit --mutate, because these globs alone are",
+    "too wide: they match every web/src/lib/**.ts, including modules the vitest",
+    "leg never measures (workflow-yaml.ts is bun-tested, and mutating it here",
+    "yielded 62 NoCoverage mutants and a 0% file score). mutation.ts intersects",
+    "them with the --coverage.include allowlist in scripts/test-coverage.sh.",
+    "",
+    "THE `related` TRAP — read before changing anything here. Stryker's vitest",
+    "runner uses vitest's --related module-graph filter by default, and it",
+    "CANNOT follow $lib-ALIASED imports, which is how most tests here import.",
+    "It fails per-file and SILENTLY: affected files report every mutant as",
+    "NoCoverage, so code whose tests exist and pass scores 0%. Measured: the",
+    "first full run saw 157 of 521 test files and scored 66.04% — an artifact,",
+    "not a quality signal.",
+    "",
+    "`related: false` fixes discovery but is not affordable: one 99-mutant file",
+    "took 18m51s with 93 mutants TIMING OUT, because this suite's per-run",
+    "overhead is ~156s against ~34s of actual test time. So `related` stays ON",
+    "and scripts/mutation.ts instead FAILS LOUDLY on any file that comes back",
+    "100% NoCoverage — the silent artifact becomes a visible scope error.",
+    "Stryker's own 'Vitest failed to find test files related to mutated files'",
+    "warning is the same signal; never treat it as noise.",
+    "",
+    "vitest.stryker.config.ts (not vitest.config.ts) drops *.server.test.ts,",
+    "which cannot resolve $server inside the sandbox. See that file's header."
+  ],
+
+  "packageManager": "npm",
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.stryker.config.ts"
+  },
+
+  "coverageAnalysis": "perTest",
+  "ignorePatterns": ["!.svelte-kit"],
+
+  "mutate": [
+    "src/lib/**/*.ts",
+    "!src/lib/**/*.test.ts",
+    "!src/lib/**/*.d.ts",
+    "!src/lib/**/__tests__/**"
+  ],
+
+  "reporters": ["json", "clear-text", "progress"],
+  "jsonReporter": { "fileName": "../coverage/quality/mutation.json" },
+  "clearTextReporter": { "maxTestsToLog": 2 },
+
+  "incrementalFile": "../.cache/stryker-incremental.json",
+
+  "timeoutMS": 15000,
+  "timeoutFactor": 2,
+  "disableTypeChecks": true,
+  "tempDirName": ".stryker-tmp"
+}

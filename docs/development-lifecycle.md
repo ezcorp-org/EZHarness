@@ -380,13 +380,81 @@ gh label create gate-change-approved \
 - **Assertion quality** beyond "has an assertion" is only truly caught by
   **mutation testing**, the planned next layer (see below).
 
-## Roadmap: mutation testing
+## Code-quality gates: mutation testing + CRAP
 
 Line coverage is blind to assertion quality; mutation testing is the definitive
-fix. Stryker has no official Bun runner and the backend suite's per-file
-`mock.module` isolation fights perTest coverage, so the pragmatic path is to run
-Stryker via the **Node/Vitest leg** the coverage job already provisions, scoped
-to **pure-logic modules** (`web/src/lib/search/**`, `goal-row-logic.ts`,
-`deep-link-resolve.ts`, …), **diff/incremental on PR + full nightly**, with the
-`break` threshold **ratcheted to the current score**. It starts as a
-**non-blocking pilot** and is promoted to a required check once stable.
+fix. This section was a roadmap and is now shipped, along the path it described.
+
+**Every threshold lives in `scripts/quality-gates.json`.** That file is the
+single source of truth for the three gates below and is CODEOWNERS-owned and
+ratcheted by `gate-integrity.ts` — a PR may tighten a number, never loosen it.
+(Per-file coverage keeps its own home in `coverage-thresholds.json`; that
+ratchet predates this one and owns ~500 keys.)
+
+| Gate | Threshold | Where it runs | Command |
+|---|---|---|---|
+| Global line coverage | 90% aggregate (at 96.55%) | `coverage` job | `bun run gate:coverage` |
+| CRAP (touched functions) | ≤ 30 per function | `coverage` job, PRs | `bun run gate:crap:changed` |
+| CRAP (full-repo ratchet) | ≤ 83 violations | nightly | `bun run gate:crap` |
+| Mutation score | 80% — **report-only pilot, not blocking** | `mutation` job, PRs | `bun run gate:mutation` |
+| Mutation (full suite) | 80% — **report-only pilot** | nightly | `bun run gate:mutation:full` |
+
+**Mutation testing — StrykerJS 10 on the Vitest leg.** Stryker ships no Bun
+runner and the backend pool's per-file `mock.module` isolation fights perTest
+coverage, so it drives the Node/Vitest leg the coverage job already provisions.
+PRs mutate **only the changed files** (a full run is far too slow for a PR —
+measured 2m02s for 2 files); `mutation-nightly.yml` runs the whole set.
+
+Scope is the **intersection** of `mutation.mutateGlobs` and the
+`--coverage.include` allowlist in `test-coverage.sh`, minus `src/lib/server/**`:
+469 files match the globs, **68** survive the intersection. Three measured traps
+produced that number, and each one silently returned a WRONG score rather than
+an error:
+
+1. **Files the vitest leg does not measure.** `workflow-yaml.ts` is covered to
+   100% — by the *bun* leg. Mutating it under vitest gave 62 NoCoverage mutants
+   and a 0% file score, pulling a real 88% run down to 80.09%.
+2. **`src/lib/server/**` cannot run in the sandbox.** Stryker seeds its sandbox
+   from git; `vitest.config.ts` aliases `$server` to the repo-root `src/` tree,
+   which lives outside `web/` and is never copied. All 234 `*.server.test.ts`
+   files therefore fail to resolve their imports and Stryker aborts the whole
+   run. `web/vitest.stryker.config.ts` drops them.
+3. **Stryker's vitest `related` filter cannot follow `$lib`-aliased imports** —
+   the form most tests here use. It fails per-file and silently: affected files
+   report every mutant as NoCoverage. The first full run saw 157 of 521 test
+   files and scored **66.04%**, an artifact rather than a quality signal.
+   Turning `related` off fixes discovery but costs too much (one 99-mutant file
+   took 18m51s, 93 mutants timing out against ~156s of per-run suite overhead).
+   So `related` stays on and `scripts/mutation.ts` **fails loudly** on any file
+   returning 100% NoCoverage, converting the silent artifact into a scope error
+   naming the file.
+
+Validate any scope change with `bun scripts/mutation.ts --full --dry-run-only`
+before paying for a full run — it fails in minutes on exactly what a bad scope
+breaks.
+
+**CRAP** = `complexity² × (1 − coverage)³ + complexity`, per function, from the
+TypeScript AST joined to the merged `coverage/lcov.info`. No maintained npm tool
+fit (the candidates want Istanbul JSON, which this pipeline does not emit, and
+all insist on running the suite themselves — a second, disagreeing coverage
+number beside the gate's), so `scripts/crap-score.ts` computes it from the data
+the coverage gate already trusts. At 100% coverage CRAP equals complexity, so
+the limit of 30 lets complexity ≤5 pass untested and makes complexity >30
+unpassable at any coverage.
+
+It runs in **two modes** because a mature tree cannot adopt CRAP 30 in one
+commit. On a PR it scores only the functions the diff **touched** — scoring
+whole files would make a one-line fix inherit a legacy module's worst function,
+which is how a gate gets bypassed instead of obeyed. Nightly, it ratchets the
+existing debt (71 violations of 7000 scored functions at adoption; 22 of those
+are complexity-only, already at 100% coverage).
+
+**Failures are machine-readable.** Every gate writes JSON to `coverage/quality/`
+and `scripts/quality-report.ts` folds them into `summary.json` — a flat
+`findings[]` array of *file, line, what failed, what to fix*, built for an AI
+agent to act on. For a surviving mutant the finding carries the original source
+and the replacement that survived, which is the missing assertion stated
+directly: "the suite still passes when `case 'web-search': return
+'WebContextCard';` becomes `case 'web-search':`". Only a gate that actually
+failed produces `error` findings; a passing ratchet's known debt is recorded as
+`warning`, so an agent works on what broke the build and not on the backlog.

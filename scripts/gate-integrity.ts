@@ -147,6 +147,82 @@ export function thresholdRatchetViolations(baseJson: string, headJson: string): 
   return out;
 }
 
+/**
+ * Ratchet for scripts/quality-gates.json (global coverage floor, CRAP, mutation).
+ *
+ * Same intent as thresholdRatchetViolations, but these knobs do not all point
+ * the same way: a coverage floor and a mutation score get STRICTER as they
+ * rise, while a CRAP ceiling and a violation allowance get stricter as they
+ * FALL. A single "no decreases" rule would wave through the two that matter
+ * most (`crap.maxScore: 30 → 9999` weakens nothing under it), so each key
+ * declares its own direction.
+ *
+ * Shrinking a scope array is the other way to un-gate without touching a
+ * number — dropping "src/**" from crap.enforceGlobs silently exempts the
+ * backend — so removed positive patterns are violations too.
+ */
+export function qualityGateRatchetViolations(baseJson: string, headJson: string): string[] {
+  type Json = Record<string, Record<string, unknown>>;
+  let base: Json;
+  let head: Json;
+  try {
+    base = JSON.parse(baseJson) as Json;
+  } catch {
+    return []; // absent or unparsable at the merge-base = bootstrap commit
+  }
+  try {
+    head = JSON.parse(headJson) as Json;
+  } catch {
+    return ["quality-gates.json is not valid JSON in HEAD"];
+  }
+
+  // "up" = larger is stricter (may only rise); "down" = smaller is stricter.
+  const DIRECTIONS: [section: string, key: string, dir: "up" | "down"][] = [
+    ["coverage", "globalLineThreshold", "up"],
+    ["crap", "maxScore", "down"],
+    ["crap", "warnScore", "down"],
+    ["crap", "maxFullRepoViolations", "down"],
+    ["mutation", "scoreThreshold", "up"],
+  ];
+  const SCOPES: [section: string, key: string][] = [
+    ["crap", "enforceGlobs"],
+    ["mutation", "mutateGlobs"],
+  ];
+
+  const out: string[] = [];
+  for (const [section, key, dir] of DIRECTIONS) {
+    const b = base[section]?.[key];
+    const h = head[section]?.[key];
+    if (typeof b !== "number") continue; // not gated at the base yet
+    if (typeof h !== "number") {
+      out.push(`quality-gates.json: ${section}.${key} removed (was ${b}) — that deletes a gate`);
+      continue;
+    }
+    if (dir === "up" && h < b) {
+      out.push(
+        `quality-gates.json: ${section}.${key} lowered ${b} → ${h} — ratchet allows increases only`,
+      );
+    } else if (dir === "down" && h > b) {
+      out.push(
+        `quality-gates.json: ${section}.${key} raised ${b} → ${h} — ratchet allows decreases only`,
+      );
+    }
+  }
+  for (const [section, key] of SCOPES) {
+    const b = base[section]?.[key];
+    const h = head[section]?.[key];
+    if (!Array.isArray(b)) continue;
+    const headSet = new Set(Array.isArray(h) ? (h as string[]) : []);
+    for (const pat of b as string[]) {
+      // Only POSITIVE patterns define scope; a dropped "!…" exclusion widens it.
+      if (!pat.startsWith("!") && !headSet.has(pat)) {
+        out.push(`quality-gates.json: ${section}.${key} lost "${pat}" — that un-gates a tree`);
+      }
+    }
+  }
+  return out;
+}
+
 // Always a cheat: `.only` / `.todo` / `.failing`, the x*/f* focus/skip globals,
 // and a STATIC suite skip (`describe.skip`). A test/it/bench `.skip` is handled
 // separately (STATIC_SKIP) because the runtime-conditional form is legitimate.
@@ -1266,6 +1342,14 @@ async function main(): Promise<void> {
     const baseJson = await showAtBase(mergeBase, "scripts/coverage-thresholds.json");
     const headJson = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-thresholds.json")).text();
     violations.push(...thresholdRatchetViolations(baseJson ?? "{}", headJson));
+  }
+
+  // 2b. Quality-gate ratchet — the global coverage floor, the CRAP ceiling and
+  // the mutation score. Same rule as 2, per-key direction (see the function).
+  if (changed.includes("scripts/quality-gates.json")) {
+    const baseJson = await showAtBase(mergeBase, "scripts/quality-gates.json");
+    const headJson = await Bun.file(resolve(REPO_ROOT, "scripts/quality-gates.json")).text();
+    violations.push(...qualityGateRatchetViolations(baseJson ?? "{}", headJson));
   }
 
   // 7. Deleted/renamed test files (rename detection on, R100 included).
