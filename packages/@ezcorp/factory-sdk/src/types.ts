@@ -1,6 +1,24 @@
 export type JsonPrimitive = null | boolean | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
+export const FACTORY_SCHEMA_VERSION = "factory.v1" as const;
+export const FACTORY_IR_SCHEMA_VERSION = "factory.ir.v1" as const;
+export const FACTORY_LIMITS = Object.freeze({
+  maxDefinitionBytes: 16 * 1024 * 1024,
+  maxInlineValueBytes: 64 * 1024,
+  maxExpandedNodes: 10_000,
+  maxScopeDepth: 16,
+  maxPartitionNodes: 128,
+  maxExpressionNodes: 256,
+  maxExpressionDepth: 16,
+  maxExpressionSteps: 1_024,
+  defaultRunDeadlineMs: 7 * 24 * 60 * 60 * 1_000,
+  maximumRunDeadlineMs: 30 * 24 * 60 * 60 * 1_000,
+  defaultNodeDeadlineMs: 30 * 60 * 1_000,
+  maximumNodeDeadlineMs: 24 * 60 * 60 * 1_000,
+  maximumApprovalWaitMs: 24 * 60 * 60 * 1_000,
+});
+
 export type PortSchemaType =
   | "array"
   | "boolean"
@@ -94,7 +112,7 @@ export interface RetryPolicy {
 }
 
 export interface BudgetBounds {
-  readonly maxCostMicros?: number;
+  readonly maxCostMicros?: string;
   readonly maxTokens?: number;
   readonly maxComputeMs?: number;
 }
@@ -287,6 +305,14 @@ export interface CompiledPartition {
   readonly dependsOn: readonly string[];
 }
 
+export interface CompiledPage {
+  readonly id: string;
+  readonly partitionId: string;
+  readonly nodeIds: readonly string[];
+  readonly encodedBytes: number;
+  readonly digest: string;
+}
+
 export interface CompiledFactory {
   readonly schemaVersion: "factory.ir.v1";
   readonly digest: string;
@@ -295,6 +321,7 @@ export interface CompiledFactory {
   readonly lock: DependencyLock;
   readonly indexes: CompiledIndexes;
   readonly partitions: readonly CompiledPartition[];
+  readonly pages: readonly CompiledPage[];
 }
 
 export type RunState =
@@ -365,6 +392,27 @@ export interface CompilerDiagnostic {
   readonly path: readonly (string | number)[];
   readonly nodeId?: string;
 }
+
+export interface ValidationIssue {
+  readonly code: string;
+  readonly message: string;
+  readonly path: readonly (string | number)[];
+}
+
+export type ValidationResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly issues: readonly ValidationIssue[] };
+
+export interface ExpressionContext {
+  readonly inputs: Readonly<Record<string, JsonValue>>;
+  readonly nodes: Readonly<Record<string, JsonValue>>;
+  readonly map?: Readonly<Record<string, JsonValue>>;
+  readonly loop?: Readonly<Record<string, JsonValue>>;
+}
+
+export type ExpressionResult =
+  | { readonly ok: true; readonly value: JsonValue }
+  | { readonly ok: false; readonly code: string; readonly message: string };
 
 export type CompileResult =
   | { readonly ok: true; readonly factory: CompiledFactory }
