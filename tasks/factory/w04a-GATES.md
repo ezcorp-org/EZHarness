@@ -219,3 +219,51 @@ no change to W07's file.
      recoverable by identity through `FactoryArchiveRecovery`.
    - `C06.14` stays `infrastructure-blocked`; the credential-separation half is now proven for all
      ten identities with 130 HTTP 403 refusals at `archive-writer-real.json`.
+
+## Final report
+
+Added by the commit `docs(factory): record the W04a final report`, which follows `e26cb39a3`.
+
+### Proven
+
+| Plan bullet | Proof |
+| --- | --- |
+| The immutable archive adapter is composed as the gateway's archive-writer role with the archive credential set only | `src/factory/archive-writer.ts`, G1, G9 |
+| Conditional create, checksum, version reads, inventory, on the real archive service | G9, all ten identities |
+| Ordinary credentials cannot read, overwrite, or delete an archive object | G8, 130 HTTP 403 refusals |
+| Product and restore credentials cannot erase the archive | G8, with the restore caveat stated there |
+| The archive stays readable while the ordinary store is down | G6, real service stopped |
+| Product settlement is blocked until the ordinary store returns | G6, `Error: ECONNREFUSED` then settled |
+| The recovery intent plus every candidate, evidence, and request object is archived and verified through W04's scoped reader before a dispatch claim | G3, G4 |
+| Publication stays pending when any member is unavailable or corrupt | G3, each case separately |
+| The confirmed receipt is archived before product settlement and before the orchestration notification | G5 |
+| A crash at each boundary recovers the same operation by identity without a second dispatch | G4, G5, object counts 1/4/5/6/6 and `publishes` fixed at 1 |
+| Concurrent preparations archive one member set | G14 |
+| Real PostgreSQL and real local S3 | G7, G13 |
+
+### Open
+
+1. `deployed-independent-failure-domain` is unmet on this host and blocks a production-equivalent
+   publication claim. C06.14 and C12.3 stay `infrastructure-blocked`.
+2. W09 must wire `FactoryArchiveWriter` as the release store's `archive`; no production code
+   constructs `FactoryReleases` yet.
+3. W07 and W08 must supply the publication set's scope resolver for their operations.
+4. The requirement index is W00's file; the proposed row changes are listed above, not applied.
+
+### Interface questions for the coordinator
+
+1. **Member objects share the `"material"` archive name.** `FactoryReleaseArchive.writeImmutable`
+   takes `"intent" | "material" | "receipt" | "reconciliation"`, and `src/factory/releases.ts` is
+   W07's file, so this package did not widen that union. Members and the member manifest are
+   content-addressed, so each lands on its own immutable key under the material name, and
+   `S3FactoryArchiveInventory` enumerates them for an archive-only restore. If W07 would rather
+   have an explicit `"member"` name, that is a one-word change on their side and this package will
+   follow it.
+2. **A release operation does not carry an attempt id, but a material scope needs one.**
+   `FactoryMaterialScope` is tenant, project, run, attempt, and operation; `FactoryReleaseOperation`
+   has tenant, project, run, node instance, and candidate generation. The mapping between them is
+   the publication set's resolver, which composition supplies. Whoever owns that mapping (W07, W08,
+   or W09) should name the pinned source it reads the attempt id from.
+3. **`reconcile` still does archive writes and provider proofs inside an open transaction**
+   (`releases.ts:541,545,549,552`; freeze correction 1). The recovery path here goes through
+   `reconcile`, so it inherits that. The fix is W07's, and this package did not pre-empt it.
