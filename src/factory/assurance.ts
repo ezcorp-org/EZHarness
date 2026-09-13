@@ -8,6 +8,7 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { approvalContextDigest, assertApprovalUsable, canonicalApprovalContext, consumeApproval } from "../extensions/v4/approval-context";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
+import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 
 export interface FactoryCandidateKey { readonly projectId: string; readonly runId: string; readonly nodeInstanceId: string; readonly candidateGeneration: number }
@@ -53,19 +54,21 @@ function claims(input: readonly FactoryMandatoryClaim[], groups: readonly Factor
 
 /** C04 product facts. Tenant identity is constructor-owned and cannot come from an input body. */
 export class FactoryAssurance {
-  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants, private readonly gateway: FactoryTrustedValidatorGateway, private readonly releaseFenceReader: FactoryReleaseFenceReader, private readonly currentCandidate: FactoryCurrentCandidateResolver, private readonly now: () => number = Date.now) { assertFactoryIdentity(tenantId); if (grants.tenantId !== tenantId) throw new FactoryAssuranceError("factory_assurance_scope"); }
+  private readonly mutations: FactoryMutations;
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants, private readonly gateway: FactoryTrustedValidatorGateway, private readonly releaseFenceReader: FactoryReleaseFenceReader, private readonly currentCandidate: FactoryCurrentCandidateResolver, private readonly now: () => number = Date.now) { assertFactoryIdentity(tenantId); if (grants.tenantId !== tenantId) throw new FactoryAssuranceError("factory_assurance_scope"); this.mutations = new FactoryMutations(database, tenantId, grants); }
 
-  async approveContract(actor: FactoryPrincipal, input: FactoryContractRevision): Promise<void> {
+  async approveContract(actor: FactoryPrincipal, input: FactoryContractRevision, idempotencyKey: string): Promise<void> {
     [actor, input] = snapshot([actor, input]);
     this.contract(input);
-    await this.database.transaction(async transaction => {
-      const authority = await this.grants.authorizeInTransaction(transaction, actor, input.projectId, "factory.trust");
+    await this.executeAuthorizedMutation(actor, input.projectId, "factory.trust", idempotencyKey, { kind: "assurance.contract.approve", contract: input }, async (transaction, approvalGrantRevision) => {
+      const authority = { revision: approvalGrantRevision };
       const protectedSnapshotDigest = protectedContractSnapshotDigest(this.tenantId, input, actor.id, authority.revision);
       await transaction.execute(sql`INSERT INTO factory_acceptance_contracts (tenant_id, project_id, contract_id, revision, contract_digest, validator_lock_digest, mandatory_claims, claim_groups, approved_by, approval_grant_revision, protected_snapshot_digest) VALUES (${this.tenantId}, ${input.projectId}, ${input.contractId}, ${input.revision}, ${input.contractDigest}, ${input.validatorLockDigest}, ${encoded(input.mandatoryClaims)}, ${encoded(input.claimGroups)}, ${actor.id}, ${authority.revision}, ${protectedSnapshotDigest}) ON CONFLICT (tenant_id, project_id, contract_id, revision) DO NOTHING`);
       const saved = (rows<ContractRow>(await transaction.execute(sql`SELECT contract_digest, validator_lock_digest, mandatory_claims, claim_groups, approved_by, approval_grant_revision, protected_snapshot_digest FROM factory_acceptance_contracts WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND contract_id=${input.contractId} AND revision=${input.revision} FOR SHARE`))[0]);
       if (!saved || saved.contract_digest !== input.contractDigest || saved.validator_lock_digest !== input.validatorLockDigest || saved.mandatory_claims !== encoded(input.mandatoryClaims) || saved.claim_groups !== encoded(input.claimGroups) || saved.approved_by !== actor.id || Number(saved.approval_grant_revision) !== authority.revision || saved.protected_snapshot_digest !== protectedSnapshotDigest) throw new FactoryAssuranceError("factory_assurance_conflict");
       this.assertProtectedContractRow(saved, input.projectId, input.contractId, input.revision);
       await insertTransactionalAuditEntry(transaction, `factory-assurance-contract:${digest(input)}:${authority.revision}`, actor.id, "factory.assurance.contract.approved", input.contractId, { tenantId: this.tenantId, projectId: input.projectId, revision: input.revision, contractDigest: input.contractDigest, validatorLockDigest: input.validatorLockDigest });
+      return { contractId: input.contractId, revision: input.revision };
     });
   }
 
@@ -105,31 +108,37 @@ export class FactoryAssurance {
     });
   }
 
-  async requestApproval(actor: FactoryPrincipal, input: FactoryApprovalRequest): Promise<{ approvalId: string; contextDigest: string }> {
-    return this.database.transaction(transaction => this.requestApprovalInTransaction(transaction, actor, input));
+  async requestApproval(actor: FactoryPrincipal, input: FactoryApprovalRequest, idempotencyKey: string): Promise<{ approvalId: string; contextDigest: string }> {
+    [actor, input] = snapshot([actor, input]);
+    this.approvalRequest(input);
+    return this.executeAuthorizedMutation(actor, input.projectId, "factory.approve", idempotencyKey, { kind: "assurance.approval.request", request: input }, (transaction, grantRevision) => this.requestApprovalAuthorizedInTransaction(transaction, actor, input, grantRevision));
   }
 
   /** Allows the release service to commit the approval request and its human notification in one transaction. */
   async requestApprovalInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, input: FactoryApprovalRequest): Promise<{ approvalId: string; contextDigest: string }> {
     [actor, input] = snapshot([actor, input]);
-    requiredText(input.projectId, input.operationId, input.decisionId); requiredDigest(input.destinationDigest); counter(input.expectedGeneration); if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= this.now() || input.expiresAtMs - this.now() > 86_400_000) throw new FactoryAssuranceError("factory_assurance_invalid");
+    this.approvalRequest(input);
     const authority = await this.grants.authorizeInTransaction(transaction, actor, input.projectId, "factory.approve");
+    return this.requestApprovalAuthorizedInTransaction(transaction, actor, input, authority.revision);
+  }
+
+  private async requestApprovalAuthorizedInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, input: FactoryApprovalRequest, grantRevision: number): Promise<{ approvalId: string; contextDigest: string }> {
     const decision = await this.decisionRow(transaction, input.projectId, input.decisionId);
     if (!decision) throw new FactoryAssuranceError("factory_assurance_not_found");
     const context = canonicalApprovalContext({ subjectId: input.operationId, subjectDigest: digest({ decision, destinationDigest: input.destinationDigest }), principalId: actor.id, scope: input.projectId, grants: ["factory.release"], expectedGeneration: input.expectedGeneration, expiresAtMs: input.expiresAtMs }); const contextDigest = approvalContextDigest(context); const approvalId = randomUUID();
-    await transaction.execute(sql`INSERT INTO factory_release_approvals (tenant_id, project_id, approval_id, operation_id, context_digest, decision_id, principal_id, grant_revision, expected_generation, expires_at_ms, status) VALUES (${this.tenantId}, ${input.projectId}, ${approvalId}, ${input.operationId}, ${contextDigest}, ${input.decisionId}, ${actor.id}, ${authority.revision}, ${input.expectedGeneration}, ${input.expiresAtMs}, 'pending')`);
+    await transaction.execute(sql`INSERT INTO factory_release_approvals (tenant_id, project_id, approval_id, operation_id, context_digest, decision_id, principal_id, grant_revision, expected_generation, expires_at_ms, status) VALUES (${this.tenantId}, ${input.projectId}, ${approvalId}, ${input.operationId}, ${contextDigest}, ${input.decisionId}, ${actor.id}, ${grantRevision}, ${input.expectedGeneration}, ${input.expiresAtMs}, 'pending')`);
     await insertTransactionalAuditEntry(transaction, `factory-assurance-approval-request:${approvalId}`, actor.id, "factory.assurance.approval.requested", input.operationId, { tenantId: this.tenantId, projectId: input.projectId, approvalId, decisionId: input.decisionId, contextDigest });
     return { approvalId, contextDigest };
   }
 
-  async decideApproval(actor: FactoryPrincipal, projectId: string, approvalId: string, contextDigest: string, approved: boolean): Promise<void> {
+  async decideApproval(actor: FactoryPrincipal, projectId: string, approvalId: string, contextDigest: string, approved: boolean, idempotencyKey: string): Promise<void> {
     [actor, projectId, approvalId, contextDigest, approved] = snapshot([actor, projectId, approvalId, contextDigest, approved]);
     requiredText(projectId, approvalId); requiredContextDigest(contextDigest);
-    await this.database.transaction(async transaction => {
-      const authority = await this.grants.authorizeInTransaction(transaction, actor, projectId, "factory.approve");
-      const changed = rows(await transaction.execute(sql`UPDATE factory_release_approvals SET status=${approved ? "approved" : "rejected"}, approved_by=${actor.id}, approved_grant_revision=${authority.revision} WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND approval_id=${approvalId} AND context_digest=${contextDigest} AND status='pending' RETURNING approval_id`));
+    await this.executeAuthorizedMutation(actor, projectId, "factory.approve", idempotencyKey, { kind: "assurance.approval.decide", approvalId, contextDigest, approved }, async (transaction, approvalGrantRevision) => {
+      const changed = rows(await transaction.execute(sql`UPDATE factory_release_approvals SET status=${approved ? "approved" : "rejected"}, approved_by=${actor.id}, approved_grant_revision=${approvalGrantRevision} WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND approval_id=${approvalId} AND context_digest=${contextDigest} AND status='pending' RETURNING approval_id`));
       if (!changed.length) throw new FactoryAssuranceError("factory_assurance_stale");
-      await insertTransactionalAuditEntry(transaction, `factory-assurance-approval-decision:${approvalId}`, actor.id, "factory.assurance.approval.decided", approvalId, { tenantId: this.tenantId, projectId, approvalId, approved, contextDigest, approvalGrantRevision: authority.revision });
+      await insertTransactionalAuditEntry(transaction, `factory-assurance-approval-decision:${approvalId}`, actor.id, "factory.assurance.approval.decided", approvalId, { tenantId: this.tenantId, projectId, approvalId, approved, contextDigest, approvalGrantRevision });
+      return { approvalId, approved };
     });
   }
 
@@ -173,6 +182,14 @@ export class FactoryAssurance {
   }
 
   private contract(input: FactoryContractRevision): void { requiredText(input.projectId, input.contractId); requiredDigest(input.contractDigest, input.validatorLockDigest); if (!Number.isSafeInteger(input.revision) || input.revision < 1) throw new FactoryAssuranceError("factory_assurance_invalid"); claims(input.mandatoryClaims, input.claimGroups); }
+  private approvalRequest(input: FactoryApprovalRequest): void { requiredText(input.projectId, input.operationId, input.decisionId); requiredDigest(input.destinationDigest); counter(input.expectedGeneration); if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= this.now() || input.expiresAtMs - this.now() > 86_400_000) throw new FactoryAssuranceError("factory_assurance_invalid"); }
+  private async executeAuthorizedMutation<Result>(actor: FactoryPrincipal, projectId: string, action: "factory.trust" | "factory.approve", idempotencyKey: string, input: unknown, apply: (transaction: MigrationDb, grantRevision: number) => Promise<Result>): Promise<Result> {
+    let grantRevision: number | undefined;
+    return this.mutations.execute({ principal: actor, projectId, action, idempotencyKey, input }, transaction => {
+      if (grantRevision === undefined) throw new FactoryAssuranceError("factory_assurance_stale");
+      return apply(transaction, grantRevision);
+    }, async transaction => { grantRevision = (await this.grants.authorizeInTransaction(transaction, actor, projectId, action)).revision; });
+  }
   private evidence(evidence: FactoryTrustedEvidence, expected: FactoryCandidateKey & { validatorId: string }): void { key(evidence); if (evidence.projectId !== expected.projectId || evidence.runId !== expected.runId || evidence.nodeInstanceId !== expected.nodeInstanceId || evidence.candidateGeneration !== expected.candidateGeneration || evidence.validatorId !== expected.validatorId) throw new FactoryAssuranceError("factory_assurance_trust"); requiredText(evidence.validatorId, evidence.artifact.artifactId); requiredDigest(evidence.validatorLockDigest, evidence.candidateDigest, evidence.artifact.digest, evidence.environmentDigest, evidence.configurationDigest, evidence.runnerDigest); const claimIds = new Set<string>(); const invalidClaim = evidence.claims.some(claim => { if (typeof claim.id !== "string" || typeof claim.passed !== "boolean" || typeof claim.decisive !== "boolean" || claimIds.has(claim.id)) return true; claimIds.add(claim.id); return false; }); if (!Number.isSafeInteger(evidence.issuerGrantRevision) || evidence.issuerGrantRevision < 1 || !Number.isSafeInteger(evidence.artifact.encodedBytes) || evidence.artifact.encodedBytes < 0 || !Number.isSafeInteger(evidence.issuedAtMs) || !Number.isSafeInteger(evidence.expiresAtMs) || evidence.issuedAtMs > this.now() || evidence.expiresAtMs <= evidence.issuedAtMs || evidence.claims.length > 1000 || invalidClaim) throw new FactoryAssuranceError("factory_assurance_trust"); }
   private async contractRow(transaction: MigrationDb, projectId: string, contractId: string, revision: number): Promise<ContractRow> { const row = rows<ContractRow>(await transaction.execute(sql`SELECT contract_digest, validator_lock_digest, mandatory_claims, claim_groups, approved_by, approval_grant_revision, protected_snapshot_digest FROM factory_acceptance_contracts WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND contract_id=${contractId} AND revision=${revision} FOR SHARE`))[0]; if (!row) throw new FactoryAssuranceError("factory_assurance_not_found"); this.assertProtectedContractRow(row, projectId, contractId, revision); return row; }
   private async decisionRow(transaction: MigrationDb, projectId: string, decisionId: string): Promise<DecisionRow | undefined> { const row = rows<DecisionRow>(await transaction.execute(sql`SELECT decision_id AS "decisionId", candidate_digest AS "candidateDigest", evidence_set_digest AS "evidenceSetDigest", contract_digest AS "contractDigest", contract_snapshot_digest AS "contractSnapshotDigest", contract_id AS "contractId", contract_revision AS "contractRevision", project_id AS "projectId", run_id AS "runId", node_instance_id AS "nodeInstanceId", candidate_generation AS "candidateGeneration", execution_epoch AS "executionEpoch", cancellation_epoch AS "cancellationEpoch", decision_digest AS "decisionDigest" FROM factory_acceptance_decisions WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND decision_id=${decisionId} FOR SHARE`))[0]; if (!row) return undefined; const decision = { ...row, contractRevision: Number(row.contractRevision), candidateGeneration: Number(row.candidateGeneration), executionEpoch: Number(row.executionEpoch), cancellationEpoch: Number(row.cancellationEpoch) }; this.assertDecisionRow(decision); return decision; }

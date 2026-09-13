@@ -1383,6 +1383,15 @@ Review: the release authority store now derives a per-node current candidate onl
 - [x] Run coverage, typechecks, and lint; record review.
 
 Review: `FactoryArtifactAccess` grants only a human session's exact source artifact to one target project. The protected fact seals digest, byte count, kind, media type, storage version and issuer grant revision. Reads lock and compare the host row, call `FactoryArtifacts.loadInTransaction`, and return only opaque denials. `FactoryArtifacts.load` snapshots public authority before its transaction starts. `/tmp/factory-platform-evidence/terra-artifact-access-coverage.log` records 31 passing PGlite cases and 123 assertions, with artifact access 98/98, migration 6/6 and artifacts 99/99 measured lines. `/tmp/factory-platform-evidence/terra-artifact-access-postgres-s3.log` records the isolated PostgreSQL/S3 case passing. `/tmp/factory-platform-evidence/terra-artifact-access-types-lint.log` records root/web frozen installs, SDK build, all canonical typecheck legs and lint passing (eight pre-existing infos). The remaining large-input work needs a bounded lazy activity contract; this access leaf does not expand an artifact into a run request or Temporal history.
+## Factory release and assurance idempotency
+
+- [x] Route public human release and assurance mutations through shared durable receipts.
+- [x] Reject reused keys with different canonical payloads before product mutation.
+- [x] Reauthorize cached retries and return the original stable resource without duplicate facts or notifications.
+- [x] Prove PGlite/PostgreSQL behavior, rollback, coverage, types, lint, boundaries, and gate integrity.
+
+Review: required bounded idempotency keys now protect release preparation, approval requests, policy creation and revocation, reconciliation, assurance contract approval, and approval decisions. Preparation stores a stable locator in the shared receipt before archive publication, so a failed archive can resume without changing operation identity. Reconciliation runs its provider proof, immutable archive, product transition, audit, and cached response under one receipt transaction. Cached responses recheck current grants and do not repeat notifications, archives, provider absence checks, or product facts. PGlite and isolated PostgreSQL each pass 26 cases with 115 assertions. Focused LCOV measures releases 305/305, assurance 151/151, and shared mutations 39/39 executable lines. SDK and transport builds, all four typechecks, lint, factory boundaries, and gate integrity pass. The gate ledger is `tasks/factory/release-idempotency-GATES.md`.
+
 ## Combined projection and backend review
 
 - [x] Verify the combined SDK expansion, repair and projection changes.
@@ -1420,9 +1429,19 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - [x] Trace FactoryTransportValue, ValueSource, expressions/map, durable run/start and activity seams.
 - [x] Propose bounded reference/page protocol and ownership.
 - [x] Implement host authorization, immutable paging and conformance tests.
-- [ ] Validate coverage, types and lint.
+- [x] Validate coverage, types and lint.
+
+### Review — host lazy input closed
+- PostgreSQL/S3 conformance: `tests/postgres/factory-lazy-input.test.ts` passed 3/3, including shared and same-project immutable reads plus live credential/grant revocation.
+- Static gate: SDK build, four typecheck legs, lint (8 existing infos), and integrity gate passed in `/tmp/factory-platform-evidence/terra-lazy-input-types-lint-gate.log`.
+- Owned source LCOV: `src/factory/lazy-input.ts` 144/144 lines in `/tmp/factory-platform-evidence/terra-lazy-input-owned-coverage.log`.
+
 
 Restart fixture review: the combined 12-file PostgreSQL producer at `49a6ad119` passed 88 cases and failed the new repeated-migration case because it supplied raw Bun SQL rows to a migration that uses the production normalized adapter. The fixture now repeats the same locked migration entrypoint used on startup; PGlite retains its own native adapter. Actual logs and the failed receipt remain under `root-restart-integration-*`. Regression is still open.
+
+## Integrated regression receipt
+
+The current platform regression passes at `7ea6e4bd9171460a7ef5a3de9d46203faf2049a8`: canonical `bun run test` reports **26,152 pass, 0 fail, 1,714 files**. All four type checks, lint, gate integrity, factory boundaries and actionlint pass. `/tmp/factory-platform-evidence/root-authority-static-backend-integration-results.json` records exact commands and exits. At the preceding `176f6871f`, the corrected combined PostgreSQL/S3 lane passes **89 tests / 2,231 assertions** across its 12 CI files; the PGlite restart lane and actual Node gateway transport pass. The remaining overall platform gates stay open; later source changes need their affected checks.
 
 ## Current committed command authority — root
 

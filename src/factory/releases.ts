@@ -8,6 +8,7 @@ import { DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, type D
 import { digestBytes, digestObject } from "../extensions/v4/blobs";
 import type { FactoryAcceptedRelease, FactoryAssurance } from "./assurance";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
+import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 
 const MAX_TEXT = 512;
@@ -304,6 +305,7 @@ const notificationQueue = new DurableDeliveryQueue<FactoryNotification>((code, m
 
 /** C04 release operation store. All authority-bearing collaborators are mandatory and transaction-bound. */
 export class FactoryReleases {
+  private readonly mutations: FactoryMutations;
   constructor(
     private readonly database: TransactionalDb,
     readonly tenantId: string,
@@ -318,13 +320,13 @@ export class FactoryReleases {
   ) {
     assertFactoryIdentity(tenantId);
     if (grants.tenantId !== tenantId || assurance.tenantId !== tenantId) throw new FactoryReleaseError("factory_release_scope");
+    this.mutations = new FactoryMutations(database, tenantId, grants);
   }
 
-  async prepare(requester: FactoryPrincipal, input: FactoryReleaseRequest): Promise<FactoryReleaseOperation> {
+  async prepare(requester: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey: string): Promise<FactoryReleaseOperation> {
     [requester, input] = canonical([requester, input]);
     validateRequest(input, this.now());
-    const operation = await this.database.transaction(async transaction => {
-      await this.grants.authorizeInTransaction(transaction, requester, input.projectId, "factory.release");
+    const locator = await this.mutations.execute({ principal: requester, projectId: input.projectId, action: "factory.release", idempotencyKey, input: { kind: "release.prepare", request: input } }, async transaction => {
       const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, input.projectId, input.runId, input.nodeInstanceId);
       const accepted = await this.assurance.assertAcceptedReleaseInTransaction(transaction, input);
       this.assertCurrent(input, current, accepted);
@@ -341,8 +343,10 @@ export class FactoryReleases {
       const saved = await this.readInTransaction(transaction, input.projectId, operationId, "share");
       if (!saved || saved.requestDigest !== requestHash || saved.materialDigest !== materialHash || saved.destinationDigest !== destinationHash || saved.deadlineMs !== input.deadlineMs) throw new FactoryReleaseError("factory_release_conflict");
       await insertTransactionalAuditEntry(transaction, `factory-release-prepared:${operationId}`, requester.kind === "user" ? requester.id : null, "factory.release.prepared", operationId, { tenantId: this.tenantId, projectId: input.projectId, operationId, principalKind: requester.kind, principalId: requester.id, requestDigest: requestHash, destinationDigest: destinationHash });
-      return saved;
+      return { projectId: saved.projectId, operationId: saved.operationId };
     });
+    const operation = await this.inspect(locator.projectId, locator.operationId);
+    if (!operation) throw new FactoryReleaseError("factory_release_corrupt");
     if (operation.archiveReady) return operation;
     const intent = { operationId: operation.operationId, tenantId: this.tenantId, projectId: operation.projectId, runId: operation.runId, nodeInstanceId: operation.nodeInstanceId, candidateGeneration: operation.candidateGeneration, candidateDigest: operation.candidateDigest, decisionId: operation.decisionId, contractDigest: operation.contractDigest, executionEpoch: operation.executionEpoch, cancellationEpoch: operation.cancellationEpoch, releaseEnableEpoch: operation.releaseEnableEpoch, action: operation.action, destination: operation.destination, request: operation.request, requestDigest: operation.requestDigest, materialDigest: operation.materialDigest, deadlineMs: operation.deadlineMs };
     const intentArchive = await archiveAndVerify(this.archive, this.tenantId, operation.operationId, "intent", intent);
@@ -355,33 +359,33 @@ export class FactoryReleases {
     });
   }
 
-  async createPolicy(actor: FactoryPrincipal, policy: FactoryAutomaticReleasePolicy): Promise<void> {
+  async createPolicy(actor: FactoryPrincipal, policy: FactoryAutomaticReleasePolicy, idempotencyKey: string): Promise<void> {
     [actor, policy] = canonical([actor, policy]);
     text(policy.projectId, policy.policyId, policy.principal.id, policy.action, policy.destinationProvider, policy.destinationAccount, policy.destinationPrefix); digest(policy.contractDigest);
     count(policy.revision, true); count(policy.maxOperations, true); count(policy.maxSpendMicros);
     if (actor.kind !== "user" || actor.authentication !== "session" || policy.expiresAtMs <= this.now() || policy.expiresAtMs - this.now() > THIRTY_DAYS_MS) throw new FactoryReleaseError("factory_release_policy_invalid");
-    await this.database.transaction(async transaction => {
-      await this.grants.authorizeInTransaction(transaction, actor, policy.projectId, "factory.approve");
+    await this.mutations.execute({ principal: actor, projectId: policy.projectId, action: "factory.approve", idempotencyKey, input: { kind: "release.policy.create", policy } }, async transaction => {
       const inserted = rows(await transaction.execute(sql`INSERT INTO factory_release_policies (tenant_id,project_id,policy_id,principal_kind,principal_id,action,destination_provider,destination_account,destination_prefix,contract_digest,revision,max_operations,max_spend_micros,expires_at_ms,created_by) VALUES (${this.tenantId},${policy.projectId},${policy.policyId},${policy.principal.kind},${policy.principal.id},${policy.action},${policy.destinationProvider},${policy.destinationAccount},${policy.destinationPrefix},${policy.contractDigest},${policy.revision},${policy.maxOperations},${policy.maxSpendMicros},${policy.expiresAtMs},${actor.id}) ON CONFLICT DO NOTHING RETURNING policy_id`));
       if (!inserted.length) throw new FactoryReleaseError("factory_release_policy_conflict");
       await insertTransactionalAuditEntry(transaction, `factory-release-policy-created:${policy.policyId}:${policy.revision}`, actor.id, "factory.release.policy.created", policy.policyId, { tenantId: this.tenantId, projectId: policy.projectId, policy });
+      return { policyId: policy.policyId, revision: policy.revision };
     });
   }
 
-  async revokePolicy(actor: FactoryPrincipal, projectId: string, policyId: string, expectedRevision: number): Promise<void> {
+  async revokePolicy(actor: FactoryPrincipal, projectId: string, policyId: string, expectedRevision: number, idempotencyKey: string): Promise<void> {
     [actor, projectId, policyId] = canonical([actor, projectId, policyId]); text(projectId, policyId); count(expectedRevision, true);
     if (actor.kind !== "user" || actor.authentication !== "session") throw new FactoryReleaseError("factory_release_policy_invalid");
-    await this.database.transaction(async transaction => {
-      await this.grants.authorizeInTransaction(transaction, actor, projectId, "factory.approve");
+    await this.mutations.execute({ principal: actor, projectId, action: "factory.approve", idempotencyKey, input: { kind: "release.policy.revoke", policyId, expectedRevision } }, async transaction => {
       const changed = rows(await transaction.execute(sql`UPDATE factory_release_policies SET revoked_at_ms=${this.now()},revision=revision+1 WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND policy_id=${policyId} AND revision=${expectedRevision} AND revoked_at_ms IS NULL RETURNING policy_id`));
       if (!changed.length) throw new FactoryReleaseError("factory_release_policy_stale");
       await insertTransactionalAuditEntry(transaction, `factory-release-policy-revoked:${policyId}:${expectedRevision}`, actor.id, "factory.release.policy.revoked", policyId, { tenantId: this.tenantId, projectId, policyId, expectedRevision });
+      return { policyId, revision: expectedRevision + 1 };
     });
   }
 
-  async requestApproval(actor: FactoryPrincipal, projectId: string, operationId: string, expiresAtMs: number): Promise<{ approvalId: string; contextDigest: string }> {
+  async requestApproval(actor: FactoryPrincipal, projectId: string, operationId: string, expiresAtMs: number, idempotencyKey: string): Promise<{ approvalId: string; contextDigest: string }> {
     [actor, projectId, operationId] = canonical([actor, projectId, operationId]); text(projectId, operationId);
-    return this.database.transaction(async transaction => {
+    return this.mutations.execute({ principal: actor, projectId, action: "factory.approve", idempotencyKey, input: { kind: "release.approval.request", operationId, expiresAtMs } }, async transaction => {
       const operation = await this.readInTransaction(transaction, projectId, operationId, "update");
       if (operation?.state !== "pending" || !operation.archiveReady || expiresAtMs > operation.deadlineMs) throw new FactoryReleaseError("factory_release_not_claimable");
       const approval = await this.assurance.requestApprovalInTransaction(transaction, actor, { projectId, operationId, decisionId: operation.decisionId, destinationDigest: operation.destinationDigest, expectedGeneration: operation.dispatchGeneration + 1, expiresAtMs });
@@ -438,41 +442,34 @@ export class FactoryReleases {
     } catch { return this.markUncertain(startedClaim, "receipt_archive_unknown"); }
   }
 
-  async reconcile(operator: FactoryPrincipal, request: FactoryReconciliationRequest, provider: FactoryReleaseProvider): Promise<FactoryReleaseOperation> {
+  async reconcile(operator: FactoryPrincipal, request: FactoryReconciliationRequest, provider: FactoryReleaseProvider, idempotencyKey: string): Promise<FactoryReleaseOperation> {
     [operator, request] = canonical([operator, request]);
     text(request.projectId, request.operationId, request.reason); if (encoder.encode(request.reason).byteLength > MAX_REASON_BYTES || encoder.encode(canonicalJson(request.providerEvidence)).byteLength > MAX_REQUEST_BYTES || !request.providerEvidence || typeof request.providerEvidence !== "object" || Array.isArray(request.providerEvidence) || !Object.keys(request.providerEvidence).length || operator.kind !== "user" || operator.authentication !== "session") throw new FactoryReleaseError("factory_release_reconciliation_invalid");
-    await this.database.transaction(transaction => this.grants.authorizeInTransaction(transaction, operator, request.projectId, "factory.operate"));
-    const operation = await this.inspect(request.projectId, request.operationId);
-    if (!operation?.senderToken || operation.state !== "uncertain" && !(operation.state === "executing" && operation.dispatchStarted)) throw new FactoryReleaseError("factory_release_reconciliation_stale");
-    if (request.action === "attach_receipt") {
-      if (!request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
-      validateReceipt(operation, request.receipt);
-    } else if (request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
-    if (request.action === "confirm_no_effect") {
-      const [stopped, absent] = await Promise.all([this.senderFence.proveStopped(operation, operation.senderToken, request.providerEvidence), provider.proveNoEffect(operation, request.providerEvidence)]);
-      if (!stopped || !absent) throw new FactoryReleaseError("factory_release_absence_unproved");
-    }
-    const evidence = { action: request.action, reason: request.reason, providerEvidence: request.providerEvidence, ...(request.receipt ? { receipt: request.receipt } : {}) };
-    const evidenceArchive = await archiveAndVerify(this.archive, this.tenantId, operation.operationId, "reconciliation", evidence);
-    if (request.action === "attach_receipt") {
-      const receiptArchive = await archiveAndVerify(this.archive, this.tenantId, operation.operationId, "receipt", request.receipt!);
-      return this.database.transaction(async transaction => {
-        await this.recordReconciliation(transaction, operator, operation, request, evidenceArchive);
-        return this.settleReceiptInTransaction(transaction, operation, request.receipt!, receiptArchive, "reconciliation");
-      });
-    }
-    return this.database.transaction(async transaction => {
-      await this.grants.authorizeInTransaction(transaction, operator, operation.projectId, "factory.operate");
-      const locked = await this.readInTransaction(transaction, operation.projectId, operation.operationId, "update");
-      if (!locked?.senderToken || locked.senderToken !== operation.senderToken || locked.state !== "uncertain" && !(locked.state === "executing" && locked.dispatchStarted)) throw new FactoryReleaseError("factory_release_reconciliation_stale");
-      await this.recordReconciliation(transaction, operator, locked, request, evidenceArchive, true);
+    return this.mutations.execute({ principal: operator, projectId: request.projectId, action: "factory.operate", idempotencyKey, input: { kind: "release.reconcile", request } }, async transaction => {
+      const locked = await this.readInTransaction(transaction, request.projectId, request.operationId, "update");
+      if (!locked?.senderToken || locked.state !== "uncertain" && !(locked.state === "executing" && locked.dispatchStarted)) throw new FactoryReleaseError("factory_release_reconciliation_stale");
+      if (request.action === "attach_receipt") {
+        if (!request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
+        validateReceipt(locked, request.receipt);
+      } else if (request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
       if (request.action === "confirm_no_effect") {
-        await transaction.execute(sql`UPDATE factory_release_operations SET state='pending',sender_token=NULL,dispatch_started=FALSE,outcome_code='confirmed_no_effect',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${operation.projectId} AND operation_id=${operation.operationId}`);
-        await transaction.execute(sql`UPDATE factory_release_destination_reservations SET state='released',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND operation_id=${operation.operationId}`);
-      } else if (locked.state === "executing") {
-        await transaction.execute(sql`UPDATE factory_release_operations SET state='uncertain',outcome_code='operator_kept_uncertain',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${operation.projectId} AND operation_id=${operation.operationId}`);
+        const [stopped, absent] = await Promise.all([this.senderFence.proveStopped(locked, locked.senderToken, request.providerEvidence), provider.proveNoEffect(locked, request.providerEvidence)]);
+        if (!stopped || !absent) throw new FactoryReleaseError("factory_release_absence_unproved");
       }
-      return (await this.readInTransaction(transaction, operation.projectId, operation.operationId, "share"))!;
+      const evidence = { action: request.action, reason: request.reason, providerEvidence: request.providerEvidence, ...(request.receipt ? { receipt: request.receipt } : {}) };
+      const evidenceArchive = await archiveAndVerify(this.archive, this.tenantId, locked.operationId, "reconciliation", evidence);
+      await this.recordReconciliation(transaction, operator, locked, request, evidenceArchive, true);
+      if (request.action === "attach_receipt") {
+        const receiptArchive = await archiveAndVerify(this.archive, this.tenantId, locked.operationId, "receipt", request.receipt!);
+        return this.settleReceiptInTransaction(transaction, locked, request.receipt!, receiptArchive, "reconciliation");
+      }
+      if (request.action === "confirm_no_effect") {
+        await transaction.execute(sql`UPDATE factory_release_operations SET state='pending',sender_token=NULL,dispatch_started=FALSE,outcome_code='confirmed_no_effect',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${locked.projectId} AND operation_id=${locked.operationId}`);
+        await transaction.execute(sql`UPDATE factory_release_destination_reservations SET state='released',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND operation_id=${locked.operationId}`);
+      } else if (locked.state === "executing") {
+        await transaction.execute(sql`UPDATE factory_release_operations SET state='uncertain',outcome_code='operator_kept_uncertain',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${locked.projectId} AND operation_id=${locked.operationId}`);
+      }
+      return (await this.readInTransaction(transaction, locked.projectId, locked.operationId, "share"))!;
     });
   }
 
