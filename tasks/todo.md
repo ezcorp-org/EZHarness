@@ -1407,4 +1407,9 @@ Shared client review: `shared-transport-final-integration-results.json` records 
 - [x] Trace FactoryTransportValue, ValueSource, expressions/map, durable run/start and activity seams.
 - [x] Propose bounded reference/page protocol and ownership.
 - [x] Implement host authorization, immutable paging and conformance tests.
-- [ ] Validate coverage, types and lint.
+- [x] Validate coverage, types and lint.
+
+### Review — host lazy input closed
+- PostgreSQL/S3 conformance: `tests/postgres/factory-lazy-input.test.ts` passed 3/3, including shared and same-project immutable reads plus live credential/grant revocation.
+- Static gate: SDK build, four typecheck legs, lint (8 existing infos), and integrity gate passed in `/tmp/factory-platform-evidence/terra-lazy-input-types-lint-gate.log`.
+- Owned source LCOV: `src/factory/lazy-input.ts` 144/144 lines in `/tmp/factory-platform-evidence/terra-lazy-input-owned-coverage.log`.
