@@ -3,6 +3,7 @@ import { ListObjectVersionsCommand } from "@aws-sdk/client-s3";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
 import { digestBytes } from "../extensions/v4/blobs";
+import { FaultInjectingArchive, MemoryFactoryReleaseArchive, type FactoryArchiveStore } from "../__tests__/helpers/factory-archive-fixtures";
 import type { FactoryMaterialScope, FactoryScopedArtifactReader } from "./artifact-materials";
 import {
   FACTORY_ARCHIVE_CREDENTIAL_SEPARATION,
@@ -24,7 +25,7 @@ import {
   type FactoryArchiveMemberPlan,
   type FactoryArchivePublicationSet,
 } from "./archive-writer";
-import type { FactoryArchiveObject, FactoryProviderReceipt, FactoryReleaseArchive, FactoryReleaseMaterial, FactoryReleaseOperation, FactoryReleaseProvider } from "./releases";
+import type { FactoryProviderReceipt, FactoryReleaseMaterial, FactoryReleaseOperation, FactoryReleaseProvider } from "./releases";
 
 const TENANT = "archive-tenant";
 const OPERATION = `factory-release:${"a".repeat(64)}`;
@@ -37,34 +38,6 @@ const scope: FactoryMaterialScope = { tenantId: TENANT, projectId: "project-a", 
 
 function reference(id: string, bytes: number = 12): FactoryArtifactReference {
   return { artifactId: id, digest: digest("b"), encodedBytes: bytes };
-}
-
-/** Mirrors the S3 archive adapter's key layout so prefix arithmetic is real. */
-class MemoryArchive implements FactoryReleaseArchive {
-  readonly objects = new Map<string, Uint8Array>();
-  readonly versions = new Map<string, string>();
-  readonly writes: string[] = [];
-  omitVersion = false;
-  corruptReadsFor?: string;
-  wrongDigestFor?: string;
-  async writeImmutable(tenantId: string, operationId: string, name: string, bytes: Uint8Array): Promise<FactoryArchiveObject> {
-    const raw = digestBytes(bytes);
-    const key = `${ROOT}/${segment(tenantId)}/${segment(operationId)}/${name}/${raw}`;
-    // Conditional create: identical bytes keep the first object and its version.
-    if (!this.objects.has(key)) { this.objects.set(key, bytes.slice()); this.versions.set(key, `version-${this.objects.size}`); }
-    this.writes.push(key);
-    const decoded = new TextDecoder().decode(bytes);
-    return {
-      key,
-      digest: this.wrongDigestFor && decoded.includes(this.wrongDigestFor) ? digest("0") : `sha256:${raw}`,
-      ...(this.omitVersion ? {} : { versionId: this.versions.get(key)! }),
-    };
-  }
-  async read(object: FactoryArchiveObject): Promise<Uint8Array> {
-    const value = this.objects.get(object.key);
-    if (!value) throw new Error("archive missing");
-    return this.corruptReadsFor && new TextDecoder().decode(value).includes(this.corruptReadsFor) ? new Uint8Array([0]) : value.slice();
-  }
 }
 
 class MemoryReader implements FactoryScopedArtifactReader {
@@ -90,8 +63,8 @@ function sources(candidate = true, request = true) {
   return { scope, ...(candidate ? { candidate: reference("candidate-one") } : {}), ...(request ? { request: reference("request-one") } : {}) };
 }
 
-function writer(options: { archive?: MemoryArchive; reader?: MemoryReader; publicationSet?: FactoryArchivePublicationSet; inventory?: FactoryArchiveInventory; denials?: Map<string, "denied" | "permitted"> } = {}) {
-  const archive = options.archive ?? new MemoryArchive();
+function writer<Archive extends FactoryArchiveStore = MemoryFactoryReleaseArchive>(options: { archive?: Archive; reader?: MemoryReader; publicationSet?: FactoryArchivePublicationSet; inventory?: FactoryArchiveInventory; denials?: Map<string, "denied" | "permitted"> } = {}) {
+  const archive: Archive = options.archive ?? (new MemoryFactoryReleaseArchive() as unknown as Archive);
   const reader = options.reader ?? new MemoryReader();
   for (const id of ["candidate-one", "request-one", "evidence-one"]) reader.contents.set(id, bytesOf(`bytes of ${id}`));
   const built = new FactoryArchiveWriter({
@@ -205,11 +178,11 @@ test("publication stays pending when a member is missing, unreadable, corrupt, o
   const foreignScope = writer({ publicationSet: factoryArchivePublicationSet(() => ({ ...sources(), scope: { ...scope, tenantId: "other-tenant" } })) });
   await expect(foreignScope.writer.writeImmutable(TENANT, OPERATION, "material", materialBytes())).rejects.toThrow("factory_archive_member_unavailable");
 
-  const corruptArchive = new MemoryArchive();
-  corruptArchive.corruptReadsFor = "bytes of candidate-one";
+  const corruptArchive = new FaultInjectingArchive(new MemoryFactoryReleaseArchive());
+  corruptArchive.corruptReadFor = "bytes of candidate-one";
   await expect(writer({ archive: corruptArchive }).writer.writeImmutable(TENANT, OPERATION, "material", materialBytes())).rejects.toThrow("factory_archive_member_corrupt");
 
-  const wrongDigest = new MemoryArchive();
+  const wrongDigest = new MemoryFactoryReleaseArchive();
   wrongDigest.wrongDigestFor = "bytes of candidate-one";
   await expect(writer({ archive: wrongDigest }).writer.writeImmutable(TENANT, OPERATION, "material", materialBytes())).rejects.toThrow("factory_archive_member_corrupt");
 
@@ -225,28 +198,18 @@ test("publication stays pending when a member is missing, unreadable, corrupt, o
     await expect(writer().writer.writeImmutable(TENANT, OPERATION, "material", bad)).rejects.toThrow("factory_archive_material_unreadable");
   }
 
-  const corruptManifest = new MemoryArchive();
-  corruptManifest.corruptReadsFor = FACTORY_ARCHIVE_MANIFEST_SCHEMA_VERSION;
+  const corruptManifest = new FaultInjectingArchive(new MemoryFactoryReleaseArchive());
+  corruptManifest.corruptReadFor = FACTORY_ARCHIVE_MANIFEST_SCHEMA_VERSION;
   await expect(writer({ archive: corruptManifest }).writer.writeImmutable(TENANT, OPERATION, "material", materialBytes())).rejects.toThrow("factory_archive_manifest_corrupt");
 });
 
 test("the role refuses a failure-domain record it did not produce", () => {
-  expect(() => new FactoryArchiveWriter({ archive: new MemoryArchive(), reader: new MemoryReader(), publicationSet: factoryArchivePublicationSet(() => sources()), failureDomain: { ...sameHost, schemaVersion: "factory.archive-failure-domain.v0" as never } })).toThrow("factory_archive_invalid");
+  expect(() => new FactoryArchiveWriter({ archive: new MemoryFactoryReleaseArchive(), reader: new MemoryReader(), publicationSet: factoryArchivePublicationSet(() => sources()), failureDomain: { ...sameHost, schemaVersion: "factory.archive-failure-domain.v0" as never } })).toThrow("factory_archive_invalid");
 });
 
-/** Lists exactly what a memory archive holds under one prefix, as S3 would. */
-function inventoryOf(archive: MemoryArchive): FactoryArchiveInventory {
-  return {
-    async list(prefix: string) {
-      if (!prefix.startsWith(`${ROOT}/`)) throw new Error("factory_archive_foreign_prefix");
-      return [...archive.objects.keys()].filter(key => key.startsWith(`${prefix}/`)).map(key => ({ key, digest: `sha256:${key.slice(prefix.length + 1)}`, versionId: "v1" }));
-    },
-  };
-}
-
 test("the member manifest and the confirmed receipt are found from the archive alone", async () => {
-  const archive = new MemoryArchive();
-  const role = writer({ archive, inventory: inventoryOf(archive) }).writer;
+  const archive = new MemoryFactoryReleaseArchive();
+  const role = writer({ archive, inventory: archive }).writer;
   const bytes = materialBytes();
   const materialArchive = await role.writeImmutable(TENANT, OPERATION, "material", bytes);
   await archive.writeImmutable(TENANT, OPERATION, "material", bytesOf("not json at all"));
@@ -274,7 +237,7 @@ test("the member manifest and the confirmed receipt are found from the archive a
 });
 
 test("readiness proves conditional create, checksum, version reads, and every credential denial", async () => {
-  const archive = new MemoryArchive();
+  const archive = new MemoryFactoryReleaseArchive();
   const denials = new Map<string, "denied" | "permitted">();
   const result = await writer({ archive, denials }).writer.checkReadiness(TENANT, OPERATION);
   expect(result).toMatchObject({ schemaVersion: FACTORY_ARCHIVE_READINESS_SCHEMA_VERSION, ready: true, publicationGrade: false, checkedAtMs: 1_700_000_000_000 });
@@ -287,27 +250,28 @@ test("readiness proves conditional create, checksum, version reads, and every cr
   expect(result.failureDomain).toBe(sameHost);
 
   denials.set("product:delete", "permitted");
-  const permitted = await writer({ archive: new MemoryArchive(), denials }).writer.checkReadiness(TENANT, OPERATION);
+  const permitted = await writer({ archive: new MemoryFactoryReleaseArchive(), denials }).writer.checkReadiness(TENANT, OPERATION);
   expect(permitted.ready).toBe(false);
   expect(permitted.unmetCriteria).toEqual([FACTORY_ARCHIVE_DEPLOYED_INDEPENDENCE, "product_delete_denied"]);
 
-  const unprobed = await writer({ archive: new MemoryArchive() }).writer.checkReadiness(TENANT, OPERATION);
+  const unprobed = await writer({ archive: new MemoryFactoryReleaseArchive() }).writer.checkReadiness(TENANT, OPERATION);
   expect(unprobed.ready).toBe(false);
   expect(unprobed.checks.find(check => check.id === "product_read_denied")!.detail).toContain("no denial probe");
 
-  const versionless = new MemoryArchive();
+  const versionless = new MemoryFactoryReleaseArchive();
   versionless.omitVersion = true;
   const noVersion = await writer({ archive: versionless, denials: new Map() }).writer.checkReadiness(TENANT, OPERATION);
   expect(noVersion.checks.find(check => check.id === "version_read")!.passed).toBe(false);
 
-  const mismatched = new MemoryArchive();
-  mismatched.wrongDigestFor = "archive-readiness";
-  mismatched.corruptReadsFor = "archive-readiness";
+  const inner = new MemoryFactoryReleaseArchive();
+  inner.wrongDigestFor = "archive-readiness";
+  const mismatched = new FaultInjectingArchive(inner);
+  mismatched.corruptReadFor = "archive-readiness";
   const wrong = await writer({ archive: mismatched, denials: new Map() }).writer.checkReadiness(TENANT, OPERATION);
   expect(wrong.checks.filter(check => ["conditional_create", "checksum_verified", "immutable_rewrite"].includes(check.id)).map(check => check.passed)).toEqual([false, false, true]);
 
   const independent = new FactoryArchiveWriter({
-    archive: new MemoryArchive(), reader: new MemoryReader(), publicationSet: factoryArchivePublicationSet(() => sources()),
+    archive: new MemoryFactoryReleaseArchive(), reader: new MemoryReader(), publicationSet: factoryArchivePublicationSet(() => sources()),
     failureDomain: factoryArchiveFailureDomain({ productEndpoint: "https://a.test", archiveEndpoint: "https://b.test", productCredentialSet: "a.json", archiveCredentialSet: "b.json", independentReplicationEvidence: "operator verified" }),
     denialProbe: { async attempt() { return "denied"; } },
   });
@@ -317,15 +281,15 @@ test("readiness proves conditional create, checksum, version reads, and every cr
 });
 
 test("archive independence is only claimed while the ordinary store is unreachable", async () => {
-  const archive = new MemoryArchive();
+  const archive = new MemoryFactoryReleaseArchive();
   const role = writer({ archive }).writer;
   expect(await role.proveIndependentOfProductStore({ async reachable() { return true; } }, TENANT, OPERATION)).toMatchObject({ id: "archive_survives_product_loss", passed: false });
   const proven = await role.proveIndependentOfProductStore({ async reachable() { return false; } }, TENANT, OPERATION);
   expect(proven.passed).toBe(true);
   expect(proven.detail).toContain("unreachable");
 
-  const corrupt = new MemoryArchive();
-  corrupt.corruptReadsFor = "archive-survives-product-loss";
+  const corrupt = new FaultInjectingArchive(new MemoryFactoryReleaseArchive());
+  corrupt.corruptReadFor = "archive-survives-product-loss";
   expect(await writer({ archive: corrupt }).writer.proveIndependentOfProductStore({ async reachable() { return false; } }, TENANT, OPERATION)).toMatchObject({ passed: false, detail: "the archive returned different bytes" });
 });
 
@@ -334,10 +298,10 @@ class FakeS3 {
   lastSignal?: AbortSignal;
   versions: Array<{ Key?: string; VersionId?: string; IsLatest?: boolean }> = [];
   undefinedVersions = false;
-  async send(command: unknown, options?: { abortSignal?: AbortSignal }): Promise<unknown> {
+  async send(command: unknown, options?: unknown): Promise<unknown> {
     if (!(command instanceof ListObjectVersionsCommand)) throw new Error("unexpected S3 command");
     this.lastPrefix = command.input.Prefix;
-    this.lastSignal = options?.abortSignal;
+    this.lastSignal = (options as { abortSignal?: AbortSignal } | undefined)?.abortSignal;
     return this.undefinedVersions ? {} : { Versions: this.versions };
   }
 }
@@ -398,19 +362,19 @@ const idleProvider: FactoryReleaseProvider = {
 };
 
 test("recovery settles the same operation from its archived receipt and never dispatches again", async () => {
-  const archive = new MemoryArchive();
-  const role = writer({ archive, inventory: inventoryOf(archive) }).writer;
+  const archive = new MemoryFactoryReleaseArchive();
+  const role = writer({ archive, inventory: archive }).writer;
   const started = { ...pendingOperation(), state: "executing" as const, dispatchStarted: true, senderToken: "sender-a", materialArchive: await role.writeImmutable(TENANT, OPERATION, "material", materialBytes()) };
   const receipt = receiptFor(started);
 
   const calls: Array<{ generation: number; key: string }> = [];
-  let stored = started;
+  let stored: FactoryReleaseOperation = started;
   const releases = {
     async inspect() { return stored; },
     async reconcile(_operator: never, request: { receipt: FactoryProviderReceipt }, expectedGeneration: number, provider: FactoryReleaseProvider, idempotencyKey: string) {
       expect(await provider.verifyReceipt(stored, request.receipt, {})).toBe(true);
       calls.push({ generation: expectedGeneration, key: idempotencyKey });
-      stored = { ...stored, state: "succeeded" as never, receipt: request.receipt };
+      stored = { ...stored, state: "succeeded", receipt: request.receipt };
       return stored;
     },
   };
@@ -425,9 +389,9 @@ test("recovery settles the same operation from its archived receipt and never di
   expect(await recovery.recover("project-a", OPERATION, idleProvider, "key-3")).toMatchObject({ kind: "already_settled", receipt });
   expect(calls).toHaveLength(1);
 
-  stored = { ...started, state: "pending" as const, dispatchStarted: false };
+  stored = { ...started, state: "pending", dispatchStarted: false };
   expect(await recovery.recover("project-a", OPERATION, idleProvider, "key-4")).toMatchObject({ kind: "not_recoverable" });
-  stored = { ...started, state: "succeeded" as const, receipt: undefined as never };
+  stored = { ...started, state: "succeeded", receipt: undefined };
   expect(await recovery.recover("project-a", OPERATION, idleProvider, "key-5")).toMatchObject({ kind: "already_settled" });
 
   const absent = new FactoryArchiveRecovery({ releases: { async inspect() { return null; }, async reconcile() { throw new Error("unreachable"); } }, writer: role, operator: { kind: "user", id: "operator-a", authentication: "session" } });
