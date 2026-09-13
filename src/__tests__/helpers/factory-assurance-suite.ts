@@ -19,6 +19,7 @@ let grants: FactoryGrants;
 let trusted: FactoryTrustedEvidence;
 let fenceStatus: "running" | "cancelling" = "running";
 class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
+  async assertContractInTransaction(): Promise<void> {}
   async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenant !== tenantId || key.projectId !== trusted.projectId || key.runId !== trusted.runId || key.nodeInstanceId !== trusted.nodeInstanceId || key.candidateGeneration !== trusted.candidateGeneration || validatorId !== trusted.validatorId) throw new Error("configured validator did not authorize this exact candidate");
     return structuredClone(trusted);
@@ -196,7 +197,7 @@ test("a corrupt decision row cannot be presented for human consent", async () =>
 });
 
 test("forged validator provenance, stale evidence, and corrupt validator locks fail closed", async () => {
-  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), new Gateway(), () => now);
+  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async assertContractInTransaction() {}, async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), new Gateway(), () => now);
   await expect(forged.captureEvidence({ ...candidate, validatorId: trusted.validatorId })).rejects.toMatchObject({ code: "factory_assurance_trust" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET validator_lock_digest=${digest("f")} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
   await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_evidence_stale" });
@@ -216,6 +217,7 @@ test("two protected validators retain separate evidence rows", async () => {
   const first = { ...trusted, ...multiCandidate, claims: [{ id: "first", passed: true, decisive: true }] };
   const second = { ...trusted, ...multiCandidate, validatorId: "second-validator", claims: [{ id: "second", passed: true, decisive: true }] };
   const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
+    async assertContractInTransaction() {},
     async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) { if (validatorId === first.validatorId) return first; if (validatorId === second.validatorId) return second; throw new Error("unknown validator"); },
     async resolveCurrentEvidenceInTransaction() { return [first, second]; },
   };

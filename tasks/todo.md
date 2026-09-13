@@ -1754,3 +1754,15 @@ Receipts: `/tmp/factory-platform-evidence/root-product-command-merge-combined-in
 - [ ] Prove the real protected release-adapter path against the new repository.
 
 Review: `ezcorp-org/factory-platform-publication-tests` is private with default branch `main`. Existing GitHub CLI credentials are referenced by `/home/dev/.config/gh/hosts.yml`. No publication-test PR has been created yet.
+## Factory trusted validator materials — 2026-09-13
+
+- [x] Reproduce that callback-supplied validator JSON can currently become acceptance evidence without a concrete trusted attempt.
+- [x] Add immutable compiled validator materials, admitted-attempt assignments, and terminal-derived validator results.
+- [x] Bind human contract approval to exact registered compiled material and active release trust.
+- [x] Prove current candidate, runner, environment, configuration, artifact, measured terminal, grant, freshness, and retry fences.
+- [x] Prove migration parity and real PostgreSQL/S3 behavior.
+- [x] Run focused coverage, all four typecheck legs, lint, gate, and module-boundary checks; record the review.
+
+Plan review: use the published compiled acceptance contract and constructor-owned trusted runtime inventory. The candidate artifact comes from the current sealed release candidate. The validator result comes from an assigned admitted attempt's measured terminal. Release enable remains a dispatch fence and does not block validation. Root task completion and boot remain unchanged.
+
+Review: a contract can now be approved only when it matches immutable material rebuilt from the exact published compiled factory. The gateway assigns one exact current candidate and protected claim to an admitted validator request with a constructor-owned runner/runtime lock. It then derives evidence only from the journal's verified measured completion and the immutable host artifact, and seals the first database issuance time for stable retries. PGlite focused integration passes 35 tests / 190 assertions; isolated PostgreSQL and ordinary S3 pass 4 tests / 20 assertions; PostgreSQL schema parity passes 2 tests / 1,897 assertions. Focused LCOV measures validator materials 243/243 lines, its migration 8/8, and release authority 202/202. All four type checks, lint, registration, factory boundaries, and gate integrity pass. Root production composition and the full C04 release journey remain separate work.

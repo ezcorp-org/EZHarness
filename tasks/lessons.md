@@ -511,3 +511,4 @@
 - Idempotent settlement must reread the binding after budget locks. A concurrent winner can change open to settled while the loser waits; return its same durable receipt instead of reporting a conflict.
 
 - When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
+- Before importing a support commit into an older isolated worktree, compare its parent ancestry with the worktree base. If the support commit depends on intermediate modules, merge the validated descendant that contains the full ancestry instead of cherry-picking the leaf alone.
