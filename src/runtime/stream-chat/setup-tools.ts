@@ -33,6 +33,7 @@ import { getSetting } from "../../db/queries/settings";
 import { getPermissionMode, type PermissionMode } from "../tools/permissions";
 import { withPermissionGate, type PermissionWrapDeps } from "../tools/permission-wrap";
 import { getCredential } from "../../providers/credentials";
+import { assertFactoryExecutionContext, type FactoryExecutionContext } from "../factory-execution";
 import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
 import type { AgentRun, TeamMember, TeamMemberOverrides, TeamToolScope } from "../../types";
@@ -84,6 +85,8 @@ export type OrchestratedRun = AgentRun & RunOrchestrationMeta;
 
 /** Subset of streamChat's options the setup-tools phase reads. */
 export interface SetupToolsOptions {
+  /** Gateway-bound attempt: model and authority arrive from the factory, never host credentials. */
+  factoryExecution?: FactoryExecutionContext;
   projectId?: string;
   /** Absolute directory the built-in file/shell tools root at INSTEAD of the
    *  project path. Set (host-validated) by the spawn-assignment handler for
@@ -751,6 +754,19 @@ export async function resolveModelTierAndCredential(
   turnContext?: TurnRoutingContext,
   routingDeps?: TurnRoutingDeps,
 ): Promise<SetupToolsResult> {
+  if (options.factoryExecution) {
+    const factory = options.factoryExecution;
+    assertFactoryExecutionContext(factory);
+    run.provider = factory.model.provider;
+    run.model = factory.model.id;
+    return {
+      resolved: { provider: factory.model.provider, model: factory.model.id, piModel: factory.model },
+      // buildPiAgent never reads this value for a factory transport. Keep the
+      // existing SetupToolsResult shape so ordinary chat and attempts share it.
+      initialCred: { type: "apikey", token: "" } as Awaited<ReturnType<typeof getCredential>>,
+      effectiveTier: "balanced",
+    };
+  }
   let routedTier: RoutingTier | undefined;
   let routingSignals: RoutingSignals | undefined;
   // WS7 inference seam, shipped UNUSED: no scorer is injected below, so this

@@ -119,6 +119,8 @@ export interface RunWithFailoverParams {
   initial: FailoverAttempt;
   /** Optional cap on total attempts (defaults to {@link MAX_FAILOVER_ATTEMPTS}). */
   maxAttempts?: number;
+  /** Factory attempts issue one broker request per operation. */
+  allowFailover?: boolean;
   /**
    * Circuit-breaker credential scope for this turn — the conversation
    * owner's userId (`convRecord?.userId`). Keys breaker state per
@@ -168,6 +170,7 @@ export interface RunWithFailoverParams {
 export async function runWithFailover(params: RunWithFailoverParams): Promise<void> {
   const { ctx, host, runId, tier, initial, credentialScope } = params;
   const maxAttempts = params.maxAttempts ?? MAX_FAILOVER_ATTEMPTS;
+  const allowFailover = params.allowFailover ?? true;
   const sleep = params.sleep ?? defaultSleep;
 
   // Providers we've already tried (incl. the initial) — prevents a
@@ -205,7 +208,7 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
       const errorMessage = agent.state.errorMessage ?? ctx.providerErrorMessage;
       if (!errorMessage) {
         // Clean turn → close the breaker for the serving provider.
-        getCircuitBreaker(current.provider, credentialScope).recordSuccess();
+        if (allowFailover) getCircuitBreaker(current.provider, credentialScope).recordSuccess();
         return;
       }
       lastErrorMessage = errorMessage;
@@ -226,6 +229,9 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
       // its drift-pinned tests are the tripwire — this is where the live error
       // text is consumed, but the taxonomy it is matched against lives there.
       const action = classifyProviderError(errorMessage);
+      // A factory transport is a brokered, idempotent operation. It has no
+      // local retry or provider fallback authority; the gateway owns both.
+      if (!allowFailover) throw new Error(errorMessage);
       // Not an availability failure (bad request / auth / content filter /
       // context-length / unknown) → retrying anywhere won't help; surface it
       // unchanged.
