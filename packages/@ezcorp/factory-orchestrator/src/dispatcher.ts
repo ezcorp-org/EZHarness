@@ -9,7 +9,7 @@ import {
   type FactoryTransportCommand,
   type FactoryWorkflowInput,
 } from "./contracts.ts";
-import { validateInboxEvent } from "./validation.ts";
+import { validateInboxEnvelope } from "./validation.ts";
 
 const START_OPTIONS = Symbol.for("__temporal_internal_client_workflow_start_options");
 
@@ -36,10 +36,10 @@ export async function deliverFactoryCommand(client: Client, command: FactoryTran
     await client.workflow.start(FACTORY_WORKFLOW_TYPE, options);
     return;
   }
-  if (!command.eventId) throw new Error("signal command requires a stable event ID");
-  validateInboxEvent(command.body);
-  if (command.body.id !== command.eventId) throw new Error("signal body ID must equal the durable event ID");
-  await client.workflow.getHandle(command.workflowId).signal(FACTORY_INBOX_SIGNAL, command.body);
+  if (!command.eventId || !command.eventSequence || !command.eventHash) throw new Error("signal command requires a stable event identity, hash, and sequence");
+  const envelope = { sequence: command.eventSequence, eventId: command.eventId, eventHash: command.eventHash, event: command.body };
+  validateInboxEnvelope(envelope as never);
+  await client.workflow.getHandle(command.workflowId).signal(FACTORY_INBOX_SIGNAL, envelope);
 }
 
 export function classifyDispatchError(error: unknown): DispatchVerdict {

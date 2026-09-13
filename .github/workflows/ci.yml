@@ -97,6 +97,7 @@ jobs:
       - name: Run Node-only factory workflow, cancellation, and saved-history replay
         env:
           COV_OUT: coverage-shard
+          FACTORY_TEMPORAL_TEST_SERVER: /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
         run: bash scripts/factory-orchestrator-coverage.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

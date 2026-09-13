@@ -165,7 +165,10 @@ export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
  */
 export const V8_CANONICAL_SOURCES: readonly string[] = [
   "packages/@ezcorp/factory-orchestrator/src/contracts.ts",
+  "packages/@ezcorp/factory-orchestrator/src/definition-pages.ts",
   "packages/@ezcorp/factory-orchestrator/src/dispatcher.ts",
+  "packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts",
+  "packages/@ezcorp/factory-orchestrator/src/inbox.ts",
   "packages/@ezcorp/factory-orchestrator/src/index.ts",
   "packages/@ezcorp/factory-orchestrator/src/validation.ts",
   "packages/@ezcorp/factory-orchestrator/src/worker.ts",

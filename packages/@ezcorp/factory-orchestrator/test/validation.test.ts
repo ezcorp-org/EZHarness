@@ -1,12 +1,40 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { assertContinuationSize, validateInboxEvent, validateWorkflowInput } from "../src/validation.ts";
+import { compileFactory } from "@ezcorp/factory-sdk";
+import { assertActivityPayloadSize, assertCommandBatchSize, assertContinuationSize, validateCompiledFactoryShape, validateDefinitionSource, validateInboxEnvelope, validateInboxEvent, validateLoadedDefinitionPage, validateManifestPage, validateObjectReference, validateWorkflowInput } from "../src/validation.ts";
 
-const factory = { digest: "sha256:test", partitions: [] };
-const valid = { tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "build", startedAtMs: 1, factory, input: {} };
+const digest = `sha256:${"a".repeat(64)}`;
+const reference = { objectId: "object", digest, encodedBytes: 2 };
+const definition = { definitionDigest: digest, definitionEncodedBytes: 2, manifest: reference };
+const valid = { tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "build", startedAtMs: 1, definition, input: {} };
+const runner = { package: "inert", version: "1", digest, export: "run" };
+
+function compiledFactory() {
+  const result = compileFactory({
+    schemaVersion: "factory.v1",
+    id: "validation-test",
+    version: "1",
+    interpreterCompatibility: "1",
+    inputPorts: {},
+    outputPorts: {},
+    graph: { nodes: [{ id: "work", kind: "task", runner }], outputs: {} },
+    acceptance: { id: "acceptance", version: "1", claims: [{ id: "claim", validator: runner, required: true, protected: true }], groups: [] },
+    packages: [{ name: runner.package, version: runner.version, digest: runner.digest }],
+    factories: [],
+    capabilities: [],
+    effects: ["none"],
+    bounds: { maxExpandedNodes: 10_000, maxScopeDepth: 16, runDeadlineMs: 600_000 },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  if (!result.ok) throw new Error("validation fixture did not compile");
+  return result.factory;
+}
 
 describe("orchestrator boundary validation", () => {
-  it("accepts bounded workflow identities and partitions", () => assert.doesNotThrow(() => validateWorkflowInput(valid)));
+  it("accepts bounded workflow identities and deadlines", () => {
+    assert.doesNotThrow(() => validateWorkflowInput(valid));
+    assert.doesNotThrow(() => validateWorkflowInput({ ...valid, deadlineAtMs: 1 }));
+  });
   it("rejects missing, oversized, and invalid workflow fields", () => {
     for (const field of ["tenantId", "projectId", "logicalRunId", "interpreterId"]) {
       assert.throws(() => validateWorkflowInput({ ...valid, [field]: "" }), /1 to 512/);
@@ -14,8 +42,37 @@ describe("orchestrator boundary validation", () => {
     }
     assert.throws(() => validateWorkflowInput({ ...valid, startedAtMs: -1 }), /timestamp/);
     assert.throws(() => validateWorkflowInput({ ...valid, startedAtMs: 1.5 }), /timestamp/);
-    assert.throws(() => validateWorkflowInput({ ...valid, factory: { ...factory, partitions: [{ nodeIds: Array(129).fill("x") }] } }), /128 nodes/);
-    assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: "sha256:other" } } }), /digest/);
+    assert.throws(() => validateWorkflowInput({ ...valid, deadlineAtMs: 0 }), /workflow deadline/);
+    assert.throws(() => validateWorkflowInput({ ...valid, deadlineAtMs: 1.5 }), /workflow deadline/);
+    assert.throws(() => validateWorkflowInput({ ...valid, input: "x".repeat(70_000) }), /65536 bytes/);
+    assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: `sha256:${"b".repeat(64)}` }, acknowledgedInboxSequence: 0 } }), /digest/);
+    assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: digest }, acknowledgedInboxSequence: -1 } }), /inbox sequence/);
+    assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: digest }, acknowledgedInboxSequence: 1.5 } }), /inbox sequence/);
+  });
+  it("validates immutable definition and manifest page contracts", () => {
+    assert.doesNotThrow(() => validateDefinitionSource(definition));
+    for (const source of [null, { ...definition, definitionDigest: "bad" }, { ...definition, definitionEncodedBytes: 0 }, { ...definition, definitionEncodedBytes: 16 * 1024 * 1024 + 1 }]) assert.throws(() => validateDefinitionSource(source), /definition|between/);
+    for (const value of [null, { ...reference, objectId: "" }, { ...reference, digest: "bad" }, { ...reference, encodedBytes: 0 }, { ...reference, encodedBytes: 32 * 1024 + 1 }]) assert.throws(() => validateObjectReference(value, "test"));
+    const manifest = { schemaVersion: "factory.manifest-page.v1", definitionDigest: digest, definitionEncodedBytes: 2, self: reference, pages: [{ ...reference, index: 0 }] };
+    assert.doesNotThrow(() => validateManifestPage(manifest));
+    assert.doesNotThrow(() => validateManifestPage({ ...manifest, next: reference }));
+    for (const value of [null, { ...manifest, schemaVersion: "bad" }, { ...manifest, pages: {} }, { ...manifest, pages: Array(513).fill({ ...reference, index: 0 }) }, { ...manifest, pages: [{ ...reference, index: -1 }] }, { ...manifest, pages: [{ ...reference, index: 1.5 }] }]) assert.throws(() => validateManifestPage(value), /manifest|index/);
+    assert.doesNotThrow(() => validateLoadedDefinitionPage({ index: 0, objectId: "object", digest, content: "{}" }, { ...reference, index: 0 }));
+    assert.throws(() => validateLoadedDefinitionPage(null, { ...reference, index: 0 }), /loaded/);
+    assert.throws(() => validateLoadedDefinitionPage({ index: 1, objectId: "object", digest, content: "{}" }, { ...reference, index: 0 }), /identity/);
+    assert.throws(() => validateLoadedDefinitionPage({ index: 0, objectId: "object", digest, content: "x" }, { ...reference, index: 0 }), /byte count/);
+  });
+  it("validates compiled partitions, command batches, and sequenced inbox envelopes", () => {
+    const factory = compiledFactory();
+    assert.doesNotThrow(() => validateCompiledFactoryShape(factory));
+    assert.throws(() => validateCompiledFactoryShape({ ...factory, partitions: null }), /COMPILED_SCHEMA/);
+    assert.throws(() => validateCompiledFactoryShape({ ...factory, partitions: [{ ...factory.partitions[0], nodeIds: Array(129).fill("work") }] }), /COMPILED_SCHEMA|COMPILED_PARTITION/);
+    assert.doesNotThrow(() => assertActivityPayloadSize({}, "test"));
+    assert.doesNotThrow(() => assertCommandBatchSize([]));
+    assert.throws(() => assertCommandBatchSize(["x".repeat(513 * 1024)]), /524288 bytes/);
+    const envelope = { sequence: 1, eventId: "event", eventHash: digest, event: { id: "event", atMs: 1, kind: "cancel", reason: "test" } };
+    assert.doesNotThrow(() => validateInboxEnvelope(envelope));
+    for (const value of [null, { ...envelope, sequence: 0 }, { ...envelope, sequence: 1.5 }, { ...envelope, eventId: "" }, { ...envelope, eventHash: "bad" }, { ...envelope, eventId: "other" }, { ...envelope, event: { ...envelope.event, reason: "x".repeat(70_000) } }]) assert.throws(() => validateInboxEnvelope(value));
   });
   it("requires stable, recorded inbox events", () => {
     assert.doesNotThrow(() => validateInboxEvent({ id: "event", atMs: 1, kind: "cancel", reason: "test" }));
@@ -25,7 +82,7 @@ describe("orchestrator boundary validation", () => {
     assert.throws(() => validateInboxEvent({ id: "event", atMs: 1 }), /kind/);
   });
   it("rejects continuation snapshots larger than 64 KiB", () => {
-    assert.doesNotThrow(() => assertContinuationSize({ state: {}, inbox: [], sourceSequence: 1, handledSinceContinuation: 0 }));
-    assert.throws(() => assertContinuationSize({ state: { value: "x".repeat(70_000) }, inbox: [], sourceSequence: 1, handledSinceContinuation: 0 }), /65536 bytes/);
+    assert.doesNotThrow(() => assertContinuationSize({ state: {}, inbox: [], pendingInbox: [], sourceSequence: 1, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 }));
+    assert.throws(() => assertContinuationSize({ state: { value: "x".repeat(70_000) }, inbox: [], pendingInbox: [], sourceSequence: 1, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 }), /65536 bytes/);
   });
 });

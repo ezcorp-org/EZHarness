@@ -1,9 +1,13 @@
 import type { JsonValue } from "@ezcorp/factory-sdk";
+import type { CompiledFactory } from "@ezcorp/factory-sdk";
 import type { KernelCommand, KernelEvent, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
 import {
   condition,
+  ActivityCancellationType,
+  ApplicationFailure,
   CancellationScope,
+  ChildWorkflowCancellationType,
   continueAsNew,
   defineQuery,
   defineSignal,
@@ -19,21 +23,33 @@ import {
   FACTORY_STATE_QUERY,
   FACTORY_WORKFLOW_TYPE,
   MAX_INBOX_EVENTS,
+  MAX_INFLIGHT_COMMANDS,
   type FactoryActivities,
+  type FactoryDefinitionSource,
+  type FactoryInboxEnvelope,
+  type FactoryIdentity,
   type FactoryWorkflowInput,
   type FactoryWorkflowResult,
 } from "./contracts.ts";
-import { assertContinuationSize, validateInboxEvent, validateWorkflowInput } from "./validation.ts";
+import { loadCompiledFactory } from "./definition-pages.ts";
+import { acceptFactoryInbox } from "./inbox.ts";
+import { assertCommandBatchSize, assertContinuationSize, validateCompiledFactoryShape, validateInboxEvent, validateWorkflowInput } from "./validation.ts";
 
-const inboxSignal = defineSignal<[KernelEvent]>(FACTORY_INBOX_SIGNAL);
+const inboxSignal = defineSignal<[FactoryInboxEnvelope]>(FACTORY_INBOX_SIGNAL);
 const stateQuery = defineQuery<KernelState>(FACTORY_STATE_QUERY);
 const audit = proxyActivities<Pick<FactoryActivities, "recordTransition">>({
   startToCloseTimeout: "30 seconds",
   retry: { maximumAttempts: 3 },
 });
-const effects = proxyActivities<Pick<FactoryActivities, "executeCommand" | "loadFactory">>({
+const reads = proxyActivities<Pick<FactoryActivities, "resolveFactory" | "loadManifestPage" | "loadDefinitionPage">>({
+  startToCloseTimeout: "30 seconds",
+  retry: { maximumAttempts: 3 },
+});
+const effects = proxyActivities<Pick<FactoryActivities, "executeCommand">>({
   startToCloseTimeout: "24 hours",
+  heartbeatTimeout: "20 seconds",
   retry: { maximumAttempts: 1 },
+  cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
 });
 
 type TerminalCommand = Extract<KernelCommand, { readonly kind: "complete-run" | "fail-run" | "cancel-run" }>;
@@ -42,76 +58,96 @@ function isTerminal(command: KernelCommand): command is TerminalCommand {
   return command.kind === "complete-run" || command.kind === "fail-run" || command.kind === "cancel-run";
 }
 
+function workflowFailure(error: unknown, type: string): ApplicationFailure {
+  return ApplicationFailure.nonRetryable(error instanceof Error ? error.message : String(error), type);
+}
+
 function terminal(command: TerminalCommand, state: KernelState): FactoryWorkflowResult {
   if (command.kind === "complete-run") return { status: "completed", output: command.output, state };
   if (command.kind === "fail-run") return { status: "failed", error: command.error, state };
   return { status: "cancelled", error: command.reason, state };
 }
 
-function childInput(parent: FactoryWorkflowInput, command: Extract<KernelCommand, { readonly kind: "run-child" }>, factory: FactoryWorkflowInput["factory"]): FactoryWorkflowInput {
+function childInput(parent: FactoryWorkflowInput, command: Extract<KernelCommand, { readonly kind: "run-child" }>, definition: FactoryDefinitionSource): FactoryWorkflowInput {
   return {
     tenantId: parent.tenantId,
     projectId: parent.projectId,
-    logicalRunId: `${parent.logicalRunId}/${command.nodeId}`,
+    logicalRunId: `${parent.logicalRunId}/${command.nodeId}/${command.candidateGeneration}/${command.id}`,
     interpreterId: parent.interpreterId,
     startedAtMs: parent.startedAtMs,
-    factory,
+    deadlineAtMs: command.deadlineAtMs,
+    definition,
     input: command.input,
   };
 }
 
-function childEvent(command: Extract<KernelCommand, { readonly kind: "run-child" }>, result: FactoryWorkflowResult): KernelEvent {
+function childEvent(command: Extract<KernelCommand, { readonly kind: "run-child" }>, result: FactoryWorkflowResult, completedAtMs: number): KernelEvent {
   if (result.status === "completed") {
-    return { kind: "node-result", id: `${command.id}:child-result`, atMs: command.deadlineAtMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: result.output ?? null };
+    return { kind: "node-result", id: `${command.id}:child-result`, atMs: completedAtMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: result.output ?? null };
   }
-  return { kind: "node-failed", id: `${command.id}:child-failed`, atMs: command.deadlineAtMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, error: result.error ?? result.status };
+  return { kind: "node-failed", id: `${command.id}:child-failed`, atMs: completedAtMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, error: result.error ?? result.status };
 }
 
 async function runCommand(
   input: FactoryWorkflowInput,
   command: Exclude<KernelCommand, { readonly kind: "start-timer" | "complete-run" | "fail-run" | "cancel-run" }>,
-  setActiveScope: (scope: CancellationScope | undefined) => void,
+  scope: CancellationScope,
 ): Promise<KernelEvent | null> {
   if (command.kind === "run-child") {
-    const scope = new CancellationScope();
-    setActiveScope(scope);
     try {
       return await scope.run(async () => {
-        const childFactory = await effects.loadFactory(command.factory);
+        const definition = await reads.resolveFactory({ ...workflowIdentity(input), factory: command.factory });
         const result = await executeChild<typeof factoryWorkflow>(FACTORY_WORKFLOW_TYPE, {
-          workflowId: `${input.tenantId}/${input.logicalRunId}/${command.nodeId}`,
-          args: [childInput(input, command, childFactory)],
+          workflowId: `${input.tenantId}/${command.id}`,
+          args: [childInput(input, command, definition)],
           retry: { maximumAttempts: 1 },
+          cancellationType: ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
         });
-        return childEvent(command, result);
+        return childEvent(command, result, Date.now());
       });
     } catch (error) {
       if (!isCancellation(error)) throw error;
       return null;
-    } finally {
-      setActiveScope(undefined);
     }
   }
-  const scope = new CancellationScope();
-  setActiveScope(scope);
   try {
     return await scope.run(() => effects.executeCommand({ tenantId: input.tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, interpreterId: input.interpreterId, command }));
   } catch (error) {
     if (!isCancellation(error)) throw error;
     return null;
-  } finally {
-    setActiveScope(undefined);
   }
 }
 
+function workflowIdentity(input: FactoryWorkflowInput): FactoryIdentity {
+  return { tenantId: input.tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, interpreterId: input.interpreterId };
+}
+
 export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<FactoryWorkflowResult> {
-  validateWorkflowInput(input);
-  let state = input.continuation?.state ?? createKernelState(input.factory, input.logicalRunId, input.input, input.startedAtMs);
+  try {
+    validateWorkflowInput(input);
+  } catch (error) {
+    throw workflowFailure(error, "FACTORY_INPUT_INVALID");
+  }
+  let factory: CompiledFactory;
+  try {
+    factory = await loadCompiledFactory(workflowIdentity(input), input.definition, reads);
+    validateCompiledFactoryShape(factory);
+  } catch (error) {
+    throw workflowFailure(error, "FACTORY_DEFINITION_INVALID");
+  }
+  const created = createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs);
+  let state = input.continuation?.state ?? (input.deadlineAtMs === undefined ? created : { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, input.deadlineAtMs) });
   const inbox = [...(input.continuation?.inbox ?? [{ kind: "start", id: `${input.logicalRunId}:start`, atMs: input.startedAtMs } as KernelEvent])];
+  const pendingInbox = new Map((input.continuation?.pendingInbox ?? []).map((delivery) => [delivery.sequence, delivery]));
   let sourceSequence = input.continuation?.sourceSequence ?? 0;
   let handled = input.continuation?.handledSinceContinuation ?? 0;
+  let acknowledgedInboxSequence = input.continuation?.acknowledgedInboxSequence ?? 0;
   let overflow = false;
-  let activeScope: CancellationScope | undefined;
+  let workflowError: Error | undefined;
+  let terminalResult: FactoryWorkflowResult | undefined;
+  type ExecutableCommand = Exclude<KernelCommand, { readonly kind: "start-timer" | "complete-run" | "fail-run" | "cancel-run" }>;
+  const pendingCommands: ExecutableCommand[] = [];
+  const activeScopes = new Map<string, CancellationScope>();
   const knownIds = new Set([...state.appliedEventIds, ...inbox.map((event) => event.id)]);
 
   const scheduleTimer = (command: Extract<KernelCommand, { readonly kind: "start-timer" }>) => {
@@ -125,6 +161,21 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
       .catch((error) => { if (!isCancellation(error)) throw error; });
   };
 
+  const launchCommand = (command: ExecutableCommand) => {
+    const scope = new CancellationScope();
+    activeScopes.set(command.id, scope);
+    void runCommand(input, command, scope)
+      .then((result) => {
+        if (result && !knownIds.has(result.id)) { knownIds.add(result.id); inbox.push(result); }
+      })
+      .catch((error) => { workflowError = workflowFailure(error, "FACTORY_COMMAND_FAILED"); })
+      .finally(() => { activeScopes.delete(command.id); });
+  };
+
+  const pumpCommands = () => {
+    while (activeScopes.size < MAX_INFLIGHT_COMMANDS && pendingCommands.length > 0) launchCommand(pendingCommands.shift()!);
+  };
+
   if (input.continuation) {
     if (state.runTimerId) scheduleTimer({ kind: "start-timer", id: state.runTimerId, deadlineAtMs: state.runDeadlineAtMs });
     for (const [nodeId, runtime] of Object.entries(state.nodes)) {
@@ -132,38 +183,44 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
     }
   }
 
-  setHandler(inboxSignal, (event) => {
-    if (knownIds.has(event.id)) return;
-    if (inbox.length >= MAX_INBOX_EVENTS) { overflow = true; return; }
-    knownIds.add(event.id);
-    inbox.push(event);
-    if (event.kind === "cancel") activeScope?.cancel();
+  setHandler(inboxSignal, (delivery) => {
+    const accepted = acceptFactoryInbox(delivery, acknowledgedInboxSequence, pendingInbox);
+    workflowError = accepted.error ? ApplicationFailure.nonRetryable(accepted.error, "FACTORY_INBOX_CONFLICT") : workflowError;
+    overflow = overflow || accepted.overflow;
+    if (accepted.accepted?.event.kind === "cancel") for (const scope of activeScopes.values()) scope.cancel();
   });
   setHandler(stateQuery, () => state);
 
   for (;;) {
+    if (workflowError) throw workflowError;
     if (overflow) throw new Error(`factory inbox exceeds ${MAX_INBOX_EVENTS} distinct events`);
-    if (inbox.length === 0) {
-      const before = inbox.length;
-      const arrived = await condition(() => inbox.length > before || overflow, Math.max(0, state.runDeadlineAtMs - Date.now()));
-      if (!arrived) inbox.push({ kind: "timer-expired", id: `${input.logicalRunId}:run-deadline`, atMs: state.runDeadlineAtMs });
+    pumpCommands();
+    if (terminalResult && activeScopes.size === 0 && pendingCommands.length === 0) return terminalResult;
+    const delivery = pendingInbox.get(acknowledgedInboxSequence + 1);
+    if (inbox.length === 0 && !delivery) {
+      const arrived = await condition(() => inbox.length > 0 || pendingInbox.has(acknowledgedInboxSequence + 1) || overflow || workflowError !== undefined || (pendingCommands.length > 0 && activeScopes.size < MAX_INFLIGHT_COMMANDS) || (terminalResult !== undefined && activeScopes.size === 0), Math.max(0, state.runDeadlineAtMs - Date.now()));
+      if (!arrived) inbox.push({ kind: "timer-expired", id: `${input.logicalRunId}:run-deadline`, atMs: state.runDeadlineAtMs, commandId: state.runTimerId });
       continue;
     }
-    const event = inbox.shift()!;
+    const selectedDelivery = inbox.length > 0 ? undefined : delivery!;
+    const event = selectedDelivery ? selectedDelivery.event : inbox.shift()!;
+    if (selectedDelivery) pendingInbox.delete(selectedDelivery.sequence);
     validateInboxEvent(event as unknown as JsonValue);
-    const advanced = advanceKernel(input.factory, state, event);
+    const advanced = advanceKernel(factory, state, event);
+    assertCommandBatchSize(advanced.commands);
     await audit.recordTransition({ tenantId: input.tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, interpreterId: input.interpreterId, sourceSequence: sourceSequence + 1, event, nextState: advanced.nextState, commands: advanced.commands });
     state = advanced.nextState;
     sourceSequence += 1;
     handled += 1;
+    if (selectedDelivery) acknowledgedInboxSequence = selectedDelivery.sequence;
     for (const command of advanced.commands) {
       if (command.kind === "start-timer") { scheduleTimer(command); continue; }
-      if (isTerminal(command)) return terminal(command, state);
-      const result = await runCommand(input, command, (scope) => { activeScope = scope; });
-      if (result && !knownIds.has(result.id)) { knownIds.add(result.id); inbox.push(result); }
+      if (isTerminal(command)) { terminalResult = terminal(command, state); continue; }
+      pendingCommands.push(command);
     }
-    if (handled >= CONTINUE_AFTER_EVENTS && inbox.length === 0) {
-      const continuation = { state, inbox, sourceSequence, handledSinceContinuation: 0 };
+    pumpCommands();
+    if (handled >= CONTINUE_AFTER_EVENTS && inbox.length === 0 && activeScopes.size === 0 && pendingCommands.length === 0) {
+      const continuation = { state, inbox, pendingInbox: [...pendingInbox.values()], sourceSequence, handledSinceContinuation: 0, acknowledgedInboxSequence };
       assertContinuationSize(continuation);
       await continueAsNew<typeof factoryWorkflow>({ ...input, continuation });
     }

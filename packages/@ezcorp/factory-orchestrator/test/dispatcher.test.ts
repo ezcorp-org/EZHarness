@@ -9,7 +9,7 @@ const workflowInput = {
   logicalRunId: "run",
   interpreterId: "interpreter",
   startedAtMs: 1,
-  factory: {},
+  definition: { definitionDigest: `sha256:${"a".repeat(64)}`, definitionEncodedBytes: 1, manifest: { objectId: "manifest", digest: `sha256:${"b".repeat(64)}`, encodedBytes: 1 } },
   input: {},
 };
 
@@ -23,6 +23,8 @@ function command(kind = "start_run") {
     workflowId: "tenant/run",
     kind,
     eventId: kind === "start_run" ? undefined : "event-1",
+    eventSequence: kind === "start_run" ? undefined : 1,
+    eventHash: kind === "start_run" ? undefined : `sha256:${"c".repeat(64)}`,
     body: kind === "start_run" ? workflowInput : { kind: "cancel", id: "event-1", atMs: 2, reason: "test" },
   };
 }
@@ -46,7 +48,8 @@ describe("factory outbox dispatcher", () => {
     const calls = [];
     const client = { workflow: { getHandle: (id) => ({ signal: async (name, body) => calls.push([id, name, body]) }) } };
     await deliverFactoryCommand(client, command("decision"));
-    assert.deepEqual(calls, [["tenant/run", "factoryInbox", command("decision").body]]);
+    const value = command("decision");
+    assert.deepEqual(calls, [["tenant/run", "factoryInbox", { sequence: value.eventSequence, eventId: value.eventId, eventHash: value.eventHash, event: value.body }]]);
   });
 
   it("rejects invalid durable identities and payloads", async () => {
@@ -55,9 +58,11 @@ describe("factory outbox dispatcher", () => {
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command(), body: [] }), /workflow input object/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command(), body: 1 }), /workflow input object/);
     await assert.rejects(deliverFactoryCommand({ workflow: { start: async () => { throw new Error("start failed"); } } }, command()), /start failed/);
-    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventId: undefined }), /stable event ID/);
+    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventId: undefined }), /stable event identity/);
+    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventSequence: undefined }), /stable event identity/);
+    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventHash: undefined }), /stable event identity/);
     await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), body: null }), /inbox event/);
-    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventId: "different" }), /must equal/);
+    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...command("decision"), eventId: "different" }), /does not match/);
   });
 
   it("settles only after an acknowledged delivery", async () => {
