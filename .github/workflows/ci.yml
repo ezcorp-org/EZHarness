@@ -75,6 +75,36 @@ jobs:
           FACTORY_ONLY: "1"
         run: bash scripts/test.sh
 
+  factory-temporal:
+    name: Factory Temporal integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned Temporal test server
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --output /tmp/temporal-test-server.tar.gz \
+            https://github.com/temporalio/temporal/releases/download/v1.38.0/temporal-test-server_1.38.0_linux_amd64.tar.gz
+          echo '41df834fe8e1ac59619e13908f41b63e4d1054f37634a2f89033d8cf6af71b96  /tmp/temporal-test-server.tar.gz' | sha256sum --check
+          mkdir -p /tmp/factory-tools/temporal-test-server
+          tar -xzf /tmp/temporal-test-server.tar.gz -C /tmp/factory-tools/temporal-test-server
+          chmod u+x /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+      - name: Run Node-only factory workflow, cancellation, and saved-history replay
+        env:
+          COV_OUT: coverage-shard
+        run: bash scripts/factory-orchestrator-coverage.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-orchestrator
+          path: coverage-shard/lcov.info
+          retention-days: 3
+          if-no-files-found: error
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest
@@ -915,13 +945,14 @@ jobs:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage]
+    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage, factory-temporal]
     if: always()
     steps:
       - name: Require coverage producers to have succeeded
         run: |
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.cov-extras.result }}" != "success" ] || \
+             [ "${{ needs.factory-temporal.result }}" != "success" ] || \
              [ "${{ needs.web-security-coverage.result }}" != "success" ] || \
              [ "${{ needs.test-web-shard.result }}" != "success" ] || \
              [ "${{ needs.browser-route-coverage.result }}" != "success" ]; then

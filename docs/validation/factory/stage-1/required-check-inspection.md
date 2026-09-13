@@ -8,16 +8,17 @@ gh api repos/ezcorp-org/EZHarness/branches/main/protection/required_status_check
 ```
 
 The API reported `strict: true` and 10 required contexts. Comparing that set
-with `DESIRED_REQUIRED_CHECKS` in `scripts/check-required-checks.ts` found five
+with `DESIRED_REQUIRED_CHECKS` in `scripts/check-required-checks.ts` now finds six
 missing contexts and no unexpected contexts:
 
 - `E2E (real auth + real DB)`
 - `Factory schema and kernel`
+- `Factory Temporal integration`
 - `Gate integrity`
 - `Svelte check`
 - `Visual evidence`
 
-The desired replacement is the 15-context array in the branch-protection
+The desired replacement is the 16-context array in the branch-protection
 snippet in `docs/development-lifecycle.md`. After an administrator applies it,
 run this read-only proof with a token that can read branch protection:
 

@@ -16,6 +16,7 @@ export const DESIRED_REQUIRED_CHECKS = [
   "Visual evidence",
   "Web security coverage",
   "Factory schema and kernel",
+  "Factory Temporal integration",
 ] as const;
 
 interface RequiredStatusChecksResponse {

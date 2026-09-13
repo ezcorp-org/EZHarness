@@ -120,6 +120,7 @@ export const SOURCE_GLOBS: readonly string[] = [
   "packages/@ezcorp/extension-contract/src/**/*.ts",
   "packages/@ezcorp/extension-runner/src/**/*.ts",
   "packages/@ezcorp/factory-sdk/src/**/*.ts",
+  "packages/@ezcorp/factory-orchestrator/src/**/*.ts",
   "docs/extensions/examples/**/*.ts",
   // First-party BUNDLED extensions (registered in src/extensions/bundled.ts).
   // They ship in the product exactly like `src/**` does — the reference
@@ -163,6 +164,12 @@ export const BROWSER_V8_COVERAGE_PRODUCER = "ezcorp-browser-v8";
  * for missing LCOV data rather than borrowing an incompatible map.
  */
 export const V8_CANONICAL_SOURCES: readonly string[] = [
+  "packages/@ezcorp/factory-orchestrator/src/contracts.ts",
+  "packages/@ezcorp/factory-orchestrator/src/dispatcher.ts",
+  "packages/@ezcorp/factory-orchestrator/src/index.ts",
+  "packages/@ezcorp/factory-orchestrator/src/validation.ts",
+  "packages/@ezcorp/factory-orchestrator/src/worker.ts",
+  "packages/@ezcorp/factory-orchestrator/src/workflow.ts",
   "web/src/lib/mention-logic.ts",
   "web/src/lib/markdown.ts",
   "web/src/lib/chat-input-logic.ts",
