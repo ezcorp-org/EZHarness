@@ -129,7 +129,7 @@ test("PostgreSQL and S3 keep a guest's material across a full restart and return
 
 test("a real guest uploads over mutual TLS, the gateway restarts, and the bytes still verify", async () => {
   const { db, authority, boot, scope } = await guest();
-  const certs = await certificates(directories);
+  const certs = await certificates(directories, TENANT);
   const services = await boot();
   const start = () => {
     const server = startFactoryExecutionGateway({
