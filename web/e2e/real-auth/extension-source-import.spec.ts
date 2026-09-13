@@ -2,7 +2,7 @@ import { test, expect } from "../fixtures/hydration.js";
 import { cp, mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { captureEvidence } from "../fixtures/evidence";
-import { extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
+import { expectInstallationEnabled, extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import { invokeExtensionToolFromComposer } from "../fixtures/composer";
 import { EMPTY_STORAGE_STATE, assertNoAuthenticationCookies } from "../fixtures/member-session";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "../../../src/extensions/v4/types";
@@ -26,7 +26,7 @@ async function approveAndActivate(page: import("@playwright/test").Page, install
   expect(activation.status()).toBe(200);
   const operation = await activation.json() as Record<string, unknown>;
   expect(operation).toMatchObject({ kind: "activate", state: expectedState, approvalId: approval.id, releaseId: approval.releaseId });
-  if (expectedState === "active") await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled();
+  if (expectedState === "active") await expectInstallationEnabled(page);
   else expect(operation).toMatchObject({ diagnostics: [{ code: "extension_name_in_use", stage: "activate" }] });
   return operation;
 }

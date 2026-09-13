@@ -6,6 +6,7 @@
 import { chromium } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
+import { waitForBundledBootstrap } from "./fixtures/bundled-bootstrap.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const STORAGE_STATE_PATH = path.join(__dirname, ".docker-auth.json");
@@ -29,5 +30,8 @@ export default async function globalSetup() {
 
   // Save the authenticated state (cookies)
   await context.storageState({ path: STORAGE_STATE_PATH });
+  // The production image builds its bundled extensions through one isolated
+  // runner after first boot; wait for a quiet runner before any spec builds.
+  await waitForBundledBootstrap(page.request, baseURL);
   await browser.close();
 }
