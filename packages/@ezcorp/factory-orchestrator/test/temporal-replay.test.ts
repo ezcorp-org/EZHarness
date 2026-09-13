@@ -10,7 +10,7 @@ import { bundleWorkflowCode, Worker, type WorkflowBundle } from "@temporalio/wor
 import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
 import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
-import { compileFactory } from "@ezcorp/factory-sdk";
+import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact } from "@ezcorp/factory-sdk";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
 import { deliverFactoryCommand, reconcileFactoryCommand } from "../src/dispatcher.ts";
 
@@ -21,9 +21,10 @@ let bundle: WorkflowBundle;
 let historyDirectory = "";
 
 const hash = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+const eventHash = (event) => hash(canonicalizeJson(event));
 const packageDigest = hash("inert-package");
 const runner = { package: "inert", version: "1", digest: packageDigest, export: "run" };
-const node = { id: "work", kind: "task", runner };
+const node = { id: "work", kind: "task", runner, deadlineMs: 600_000 };
 
 function compiled(nodes, id) {
   const childReferences = nodes.filter((item) => item.kind === "subfactory").map((item) => item.factory);
@@ -50,10 +51,44 @@ function storedDefinition(compiledFactory) {
   return { factory: compiledFactory, content, page, source: { definitionDigest: compiledFactory.digest, definitionEncodedBytes: page.encodedBytes, manifest } };
 }
 
+function storedPartition(compiledFactory, partitionId) {
+  const manifestValue = createCompiledExecutionManifest(compiledFactory);
+  const partitionValue = createCompiledPartitionArtifact(compiledFactory, partitionId);
+  const manifestContent = canonicalizeJson(manifestValue);
+  const partitionContent = canonicalizeJson(partitionValue);
+  const partition = compiledFactory.partitions.find((candidate) => candidate.id === partitionId);
+  assert.ok(partition);
+  assert.equal(Buffer.byteLength(manifestContent), compiledFactory.executionManifest.encodedBytes);
+  assert.equal(Buffer.byteLength(partitionContent), partition.encodedBytes);
+  return {
+    source: {
+      definitionDigest: compiledFactory.digest,
+      executionManifest: { objectId: `execution-manifest:${compiledFactory.digest}`, ...compiledFactory.executionManifest },
+      partition: { objectId: `partition:${compiledFactory.digest}:${partitionId}`, partitionId, digest: partition.digest, encodedBytes: partition.encodedBytes },
+    },
+    manifestValue,
+    partitionValue,
+  };
+}
+
 function definitionActivities(...factories) {
   const stored = factories.map(storedDefinition);
   const find = (digest) => stored.find((item) => item.factory.digest === digest);
+  const transitionPages = new Map();
   return {
+    stageTransitionPage: async (request) => {
+      const key = `${request.logicalRunId}:${request.interpreterId}:${request.sourceSequence}:${request.index}`;
+      transitionPages.set(key, request.content);
+      return { index: request.index, objectId: `transition:${key}`, digest: hash(request.content), encodedBytes: request.encodedBytes };
+    },
+    finalizeTransitionArtifact: async (request) => {
+      const content = request.pages.map((page) => transitionPages.get(`${request.logicalRunId}:${request.interpreterId}:${request.sourceSequence}:${page.index}`)).join("");
+      const transition = JSON.parse(content);
+      const eventHash = hash(canonicalizeJson(transition.event));
+      assert.equal(request.eventId, transition.event.id);
+      if (request.expectedEventHash !== undefined) assert.equal(request.expectedEventHash, eventHash);
+      return { manifest: { objectId: `transition-manifest:${request.logicalRunId}:${request.sourceSequence}`, digest: hash(content), encodedBytes: Math.min(Buffer.byteLength(content), 32 * 1024) }, eventHash };
+    },
     resolveFactory: async ({ factory: reference }) => {
       const item = find(reference.digest);
       if (!item) throw new Error("unknown child factory");
@@ -68,6 +103,16 @@ function definitionActivities(...factories) {
       const item = find(definitionDigest);
       if (!item) throw new Error("unknown definition page");
       return { index: page.index, objectId: page.objectId, digest: page.digest, content: item.content };
+    },
+    loadExecutionManifest: async ({ definitionDigest }) => {
+      const item = find(definitionDigest);
+      if (!item) throw new Error("unknown execution manifest");
+      return createCompiledExecutionManifest(item.factory);
+    },
+    loadPartitionArtifact: async ({ definitionDigest, partition }) => {
+      const item = find(definitionDigest);
+      if (!item) throw new Error("unknown partition artifact");
+      return createCompiledPartitionArtifact(item.factory, partition.partitionId);
     },
   };
 }
@@ -270,9 +315,107 @@ describe("factory Temporal workflow", () => {
       });
       await successors;
       assert.deepEqual([...completed].sort(), ["a", "b", "d"]);
-      await handle.signal("factoryInbox", { sequence: 1, eventId: "cancel-parallel", eventHash: hash("cancel-parallel"), event: { kind: "cancel", id: "cancel-parallel", atMs: Date.now(), reason: "test complete" } });
+      const cancel = { kind: "cancel", id: "cancel-parallel", atMs: Date.now(), reason: "test complete" };
+      await handle.signal("factoryInbox", { sequence: 1, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
       assert.equal((await handle.result()).status, "cancelled");
       await assertClosedReceipt(handle);
+    });
+  });
+
+  it("loads bounded partitions from a 10,000-node plan and advances a cross-partition successor before a slow sibling", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const largeFactory = compiled([
+      { ...node, id: "a", outputPorts: { value: { type: "number" } } },
+      ...Array.from({ length: 9_998 }, (_, index) => ({ ...node, id: `slow-${index.toString().padStart(4, "0")}` })),
+      {
+        ...node,
+        id: "z",
+        dependsOn: ["a"],
+        inputPorts: { fromA: { type: "number" } },
+        bindings: { fromA: { kind: "ref", root: "node", name: "a", path: ["value"] } },
+      },
+    ], "ten-thousand-partition-plan");
+    assert.equal(largeFactory.definition.graph.nodes.length, 10_000);
+    assert.ok(largeFactory.partitions.length > 1);
+    assert.ok(largeFactory.partitions.every((partition) => partition.nodeIds.length <= 128 && partition.encodedBytes <= 32 * 1024));
+    const sourcePartition = largeFactory.partitions.find((partition) => partition.nodeIds.includes("a"));
+    const targetPartition = largeFactory.partitions.find((partition) => partition.nodeIds.includes("z"));
+    assert.ok(sourcePartition);
+    assert.ok(targetPartition);
+    assert.notEqual(sourcePartition.id, targetPartition.id);
+    const sourceStored = storedPartition(largeFactory, sourcePartition.id);
+    const targetStored = storedPartition(largeFactory, targetPartition.id);
+    assert.ok(sourceStored.source.executionManifest.encodedBytes <= 32 * 1024);
+    assert.ok(sourceStored.source.partition.encodedBytes <= 32 * 1024);
+    assert.ok(targetStored.source.partition.encodedBytes <= 32 * 1024);
+
+    const sourceWorkflowId = `tenant/partition-10k-${process.pid}/partitions/${sourcePartition.id}`;
+    const targetWorkflowId = `tenant/partition-10k-${process.pid}/partitions/${targetPartition.id}`;
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>((resolve) => { releaseSlow = resolve; });
+    let zDispatched!: () => void;
+    const zStarted = new Promise<void>((resolve) => { zDispatched = resolve; });
+    let slowReleased = false;
+    let zAdvancedBeforeSlow = false;
+    let activeEffects = 0;
+    let maximumActiveEffects = 0;
+    const activities = {
+      ...definitionActivities(largeFactory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        activeEffects += 1;
+        maximumActiveEffects = Math.max(maximumActiveEffects, activeEffects);
+        try {
+          if (command.kind === "request-admission") {
+            return { kind: "admission-result", id: `${command.id}:admitted`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+          }
+          if (command.kind === "dispatch-node") {
+            if (command.nodeId === "slow-0000") await slow;
+            if (command.nodeId === "z") {
+              assert.deepEqual(command.input, { fromA: 7 });
+              zAdvancedBeforeSlow = !slowReleased;
+              zDispatched();
+            }
+            return { kind: "node-result", id: `${command.id}:result`, atMs: startedAtMs + 2, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: command.nodeId === "a" ? { value: 7 } : {} };
+          }
+          if (command.kind === "notify-partition") {
+            const { kind: _kind, id, ...completion } = command;
+            const event = { kind: "partition-node-completed", id, atMs: startedAtMs + 2, ...completion };
+            await environment.client.workflow.getHandle(targetWorkflowId).signal("factoryInbox", { sequence: 1, eventId: id, eventHash: eventHash(event), event });
+            return null;
+          }
+          throw new Error(`unexpected ${command.kind}`);
+        } finally {
+          activeEffects -= 1;
+        }
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, activities });
+    await worker.runUntil(async () => {
+      const target = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: targetWorkflowId,
+        taskQueue: queue,
+        retry: { maximumAttempts: 1 },
+        args: [workflowInput(largeFactory, { logicalRunId: `partition-10k-${process.pid}`, interpreterId: targetPartition.id, startedAtMs, definition: targetStored.source })],
+      });
+      const source = await environment.client.workflow.start("factoryWorkflow", {
+        workflowId: sourceWorkflowId,
+        taskQueue: queue,
+        retry: { maximumAttempts: 1 },
+        args: [workflowInput(largeFactory, { logicalRunId: `partition-10k-${process.pid}`, interpreterId: sourcePartition.id, startedAtMs, definition: sourceStored.source })],
+      });
+      await zStarted;
+      assert.equal(zAdvancedBeforeSlow, true);
+      assert.equal((await source.query("factoryState")).nodes["slow-0000"].status, "running");
+      slowReleased = true;
+      releaseSlow();
+      assert.equal((await source.result()).status, "completed");
+      assert.equal((await target.result()).status, "completed");
+      assert.ok(maximumActiveEffects <= 32);
+      const history = await target.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), targetWorkflowId);
+      await assertClosedReceipt(source);
+      await assertClosedReceipt(target);
     });
   });
 
@@ -300,12 +443,13 @@ describe("factory Temporal workflow", () => {
       });
       await started;
       const future = { kind: "repair", id: "future-repair", atMs: startedAtMs + 2, nodeId: "work", reason: "queued after cancellation" };
-      await handle.signal("factoryInbox", { sequence: 2, eventId: future.id, eventHash: hash(JSON.stringify(future)), event: future });
+      await handle.signal("factoryInbox", { sequence: 2, eventId: future.id, eventHash: eventHash(future), event: future });
       assert.deepEqual(await handle.query("factoryInboxReceipt"), {
         acknowledgedSequence: 0,
-        pending: [{ sequence: 2, eventId: future.id, eventHash: hash(JSON.stringify(future)) }],
+        pending: [{ sequence: 2, eventId: future.id, eventHash: eventHash(future) }],
       });
-      await handle.signal("factoryInbox", { sequence: 1, eventId: "cancel-event", eventHash: hash("cancel-event"), event: { kind: "cancel", id: "cancel-event", atMs: startedAtMs + 2, reason: "requested" } });
+      const cancel = { kind: "cancel", id: "cancel-event", atMs: startedAtMs + 2, reason: "requested" };
+      await handle.signal("factoryInbox", { sequence: 1, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
       const result = await handle.result();
       assert.equal(result.status, "cancelled", JSON.stringify(result));
       assert.equal(result.state.nodes.work.attempts[0].stopped, true);
@@ -386,7 +530,8 @@ describe("factory Temporal workflow", () => {
         args: [workflowInput(parentFactory, { logicalRunId: "cancel-parent", startedAtMs })],
       });
       await started;
-      await handle.signal("factoryInbox", { sequence: 1, eventId: "cancel-child", eventHash: hash("cancel-child"), event: { kind: "cancel", id: "cancel-child", atMs: startedAtMs + 2, reason: "requested" } });
+      const cancel = { kind: "cancel", id: "cancel-child", atMs: startedAtMs + 2, reason: "requested" };
+      await handle.signal("factoryInbox", { sequence: 1, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
       assert.equal((await handle.result()).status, "cancelled");
       await assertClosedReceipt(handle);
     });
@@ -464,8 +609,8 @@ describe("factory Temporal workflow", () => {
       const firstRunId = (await handle.describe()).runId;
       const repair = { kind: "repair", id: "repair-before-continuation", atMs: startedAtMs + 1, nodeId: "approval", reason: "ignored while waiting" };
       const decision = { kind: "approval-decided", id: "approval-during-continuation", atMs: startedAtMs + 2, nodeId: "approval", commandId: approvalCommand.id, choice: "approve" };
-      await handle.signal("factoryInbox", { sequence: 1, eventId: repair.id, eventHash: hash(JSON.stringify(repair)), event: repair });
-      await handle.signal("factoryInbox", { sequence: 2, eventId: decision.id, eventHash: hash(JSON.stringify(decision)), event: decision });
+      await handle.signal("factoryInbox", { sequence: 1, eventId: repair.id, eventHash: eventHash(repair), event: repair });
+      await handle.signal("factoryInbox", { sequence: 2, eventId: decision.id, eventHash: eventHash(decision), event: decision });
       await taskIsRunning;
       const current = environment.client.workflow.getHandle(workflowId);
       assert.notEqual((await current.describe()).runId, firstRunId);
@@ -484,7 +629,7 @@ describe("factory Temporal workflow", () => {
       };
       assert.equal(await reconcileFactoryCommand(environment.client, forged, { confirmInboxIdentity: async () => false }), "outcome_unknown");
       const cancel = { kind: "cancel", id: "cancel-after-continuation", atMs: Date.now(), reason: "requested" };
-      await current.signal("factoryInbox", { sequence: 3, eventId: cancel.id, eventHash: hash(JSON.stringify(cancel)), event: cancel });
+      await current.signal("factoryInbox", { sequence: 3, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
       const result = await handle.result();
       assert.equal(result.status, "cancelled");
       await assertClosedReceipt(current);

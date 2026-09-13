@@ -34,6 +34,16 @@
       "types": "./dist/expressions.d.ts",
       "import": "./dist/expressions.js"
     },
+    "./canonical": {
+      "bun": "./src/canonical.ts",
+      "types": "./dist/canonical.d.ts",
+      "import": "./dist/canonical.js"
+    },
+    "./transport-types": {
+      "bun": "./src/transport-types.ts",
+      "types": "./dist/transport-types.d.ts",
+      "import": "./dist/transport-types.js"
+    },
     "./types": {
       "bun": "./src/types.ts",
       "types": "./dist/types.d.ts",

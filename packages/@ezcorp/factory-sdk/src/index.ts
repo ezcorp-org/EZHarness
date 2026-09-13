@@ -1,4 +1,5 @@
 export type * from "./types.js";
+export type * from "./transport-types.js";
 export { FACTORY_API_REQUEST_SCHEMA_VERSION, FACTORY_API_RESPONSE_SCHEMA_VERSION, FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION, FACTORY_IR_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_PARTITION_SCHEMA_VERSION, FACTORY_RUNNER_REQUEST_SCHEMA_VERSION, FACTORY_RUNNER_RESULT_SCHEMA_VERSION, FACTORY_SCHEMA_VERSION } from "./types.js";
 export { compiledExecutionManifestJsonSchema, compiledFactoryJsonSchema, compiledPartitionArtifactJsonSchema, factoryApiRequestJsonSchema, factoryApiResponseJsonSchema, factoryDefinitionJsonSchema, factoryRunnerRequestJsonSchema, factoryRunnerResultJsonSchema, isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryDefinition, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
 export { evaluateExpression, validateExpression } from "./expressions.js";

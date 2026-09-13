@@ -168,6 +168,8 @@
   "packages/@ezcorp/factory-orchestrator/src/gateway-activities.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/inbox.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/index.ts": 100,
+  "packages/@ezcorp/factory-orchestrator/src/partition-plan.ts": 100,
+  "packages/@ezcorp/factory-orchestrator/src/transition-pages.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/validation.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/worker.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/workflow.ts": 100,

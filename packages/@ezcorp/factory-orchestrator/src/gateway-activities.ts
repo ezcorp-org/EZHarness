@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { request as httpsRequest, type RequestOptions } from "node:https";
 import type { IncomingHttpHeaders } from "node:http";
+import type { CompiledExecutionManifest, CompiledPartitionArtifact } from "@ezcorp/factory-sdk/types";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { Context } from "@temporalio/activity";
 import {
@@ -13,9 +14,11 @@ import {
   type FactoryDefinitionSource,
   type FactoryManifestPage,
   type ImmutableObjectReference,
+  type FinalizedTransitionArtifact,
+  type TransitionPageReference,
   type TransitionRecord,
 } from "./contracts.ts";
-import { validateDefinitionSource, validateInboxEvent, validateManifestPage } from "./validation.ts";
+import { validateDefinitionSource, validateInboxEvent, validateManifestPage, validateObjectReference } from "./validation.ts";
 
 export interface GatewayTlsSecretPaths {
   readonly caPath: string;
@@ -148,6 +151,20 @@ export async function createGatewayFactoryActivities(options: GatewayActivitiesO
   };
 
   return {
+    async stageTransitionPage(value): Promise<TransitionPageReference> {
+      const response = await request("PUT", `/internal/factory/v1/transitions/${value.sourceSequence}/pages/${value.index}`, value);
+      const reference = parseJson<TransitionPageReference>(response);
+      validateObjectReference(reference, "factory transition page");
+      if (reference.index !== value.index || reference.encodedBytes !== value.encodedBytes) throw new Error("factory gateway returned a mismatched transition page reference");
+      return reference;
+    },
+    async finalizeTransitionArtifact(value): Promise<FinalizedTransitionArtifact> {
+      const response = await request("POST", `/internal/factory/v1/transitions/${value.sourceSequence}/finalize`, value);
+      const finalized = parseJson<FinalizedTransitionArtifact>(response);
+      validateObjectReference(finalized.manifest, "factory transition manifest");
+      if (!/^sha256:[0-9a-f]{64}$/.test(finalized.eventHash)) throw new Error("factory gateway returned an invalid transition event digest");
+      return finalized;
+    },
     async recordTransition(record: TransitionRecord): Promise<void> {
       await request("POST", "/internal/factory/v1/transitions", record);
     },
@@ -178,6 +195,16 @@ export async function createGatewayFactoryActivities(options: GatewayActivitiesO
       const response = await request("POST", "/internal/factory/v1/definitions/page", value, MAX_PAGE_BYTES);
       assertObjectBytes(response.body, value.page);
       return { index: value.page.index, objectId: value.page.objectId, digest: value.page.digest, content: response.body.toString("utf8") };
+    },
+    async loadExecutionManifest(value): Promise<CompiledExecutionManifest> {
+      const response = await request("POST", "/internal/factory/v1/definitions/execution-manifest", value, MAX_PAGE_BYTES);
+      assertObjectBytes(response.body, value.manifest);
+      return parseJson<CompiledExecutionManifest>(response);
+    },
+    async loadPartitionArtifact(value): Promise<CompiledPartitionArtifact> {
+      const response = await request("POST", "/internal/factory/v1/definitions/partition", value, MAX_PAGE_BYTES);
+      assertObjectBytes(response.body, value.partition);
+      return parseJson<CompiledPartitionArtifact>(response);
     },
   };
 }

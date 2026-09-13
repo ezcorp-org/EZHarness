@@ -6,7 +6,7 @@ import { SOURCE_GLOBS, V8_CANONICAL_SOURCES } from "./coverage-config";
 describe("factory Temporal gate registration", () => {
   test("owns every Node orchestrator source with one canonical producer", async () => {
     const thresholds = JSON.parse(await readFile("scripts/coverage-thresholds.json", "utf8"));
-    const sources = ["contracts", "definition-pages", "dispatcher", "gateway-activities", "inbox", "index", "validation", "worker", "workflow"].map((name) => `packages/@ezcorp/factory-orchestrator/src/${name}.ts`);
+    const sources = ["contracts", "definition-pages", "dispatcher", "gateway-activities", "inbox", "index", "partition-plan", "transition-pages", "validation", "worker", "workflow"].map((name) => `packages/@ezcorp/factory-orchestrator/src/${name}.ts`);
     expect(SOURCE_GLOBS).toContain("packages/@ezcorp/factory-orchestrator/src/**/*.ts");
     for (const source of sources) {
       expect(thresholds[source]).toBe(100);

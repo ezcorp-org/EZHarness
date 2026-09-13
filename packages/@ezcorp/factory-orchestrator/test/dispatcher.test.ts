@@ -22,7 +22,7 @@ function command(kind = "start_run") {
     logicalRunId: "run",
     workflowId: "tenant/run",
     kind,
-    interpreterId: "interpreter",
+    interpreterId: kind === "start_run" ? "interpreter" : "root",
     eventId: kind === "start_run" ? undefined : "event-1",
     eventSequence: kind === "start_run" ? undefined : 1,
     eventHash: kind === "start_run" ? undefined : `sha256:${"c".repeat(64)}`,
@@ -40,6 +40,26 @@ describe("factory outbox dispatcher", () => {
     assert.equal(captured.retry.maximumAttempts, 1);
     assert.equal(captured.workflowIdReusePolicy, "REJECT_DUPLICATE");
     assert.deepEqual(captured.memo["ezcorp.factory.start.v1"], { commandId: "command-1", tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "interpreter" });
+  });
+
+  it("uses a stable workflow identity for a partition interpreter", async () => {
+    let workflowId: string | undefined;
+    const partitionInput = {
+      ...workflowInput,
+      definition: {
+        definitionDigest: workflowInput.definition.definitionDigest,
+        executionManifest: workflowInput.definition.manifest,
+        partition: { ...workflowInput.definition.manifest, partitionId: "partition-7" },
+      },
+    };
+    const partitionCommand = {
+      ...command(),
+      workflowId: "tenant/run/partitions/partition-7",
+      body: partitionInput,
+    };
+    await deliverFactoryCommand({ workflow: { start: async (_type, options) => { workflowId = options.workflowId; } } }, partitionCommand);
+    assert.equal(workflowId, partitionCommand.workflowId);
+    await assert.rejects(deliverFactoryCommand({ workflow: {} }, { ...partitionCommand, workflowId: "tenant/run" }), /identity/);
   });
 
   it("acknowledges only a repeated start with the same durable identity", async () => {
@@ -63,6 +83,13 @@ describe("factory outbox dispatcher", () => {
     await deliverFactoryCommand(client, command("decision"));
     const value = command("decision");
     assert.deepEqual(calls, [["tenant/run", "factoryInbox", { sequence: value.eventSequence, eventId: value.eventId, eventHash: value.eventHash, event: value.body }]]);
+  });
+
+  it("addresses partition notifications to their partition interpreter", async () => {
+    const calls = [];
+    const client = { workflow: { getHandle: (id) => ({ signal: async () => calls.push(id) }) } };
+    await deliverFactoryCommand(client, { ...command("partition_notification"), interpreterId: "partition-7" });
+    assert.deepEqual(calls, ["tenant/run/partitions/partition-7"]);
   });
 
   it("rejects invalid durable identities and payloads", async () => {

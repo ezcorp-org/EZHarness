@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { compileFactory } from "@ezcorp/factory-sdk";
-import { assertActivityPayloadSize, assertCommandBatchSize, assertContinuationSize, validateCompiledFactoryShape, validateDefinitionSource, validateInboxEnvelope, validateInboxEvent, validateLoadedDefinitionPage, validateManifestPage, validateObjectReference, validateWorkflowInput } from "../src/validation.ts";
+import { assertActivityPayloadSize, assertCommandBatchSize, assertContinuationSize, isPartitionSource, validateCompiledFactoryShape, validateDefinitionSource, validateInboxEnvelope, validateInboxEvent, validateLoadedDefinitionPage, validateManifestPage, validateObjectReference, validatePartitionSource, validateWorkflowInput } from "../src/validation.ts";
 
 const digest = `sha256:${"a".repeat(64)}`;
 const reference = { objectId: "object", digest, encodedBytes: 2 };
@@ -17,7 +17,7 @@ function compiledFactory() {
     interpreterCompatibility: "1",
     inputPorts: {},
     outputPorts: {},
-    graph: { nodes: [{ id: "work", kind: "task", runner }], outputs: {} },
+    graph: { nodes: [{ id: "work", kind: "task", runner, deadlineMs: 600_000 }], outputs: {} },
     acceptance: { id: "acceptance", version: "1", claims: [{ id: "claim", validator: runner, required: true, protected: true }], groups: [] },
     packages: [{ name: runner.package, version: runner.version, digest: runner.digest }],
     factories: [],
@@ -61,6 +61,23 @@ describe("orchestrator boundary validation", () => {
     assert.throws(() => validateLoadedDefinitionPage(null, { ...reference, index: 0 }), /loaded/);
     assert.throws(() => validateLoadedDefinitionPage({ index: 1, objectId: "object", digest, content: "{}" }, { ...reference, index: 0 }), /identity/);
     assert.throws(() => validateLoadedDefinitionPage({ index: 0, objectId: "object", digest, content: "x" }, { ...reference, index: 0 }), /byte count/);
+  });
+  it("validates bounded partition sources and their continuation identity", () => {
+    const partition = {
+      definitionDigest: digest,
+      executionManifest: reference,
+      partition: { ...reference, objectId: "partition", partitionId: "partition-0" },
+    };
+    assert.equal(isPartitionSource(definition), false);
+    assert.equal(isPartitionSource(partition), true);
+    assert.doesNotThrow(() => validatePartitionSource(partition));
+    assert.doesNotThrow(() => validateWorkflowInput({ ...valid, definition: partition }));
+    assert.doesNotThrow(() => validateWorkflowInput({ ...valid, definition: partition, continuation: { state: { definitionDigest: digest, partition: { id: "partition-0" } }, acknowledgedInboxSequence: 0 } }));
+    assert.throws(() => validatePartitionSource(null), /partition source/);
+    assert.throws(() => validatePartitionSource({ ...partition, definitionDigest: "bad" }), /digest/);
+    assert.throws(() => validatePartitionSource({ ...partition, executionManifest: null }), /execution manifest/);
+    assert.throws(() => validatePartitionSource({ ...partition, partition: { ...partition.partition, partitionId: "" } }), /partition ID/);
+    assert.throws(() => validateWorkflowInput({ ...valid, definition: partition, continuation: { state: { definitionDigest: digest }, acknowledgedInboxSequence: 0 } }), /partition ID/);
   });
   it("validates compiled partitions, command batches, and sequenced inbox envelopes", () => {
     const factory = compiledFactory();

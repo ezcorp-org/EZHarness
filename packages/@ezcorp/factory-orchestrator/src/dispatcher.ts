@@ -11,7 +11,7 @@ import {
   type FactoryTransportCommand,
   type FactoryWorkflowInput,
 } from "./contracts.ts";
-import { validateInboxEnvelope, validateWorkflowInput } from "./validation.ts";
+import { isPartitionSource, validateInboxEnvelope, validateWorkflowInput } from "./validation.ts";
 
 const START_OPTIONS = Symbol.for("__temporal_internal_client_workflow_start_options");
 const START_MEMO_KEY = "ezcorp.factory.start.v1";
@@ -21,6 +21,18 @@ export type DispatchVerdict = "delivered" | "retry" | "outcome_unknown";
 /** Only infrastructure that proves no Temporal request was issued may use this marker. */
 export class FactoryPreSendError extends Error {
   override readonly name = "FactoryPreSendError";
+}
+
+/** One canonical Temporal address for the root or a compiler partition interpreter. */
+export function factoryWorkflowId(tenantId: string, logicalRunId: string, partitionId?: string): string {
+  const root = `${tenantId}/${logicalRunId}`;
+  return partitionId === undefined || partitionId === "root" ? root : `${root}/partitions/${partitionId}`;
+}
+
+function commandWorkflowId(command: FactoryTransportCommand): string {
+  if (command.kind === "start_run") return command.workflowId;
+  if (!command.interpreterId || command.workflowId !== factoryWorkflowId(command.tenantId, command.logicalRunId)) throw new Error("signal command must address a scoped interpreter from its root workflow identity");
+  return factoryWorkflowId(command.tenantId, command.logicalRunId, command.interpreterId);
 }
 
 function startInput(command: FactoryTransportCommand): FactoryWorkflowInput {
@@ -34,7 +46,9 @@ function startInput(command: FactoryTransportCommand): FactoryWorkflowInput {
     || command.projectId !== input.projectId
     || command.logicalRunId !== input.logicalRunId
     || command.interpreterId !== input.interpreterId
-    || command.workflowId !== `${input.tenantId}/${input.logicalRunId}`
+    || command.workflowId !== (isPartitionSource(input.definition)
+      ? factoryWorkflowId(input.tenantId, input.logicalRunId, input.definition.partition.partitionId)
+      : factoryWorkflowId(input.tenantId, input.logicalRunId))
   ) throw new Error("start command identity does not match its workflow input");
   return input;
 }
@@ -60,7 +74,7 @@ export async function reconcileFactoryCommand(
   identityStore?: Pick<FactoryCommandQueue, "confirmInboxIdentity">,
 ): Promise<"delivered" | "outcome_unknown"> {
   try {
-    const handle = client.workflow.getHandle(command.workflowId);
+    const handle = client.workflow.getHandle(commandWorkflowId(command));
     if (command.kind === "start_run") {
       const description = await handle.describe();
       return description.type === FACTORY_WORKFLOW_TYPE && sameStartIdentity(description.memo?.[START_MEMO_KEY], startIdentity(command))
@@ -101,7 +115,7 @@ export async function deliverFactoryCommand(client: Client, command: FactoryTran
   if (!command.eventId || !command.eventSequence || !command.eventHash) throw new Error("signal command requires a stable event identity, hash, and sequence");
   const envelope = { sequence: command.eventSequence, eventId: command.eventId, eventHash: command.eventHash, event: command.body };
   validateInboxEnvelope(envelope as never);
-  await client.workflow.getHandle(command.workflowId).signal(FACTORY_INBOX_SIGNAL, envelope);
+  await client.workflow.getHandle(commandWorkflowId(command)).signal(FACTORY_INBOX_SIGNAL, envelope);
 }
 
 export function classifyDispatchError(error: unknown): DispatchVerdict {

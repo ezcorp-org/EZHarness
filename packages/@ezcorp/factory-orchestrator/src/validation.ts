@@ -9,6 +9,8 @@ import type {
   FactoryDefinitionSource,
   FactoryInboxEnvelope,
   FactoryManifestPage,
+  FactoryPartitionSource,
+  FactoryPlanSource,
   FactoryWorkflowInput,
   ImmutableObjectReference,
 } from "./contracts.ts";
@@ -53,6 +55,18 @@ export function validateDefinitionSource(source: FactoryDefinitionSource): void 
   validateObjectReference(source.manifest, "factory manifest");
 }
 
+export function isPartitionSource(source: FactoryPlanSource): source is FactoryPartitionSource {
+  return typeof source === "object" && source !== null && ("executionManifest" in source || "partition" in source);
+}
+
+export function validatePartitionSource(source: FactoryPartitionSource): void {
+  if (typeof source !== "object" || source === null) throw new Error("factory partition source is required");
+  digest(source.definitionDigest, "factory definition digest");
+  validateObjectReference(source.executionManifest, "factory execution manifest");
+  validateObjectReference(source.partition, "factory partition artifact");
+  requiredIdentity(source.partition.partitionId, "factory partition ID");
+}
+
 export function validateManifestPage(page: FactoryManifestPage): void {
   if (typeof page !== "object" || page === null || page.schemaVersion !== "factory.manifest-page.v1" || !Array.isArray(page.pages)) throw new Error("factory manifest page is invalid");
   digest(page.definitionDigest, "manifest definition digest");
@@ -80,8 +94,10 @@ export function validateWorkflowInput(input: FactoryWorkflowInput): void {
   if (!Number.isSafeInteger(input.startedAtMs) || input.startedAtMs < 0) throw new Error("start timestamp must be a non-negative safe integer");
   if (input.deadlineAtMs !== undefined && (!Number.isSafeInteger(input.deadlineAtMs) || input.deadlineAtMs < input.startedAtMs)) throw new Error("workflow deadline must be a safe timestamp at or after start");
   assertActivityPayloadSize(input, "factory workflow input");
-  validateDefinitionSource(input.definition);
+  if (isPartitionSource(input.definition)) validatePartitionSource(input.definition);
+  else validateDefinitionSource(input.definition);
   if (input.continuation && input.continuation.state.definitionDigest !== input.definition.definitionDigest) throw new Error("continuation definition digest does not match input");
+  if (input.continuation && isPartitionSource(input.definition) && input.continuation.state.partition?.id !== input.definition.partition.partitionId) throw new Error("continuation partition ID does not match input");
   if (input.continuation && (!Number.isSafeInteger(input.continuation.acknowledgedInboxSequence) || input.continuation.acknowledgedInboxSequence < 0)) throw new Error("continuation inbox sequence must be a non-negative safe integer");
 }
 

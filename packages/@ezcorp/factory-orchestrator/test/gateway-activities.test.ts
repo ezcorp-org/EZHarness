@@ -23,6 +23,12 @@ const definitionPage = { index: 0, objectId: "definition-page", digest: sha256(d
 const manifestBody = Buffer.from(JSON.stringify({ schemaVersion: "factory.manifest-page.v1", definitionDigest, definitionEncodedBytes: definitionBody.byteLength, pages: [definitionPage] }));
 const manifest = { objectId: "manifest-page", digest: sha256(manifestBody), encodedBytes: manifestBody.byteLength };
 const source = { definitionDigest, definitionEncodedBytes: definitionBody.byteLength, manifest };
+const executionManifestBody = Buffer.from(JSON.stringify({ schemaVersion: "factory.execution-manifest.v1", factoryDigest: definitionDigest, inputPorts: {}, outputPorts: {}, bounds: { runDeadlineMs: 10, maxExpandedNodes: 10, maxScopeDepth: 2 }, outputs: {} }));
+const executionManifest = { objectId: "execution-manifest", digest: sha256(executionManifestBody), encodedBytes: executionManifestBody.byteLength };
+const partitionBody = Buffer.from(JSON.stringify({ schemaVersion: "factory.partition.v1", factoryDigest: definitionDigest, id: "partition-0", nodeIds: [], dependsOn: [], inbound: [], outbound: [], nodes: [] }));
+const partition = { objectId: "partition-0", partitionId: "partition-0", digest: sha256(partitionBody), encodedBytes: partitionBody.byteLength };
+const transitionPage = { index: 0, objectId: "transition-page", digest: sha256("page"), encodedBytes: 4 };
+const finalizedTransition = { manifest: { objectId: "transition-manifest", digest: sha256("manifest"), encodedBytes: 128 }, eventHash: sha256("event") };
 
 function openssl(...args) {
   execFileSync("openssl", args, { cwd: directory, stdio: "ignore" });
@@ -69,6 +75,10 @@ before(async () => {
     if (request.url === "/internal/factory/v1/definitions/resolve") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-resolve" ? { ...source, definitionDigest: sha256("wrong") } : source));
     else if (request.url === "/internal/factory/v1/definitions/manifest") response.writeHead(200, { "content-type": "application/json" }).end(manifestBody);
     else if (request.url === "/internal/factory/v1/definitions/page") response.writeHead(200, { "content-type": "application/json" }).end(definitionBody);
+    else if (request.url === "/internal/factory/v1/definitions/execution-manifest") response.writeHead(200, { "content-type": "application/json" }).end(executionManifestBody);
+    else if (request.url === "/internal/factory/v1/definitions/partition") response.writeHead(200, { "content-type": "application/json" }).end(partitionBody);
+    else if (request.url === "/internal/factory/v1/transitions/1/pages/0") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-transition-page" ? { ...transitionPage, index: 1 } : transitionPage));
+    else if (request.url === "/internal/factory/v1/transitions/1/finalize") response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(mode === "wrong-transition-finalize" ? { ...finalizedTransition, eventHash: "wrong" } : finalizedTransition));
     else if (request.url === "/internal/factory/v1/transitions") response.writeHead(204).end();
     else if (request.url?.includes("/cancel")) response.writeHead(204).end();
     else response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ kind: "admission-result", id: "event", atMs: 1, nodeId: "node", commandId: "command", candidateGeneration: 0, granted: true }));
@@ -84,7 +94,7 @@ after(async () => {
 });
 
 const identity = { tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "build" };
-const transition = { ...identity, sourceSequence: 1, event: { kind: "start", id: "start", atMs: 1 }, nextState: {}, commands: [] };
+const transition = { ...identity, sourceSequence: 1, eventId: "start", eventHash: finalizedTransition.eventHash, artifactManifest: finalizedTransition.manifest };
 const activity = (environment, fn, value) => environment.run(fn, value);
 
 describe("authenticated factory gateway activities", () => {
@@ -96,6 +106,10 @@ describe("authenticated factory gateway activities", () => {
     assert.deepEqual(await activity(environment, activities.resolveFactory, { ...identity, factory: { id: "child", version: "1", digest: definitionDigest } }), source);
     assert.deepEqual(await activity(environment, activities.loadManifestPage, { ...identity, definition: source, page: manifest }), { ...JSON.parse(manifestBody), self: manifest });
     assert.deepEqual(await activity(environment, activities.loadDefinitionPage, { ...identity, definitionDigest, page: definitionPage }), { index: 0, objectId: definitionPage.objectId, digest: definitionPage.digest, content: definitionBody.toString() });
+    assert.deepEqual(await activity(environment, activities.loadExecutionManifest, { ...identity, definitionDigest, manifest: executionManifest }), JSON.parse(executionManifestBody));
+    assert.deepEqual(await activity(environment, activities.loadPartitionArtifact, { ...identity, definitionDigest, partition }), JSON.parse(partitionBody));
+    assert.deepEqual(await activity(environment, activities.stageTransitionPage, { ...identity, sourceSequence: 1, index: 0, content: "page", encodedBytes: 4 }), transitionPage);
+    assert.deepEqual(await activity(environment, activities.finalizeTransitionArtifact, { ...identity, sourceSequence: 1, encodedBytes: 4, eventId: "start", pages: [transitionPage] }), finalizedTransition);
     assert.equal(await activity(environment, activities.recordTransition, transition), undefined);
     const admission = { ...identity, command: { kind: "request-admission", id: "admit", nodeId: "node", candidateGeneration: 0, deadlineAtMs: 10 } };
     assert.equal((await activity(environment, activities.executeCommand, admission)).kind, "admission-result");
@@ -105,7 +119,9 @@ describe("authenticated factory gateway activities", () => {
     assert.equal(await activity(environment, activities.executeCommand, cancel), null);
     assert.deepEqual(calls.map((call) => [call.method, call.path]), [
       ["POST", "/internal/factory/v1/definitions/resolve"], ["POST", "/internal/factory/v1/definitions/manifest"],
-      ["POST", "/internal/factory/v1/definitions/page"], ["POST", "/internal/factory/v1/transitions"],
+      ["POST", "/internal/factory/v1/definitions/page"], ["POST", "/internal/factory/v1/definitions/execution-manifest"],
+      ["POST", "/internal/factory/v1/definitions/partition"], ["PUT", "/internal/factory/v1/transitions/1/pages/0"],
+      ["POST", "/internal/factory/v1/transitions/1/finalize"], ["POST", "/internal/factory/v1/transitions"],
       ["POST", "/internal/factory/v1/commands/admit"], ["PUT", "/internal/factory/v1/executions/dispatch"],
       ["POST", "/internal/factory/v1/executions/dispatch/cancel"],
     ]);
@@ -137,10 +153,16 @@ describe("authenticated factory gateway activities", () => {
     await assert.rejects(activity(new MockActivityEnvironment(), activities.resolveFactory, { ...identity, factory: { id: "child", version: "1", digest: definitionDigest } }), /pinned child/);
     mode = "normal";
     await assert.rejects(activity(new MockActivityEnvironment(), activities.loadDefinitionPage, { ...identity, definitionDigest, page: { ...definitionPage, digest: sha256("wrong") } }), /immutable reference/);
+    await assert.rejects(activity(new MockActivityEnvironment(), activities.loadExecutionManifest, { ...identity, definitionDigest, manifest: { ...executionManifest, digest: sha256("wrong") } }), /immutable reference/);
+    await assert.rejects(activity(new MockActivityEnvironment(), activities.loadPartitionArtifact, { ...identity, definitionDigest, partition: { ...partition, digest: sha256("wrong") } }), /immutable reference/);
+    mode = "wrong-transition-page";
+    await assert.rejects(activity(new MockActivityEnvironment(), activities.stageTransitionPage, { ...identity, sourceSequence: 1, index: 0, content: "page", encodedBytes: 4 }), /mismatched/);
+    mode = "wrong-transition-finalize";
+    await assert.rejects(activity(new MockActivityEnvironment(), activities.finalizeTransitionArtifact, { ...identity, sourceSequence: 1, encodedBytes: 4, eventId: "start", pages: [transitionPage] }), /event digest/);
     mode = "large";
     await assert.rejects(activity(new MockActivityEnvironment(), activities.loadDefinitionPage, { ...identity, definitionDigest, page: definitionPage }), /response exceeds/);
     mode = "normal";
-    await assert.rejects(activity(new MockActivityEnvironment(), activities.recordTransition, { ...transition, nextState: { value: "x".repeat(70_000) } }), /request exceeds/);
+    await assert.rejects(activity(new MockActivityEnvironment(), activities.recordTransition, { ...transition, artifactManifest: { ...transition.artifactManifest, objectId: "x".repeat(70_000) } }), /request exceeds/);
     mode = "hang";
     await assert.rejects(activity(new MockActivityEnvironment(), activities.recordTransition, transition), /timed out/);
     const cancelled = new MockActivityEnvironment();
