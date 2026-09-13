@@ -22,7 +22,8 @@ export async function up(database: MigrationDb): Promise<void> {
     revision BIGINT NOT NULL CHECK (revision > 0),
     source_digest TEXT NOT NULL,
     source_json TEXT NOT NULL,
-    required_resources_json TEXT NOT NULL DEFAULT '[]',
+    required_resources_json TEXT NOT NULL DEFAULT '[]' CHECK (octet_length(required_resources_json) <= 65536),
+    requirements_complete BOOLEAN NOT NULL DEFAULT FALSE,
     validation_diagnostic_count INTEGER NOT NULL DEFAULT 1 CHECK (validation_diagnostic_count >= 0),
     archived BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -31,7 +32,10 @@ export async function up(database: MigrationDb): Promise<void> {
     FOREIGN KEY (tenant_id, project_id) REFERENCES factory_projects(tenant_id, project_id) ON DELETE RESTRICT
   )`);
   await database.execute(sql`ALTER TABLE factory_drafts ADD COLUMN IF NOT EXISTS required_resources_json TEXT NOT NULL DEFAULT '[]'`);
+  await database.execute(sql`ALTER TABLE factory_drafts ADD COLUMN IF NOT EXISTS requirements_complete BOOLEAN NOT NULL DEFAULT FALSE`);
   await database.execute(sql`ALTER TABLE factory_drafts ADD COLUMN IF NOT EXISTS validation_diagnostic_count INTEGER NOT NULL DEFAULT 1 CHECK (validation_diagnostic_count >= 0)`);
+  await database.execute(sql`ALTER TABLE factory_drafts DROP CONSTRAINT IF EXISTS factory_drafts_required_resources_bytes`);
+  await database.execute(sql`ALTER TABLE factory_drafts ADD CONSTRAINT factory_drafts_required_resources_bytes CHECK (octet_length(required_resources_json) <= 65536)`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_versions (
     tenant_id TEXT NOT NULL,
     project_id TEXT NOT NULL,

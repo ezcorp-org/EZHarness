@@ -14,11 +14,11 @@ import type { FactoryGrants, FactoryPrincipal } from "./grants";
 
 const MAX_DEFINITION_BYTES = FACTORY_LIMITS.maxDefinitionBytes;
 export interface FactoryDefinitionKey { readonly projectId: string; readonly factoryId: string }
-export interface FactoryDraftMetadata extends FactoryDefinitionKey { readonly revision: number; readonly sourceDigest: string; readonly archived: boolean; readonly updatedAtMs: number; readonly requiredResourceClasses: readonly string[]; readonly validationDiagnosticCount: number }
+export interface FactoryDraftMetadata extends FactoryDefinitionKey { readonly revision: number; readonly sourceDigest: string; readonly archived: boolean; readonly updatedAtMs: number; readonly requiredResourceClasses: readonly string[]; readonly requirementsComplete: boolean; readonly validationDiagnosticCount: number }
 export interface FactoryDraft extends FactoryDraftMetadata { readonly source: FactoryDefinition }
 export interface FactoryVersion extends FactoryDefinitionKey { readonly version: string; readonly draftRevision: number; readonly definitionDigest: string; readonly compiledBlobDigest: string; readonly compiledBytes: number; readonly publishedAtMs: number }
 export interface FactoryDraftListOptions { readonly after?: string; readonly limit?: number; readonly archived?: boolean; readonly search?: string }
-type DraftRow = { revision: number | string; source_digest: string; source_json?: string; required_resources_json: string; validation_diagnostic_count: number | string; archived: boolean; updated_ms: string | number };
+type DraftRow = { revision: number | string; source_digest: string; source_json?: string; required_resources_json: string; requirements_complete: boolean; validation_diagnostic_count: number | string; archived: boolean; updated_ms: string | number };
 type VersionRow = { version: string; draft_revision: number | string; definition_digest: string; compiled_blob_digest: string; compiled_bytes: number; published_ms: string | number };
 
 export class FactoryDefinitionError extends Error {
@@ -42,12 +42,13 @@ function metadata(key: FactoryDefinitionKey, row: DraftRow): FactoryDraftMetadat
   revision(storedRevision);
   const updatedAtMs = Number(row.updated_ms);
   const validationDiagnosticCount = Number(row.validation_diagnostic_count);
+  if (new TextEncoder().encode(row.required_resources_json).byteLength > FACTORY_LIMITS.maxWireBytes) throw new FactoryDefinitionError("factory_definition_corrupt");
   let requiredResourceClasses: unknown;
   try { requiredResourceClasses = JSON.parse(row.required_resources_json); } catch { throw new FactoryDefinitionError("factory_definition_corrupt"); }
   if (!/^[a-f0-9]{64}$/.test(row.source_digest) || !Number.isSafeInteger(updatedAtMs) || updatedAtMs < 0 || !Number.isSafeInteger(validationDiagnosticCount) || validationDiagnosticCount < 0
-    || !Array.isArray(requiredResourceClasses) || requiredResourceClasses.some(value => typeof value !== "string")
+    || typeof row.requirements_complete !== "boolean" || !Array.isArray(requiredResourceClasses) || requiredResourceClasses.some(value => typeof value !== "string")
     || canonicalJson([...requiredResourceClasses].sort()) !== row.required_resources_json) throw new FactoryDefinitionError("factory_definition_corrupt");
-  return { ...key, revision: storedRevision, sourceDigest: row.source_digest, archived: row.archived, updatedAtMs, requiredResourceClasses, validationDiagnosticCount };
+  return { ...key, revision: storedRevision, sourceDigest: row.source_digest, archived: row.archived, updatedAtMs, requiredResourceClasses, requirementsComplete: row.requirements_complete, validationDiagnosticCount };
 }
 
 function draft(key: FactoryDefinitionKey, row: DraftRow): FactoryDraft {
@@ -57,12 +58,14 @@ function draft(key: FactoryDefinitionKey, row: DraftRow): FactoryDraft {
   return { ...metadata(key, row), source };
 }
 
-export function factoryDefinitionRequirements(source: FactoryDefinition): Pick<FactoryDraftMetadata, "requiredResourceClasses" | "validationDiagnosticCount"> {
+export function factoryDefinitionRequirements(source: FactoryDefinition): Pick<FactoryDraftMetadata, "requiredResourceClasses" | "requirementsComplete" | "validationDiagnosticCount"> {
   const result = compileFactory(source);
-  if (!result.ok) return { requiredResourceClasses: [], validationDiagnosticCount: result.diagnostics.length };
+  if (!result.ok) return { requiredResourceClasses: [], requirementsComplete: false, validationDiagnosticCount: result.diagnostics.length };
   const required = new Set<string>();
   for (const node of Object.values(result.factory.indexes.nodeById)) if (node.resources?.resourceClass) required.add(node.resources.resourceClass);
-  return { requiredResourceClasses: [...required].sort(), validationDiagnosticCount: 0 };
+  const requiredResourceClasses = [...required].sort();
+  if (new TextEncoder().encode(canonicalJson(requiredResourceClasses)).byteLength > FACTORY_LIMITS.maxWireBytes) return { requiredResourceClasses: [], requirementsComplete: false, validationDiagnosticCount: 0 };
+  return { requiredResourceClasses, requirementsComplete: true, validationDiagnosticCount: 0 };
 }
 
 function published(key: FactoryDefinitionKey, row: VersionRow): FactoryVersion {
@@ -102,10 +105,10 @@ export class FactoryDefinitions {
       if (Number(prior?.revision ?? 0) !== expectedRevision || prior?.archived) throw new FactoryDefinitionError("factory_revision_conflict");
       const nextRevision = expectedRevision + 1;
       if (prior) {
-        await transaction.execute(sql`UPDATE factory_drafts SET revision=${nextRevision}, source_digest=${sourceDigest}, source_json=${text}, required_resources_json=${requiredResourcesJson}, validation_diagnostic_count=${requirements.validationDiagnosticCount}, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${snapshot.projectId} AND factory_id=${snapshot.factoryId}`);
+        await transaction.execute(sql`UPDATE factory_drafts SET revision=${nextRevision}, source_digest=${sourceDigest}, source_json=${text}, required_resources_json=${requiredResourcesJson}, requirements_complete=${requirements.requirementsComplete}, validation_diagnostic_count=${requirements.validationDiagnosticCount}, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${snapshot.projectId} AND factory_id=${snapshot.factoryId}`);
       } else {
-        const inserted = rows(await transaction.execute(sql`INSERT INTO factory_drafts (tenant_id, project_id, factory_id, revision, source_digest, source_json, required_resources_json, validation_diagnostic_count)
-          VALUES (${this.tenantId}, ${snapshot.projectId}, ${snapshot.factoryId}, ${nextRevision}, ${sourceDigest}, ${text}, ${requiredResourcesJson}, ${requirements.validationDiagnosticCount}) ON CONFLICT DO NOTHING RETURNING factory_id`));
+        const inserted = rows(await transaction.execute(sql`INSERT INTO factory_drafts (tenant_id, project_id, factory_id, revision, source_digest, source_json, required_resources_json, requirements_complete, validation_diagnostic_count)
+          VALUES (${this.tenantId}, ${snapshot.projectId}, ${snapshot.factoryId}, ${nextRevision}, ${sourceDigest}, ${text}, ${requiredResourcesJson}, ${requirements.requirementsComplete}, ${requirements.validationDiagnosticCount}) ON CONFLICT DO NOTHING RETURNING factory_id`));
         if (!inserted.length) throw new FactoryDefinitionError("factory_revision_conflict");
       }
       await this.audit(transaction, principal, snapshot, "saved", { revision: nextRevision, sourceDigest });
@@ -150,7 +153,7 @@ export class FactoryDefinitions {
     return this.database.transaction(async transaction => {
       await this.grants.authorizeInTransaction(transaction, principal, projectId, "read");
       const searchFilter = search === undefined ? sql`` : sql`AND factory_id ILIKE ${`%${search}%`}`;
-      const selected = rows<DraftRow & { factory_id: string }>(await transaction.execute(sql`SELECT factory_id, revision, source_digest, required_resources_json, validation_diagnostic_count, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts
+      const selected = rows<DraftRow & { factory_id: string }>(await transaction.execute(sql`SELECT factory_id, revision, source_digest, required_resources_json, requirements_complete, validation_diagnostic_count, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts
         WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND factory_id > ${after} AND archived=${archived} ${searchFilter} ORDER BY factory_id LIMIT ${limit + 1}`));
       const items = selected.slice(0, limit).map(row => metadata({ projectId, factoryId: row.factory_id }, row));
       return { items, nextCursor: selected.length > limit ? items[items.length - 1]!.factoryId : null };
@@ -257,7 +260,7 @@ export class FactoryDefinitions {
   }
 
   private async findDraft(transaction: MigrationDb, key: FactoryDefinitionKey, write = false): Promise<DraftRow | undefined> {
-    return rows<DraftRow>(await transaction.execute(sql`SELECT revision, source_digest, source_json, required_resources_json, validation_diagnostic_count, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND factory_id=${key.factoryId} ${write ? sql`FOR UPDATE` : sql`FOR SHARE`}`))[0];
+    return rows<DraftRow>(await transaction.execute(sql`SELECT revision, source_digest, source_json, required_resources_json, requirements_complete, validation_diagnostic_count, archived, FLOOR(EXTRACT(EPOCH FROM updated_at) * 1000) AS updated_ms FROM factory_drafts WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND factory_id=${key.factoryId} ${write ? sql`FOR UPDATE` : sql`FOR SHARE`}`))[0];
   }
 
   private async requireDraft(transaction: MigrationDb, key: FactoryDefinitionKey, write = false): Promise<DraftRow> {
