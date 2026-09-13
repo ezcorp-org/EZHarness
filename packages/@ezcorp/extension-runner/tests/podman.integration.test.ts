@@ -57,7 +57,7 @@ class ProbeObservingRunner extends PodmanRunner {
   }
 }
 
-test("a first build on a fresh runner prepares its artifact store and probes kernel isolation", async () => {
+test("a first build on a fresh runner prepares its artifact store, probes kernel isolation, and sweeps nothing", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ez-runner-first-build-"));
   const fresh = new ProbeObservingRunner({ root: directory, ...await provision() });
   try {
@@ -65,10 +65,22 @@ test("a first build on a fresh runner prepares its artifact store and probes ker
     const built = await fresh.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
     expect(built.diagnostics).toEqual([]);
     expect(built.state).toBe("succeeded");
-    expect(fresh.sweeps).toEqual([true]);
+    // The probe ran, so isolation is verified, but a lazy build never sweeps:
+    // with detached execution a container may legitimately outlive its starter.
+    expect(fresh.sweeps).toEqual([false]);
     expect((await lstat(join(directory, "artifacts"))).mode & 0o777).toBe(0o700);
     expect(await fresh.collectArtifacts(built.artifactDigest!)).toMatchObject({ "extension.ts": files["extension.ts"]! });
   } finally { await fresh.close(); await rm(directory, { recursive: true, force: true }); }
+}, 120_000);
+
+test("only explicit daemon startup sweeps orphaned containers", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ez-runner-startup-"));
+  const started = new ProbeObservingRunner({ root: directory, ...await provision() });
+  try {
+    await started.initialize();
+    expect(started.sweeps).toEqual([true]);
+    expect((await lstat(join(directory, "artifacts"))).mode & 0o777).toBe(0o700);
+  } finally { await started.close(); await rm(directory, { recursive: true, force: true }); }
 }, 120_000);
 
 test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches and cancels", async () => {
@@ -86,14 +98,16 @@ test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches a
     if (!output.includes("READY")) throw new Error(`crashed supervisor did not start guest: ${await new Response(child.stderr).text()}`);
   } finally { child.kill("SIGKILL"); await child.exited; }
   const fresh = new ProbeObservingRunner({ root });
-  expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
-  const _attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
-  expect(fresh.sweeps).toEqual([false]);
-  expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
-  await fresh.cancel(workerId);
-  expect(await fresh.inspect(workerId)).toMatchObject({ state: "cancelled" });
-  await expect(command("podman", ["inspect", `ez-v4-${createHash("sha256").update(`${root}:${workerId}`).digest("hex").slice(0, 32)}`])).rejects.toThrow();
-  await fresh.close();
+  try {
+    expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
+    const _attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
+    // Recovery creates no container of its own: no probe, and so no sweep.
+    expect(fresh.sweeps).toEqual([]);
+    expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
+    await fresh.cancel(workerId);
+    expect(await fresh.inspect(workerId)).toMatchObject({ state: "cancelled" });
+    await expect(command("podman", ["inspect", `ez-v4-${createHash("sha256").update(`${root}:${workerId}`).digest("hex").slice(0, 32)}`])).rejects.toThrow();
+  } finally { await fresh.close(); }
 }, 120_000);
 
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {

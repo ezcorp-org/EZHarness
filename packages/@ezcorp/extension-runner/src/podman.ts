@@ -59,26 +59,38 @@ export class PodmanRunner implements Runner {
     this.seccompPath = resolve(options.seccompPath ?? seccompDefault);
     this.configuredDevices = configuredRunnerDevices(options.configuredDevices ?? (process.env.EZ_EXTENSION_RUNNER_DEVICES === undefined ? undefined : process.env.EZ_EXTENSION_RUNNER_DEVICES.split(",").filter(Boolean)));
   }
+  /**
+   * Normal daemon startup: prepare the store, verify the kernel controls, then
+   * sweep orphans. Only this entry point sweeps, because with detached
+   * execution a container legitimately outlives the process that started it.
+   */
   async initialize(): Promise<void> {
     return this.prepare(true);
   }
   /**
-   * Store preparation, artifact-store lease, and the fail-closed kernel probe.
-   * Every path that runs a container goes through this, so an unavailable
-   * isolation control fails the operation instead of degrading it.  The first
-   * caller decides the orphan sweep: a recovery attach passes false so the
-   * detached guests it is reconnecting to survive the probe.
+   * The artifact store itself: private ownership, the artifacts directory, and
+   * the exclusive store lease. It creates no container, so a recovery attach
+   * can use it without a multi-second delay.
+   */
+  private async prepareStore(): Promise<void> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    const root = await lstat(this.root);
+    if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o077) !== 0 || root.uid !== process.getuid?.()) throw new RunnerError("unsafe_store", "Runner store must be owned by the runner and private");
+    await mkdir(join(this.root, "artifacts"), { recursive: true, mode: 0o700 });
+    await this.acquireLease();
+  }
+  /**
+   * Store preparation plus the fail-closed kernel probe. Every path that
+   * creates a container goes through this, so an unavailable isolation control
+   * fails the operation instead of degrading it. The first caller decides the
+   * orphan sweep, and the lazy build and execution paths never request it.
    */
   private async prepare(cleanupOrphans: boolean): Promise<void> {
     this.ready ??= this.probe(cleanupOrphans).catch(async error => { await this.close(); this.ready = undefined; throw error; });
     return this.ready;
   }
   private async probe(cleanupOrphans: boolean): Promise<void> {
-    await mkdir(this.root, { recursive: true, mode: 0o700 });
-    const root = await lstat(this.root);
-    if (!root.isDirectory() || root.isSymbolicLink() || (root.mode & 0o077) !== 0 || root.uid !== process.getuid?.()) throw new RunnerError("unsafe_store", "Runner store must be owned by the runner and private");
-    await mkdir(join(this.root, "artifacts"), { recursive: true, mode: 0o700 });
-    await this.acquireLease();
+    await this.prepareStore();
     await this.probeSecurity(cleanupOrphans);
   }
   private async acquireLease(): Promise<void> {
@@ -156,7 +168,7 @@ export class PodmanRunner implements Runner {
     workspaceText(input.files[input.entrypoint], input.entrypoint);
     if (filesDigest(input.files) !== input.sourceDigest) throw new RunnerError("source_digest_mismatch", "Frozen source digest does not match bytes");
     const limits = limitsWithin(input.limits, this.options.buildCeiling ?? buildLimits);
-    await this.initialize();
+    await this.prepare(false);
     await this.authorize("build", input.sourceDigest);
     if (this.operations.has(input.operationId)) throw new RunnerError("duplicate_operation", "Runner operation ID is already used");
     if (this.activeBuilds >= (this.options.maxBuilds ?? 1)) throw new RunnerError("runner_busy", "Build concurrency limit reached", "queue", true);
@@ -267,7 +279,7 @@ export class PodmanRunner implements Runner {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
-    await this.prepare(false);
+    await this.prepareStore();
     if ((await this.inspect(input.workerId)).state !== "running") throw new RunnerError("worker_not_running", "Worker cannot be attached because it is not running");
     if (this.executions.has(input.workerId)) throw new RunnerError("duplicate_worker", "Worker is already attached");
     const name = this.containerName(input.workerId);
@@ -283,7 +295,7 @@ export class PodmanRunner implements Runner {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
-    await this.initialize();
+    await this.prepare(false);
     if (!discovery) await this.authorize("execute", input.artifactDigest);
     if (this.operations.has(input.workerId)) throw new RunnerError("duplicate_worker", "Worker ID is already used");
     if (this.activeExecutions >= (this.options.maxExecutions ?? 4)) throw new RunnerError("runner_busy", "Execution concurrency limit reached", "queue", true);
