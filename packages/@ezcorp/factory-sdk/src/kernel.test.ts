@@ -20,6 +20,11 @@ function compiled(nodes: readonly FactoryNode[], outputs: Record<string, { reado
 
 const event = <T extends object>(id: string, values: T): T & { readonly id: string; readonly atMs: number } => ({ id, atMs: 1, ...values });
 
+function activeWork(graph: CompiledFactory, runId: string) {
+  const started = advanceKernel(graph, createKernelState(graph, runId, {}, 0), event("start", { kind: "start" }));
+  return advanceKernel(graph, started.nextState, event("admit", { kind: "admission-result", nodeId: "work", commandId: `${runId}:work:request-admission:1`, candidateGeneration: 0, granted: true })).nextState;
+}
+
 describe("factory kernel", () => {
   test("completes a valid empty root graph immediately", () => {
     const graph = compiled([], {});
@@ -30,19 +35,20 @@ describe("factory kernel", () => {
 
   test("records known and uncertain usage as persistent decimal ledger entries", () => {
     const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
-    const state = createKernelState(graph, "usage", {}, 0);
-    const settled = advanceKernel(graph, state, { kind: "usage-settled", id: "usage-1", atMs: 1, nodeId: "work", knownCostMicros: "12", unknownCostMicros: "3" });
+    const state = activeWork(graph, "usage");
+    const settled = advanceKernel(graph, state, { kind: "usage-settled", id: "usage-1", atMs: 1, nodeId: "work", commandId: "usage:work:dispatch-node:2", candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "12", unknownCostMicros: "3" });
     expect(settled.nextState.spentCostMicros).toBe("12");
     expect(settled.nextState.unknownCostMicros).toBe("3");
-    expect(advanceKernel(graph, settled.nextState, { kind: "usage-settled", id: "usage-1", atMs: 2, nodeId: "work", knownCostMicros: "99" }).nextState.spentCostMicros).toBe("12");
+    expect(advanceKernel(graph, settled.nextState, { kind: "usage-settled", id: "usage-1", atMs: 2, nodeId: "work", commandId: "usage:work:dispatch-node:2", candidateGeneration: 0, attempt: 1, revision: 1, knownCostMicros: "99" }).nextState.spentCostMicros).toBe("12");
   });
 
   test("rejects malformed and negative recorded usage charges", () => {
     const graph = compiled([{ id: "work", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "work" } });
-    const state = createKernelState(graph, "usage-invalid", {}, 0);
-    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "negative", atMs: 1, nodeId: "work", knownCostMicros: "-1" })).toThrow("usage cost");
-    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "decimal", atMs: 1, nodeId: "work", knownCostMicros: "1.5" })).toThrow("usage cost");
-    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "unsafe", atMs: 1, nodeId: "work", knownCostMicros: "01" })).toThrow("usage cost");
+    const state = activeWork(graph, "usage-invalid");
+    const settlement = { nodeId: "work", commandId: "usage-invalid:work:dispatch-node:2", candidateGeneration: 0, attempt: 1, revision: 1 };
+    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "negative", atMs: 1, ...settlement, knownCostMicros: "-1" })).toThrow("usage cost");
+    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "decimal", atMs: 1, ...settlement, knownCostMicros: "1.5" })).toThrow("usage cost");
+    expect(() => advanceKernel(graph, state, { kind: "usage-settled", id: "unsafe", atMs: 1, ...settlement, knownCostMicros: "01" })).toThrow("usage cost");
   });
 
   test("rejects a settlement for a nonexistent node without changing the run ledger", () => {
