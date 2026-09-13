@@ -2,22 +2,23 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { APIRequestContext, Locator, Page, TestInfo } from "@playwright/test";
 import { test as base, expect } from "./fixtures/hydration.js";
-import { dragMouse, dragTouch, stableBoundingBox } from "./fixtures/gestures.js";
+import { dragMouse, dragTouch, stableBoundingBox, type DragGesture } from "./fixtures/gestures.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 
-interface AgentFixture { id: string; name: string; extensions: string[] }
+interface AgentFixture { id: string; name: string; extensions: string[]; extensionNames: string[] }
 const test = base.extend<{ agent: AgentFixture }>({
 	agent: async ({ request }, use) => {
 		const seeded = await request.post("/api/__test/seed", { data: { seedAgentConfig: true } });
 		expect(seeded.status(), await seeded.text()).toBe(201);
 		const seed = (await seeded.json()) as { agentExtensions: Array<{ id: string; name: string }> };
 		const extensions = seed.agentExtensions.map(({ id }) => id);
+		const extensionNames = seed.agentExtensions.map(({ name }) => name);
 		expect(extensions).toHaveLength(3);
 		const created = await request.post("/api/agent-configs", {
 			data: { name: `chip-order-${crypto.randomUUID()}`, prompt: "Keep the selected extension order.", extensions },
 		});
 		expect(created.status(), await created.text()).toBe(201);
-		const agent = (await created.json()) as AgentFixture;
+		const agent = { ...((await created.json()) as Omit<AgentFixture, "extensionNames">), extensionNames };
 		try {
 			await use(agent);
 		} finally {
@@ -37,6 +38,12 @@ async function openAgent(page: Page, agent: AgentFixture): Promise<void> {
 	await page.goto(`/agents/${agent.name}`);
 	await expect(page.getByRole("heading", { name: `Edit Agent: ${agent.name}` })).toBeVisible();
 	await expect.poll(() => order(page)).toEqual(agent.extensions);
+	// The chips render their raw ids until the picker's `/api/extensions` fetch
+	// resolves, then relabel with the much wider extension names and the row
+	// re-wraps. CI run 34538320472 measured the chips ~160 ms before that
+	// relabel (three chips on one line) and pressed a chip that had moved to
+	// the next line. Measure only once every chip shows its resolved name.
+	for (const [index, name] of agent.extensionNames.entries()) await expect(chips(page).nth(index)).toContainText(name);
 	// Native mouse/CDP gestures need the same hit-target readiness as clicks.
 	// Hydration can finish while the transparent splash is still fading out.
 	await chips(page).nth(0).click({ trial: true });
@@ -63,14 +70,13 @@ async function saveAndReload(page: Page, request: APIRequestContext, agent: Agen
 	await expect.poll(() => order(page)).toEqual(expected);
 }
 async function chipPoint(chip: Locator): Promise<{ x: number; y: number }> {
-	// `stableBoundingBox`, not `boundingBox`: the webfont swap re-wraps this row
-	// and a native press has no actionability re-check to save it.
+	// `stableBoundingBox`, not `boundingBox`: a native press has no
+	// actionability re-check, so measure a visible chip at rest (labels are
+	// already resolved by `openAgent`; this catches any relayout still in flight).
 	const box = await stableBoundingBox(chip);
 	// Stay over the label: the remove button has its own pointer behavior.
 	return { x: box.x + 8, y: box.y + box.height / 2 };
 }
-
-type DragGesture = typeof dragMouse;
 
 /** Drag the last chip onto the first one and confirm the live preview before release. */
 async function dragLastChipToFront(page: Page, agent: AgentFixture, drag: DragGesture): Promise<void> {

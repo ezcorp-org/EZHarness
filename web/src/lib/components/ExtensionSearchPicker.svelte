@@ -7,7 +7,7 @@
 	// actions don't attach to components), so the action lives inside
 	// this picker on the chip-row div, not on <ExtensionSearchPicker>
 	// from the parent.
-	import { dndzone } from "svelte-dnd-action";
+	import { dndzone, type Options } from "svelte-dnd-action";
 	import BottomSheet from "$lib/components/BottomSheet.svelte";
 	import MobilePickerSearch from "$lib/components/MobilePickerSearch.svelte";
 	import { useBreakpoint } from "$lib/use-breakpoint.svelte";
@@ -33,6 +33,9 @@
 	// Keep the drag library's full item objects, including its temporary
 	// shadow marker. Only final orders belong in the saved extension IDs.
 	let chipItems = $derived(selected.map((id) => ({ id })));
+	// Typed against the library so a renamed option fails `Typecheck`, which
+	// blocks merge, instead of only the non-blocking real-auth drag spec.
+	const dndOptions = $derived<Options<{ id: string }>>({ items: chipItems, flipDurationMs: 200, type: "ext-chips", useCursorForDetection: true });
 
 	function handleConsider(e: CustomEvent<{ items: Array<{ id: string }> }>) {
 		chipItems = e.detail.items;
@@ -184,7 +187,7 @@
 		<div
 			data-testid="selected-extension-chips"
 			class="flex flex-wrap gap-1"
-			use:dndzone={{ items: chipItems, flipDurationMs: 200, type: "ext-chips", useCursorForDetection: true }}
+			use:dndzone={dndOptions}
 			onconsider={handleConsider}
 			onfinalize={handleFinalize}
 			role="list"

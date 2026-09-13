@@ -1,29 +1,43 @@
 import type { Locator, Page } from "@playwright/test";
 
+export interface Point { x: number; y: number }
+export interface Box extends Point { width: number; height: number }
+
+/** Every drag driver shares one contract, so a spec can take either. */
+export type DragGesture = (page: Page, from: Point, to: Point, beforeRelease?: () => Promise<void>) => Promise<void>;
+
+/**
+ * Resolve once the document's web fonts have loaded. `font-display: swap`
+ * lays every label out twice, so measure only after the second pass.
+ */
+export async function fontsReady(page: Page): Promise<void> {
+	await page.evaluate(() => document.fonts.ready.then(() => undefined));
+}
+
 /**
  * A bounding box that is safe to hand to `page.mouse` / CDP input.
  *
- * `click()` re-runs actionability — including a stable-bounding-box check —
- * in the same step that presses. Raw pointer coordinates get neither: they are
+ * `click()` re-runs actionability — visible, stable bounding box — in the
+ * same step that presses. Raw pointer coordinates get neither: they are
  * numbers captured earlier, and the press lands on whatever occupies them when
- * it arrives. `app.css` loads the UI font with `font-display: swap`, so every
- * label is laid out once in fallback metrics and again when the webfont
- * arrives; on a wrapping row that second pass can move a whole item to the
- * next line. Measured on CI run 34538320472: the extension chip row fitted
- * three chips on one line when the spec measured them (chip 2 at x=868.9,
- * chip 0 at x=362, same y), reflowed to two lines when the font swapped, and
- * `mouse.down()` then pressed chip 1 instead of chip 2 — the drag moved the
- * wrong chip and the spec timed out on an unchanged order.
+ * it arrives. This helper closes the in-flight part of that gap: it waits for
+ * the element to be visible and for the web fonts, then requires the box to
+ * hold one position across two consecutive frames, and it fails closed on a
+ * zero-area box (a hidden element measures as zeros that are perfectly
+ * "stable"; `boundingBox()` would have returned null there).
  *
- * Wait for the fonts, then require the box to hold one position across two
- * consecutive frames.
+ * It cannot see a relayout that has not started yet. If the row will re-wrap
+ * when later content arrives — the chip row does, when `/api/extensions`
+ * resolves and the labels change from ids to names (CI run 34538320472) — the
+ * caller must first wait for that content, then measure.
  */
-export async function stableBoundingBox(locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> {
-	await locator.page().evaluate(() => document.fonts.ready.then(() => undefined));
-	return locator.evaluate(async (element) => {
+export async function stableBoundingBox(locator: Locator): Promise<Box> {
+	await locator.waitFor({ state: "visible" });
+	await fontsReady(locator.page());
+	const box = await locator.evaluate(async (element) => {
 		const read = () => {
-			const box = element.getBoundingClientRect();
-			return { x: box.x, y: box.y, width: box.width, height: box.height };
+			const rect = element.getBoundingClientRect();
+			return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
 		};
 		const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 		let previous = read();
@@ -37,6 +51,8 @@ export async function stableBoundingBox(locator: Locator): Promise<{ x: number; 
 		}
 		throw new Error("Element never held one position across two frames");
 	});
+	if (box.width <= 0 || box.height <= 0) throw new Error(`Element is not measurable: ${JSON.stringify(box)}`);
+	return box;
 }
 
 /**
@@ -76,8 +92,8 @@ export async function longPressTouch(locator: Locator): Promise<void> {
 /** Drive browser-native touch input; synthetic pointer events do not exercise pan cancellation. */
 export async function dragTouch(
 	page: Page,
-	from: { x: number; y: number },
-	to: { x: number; y: number },
+	from: Point,
+	to: Point,
 	beforeRelease?: () => Promise<void>,
 ): Promise<void> {
 	const touch = await page.context().newCDPSession(page);
@@ -119,8 +135,8 @@ const MOUSE_ACTIVATION_PX = 6;
  */
 export async function dragMouse(
 	page: Page,
-	from: { x: number; y: number },
-	to: { x: number; y: number },
+	from: Point,
+	to: Point,
 	beforeRelease?: () => Promise<void>,
 ): Promise<void> {
 	const distance = Math.hypot(to.x - from.x, to.y - from.y);
@@ -141,3 +157,6 @@ export async function dragMouse(
 		await page.mouse.up();
 	}
 }
+
+/** Compile-time proof that both drivers honour `DragGesture`. */
+export const dragGestures = { mouse: dragMouse, touch: dragTouch } satisfies Record<string, DragGesture>;
