@@ -454,3 +454,4 @@
 - In tool orchestration, check each shell exit code before dependent staging or commit calls. A failed conflict-resolution script must stop the sequence.
 - Validate the current protected row before advancing any authority revision or epoch. A correct expected counter must never launder a damaged prior seal.
 - A successful terminal fact must close the attempt's effect journal. Preserve exact terminal replay through its own verified path, and reject every later prepare or dispatch.
+- Live Temporal workflows use shared server/task-queue state. Acquire `/tmp/ezcorp-validation-heavy.lock` before every Temporal producer, write START only after acquisition, and await fixture teardown before another launch. SDK builds must run before any workflow bundle that imports a changed runtime SDK export.
