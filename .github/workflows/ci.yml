@@ -293,9 +293,13 @@ jobs:
         with:
           web: "true"
           sync: "true"
+      # scripts/typecheck.sh now has a fourth leg, mypy --strict over the
+      # locked Python distribution, so this job needs the pinned uv. Without
+      # it python-quality.sh fails closed rather than reducing its scope.
+      - uses: ./.github/actions/setup-python-toolchain
       # scripts/typecheck.sh runs backend (tsconfig.typecheck.json) + web
-      # (svelte-kit sync + scoped tsc). Both currently pass, so this is a
-      # hard gate.
+      # (svelte-kit sync + scoped tsc) + backend tests/e2e + the locked Python
+      # distribution. All currently pass, so this is a hard gate.
       - run: bun run typecheck
 
   # Svelte template/type check (wave 3 — previously NO job checked .svelte

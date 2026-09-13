@@ -339,7 +339,12 @@ gh api -X PUT repos/ezcorp-org/EZHarness/branches/main/protection \
       "Manifest lockfile drift check", "Per-file coverage gate",
       "Gate integrity", "Visual evidence", "Web security coverage",
       "Factory schema and kernel",
-      "Factory Temporal integration"
+      "Factory runner contracts",
+      "Factory Temporal integration",
+      "Factory assurance and release",
+      "Factory isolation",
+      "Factory product and domain E2E",
+      "Factory deployment and operations"
     ]
   },
   "enforce_admins": true,
@@ -359,6 +364,15 @@ gh label create gate-change-approved \
   --description "Maintainer-approved gate-config change (bypasses gate-integrity)" \
   --color B60205
 ```
+
+The last seven contexts are the seven exact C11 verification lanes. Three of
+them run on self-hosted runners labelled `factory-real` and `factory-gpu`,
+which are not registered, so requiring them before those runners are online
+blocks every merge on the readiness precheck. The measured current state, the
+ordering constraint, and the exact payload to apply are in the stage 2b
+[required-check registration](validation/factory/stage-2b/required-check-registration.md)
+and [runner and secret provisioning](validation/factory/stage-2b/runner-and-secret-provisioning.md)
+records. Neither has been applied.
 
 ## Residual risks (honest)
 
