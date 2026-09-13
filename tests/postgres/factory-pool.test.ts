@@ -126,6 +126,19 @@ describe("factory C03 pool admission ledger on real PostgreSQL", () => {
     expect(await pool.schedule()).toMatchObject({ status: "admitted", reservationId: "cpu-tenant-provider" });
   });
 
+  test("accounts memory separately from CPU and releases both only after a stop proof", async () => {
+    await pool.configureCapacity("cpu", 1);
+    await pool.configureCapacity("memory", 2_048);
+    await pool.request(request("memory-holder", "tenant-a", { cpu: 1, memory: 2_048 }, clock));
+    const lease = await admitted(pool);
+    await pool.acknowledgeStart(fence(lease));
+    await pool.request(request("memory-waiter", "tenant-b", { memory: 1 }, clock));
+    expect(await pool.schedule()).toMatchObject({ status: "queued", reservationId: "memory-waiter", blockingResource: "memory" });
+    await pool.revoke("memory-holder", lease.allocationGeneration);
+    await pool.confirmStopped({ reservationId: "memory-holder", holderGeneration: lease.holderGeneration });
+    expect(await pool.schedule()).toMatchObject({ status: "admitted", reservationId: "memory-waiter" });
+  });
+
   test("opportunistically admits a feasible younger request while a non-aged complete vector is blocked", async () => {
     await pool.configureCapacity("cpu", 1);
     await pool.configureCapacity("provider", 1);

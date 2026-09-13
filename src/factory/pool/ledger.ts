@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 /** The only resource profiles admitted by the C03 pool ledger. */
-export const POOL_RESOURCE_CLASSES = ["cpu", "provider", "gpu-host"] as const;
+export const POOL_RESOURCE_CLASSES = ["cpu", "memory", "provider", "gpu-host"] as const;
 export type PoolResourceClass = typeof POOL_RESOURCE_CLASSES[number];
 export type PoolResourceVector = Readonly<Partial<Record<PoolResourceClass, number>>>;
 export type PoolLeaseState = "queued" | "held" | "running" | "revoking" | "uncertain" | "settled" | "rejected";
@@ -205,10 +205,14 @@ function toLease(row: RequestRow): PoolLease {
  */
 export async function setupFactoryPoolLedger(database: Pick<PoolSql, "unsafe">): Promise<void> {
   await database.unsafe(`CREATE TABLE IF NOT EXISTS factory_pool_resources (
-    resource_class text PRIMARY KEY CHECK (resource_class IN ('cpu', 'provider', 'gpu-host')),
+    resource_class text PRIMARY KEY CHECK (resource_class IN ('cpu', 'memory', 'provider', 'gpu-host')),
     total_units integer NOT NULL CHECK (total_units >= 0),
     allocated_units integer NOT NULL DEFAULT 0 CHECK (allocated_units >= 0 AND allocated_units <= total_units)
   )`);
+  // The ledger bootstrap is additive. Existing C03 pools predate memory, so
+  // replace only this closed enum check before admitting a memory reservation.
+  await database.unsafe("ALTER TABLE factory_pool_resources DROP CONSTRAINT IF EXISTS factory_pool_resources_resource_class_check");
+  await database.unsafe("ALTER TABLE factory_pool_resources ADD CONSTRAINT factory_pool_resources_resource_class_check CHECK (resource_class IN ('cpu', 'memory', 'provider', 'gpu-host'))");
   await database.unsafe(`CREATE TABLE IF NOT EXISTS factory_pool_tenants (
     tenant_id text PRIMARY KEY,
     weight integer NOT NULL DEFAULT 1 CHECK (weight > 0 AND weight <= 1000)
@@ -260,7 +264,7 @@ export class FactoryPoolLedger {
   constructor(private readonly database: PoolSql, private readonly clock: PoolClock = { now: () => new Date() }) {}
 
   async configureCapacity(resourceClass: Exclude<PoolResourceClass, "gpu-host">, totalUnits: number): Promise<void> {
-    if (resourceClass !== "cpu" && resourceClass !== "provider") throw new Error("GPU capacity is derived only from registered hosts.");
+    if (resourceClass !== "cpu" && resourceClass !== "memory" && resourceClass !== "provider") throw new Error("GPU capacity is derived only from registered hosts.");
     assertCounter(totalUnits, "capacity");
     await this.database.begin(async (transaction) => {
       await this.lock(transaction);
@@ -599,7 +603,7 @@ export class FactoryPoolLedger {
   }
 
   /**
-   * CPU, provider permits, and whole GPU hosts have unrelated units. Compare a
+   * CPU, memory bytes, provider permits, and whole GPU hosts have unrelated units. Compare a
    * request only with its tenant's service in the classes it consumes. The
    * largest weighted class is the max-min (dominant) score for a multi-class
    * request, so a large CPU allocation cannot make its first provider turn
