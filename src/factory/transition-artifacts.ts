@@ -18,6 +18,8 @@ function eventDigest(event: unknown): string { return `sha256:${digestBytes(arti
 export type LoadedTransitionManifest = FactoryTransitionManifest;
 export type LoadedTransitionPage = FactoryTransitionPage;
 export interface StoredFactoryCommandReference extends FactoryIdentity { readonly commandId: string; }
+/** Immutable index identity verified with the returned command bytes. */
+export interface StoredFactoryCommand { readonly command: KernelCommand; readonly sourceSequence: number; readonly commandDigest: string; }
 type IndexedCommand = { readonly commandId: string; readonly digest: string; readonly command: KernelCommand; };
 type CommandIndexRow = { source_sequence: number | string; command_digest: string };
 
@@ -118,6 +120,11 @@ export class FactoryTransitionArtifacts {
 
   /** Resolves one indexed command, then proves its audit and immutable transition before returning it. */
   async loadStoredCommand(referenceValue: StoredFactoryCommandReference, transaction?: MigrationDb): Promise<KernelCommand> {
+    return (await this.loadStoredCommandEntry(referenceValue, transaction)).command;
+  }
+
+  /** One verified index read supplies both immutable command bytes and its audit coordinate. */
+  async loadStoredCommandEntry(referenceValue: StoredFactoryCommandReference, transaction?: MigrationDb): Promise<StoredFactoryCommand> {
     const database = transaction ?? this.artifacts.database;
     const reference = { tenantId: referenceValue.tenantId, projectId: referenceValue.projectId, logicalRunId: referenceValue.logicalRunId, interpreterId: referenceValue.interpreterId, commandId: referenceValue.commandId };
     try { assertFactoryIdentity(reference.tenantId, reference.projectId, reference.logicalRunId, reference.interpreterId, reference.commandId); }
@@ -138,7 +145,7 @@ export class FactoryTransitionArtifacts {
     if (transition.event.id !== (batch.payload as { eventId: unknown }).eventId || eventDigest(transition.event) !== (batch.payload as { eventHash: unknown }).eventHash) throw new FactoryArtifactError("factory_transition_command_corrupt");
     const command = indexedCommands(transition.commands).find(value => value.commandId === reference.commandId);
     if (!command || command.digest !== indexed.command_digest) throw new FactoryArtifactError("factory_transition_command_corrupt");
-    return command.command;
+    return { command: command.command, sourceSequence, commandDigest: indexed.command_digest };
   }
 
   /** Loads one committed audit transition by its bounded global sequence. */

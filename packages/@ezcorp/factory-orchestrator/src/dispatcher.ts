@@ -5,6 +5,7 @@ import {
   FACTORY_INBOX_SIGNAL,
   FACTORY_TASK_QUEUE,
   FACTORY_WORKFLOW_TYPE,
+  factoryWorkflowId,
   type ClaimedFactoryCommand,
   type FactoryCommandQueue,
   type FactoryInboxReceipt,
@@ -23,11 +24,7 @@ export class FactoryPreSendError extends Error {
   override readonly name = "FactoryPreSendError";
 }
 
-/** One canonical Temporal address for the root or a compiler partition interpreter. */
-export function factoryWorkflowId(tenantId: string, logicalRunId: string, partitionId?: string): string {
-  const root = `${tenantId}/${logicalRunId}`;
-  return partitionId === undefined || partitionId === "root" ? root : `${root}/partitions/${partitionId}`;
-}
+export { factoryWorkflowId } from "./contracts.ts";
 
 function commandWorkflowId(command: FactoryTransportCommand): string {
   if (command.kind === "start_run") return command.workflowId;

@@ -1620,6 +1620,15 @@ Plan review: there must be no configuration path that creates a held task budget
 
 Review: the lazy command adapter accepts only an opaque trusted command reference. It loads the exact current pending command within command authority's lifecycle transaction, reads the pinned durable artifact through the grant-aware reader, and emits one bounded canonical kernel event. The lifecycle and kernel now validate artifact descriptor facts separately from strict inline values, so a required large artifact can start without a placeholder. Final evidence: PGlite command/lifecycle suites, PostgreSQL/S3 command conformance, SDK build, all four typecheck legs, lint, adapter coverage, and the locked repair replay test are recorded in `/tmp/factory-platform-evidence/terra-lazy-commands-*`.
 
+## C07 durable child runs and delegated budgets — Terra
+
+- [x] Inspect C03/F03 and the current command, lifecycle, and same-run budget models.
+- [ ] Add an immutable parent-command to child-run binding with scoped foreign keys and migration parity.
+- [ ] Create the pinned child run, lifecycle, root outbox, and bounded delegated budget in the parent command authority transaction.
+- [ ] Settle child spending into the reserved parent sub-envelope only after all child holds resolve.
+- [ ] Prove retries, restart, concurrent exhaustion, cancellation, repair, deadline, wrong definitions, PGlite, PostgreSQL/S3, coverage, types, and lint.
+
+Plan review: the parent command ID remains the only child-start authority. A child owns a separate logical run and root envelope, while the parent reserves exactly that envelope through a same-run child sub-envelope. Settlement transfers only verified child spending and returns unused allowance; no child receives fresh parent limits.
 ## Terminal invalid-input startup — root
 
 - [ ] Turn initial kernel input validation failure into a non-retryable workflow failure.
@@ -1663,3 +1672,21 @@ Review: application composition now provides a concrete host input resolver. Adm
 - [x] Run the full canonical backend suite.
 
 Review: focused PGlite 41 passed / 369 assertions; PostgreSQL/S3 120 passed / 2,587 assertions. Static checks passed. Chromium passed 1 case after selecting unused port 19873; the first attempt failed because port 4173 was occupied. The preserved PNG is `/tmp/factory-platform-evidence/root-release-inbox-authorized.png`. Backend passed 26,231 tests with zero failures across 1,727 files. Receipts: `root-input-execution-combined-integration-results.json` and `root-input-execution-remainder-integration-results.json` under `/tmp/factory-platform-evidence`. These proofs close this integration batch, not the full feature or its open launch gates. The new successful task-completion leaf is still under test in the side worktree.
+
+## C07 durable child runs and delegated budgets — final review
+
+- [x] Persist and seal each child inherited start clock; reject legacy rows without an explicit backfill.
+- [x] Verify sealed ancestor source heads before child task authority.
+- [x] Prove nested child clocks, parent supersession, deadline denial, unknown-hold denial, sibling held/retry progress, and nonzero settlement.
+- [x] Run PGlite, PostgreSQL/S3, migration restart, changed-source LCOV, SDK build, all canonical typechecks, and lint.
+
+Review: final source coverage is 100% for `child-runs.ts`, `command-authority.ts`, `run-lifecycle.ts`, `factory-schema.ts`, and the child start-clock migration. The registration lines in `migrate.ts` are exercised by the full migration restart test; its whole-file aggregate is 95.93% because the module has unrelated historical branches.
+
+## C07 durable child review corrections
+
+- [x] Keep a child attempt live across unrelated parent audit-head advances.
+- [x] Reject the child after an actual repair replaces its sealed parent attempt.
+- [x] Make concurrent terminal settlement converge on one stored receipt.
+- [x] Register 100% coverage thresholds for child binding and all three migrations.
+
+Review: ancestor validation loads the stored sealed `run-child` command, reads the latest verified parent transition, and applies the same attempt checks used by command authority. This permits harmless parent progress but rejects replaced, stopped, cancelled, expired, or mismatched attempts.

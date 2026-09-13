@@ -16,6 +16,7 @@ import { FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../factory/run-lifecycle";
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { FactoryCommandAuthority, type FactoryAuthorizedApprovalCommand } from "../../factory/command-authority";
+import { FactoryChildRuns } from "../../factory/child-runs";
 import { FactoryTaskAdmission, factoryTaskReservationId, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
 import { FactoryExecutionJournal } from "../../factory/executions";
@@ -57,17 +58,19 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
     return new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, profiles, admissions, () => now);
   };
-  const committedInterpreter = async (runId: string, definitionKey = key, request = body, runLifecycle = lifecycle, resolvedInput?: JsonValue) => {
+  const committedInterpreter = async (runId: string, definitionKey = key, request = body, runLifecycle = lifecycle, resolvedInput?: JsonValue, clock = now) => {
     const identity = { tenantId, projectId, logicalRunId: runId, interpreterId: "root" };
     const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
     const transitions = new FactoryTransitionArtifacts(artifacts);
     const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
     const { compiled } = await definitions.readVersion(principal, definitionKey, request.factoryVersion);
     const input = resolvedInput ?? Object.fromEntries(Object.entries(request.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null]));
-    const event = { kind: "start", id: "authority-start", atMs: now } as const;
-    const first = advanceKernel(compiled, createKernelState(compiled, runId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: request.parameters }), event);
+    const event = { kind: "start", id: "authority-start", atMs: clock } as const;
+    const { fence } = await fixture.db.transaction(transaction => runLifecycle.readExecutionPlanInTransaction(transaction, { projectId, runId }));
+    const created = createKernelState(compiled, runId, input, clock, { schemaVersion: "factory.lazy-input.v1", parameters: request.parameters });
+    const first = advanceKernel(compiled, { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, fence.deadlineAtMs) }, event);
     const admission = first.commands.find(command => command.kind === "request-admission")!;
-    const authority = new FactoryCommandAuthority(fixture.db, tenantId, runLifecycle, transitions, ["orchestration"], () => now);
+    const authority = new FactoryCommandAuthority(fixture.db, tenantId, runLifecycle, transitions, ["orchestration"], () => clock);
     return { identity, transitions, activities, compiled, event, first, admission, authority };
   };
   beforeAll(async () => {
@@ -341,11 +344,179 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
         expect(await pending).toEqual(child);
         const expired = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, [service.subject], () => command.deadlineAtMs);
         await expect(expired.withCurrentChild(service, reference, async () => "child")).rejects.toMatchObject({ code: "factory_command_stale" });
+        const expiredChildren = new FactoryChildRuns(fixture.db, tenantId, expired, lifecycle, transitions);
+        await expect(expiredChildren.resolve(service, { ...reference, factory: child })).rejects.toMatchObject({ code: "factory_command_stale" });
+        expect(rows(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${run.runId}`))).toEqual([]);
         await cancelRun(principal, runKey(run.runId), run.revision, "parent-authority-cancel");
         await expect(resolve()).rejects.toMatchObject({ code: "factory_run_stopped" });
       }
       await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
     }
+  });
+
+  test("a child command creates one durable child receipt without a second root outbox start", async () => {
+    const definitionKey = { projectId, factoryId: "durable-child-parent" };
+    const child = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, factories: [child], outputPorts: {},
+      graph: { nodes: [{ id: "child", kind: "subfactory", factory: child, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "durable-child-parent-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "durable-child-parent-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
+    const run = await startRun(principal, definitionKey, request, 0, "durable-child-parent-start");
+    const { identity, transitions, activities, compiled, event, first, authority } = await committedInterpreter(run.runId, definitionKey, request);
+    const command = first.commands.find(value => value.kind === "run-child");
+    expect(command?.kind).toBe("run-child");
+    if (command?.kind !== "run-child") throw new Error("missing child command");
+    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
+    const children = new FactoryChildRuns(fixture.db, tenantId, authority, lifecycle, transitions);
+    const service = { tenantId, subject: "orchestration" };
+    const reference = { ...identity, commandId: command.id, factory: command.factory };
+    const staged = await children.resolve(service, reference);
+    expect(staged.definitionDigest).toBe(child.digest);
+    const childRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${run.runId} AND parent_command_id=${command.id}`))[0]!.child_run_id;
+    expect(childRunId).toMatch(/^child-[a-f0-9]{64}$/);
+    expect(rows(await fixture.db.execute(sql`SELECT logical_run_id FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id=${childRunId}`))).toEqual([]);
+    expect(await children.resolve(service, reference)).toEqual(staged);
+    expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" } });
+    expect(await lifecycle.budgets.inspect({ projectId, runId: childRunId, envelopeId: "root" })).toMatchObject({ limits: { tokens: "100" } });
+    const childStartedAtMs = await fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: childRunId }));
+    const childCommitted = await committedInterpreter(childRunId, key, body, lifecycle, undefined, childStartedAtMs);
+    const childAdmission = childCommitted.first.commands.find(value => value.kind === "request-admission");
+    expect(childAdmission?.kind).toBe("request-admission");
+    if (childAdmission?.kind !== "request-admission") throw new Error("missing child admission");
+    await persistTransition(childCommitted.identity, 1, childCommitted.event, childCommitted.first.nextState, childCommitted.first.commands, undefined, childCommitted.activities);
+    const childTaskReference = { ...childCommitted.identity, commandId: childAdmission.id };
+    await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).resolves.toBe("child-work");
+    // A sibling timer can advance the parent head without replacing this child attempt.
+    await persistTransition(identity, 2, { kind: "timer-expired", id: "child-parent-unrelated", atMs: now + 1, commandId: "unrelated" }, first.nextState, [], undefined, activities);
+    await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).resolves.toBe("child-work");
+    // A repair replaces the subfactory attempt, so its original child task command is stale.
+    const repaired = advanceKernel(compiled, first.nextState, { kind: "repair", id: "child-parent-repaired", atMs: now + 2, nodeId: "child", reason: "replace child" });
+    await persistTransition(identity, 3, { kind: "repair", id: "child-parent-repaired", atMs: now + 2, nodeId: "child", reason: "replace child" }, repaired.nextState, repaired.commands, undefined, activities);
+    await expect(childCommitted.authority.withCurrent(service, childTaskReference, async () => "child-work")).rejects.toMatchObject({ code: "factory_command_stale" });
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId), 8);
+    const childIdentity = { tenantId, projectId, logicalRunId: childRunId, interpreterId: "root" };
+    const spent = { projectId, runId: childRunId, envelopeId: "root", reservationId: "child-measured-spend", amount: { costMicros: "5", tokens: 6, computeMs: 7 }, computeRequest: { kind: "fixture" } };
+    await lifecycle.budgets.reserve(spent, async () => {});
+    await lifecycle.budgets.settle(spent, { costMicros: "3", tokens: 4, computeMs: 5 }, `sha256:${"c".repeat(64)}`);
+    await persistTransition(childIdentity, 2, { id: "child-complete", kind: "cancel", atMs: now, reason: "settlement" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "child-terminal", output: {} }], undefined, activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(childRunId), 8);
+    await expect(Promise.all([children.settle(service, { projectId, childRunId }), children.settle(service, { projectId, childRunId })])).resolves.toEqual([undefined, undefined]);
+    expect(rows(await fixture.db.execute(sql`SELECT state,settlement_digest FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`))).toEqual([{ state: "settled", settlement_digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) }]);
+    expect(await lifecycle.budgets.inspect({ projectId, runId: run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "0", tokens: "0", computeMs: "0" }, spent: { costMicros: "3", tokens: "4", computeMs: "5" } });
+    await cancelRun(principal, runKey(run.runId), run.revision, "durable-child-parent-cancel");
+    await expect(fixture.db.transaction(transaction => lifecycle.authorizeRunInTransaction(transaction, { projectId, runId: childRunId }))).rejects.toMatchObject({ code: "factory_run_stopped" });
+    expect(await children.resolve(service, reference)).toEqual(staged);
+    await fixture.db.execute(sql`UPDATE factory_child_runs SET started_ms=${now + 2} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`);
+    await expect(fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: childRunId }))).rejects.toMatchObject({ code: "factory_run_corrupt" });
+  });
+
+  test("a terminal child with an unknown hold cannot settle its parent allocation", async () => {
+    const definitionKey = { projectId, factoryId: "unknown-child-parent" };
+    const child = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, factories: [child], outputPorts: {},
+      graph: { nodes: [{ id: "child", kind: "subfactory", factory: child, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "unknown-child-parent-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "unknown-child-parent-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
+    const parent = await startRun(principal, definitionKey, request, 0, "unknown-child-parent-start");
+    const committed = await committedInterpreter(parent.runId, definitionKey, request);
+    const command = committed.first.commands.find(command => command.kind === "run-child");
+    if (command?.kind !== "run-child") throw new Error("missing child command");
+    await persistTransition(committed.identity, 1, committed.event, committed.first.nextState, committed.first.commands, undefined, committed.activities);
+    const service = { tenantId, subject: "orchestration" };
+    const children = new FactoryChildRuns(fixture.db, tenantId, committed.authority, lifecycle, committed.transitions);
+    await children.resolve(service, { ...committed.identity, commandId: command.id, factory: command.factory });
+    const childRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${parent.runId}`))[0]!.child_run_id;
+    const hold = { projectId, runId: childRunId, envelopeId: "root", reservationId: "unknown-child-hold", amount: { costMicros: "1", tokens: 1, computeMs: 1 }, computeRequest: { kind: "fixture" } };
+    await lifecycle.budgets.reserve(hold, async () => {});
+    await lifecycle.budgets.markUncertain(hold, "provider-unknown");
+    const childIdentity = { tenantId, projectId, logicalRunId: childRunId, interpreterId: "root" };
+    await persistTransition(childIdentity, 1, { id: "unknown-child-terminal", kind: "cancel", atMs: now, reason: "fixture" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "unknown-child-complete", output: {} }], undefined, committed.activities);
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, committed.transitions, lifecycle);
+    await projector.project(runKey(parent.runId), 8);
+    await projector.project(runKey(childRunId), 8);
+    await expect(children.settle(service, { projectId, childRunId })).rejects.toMatchObject({ code: "factory_budget_pending" });
+    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`))).toEqual([{ state: "open" }]);
+    expect(await lifecycle.budgets.inspect({ projectId, runId: parent.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" }, spent: { tokens: "0" } });
+  });
+
+  test("a sibling child retries after a live delegated portion settles", async () => {
+    const definitionKey = { projectId, factoryId: "concurrent-child-parent" };
+    const child = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, factories: [child], outputPorts: {},
+      graph: { nodes: [
+        { id: "child-a", kind: "subfactory", factory: child, releaseMode: "none", grants: [] },
+        { id: "child-b", kind: "subfactory", factory: child, releaseMode: "none", grants: [] },
+      ], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "concurrent-child-parent-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "concurrent-child-parent-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
+    const parent = await startRun(principal, definitionKey, request, 0, "concurrent-child-parent-start");
+    const committed = await committedInterpreter(parent.runId, definitionKey, request);
+    const commands = committed.first.commands.filter(command => command.kind === "run-child");
+    expect(commands).toHaveLength(2);
+    const [first, second] = commands;
+    if (!first || !second) throw new Error("missing sibling child commands");
+    await persistTransition(committed.identity, 1, committed.event, committed.first.nextState, committed.first.commands, undefined, committed.activities);
+    const service = { tenantId, subject: "orchestration" };
+    const children = new FactoryChildRuns(fixture.db, tenantId, committed.authority, lifecycle, committed.transitions);
+    await children.resolve(service, { ...committed.identity, commandId: first.id, factory: first.factory });
+    await expect(children.resolve(service, { ...committed.identity, commandId: second.id, factory: second.factory })).rejects.toMatchObject({ code: "factory_budget_held" });
+    const firstRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${parent.runId} AND parent_command_id=${first.id}`))[0]!.child_run_id;
+    const firstIdentity = { tenantId, projectId, logicalRunId: firstRunId, interpreterId: "root" };
+    await persistTransition(firstIdentity, 1, { id: "concurrent-child-terminal", kind: "cancel", atMs: now, reason: "fixture" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: "concurrent-child-complete", output: {} }], undefined, committed.activities);
+    const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, committed.transitions, lifecycle);
+    await projector.project(runKey(parent.runId), 8);
+    await projector.project(runKey(firstRunId), 8);
+    await children.settle(service, { projectId, childRunId: firstRunId });
+    expect(await children.resolve(service, { ...committed.identity, commandId: second.id, factory: second.factory })).toMatchObject({ definitionDigest: child.digest });
+  });
+
+  test("nested child bindings inherit the original root clock without child start outboxes", async () => {
+    const grandchild = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const middleKey = { projectId, factoryId: "durable-child-middle" };
+    const middleSource: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: middleKey.factoryId, factories: [grandchild], outputPorts: {},
+      graph: { nodes: [{ id: "grandchild", kind: "subfactory", factory: grandchild, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, middleKey, 0, "durable-child-middle-create", middleSource);
+    const middleVersion = await definitions.publish(principal, middleKey, 1, "durable-child-middle-publish");
+    const middle = { id: middleKey.factoryId, version: middleVersion.version, digest: middleVersion.definitionDigest };
+    const parentKey = { projectId, factoryId: "durable-child-clock-parent" };
+    const parentSource: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: parentKey.factoryId, factories: [middle], outputPorts: {},
+      graph: { nodes: [{ id: "middle", kind: "subfactory", factory: middle, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, parentKey, 0, "durable-child-clock-parent-create", parentSource);
+    const parentVersion = await definitions.publish(principal, parentKey, 1, "durable-child-clock-parent-publish");
+    const parentBody = { ...body, factoryVersion: parentVersion.version, definitionDigest: parentVersion.definitionDigest };
+    const rootStartedAtMs = now;
+    const parentRun = await startRun(principal, parentKey, parentBody, 0, "durable-child-clock-parent-start");
+    now += 1_000;
+    try {
+      const parent = await committedInterpreter(parentRun.runId, parentKey, parentBody, lifecycle, undefined, rootStartedAtMs);
+      const parentCommand = parent.first.commands.find(command => command.kind === "run-child");
+      expect(parentCommand?.kind).toBe("run-child");
+      if (parentCommand?.kind !== "run-child") throw new Error("missing middle child command");
+      await persistTransition(parent.identity, 1, parent.event, parent.first.nextState, parent.first.commands, undefined, parent.activities);
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, parent.transitions, lifecycle).project(runKey(parentRun.runId), 8);
+      const service = { tenantId, subject: "orchestration" };
+      const middleChildren = new FactoryChildRuns(fixture.db, tenantId, parent.authority, lifecycle, parent.transitions);
+      await middleChildren.resolve(service, { ...parent.identity, commandId: parentCommand.id, factory: parentCommand.factory });
+      const middleRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${parentRun.runId} AND parent_command_id=${parentCommand.id}`))[0]!.child_run_id;
+      const middleStartedAtMs = await fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: middleRunId }));
+      expect(middleStartedAtMs).toBe(rootStartedAtMs);
+      const middleBody = { ...body, factoryVersion: middleVersion.version, definitionDigest: middleVersion.definitionDigest };
+      const middleRun = await committedInterpreter(middleRunId, middleKey, middleBody, lifecycle, undefined, middleStartedAtMs);
+      const middleCommand = middleRun.first.commands.find(command => command.kind === "run-child");
+      expect(middleCommand?.kind).toBe("run-child");
+      if (middleCommand?.kind !== "run-child") throw new Error("missing nested child command");
+      await persistTransition(middleRun.identity, 1, middleRun.event, middleRun.first.nextState, middleRun.first.commands, undefined, middleRun.activities);
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, middleRun.transitions, lifecycle).project(runKey(middleRunId), 8);
+      const grandchildren = new FactoryChildRuns(fixture.db, tenantId, middleRun.authority, lifecycle, middleRun.transitions);
+      await grandchildren.resolve(service, { ...middleRun.identity, commandId: middleCommand.id, factory: middleCommand.factory });
+      const grandchildRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${middleRunId} AND parent_command_id=${middleCommand.id}`))[0]!.child_run_id;
+      expect(await fixture.db.transaction(transaction => lifecycle.readWorkflowStartedAtInTransaction(transaction, { projectId, runId: grandchildRunId }))).toBe(rootStartedAtMs);
+      expect(rows(await fixture.db.execute(sql`SELECT logical_run_id FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id IN (${middleRunId}, ${grandchildRunId})`))).toEqual([]);
+    } finally { now = rootStartedAtMs; }
   });
 
   test("lazy reads authorize the exact pending input and stop when its committed result advances", async () => {
@@ -573,6 +744,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
   test("outbox failure rolls back run, budget, audit and mutation receipt", async () => {
     const before = rows(await fixture.db.execute(sql`SELECT run_id FROM factory_runs`)).length;
+    const budgetsBefore = rows(await fixture.db.execute(sql`SELECT envelope_id FROM factory_budget_envelopes`)).length;
     const artifactsBefore = rows(await fixture.db.execute(sql`SELECT object_id FROM factory_artifacts`)).length;
     await fixture.db.execute(sql`CREATE FUNCTION reject_lifecycle_command() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'command failed'; END $$`);
     await fixture.db.execute(sql`CREATE TRIGGER reject_lifecycle_command BEFORE INSERT ON factory_command_outbox FOR EACH ROW EXECUTE FUNCTION reject_lifecycle_command()`);
@@ -582,7 +754,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await fixture.db.execute(sql`DROP FUNCTION reject_lifecycle_command()`);
     }
     expect(rows(await fixture.db.execute(sql`SELECT run_id FROM factory_runs`))).toHaveLength(before);
-    expect(rows(await fixture.db.execute(sql`SELECT run_id FROM factory_budget_envelopes`))).toHaveLength(before);
+    expect(rows(await fixture.db.execute(sql`SELECT envelope_id FROM factory_budget_envelopes`))).toHaveLength(budgetsBefore);
     expect(rows(await fixture.db.execute(sql`SELECT object_id FROM factory_artifacts`))).toHaveLength(artifactsBefore);
     expect(rows(await fixture.db.execute(sql`SELECT idempotency_key FROM factory_mutation_receipts WHERE idempotency_key='rollback-start'`))).toEqual([]);
     expect((await startRun(principal, key, body, 0, "rollback-start")).status).toBe("queued");

@@ -1,7 +1,7 @@
 import { lockFactoryScope } from "./locks";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
 import { validateDurableInputPorts, validateValue } from "@ezcorp/factory-sdk/validation";
-import type { BudgetBounds, CompiledFactory, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue } from "@ezcorp/factory-sdk";
+import type { BudgetBounds, CompiledFactory, FactoryReference, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableInput, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue } from "@ezcorp/factory-sdk";
 import type { FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -11,18 +11,42 @@ import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryAttemptAuthority } from "./executions";
 import type { FactoryDefinitions, FactoryDefinitionKey } from "./definitions";
 import { FactoryGrantError, type FactoryGrants, type FactoryPrincipal } from "./grants";
+import { verifyFactoryChildBinding, type FactoryChildBindingRow } from "./child-runs";
 import { FactoryBudgets, type FactoryBudgetAdmission } from "./budgets";
 import { FactoryMutations } from "./mutations";
 import { FactoryInbox } from "./inbox";
 import { FactoryCommandOutbox } from "./outbox";
 import { assertFactoryIdentity, encodeFactoryPayload, FactoryRecords, type FactoryRunKey } from "./records";
 
+interface ChildAncestorRow { parent_run_id: string; parent_execution_epoch: number | string; parent_cancellation_epoch: number | string; parent_grant_revision: number | string; binding_digest: string; }
 interface LifecycleRow { factory_id: string; factory_version: string; definition_digest: string; grant_revision: string | number; revision: string | number; cancellation_epoch: string | number; status: FactoryRunDetails["status"]; deadline_ms: string | number; parameters_json: string; parameters_digest: string; output_json: string | null; error_json: string | null; created_ms: string | number; updated_ms: string | number }
 export interface FactoryRunRequest { readonly run: FactoryRunDetails; readonly receipt: FactoryDurableReceipt }
 /** Lets host admission retain a bounded placeholder while the durable parameter descriptor carries artifact references. */
 export interface FactoryResolvedParameters {
   readonly kind: "factory.run-resolved-parameters";
   readonly input: JsonValue;
+}
+
+export interface FactoryChildRunAdmission {
+  readonly parent: FactoryRunFence;
+  readonly parentInterpreterId: string;
+  readonly parentCommandId: string;
+  readonly childRunId: string;
+  readonly parentEnvelopeId: string;
+  readonly factory: FactoryReference;
+  readonly input: JsonValue;
+  readonly durableInput?: FactoryDurableInput;
+  readonly startedAtMs: number;
+  readonly deadlineAtMs: number;
+  readonly initiator: FactoryPrincipal;
+}
+export interface FactoryChildRunReceipt {
+  readonly childRunId: string;
+  readonly definition: FactoryDefinitionSource;
+  readonly definitionDigest: string;
+  readonly deadlineAtMs: number;
+  readonly parentEnvelopeId: string;
+  readonly childEnvelopeId: "root";
 }
 
 export interface FactoryRunFence {
@@ -131,6 +155,32 @@ export class FactoryRunLifecycle {
     });
   }
 
+  /** Creates a child as its own durable run while reserving only the parent remainder. */
+  async createChildInTransaction(transaction: MigrationDb, value: FactoryChildRunAdmission): Promise<FactoryChildRunReceipt> {
+    const input = JSON.parse(encodeFactoryPayload(value)) as FactoryChildRunAdmission;
+    assertFactoryIdentity(input.parent.projectId, input.parent.runId, input.parentInterpreterId, input.parentCommandId, input.childRunId, input.parentEnvelopeId, input.factory.id, input.factory.version, input.factory.digest);
+    if (input.parent.tenantId !== this.tenantId || input.deadlineAtMs !== input.parent.deadlineAtMs && input.deadlineAtMs > input.parent.deadlineAtMs || !Number.isSafeInteger(input.startedAtMs) || input.startedAtMs < 0 || !Number.isSafeInteger(input.deadlineAtMs) || input.deadlineAtMs <= this.now()) throw new FactoryRunLifecycleError("factory_child_invalid");
+    const { fence } = await this.readExecutionPlanInTransaction(transaction, { projectId: input.parent.projectId, runId: input.parent.runId });
+    const parentStartedAtMs = await this.readWorkflowStartedAtInTransaction(transaction, { projectId: input.parent.projectId, runId: input.parent.runId });
+    if (input.startedAtMs !== parentStartedAtMs || fence.executionEpoch !== input.parent.executionEpoch || fence.cancellationEpoch !== input.parent.cancellationEpoch || fence.grantRevision !== input.parent.grantRevision || fence.deadlineAtMs !== input.parent.deadlineAtMs) throw new FactoryRunLifecycleError("factory_child_stale");
+    const { version, compiled } = await this.options.definitions.readVersionInTransaction(transaction, input.initiator, { projectId: input.parent.projectId, factoryId: input.factory.id }, input.factory.version);
+    if (version.definitionDigest !== input.factory.digest || compiled.digest !== input.factory.digest || compiled.lock.interpreter !== this.options.interpreterCompatibility) throw new FactoryRunLifecycleError("factory_definition_conflict");
+    const ports = compiled.definition.inputPorts;
+    if (input.durableInput === undefined) {
+      if (typeof input.input !== "object" || input.input === null || Array.isArray(input.input) || Object.keys(input.input).some(name => !Object.hasOwn(ports, name)) || Object.entries(ports).some(([name, schema]) => !Object.hasOwn(input.input as object, name) || !validateValue(schema, (input.input as Record<string, JsonValue>)[name]!).ok)) throw new FactoryRunLifecycleError("factory_input_invalid");
+    } else if (!validateDurableInputPorts(ports, input.input, input.durableInput).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
+    const childKey = { projectId: input.parent.projectId, runId: input.childRunId };
+    let source!: FactoryDefinitionSource;
+    await this.records.createRunInTransaction(transaction, { projectId: childKey.projectId, runId: childKey.runId, definitionDigest: compiled.digest, interpreterBuild: this.options.interpreterBuild, executionEpoch: fence.executionEpoch, input: input.input, principalId: input.initiator.id, principalKind: input.initiator.kind, ...(input.initiator.credential === undefined ? {} : { serviceCredential: input.initiator.credential }) }, async tx => {
+      const identity = { tenantId: this.tenantId, projectId: childKey.projectId, logicalRunId: childKey.runId, interpreterId: input.parentInterpreterId };
+      source = await this.options.stageDefinitionInTransaction(tx, compiled, identity);
+      if (source.definitionDigest !== compiled.digest) throw new FactoryRunLifecycleError("factory_definition_conflict");
+      await tx.execute(sql`INSERT INTO factory_run_lifecycle (tenant_id, project_id, run_id, factory_id, factory_version, definition_digest, grant_revision, status, deadline_ms, parameters_json, parameters_digest) VALUES (${this.tenantId}, ${childKey.projectId}, ${childKey.runId}, ${input.factory.id}, ${input.factory.version}, ${compiled.digest}, ${fence.grantRevision}, 'queued', ${input.deadlineAtMs}, ${encodeFactoryPayload(input.input)}, ${digestObject(input.input)})`);
+      await this.budgets.openChildDelegationInTransaction(tx, { parent: { projectId: input.parent.projectId, runId: input.parent.runId }, child: childKey, parentEnvelopeId: input.parentEnvelopeId, childEnvelopeId: "root", deadlineAtMs: input.deadlineAtMs });
+    });
+    return { childRunId: childKey.runId, definition: source, definitionDigest: compiled.digest, deadlineAtMs: input.deadlineAtMs, parentEnvelopeId: input.parentEnvelopeId, childEnvelopeId: "root" };
+  }
+
   async cancel(principal: FactoryPrincipal, key: FactoryRunKey, expectedRevision: number, idempotencyKey: string, reason = "Operator requested cancellation"): Promise<FactoryRunRequest> {
     const snapshot = JSON.parse(encodeFactoryPayload({ principal, key })) as { principal: FactoryPrincipal; key: FactoryRunKey };
     principal = snapshot.principal; key = snapshot.key;
@@ -217,6 +267,12 @@ export class FactoryRunLifecycle {
   /** Trusted service boundary: lock the durable run and recheck its live authority. */
   async authorizeRunInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunFence> {
     key = { projectId: key.projectId, runId: key.runId };
+    const ancestor = rows<ChildAncestorRow>(await transaction.execute(sql`SELECT parent_run_id,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,binding_digest FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.runId}`))[0];
+    if (ancestor) {
+      if (!ancestor.parent_run_id || !/^sha256:[a-f0-9]{64}$/.test(ancestor.binding_digest) || ![ancestor.parent_execution_epoch, ancestor.parent_cancellation_epoch, ancestor.parent_grant_revision].every(value => Number.isSafeInteger(Number(value)))) throw new FactoryRunLifecycleError("factory_child_corrupt");
+      const parent = await this.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: ancestor.parent_run_id });
+      if (parent.executionEpoch !== Number(ancestor.parent_execution_epoch) || parent.cancellationEpoch !== Number(ancestor.parent_cancellation_epoch) || parent.grantRevision !== Number(ancestor.parent_grant_revision)) throw new FactoryRunLifecycleError("factory_child_stale");
+    }
     const row = await this.row(transaction, key, true);
     const request = await this.records.readRunRequestInTransaction(transaction, key);
     const installation = rows<{ execution_epoch: number }>(await transaction.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id=${this.tenantId}`))[0];
@@ -234,6 +290,22 @@ export class FactoryRunLifecycle {
     const fence = await this.authorizeRunInTransaction(transaction, { projectId: authority.projectId, runId: authority.runId });
     if (authority.cancellationEpoch !== fence.cancellationEpoch || authority.executionEpoch !== fence.executionEpoch || authority.grantRevision !== fence.grantRevision || !Number.isSafeInteger(authority.deadlineAt.getTime()) || authority.deadlineAt.getTime() <= this.now() || authority.deadlineAt.getTime() > fence.deadlineAtMs) throw new FactoryRunLifecycleError("factory_run_fence_changed");
   };
+
+  /** Root start outbox is the sealed source of the workflow's original clock. */
+  async readWorkflowStartedAtInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<number> {
+    const command = await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).findRunCommandInTransaction(transaction, key.runId, "start_run");
+    if (!command) {
+      const inherited = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.runId}`))[0];
+      if (!inherited) throw new FactoryRunLifecycleError("factory_run_corrupt");
+      try { return verifyFactoryChildBinding(inherited).startedAtMs; }
+      catch { throw new FactoryRunLifecycleError("factory_run_corrupt"); }
+    }
+    if (command.command.kind !== "start_run" || !command.command.body || typeof command.command.body !== "object" || Array.isArray(command.command.body)) throw new FactoryRunLifecycleError("factory_run_corrupt");
+    const body = command.command.body as Record<string, unknown>;
+    const startedAtMs = body.startedAtMs;
+    if (command.command.logicalRunId !== key.runId || body.tenantId !== this.tenantId || body.projectId !== key.projectId || body.logicalRunId !== key.runId || !Number.isSafeInteger(startedAtMs) || (startedAtMs as number) < 0) throw new FactoryRunLifecycleError("factory_run_corrupt");
+    return startedAtMs as number;
+  }
 
   /** Private command admission uses the exact published plan and the live initiator. */
   async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {
