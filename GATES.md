@@ -50,12 +50,12 @@
 - [x] S2 The schema matches a real PostgreSQL database after the Factory migrations, including types, defaults, keys, foreign keys, and indexes.
   CHECK: FACTORY_TEST_POSTGRES_URL=... bun test ./tests/postgres/factory-schema.test.ts
   EXPECT: pass
-  EVIDENCE: pinned Bun with isolated PostgreSQL passed 2 tests and 547 assertions; it introspected every Factory column/type/default/nullability plus primary, unique, foreign, and partial-index facts.
+  EVIDENCE: pinned Bun with isolated PostgreSQL passed 2 tests and 553 assertions; it introspected every Factory column/type/default/nullability plus primary, unique, foreign, and partial-index facts.
 
 - [x] S3 The schema has no runtime import cycle and all changed executable source has 100% measured coverage.
   CHECK: FACTORY_TEST_POSTGRES_URL=... bun test --coverage ./src/db/factory-schema.test.ts ./tests/postgres/factory-schema.test.ts
   EXPECT: pass with `src/db/factory-schema.ts` at 100%
-  EVIDENCE: clean Bun import passed; combined LCOV measured factory-schema 288/288, add-factory-inbox 7/7, add-factory-budgets 7/7, and add-factory-definitions 8/8.
+  EVIDENCE: clean Bun import passed; combined LCOV measured factory-schema 291/291, add-factory-inbox 7/7, add-factory-budgets 7/7, and add-factory-definitions 10/10.
 
 - [x] S4 Root typecheck and lint pass with the Factory schema import.
   CHECK: bun run typecheck && bun run lint

@@ -233,6 +233,8 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     revision: bigint("revision", { mode: "number" }).notNull(),
     sourceDigest: text("source_digest").notNull(),
     sourceJson: text("source_json").notNull(),
+    requiredResourcesJson: text("required_resources_json").notNull().default("[]"),
+    validationDiagnosticCount: integer("validation_diagnostic_count").notNull().default(1),
     archived: boolean("archived").notNull().default(false),
     createdAt: createdAtColumn(),
     updatedAt: updatedAtColumn(),
@@ -240,6 +242,7 @@ export function buildFactorySchema({ projects, users }: FactorySchemaReferences)
     primaryKey({ columns: [table.tenantId, table.projectId, table.factoryId] }),
     foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
     check("factory_drafts_revision_check", sql`${table.revision} > 0`),
+    check("factory_drafts_validation_diagnostic_count_check", sql`${table.validationDiagnosticCount} >= 0`),
   ]);
 
   const factoryVersions = pgTable("factory_versions", {
