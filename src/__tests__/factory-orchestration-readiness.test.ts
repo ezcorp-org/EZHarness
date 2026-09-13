@@ -10,7 +10,7 @@ async function fixture() {
   const directory = await mkdtemp(join(process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid!()}`, "factory-readiness-"));
   directories.push(directory);
   const options: FactoryOrchestrationReadinessOptions = { installationId: "installation-a", tenantId: "tenant-a", namespace: "namespace-a", taskQueue: "factory-kernel-v1", readinessFilePath: join(directory, "orchestration.json"), readinessHeartbeatMs: 5_000 };
-  const state = { schemaVersion: "factory.orchestrator-readiness.v1", installationId: options.installationId, tenantId: options.tenantId, namespace: options.namespace, taskQueue: options.taskQueue, lifecycle: "ready", observedAtMs, workerPolling: true, dispatcherLive: true, credentialGeneration: 1 };
+  const state = { schemaVersion: "factory.orchestrator-readiness.v1", installationId: options.installationId, tenantId: options.tenantId, namespace: options.namespace, taskQueue: options.taskQueue, lifecycle: "ready", observedAtMs, workerPolling: true, dispatcherLive: true, credentialGeneration: 1 } as const;
   const write = async (value: unknown) => {
     const temporary = join(directory, "next.json");
     await writeFile(temporary, JSON.stringify(value), { mode: 0o600 });
