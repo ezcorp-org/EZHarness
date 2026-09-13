@@ -1690,3 +1690,14 @@ Review: final source coverage is 100% for `child-runs.ts`, `command-authority.ts
 - [x] Register 100% coverage thresholds for child binding and all three migrations.
 
 Review: ancestor validation loads the stored sealed `run-child` command, reads the latest verified parent transition, and applies the same attempt checks used by command authority. This permits harmless parent progress but rejects replaced, stopped, cancelled, expired, or mismatched attempts.
+## Durable successful task completion — root
+
+Plan review: test the public completion boundary with a published factory, admitted task, real durable journal, immutable output, budget ledger, and inbox. A retry must return the saved event after the interpreter advances. The completion transaction must roll back every product fact on failure. Runner launch and failed/uncertain terminal recovery remain separate open leaves.
+
+- [x] Reproduce a successful admitted task that has no durable completion adapter.
+- [x] Commit exact terminal evidence, measured spend, bounded workflow result, and sealed retry receipt in one transaction.
+- [x] Prove retry, corruption, cancellation, output limits, and write-fault rollback with PGlite and PostgreSQL/S3.
+- [ ] Verify changed-source coverage, all four typechecks, lint, gate registration, and integration.
+- [ ] Record exact evidence and review the completed leaf.
+
+Validation checkpoint: full SDK 160 passed / 1,192 assertions; focused product and registration 47 passed / 421 assertions; PostgreSQL/S3 plus schema parity 46 passed / 2,090 assertions. SDK build, all four typechecks, lint (zero errors / eight existing infos), gate integrity, and boundaries passed. Both database producers report task-completions 79/79 lines and 18/18 functions, migration 4/4 and 2/2; shared command authority 88/88 and 26/26, artifacts 106/106 and 28/28, input artifacts 39/39 and 7/7. Source snapshot and exact results: `/tmp/factory-platform-evidence/root-task-completion-final-source.json` and `root-task-completion-final-integration-results.json`. Committed patch/new-file coverage and parent integration remain pending.

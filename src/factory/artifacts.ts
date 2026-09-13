@@ -9,7 +9,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows } from "../db/queries/extension-releases";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryIdentity, ImmutableObjectReference } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
-import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
+import { canonicalizeJson, validateIJson, type JsonValue, type FactoryArtifactReference } from "@ezcorp/factory-sdk";
 
 export const FACTORY_ARTIFACT_MAX_BYTES = FACTORY_PAGE_BYTES_LIMIT;
 export const FACTORY_CANDIDATE_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
@@ -140,4 +140,12 @@ export class FactoryArtifacts {
   }
 }
 
-export const artifactJson = { bytes, text, canonical: (value: unknown) => bytes(canonicalJson(value)) };
+function parseCanonicalJson(content: Uint8Array): JsonValue {
+  try {
+    const value: unknown = JSON.parse(text(content));
+    if (!validateIJson(value).ok || !Buffer.from(content).equals(Buffer.from(canonicalizeJson(value as JsonValue)))) throw new FactoryArtifactError("factory_artifact_json_invalid");
+    return value as JsonValue;
+  } catch { throw new FactoryArtifactError("factory_artifact_json_invalid"); }
+}
+
+export const artifactJson = { bytes, text, canonical: (value: unknown) => bytes(canonicalJson(value)), parse: parseCanonicalJson };

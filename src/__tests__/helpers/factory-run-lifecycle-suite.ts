@@ -73,9 +73,64 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const authority = new FactoryCommandAuthority(fixture.db, tenantId, runLifecycle, transitions, ["orchestration"], () => clock);
     return { identity, transitions, activities, compiled, event, first, admission, authority };
   };
+  const dispatchedTask = async () => {
+    const run = await start();
+    const { identity, transitions, activities, compiled, event, first, admission, authority } = await committedInterpreter(run.runId);
+    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    const reference = { ...identity, commandId: admission.id };
+    const service = { tenantId, subject: "orchestration" };
+    const profile = { resources: { cpu: 1 }, memoryBytes: 128, budget: { costMicros: "5", tokens: 6, computeMs: 7 } };
+    const reserved = await taskAdmissions(authority, { cpu: profile }).request(service, reference);
+    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
+    expect(await taskAdmissions(authority, { cpu: profile }).request(service, reference)).toEqual(reserved);
+    const queued = (await new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").inspect(reserved.outboxCommandId))!;
+    const input = queued.command.body as import("../../factory/task-admission").FactoryComputeAdmissionRequest;
+    const lease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "current-authority-allocation", fence: "current-authority-fence", deadlineAt: new Date(now + 1_000), resources: input.request.resources, hostId: "host-current" };
+    let requests = 0;
+    const pool = { async request() { requests++; return { status: "admitted" as const, reservationId: reserved.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
+    const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
+    const admitted = await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId });
+    expect(admitted).toMatchObject({ status: "admitted", receipt: { lease: { allocationToken: lease.allocationToken }, event: { commandId: admission.id, granted: true } } });
+    expect(requests).toBe(1);
+    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_budget_reservations WHERE reservation_id=${reserved.reservationId}`))).toEqual([{ state: "running" }]);
+    expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${run.runId}`))).toHaveLength(1);
+    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
+    if (admitted.status !== "admitted") throw new Error("fixture compute admission failed");
+    const next = advanceKernel(compiled, first.nextState, admitted.receipt.event);
+    const dispatch = next.commands.find(command => command.kind === "dispatch-node");
+    if (!dispatch) throw new Error("fixture dispatch command is missing");
+    await persistTransition(identity, 2, admitted.receipt.event, next.nextState, next.commands, undefined, activities);
+    const dispatchReference = { ...identity, commandId: dispatch.id };
+    const journal = new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction);
+    const queue = new FactoryAttemptQueue(fixture.db, journal, tenantId, () => now);
+    return { run, identity, transitions, activities, compiled, profile, next, dispatch, dispatchReference, authority, admissions, journal, queue, service, reserved, lease };
+  };
+  const completedTask = async (customValue?: JsonValue) => {
+    const task = await dispatchedTask();
+    const policy: FactoryTaskRunnerPolicy = { async resolveInTransaction(_transaction, input) { return { grants: input.context.node.capabilities ?? [], tools: [], brokerAudience: "factory-broker" }; } };
+    const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
+    const admitted = await execution.admit(task.service, task.dispatchReference);
+    const { FactoryTaskCompletions } = await import("../../factory/task-completions");
+    const completions = new FactoryTaskCompletions(fixture.db, task.authority, task.admissions, task.journal, task.queue, new FactoryArtifacts(fixture.db, objectStore, tenantId), lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), () => now);
+    const authority = { ...admitted.delivery.reference, deadlineAt: new Date(admitted.delivery.reference.deadlineAtMs) };
+    const operation = { operationId: `${task.run.runId}:${task.dispatch.nodeId}:0:0`, operationIndex: 0, kind: "tool" as const, requestDigest: "a".repeat(64) };
+    const usage = { kind: "measured" as const, inputTokens: 1, outputTokens: 2, computeMs: 3, costMicros: "4" };
+    const checkpoint = { artifactId: "task-checkpoint", digest: `sha256:${"b".repeat(64)}`, encodedBytes: 1, journalCursor: 0 };
+    await task.journal.prepare(authority, operation);
+    await task.journal.dispatch(authority, operation.operationId);
+    await task.journal.settle(authority, operation.operationId, "completed", { result: { completed: true }, resultDigest: "c".repeat(64), usage, workspaceCheckpoint: checkpoint });
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const value = customValue ?? { snapshot: { digest: `sha256:${"d".repeat(64)}`, mediaType: "application/json", storage: "immutable-test-snapshot" } };
+    const { artifactJson } = await import("../../factory/artifacts");
+    const output = await fixture.db.transaction(tx => artifacts.stageCandidateOutputInTransaction(tx, task.identity, task.dispatch.nodeId, 0, artifactJson.canonical(value)));
+    const result = { schemaVersion: "factory.runner.result.v1" as const, status: "completed" as const, journalCursor: 0, operations: [{ ...operation, state: "completed" as const, resultDigest: "c".repeat(64), usage, workspaceCheckpoint: checkpoint }], resultDigest: output.digest.slice(7), output, usage, workspaceCheckpoint: checkpoint };
+    return { task, completions, admitted, authority, result, value, artifacts };
+  };
   beforeAll(async () => {
     fixture = await create();
     await up(fixture.db); await up(fixture.db);
+    const { up: migrateCompletions } = await import("../../db/migrations/add-factory-task-completions");
+    await migrateCompletions(fixture.db); await migrateCompletions(fixture.db);
     const records = new FactoryRecords(fixture.db, tenantId);
     await records.bindInstallation();
     await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId}, 'Run lifecycle', '/tmp/lifecycle')`);
@@ -192,35 +247,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   });
 
   test("compute admission commits only under the actual current command authority", async () => {
-    const run = await start();
-    const { identity, transitions, activities, compiled, event, first, admission, authority } = await committedInterpreter(run.runId);
-    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
-    const reference = { ...identity, commandId: admission.id };
-    const service = { tenantId, subject: "orchestration" };
-    const profile = { resources: { cpu: 1 }, memoryBytes: 128, budget: { costMicros: "5", tokens: 6, computeMs: 7 } };
-    const reserved = await taskAdmissions(authority, { cpu: profile }).request(service, reference);
-    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
-    expect(await taskAdmissions(authority, { cpu: profile }).request(service, reference)).toEqual(reserved);
-    const queued = (await new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").inspect(reserved.outboxCommandId))!;
-    const input = queued.command.body as import("../../factory/task-admission").FactoryComputeAdmissionRequest;
-    const lease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "current-authority-allocation", fence: "current-authority-fence", deadlineAt: new Date(now + 1_000), resources: input.request.resources, hostId: "host-current" };
-    let requests = 0;
-    const pool = { async request() { requests++; return { status: "admitted" as const, reservationId: reserved.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
-    const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
-    const admitted = await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId });
-    expect(admitted).toMatchObject({ status: "admitted", receipt: { lease: { allocationToken: lease.allocationToken }, event: { commandId: admission.id, granted: true } } });
-    expect(requests).toBe(1);
-    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_budget_reservations WHERE reservation_id=${reserved.reservationId}`))).toEqual([{ state: "running" }]);
-    expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${run.runId}`))).toHaveLength(1);
-    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
-    if (admitted.status !== "admitted") throw new Error("fixture compute admission failed");
-    const next = advanceKernel(compiled, first.nextState, admitted.receipt.event);
-    const dispatch = next.commands.find(command => command.kind === "dispatch-node");
-    if (!dispatch) throw new Error("fixture dispatch command is missing");
-    await persistTransition(identity, 2, admitted.receipt.event, next.nextState, next.commands, undefined, activities);
-    const dispatchReference = { ...identity, commandId: dispatch.id };
-    const journal = new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction);
-    const queue = new FactoryAttemptQueue(fixture.db, journal, tenantId, () => now);
+    const { run, transitions, compiled, profile, authority, admissions, journal, queue, service, reserved, lease, dispatch, dispatchReference } = await dispatchedTask();
     const taskNode = compiled.indexes.nodeById[dispatch.nodeId];
     if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");
     const nativeProfile: FactoryNativeRunnerProfile = { runner: taskNode.runner, resourceClass: "cpu", allocation: profile, allowedCapabilities: ["llm"], tools: [
@@ -312,6 +339,57 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 2, lag: 0 });
     await cancelRun(principal, runKey(run.runId), run.revision, `execution-cancel-${run.runId}`);
     await expect(execution.admit(service, dispatchReference)).rejects.toMatchObject({ code: "factory_run_stopped" });
+  });
+
+  test("successful task completion commits measured spend and one durable result, with exact recovery", async () => {
+    const { task, completions, result, value } = await completedTask();
+    expect(await fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, task.dispatchReference))).toBeUndefined();
+    await expect(fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, { ...task.dispatchReference, tenantId: "foreign" }))).rejects.toMatchObject({ code: "factory_task_completion_scope" });
+    await expect(fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, { ...task.dispatchReference, logicalRunId: "missing-run" }))).rejects.toMatchObject({ code: "factory_task_completion_scope" });
+    now--;
+    try { await expect(completions.complete(task.service, task.dispatchReference, result)).rejects.toMatchObject({ code: "factory_task_completion_expired" }); }
+    finally { now++; }
+    for (const table of ["factory_task_completions", "factory_inbox_events", "factory_budget_reservations"]) {
+      await fixture.db.execute(sql`ALTER TABLE ${sql.identifier(table)} ADD CONSTRAINT task_completion_rollback CHECK (FALSE) NOT VALID`);
+      try { await expect(completions.complete(task.service, task.dispatchReference, result)).rejects.toThrow(); }
+      finally { await fixture.db.execute(sql`ALTER TABLE ${sql.identifier(table)} DROP CONSTRAINT task_completion_rollback`); }
+      expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_execution_terminals WHERE attempt_id=${task.dispatch.id}`))).toHaveLength(0);
+      expect(await lifecycle.budgets.inspect({ projectId, runId: task.run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "5" }, spent: { costMicros: "0" } });
+    }
+    await expect(completions.complete(task.service, task.dispatchReference, { ...result, usage: { ...result.usage, costMicros: "5" } })).rejects.toThrow("measured usage");
+    const [completed, raced] = await Promise.all([completions.complete(task.service, task.dispatchReference, result), completions.complete(task.service, task.dispatchReference, result)]);
+    expect(raced).toEqual(completed);
+    expect(await fixture.db.transaction(tx => completions.readInTransaction(tx, task.service, task.dispatchReference))).toEqual(completed);
+    expect(completed.event).toMatchObject({ kind: "node-result", commandId: task.dispatch.id, nodeId: task.dispatch.nodeId, candidateGeneration: 0, output: value });
+    expect(await lifecycle.budgets.inspect({ projectId, runId: task.run.runId, envelopeId: "root" })).toMatchObject({ allocated: { costMicros: "0", tokens: "0", computeMs: "0" }, spent: { costMicros: "4", tokens: "3", computeMs: "3" } });
+    const advanced = advanceKernel(task.compiled, task.next.nextState, completed.event);
+    expect(advanced.nextState.nodes[task.dispatch.nodeId]?.status).toBe("succeeded");
+    await persistTransition(task.identity, 3, completed.event, advanced.nextState, advanced.commands, undefined, task.activities);
+    expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId))).toMatchObject({ sequence: 3, lag: 0 });
+    expect(await completions.complete(task.service, task.dispatchReference, result)).toEqual(completed);
+    await expect(completions.complete(task.service, task.dispatchReference, { ...result, resultDigest: "e".repeat(64) })).rejects.toMatchObject({ code: "factory_task_completion_conflict" });
+    const receipt = rows<{ receipt_json: string }>(await fixture.db.execute(sql`SELECT receipt_json FROM factory_task_completions WHERE attempt_id=${task.dispatch.id}`))[0]!;
+    await fixture.db.execute(sql`UPDATE factory_task_completions SET receipt_json='{}' WHERE attempt_id=${task.dispatch.id}`);
+    try { await expect(completions.complete(task.service, task.dispatchReference, result)).rejects.toMatchObject({ code: "factory_task_completion_corrupt" }); }
+    finally { await fixture.db.execute(sql`UPDATE factory_task_completions SET receipt_json=${receipt.receipt_json} WHERE attempt_id=${task.dispatch.id}`); }
+    expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${task.run.runId} AND event_id=${completed.event.id}`))).toHaveLength(1);
+  });
+
+  test("task completion rejects stale authority, invalid output and oversized workflow payloads without settling holds", async () => {
+    for (const [value, expectedCode] of [[{}, "factory_task_completion_output_invalid"], [{ snapshot: { digest: `sha256:${"d".repeat(64)}`, mediaType: "application/json", storage: "test" }, padding: "x".repeat(65_000) }, "factory_task_completion_oversized"]] as const) {
+      const { task, completions, result } = await completedTask(value);
+      await expect(completions.complete(task.service, task.dispatchReference, result)).rejects.toMatchObject({ code: expectedCode });
+      expect(await lifecycle.budgets.inspect({ projectId, runId: task.run.runId, envelopeId: "root" })).toMatchObject({ spent: { costMicros: "0" }, allocated: { costMicros: "5" } });
+      await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
+    }
+    const { task, completions, result } = await completedTask();
+    await expect(completions.complete({ tenantId, subject: "foreign" }, task.dispatchReference, result)).rejects.toMatchObject({ code: "factory_command_forbidden" });
+    await expect(completions.complete(task.service, { ...task.dispatchReference, tenantId: "foreign" }, result)).rejects.toMatchObject({ code: "factory_task_completion_invalid" });
+    await expect(completions.complete(task.service, task.dispatchReference, { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: -1, operations: [] })).rejects.toMatchObject({ code: "factory_task_completion_invalid" });
+    await cancelRun(principal, runKey(task.run.runId), task.run.revision, `completion-cancel-${task.run.runId}`);
+    await expect(completions.complete(task.service, task.dispatchReference, result)).rejects.toThrow("factory_run_stopped");
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_execution_terminals WHERE attempt_id=${task.dispatch.id}`))).toHaveLength(0);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
   });
 
   test("task limits can reduce a host budget and cannot exceed its memory profile", async () => {
