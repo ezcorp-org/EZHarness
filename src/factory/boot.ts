@@ -57,16 +57,9 @@ export class FactoryBootError extends Error {
   }
 }
 
-/**
- * Refuse factory startup until every factory-only dependency is present.
- *
- * Factory services do not exist in stage 2a, so the production boot passes an
- * empty list and refuses external-Postgres startup as well. Later stages add
- * their readiness probes here before exposing a service to factory work.
- */
-export function assertFactoryBootReadiness(
+/** Validate prerequisites before a driver opens; services depend on this database. */
+export function assertFactoryBootConfiguration(
   databaseUrl: string | undefined,
-  availableServices: readonly FactoryService[] = [],
   config: FactoryBootConfig = factoryBootConfig,
 ): void {
   if (!config.enabled) return;
@@ -98,6 +91,16 @@ export function assertFactoryBootReadiness(
     setReadiness({ state: "degraded", reason: error.code, detail: { grantableRoots } });
     throw error;
   }
+}
+
+/** Product admission remains closed until all post-database service probes succeed. */
+export function assertFactoryBootReadiness(
+  databaseUrl: string | undefined,
+  availableServices: readonly FactoryService[] = [],
+  config: FactoryBootConfig = factoryBootConfig,
+): void {
+  assertFactoryBootConfiguration(databaseUrl, config);
+  if (!config.enabled) return;
 
   const available = new Set(availableServices);
   const missing = FACTORY_REQUIRED_SERVICES.filter((service) => !available.has(service));

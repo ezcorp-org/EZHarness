@@ -136,6 +136,7 @@ jobs:
           ./tests/postgres/factory-artifacts.test.ts
           ./tests/postgres/factory-artifact-access.test.ts
           ./tests/postgres/factory-lazy-input.test.ts
+          ./tests/postgres/factory-boot.test.ts
           ./tests/postgres/factory-run-lifecycle-s3.test.ts
           ./tests/postgres/factory-definitions.test.ts
           ./tests/postgres/factory-private-service.test.ts
