@@ -170,8 +170,43 @@ describe("factory kernel", () => {
     const cancelled = advanceKernel(graph, admitted.nextState, event("cancel", { kind: "cancel", reason: "user" }));
     expect(cancelled.nextState.status).toBe("stopping");
     expect(cancelled.commands.some((command) => command.kind === "cancel-node" && command.nodeId === "map/items/0/item")).toBe(true);
-    expect(cancelled.nextState.nodes["map/items/1/item"]?.status).toBe("cancelled");
-    expect(cancelled.nextState.nodes["map/items/2/item"]?.status).toBe("cancelled");
+    expect(cancelled.nextState.nodes["map/items/1/item"]).toBeUndefined();
+    expect(cancelled.nextState.nodes["map/items/2/item"]).toBeUndefined();
+  });
+
+  test("keeps only the active map window and safely reopens an evicted item repair", () => {
+    const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
+    const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two", "three"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 3, maxConcurrency: 1 };
+    const graph = compiled([map], { result: { kind: "ref", root: "node", name: "map" } });
+    const started = advanceKernel(graph, createKernelState(graph, "repair-evicted-map", {}, 0), event("start", { kind: "start" }));
+    expect(Object.keys(started.nextState.nodes)).toEqual(["map", "map/items/0/item"]);
+    const admission = started.commands.find((command) => command.kind === "request-admission")!;
+    const admitted = advanceKernel(graph, started.nextState, event("admit-item-zero", { kind: "admission-result", nodeId: admission.nodeId, commandId: admission.id, candidateGeneration: 0, granted: true }));
+    const attempt = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const completed = advanceKernel(graph, admitted.nextState, event("complete-item-zero", { kind: "node-result", nodeId: attempt.nodeId, commandId: attempt.id, candidateGeneration: 0, attempt: 1, output: {} }));
+    expect(completed.nextState.nodes["map/items/0/item"]).toBeUndefined();
+    expect(completed.nextState.nodes["map/items/1/item"]?.status).toBe("reserved");
+
+    const repaired = advanceKernel(graph, completed.nextState, event("repair-evicted-item", { kind: "repair", nodeId: "map/items/0/item", reason: "replace item" }));
+    const cancel = repaired.commands.find((command) => command.kind === "cancel-node");
+    expect(cancel).toEqual(expect.objectContaining({ nodeId: "map/items/1/item" }));
+    const stopped = advanceKernel(graph, repaired.nextState, event("stop-item-one", { kind: "attempt-stopped", nodeId: cancel!.nodeId, commandId: cancel!.attemptCommandId, candidateGeneration: cancel!.candidateGeneration, attempt: cancel!.attempt }));
+    expect(stopped.nextState.nodes.map?.candidateGeneration).toBe(1);
+    expect(Object.keys(stopped.nextState.nodes)).toEqual(["map", "map/items/0/item"]);
+    expect(stopped.commands).toContainEqual(expect.objectContaining({ kind: "request-admission", nodeId: "map/items/0/item" }));
+  });
+
+  test("repairs an active map item through its aggregate and clears the prior result", () => {
+    const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
+    const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 1, maxConcurrency: 1 };
+    const graph = compiled([map], { result: { kind: "ref", root: "node", name: "map" } });
+    const started = advanceKernel(graph, createKernelState(graph, "repair-active-map", {}, 0), event("start", { kind: "start" }));
+    const repair = advanceKernel(graph, started.nextState, event("repair-active-item", { kind: "repair", nodeId: "map/items/0/item", reason: "replace active item" }));
+    const cancel = repair.commands.find((command) => command.kind === "cancel-node")!;
+    const stopped = advanceKernel(graph, repair.nextState, event("stop-active-item", { kind: "attempt-stopped", nodeId: cancel.nodeId, commandId: cancel.attemptCommandId, candidateGeneration: cancel.candidateGeneration, attempt: cancel.attempt }));
+    expect(stopped.nextState.nodes.map?.map?.outcomes).toEqual({});
+    expect(stopped.nextState.nodes.map?.candidateGeneration).toBe(1);
+    expect(stopped.nextState.nodes["map/items/0/item"]?.candidateGeneration).toBe(1);
   });
 });
 

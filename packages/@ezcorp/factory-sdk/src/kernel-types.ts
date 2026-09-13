@@ -86,7 +86,7 @@ export interface KernelNodeState {
     readonly itemCount: number;
     readonly completedIndexes: readonly number[];
     readonly failedIndexes: readonly number[];
-    readonly outcomes: readonly (JsonValue | undefined)[];
+    readonly outcomes: Readonly<Record<string, JsonValue>>;
   };
   readonly loop?: { readonly iteration: number; readonly carried: JsonValue; readonly startedAtMs: number; readonly spentCostMicros: string; readonly unknownCostMicros: string };
 }
