@@ -12,6 +12,9 @@ export async function ensureFactoryArtifactAdmissionIndex(database: MigrationDb)
        AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='factory_artifacts'::regclass AND attname='candidate_generation' AND NOT attisdropped) THEN
       definition := definition || ', COALESCE(candidate_node_instance_id, ''''), COALESCE(candidate_generation, -1)';
     END IF;
+    IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='factory_artifacts'::regclass AND attname='material_key' AND NOT attisdropped) THEN
+      definition := definition || ', COALESCE(material_key, '''')';
+    END IF;
     DROP INDEX IF EXISTS factory_artifacts_admission_identity;
     EXECUTE definition || ')';
   END $$`);

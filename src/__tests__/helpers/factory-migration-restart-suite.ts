@@ -44,6 +44,31 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("repeated migration preserves auxiliary material records, their chunks and the widened artifact kind", async () => {
+    const db = fixture.db;
+    const scope = { tenantId: "restart-tenant", projectId: "restart-project", runId: "restart-run", attemptId: "restart-attempt", operationId: "restart-run:node-a:0:0" };
+    const objectId = "factory-artifact-material-restart";
+    const materialDigest = `sha256:${"b".repeat(64)}`;
+    await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${scope.attemptId},${scope.tenantId},${scope.projectId},${scope.runId},'node-a',0,1,1,1,1,0,NOW() + INTERVAL '1 hour',${"c".repeat(64)},'{}'::jsonb,'admitted')`);
+    await db.execute(sql`INSERT INTO factory_artifacts(object_id,tenant_id,project_id,run_id,kind,material_key,digest,blob_digest,storage_version,encoded_bytes) VALUES (${objectId},${scope.tenantId},${scope.projectId},${scope.runId},'material',${`sha256:${"d".repeat(64)}`},${`sha256:${"e".repeat(64)}`},${"f".repeat(64)},'version-1',512)`);
+    await db.execute(sql`INSERT INTO factory_artifact_materials(tenant_id,project_id,run_id,attempt_id,operation_id,object_name,version,media_type,digest,total_bytes,chunk_count,storage_version,sealed,object_id) VALUES (${scope.tenantId},${scope.projectId},${scope.runId},${scope.attemptId},${scope.operationId},'workspace/checkpoint.tar',1,'application/octet-stream',${materialDigest},9,1,'version-1',TRUE,${objectId})`);
+    await db.execute(sql`INSERT INTO factory_artifact_material_chunks(tenant_id,project_id,run_id,attempt_id,operation_id,object_name,version,chunk_index,chunk_digest,encoded_bytes,blob_digest,storage_version) VALUES (${scope.tenantId},${scope.projectId},${scope.runId},${scope.attemptId},${scope.operationId},'workspace/checkpoint.tar',1,0,${materialDigest},9,${"a".repeat(64)},'version-1')`);
+    const materialConstraints = async () => rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid IN ('factory_artifact_materials'::regclass,'factory_artifact_material_chunks'::regclass) AND contype IN ('p','f') ORDER BY oid`));
+    const before = await materialConstraints();
+    expect(before).toHaveLength(5);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      expect(await materialConstraints()).toEqual(before);
+      const stored = rows<{ digest: string; total_bytes: number | string; chunk_count: number; sealed: boolean; object_id: string }>(await db.execute(sql`SELECT digest, total_bytes, chunk_count, sealed, object_id FROM factory_artifact_materials WHERE tenant_id=${scope.tenantId} AND attempt_id=${scope.attemptId}`));
+      expect(stored.map(row => ({ ...row, total_bytes: Number(row.total_bytes) }))).toEqual([{ digest: materialDigest, total_bytes: 9, chunk_count: 1, sealed: true, object_id: objectId }]);
+      expect(rows(await db.execute(sql`SELECT chunk_index, chunk_digest, encoded_bytes FROM factory_artifact_material_chunks WHERE tenant_id=${scope.tenantId} AND attempt_id=${scope.attemptId}`))).toEqual([{ chunk_index: 0, chunk_digest: materialDigest, encoded_bytes: 9 }]);
+      expect(rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_indexdef('factory_artifacts_admission_identity'::regclass) AS definition`))[0]!.definition).toContain("material_key");
+      const unkeyed = await db.execute(sql`INSERT INTO factory_artifacts(object_id,tenant_id,project_id,run_id,kind,digest,blob_digest,storage_version,encoded_bytes) VALUES ('factory-artifact-material-unkeyed',${scope.tenantId},${scope.projectId},${scope.runId},'material',${`sha256:${"e".repeat(64)}`},${"f".repeat(64)},'version-1',512)`).then(() => null, (error: unknown) => error);
+      expect(unkeyed).toBeInstanceOf(Error);
+      expect(rows(await db.execute(sql`SELECT object_id FROM factory_artifacts WHERE object_id='factory-artifact-material-unkeyed'`))).toEqual([]);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

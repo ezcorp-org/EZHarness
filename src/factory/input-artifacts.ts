@@ -4,6 +4,7 @@ import type { MigrationDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { FactoryArtifactAccessError, type FactoryArtifactAccess } from "./artifact-access";
 import { artifactJson, type FactoryArtifacts, type FactoryArtifactKind } from "./artifacts";
+import { assertFactoryArtifactReference } from "./artifact-materials";
 import { assertFactoryIdentity } from "./records";
 
 export class FactoryInputArtifactError extends Error {
@@ -12,9 +13,8 @@ export class FactoryInputArtifactError extends Error {
 }
 
 export function snapshotFactoryInputArtifact(value: FactoryArtifactReference): FactoryArtifactReference {
-  if (!value || typeof value.artifactId !== "string" || !/^sha256:[a-f0-9]{64}$/.test(value.digest) || !Number.isSafeInteger(value.encodedBytes) || value.encodedBytes < 1 || value.encodedBytes > FACTORY_LIMITS.maxDefinitionBytes) throw new FactoryInputArtifactError();
-  assertFactoryIdentity(value.artifactId);
-  return Object.freeze({ artifactId: value.artifactId, digest: value.digest, encodedBytes: value.encodedBytes });
+  try { return assertFactoryArtifactReference(value, FACTORY_LIMITS.maxDefinitionBytes); }
+  catch { throw new FactoryInputArtifactError(); }
 }
 
 interface InputArtifact {

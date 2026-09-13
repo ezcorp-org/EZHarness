@@ -6,11 +6,18 @@ import { ensureFactoryArtifactAdmissionIndex } from "./factory-artifact-admissio
 export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`ALTER TABLE factory_executions DROP CONSTRAINT IF EXISTS factory_executions_status_check`);
   await database.execute(sql`ALTER TABLE factory_executions ADD CONSTRAINT factory_executions_status_check CHECK (status IN ('admitted','running','completed','cancel_accepted','stopped','failed'))`);
-  await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_kind_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_encoded_bytes_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts ADD COLUMN IF NOT EXISTS candidate_node_instance_id TEXT`);
   await database.execute(sql`ALTER TABLE factory_artifacts ADD COLUMN IF NOT EXISTS candidate_generation BIGINT`);
-  await database.execute(sql`ALTER TABLE factory_artifacts ADD CONSTRAINT factory_artifacts_kind_check CHECK (kind IN ('definition_page','definition_manifest','transition_page','transition_manifest','execution_manifest','partition','candidate_output'))`);
+  // A later step widens this same check. Re-adding the narrow form on every
+  // boot would reject rows that step already admitted, so only install it when
+  // the database has not reached this widening yet.
+  await database.execute(sql`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='factory_artifacts'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%candidate_output%' AND pg_get_constraintdef(oid) LIKE '%kind%' AND pg_get_constraintdef(oid) NOT LIKE '%encoded_bytes%') THEN
+      ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_kind_check;
+      ALTER TABLE factory_artifacts ADD CONSTRAINT factory_artifacts_kind_check CHECK (kind IN ('definition_page','definition_manifest','transition_page','transition_manifest','execution_manifest','partition','candidate_output'));
+    END IF;
+  END $$`);
   await database.execute(sql`ALTER TABLE factory_artifacts ADD CONSTRAINT factory_artifacts_encoded_bytes_check CHECK (encoded_bytes > 0 AND ((kind='candidate_output' AND encoded_bytes <= 16777216) OR (kind<>'candidate_output' AND encoded_bytes <= 32768)))`);
   await database.execute(sql`ALTER TABLE factory_artifacts DROP CONSTRAINT IF EXISTS factory_artifacts_candidate_slot_check`);
   await database.execute(sql`ALTER TABLE factory_artifacts ADD CONSTRAINT factory_artifacts_candidate_slot_check CHECK ((kind='candidate_output' AND candidate_node_instance_id IS NOT NULL AND candidate_generation >= 0) OR (kind<>'candidate_output' AND candidate_node_instance_id IS NULL AND candidate_generation IS NULL))`);

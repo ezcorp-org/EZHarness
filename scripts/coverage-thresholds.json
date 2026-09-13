@@ -952,6 +952,8 @@
   "src/factory/pool/readiness.ts": 100,
   "src/factory/artifacts.ts": 100,
   "src/factory/artifact-access.ts": 100,
+  "src/factory/artifact-materials.ts": 100,
+  "src/db/migrations/add-factory-artifact-materials.ts": 100,
   "src/factory/lazy-input.ts": 100,
   "src/factory/input-artifacts.ts": 100,
   "src/factory/run-inputs.ts": 100,

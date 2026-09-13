@@ -2936,6 +2936,7 @@ export const factoryArtifacts = pgTable("factory_artifacts", {
   partitionId: text("partition_id"),
   candidateNodeInstanceId: text("candidate_node_instance_id"),
   candidateGeneration: bigint("candidate_generation", { mode: "number" }),
+  materialKey: text("material_key"),
   digest: text("digest").notNull(),
   blobDigest: text("blob_digest").notNull(),
   storageVersion: text("storage_version").notNull(),
@@ -2945,6 +2946,37 @@ export const factoryArtifacts = pgTable("factory_artifacts", {
   primaryKey({ columns: [table.tenantId, table.projectId, table.objectId] }),
   foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
 ]);
+/** Auxiliary immutable material records bound to one attempt operation. */
+export const factoryArtifactMaterials = pgTable("factory_artifact_materials", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  attemptId: text("attempt_id").notNull(), operationId: text("operation_id").notNull(),
+  objectName: text("object_name").notNull(), version: integer("version").notNull(),
+  mediaType: text("media_type").notNull(), digest: text("digest").notNull(),
+  totalBytes: bigint("total_bytes", { mode: "number" }).notNull(), chunkCount: integer("chunk_count").notNull(),
+  storageVersion: text("storage_version").notNull(), sealed: boolean("sealed").notNull().default(false),
+  objectId: text("object_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.attemptId, table.operationId, table.objectName, table.version] }),
+  foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.objectId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+]);
+
+/** Bounded chunk facts for one material version; the bytes stay in object storage. */
+export const factoryArtifactMaterialChunks = pgTable("factory_artifact_material_chunks", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  attemptId: text("attempt_id").notNull(), operationId: text("operation_id").notNull(),
+  objectName: text("object_name").notNull(), version: integer("version").notNull(),
+  chunkIndex: integer("chunk_index").notNull(), chunkDigest: text("chunk_digest").notNull(),
+  encodedBytes: integer("encoded_bytes").notNull(),
+  blobDigest: text("blob_digest").notNull(), storageVersion: text("storage_version").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.attemptId, table.operationId, table.objectName, table.version, table.chunkIndex] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.attemptId, table.operationId, table.objectName, table.version], foreignColumns: [factoryArtifactMaterials.tenantId, factoryArtifactMaterials.projectId, factoryArtifactMaterials.runId, factoryArtifactMaterials.attemptId, factoryArtifactMaterials.operationId, factoryArtifactMaterials.objectName, factoryArtifactMaterials.version] }).onDelete("restrict"),
+]);
+
 export const factoryExecutionTerminals = pgTable("factory_execution_terminals", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
   attemptId: text("attempt_id").primaryKey().references(() => factoryExecutions.attemptId, { onDelete: "restrict" }), requestDigest: text("request_digest").notNull(), resultDigest: text("result_digest").notNull(), terminalResultDigest: text("terminal_result_digest").notNull(), resultJson: text("result_json").notNull(),

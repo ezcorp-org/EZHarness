@@ -10,10 +10,11 @@ import { releaseRows } from "../db/queries/extension-releases";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryIdentity, ImmutableObjectReference } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { canonicalizeJson, validateIJson, type JsonValue, type FactoryArtifactReference } from "@ezcorp/factory-sdk";
+import { assertFactoryArtifactReference } from "./artifact-materials";
 
 export const FACTORY_ARTIFACT_MAX_BYTES = FACTORY_PAGE_BYTES_LIMIT;
 export const FACTORY_CANDIDATE_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
-export type FactoryArtifactKind = "definition_page" | "definition_manifest" | "transition_page" | "transition_manifest" | "execution_manifest" | "partition" | "candidate_output";
+export type FactoryArtifactKind = "definition_page" | "definition_manifest" | "transition_page" | "transition_manifest" | "execution_manifest" | "partition" | "candidate_output" | "material";
 
 export interface FactoryArtifactStageOptions {
   readonly definitionDigest?: string;
@@ -115,7 +116,8 @@ export class FactoryArtifacts {
     kinds = [...kinds];
     identity(identityValue);
     if (identityValue.tenantId !== this.tenantId) throw new FactoryArtifactError("factory_artifact_tenant_denied");
-    if (!object?.objectId || !/^sha256:[0-9a-f]{64}$/.test(object.digest) || !Number.isSafeInteger(object.encodedBytes) || object.encodedBytes < 1 || object.encodedBytes > FACTORY_CANDIDATE_OUTPUT_MAX_BYTES) throw new FactoryArtifactError("factory_artifact_reference_invalid");
+    try { assertFactoryArtifactReference({ artifactId: object.objectId, digest: object.digest, encodedBytes: object.encodedBytes }, FACTORY_CANDIDATE_OUTPUT_MAX_BYTES); }
+    catch { throw new FactoryArtifactError("factory_artifact_reference_invalid"); }
     const row = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, partition_id, candidate_node_instance_id, candidate_generation, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE object_id=${object.objectId} AND tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} ${interpreterScoped ? sql`AND interpreter_id=${identityValue.interpreterId}` : sql``} FOR SHARE`))[0];
     if (!row || !kinds.includes(row.kind) || row.digest !== object.digest || Number(row.encoded_bytes) !== object.encodedBytes || object.encodedBytes > maximumBytes(row.kind)) throw new FactoryArtifactError("factory_artifact_not_found");
     const content = await this.verify(row);
