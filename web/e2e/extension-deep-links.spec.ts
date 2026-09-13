@@ -132,6 +132,11 @@ async function expectDetailRendered(page: Page, nameAddressed: string[]) {
 		page.getByRole("heading", { level: 2, name: ROW.name, exact: true }),
 	).toBeVisible({ timeout: 10_000 });
 	await expect(page.getByText("Extension not found")).toHaveCount(0);
+	// The Command Deck strip names the RESOLVED row, never the route
+	// reference — `ROW`'s id and name are deliberately unalike, so a crumb
+	// echoing the param would read as a uuid here. The page publishes the
+	// tail once the row lands; see `$lib/breadcrumb-tail.svelte.ts`.
+	await expect(page.getByTestId("deck-breadcrumb-tail")).toHaveText(ROW.name);
 	await expect(page.getByTestId("extension-settings-section")).toBeVisible();
 	await expect(page.getByText(/Failed to load settings/)).toHaveCount(0);
 	expect(
