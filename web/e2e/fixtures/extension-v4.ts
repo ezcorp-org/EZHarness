@@ -17,15 +17,46 @@ export async function buildWorkspace(client: HarnessClient, created: CreatedWork
   return waitForExtensionBuild(client, created.installation.id, operation.id);
 }
 
+/**
+ * Two bounds for one isolated candidate build, both fail-closed.
+ *
+ * The real server owns ONE isolated runner, and right after the first
+ * administrator becomes active it builds every bundled extension through it
+ * (src/extensions/bundled-bootstrap.ts): 29 serial builds, several minutes on
+ * a CI host. A candidate build queued behind them is parked as `queued` with
+ * a retryable `runner_busy` diagnostic and re-claimed on a bounded 1s→30s
+ * backoff (src/extensions/v4/lifecycle.ts). That parking is not build time —
+ * on a green run this lane spent 3.5 of the round-trip spec's 4.0 minutes in
+ * it — so it gets its own bound, and the build budget starts when the runner
+ * takes the operation. A single 240s budget over both phases failed exactly
+ * when the boot queue ran a little long (CI runs 34538349926, 34753665125).
+ */
+const BUILD_BUDGET_MS = 240_000;
+const RUNNER_WAIT_BUDGET_MS = 600_000;
+const INSPECT_WAIT_MS = 1_000;
+
+function parkedBehindBusyRunner(operation: LifecycleOperation): boolean {
+  return operation.state === "queued" && operation.diagnostics.some((diagnostic) => diagnostic.code === "runner_busy" && diagnostic.retryable === true);
+}
+
 export async function waitForExtensionBuild(client: HarnessClient, installationId: string, operationId: string): Promise<InstallationState> {
-  let state: InstallationState;
-  await expect.poll(async () => {
-    state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: 1000 });
-    return state.operations[operationId]!.state;
-  }, { timeout: 240000, intervals: [1000], message: "The real isolated candidate build must finish." }).not.toMatch(/^(queued|building|verifying)$/);
-  expect(state!.operations[operationId]!.state, JSON.stringify(state!.operations[operationId]!.diagnostics)).toBe("verified");
-  expect(state!.releases[state!.operations[operationId]!.releaseId!]).toBeDefined();
-  return state!;
+  const startedAt = Date.now();
+  let buildStartedAt: number | undefined;
+  for (;;) {
+    const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: INSPECT_WAIT_MS });
+    const operation = state.operations[operationId]!;
+    if (!/^(queued|building|verifying)$/.test(operation.state)) {
+      expect(operation.state, JSON.stringify(operation.diagnostics)).toBe("verified");
+      expect(state.releases[operation.releaseId!]).toBeDefined();
+      return state;
+    }
+    if (parkedBehindBusyRunner(operation)) buildStartedAt = undefined;
+    else buildStartedAt ??= Date.now();
+    const detail = `state=${operation.state} diagnostics=${JSON.stringify(operation.diagnostics)}`;
+    const buildMs = buildStartedAt === undefined ? 0 : Date.now() - buildStartedAt;
+    expect(buildMs, `The real isolated candidate build must finish within ${BUILD_BUDGET_MS}ms once the runner takes it (${detail}).`).toBeLessThanOrEqual(BUILD_BUDGET_MS);
+    expect(Date.now() - startedAt, `The real isolated candidate build must finish within ${RUNNER_WAIT_BUDGET_MS}ms including time parked behind the busy runner (${detail}).`).toBeLessThanOrEqual(RUNNER_WAIT_BUDGET_MS);
+  }
 }
 
 export async function requestRelease(client: HarnessClient, state: InstallationState, releaseId?: string): Promise<LifecycleApproval> {

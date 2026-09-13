@@ -4,7 +4,11 @@ import { createAndActivateExtension, buildWorkspace, requestRelease, type Create
 import type { InstallationState } from "../../src/extensions/v4/types";
 
 test("compose a dependency in source → save → build → approve → activate → durable Uses chip", async ({ page, request, baseURL }) => {
-  test.setTimeout(300_000);
+  // This spec runs early in the real-auth lane, while the server is still
+  // building every bundled extension through its single isolated runner.
+  // fixtures/extension-v4.ts bounds that parking (600s) separately from the
+  // build itself (240s); the test timeout must cover both plus the UI flow.
+  test.setTimeout(900_000);
   const dependencyName = `dependency-${crypto.randomUUID().slice(0, 8)}`;
   const { client, state: dependencyState } = await createAndActivateExtension({ page, request, baseURL: baseURL!, name: dependencyName });
   const listed = await request.get("/api/extensions");
