@@ -512,3 +512,7 @@
 
 - When `exec_command` returns a session ID, the producer is still active. Poll it to completion before editing any source that belongs to its manifest.
 - Before importing a support commit into an older isolated worktree, compare its parent ancestry with the worktree base. If the support commit depends on intermediate modules, merge the validated descendant that contains the full ancestry instead of cherry-picking the leaf alone.
+# Generic approval currentness (2026-09-13)
+
+- Do not equate an approval command's creation transition with the interpreter head. Validate the stored command against the latest committed runtime attempt. Unrelated committed progress can advance the head while that approval remains current.
+- Notification visibility and decision authority must use the same current-command reader. A projection-only head equality check can hide a decision that the store still accepts.
