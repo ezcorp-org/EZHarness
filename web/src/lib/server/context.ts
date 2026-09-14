@@ -107,12 +107,31 @@ let eventSubscriptionDispatcher: EventSubscriptionDispatcher | null = null;
 let commandRegistry: CommandRegistry | null = null;
 let goalHost: GoalHost | null = null;
 let workflows: CachedWorkflow[] = [];
-let initialized = false;
+let initialization: Promise<void> | null = null;
 
-export async function ensureInitialized(): Promise<void> {
-  if (initialized) return;
-  initialized = true;
+/**
+ * Initialize once, and tell every caller the truth about that one attempt.
+ *
+ * The in-flight promise IS the latch. A boolean set before the work reported
+ * success twice over: to a caller that arrived while initialization was still
+ * running, and to every caller after an attempt that failed. Both then reached
+ * for `getExecutor()` / `getBus()` and got "Server not initialized" — a
+ * readiness answer that the process had no way to retract or retry.
+ *
+ * Seven route handlers call this lazily (`/api/tool-invoke`, `/api/composer/*`,
+ * `/api/extensions/*`, `/api/ez-actions/*`), so "the hooks module awaits it
+ * once at startup" is not the only entry. Clearing the slot on failure is what
+ * makes a transient database outage a slow start instead of a permanent one.
+ */
+export function ensureInitialized(): Promise<void> {
+  initialization ??= initialize().catch((error: unknown) => {
+    initialization = null;
+    throw error;
+  });
+  return initialization;
+}
 
+async function initialize(): Promise<void> {
   validateEnv();
   await initDb();
   // Install signal handlers immediately after the DB opens. The first
