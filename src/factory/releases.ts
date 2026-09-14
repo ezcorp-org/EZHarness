@@ -13,6 +13,7 @@ import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 import { protectFactoryCommandApproval } from "./assurance-commands";
 import { FactoryCommandAuthorityError, type FactoryCommandAuthority, type FactoryCurrentApprovalFence } from "./command-authority";
+import { assertFactoryGitBranchBinding, factoryGitBranchBinding, isFactoryGitReleaseProvider, type FactoryGitBranchBinding } from "./release-git-refs";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_TEXT = 512;
@@ -117,6 +118,10 @@ export interface FactoryProviderReceipt {
   readonly providerReceiptId: string;
   readonly version: string;
   readonly effectDigest: string;
+  /** Git destinations only. The exact ref that was created. */
+  readonly ref?: string;
+  /** Git destinations only. The short branch name. */
+  readonly branch?: string;
 }
 
 export interface FactoryReleaseOperation extends FactoryReleaseRequest {
@@ -140,6 +145,9 @@ export interface FactoryReleaseOperation extends FactoryReleaseRequest {
   readonly receiptArchive?: FactoryArchiveObject;
   readonly receipt?: FactoryProviderReceipt;
   readonly outcomeCode?: string;
+  /** Git destinations only. The one ref this operation may ever create, derived from its id. */
+  readonly destinationRef?: string;
+  readonly destinationBranch?: string;
   readonly authority?: { readonly kind: "approval" | "policy"; readonly id: string; readonly policyRevision?: number };
 }
 
@@ -206,6 +214,7 @@ type OperationRow = {
   canonical_request: string; request_digest: string; material_json: string; material_digest: string; estimated_spend_micros: number | string; deadline_ms: number | string;
   state: FactoryReleaseState; dispatch_generation: number | string; sender_token: string | null; dispatch_started: boolean; authority_kind: "approval" | "policy" | null; authority_id: string | null; policy_revision: number | string | null;
   intent_archive_json: string | null; material_archive_json: string | null; receipt_archive_json: string | null; receipt_json: string | null; archive_ready: boolean; outcome_code: string | null;
+  destination_ref: string | null; destination_branch: string | null;
 };
 
 type NotificationRow = { payload: string; state: FactoryNotification["state"]; input_hash: string };
@@ -304,6 +313,7 @@ function operationFromRow(row: OperationRow): FactoryReleaseOperation {
     ...(row.sender_token ? { senderToken: row.sender_token } : {}), archiveReady: row.archive_ready,
     ...(row.intent_archive_json ? { intentArchive: JSON.parse(row.intent_archive_json) } : {}), ...(row.material_archive_json ? { materialArchive: JSON.parse(row.material_archive_json) } : {}),
     ...(row.receipt_archive_json ? { receiptArchive: JSON.parse(row.receipt_archive_json) } : {}), ...(row.receipt_json ? { receipt: JSON.parse(row.receipt_json) } : {}), ...(row.outcome_code ? { outcomeCode: row.outcome_code } : {}),
+    ...(row.destination_ref ? { destinationRef: row.destination_ref } : {}), ...(row.destination_branch ? { destinationBranch: row.destination_branch } : {}),
     ...(row.authority_kind && row.authority_id ? { authority: { kind: row.authority_kind, id: row.authority_id, ...(row.policy_revision === null ? {} : { policyRevision: Number(row.policy_revision) }) } } : {}),
   };
   assertOperation(operation);
@@ -317,6 +327,23 @@ function assertOperation(operation: FactoryReleaseOperation): void {
   validateMaterial(operation.material, operation.decisionId);
   if (destinationDigest(operation.destination) !== operation.destinationDigest || hash({ destination: operation.destination, request: operation.request }) !== operation.requestDigest || hash(operation.material) !== operation.materialDigest || operation.operationId !== `factory-release:${digestObject(identityFor(operation))}`) throw new FactoryReleaseError("factory_release_corrupt");
   for (const reference of [operation.intentArchive, operation.materialArchive, operation.receiptArchive]) if (reference) validateArchiveReference(reference);
+  assertGitBinding(operation);
+}
+
+/**
+ * A git destination binds exactly one ref, derived from the operation id and nothing else.
+ *
+ * The pair is stored so reconciliation can read it without recomputing, and re-derived on every
+ * read so a tampered row cannot redirect a publication to another branch. A non-git destination
+ * carries neither field.
+ */
+function assertGitBinding(operation: FactoryReleaseOperation): FactoryGitBranchBinding | undefined {
+  const git = isFactoryGitReleaseProvider(operation.destination.provider);
+  if ((operation.destinationRef === undefined) !== (operation.destinationBranch === undefined)) throw new FactoryReleaseError("factory_release_corrupt");
+  if (!git) { if (operation.destinationRef !== undefined) throw new FactoryReleaseError("factory_release_corrupt"); return undefined; }
+  if (operation.destinationRef === undefined) throw new FactoryReleaseError("factory_release_corrupt");
+  try { return assertFactoryGitBranchBinding({ ref: operation.destinationRef, branch: operation.destinationBranch! }, operation.operationId); }
+  catch { throw new FactoryReleaseError("factory_release_corrupt"); }
 }
 
 function validateReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt, generation = operation.dispatchGeneration): void {
@@ -324,6 +351,11 @@ function validateReceipt(operation: FactoryReleaseOperation, receipt: FactoryPro
   digest(receipt.requestDigest, receipt.effectDigest);
   count(receipt.dispatchGeneration, true);
   if (receipt.provider !== operation.destination.provider || receipt.account !== operation.destination.account || receipt.object !== operation.destination.object || receipt.operationId !== operation.operationId || receipt.requestDigest !== operation.requestDigest || receipt.dispatchGeneration !== generation) throw new FactoryReleaseError("factory_release_foreign_receipt");
+  // A git receipt names the exact ref the approved request bound. Any other ref, or a ref on a
+  // destination that has none, is a foreign receipt rather than a settlement.
+  if ((receipt.ref === undefined) !== (receipt.branch === undefined)) throw new FactoryReleaseError("factory_release_foreign_receipt");
+  if (receipt.ref !== operation.destinationRef || receipt.branch !== operation.destinationBranch) throw new FactoryReleaseError("factory_release_foreign_receipt");
+  if (receipt.ref !== undefined) text(receipt.ref, receipt.branch!);
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean { return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]); }
@@ -424,10 +456,17 @@ export class FactoryReleases {
       const destination = canonical(input.destination);
       const canonicalRequest = canonicalJson({ provider: destination.provider, request: input.request });
       const operationId = `factory-release:${digestObject(identityFor(input))}`;
+      // A git destination binds its one ref here, at the same point the identity is minted, so the
+      // approved request and every later read agree on the branch without recomputing it anywhere else.
+      let binding: FactoryGitBranchBinding | undefined;
+      if (isFactoryGitReleaseProvider(destination.provider)) {
+        try { binding = factoryGitBranchBinding(operationId); }
+        catch { throw new FactoryReleaseError("factory_release_invalid"); }
+      }
       const destinationHash = destinationDigest(destination);
       const requestHash = hash({ destination, request: input.request });
       const materialHash = hash(material);
-      await transaction.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state) VALUES (${this.tenantId},${input.projectId},${operationId},${input.runId},${input.nodeInstanceId},${input.candidateGeneration},${input.candidateDigest},${input.decisionId},${accepted.contractDigest},${accepted.executionEpoch},${accepted.cancellationEpoch},${current.releaseEnableEpoch},${input.action},${destination.provider},${destination.account},${destination.object},${destination.expectedVersion ?? null},${destinationHash},${canonicalRequest},${requestHash},${canonicalJson(material)},${materialHash},${input.estimatedSpendMicros},${input.deadlineMs},'pending') ON CONFLICT (tenant_id,project_id,run_id,node_instance_id,candidate_generation,action,destination_provider,destination_account,destination_object) DO NOTHING`);
+      await transaction.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,destination_ref,destination_branch) VALUES (${this.tenantId},${input.projectId},${operationId},${input.runId},${input.nodeInstanceId},${input.candidateGeneration},${input.candidateDigest},${input.decisionId},${accepted.contractDigest},${accepted.executionEpoch},${accepted.cancellationEpoch},${current.releaseEnableEpoch},${input.action},${destination.provider},${destination.account},${destination.object},${destination.expectedVersion ?? null},${destinationHash},${canonicalRequest},${requestHash},${canonicalJson(material)},${materialHash},${input.estimatedSpendMicros},${input.deadlineMs},'pending',${binding?.ref ?? null},${binding?.branch ?? null}) ON CONFLICT (tenant_id,project_id,run_id,node_instance_id,candidate_generation,action,destination_provider,destination_account,destination_object) DO NOTHING`);
       const saved = await this.readInTransaction(transaction, input.projectId, operationId, "share");
       if (!saved || saved.requestDigest !== requestHash || saved.materialDigest !== materialHash || saved.destinationDigest !== destinationHash || saved.deadlineMs !== input.deadlineMs) throw new FactoryReleaseError("factory_release_conflict");
       await insertTransactionalAuditEntry(transaction, `factory-release-prepared:${operationId}`, requester.kind === "user" ? requester.id : null, "factory.release.prepared", operationId, { tenantId: this.tenantId, projectId: input.projectId, operationId, principalKind: requester.kind, principalId: requester.id, requestDigest: requestHash, destinationDigest: destinationHash });
@@ -746,7 +785,7 @@ export class FactoryReleases {
 
   private async readInTransaction(database: MigrationDb, projectId: string, operationId: string, lock: "update" | "share" | "none"): Promise<FactoryReleaseOperation | null> {
     const clause = lock === "update" ? sql`FOR UPDATE` : lock === "share" ? sql`FOR SHARE` : sql``;
-    const row = rows<OperationRow>(await database.execute(sql`SELECT tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,sender_token,dispatch_started,authority_kind,authority_id,policy_revision,intent_archive_json,material_archive_json,receipt_archive_json,receipt_json,archive_ready,outcome_code FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} ${clause}`))[0];
+    const row = rows<OperationRow>(await database.execute(sql`SELECT tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,sender_token,dispatch_started,authority_kind,authority_id,policy_revision,intent_archive_json,material_archive_json,receipt_archive_json,receipt_json,archive_ready,outcome_code,destination_ref,destination_branch FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} ${clause}`))[0];
     return row ? operationFromRow(row) : null;
   }
 }

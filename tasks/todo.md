@@ -2387,3 +2387,37 @@ cherry-picked, and nothing downstream of that point was written unproven.
 Every W05 checklist row is now closed. One defect this package introduced was caught by W18's
 derived C13 inventory in the final sweep and fixed in `b100258c0`: two new modules imported a shared
 module without declaring it, which the boundary script alone does not detect.
+
+## W07 — GitHub publication and reconciliation
+
+Branch `wp/w07-github-publication` from `integ/w00` at `1dc9a0226`. Evidence
+`/tmp/factory-platform-evidence/w07/`. Gate file `tasks/factory/w07-GATES.md`.
+
+- [ ] 1. `feat(factory): encode operation ids in git refs` — freeze section 11. New
+      `src/factory/release-git-refs.ts` with the reversible suffix, the `ezcorp-factory/`
+      namespace, round-trip and conflict tests, a `git check-ref-format` conformance test, the
+      `ref`/`branch` receipt fields, the `destination_ref`/`destination_branch` binding on the
+      operation row, and the unvalidated head-branch interpolation in
+      `src/extensions/project-open-pr.ts` fixed through one shared ref grammar.
+- [ ] 2. `fix(factory): move release reconciliation proofs out of the transaction` — freeze
+      correction 1. Provider proofs and archive writes happen outside; authority is re-derived
+      inside one transaction.
+- [ ] 3. `feat(factory): seal the resolved release profile into the claim` — resolve outside
+      transactions under an abortable deadline, revalidate the exact input inside, install the
+      release-profile completeness CHECK W05 left, add `listClaimableInTransaction`, the
+      publication-set scope resolver reading the attempt id from verified protected command
+      provenance, and production `FactoryDestinationReservationReader` / `FactorySenderFence`.
+- [ ] 4. `feat(factory): publish accepted candidates as draft pull requests` — the GitHub
+      provider over the shared broker transport: immutable Git objects, the exact unique branch,
+      one draft PR, returned-identity verification, never force-update or merge, complete tree,
+      base parent, protected assets, paths, lock, and the submodule/LFS/link/network-install
+      rejections.
+- [ ] 5. Archive-before-claim and receipt-before-settlement through W04a's writer; dropped
+      responses after each external and archive write recovered by identity; reconciliation by
+      exact ref/SHA and PR marker with the F04 matrix.
+- [ ] 6. Real tests against `ezcorp-org/factory-platform-publication-tests` with remote content
+      verification, retained receipts, and cleanup of disposable resources only after evidence
+      capture; the selected-repository App and broker-only namespace verification, with
+      CLI-credential runs labelled as the narrower smoke test.
+- [ ] 7. Full verification per common.md and the `BASE_REF=integ/w00` gates; registered
+      `tests/postgres` suites; restart-conformance cases for the migration change.

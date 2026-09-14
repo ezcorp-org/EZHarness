@@ -81,6 +81,40 @@ describe("host pull request capability", () => {
     expect((await git(fixtureData.root, "worktree", "list", "--porcelain")).match(/^worktree /gm)).toHaveLength(1);
   });
 
+  test("refuses a run id that would build a branch git cannot accept", async () => {
+    const fixtureData = await fixture();
+    // Both pass the run-id character class, and both produce a ref `git push` would reject: one
+    // ends a component with `.lock`, the other ends the name with a dot.
+    for (const runId of ["release.lock", "run."]) {
+      const result = await openProjectPullRequest({ projectRoot: fixtureData.root, runId, title: "Change", body: "" }, { run: fixtureData.run });
+      expect([runId, result]).toEqual([runId, { ok: false, error: "Invalid pull request input" }]);
+    }
+    expect(fixtureData.commands).toEqual([]);
+  });
+
+  test("takes the exact default branch from origin, including one with an underscore", async () => {
+    const fixtureData = await fixture();
+    await git(fixtureData.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main_v2");
+    await writeFile(join(fixtureData.root, "tracked.txt"), "after\n");
+    const result = await openProjectPullRequest({ projectRoot: fixtureData.root, runId: "run-6", title: "Change", body: "" }, { run: fixtureData.run });
+    expect(result).toEqual({ ok: true, url: "https://github.com/example/project/pull/1" });
+    const create = fixtureData.commands.find((argv) => argv[0] === "gh");
+    expect(create?.[create.indexOf("--base") + 1]).toBe("main_v2");
+    expect(create?.[create.indexOf("--head") + 1]).toBe("ez-code/run-6");
+    expect(fixtureData.commands.find((argv) => argv[1] === "push")?.[3]).toBe("HEAD:refs/heads/ez-code/run-6");
+  });
+
+  test("refuses a default branch that is not a valid ref", async () => {
+    const fixtureData = await fixture();
+    // Git itself refuses to store `refs/remotes/origin/broken.lock`, so the only way this reaches
+    // the caller is a remote that answers with one; the stub plays that remote.
+    const run: ProjectCommandRunner = async (argv, cwd, input) =>
+      argv[1] === "symbolic-ref" ? { exitCode: 0, stdout: "refs/remotes/origin/broken.lock\n", stderr: "" } : fixtureData.run(argv, cwd, input);
+    const result = await openProjectPullRequest({ projectRoot: fixtureData.root, runId: "run-7", title: "Change", body: "" }, { run });
+    expect(result).toEqual({ ok: false, error: "Invalid default branch" });
+    expect(fixtureData.commands.some((argv) => argv[1] === "push")).toBe(false);
+  });
+
   test("rejects tracked platform data and non-GitHub remotes", async () => {
     const fixtureData = await fixture();
     await mkdir(join(fixtureData.root, ".ezcorp"));

@@ -10,6 +10,7 @@ import { FactoryRecords } from "../../factory/records";
 import { FactoryNotificationDelivery } from "../../factory/notification-delivery";
 import { FactoryReleaseApplication } from "../../factory/release-application";
 import { FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
+import { FACTORY_BRANCH_NAMESPACE, FACTORY_BRANCH_REF_PREFIX, factoryGitBranchBinding, factoryOperationIdFromRef } from "../../factory/release-git-refs";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
 export function factoryReleaseConformance(setup: () => Promise<{ db: TransactionalDb; close: () => Promise<void> }>): void {
@@ -96,10 +97,15 @@ class Provider implements FactoryReleaseProvider {
   proofCalls = 0;
   loseResponse = false;
   noEffect = false;
+  /** A git provider that forgets the ref it created, or names a different one. */
+  gitRef: "exact" | "omitted" | "other" = "exact";
   receipts = new Map<string, FactoryProviderReceipt>();
   async publish(claim: FactoryReleaseClaim): Promise<FactoryProviderReceipt> {
     this.calls += 1;
-    const receipt = { provider: claim.destination.provider, account: claim.destination.account, object: claim.destination.object, requestDigest: claim.requestDigest, operationId: claim.operationId, dispatchGeneration: claim.dispatchGeneration, providerReceiptId: `receipt-${claim.operationId}`, version: `v${claim.dispatchGeneration}`, effectDigest: digest("f") };
+    const git = !claim.destinationRef || this.gitRef === "omitted" ? {}
+      : this.gitRef === "other" ? { ref: `${FACTORY_BRANCH_REF_PREFIX}other`, branch: `${FACTORY_BRANCH_NAMESPACE}/other` }
+      : { ref: claim.destinationRef, branch: claim.destinationBranch! };
+    const receipt = { provider: claim.destination.provider, account: claim.destination.account, object: claim.destination.object, requestDigest: claim.requestDigest, operationId: claim.operationId, dispatchGeneration: claim.dispatchGeneration, providerReceiptId: `receipt-${claim.operationId}`, version: `v${claim.dispatchGeneration}`, effectDigest: digest("f"), ...git };
     this.receipts.set(claim.operationId, receipt);
     if (this.loseResponse) throw new Error("response lost after write");
     return receipt;
@@ -475,6 +481,49 @@ test("transactional audit failure rolls claim and policy counters back", async (
   await database.execute(sql`DROP TRIGGER reject_release_audit ON audit_log`); await database.execute(sql`DROP FUNCTION reject_release_audit()`);
   expect(await releases.inspect(projectId, operation.operationId)).toMatchObject({ state: "pending", dispatchGeneration: 0 });
   expect(rows<{ used_operations: number | string }>(await database.execute(sql`SELECT used_operations FROM factory_release_policies WHERE policy_id='policy-audit'`)).map(row => Number(row.used_operations))).toEqual([0]);
+});
+
+test("a git destination binds one broker-namespace ref and refuses a receipt naming another", async () => {
+  const gitDestination = (object: string) => ({ provider: "github", account: "ezcorp-org/factory-platform-publication-tests", object });
+  const operation = await prepareRelease(admin, request("git-branch", { destination: gitDestination("pull-request/git-branch") }));
+  const binding = factoryGitBranchBinding(operation.operationId);
+  expect(operation).toMatchObject({ destinationRef: binding.ref, destinationBranch: binding.branch });
+  expect(binding.ref.startsWith(FACTORY_BRANCH_REF_PREFIX)).toBe(true);
+  // The ref reverses to the operation with no lookup table, which is what reconciliation needs.
+  expect(factoryOperationIdFromRef(binding.ref)).toBe(operation.operationId);
+  expect(rows(await database.execute(sql`SELECT destination_ref,destination_branch FROM factory_release_operations WHERE operation_id=${operation.operationId}`))).toEqual([{ destination_ref: binding.ref, destination_branch: binding.branch }]);
+
+  // A receipt that forgets the ref, or names another branch, never settles a git operation.
+  for (const mode of ["omitted", "other"] as const) {
+    const target = await prepareRelease(admin, request(`git-${mode}`, { destination: gitDestination(`pull-request/git-${mode}`) }));
+    const approval = await approved(target);
+    const claim = await releases.claim(admin, projectId, target.operationId, { kind: "approval", approvalId: approval });
+    provider.gitRef = mode;
+    expect([mode, await releases.dispatch(claim, provider)]).toMatchObject([mode, { state: "uncertain", outcomeCode: "receipt_archive_unknown" }]);
+  }
+  provider.gitRef = "exact";
+
+  const approval = await approved(operation);
+  const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
+  expect(claim).toMatchObject({ destinationRef: binding.ref, destinationBranch: binding.branch });
+  const settled = await releases.dispatch(claim, provider);
+  expect(settled).toMatchObject({ state: "succeeded", receipt: { ref: binding.ref, branch: binding.branch } });
+
+  // A destination that is not a git destination carries no ref at all.
+  const objectStore = await prepareRelease(admin, request("no-branch"));
+  expect(objectStore.destinationRef).toBeUndefined();
+  expect(objectStore.destinationBranch).toBeUndefined();
+
+  // A redirected or invented ref is corruption, not a different branch.
+  const foreign = await prepareRelease(admin, request("git-tamper", { destination: gitDestination("pull-request/git-tamper") }));
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=${`${FACTORY_BRANCH_REF_PREFIX}other`},destination_branch=${`${FACTORY_BRANCH_NAMESPACE}/other`} WHERE operation_id=${foreign.operationId}`);
+  await expect(releases.inspect(projectId, foreign.operationId)).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=${`${FACTORY_BRANCH_REF_PREFIX}x`},destination_branch=NULL WHERE operation_id=${foreign.operationId}`).then(() => null, (error: unknown) => error);
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=${binding.ref},destination_branch=${binding.branch} WHERE operation_id=${objectStore.operationId}`);
+  await expect(releases.inspect(projectId, objectStore.operationId)).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=NULL,destination_branch=NULL WHERE operation_id=${objectStore.operationId}`);
+  const restored = await releases.inspect(projectId, objectStore.operationId);
+  expect([restored?.state, restored?.destinationRef, restored?.destinationBranch]).toEqual(["pending", undefined, undefined]);
 });
 
 test("tampered pinned operation facts fail closed before provider dispatch", async () => {
