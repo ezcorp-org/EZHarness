@@ -35,6 +35,13 @@ const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFil
  * container's host-derived identity.
  */
 const GUEST_HOSTNAME = "guest";
+/**
+ * Where a per-attempt material directory appears inside a guest.
+ *
+ * It is a fixed path, not an environment variable, because the profile declares
+ * a guest exactly four variables and this is not one of them.
+ */
+export const GUEST_MATERIALS_PATH = "/materials";
 /** Exactly the four variables the profile declares. Every guest has all four. */
 export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "PATH", "TMPDIR"]);
 /**
@@ -50,6 +57,31 @@ const CHANNEL_FIFOS = ["in", "out", "err"] as const;
 const CHANNEL_DIRECTORY_MODE = 0o755;
 /** The guest opens the FIFO inodes read-write; only these three inodes carry that mode. */
 const CHANNEL_FIFO_MODE = 0o666;
+
+/**
+ * The per-attempt material mount, and the only read-write mount a guest gets.
+ *
+ * It exists because the control channel is not a data path: a guest may emit at
+ * most `min(limits.outputBytes, 1 MiB)` over its whole life, and a domain pack's
+ * real output is larger than that. The guest writes ordinary files here and the
+ * host reads them back afterwards.
+ *
+ * `noexec`, `nosuid`, and `nodev` keep it at the same posture the `/tmp` tmpfs
+ * already carries, so the two writable surfaces a guest has agree. Execution was
+ * denied without `noexec` on the host this was measured on, but by that
+ * filesystem's own flags rather than by anything this profile guarantees.
+ *
+ * Nothing here widens what a guest can reach: no device, no network, no host
+ * path outside the directory, and no credential. What it does widen is what a
+ * guest can WRITE, and a guest can create a symbolic link in its own directory,
+ * which was measured rather than assumed. So the host must read the result back
+ * only through `listRunnerMaterials` and `openRunnerMaterial`, never by walking
+ * the tree itself, and the caller that creates the directory must not make it
+ * world-writable.
+ */
+export function runnerMaterialMount(directory: string): string[] {
+  return ["--mount", `type=bind,src=${directory},dst=${GUEST_MATERIALS_PATH},rw=true,relabel=private,noexec,nosuid,nodev`];
+}
 
 /**
  * The guest's control-channel mount. It is read-only: a FIFO may still be opened
@@ -219,7 +251,7 @@ export class PodmanRunner implements Runner {
    * and typecheck guests, which are ordinary foreground subprocesses; a runner
    * whose execution guest is not a podman container overrides this one too.
    */
-  protected async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[]): Promise<FramedTransport> {
+  protected async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[], materials?: string): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
     await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
     await chmod(directory, CHANNEL_DIRECTORY_MODE);
@@ -236,7 +268,7 @@ export class PodmanRunner implements Runner {
     // Recorded beside the channel, never inside it, so the guest cannot reach
     // the identities the host checks against.
     await writeFile(this.channelFactsPath(id), canonicalJson(facts), { mode: 0o600 });
-    await command(this.podman, [...this.args(id, limits, staged, devices, directory), "--detach", this.image, ...this.guestEntrypointArgs()]);
+    await command(this.podman, [...this.args(id, limits, staged, devices, directory, materials), "--detach", this.image, ...this.guestEntrypointArgs()]);
     return this.channelTransport(id);
   }
   private channelFactsPath(id: string): string { return `${this.channelDirectory(id)}.channel.json`; }
@@ -306,10 +338,10 @@ export class PodmanRunner implements Runner {
   protected async run(id: string, limits: ResourceLimits, staged: string, args: string[], maximumBytes = limits.outputBytes): Promise<string> {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
   }
-  private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string): string[] {
+  private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string, materials?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", `--env=PATH=${this.guestPath}`, ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", `--env=PATH=${this.guestPath}`, ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), ...(materials ? runnerMaterialMount(materials) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
@@ -488,7 +520,9 @@ export class PodmanRunner implements Runner {
       // Discovery is a build-phase guest, so it is denied a device even when the
       // host configures one. Every other start uses exactly what it was given.
       const devices = discovery ? [] : startExecutionDevices(input.devices, this.configuredDevices);
-      const child = await this.launchDetached(input.workerId, limits, stage, devices);
+      // A discovery guest never receives one: the build phase has no attempt
+      // and therefore no material scope to write into.
+      const child = await this.launchDetached(input.workerId, limits, stage, devices, discovery ? undefined : input.materials);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);

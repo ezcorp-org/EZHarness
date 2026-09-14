@@ -1,4 +1,4 @@
-import { referenceCodeV1 } from "@ezcorp/factory-sdk";
+import { isManifestName, manifestNameOf, referenceCodeV1 } from "@ezcorp/factory-sdk";
 import type { FactoryDefinition, FactoryNode, RunnerReference } from "@ezcorp/factory-sdk";
 import { referenceCodeProtectedChecks, type ReferenceCodeChecksInput, type ReferenceCodeChecksReport } from "./checks";
 import { freezeReferenceCodeCandidate, type ReferenceCodeCandidate, type ReferenceCodeFreezeInput } from "./freeze";
@@ -24,6 +24,18 @@ import { snapshotReferenceCodeRepository, type ReferenceCodeRepositoryReader, ty
 
 export const REFERENCE_CODE_GENERATOR_PACKAGE = "@ezcorp/reference-code";
 export const REFERENCE_CODE_VALIDATOR_PACKAGE = "@ezcorp/reference-code-validator";
+
+/**
+ * The v4 manifest names the two packages build under.
+ *
+ * A scoped distribution name can never be a v4 manifest name — the grammar has no place for `@` or
+ * `/` — so the two identities are different strings for the same package, and freeze section 17
+ * makes the runner reference carry both rather than letting any pack reconcile them privately.
+ * These are derived from the scoped names by the SDK's own helper instead of written out, so the
+ * derivation nobody can see is the same one the definition used.
+ */
+export const REFERENCE_CODE_GENERATOR_MANIFEST_NAME = manifestNameOf(REFERENCE_CODE_GENERATOR_PACKAGE);
+export const REFERENCE_CODE_VALIDATOR_MANIFEST_NAME = manifestNameOf(REFERENCE_CODE_VALIDATOR_PACKAGE);
 
 export type ReferenceCodeExportName =
   | "snapshotRepository"
@@ -56,6 +68,15 @@ export const REFERENCE_CODE_IMPLEMENTATIONS = Object.freeze({
     referenceCodeSupervisedReview(request),
 } as const satisfies Record<ReferenceCodeExportName, unknown>);
 
+/** Which v4 manifest each export is served by, matching the definition's own runner references. */
+export const REFERENCE_CODE_EXPORT_MANIFEST_NAMES: Readonly<Record<ReferenceCodeExportName, string>> = Object.freeze({
+  snapshotRepository: REFERENCE_CODE_GENERATOR_MANIFEST_NAME,
+  generateCandidate: REFERENCE_CODE_GENERATOR_MANIFEST_NAME,
+  freezeGitTree: REFERENCE_CODE_GENERATOR_MANIFEST_NAME,
+  protectedChecks: REFERENCE_CODE_VALIDATOR_MANIFEST_NAME,
+  supervisedReview: REFERENCE_CODE_VALIDATOR_MANIFEST_NAME,
+});
+
 /** Which package each export belongs to, matching the definition's own runner references. */
 export const REFERENCE_CODE_EXPORT_PACKAGES: Readonly<Record<ReferenceCodeExportName, string>> = Object.freeze({
   snapshotRepository: REFERENCE_CODE_GENERATOR_PACKAGE,
@@ -87,10 +108,36 @@ export function referenceCodeDeclaredExports(definition: FactoryDefinition = ref
   return [...names].sort();
 }
 
+/**
+ * Every way a runner reference this pack owns can disagree with its own manifest.
+ *
+ * Returned rather than thrown, because a composition root wants the whole list and a test wants to
+ * assert it is empty. An empty list is what makes `FactoryPackagePreparations.bind` succeed for
+ * this pack: `releaseFacts()` compares the built manifest's name with `reference.manifestName`, and
+ * nothing compares a manifest name with `package` any more.
+ */
+export function referenceCodeManifestNameFaults(definition: FactoryDefinition = referenceCodeV1): readonly string[] {
+  const owned = new Set<string>([REFERENCE_CODE_GENERATOR_PACKAGE, REFERENCE_CODE_VALIDATOR_PACKAGE]);
+  const faults: string[] = [];
+  for (const reference of referenceCodeRunnerReferences(definition)) {
+    if (!owned.has(reference.package)) continue;
+    if (!isManifestName(reference.manifestName)) {
+      faults.push(`${reference.package}#${reference.export} declares manifestName '${reference.manifestName}', which the v4 grammar refuses`);
+      continue;
+    }
+    const expected = manifestNameOf(reference.package);
+    if (reference.manifestName !== expected) {
+      faults.push(`${reference.package}#${reference.export} declares manifestName '${reference.manifestName}' rather than '${expected}'`);
+    }
+  }
+  return faults;
+}
+
 export interface ReferenceCodePackIdentity {
   readonly definitionId: string;
   readonly definitionVersion: string;
   readonly packages: readonly string[];
+  readonly manifestNames: readonly string[];
   readonly exports: readonly ReferenceCodeExportName[];
   /** The digest of the bytes the isolated validator guest actually runs. */
   readonly validatorGuestDigest: string;
@@ -107,6 +154,7 @@ export async function referenceCodePackIdentity(definition: FactoryDefinition = 
     definitionId: definition.id,
     definitionVersion: definition.version,
     packages: [REFERENCE_CODE_GENERATOR_PACKAGE, REFERENCE_CODE_VALIDATOR_PACKAGE],
+    manifestNames: [REFERENCE_CODE_GENERATOR_MANIFEST_NAME, REFERENCE_CODE_VALIDATOR_MANIFEST_NAME],
     exports: Object.keys(REFERENCE_CODE_IMPLEMENTATIONS) as ReferenceCodeExportName[],
     validatorGuestDigest: await referenceCodeGuestDigest(),
   };

@@ -1,0 +1,144 @@
+{
+  "package": "w10",
+  "round": 2,
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w10-code",
+  "branch": "wp/w10-code-pack",
+  "headAtHandoff": "d5f3999b2248c7ea892464a1585433bc9187e54b",
+  "priorVerdictHead": "4c5dd9b1f53890018f4c43c3e187a11f925bd83f",
+  "priorVerdict": "ACCEPT",
+  "mergeBaseWithIntegW00": "a8eff0bfa9ba39ed2225d6d35032ae0fbaee38ca",
+  "treeStatusPorcelainEmpty": true,
+  "deltaCommits": [
+    "a8eff0bfa merge: integrate the W02b manifest-name leaf (wp/w02b-manifest-name) -- already part of integ/w00, not W10's own work",
+    "a6b5d3e47 feat(factory): carry the reference code pack's v4 manifest names explicitly",
+    "d5f3999b2 docs(factory): record the W10 manifest-name migration and the shared-store outage"
+  ],
+  "filesChangedInDelta": [
+    "src/factory/reference-code/pack.ts",
+    "src/factory/reference-code/pack.test.ts",
+    "src/factory/reference-code/guest.podman.integration.test.ts",
+    "tasks/factory/w10-GATES.md",
+    "tasks/lessons.md"
+  ],
+  "checklistFromTeamLead": [
+    {
+      "item": "Every RunnerReference literal in the pack carries a manifestName that satisfies the v4 grammar and equals the manifest's own name",
+      "verified": true,
+      "how": "Code read: references.ts's runner() helper (untouched by W10, landed by W02b) sets manifestName: manifestNameOf(packageName) on every RunnerReference for reference.code.v1. pack.ts derives REFERENCE_CODE_GENERATOR_MANIFEST_NAME/REFERENCE_CODE_VALIDATOR_MANIFEST_NAME the same way. guest-entry.ts's REFERENCE_CODE_GUEST_MANIFEST.name ('reference-code-validator') equals manifestNameOf('@ezcorp/reference-code-validator') exactly (manually computed). Test rerun: pack.test.ts 17/17 pass including 'a manifest name is never a scoped name, and always satisfies the v4 grammar' and 'the guest this pack ships declares exactly the manifest name its reference carries'."
+    },
+    {
+      "item": "package stays scoped",
+      "verified": true,
+      "how": "REFERENCE_CODE_GENERATOR_PACKAGE/REFERENCE_CODE_VALIDATOR_PACKAGE constants unchanged ('@ezcorp/reference-code', '@ezcorp/reference-code-validator'); pack.test.ts explicitly asserts isManifestName(REFERENCE_CODE_VALIDATOR_PACKAGE) === false and that package !== manifestName."
+    },
+    {
+      "item": "manifestNameOf() is imported from @ezcorp/factory-sdk where used",
+      "verified": true,
+      "how": "pack.ts: import { isManifestName, manifestNameOf, referenceCodeV1 } from \"@ezcorp/factory-sdk\"; confirmed both isManifestName and manifestNameOf resolve as functions from the built packages/@ezcorp/factory-sdk/dist/index.js after rebuilding the SDK."
+    },
+    {
+      "item": "No reconciliation between the two identities remains",
+      "verified": true,
+      "how": "referenceCodeManifestNameFaults() only pushes fault strings to a returned read-only array; it never mutates or rewrites a reference's manifestName. grep for 'manifestName' across src/factory/reference-code/*.ts (non-test) shows only derive-and-compare code, no reconciliation/normalization writer."
+    },
+    {
+      "item": "G21 prose typo (6 vs 12 pass) corrected if the worker touched the gate file",
+      "verified": false,
+      "how": "The worker DID touch tasks/factory/w10-GATES.md extensively in this round (76 lines added: new migration section, G28-G31/G31a, shared-store outage section, answered interface questions) but did NOT fix the stale G21a line. Line 209 still reads 'EXPECT: 6 pass, 0 fail; the declared and implemented export lists are equal in both directions.' for pack.test.ts, which now has 17 real tests (was 12 in round 1, matches G28's correctly-stated '17 pass' a few lines below at line 232). This is a repeat, minor, non-blocking finding."
+    }
+  ],
+  "reruns": [
+    {
+      "gate": "manifest-name migration (pack.test.ts)",
+      "command": "bun test --timeout 300000 ./src/factory/reference-code/pack.test.ts",
+      "expected": "17 pass (G28)",
+      "actual": "17 pass, 0 fail, 139 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "typecheck",
+      "command": "bun run typecheck",
+      "expected": "exit 0",
+      "actual": "exit 0",
+      "match": true
+    },
+    {
+      "gate": "lint",
+      "command": "bun run lint",
+      "expected": "exit 0",
+      "actual": "exit 0 (8 pre-existing unrelated infos, same as round 1)",
+      "match": true
+    },
+    {
+      "gate": "boundaries",
+      "command": "bun scripts/check-factory-boundaries.ts",
+      "expected": "pass",
+      "actual": "Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).",
+      "match": true
+    },
+    {
+      "gate": "gate-integrity",
+      "command": "bun scripts/gate-integrity.ts",
+      "expected": "pass",
+      "actual": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected.",
+      "match": true
+    },
+    {
+      "gate": "c13-inventory",
+      "command": "bun test ./scripts/factory-c13-inventory.test.ts",
+      "expected": "pass (unchanged, no new SHARED_REUSE_MODULES rows needed this round)",
+      "actual": "13 pass, 0 fail, 177 expect() calls",
+      "match": true
+    },
+    {
+      "gate": "G20 podman guest (unlocked, then locked)",
+      "command": "bun test --timeout 900000 ./src/factory/reference-code/guest.podman.integration.test.ts (first run, not under lock -- corrected); flock ... timeout 300 bun test ... (proper rerun, queued)",
+      "expected": "1 pass, 20 assertions per gate file's implicit update (was 18 in round 1, +2 for the new manifest-name equality assertions)",
+      "actual": "1 pass, 0 fail, 20 expect() calls -- confirmed BOTH unlocked (first run) and lock-protected (flock /tmp/ezcorp-validation-heavy.lock timeout 300, queued ~28 min behind the coordinator's wave3a/wave3b combined-integration runs, completed cleanly).",
+      "match": true
+    },
+    {
+      "gate": "storage verifier (independent, unlocked, cheap)",
+      "command": "bun scripts/verify-factory-storage.ts",
+      "expected": "exit 1, ECONNREFUSED (shared S3 outage)",
+      "actual": "exit 1, ECONNREFUSED, confirmed real: `podman ps` shows no storage containers running (only factory-platform-proof-postgres and one unrelated container)",
+      "match": true
+    },
+    {
+      "gate": "G31a postgres schema-only (queued under lock)",
+      "command": "flock ... bun test --timeout 900000 ./tests/postgres/factory-schema.test.ts ./tests/postgres/factory-migration-restart.test.ts ./tests/postgres/factory-releases.test.ts",
+      "expected": "37 pass, 0 fail, 3211 assertions",
+      "actual": "37 pass, 0 fail, 3211 expect() calls -- lock-protected rerun completed, matches exactly.",
+      "match": true
+    },
+    {
+      "gate": "G29 coverage run (queued under lock)",
+      "command": "flock ... bun test --coverage --coverage-reporter=lcov ./src/factory/reference-code/ ./src/providers/factory-broker.test.ts",
+      "expected": "158 pass, 0 fail, 630 assertions; no file below 100%",
+      "actual": "158 pass, 0 fail, 630 expect() calls -- lock-protected rerun completed. Independently verified per-file lcov: all 15 reference-code/factory-broker source files at 100% line coverage (pack.ts grew from 51 to 76 covered lines this round, still 100%).",
+      "match": true
+    },
+    {
+      "gate": "BASE_REF=integ/w00 new-file/patch coverage (own merged LCOV)",
+      "command": "bun scripts/merge-lcov.ts ...; BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts; check-patch-coverage.ts",
+      "expected": "0 new files (only pack.ts changed, already registered); patch coverage covers 1 file",
+      "actual": "New-file gate: 'no new source files in this diff' (0 new files, correct -- only pack.ts, an existing file, changed). Patch gate: 'all changed executable lines covered (1 file(s))'. Both exit 0, matching G30 exactly.",
+      "match": true
+    }
+  ],
+  "crossCheck_w02b_evidence": {
+    "w02b-reference-code-suite.json": "producingCommit a6b5d3e47, 158 pass / 0 fail / 630 assertions, exit 0 -- consistent with G29's claim",
+    "w02b-storage-verifier.json": "exit 1, matches independent rerun",
+    "w02b-shared-storage-outage.json": "documents ECONNREFUSED, no storage containers running, 47/85 assertions fail across 6 storage-dependent producers -- independently corroborated via podman ps and a direct storage-verifier rerun",
+    "w02b-postgres-producers.json": "38 pass / 47 fail / 3213 assertions across 9 files -- log-checked: 96 occurrences of ECONNREFUSED, consistent with a genuine infrastructure outage rather than a logic regression",
+    "w02b-postgres-schema-only.json": "37 pass / 0 fail / 3211 assertions across the 3 storage-independent files -- matches G31a's claim exactly, pending my own independent lock-protected rerun"
+  },
+  "outOfScopeFileCheck": {
+    "command": "git diff a8eff0bfa..HEAD --name-only",
+    "result": "src/factory/reference-code/pack.ts, src/factory/reference-code/pack.test.ts, src/factory/reference-code/guest.podman.integration.test.ts, tasks/factory/w10-GATES.md, tasks/lessons.md -- entirely within W10's declared surface plus documentation. No scripts/check-factory-boundaries.ts or scripts/coverage-thresholds.json changes needed this round (pack.ts already had a 100% threshold entry from round 1; no new SHARED_REUSE_MODULES dependency was introduced since manifestNameOf/isManifestName come from the already-consumed @ezcorp/factory-sdk package, not a new C13 shared module).",
+    "match": true
+  },
+  "verdict": "ACCEPT",
+  "verdictAtHead": "d5f3999b2248c7ea892464a1585433bc9187e54b",
+  "lockWaitNote": "The three heavy reruns (podman guest, postgres schema-only, coverage) were queued behind the coordinator's own combined-integration.py runs (wave3a then wave3b, each with a 6600s/110-minute timeout) as the team lead anticipated. Total queue wait was approximately 28 minutes before all three completed cleanly in immediate succession once the lock freed. No lock was bypassed for the final, counted results; one early podman rerun was done without the lock by mistake and was corrected by rerunning it properly under flock (both produced identical results: 1 pass, 20 assertions)."
+}
