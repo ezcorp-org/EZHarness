@@ -35,6 +35,10 @@ export const SHARED_REUSE_MODULES = [
   "packages/@ezcorp/extension-runner/src/index.ts",
   "src/extensions/v4/lifecycle.ts",
   "src/extensions/project-pull-request-broker.ts",
+  // The broker's own GitHub transport. C10 requires the factory release adapter to reuse the
+  // pull-request broker's host-held credential path rather than open its own; sharing the
+  // transport is what makes that an executable boundary (W07).
+  "src/extensions/project-github-transport.ts",
   "src/extensions/secrets-store.ts",
   "src/extensions/credential-broker.ts",
   "src/extensions/network-broker.ts",
@@ -64,6 +68,8 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/admission-origin.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/child-artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/release-github.ts", sharedModule: "src/extensions/project-github-transport.ts" },
+  { factoryPath: "src/factory/release-github.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-profile.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/db/queries/audit-log.ts" },

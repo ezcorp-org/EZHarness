@@ -1020,5 +1020,7 @@
   "src/factory/release-git-refs.ts": 100,
   "src/extensions/project-git-refs.ts": 100,
   "src/factory/release-destinations.ts": 100,
-  "src/factory/release-publication-set.ts": 100
+  "src/factory/release-publication-set.ts": 100,
+  "src/factory/git-objects.ts": 100,
+  "src/factory/release-github.ts": 100
 }
