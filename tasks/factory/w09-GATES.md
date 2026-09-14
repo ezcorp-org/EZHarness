@@ -502,8 +502,15 @@ Running it before the merge found one real defect on this branch, now fixed:
 pre-discrepancy-10 behaviour for version publish, so my own api-registry change
 was failing it, and none of my focused suites included that file. At the branch
 tip the pool exits 1 with five failing files, and none of them is this branch's
-— `git diff --name-only integ/w00 HEAD` lists none of these paths, and this
-branch changes nothing under `packages/` or `docs/extensions/`:
+today. One SIXTH file was, briefly, and is worth recording: adding
+`tests/postgres/factory-tenant-projects.test.ts` without naming it in the
+factory-storage lane failed `scripts/factory-postgres-suite-registration.test.ts`,
+a gate that exists because a suite no workflow runs is a suite that passes
+forever. It is registered in `.github/workflows/db-postgres.yml` and the gate is
+green. The five that remain are not this branch's: measured against the branch
+point rather than a moving integration ref, `git diff --name-only c22a1f846 HEAD`
+lists none of these paths, and this branch changes nothing under `packages/` or
+`docs/extensions/`:
 
 | Failing file | What it reports |
 | --- | --- |
