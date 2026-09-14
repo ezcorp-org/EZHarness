@@ -22,6 +22,8 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
 | `607e0fe63` | `fix(factory-sdk): never ask a worker to cancel a decision that has no attempt` |
 | `048699845`, `d48838639` | the W06 gate table and review |
 | `8f1353fce` | `fix(factory): let the settleable scan enumerate and settle verify` |
+| `ec49628a5`, `8a83dff4a` | the corrected commit table and the `settle` failure vocabulary |
+| `0df8dbe72` | `fix(factory-sdk): give the durable input descriptor one constant and one schema` |
 
 ## Gates
 
@@ -54,8 +56,11 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
       and the canonical producer `bash scripts/factory-orchestrator-coverage.sh`.
       EXPECT: the workflow completes; decisions are recorded at generations 0 then 1; no
       `cancel-node` reaches the activity; `Worker.runReplayHistory` replays the history.
-      Producer: `80 pass 0 fail`. EVIDENCE: `logs/orchestrator-replay-20260914T074439Z.log`,
-      receipt `orchestrator-replay`.
+      Producer: `80 pass 0 fail`. The producer writes its spec output to
+      `coverage-factory-orchestrator/test-progress.log` rather than stdout, so the receipt command
+      is `bash scripts/factory-orchestrator-coverage.sh && cat coverage-factory-orchestrator/test-progress.log`.
+      EVIDENCE: receipt `fix-orchestrator-replay`, 111 KiB log,
+      `logs/fix-orchestrator-replay-20260914T092652Z.log`.
 - [x] G6: A repair changes only a declared editable input, and cannot re-ask an unchanged candidate.
       CHECK: `bun test ./packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts` and the
       remediation test "a repair cannot re-ask the same contract about an unchanged candidate".
@@ -110,17 +115,31 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
       `logs/application-final-20260914T074740Z.log`,
       `logs/web-component-tests-20260914T080537Z.log`,
       `logs/e2e-factory-console-final-20260914T080857Z.log`.
+- [x] G16: The durable input descriptor has one constant and one generated schema (freeze
+      correction 8). CHECK: `bun test ./packages/@ezcorp/factory-sdk/src/schema.test.ts` and
+      `grep -rn '"factory.lazy-input.v1"' --include='*.ts' . --exclude-dir=node_modules --exclude-dir=dist`
+      EXPECT: the grep returns three lines only, the constant's own declaration, the interface's
+      literal that the schema generator reads, and the test asserting the constant's value; the
+      other 25 call sites consume `FACTORY_LAZY_INPUT_SCHEMA_VERSION`. The schema round-trip test
+      covers `FactoryDurableInput` against `urn:ezcorp:factory:lazy-input:v1`.
+      EVIDENCE: receipt `fix-sdk-tests`, 184 pass and 1344 assertions.
+- [x] G17: Every suite that constructed the descriptor by hand still passes on both databases.
+      CHECK: `run-inputs.integration.test.ts`, `lazy-commands.test.ts`, `lazy-input.test.ts`,
+      `factory-task-stops.test.ts`, and their `tests/postgres` counterparts.
+      EXPECT: exit 0 from each. EVIDENCE: receipts `fix-run-inputs-pglite` (5 pass),
+      `fix-lazy-commands-pglite` (7 pass), `fix-lazy-input` (3 pass), `fix-task-stops` (14 pass),
+      `fix-postgres-run-inputs` (5 pass), `fix-postgres-lazy-commands` (7 pass).
 - [x] G14: Typecheck, lint, factory boundaries, and gate integrity are green.
       CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
       `bun scripts/gate-integrity.ts`. EXPECT: exit 0 from each. EVIDENCE: receipts
-      `typecheck-final`, `lint-final`, `boundaries-final`, `gate-integrity-final`.
+      `fix-typecheck`, `fix-lint`, `fix-boundaries`, `fix-gate-integrity`.
 - [x] G15: Every new file and every changed executable line is covered against the integration base.
       CHECK: `bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w06/lcov-flat/*.lcov' coverage/lcov.info`
       then `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
       `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
       EXPECT: "New-file coverage gate PASSED: 1 new source file(s) gated." and "Patch coverage gate
-      PASSED: all changed executable lines covered (11 file(s))." EVIDENCE:
-      `logs/new-file-coverage-20260914T075422Z.log`, `logs/patch-coverage-20260914T075422Z.log`.
+      PASSED: all changed executable lines covered (16 file(s))." EVIDENCE: receipts
+      `fix-new-file-coverage` and `fix-patch-coverage`.
 
 ## Proven
 
@@ -216,6 +235,27 @@ rather than the common path.
 
 A child already settled by another worker is not an error at all: `settle` returns without effect,
 both on the unlocked read and on the locked re-check.
+
+## Coordinator fixes applied
+
+The independent validation returned ACCEPT-WITH-FIXES. All four are closed at `0df8dbe72`.
+
+- **A.** The `orchestrator-replay` receipts held 0-byte logs and null counts, so G5's "80 pass 0
+  fail" was cited from a file the receipt did not capture. The producer writes its spec output to
+  `coverage-factory-orchestrator/test-progress.log`, not stdout. `receipt.py` now also parses
+  node's summary and refuses to record a receipt for a command that wrote nothing, so this class of
+  empty evidence cannot recur silently. Reran under `flock ... timeout`; the receipt now carries
+  111 KiB and `pass: 80, fail: 0`.
+- **B.** `coverage-factory-orchestrator/lcov.info`, 3118 lines, was committed by accident in
+  `607e0fe63`. Untracked with `git rm --cached` and the directory ignored beside `coverage-shard/`
+  and `coverage-python/`.
+- **C.** Freeze correction 8 closed. See G16 and G17.
+- **D.** G10's stated assertion count corrected from 899 to 903.
+
+Two receipts record exit 1 against suite paths that do not exist, `fix-run-inputs` and
+`fix-lazy-commands`. Those are my own mistyped commands, not failures; the real paths are
+`src/factory/run-inputs.integration.test.ts` and `src/factory/lazy-commands.test.ts`, and both pass
+under `fix-run-inputs-pglite` and `fix-lazy-commands-pglite`. The failed records stay as written.
 
 ## Open
 
