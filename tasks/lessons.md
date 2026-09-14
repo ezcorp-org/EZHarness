@@ -927,3 +927,15 @@
   the control passed, reported "the failure path works", and proved nothing.
   The fault a control injects must be something the current code path cannot
   ignore.
+- A catch that returns a fallback and says nothing turns a composition failure
+  into an unexplained hold. I wrapped a release-store composition in
+  `catch { return undefined; }`, which left two roles held with no way for an
+  operator to tell a missing credential from an unreachable store from a scope
+  mismatch. If a failure changes what the product does, the failure has to reach
+  the operator's stream with its cause, and a test has to assert both the
+  degraded behaviour and the explanation.
+- Check whether a merge you made still stands before writing that it does not. I
+  described W03's scans as "briefly merged, no longer carried" when the merge
+  commit was four commits back on my own branch and the methods were in the
+  files. One `grep` settled it. A gate file that is wrong about its own history
+  is worse than one that omits it.

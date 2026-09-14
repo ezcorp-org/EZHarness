@@ -92,7 +92,10 @@ describe("registerFactoryRuntimeWorkers", () => {
     const set = registerFactoryRuntimeWorkers(collaborators({ compute: undefined, attempts: undefined, projections: undefined }));
     expect(set.workers.names()).toEqual([]);
     expect(set.held.map((held) => held.role)).toEqual([...FACTORY_WORKER_ROLES]);
-    expect(set.held.find((held) => held.role === "attempt-dispatch")!.reason).toContain("container runner");
+    // W01b corrected the old reason: readiness is a database read, so the
+    // missing piece is the runtime and this installation's configuration for
+    // it, not a container runner in this process.
+    expect(set.held.find((held) => held.role === "attempt-dispatch")!.reason).toContain("host launch endpoint");
   });
 
   test("distinguishes the two reasons a release outcome can be held", () => {

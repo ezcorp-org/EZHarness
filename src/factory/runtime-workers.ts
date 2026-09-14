@@ -166,17 +166,23 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
 
   // Claims a durable attempt and dispatches it to a trusted runner.
   //
-  // The product process cannot build this one from the stores alone.
-  // `FactoryAttemptDispatcher` takes a `TrustedFactoryRunner` and a dispatch
-  // readiness, and the only production readiness is `FactoryPackagePreparations`,
-  // whose constructor requires a container `Runner` (`build`/`collectArtifacts`).
-  // That is a deployment fact about which process holds a runner, not a missing
-  // collaborator: the role registers the moment a dispatcher is supplied.
+  // An earlier version of this comment said the product process could not build
+  // this because `FactoryPackagePreparations` requires a container `Runner`.
+  // W01b corrected that and the correction matters: the constructor takes a
+  // runner, but `assertDispatchReady` — the only method the dispatch path calls
+  // — is a database read that never touches it. A runner is needed to PREPARE a
+  // package and to run a guest, not to answer whether one is ready.
+  //
+  // What the product process actually needs is a `FactoryAttemptRuntime`, and
+  // that is the deployment choice: `FactoryRemoteAttemptRuntime` over W01b's
+  // host launch transport when the runner lives in the supervisor process, or
+  // `IsolatedFactoryAttemptRuntime` when it lives here. The role registers the
+  // moment `createFactoryAttemptDispatchDriver` is supplied either way.
   const attempts = collaborators.attempts;
   role("attempt-dispatch",
     attempts && (async () => progress((await attempts.dispatchOne()).kind === "idle")),
     "attempt-dispatcher", "W09",
-    "FactoryAttemptDispatcher needs a TrustedFactoryRunner and FactoryPackagePreparations, which requires a container runner this process does not hold");
+    "the driver and the host launch transport land with W01b; this installation still needs its host launch endpoint and attempt token secret configured");
 
   const projections = collaborators.projections;
   role("run-projection",

@@ -2262,7 +2262,14 @@ Gates: `tasks/factory/w09-GATES.md`.
       `/api/ready` reaches `ready`, the registered roles run, and shutdown leaks nothing.
 - [x] W09.13 One registration rule for every role, and the host supervisor readiness the
       seventh probe reads.
-- [ ] W09.14 Compose the process that holds the container runner, so attempt dispatch runs.
+- [ ] W09.14 Register attempt-dispatch. W01b publishes `createFactoryAttemptDispatchDriver` and the
+      host launch transport; this installation still needs `hostLaunch.{baseUrl,serverName,tls.*}`
+      and `attemptTokenSecretPath` in the startup document. W01b also corrected the old reason:
+      `assertDispatchReady` is a database read, so no container runner is needed in this process.
+- [x] W09.17 Enumerate a tenant's projects as a composition-owned read, bounded, oldest-first, and
+      proved on both engines; register notification-inbox-delivery on top of it.
+- [ ] W09.18 Register release-outcome. Needs a production `FactoryReleaseProviderResolver`; the
+      claimable scan, the enumerator, and both providers already exist.
       Scoped at the integration merge: `IsolatedFactoryAttemptRuntime` needs a launch store, the
       pool admission client, the gateway-owned provider broker, and `signStopReceipt`, which takes
       the host private key. C01/C02 keep that key out of the product process, and the host

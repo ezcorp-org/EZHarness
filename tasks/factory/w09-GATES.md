@@ -66,18 +66,19 @@ sends the reader to the wrong package.
 | `compute-admission-poll` | running | — |
 | `run-projection` | running | — |
 | **`child-settlement`** | **running (new)** | composed here from W06's `listSettleableInTransaction` and W06's `settle` through the shared page driver |
-| `attempt-dispatch` | held | the process that holds a container runner. Not a wiring change: see below |
+| `attempt-dispatch` | held | W01b's driver and host launch transport, plus this installation's host launch endpoint and attempt token secret, for which the startup document has no fields |
 | `stop-settlement` | held | the scan landed in `2377caaa4`. `FactoryTaskStops` still needs a pool stop acknowledger (`confirmStopped`) and the host public keys; neither exists |
 | `usage-reconciliation` | held | the scan landed in `2377caaa4`. A listed hold carries no attempt, operation, provider receipt digest, or measured usage, and `reconcile` needs all four |
-| `release-outcome` | held | **a project enumerator.** `FactoryReleases.listClaimableInTransaction` landed and is per project; nothing lists a tenant's projects |
-| `notification-inbox-delivery` | held | the same project enumerator. The collaborator is `FactoryNotificationDelivery.deliverNext(projectId)`, also per project |
+| `release-outcome` | held | no production `FactoryReleaseProviderResolver`. The claimable scan, the enumerator, and both providers exist; nothing turns a claim into a provider |
+| **`notification-inbox-delivery`** | **running (new)** | the release store composes from the startup document, and the enumerator walks the per-project `deliverNext` |
 | `notification-send` | held | W17, as planned. Its seam refuses |
 
 The `grep` behind that table, at the second merge: the `async
 list*InTransaction` scans in `src/factory/` are now `child-runs.ts`,
 `releases.ts`, `budgets.ts`, and `task-stops.ts` — four, where there were two —
-and `factory_projects` is still written by
-`FactoryRecords.bindProjectInTransaction` and read by nothing.
+and `factory_projects` is now read by `src/factory/tenant-projects.ts`, the
+composition-owned enumerator described below, where before it was read by
+nothing.
 
 **A correction to my own interface.** `FactoryNotificationInboxDriver` declared
 `deliverNextAcrossProjects`, which no production object implements — the same
@@ -425,6 +426,8 @@ proved separately in `repro/real-server-factory-probe.json`.
 | `src/__tests__/factory-boot.test.ts` | 19 pass / 0 fail |
 | `src/__tests__/factory-service-routes.test.ts` | 2 pass / 0 fail, 12 assertions |
 | `src/factory/release-fence.test.ts` | 8 pass / 0 fail |
+| `src/factory/tenant-projects.test.ts` | 9 pass / 0 fail |
+| `factory-tenant-projects` conformance, PGlite and real PostgreSQL | 5 pass / 0 fail on each engine |
 | `web` Vitest: `factory-boot.server`, `context-initialization.server`, `factories.server`, `context-register-preview-bus.server`, `context-state-mediator-wiring.server` | 42 pass / 0 fail across 5 files |
 | `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail, each file's own exit code 0 |
 | neighbours: `src/__tests__/{openapi,gate-scripts,factory-shell-required,api-docs,factory-boot,tool-policy,session-scope-surface,shell-advisory-fallback,factory-service-routes}` + `web/src/__tests__/route-contract.test.ts` | 352 pass / 0 fail, ten files, each exit 0 |
@@ -435,13 +438,14 @@ proved separately in `repro/real-server-factory-probe.json`.
 
 Logs and receipt JSON per producer under `/tmp/factory-platform-evidence/w09/`.
 
-Thirteen new source files, each at 100% line coverage after merge:
+Fourteen new source files, each at 100% line coverage after merge:
 `background-workers.ts`, `startup-config.ts`, `service-probes.ts`,
 `service-readiness.ts`, `runtime-seams.ts`, `runtime-workers.ts`,
 `runtime-composition.ts`, `release-composition.ts`, `installation-startup.ts`,
-`role-drivers.ts`, `release-fence.ts`, `runner/supervisor-process.ts`, and
-`web/src/lib/server/factory-boot.ts`. The thirteenth is the release fence
-reader added by the integration merge; it was twelve before it.
+`role-drivers.ts`, `release-fence.ts`, `tenant-projects.ts`,
+`runner/supervisor-process.ts`, and `web/src/lib/server/factory-boot.ts`. The
+thirteenth is the release fence reader and the fourteenth is the project
+enumerator; it was twelve before the integration merge.
 
 Every receipt under `/tmp/factory-platform-evidence/w09/` names the commit it
 was produced at, and every one cited here was regenerated at the final commit
@@ -613,6 +617,115 @@ another worker settled first.
   owning packages, and the tenant id. No endpoint, no credential, no identity
   beyond the tenant. This is what makes "the background work is live" an answer
   an operator reads rather than a claim they accept.
+
+## The project enumerator, and the role it unblocked
+
+Assigned by the coordinator after this package reported it as the one thing
+blocking two roles. `src/factory/tenant-projects.ts` reads `factory_projects`
+and only reads it.
+
+**It is a composition-owned read of a table this package does not own, and that
+is disclosed rather than hidden.** `FactoryRecords.bindProjectInTransaction`
+writes that table and, before this file, nothing read it. I declined to add the
+read on my own initiative for the C13 reason — a second reader of another
+package's table is the duplication the rule forbids — and it lands here because
+the composition is what needs to iterate and no package owns "every project in
+this tenant".
+
+Three decisions worth stating:
+
+- **The order is by the host project's creation.** `factory_projects` is
+  `(tenant_id, project_id)` with no timestamp, so "oldest first" has to come
+  from somewhere; the row's own foreign key already binds it to `projects(id)`,
+  which has `created_at`, so the join adds no coupling the schema did not
+  already require. `project_id` breaks ties, which makes the order total, so a
+  keyset page can neither repeat nor skip. This is W03's decision for its
+  uncertain-hold scan, for the same reason.
+- **It takes no lock.** Enumerating work is not claiming it. Exclusion belongs
+  to the act each role performs on a project, so two workers may list the same
+  project and only one commits the work inside it.
+- **It is fail-closed.** A row whose project id is not an identity, or whose
+  creation instant is not a safe non-negative integer, raises rather than
+  leaving the page. A project that silently vanished from a worker's list is a
+  project whose releases and notifications stop with nothing to say so.
+
+Proved on both engines: `src/__tests__/factory-tenant-projects.test.ts` (PGlite)
+and `tests/postgres/factory-tenant-projects.test.ts` (real PostgreSQL) run one
+conformance suite. A fake transaction can prove the mapping and the refusals but
+not that the SQL is valid, that the join finds the row, or that the keyset
+partitions the tenant — so those are asserted against real engines: the tenant's
+bound projects only, a bound project excluded from another tenant, a host
+project with no binding excluded, pages partitioning without repeat or gap, a
+cursor past the end returning nothing, and two concurrent scans agreeing.
+
+**`notification-inbox-delivery` now registers.** The release store composes from
+the startup document alone: `FactoryTrustedValidators` serving both of
+assurance's validator seams, the composition-owned fence reader, the S3
+publication provenance the document's storage section already implies, the
+destination reservations, and the sender fence. The role's installation-wide
+shape is the per-project `deliverNext` plus this enumerator, and one pass stops
+at the first project that delivered so a busy project cannot starve the rest.
+
+**When it cannot compose, it says why.** The first draft of that composition
+caught every failure and returned `undefined`, which would have left an operator
+looking at two held roles with no way to tell a missing credential from an
+unreachable store. It now reports the cause under a `release-store` role, and
+the suite asserts both halves: with readable credentials the role registers and
+nothing is reported; with an unreadable archive credential set the role holds
+and the report names the credential set.
+
+**`release-outcome` still holds**, and its reason moved again. Its scan landed
+with W07, the enumerator landed here, and what is missing is a production
+`FactoryReleaseProviderResolver` to turn a claim into a provider:
+`src/factory/release-application.ts` declares the interface and nothing in the
+tree implements it. The providers themselves exist — `FactoryGitHubReleaseProvider`
+and `S3FactoryManifestReleaseProvider` — so what is absent is the resolver and
+the per-provider credentials it would read, for which the startup document has
+no fields.
+
+## Prepared, not merged: the W01b and W03 seams
+
+The coordinator asked me to prepare against the interfaces these packages
+publish and not to merge again until told. This is that preparation.
+
+**W01b — attempt dispatch.** `wp/w01b-attempt-dispatch` is complete and
+publishes `createFactoryAttemptDispatchDriver` in
+`src/factory/runner/attempt-dispatch-driver.ts`, returning a `dispatchOne()`
+whose `kind` is `"idle"` only when there was no work — exactly the
+`FactoryAttemptDispatchDriver` shape `runtime-workers.ts` already expects, so
+registering it removes the hold with no change to that file.
+
+It also corrected a reason I had recorded, and the correction is worth carrying:
+I wrote that the role needed `FactoryPackagePreparations`, "which requires a
+container runner this process does not hold". The constructor does take a
+runner, but `assertDispatchReady` — the only method the dispatch path calls — is
+a database read that never touches it. A runner is needed to PREPARE a package
+and to run a guest, not to answer whether one is ready. The comment and the hold
+reason in `runtime-workers.ts` now say so.
+
+What this installation will still need when that branch lands, because the
+startup document has no field for either today:
+
+| Needed | For |
+| --- | --- |
+| `hostLaunch.baseUrl`, `hostLaunch.serverName` | `createFactoryHostLaunchClient` |
+| `hostLaunch.tls.{caPath,certificatePath,privateKeyPath,serviceTokenPath}` | the same client's mutual TLS; the service token file must exist and be non-empty even though these routes authorize by peer identity alone |
+| `attemptTokenSecretPath` | `createFactoryAttemptDispatchDriver`'s `attemptTokenSecret` |
+
+The deployment choice sits behind one argument: `FactoryRemoteAttemptRuntime`
+over the host launch transport when the runner lives in the supervisor process,
+`IsolatedFactoryAttemptRuntime` when it lives in this one.
+
+**W03 — the two work-list scans.** `FactoryTaskStops.listStoppableInTransaction`
+and `FactoryBudgets.listUncertainWithCostInTransaction` are already ON this
+branch: `integ/w00` at `2377caaa4` was merged here in `baaf418b5`, before the
+coordinator's "do not merge again" instruction, and that merge stands. So the
+scans need no further integration; what still blocks the two roles is what this
+package verified against them:
+`stop-settlement` also needs a pool stop acknowledger (`confirmStopped`, absent
+from `PoolAdmissionClient`) and the host public keys a receipt is verified
+against; and a listed uncertain hold carries no attempt, operation, provider
+receipt digest, or measured usage, all four of which `reconcile` requires.
 
 ## What the integration still needs, in one place
 
