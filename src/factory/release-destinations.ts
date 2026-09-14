@@ -51,7 +51,7 @@ export class FactoryDestinationReservations implements FactoryDestinationReserva
       WHERE r.tenant_id=${this.tenantId} AND r.destination_provider=${operation.destination.provider}
         AND r.destination_account=${operation.destination.account} AND r.destination_object=${operation.destination.object}
       FOR UPDATE OF r`))[0];
-    if (!held || held.state !== "confirmed") return { currentVersion: null };
+    if (held?.state !== "confirmed") return { currentVersion: null };
     if (!held.receipt_json) throw new FactoryReleaseError("factory_release_corrupt");
     let receipt: FactoryProviderReceipt;
     try { receipt = JSON.parse(held.receipt_json) as FactoryProviderReceipt; }
