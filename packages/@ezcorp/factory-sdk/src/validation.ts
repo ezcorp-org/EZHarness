@@ -414,7 +414,7 @@ function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, dept
     if (node.predecessors.length === 0 || new Set(node.predecessors).size !== node.predecessors.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners) return issue("COMPILED_JOIN", "Join predecessors and winners output are invalid.", ["indexes", "nodeById", node.id]);
   } else if (node.kind === "approval") {
     if (!safeCounter(node.expiresInMs, 1) || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice) return issue("COMPILED_APPROVAL", "Approval bounds, choices, or choice output are invalid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs >= factory.definition.bounds.maxExpandedNodes)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
+  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
   return { ok: true };
 }
 

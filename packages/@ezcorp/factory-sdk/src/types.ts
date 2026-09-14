@@ -28,6 +28,7 @@ export const FACTORY_LIMITS = Object.freeze({
   defaultNodeDeadlineMs: 30 * 60 * 1_000,
   maximumNodeDeadlineMs: 24 * 60 * 60 * 1_000,
   maximumApprovalWaitMs: 24 * 60 * 60 * 1_000,
+  maxCandidateGenerations: 3,
   maxWireBytes: 64 * 1024,
   maxApiIdentifierLength: 512,
   maxApiIdempotencyKeyLength: 200,
@@ -249,6 +250,16 @@ export interface AcceptanceNode extends BaseNode {
   readonly contract: string;
   readonly candidate: ValueSource;
   readonly evidence: ValueSource;
+  /**
+   * Repairs this contract authorizes after a protected rejection.
+   *
+   * The first candidate is not a repair, so the node runs at most `maxRepairs + 1` candidate
+   * generations. An absent bound authorizes no remediation at all: a rejection is terminal.
+   * `FACTORY_LIMITS.maxCandidateGenerations` caps every domain at three generations.
+   *
+   * @minimum 0
+   * @maximum 2
+   */
   readonly maxRepairs?: number;
 }
 

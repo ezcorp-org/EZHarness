@@ -587,10 +587,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     // The rejection reaches the kernel as an ordinary node failure and never as a success.
     const advanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, rejected);
     expect(advanced.nextState.nodes.accept?.status).not.toBe("succeeded");
-    // MEASURED, and W06's to close: today the kernel answers this event with a cancel-node for the
-    // acceptance node, which has no physical attempt to cancel. The plan forbids that. W06 owns
-    // kernel.ts and adds the remediation wait; this records the exact command it must stop emitting.
-    expect(advanced.commands.filter(command => command.kind === "cancel-node").map(command => command.kind === "cancel-node" ? command.nodeId : "")).toEqual(["accept"]);
+    // An acceptance node has no physical attempt, so the kernel answers a rejection with a bounded
+    // remediation wait or an exhausted bound, never with a cancel-node the gateway cannot resolve.
+    expect(advanced.commands.filter(command => command.kind === "cancel-node")).toEqual([]);
+    expect(advanced.nextState.nodes.accept?.status).toBe("failed");
+    expect(advanced.nextState.nodes.accept?.error).toBe("ACCEPTANCE_BOUND_EXHAUSTED");
   });
 
   test("a missing protected validator is scheduled through durable admission with one reservation per identity", async () => {

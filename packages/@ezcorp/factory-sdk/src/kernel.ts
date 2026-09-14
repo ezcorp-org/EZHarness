@@ -1,6 +1,7 @@
 import { validateDurableInputPorts, validateValue } from "./validation.js";
 import { evaluateExpression } from "./expressions.js";
 import { canonicalizeJson, isUnsignedDecimal, validateIJson } from "./canonical.js";
+import { FACTORY_LIMITS } from "./types.js";
 import type { FactoryDurableInput } from "./types.js";
 import type {
   AdvanceResult,
@@ -420,7 +421,29 @@ function applyFailure(factory: KernelFactoryPlan, state: KernelState, event: Ext
   const node = nodeFor(factory, event.nodeId);
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
   if (state.nowMs >= runtime.attempts.at(-1)!.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
+  if (event.failureKind === "acceptance_rejected" && node.kind === "acceptance") return applyRejection(factory, state, node, event.nodeId, event.error, commands);
   return stopFailedAttempt(state, event.nodeId, event.error, commands);
+}
+
+/**
+ * Answers a protected rejection with a bounded remediation wait, or exhausts the bound.
+ *
+ * An acceptance node is virtual. Its only attempt is the protected decision, which has already
+ * returned this event, so there is nothing physical to stop; answering with `stopFailedAttempt`
+ * would emit a `cancel-node` naming a task that never existed. The declared `maxRepairs` bounds the
+ * wait and `FACTORY_LIMITS.maxCandidateGenerations` caps every domain, so a rejection can neither
+ * be retried without end nor be swallowed as an activity error.
+ */
+function applyRejection(factory: KernelFactoryPlan, state: KernelState, node: Extract<FactoryNode, { kind: "acceptance" }>, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
+  const runtime = state.nodes[nodeId]!;
+  const settled = withNode(state, nodeId, { ...runtime, attempts: runtime.attempts.map(attempt => ({ ...attempt, stopped: true })), timer: undefined });
+  if (remainingRepairs(node, runtime.candidateGeneration) > 0) return escalateNode(settled, nodeId, error, commands);
+  return failNode(factory, settled, node, nodeId, "ACCEPTANCE_BOUND_EXHAUSTED", "bound_exhausted", commands);
+}
+
+/** Repairs an acceptance node still authorizes. An undeclared bound authorizes none. */
+function remainingRepairs(node: Extract<FactoryNode, { kind: "acceptance" }>, candidateGeneration: number): number {
+  return Math.min(node.maxRepairs ?? 0, FACTORY_LIMITS.maxCandidateGenerations - 1) - candidateGeneration;
 }
 
 function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "attempt-stopped" }>, commands: KernelCommand[]): KernelState {
@@ -512,7 +535,9 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Revi
   if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
-  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release")) return state;
+  // Re-asking a protected contract about an unchanged candidate is not remediation: a repair must
+  // replace the work that produced the candidate, so acceptance joins approval and release here.
+  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release" || node?.kind === "acceptance")) return state;
   if (event.kind === "replan" && (node?.kind !== "subfactory" || event.replacement.id !== node.factory.id)) return state;
   if (node && !runtime) {
     const parentId = completedMapAncestor(state, event.nodeId);

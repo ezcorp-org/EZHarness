@@ -2387,3 +2387,28 @@ cherry-picked, and nothing downstream of that point was written unproven.
 Every W05 checklist row is now closed. One defect this package introduced was caught by W18's
 derived C13 inventory in the final sweep and fixed in `b100258c0`: two new modules imported a shared
 module without declaring it, which the boundary script alone does not detect.
+
+## W06 — rejection, repair, and replan (Sol controls)
+
+Worktree `.worktrees/w06-remediation`, branch `wp/w06-remediation`, from `integ/w00` at `1dc9a0226`.
+
+- [ ] 1. Kernel remediation wait. A `node-failed` with `failureKind: "acceptance_rejected"` enters a
+      bounded remediation wait instead of `stopFailedAttempt`. No `cancel-node` for a virtual node.
+- [ ] 2. Bound consumption. `AcceptanceNode.maxRepairs` is the declared bound; the kernel holds an
+      absolute ceiling of three candidate generations. An exhausted bound fails with `bound_exhausted`.
+- [ ] 3. Repair targets the producer, never the acceptance node itself; a repair must produce a new
+      candidate, not re-ask the same contract.
+- [ ] 4. Reference remediation. `reference.code.v1` decides after the protected checks: generate →
+      freeze → checks → acceptance → bounded repair → new candidate → freeze → checks → new decision.
+- [ ] 5. Replan authority. Equality of the protected contract, and denial of every widening of
+      grants, effects, resource limits, deadline, and parent budget, each tested separately.
+- [ ] 6. Settleable-child scan. `FactoryChildRuns.listSettleableInTransaction`, bounded, oldest-first,
+      with empty, paged, and concurrent tests. Hands W09 its worker enumeration.
+- [ ] 7. Production wiring. `runControls` composed by default; run read and repair/replan controls in
+      the browser client and a user control component.
+- [ ] 8. Verification. PGlite, real PostgreSQL, the Node Temporal replay producer, kernel golden
+      traces, coverage, lint, typecheck, boundaries, gate integrity, BASE_REF=integ/w00 gates.
+
+### Review
+
+Pending.
