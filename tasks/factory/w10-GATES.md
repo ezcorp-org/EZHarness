@@ -45,6 +45,10 @@ What follows from that, exactly:
 | `38f838924` | feat(factory): run the reference code validator as a real isolated attempt |
 | `13940cc10` | docs(factory): W10 gate file and review for the real code reference pack |
 | `9f9547c30` | feat(factory): bind every declared reference code export to its implementation |
+| `04593ef5a` | docs(factory): W10 gate file for the real code reference pack |
+| `c0ac4aaf3` | test(factory): make C10's reference code contract executable |
+| `fdf8003f5` | fix(factory): typecheck the contract conformance test's readonly claim list |
+| `81c8045d7` | docs(tasks): W10 lessons on gitignored gate files, typechecking tests, and guest closures |
 
 ## Gates
 
@@ -185,7 +189,7 @@ What follows from that, exactly:
   EXPECT: 12 pass, 0 fail. EVIDENCE: `/tmp/factory-platform-evidence/w10/pack-registry.json`
 - [x] G22: Every new executable file is covered to 100%, and the whole package's suites are green.
   CHECK: `bun test --timeout 900000 --coverage --coverage-reporter=lcov ./src/factory/reference-code/ ./src/providers/factory-broker.test.ts`
-  EXPECT: 147 pass, 0 fail, 522 assertions; 16 new files at 100% line coverage.
+  EXPECT: 153 pass, 0 fail, 546 assertions; 16 new files at 100% line coverage.
   EVIDENCE: `/tmp/factory-platform-evidence/w10/reference-code-suite-coverage.json`, `lcov/reference-code/lcov.info`
 - [x] G23: Typecheck, lint, the C13 boundary check, the C13 inventory completeness test, and gate
   integrity are all green.
@@ -213,7 +217,7 @@ What follows from that, exactly:
   `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
   EXPECT: "16 new source file(s) gated" and "all changed executable lines covered (18 file(s))".
   EVIDENCE: `/tmp/factory-platform-evidence/w10/coverage-new-file.json`, `coverage-patch.json`,
-  `changed-line-coverage.json` (240 pass, 0 fail, 1111 assertions)
+  `changed-line-coverage.json` (246 pass, 0 fail, 1135 assertions)
 - [ ] G27: The end-to-end journey through the real started application, once W09 lands on
   `integ/w00`. NOT STARTED: W09 is on `wp/w09-startup` and has not been merged to `integ/w00`.
 
