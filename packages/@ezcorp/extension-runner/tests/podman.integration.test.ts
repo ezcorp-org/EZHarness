@@ -1,6 +1,6 @@
 import { workspaceText } from "@ezcorp/extension-contract";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { lstat, mkdtemp, rm } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -142,6 +142,50 @@ test("the superseded stdin channel is what used to kill the guest with its super
     // cause precisely rather than observing that the container merely stopped.
     expect((await command("podman", ["inspect", "--format={{.State.ExitCode}}", name])).trim()).toBe("7");
   } finally { await command("podman", ["rm", "--force", "--time=0", "--ignore", name]); }
+}, 120_000);
+
+test("a sandboxed guest cannot unlink, rename, or symlink-swap a channel entry, and the host refuses a substituted one", async () => {
+  const { runnerChannelMount, DEFAULT_IMAGE } = await import("../src/podman");
+  const directory = await mkdtemp(join(tmpdir(), "ez-channel-attack-"));
+  const name = `ez-v4-channel-attack-${randomUUID().slice(0, 12)}`;
+  try {
+    await chmod(directory, 0o755);
+    await command("mkfifo", ["-m", "666", join(directory, "in")]);
+    const created = await lstat(join(directory, "in"));
+    expect(created.isFIFO()).toBe(true);
+
+    // Exactly the production guest profile, with the production mount builder so
+    // the test cannot drift from what podman.ts ships.
+    const attack = `const fs=require("node:fs");const r={};
+const t=(k,f)=>{try{f();r[k]="allowed"}catch(e){r[k]=e.code||"error"}};
+t("openReadWrite",()=>{const fd=fs.openSync("/channel/in","r+");fs.closeSync(fd)});
+t("unlink",()=>fs.unlinkSync("/channel/in"));
+t("symlinkSwap",()=>fs.symlinkSync("/etc/passwd","/channel/evil"));
+t("rename",()=>fs.renameSync("/channel/in","/channel/moved"));
+t("createRegular",()=>fs.writeFileSync("/channel/planted","x"));
+console.log(JSON.stringify(r));`;
+    const output = await command("podman", ["run", "--rm", "--name", name, "--pull=never", "--network=none", "--read-only", "--read-only-tmpfs=false",
+      "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=65534:65534", "--pid=private", "--ipc=private", "--no-hosts", "--log-driver=none",
+      "--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=16777216,mode=1777", ...runnerChannelMount(directory),
+      "--entrypoint=/usr/local/bin/bun", DEFAULT_IMAGE, "-e", attack]);
+    const result = JSON.parse(output) as Record<string, string>;
+
+    // A read-only mount still permits opening the FIFO read-write, which is what
+    // makes the hardened channel usable at all.
+    expect(result.openReadWrite).toBe("allowed");
+    // Every directory-entry mutation the validator's proof of concept relied on
+    // is refused by the kernel, not by convention.
+    for (const denied of ["unlink", "symlinkSwap", "rename", "createRegular"]) {
+      expect(["EROFS", "EACCES", "EPERM"]).toContain(result[denied]!);
+    }
+    // The entry the host would open is still the FIFO it created.
+    const after = await lstat(join(directory, "in"));
+    expect(after.isFIFO()).toBe(true);
+    expect(after.ino).toBe(created.ino);
+  } finally {
+    await command("podman", ["rm", "--force", "--time=0", "--ignore", name]).catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
 }, 120_000);
 
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {

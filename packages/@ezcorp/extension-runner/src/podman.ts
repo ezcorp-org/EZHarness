@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -13,6 +14,23 @@ export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b33
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));`;
 const CHANNEL_FIFOS = ["in", "out", "err"] as const;
+/** Traversable and readable by the mapped guest uid, writable by nobody but the runner. */
+const CHANNEL_DIRECTORY_MODE = 0o755;
+/** The guest opens the FIFO inodes read-write; only these three inodes carry that mode. */
+const CHANNEL_FIFO_MODE = 0o666;
+
+/**
+ * The guest's control-channel mount. It is read-only: a FIFO may still be opened
+ * for reading and writing on a read-only mount, because the kernel's EROFS check
+ * covers directory-entry changes and regular files, not passing data through a
+ * pipe. That keeps the channel usable while denying the guest any way to unlink,
+ * rename, or replace an entry the host later opens by name.
+ */
+export function runnerChannelMount(directory: string): string[] {
+  return ["--mount", `type=bind,src=${directory},dst=/channel,ro=true,relabel=private`];
+}
+
+interface ChannelInode { readonly device: number; readonly inode: number }
 
 const builderProgram = `const result = await Bun.build({entrypoints:[process.argv[1]],target:"bun",format:"esm",packages:"bundle",minify:false,sourcemap:"none"}); if(!result.success){console.error(JSON.stringify(result.logs));process.exit(1);} console.log(JSON.stringify({code:await result.outputs[0].text()}));`;
 const testProgram = `const child=Bun.spawn([process.execPath,"test","--config=/dev/null",process.argv[1],"--timeout",process.argv[2],"--bail","--reporter=junit","--reporter-outfile=/tmp/feature-tests.xml"],{stdout:"inherit",stderr:"inherit"});const code=await child.exited;if(code!==0)process.exit(code);const report=await Bun.file('/tmp/feature-tests.xml').text();const root=report.match(/<testsuites\\b[^>]*>/)?.[0]??report.match(/<testsuite\\b[^>]*>/)?.[0]??'';const count=Number(root.match(/\\btests="(\\d+)"/)?.[1]);if(!count||/<skipped\\b|<failure\\b|<error\\b/.test(report)||/\\b(?:failures|errors|skipped)="[1-9]/.test(root)){console.error('Feature tests missing, skipped, or failed');process.exit(1)}`;
@@ -141,16 +159,43 @@ export class PodmanRunner implements Runner {
    */
   private async launchDetached(id: string, limits: ResourceLimits, staged: string): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await chmod(directory, 0o777);
+    await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
+    await chmod(directory, CHANNEL_DIRECTORY_MODE);
+    const facts: Record<string, ChannelInode> = {};
     for (const fifo of CHANNEL_FIFOS) {
       const path = join(directory, fifo);
       await rm(path, { force: true });
-      await command("mkfifo", ["-m", "666", path]);
-      await chmod(path, 0o666);
+      await command("mkfifo", ["-m", CHANNEL_FIFO_MODE.toString(8), path]);
+      await chmod(path, CHANNEL_FIFO_MODE);
+      const created = await lstat(path);
+      if (!created.isFIFO()) throw new RunnerError("channel_untrusted", "Runner control channel entry is not a FIFO");
+      facts[fifo] = { device: created.dev, inode: created.ino };
     }
+    // Recorded beside the channel, never inside it, so the guest cannot reach
+    // the identities the host checks against.
+    await writeFile(this.channelFactsPath(id), canonicalJson(facts), { mode: 0o600 });
     await command(this.podman, [...this.args(id, limits, staged, true, directory), "--detach", this.image, "-e", guestShim]);
     return this.channelTransport(id);
+  }
+  private channelFactsPath(id: string): string { return `${this.channelDirectory(id)}.channel.json`; }
+  /**
+   * Opens one channel entry without ever following a symlink, then proves the
+   * opened descriptor is the exact FIFO inode this runner created. A guest that
+   * managed to replace the entry cannot make the host open anything else.
+   */
+  private async openChannelEntry(id: string, fifo: string, flags: number): Promise<Awaited<ReturnType<typeof open>>> {
+    let facts: Record<string, ChannelInode>;
+    try { facts = JSON.parse(await readFile(this.channelFactsPath(id), "utf8")) as Record<string, ChannelInode>; }
+    catch { throw new RunnerError("channel_untrusted", "Runner control channel has no recorded identity"); }
+    const expected = facts[fifo];
+    if (!expected || !Number.isSafeInteger(expected.device) || !Number.isSafeInteger(expected.inode)) throw new RunnerError("channel_untrusted", "Runner control channel identity is incomplete");
+    const handle = await open(join(this.channelDirectory(id), fifo), flags | fsConstants.O_NOFOLLOW);
+    const opened = await handle.stat();
+    if (!opened.isFIFO() || opened.dev !== expected.device || opened.ino !== expected.inode) {
+      await handle.close();
+      throw new RunnerError("channel_untrusted", "Runner control channel entry is not the FIFO the runner created");
+    }
+    return handle;
   }
   /**
    * Connects to a guest's channel. Opening `out` and `err` read-only settles as
@@ -159,8 +204,11 @@ export class PodmanRunner implements Runner {
    * close to the guest.
    */
   private async channelTransport(id: string): Promise<FramedTransport> {
-    const directory = this.channelDirectory(id);
-    const [input, output, errors] = await Promise.all([open(join(directory, "in"), "r+"), open(join(directory, "out"), "r"), open(join(directory, "err"), "r")]);
+    const [input, output, errors] = await Promise.all([
+      this.openChannelEntry(id, "in", fsConstants.O_RDWR),
+      this.openChannelEntry(id, "out", fsConstants.O_RDONLY),
+      this.openChannelEntry(id, "err", fsConstants.O_RDONLY),
+    ]);
     const sink = input.createWriteStream();
     const out = output.createReadStream();
     const err = errors.createReadStream();
@@ -193,7 +241,7 @@ export class PodmanRunner implements Runner {
   private args(id: string, limits: ResourceLimits, mount?: string, assignedDevices = false, channel?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? ["--mount", `type=bind,src=${channel},dst=/channel,ro=false,relabel=private`] : []), "--entrypoint=/usr/local/bin/bun", "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), "--entrypoint=/usr/local/bin/bun", "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
@@ -438,7 +486,7 @@ export class PodmanRunner implements Runner {
     this.channels.get(id)?.();
     this.channels.delete(id);
     const name = this.containers.get(id);
-    if (!name) { await rm(this.channelDirectory(id), { recursive: true, force: true }); return; }
+    if (!name) { await this.discardChannel(id); return; }
     this.containers.delete(id);
     try {
       const state = JSON.parse(await command(this.podman, ["inspect", "--format={{json .State}}", name]));
@@ -448,6 +496,10 @@ export class PodmanRunner implements Runner {
       }
     } catch {}
     try { await command(this.podman, ["rm", "--force", "--time=0", "--ignore", name]); } catch (error) { this.containers.set(id, name); throw error; }
+    await this.discardChannel(id);
+  }
+  private async discardChannel(id: string): Promise<void> {
     await rm(this.channelDirectory(id), { recursive: true, force: true });
+    await rm(this.channelFactsPath(id), { force: true });
   }
 }
