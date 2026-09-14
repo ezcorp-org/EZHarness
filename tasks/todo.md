@@ -2587,3 +2587,21 @@ client and a JSON-schema validator; and the four claims that read only a candida
 sit beside the five that need a workspace and a subprocess. Together they are what let the isolated
 guest ship the product's own validator instead of a second copy written for the sandbox. Both are
 declared as C13 rows, so the reuse is gated rather than assumed.
+
+## Coordinator log — wave 2 tail and wave 3 entry (2026-09-14)
+
+Decisions and routed interface questions, recorded so no package waits on an answer that already exists.
+
+- [x] Discrepancy 10 (C01 scopes): version publish keeps the C01 `write` scope plus the `factory.publish` grant; grant management is `admin` plus the tenant-admin role; the package install/quarantine route has no handler and belongs to W14 (W09 landed the scope fixes).
+- [x] W09 Q1 (settleable-child scan) closed by W06 at `a558a01d8`; W09 Q2 (claimable-release scan) closed by W07; W03's stop-settlement and usage-reconciliation scans closed at `688d48f4d`.
+- [x] W10 Q3 (unused model pin in `references.ts` protectedChecks) routed to the SDK owner (Sol controls, W06); W10 Q4 (titleBodyDigest marker) routed to W07.
+- [ ] W10 Q1: `FactoryRunnerRequest` does not carry the node's `maxIterations`, so the generator enforces C10's twelve itself. Decision: an optional additive `maxIterations` on the request, set by the dispatcher from the definition, lands with W13 composition; until then the generator's own bound stands and is tested.
+- [ ] W10 Q2: `createFactoryProviderBroker({ pin })` must be constructed and handed to the runner by W09's composition root; goes into W09's wiring round with W01b.
+- [x] W02b (manifest name): the v4 manifest grammar stays the shared contract; `RunnerReference.manifestName` is required and validated against it; the scoped identity stays in `package`; no deployed environment holds a bound package, so no re-issue is needed; the SDK crossing is disclosed and confirmed. W10, W11, W12 migrate per freeze section 17 once `wp/w02b-manifest-name` lands.
+- [x] W01: the durable terminal result lives in two columns on `factory_attempt_launches` (freeze section 16); `FactoryHostLaunchProtocol.stop` keeps `FactoryPhysicalStopRequest` and W03 landed a parallel `FactoryPhysicalStopper` rather than reconciling it (superseded, recorded); the workspace-specifier resolver in `check-factory-boundaries.ts` is kept.
+- [x] W04: the C02.11 checkpoint implementer landed on W04's branch and merged at integration; the two additive journal seams in `executions.ts` stay with W04; the section 7 deviations carry a dated note.
+- [x] W07: the window-scoped S3 prune script was replaced by manifest-only cleanup (`4f4f76a29`); the rule is in `tasks/lessons.md` and the workers' common brief.
+- [x] W01c: the guest material mount is landed by its owner (Terra runtime) with the review's corrections (`rw,noexec,nosuid,nodev`, no 0o777, typed refusal of any non-regular entry); W12 consumes `listRunnerMaterials`/`openRunnerMaterial` and a `REQUIRED_SHARED_IMPORTS` row enforces it.
+- [x] WREG: `PATH` is the fourth declared guest variable (the pinned image's own directory list, per-image override for the Python guest); the contracts plan wording is corrected at integration; the two disclosures (`--unsetenv-all` collateral, `launchDetached` as the protected execution seam) go to Terra runtime.
+- [x] Shared stores: the ordinary SeaweedFS tier hit the 100-volume cap (`b18b080fa`, now 400) and was then OOM-killed by its 768 MiB container limit (`c054c6430`, now 2 GiB). Both recorded in `/tmp/factory-platform-evidence/w00/shared-store-incidents.jsonl`. Two orphaned spinning `bun test` processes were killed and recorded in `orphan-process-cleanup.jsonl`; W05 could not reproduce the spin in twenty-eight bounded runs and now bounds every invocation.
+- [ ] Wave 3 merge order: WREG, W01c, W02b, W01b, W12, W11, W09; then the full combined run with the Podman suites, receipts under `docs/validation/factory/wave3/`, and the integration branch fast-forwarded before W13 starts.
