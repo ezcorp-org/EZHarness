@@ -2256,3 +2256,20 @@ acceptance rejection with a `cancel-node` for a node that has no physical attemp
 forbids and W06 owns; the exact command is pinned in a test so the fix flips an assertion. The
 release provider's `publish` gained the missing `AbortSignal` and the request-byte bound became an
 export, so W07 and W08 implement `resolve` only.
+
+### W05 addendum after W01 integration
+
+- [x] Widen `FactoryTrustedValidatorGateway` with both binders, so the scheduler and the acceptance
+      path bind through one seam (freeze section 2, open question 7).
+- [x] Schedule missing protected validators from the acceptance command through durable admission,
+      with exactly one budget reservation and one compute admission per validator identity and the
+      typed origin sealed on both rows.
+- [ ] Pool allocation, the attempt dispatcher leg, and a real isolated guest. Blocked on one change
+      in W03's admission core: a validator admission's reference is the acceptance command, which
+      `withCurrent` does not admit and `assertContext` re-keys with the task reservation rule. The
+      change also has to suppress the `admission-result` kernel event, because a validator has no
+      kernel node to receive one, so it carries its own lost-response and cancellation matrix.
+
+The scheduler stops exactly where it can still be proven. Everything it writes is durable, keyed by
+the typed origin, and converges under repeat, concurrency, and restart; nothing downstream of the
+pool poll was written unproven.

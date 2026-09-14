@@ -23,6 +23,10 @@ command, exit code, UTC start and end, counts, log checksum).
 | `f22599803` | `Merge branch 'integ/w00' into wp/w05-protected-validators` (picks up W04a) |
 | `80560b73c` | `fix(factory): carry the archive writer fixture onto the strict claim verdict` |
 | `f07de6dd1` | `docs(tasks): record the migration-guard lessons from W05` |
+| `f93cd4143` | `docs(factory): stamp the W05 gate rows with their final receipts` |
+| `f7a606132` | `Merge branch 'integ/w00' into wp/w05-protected-validators` (picks up W01) |
+| `b05a3aff7` | `feat(factory): widen the trusted validator gateway with both binders` (section 2, question 7) |
+| `dc5777a45` | `feat(factory): schedule missing protected validators through durable admission` |
 
 W06, W07, and W08 can consume every type checkpoint from `64d7d470a`.
 
@@ -119,6 +123,28 @@ reorder them into the freeze's numbering without changing any result.
       EVIDENCE: `receipts.jsonl` record `final-postgres`, produced at `f07de6dd1`, which differs
       from `80560b73c` only in `tasks/lessons.md`.
 
+- [x] G15: The trusted validator gateway declares both binders, so the scheduler and the acceptance
+      path bind through one seam and a fixture that must never bind refuses instead of returning.
+      CHECK: `bun test --timeout 300000 ./src/factory/assurance.test.ts ./src/factory/child-artifacts.test.ts ./src/factory/validator-materials.test.ts ./src/factory/releases.integration.test.ts ./src/factory/archive-writer.test.ts`
+      EXPECT: 57 pass, 0 fail, 341 assertions.
+      EVIDENCE: `receipts.jsonl` record `validator-scheduler-pglite` covers the same suites at head.
+- [x] G16: A missing protected validator is scheduled from the acceptance command through durable
+      admission, with exactly one budget reservation and one compute admission per validator
+      identity, the typed origin sealed on both rows, and no forged transition command.
+      CHECK: `bun test --timeout 400000 ./src/__tests__/factory-run-lifecycle.test.ts ./src/factory/validator-materials.test.ts ./src/factory/admission-origin.test.ts ./src/factory/assurance.test.ts ./src/factory/child-artifacts.test.ts ./src/__tests__/factory-compute-admissions.test.ts ./src/__tests__/factory-migration-restart.test.ts`
+      EXPECT: 111 pass, 0 fail, 1184 assertions. A repeat, two concurrent reserves, and a restart
+      all resolve to the same reservation; the attempt id is never the acceptance command id; a
+      protected-validator origin fails `assertFactoryDispatchNodeOrigin`.
+      EVIDENCE: `receipts.jsonl` record `validator-scheduler-pglite`.
+- [x] G17: Every owned producer is green on real PostgreSQL and S3 with W01 merged.
+      CHECK: the ten `tests/postgres/factory-*` suites this package touches, under the shared heavy
+      lock with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set.
+      EXPECT: 127 pass, 0 fail, 4007 assertions.
+      EVIDENCE: `receipts.jsonl` record `w01-merged-postgres`, produced at `dc5777a45`.
+      The static gates and both coverage gates were reproduced at the same commit:
+      `final-typecheck`, `final-lint`, `final-boundaries`, `final-gate-integrity`, and
+      `final-coverage-backend` ("10 new source file(s) gated", "23 file(s)" patch-covered).
+
 ## Deviations from the freeze, all inside the owned surfaces
 
 1. **Two generated schemas, not one.** Section 9 names only
@@ -167,14 +193,32 @@ reorder them into the freeze's numbering without changing any result.
 
 ## Open, and why
 
-- **Scheduling missing protected validators through durable admission, pool allocation, the attempt
-  dispatcher, and isolated execution.** Blocked on W01: `wp/w01-durable-runtime` is not an ancestor of
-  `integ/w00`, so the attempt dispatcher and the isolated runtime are not on this base. The typed
-  origin, its migration, and its reservation identity are landed and tested, so the remaining work is
-  the scheduler that writes `origin_json` and the dispatcher leg.
-- **Actual isolated validators through a real Podman guest.** Same dependency.
-- **`FactoryTrustedValidatorGateway` still declares neither binder** (freeze section 2, open question
-  7). Widening it is only useful once a production caller exists, which is the scheduling work above.
+The scheduler reaches durable admission. The two legs after it are blocked on one specific change in
+a file this package does not own, and that change is stated exactly rather than half-built.
+
+- **Pool allocation for a validator identity.** `FactoryComputeAdmissions` polls the pool through
+  `authority.withCurrent`, whose committed-command predicate admits only `request-admission` and
+  `dispatch-node` (`command-authority.ts:112`), and `assertContext` then re-derives
+  `factoryTaskReservationId`. A validator admission's reference is the *acceptance* command, so the
+  poll refuses it with `factory_compute_admission_stale`. The required change, in W03's
+  `compute-admissions.ts` and `command-authority.ts`: when the stored request carries a
+  `protected-validator` origin, authorize through the acceptance path, compare
+  `factoryReservationIdForOrigin` instead of `factoryTaskReservationId`, and emit **no**
+  `admission-result` kernel event, because a validator has no kernel node to receive one. That last
+  point is why this was not done here: it is a behavioral change to the admission core with its own
+  lost-response, concurrent-poll, and cancellation matrix, and guessing at it in another package's
+  file is how a silent admission defect lands.
+- **The attempt dispatcher leg.** `FactoryAttemptDispatcher` completes through
+  `FactoryTaskCompletions`, which keys on a transition command a validator does not have. The
+  dispatcher's `completions` and `outcomes` are structural `Pick<>` seams, so the fix is an adapter
+  that records the terminal fact through the journal instead, reusing the whole claim, token-mint,
+  readiness, lease, and recovery path. It cannot be proven until an admission can reach `admitted`,
+  so it waits on the item above.
+- **Actual isolated validators through a real Podman guest.** Waits on the same two legs: with no
+  queue row there is nothing for W01's runtime to claim. Everything the guest needs on this side is
+  landed and tested: the request carries the candidate artifact read-only with no grants and no
+  tools, and the gateway seals provenance from the durable assignment row rather than from guest
+  JSON.
 - **Evidence-reference scope.** The SDK validates the shape of every evidence reference a claim
   carries; it does not yet prove each one lies inside the attempt's scope. The durable claim row
   stores the reduced outcome, so an out-of-scope reference cannot become evidence, but the sealed
