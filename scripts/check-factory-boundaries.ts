@@ -47,6 +47,9 @@ export const SHARED_REUSE_MODULES = [
   "src/delivery-queue/durable-delivery-queue.ts",
   "src/extensions/lifecycle-recovery-scheduler.ts",
   "src/extensions/v4/blobs.ts",
+  // The v4 content digest, split out of `blobs.ts` so a caller that only hashes bytes does not
+  // carry an S3 client. Shared under the same C13 row as the blob store it came from (W10).
+  "src/extensions/v4/digest.ts",
   "src/db/queries/audit-log.ts",
   "src/extensions/host-maintenance-daemon.ts",
 ] as const;
@@ -96,6 +99,14 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/protected-command-effects.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/freeze.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/freeze.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/generate.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/generate.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/review.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/snapshot.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/static-claims.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/workspace.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-adapters.ts", sharedModule: "src/extensions/v4/blobs.ts" },
