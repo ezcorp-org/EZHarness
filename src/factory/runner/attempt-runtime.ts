@@ -6,7 +6,7 @@ import type { FactoryRunnerRequest, FactoryRunnerResult } from "@ezcorp/factory-
 import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import { sql } from "drizzle-orm";
-import type { TransactionalDb } from "../../db/migrations/types";
+import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { releaseRows } from "../../db/queries/extension-releases";
 import type { FactoryPreparedPackageReceipt, FactoryRunnerDispatchReadiness } from "../package-preparation";
 import type { PoolAdmissionClient } from "../pool/client";
@@ -81,6 +81,17 @@ export interface FactoryAttemptDeviceGrant {
   readonly capabilities: readonly ("compute" | "utility")[];
   /** `sha256:` digest over the canonical grant, excluding this field. */
   readonly grantDigest: string;
+}
+
+/**
+ * One GPU host's supported device profile.  The pool registers it for the host
+ * it offers; the local AMD profile fills `devices` and the production NVIDIA
+ * profile fills `cdiDevices`.
+ */
+export interface FactoryGpuHostProfile {
+  readonly hostId: string;
+  readonly devices: readonly string[];
+  readonly cdiDevices: readonly string[];
 }
 
 /**
@@ -262,6 +273,21 @@ export function factoryAttemptDeviceGrant(attemptId: string, lease: FactoryAttem
   return Object.freeze({ ...unsigned, grantDigest: `sha256:${createHash("sha256").update(canonicalJson(unsigned)).digest("hex")}` });
 }
 
+/**
+ * The exact device authority a held lease carries.  Only a `gpu-host` in the
+ * allocation vector can authorize a device, and only the profile registered for
+ * the host that actually holds the lease may supply the nodes, so a host-global
+ * device list can never authorize an attempt that the pool placed elsewhere.
+ */
+export function factoryHeldAllocationDevices(lease: FactoryAttemptLease, resources: { readonly "gpu-host"?: number } = {}, profile?: FactoryGpuHostProfile): FactoryAttemptDeviceAuthorization {
+  const held = snapshotLease(lease);
+  const gpuHosts = resources["gpu-host"] ?? 0;
+  if (!Number.isSafeInteger(gpuHosts) || gpuHosts < 0) throw new FactoryAttemptRuntimeError("invalid_launch", "Held gpu-host allocation is invalid.");
+  if (gpuHosts === 0) return Object.freeze({ devices: Object.freeze([]), cdiDevices: Object.freeze([]), gpuHosts: 0 });
+  if (!profile || profile.hostId !== held.hostId) throw new FactoryAttemptRuntimeError("invalid_launch", "A held gpu-host allocation needs the supported device profile of the host that holds it.");
+  return Object.freeze({ devices: Object.freeze([...profile.devices]), cdiDevices: Object.freeze([...profile.cdiDevices]), gpuHosts });
+}
+
 function snapshotLease(value: FactoryAttemptLease): FactoryAttemptLease {
   opaque(value.reservationId, "reservation id"); opaque(value.allocationToken, "allocation token"); count(value.grantRevision, "grant revision"); count(value.allocationGeneration, "allocation generation"); count(value.holderGeneration, "holder generation");
   opaque(value.hostId, "host id");
@@ -319,7 +345,29 @@ function rowIntent(row: LaunchRow): FactoryAttemptLaunchIntent {
 }
 
 export class FactoryAttemptRuntimeError extends Error {
-  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked", message: string) { super(message); }
+  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked" | "device_conflict", message: string) { super(message); }
+}
+
+/**
+ * Defence in depth over the pool's whole-GPU-host allocation: no second live
+ * attempt on this host may already hold a device node this grant names.  The
+ * host-scoped transaction lock makes the read and the claim one decision, so two
+ * simultaneous claims cannot both observe an empty conflict set.  A CPU grant
+ * names no device and therefore takes no lock.
+ */
+async function assertDevicesExclusive(transaction: MigrationDb, intent: FactoryAttemptLaunchIntent): Promise<void> {
+  if (intent.devices.devices.length === 0) return;
+  await transaction.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`factory-attempt-devices:${intent.lease.hostId}`}))`);
+  const conflict = releaseRows<{ attempt_id: string }>(await transaction.execute(sql`
+    SELECT attempt_id FROM factory_attempt_launches
+    WHERE host_id=${intent.lease.hostId}
+      AND attempt_id<>${intent.request.authority.attemptId}
+      AND state IN ('launching','launched','uncertain')
+      AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(factory_attempt_launches.device_grant_json->'devices') AS held(value)
+        JOIN jsonb_array_elements_text(${canonicalJson(intent.devices.devices)}::jsonb) AS wanted(value) ON held.value = wanted.value)
+    ORDER BY attempt_id LIMIT 1`))[0];
+  if (conflict) throw new FactoryAttemptRuntimeError("device_conflict", `Attempt ${conflict.attempt_id} already holds one of these devices on host ${intent.lease.hostId}.`);
 }
 
 /** Product-database intent store. It contains no broker token because only the durable request identity is stored. */
@@ -345,6 +393,7 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
       const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
       if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
       const stored = rowIntent(row);
+      if (stored.state === "prepared") await assertDevicesExclusive(transaction, stored);
       const claimed = stored.state === "prepared" && releaseRows(await transaction.execute(sql`UPDATE factory_attempt_launches SET state='launching',updated_at=NOW() WHERE attempt_id=${attemptId} AND state='prepared' RETURNING attempt_id`)).length === 1;
       return Object.freeze({ intent: claimed ? Object.freeze({ ...stored, state: "launching" as const }) : stored, claimed });
     });
@@ -586,6 +635,8 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
 export interface FactoryIsolatedRunnerPreflight {
   lease(request: FactoryRunnerRequest): Promise<FactoryAttemptLease>;
   preparedPackage(request: FactoryRunnerRequest): Promise<FactoryPreparedPackageReceipt>;
+  /** The held allocation's device authority. Absent means a CPU attempt, whose grant is empty. */
+  devices?(request: FactoryRunnerRequest, lease: FactoryAttemptLease): Promise<FactoryAttemptDeviceAuthorization>;
 }
 
 /** Command-gateway adapter. Preflight happens after claim and before the short-lived guest token is minted. */
@@ -596,6 +647,7 @@ export class IsolatedFactoryTrustedRunner implements TrustedFactoryRunner {
     const [lease, preparedPackage] = await Promise.all([this.preflight.lease(request), this.preflight.preparedPackage(request)]);
     const receipt = await this.readiness.assertDispatchReady(request);
     if (receipt.receiptDigest !== preparedPackage.receiptDigest || receipt.artifactDigest !== preparedPackage.artifactDigest) throw new FactoryAttemptRuntimeError("invalid_launch", "Prepared package changed before isolated dispatch.");
-    return (await this.runtime.open(request, lease, preparedPackage)).wait();
+    const devices = await this.preflight.devices?.(request, lease);
+    return (await this.runtime.open(request, lease, preparedPackage, devices)).wait();
   }
 }

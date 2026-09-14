@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import { factoryAttemptDeviceFacts, factoryAttemptDeviceGrant, factoryAttemptInvocationId, factoryAttemptWorkerId, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLease } from "./attempt-runtime";
+import { factoryAttemptDeviceFacts, factoryAttemptDeviceGrant, factoryAttemptInvocationId, factoryAttemptWorkerId, factoryHeldAllocationDevices, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLease } from "./attempt-runtime";
 
 const lease: FactoryAttemptLease = { reservationId: "reservation-identity", grantRevision: 4, allocationGeneration: 5, holderGeneration: 7, allocationToken: "allocation-identity", hostId: "host-identity" };
 const gpu = (authorization: FactoryAttemptDeviceAuthorization) => factoryAttemptDeviceGrant("attempt-identity", lease, authorization);
@@ -83,5 +83,35 @@ describe("per-attempt device grant", () => {
 
   test("the durable device facts are exactly the three stored lists", () => {
     expect(factoryAttemptDeviceFacts(gpu({ gpuHosts: 1, devices: ["/dev/kfd"], cdiDevices: ["nvidia.com/gpu=0"] }))).toEqual({ devices: ["/dev/kfd"], cdiDevices: ["nvidia.com/gpu=0"], capabilities: ["compute", "utility"] });
+  });
+});
+
+describe("device authority carried from the held allocation", () => {
+  const profile = { hostId: lease.hostId, devices: ["/dev/kfd", "/dev/dri/renderD128"], cdiDevices: [] };
+
+  test("an allocation vector without a gpu-host authorizes nothing, whatever the host profile offers", () => {
+    expect(factoryHeldAllocationDevices(lease, {}, profile)).toEqual({ devices: [], cdiDevices: [], gpuHosts: 0 });
+    expect(factoryHeldAllocationDevices(lease, { "gpu-host": 0 }, profile)).toEqual({ devices: [], cdiDevices: [], gpuHosts: 0 });
+    expect(factoryAttemptDeviceGrant("attempt-identity", lease, factoryHeldAllocationDevices(lease, {}, profile)).devices).toEqual([]);
+  });
+
+  test("a held gpu-host takes exactly the registered profile of the host that holds the lease", () => {
+    const authorization = factoryHeldAllocationDevices(lease, { "gpu-host": 1 }, profile);
+    expect(authorization).toEqual({ devices: ["/dev/kfd", "/dev/dri/renderD128"], cdiDevices: [], gpuHosts: 1 });
+    expect(factoryAttemptDeviceGrant("attempt-identity", lease, authorization).devices).toEqual(["/dev/kfd", "/dev/dri/renderD128"]);
+  });
+
+  test("a profile registered for another host cannot authorize this lease", () => {
+    expect(() => factoryHeldAllocationDevices(lease, { "gpu-host": 1 }, { ...profile, hostId: "host-elsewhere" })).toThrow("supported device profile of the host that holds it");
+    expect(() => factoryHeldAllocationDevices(lease, { "gpu-host": 1 })).toThrow("supported device profile of the host that holds it");
+  });
+
+  test("an unsafe gpu-host count is rejected before any profile is consulted", () => {
+    expect(() => factoryHeldAllocationDevices(lease, { "gpu-host": -1 }, profile)).toThrow("Held gpu-host allocation is invalid");
+    expect(() => factoryHeldAllocationDevices(lease, { "gpu-host": 1.5 }, profile)).toThrow("Held gpu-host allocation is invalid");
+  });
+
+  test("an invalid lease cannot produce an authorization", () => {
+    expect(() => factoryHeldAllocationDevices({ ...lease, hostId: "" }, {}, profile)).toThrow("host id is invalid");
   });
 });

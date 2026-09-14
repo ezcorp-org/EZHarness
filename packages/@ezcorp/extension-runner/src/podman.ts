@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
@@ -56,8 +56,21 @@ export function configuredRunnerDevices(value: readonly string[] | undefined): r
   return Object.freeze([...devices]);
 }
 
+/**
+ * The exact device list one execution start may use. A caller that names the
+ * field owns the decision for that start and the host-global configuration is
+ * ignored entirely, which is how a factory attempt carries the devices its held
+ * pool allocation authorized and how a CPU attempt carries none. Only a v4
+ * extension caller, which never names the field, keeps the host default.
+ */
+export function startExecutionDevices(requested: readonly string[] | undefined, configured: readonly string[]): readonly string[] {
+  return requested === undefined ? configured : configuredRunnerDevices(requested);
+}
+
 export class PodmanRunner implements Runner {
   readonly image: string;
+  /** The in-container program `--entrypoint` names. A pinned guest language overrides it. */
+  protected readonly guestInterpreter: string = "/usr/local/bin/bun";
   protected readonly root: string;
   private readonly podman: string;
   private readonly seccompPath: string;
@@ -146,9 +159,12 @@ export class PodmanRunner implements Runner {
     }
   }
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
-  protected launch(id: string, limits: ResourceLimits, staged: string, args: string[], assignedDevices = false): ChildProcessWithoutNullStreams {
-    return processSpawn(this.podman, [...this.args(id, limits, staged, assignedDevices), this.image, ...args]);
+  /** Build and typecheck guests. They never receive a device, whatever the host configures. */
+  protected launch(id: string, limits: ResourceLimits, staged: string, args: string[]): ChildProcessWithoutNullStreams {
+    return processSpawn(this.podman, [...this.args(id, limits, staged, []), this.image, ...args]);
   }
+  /** The argv that starts the in-guest channel shim. A pinned guest language overrides it. */
+  protected guestEntrypointArgs(): string[] { return ["-e", guestShim]; }
   private channelDirectory(id: string): string { return join(this.root, "channels", this.containerName(id)); }
   /**
    * Execution containers outlive every control client. The guest's stdin is a
@@ -157,7 +173,7 @@ export class PodmanRunner implements Runner {
    * what `podman attach` could not give us: its stream is the container's stdin,
    * so a client's EOF always terminated the guest.
    */
-  private async launchDetached(id: string, limits: ResourceLimits, staged: string): Promise<FramedTransport> {
+  private async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[]): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
     await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
     await chmod(directory, CHANNEL_DIRECTORY_MODE);
@@ -174,7 +190,7 @@ export class PodmanRunner implements Runner {
     // Recorded beside the channel, never inside it, so the guest cannot reach
     // the identities the host checks against.
     await writeFile(this.channelFactsPath(id), canonicalJson(facts), { mode: 0o600 });
-    await command(this.podman, [...this.args(id, limits, staged, true, directory), "--detach", this.image, "-e", guestShim]);
+    await command(this.podman, [...this.args(id, limits, staged, devices, directory), "--detach", this.image, ...this.guestEntrypointArgs()]);
     return this.channelTransport(id);
   }
   private channelFactsPath(id: string): string { return `${this.channelDirectory(id)}.channel.json`; }
@@ -244,10 +260,10 @@ export class PodmanRunner implements Runner {
   protected async run(id: string, limits: ResourceLimits, staged: string, args: string[], maximumBytes = limits.outputBytes): Promise<string> {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
   }
-  private args(id: string, limits: ResourceLimits, mount?: string, assignedDevices = false, channel?: string): string[] {
+  private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), "--entrypoint=/usr/local/bin/bun", "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
@@ -379,11 +395,11 @@ export class PodmanRunner implements Runner {
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
     return files;
   }
-  async start(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, reverseRpc: ReverseRpc): Promise<FramedExecution> {
+  async start(input: StartRequest, reverseRpc: ReverseRpc): Promise<FramedExecution> {
     return this.startExecution(input, reverseRpc, false);
   }
   /** Reconnect to an existing container after a supervisor restart. Recovery never admits new reverse effects. */
-  async attach(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, _reverseRpc: ReverseRpc): Promise<FramedExecution> {
+  async attach(input: StartRequest, _reverseRpc: ReverseRpc): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
@@ -399,7 +415,7 @@ export class PodmanRunner implements Runner {
     void execution.exited.finally(() => { this.executions.delete(input.workerId); }).catch(() => undefined);
     return execution;
   }
-  private async startExecution(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
+  private async startExecution(input: StartRequest, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
@@ -423,7 +439,10 @@ export class PodmanRunner implements Runner {
         await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
-      const child = await this.launchDetached(input.workerId, limits, stage);
+      // Discovery is a build-phase guest, so it is denied a device even when the
+      // host configures one. Every other start uses exactly what it was given.
+      const devices = discovery ? [] : startExecutionDevices(input.devices, this.configuredDevices);
+      const child = await this.launchDetached(input.workerId, limits, stage, devices);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);

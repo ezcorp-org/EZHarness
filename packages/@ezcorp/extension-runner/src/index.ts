@@ -1,4 +1,4 @@
-export { PodmanRunner, DEFAULT_IMAGE, configuredRunnerDevices, type PodmanRunnerOptions } from "./podman";
+export { PodmanRunner, DEFAULT_IMAGE, configuredRunnerDevices, startExecutionDevices, runnerChannelMount, type PodmanRunnerOptions } from "./podman";
 export { RunnerError, buildLimits, executionLimits, filesDigest } from "./core";
 export { resolveDependencies } from "./dependencies";
 export { browserBuild, type BrowserBuild } from "./browser";
