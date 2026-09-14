@@ -158,8 +158,8 @@
   "packages/@ezcorp/factory-sdk/src/index.ts": 100,
   "packages/@ezcorp/factory-sdk/src/kernel-types.ts": 100,
   "packages/@ezcorp/factory-sdk/src/kernel.ts": 100,
-    "packages/@ezcorp/factory-sdk/src/parse.ts": 100,
-    "packages/@ezcorp/factory-sdk/src/page-bytes.ts": 100,
+  "packages/@ezcorp/factory-sdk/src/parse.ts": 100,
+  "packages/@ezcorp/factory-sdk/src/page-bytes.ts": 100,
   "packages/@ezcorp/factory-sdk/src/references.ts": 100,
   "packages/@ezcorp/factory-sdk/src/schema.ts": 100,
   "packages/@ezcorp/factory-sdk/src/simulator.ts": 100,
@@ -1025,5 +1025,12 @@
   "src/factory/git-objects.ts": 100,
   "src/factory/release-github.ts": 100,
   "src/factory/release-s3-publication.ts": 100,
-  "src/factory/release-s3-scope.ts": 100
+  "src/factory/release-s3-scope.ts": 100,
+  "src/factory/reference-image/closure.ts": 100,
+  "src/factory/reference-image/lock.ts": 100,
+  "src/factory/reference-image/model-lock.ts": 100,
+  "src/factory/reference-image/publication.ts": 100,
+  "src/factory/reference-image/semantic-quorum.ts": 100,
+  "src/factory/reference-image/variants.ts": 100,
+  "src/factory/reference-image/python/**": 100
 }

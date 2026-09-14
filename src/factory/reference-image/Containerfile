@@ -1,0 +1,89 @@
+# The reference image pack's guest image.
+#
+# Everything a variant's bytes can depend on is baked in here and nothing is
+# resolved at attempt time: the ROCm runtime comes from a base named by registry
+# digest, the generation and OCR dependencies are pinned versions, and the SDXL
+# weights are copied from a closure whose every file was verified against a
+# digest the lock declared before it was fetched.
+#
+# The attempt runs with no network, a read-only root, and only the device nodes
+# its grant names, so a weight or a wheel that is not already in this image
+# cannot arrive later. The resulting image digest is the closure pin, and the
+# shared Python runner refuses to build against it if its importable
+# distributions differ by even one entry from the recorded content lock.
+#
+# The build context IS the sealed closure directory, so the only thing that can
+# enter the image from outside the base is a verified weight file. Build through
+# scripts/build-factory-image-guest.sh, which checks the closure and records the
+# resulting digest.
+FROM docker.io/rocm/pytorch@sha256:0f6e6e98a3d60159443962394866696fa5977b42369413053c3158caf485980d
+
+# The pinned OCR engine and its English data. C10 names a Tesseract English
+# validator, so the engine is part of the image rather than a host binary the
+# isolated guest could not reach anyway.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y tesseract-ocr tesseract-ocr-eng \
+ && rm -rf /var/lib/apt/lists/*
+
+# The generation dependencies. Torch already ships in the base and is not
+# reinstalled; a resolver that replaced it would replace the ROCm build with a
+# CPU one and the attempt would still look like it worked.
+RUN /opt/venv/bin/python3 -m pip install --no-cache-dir \
+      "diffusers==0.40.0" \
+      "transformers==5.17.0" \
+      "accelerate==1.15.0" \
+      "safetensors==0.8.0" \
+      "pillow==12.3.0" \
+ && /opt/venv/bin/python3 -c "import torch, diffusers, transformers, PIL; print(torch.__version__, diffusers.__version__)"
+
+# The sealed weight closure, read-only. The guest loads from this path with
+# `local_files_only`, so nothing here is ever resolved over a network.
+COPY . /opt/reference-image/model
+# Verified, not re-applied. The fetcher seals every closure file at mode 0444
+# and COPY preserves it, measured, so a `chmod -R` here would change nothing and
+# would cost a second seven-gigabyte layer: touching every file's metadata
+# copies all of them up out of the layer below, which took longer than the whole
+# rest of the build.
+#
+# The mode is read rather than tested with `-w`. This step runs as root, and
+# root bypasses the permission bits, so `test -w` reports every file writable
+# whatever its mode says and would have passed on a closure that arrived
+# world-writable.
+RUN set -e; \
+    test -f /opt/reference-image/model/model_index.json; \
+    test -f /opt/reference-image/model/unet/diffusion_pytorch_model.fp16.safetensors; \
+    for path in /opt/reference-image/model/model_index.json /opt/reference-image/model/unet/diffusion_pytorch_model.fp16.safetensors; do \
+      mode=$(stat -c '%a' "$path"); \
+      echo "closure $path mode $mode"; \
+      test "$mode" = "444"; \
+    done
+
+# The shared Python runner launches `/usr/local/bin/python3`. In the base that
+# name is a symlink to the system interpreter, which has no torch, and the
+# runtime this pack needs lives in a virtual environment.
+#
+# Two wrong ways were tried and both are worth naming. Repointing the symlink at
+# the venv interpreter builds cleanly and is useless: CPython derives its prefix
+# from the path it was invoked by, so a venv interpreter reached through
+# `/usr/local/bin` finds no `pyvenv.cfg`, silently falls back to the system
+# site-packages, and reports nineteen distributions with no torch among them.
+# Writing the wrapper with `>` straight onto that name is worse: a redirect
+# follows a symlink and writes the TARGET, so `/usr/bin/python3.13` became the
+# wrapper, the wrapper's `exec` then re-entered itself, and the build spun at
+# full CPU until it was killed.
+#
+# So the wrapper gets its own real path and the launched name is a symlink to
+# it, which `ln -sf` replaces rather than follows. `exec` keeps the guest a
+# single process under the shim.
+#
+# The final import is the guard. Without it this image would build cleanly and
+# fail at the first attempt with a missing module.
+RUN printf '#!/bin/sh\nexec /opt/venv/bin/python3 "$@"\n' > /usr/local/bin/factory-python3 \
+ && chmod 0755 /usr/local/bin/factory-python3 \
+ && test -x /usr/bin/python3.13 \
+ && head -c 4 /usr/bin/python3.13 | grep -q ELF \
+ && ln -sf /usr/local/bin/factory-python3 /usr/local/bin/python3 \
+ && ln -sf /usr/local/bin/factory-python3 /usr/local/bin/python \
+ && /usr/local/bin/python3 -c "import torch, diffusers, PIL; print('launched interpreter sees', torch.__version__)"
+
+LABEL io.ezcorp.factory.pack="reference.image.v1"

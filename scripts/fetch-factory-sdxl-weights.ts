@@ -64,7 +64,7 @@ interface FetchRecord {
 
 async function present(target: string, file: ReferenceImageModelFile): Promise<boolean> {
   const info = await stat(target).catch(() => undefined);
-  return info !== undefined && info.isFile() && info.size === file.bytes;
+  return info?.isFile() === true && info.size === file.bytes;
 }
 
 /**
