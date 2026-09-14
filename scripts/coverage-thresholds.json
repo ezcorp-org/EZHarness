@@ -1018,6 +1018,12 @@
   "src/db/migrations/add-factory-package-preparations.ts": 100,
   "src/factory/runner/python-guest.ts": 100,
   "src/db/migrations/add-factory-package-quarantine.ts": 100,
+  "src/factory/release-git-refs.ts": 100,
+  "src/extensions/project-git-refs.ts": 100,
+  "src/factory/release-destinations.ts": 100,
+  "src/factory/release-publication-set.ts": 100,
+  "src/factory/git-objects.ts": 100,
+  "src/factory/release-github.ts": 100,
   "src/factory/release-s3-publication.ts": 100,
   "src/factory/release-s3-scope.ts": 100
 }

@@ -2482,3 +2482,63 @@ workflow; that is fixed for acceptance and filed for approval and release, whose
 semantics this package does not own.
 
 Full gate table, deviations, and receipts: `tasks/factory/w06-GATES.md`.
+
+## W07 — GitHub publication and reconciliation
+
+Branch `wp/w07-github-publication` from `integ/w00` at `1dc9a0226`. Evidence
+`/tmp/factory-platform-evidence/w07/`. Gate file `tasks/factory/w07-GATES.md`.
+
+- [x] 1. `feat(factory): encode operation ids in git refs` — freeze section 11. New
+      `src/factory/release-git-refs.ts` with the reversible suffix, the `ezcorp-factory/`
+      namespace, round-trip and conflict tests, a `git check-ref-format` conformance test, the
+      `ref`/`branch` receipt fields, the `destination_ref`/`destination_branch` binding on the
+      operation row, and the unvalidated head-branch interpolation in
+      `src/extensions/project-open-pr.ts` fixed through one shared ref grammar.
+- [x] 2. `fix(factory): move release reconciliation proofs out of the transaction` — freeze
+      correction 1. Provider proofs and archive writes happen outside; authority is re-derived
+      inside one transaction.
+- [x] 3. `feat(factory): seal the resolved release profile into the claim` — resolve outside
+      transactions under an abortable deadline, revalidate the exact input inside, install the
+      release-profile completeness CHECK W05 left, add `listClaimableInTransaction`, the
+      publication-set scope resolver reading the attempt id from verified protected command
+      provenance, and production `FactoryDestinationReservationReader` / `FactorySenderFence`.
+- [x] 4. `feat(factory): publish accepted candidates as draft pull requests` — the GitHub
+      provider over the shared broker transport: immutable Git objects, the exact unique branch,
+      one draft PR, returned-identity verification, never force-update or merge, complete tree,
+      base parent, protected assets, paths, lock, and the submodule/LFS/link/network-install
+      rejections.
+- [x] 5. Archive-before-claim and receipt-before-settlement through W04a's writer; dropped
+      responses after each external and archive write recovered by identity; reconciliation by
+      exact ref/SHA and PR marker with the F04 matrix.
+- [x] 6. Real tests against `ezcorp-org/factory-platform-publication-tests` with remote content
+      verification, retained receipts, and cleanup of disposable resources only after evidence
+      capture; the selected-repository App and broker-only namespace verification, with
+      CLI-credential runs labelled as the narrower smoke test.
+- [x] 7. Full verification per common.md and the `BASE_REF=integ/w00` gates; registered
+      `tests/postgres` suites; restart-conformance cases for the migration change.
+
+### W07 review
+
+Every checklist row is closed except the two that are not code. The selected-repository GitHub App
+and the broker-only ref namespace are unverified, because the runs use the local GitHub CLI
+credential; the evidence says so in `credentialScope`, `selectedRepositoryAppVerified`, and
+`brokerOnlyNamespaceVerified` rather than implying otherwise. And the archive-writer and
+child-artifact PostgreSQL producers are blocked by the shared "ordinary" SeaweedFS store running out
+of writable volumes for the `tenant-01` collection, which the repository's own unchanged
+`verify-factory-storage.ts` reproduces; that receipt is kept as a failure, not counted as a pass.
+
+What landed. One git branch grammar shared by the factory encoder and the v4 project path, so
+"the branch is a valid ref" became an executable fact and the unvalidated head-branch interpolation
+is fixed by construction. Local git object identity measured against real git, which turns every
+SHA GitHub returns into a comparison rather than a claim. The reconciliation proofs and archive
+writes moved out of the product transaction, with a test that counts transaction depth at every
+external call and goes red when the old shape is put back. The asynchronous release profile sealed
+into every preparation and revalidated against the pinned decision and material under a lock, which
+let W05's deferred claim CHECK be installed. The GitHub adapter itself: one complete immutable tree,
+one unique branch, one draft pull request, no force-update and no merge, and a real pull request
+published to the private repository with its content read back byte for byte.
+
+The one thing I would flag hardest for the coordinator is not a defect in this package: W08 and W07
+each built a publication-scope resolver that reads the verified attempt id, by two different durable
+paths. Both are correct and neither takes caller input, but one concept with two implementations is
+what C13 forbids, and collapsing them crosses both packages' files.

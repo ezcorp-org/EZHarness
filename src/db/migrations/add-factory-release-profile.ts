@@ -9,10 +9,11 @@ import type { MigrationDb } from "./types";
  * transaction re-derive its input and refuse a result that no longer matches. The git columns bind
  * the exact ref an operation may push, inside the broker-only namespace.
  *
- * The freeze also names `state = 'pending' OR profile_result_digest IS NOT NULL`. It is NOT added
- * here, and deliberately so: nothing writes the seal yet, so the landed release path claims
- * `pending -> executing` with all three columns NULL and every dispatch would fail closed. W07
- * adds that check in the same change that makes its adapter resolve the profile.
+ * The freeze also names `state = 'pending' OR profile_result_digest IS NOT NULL`. W05 left it out
+ * because nothing wrote the seal yet and every dispatch would have failed closed. W07's release
+ * store now seals every preparation, so the check is installed here: an operation may sit in
+ * `pending` unsealed, but it can never leave `pending` without the profile result it was resolved
+ * from. `FactoryReleases.claim` refuses the same row first, with a typed error.
  */
 const CHECKS: readonly { readonly name: string; readonly body: string }[] = [
   { name: "factory_release_operations_profile_input_digest_check", body: "profile_input_digest IS NULL OR profile_input_digest ~ '^sha256:[0-9a-f]{64}$'" },
@@ -21,6 +22,7 @@ const CHECKS: readonly { readonly name: string; readonly body: string }[] = [
   { name: "factory_release_operations_profile_resolved_at_check", body: "profile_resolved_at_ms IS NULL OR profile_resolved_at_ms > 0" },
   { name: "factory_release_operations_destination_ref_check", body: "destination_ref IS NULL OR destination_ref LIKE 'refs/heads/ezcorp-factory/%'" },
   { name: "factory_release_operations_destination_branch_check", body: "(destination_ref IS NULL) = (destination_branch IS NULL)" },
+  { name: "factory_release_operations_profile_claimed_check", body: "state = 'pending' OR profile_result_digest IS NOT NULL" },
 ];
 
 export async function up(database: MigrationDb): Promise<void> {

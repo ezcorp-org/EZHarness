@@ -16,6 +16,8 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { lockFactoryScope } from "../../factory/locks";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryReleaseAuthorityError, FactoryReleaseAuthorityStore, type FactoryReleaseRunLifecycle } from "../../factory/release-authority";
+import { FactoryCandidatePointerAgreement, FactoryGitPublicationMembers, FactoryPublicationProvenance, factoryGitPublicationProvenance, factoryGitPublicationSet } from "../../factory/release-publication-set";
+import type { FactoryReleaseMaterial } from "../../factory/releases";
 import type { FactoryRunFence } from "../../factory/run-lifecycle";
 
 interface Fixture { readonly db: TransactionalDb; close(): Promise<void> }
@@ -193,6 +195,110 @@ test("historical terminal reader verifies every stored binding and preserves its
     finally { await database.execute(sql`UPDATE factory_execution_terminals SET ${sql.identifier(column)}=${original[column]} WHERE attempt_id=${admission.attemptId}`); }
   }
   expect(await read()).toEqual(receipt);
+});
+
+test("the publication scope derives one attempt id from the accepted protected receipt", async () => {
+  const admission = await admit(0, "node-publication");
+  const committed = await commitCandidate(admission, "publication", null);
+  const verified = await database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, tenantId, { projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 0 }));
+  // The candidate pointer holds the attempt the provenance wrote, not anything a caller passed.
+  expect(verified).toMatchObject({ attemptId: admission.attemptId, candidateGeneration: 0, candidateDigest: committed.candidateDigest });
+  expect(verified.artifact).toMatchObject({ digest: committed.candidateDigest });
+  const candidateArtifactId = verified.artifact.artifactId;
+  expect(Object.isFrozen(verified)).toBe(true);
+  await expect(database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, "foreign-tenant", { projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 0 }))).rejects.toMatchObject({ code: "factory_release_authority_scope" });
+  await expect(database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, tenantId, { projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 1 }))).rejects.toMatchObject({ code: "factory_release_authority_stale" });
+  await expect(database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, tenantId, { projectId, runId, nodeInstanceId: "node-never-committed", candidateGeneration: 0 }))).rejects.toMatchObject({ code: "factory_release_authority_stale" });
+
+  // The shared resolver, with the git member half and the candidate pointer as the agreement check.
+  const scopes = factoryGitPublicationProvenance({ database, tenantId, authority: authorityStore });
+  const material: FactoryReleaseMaterial = { decisionId: "decision-publication", evidence: [{ note: "one evidence reference" }], packageTrustDigest: `sha256:${"a".repeat(64)}`, validatorTrustDigest };
+  const operationId = `factory-release:${"b".repeat(64)}`;
+  await expect(scopes.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
+  await expect(scopes.sourcesFor("foreign-tenant", operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
+  expect(() => factoryGitPublicationProvenance({ database, tenantId, scanLimit: 0 })).toThrow("factory_publication_provenance_invalid");
+  expect(() => factoryGitPublicationProvenance({ database, tenantId, scanLimit: 513 })).toThrow("factory_publication_provenance_invalid");
+
+  // One release operation row, identical to what `prepare` writes, without the release store. The
+  // contract and decision rows exist only to satisfy the operation's foreign keys.
+  const contractDigest = `sha256:${"c".repeat(64)}`;
+  await database.execute(sql`INSERT INTO factory_acceptance_contracts (tenant_id,project_id,contract_id,revision,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,approved_by,approval_grant_revision) VALUES (${tenantId},${projectId},'contract-publication',1,${contractDigest},${validatorTrustDigest},'[]','[]',${admin.id},1)`);
+  await database.execute(sql`INSERT INTO factory_acceptance_decisions (tenant_id,project_id,decision_id,contract_id,contract_revision,contract_digest,candidate_digest,evidence_set_digest,decision_digest,run_id,node_instance_id,candidate_generation,execution_epoch,cancellation_epoch) VALUES (${tenantId},${projectId},'decision-publication','contract-publication',1,${contractDigest},${committed.candidateDigest},${`sha256:${"7".repeat(64)}`},${`sha256:${"8".repeat(64)}`},${runId},'node-publication',0,1,${lifecycleCancellationEpoch})`);
+  await database.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state) VALUES (${tenantId},${projectId},${operationId},${runId},'node-publication',0,${committed.candidateDigest},'decision-publication',${contractDigest},1,${lifecycleCancellationEpoch},1,'publish','github','ezcorp-org/repository','pull-request',${`sha256:${"d".repeat(64)}`},'{}',${`sha256:${"e".repeat(64)}`},'{}',${`sha256:${"f".repeat(64)}`},0,${deadlineAtMs},'pending')`);
+
+  // With no accepted protected receipt the attempt has no derivation at all, so publication stays
+  // pending rather than archiving against a guessed scope.
+  await expect(scopes.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
+
+  const taskCommandId = `task-${admission.attemptId}`;
+  const acceptanceCommandId = "acceptance-decision-publication";
+  const receipt = {
+    schemaVersion: "factory.protected-command-receipt.v1", kind: "request-acceptance", outcome: "accepted",
+    reference: { ...scope, commandId: acceptanceCommandId },
+    source: { nodeInstanceId: "node-publication", candidateGeneration: 0, attempt: { commandId: taskCommandId, stopped: true, uncertain: false } },
+    decision: { decisionId: "decision-publication", nodeInstanceId: "node-publication", candidateGeneration: 0, candidateDigest: committed.candidateDigest },
+  };
+  // A transition command needs the audit batch its source sequence names.
+  await database.execute(sql`INSERT INTO factory_audit_batches(tenant_id,project_id,run_id,interpreter_id,source_sequence,sequence,digest,payload) VALUES (${tenantId},${projectId},${runId},${scope.interpreterId},1,1,${contractDigest},'{}') ON CONFLICT DO NOTHING`);
+  const writeReceipt = async (commandId: string, body: unknown) => {
+    await database.execute(sql`INSERT INTO factory_transition_commands(tenant_id,project_id,run_id,interpreter_id,command_id,source_sequence,command_digest) VALUES (${tenantId},${projectId},${runId},${scope.interpreterId},${commandId},1,${contractDigest}) ON CONFLICT DO NOTHING`);
+    await database.execute(sql`INSERT INTO factory_protected_command_effects(tenant_id,project_id,run_id,interpreter_id,command_id,kind,command_digest,receipt_json,receipt_digest,decision) VALUES (${tenantId},${projectId},${runId},${scope.interpreterId},${commandId},'request-acceptance',${contractDigest},${JSON.stringify(body)},${`sha256:${"5".repeat(64)}`},'accepted')`);
+  };
+  // The task command the receipt's source names must exist before a completion can reference it.
+  await database.execute(sql`INSERT INTO factory_transition_commands(tenant_id,project_id,run_id,interpreter_id,command_id,source_sequence,command_digest) VALUES (${tenantId},${projectId},${runId},${scope.interpreterId},${taskCommandId},1,${contractDigest}) ON CONFLICT DO NOTHING`);
+  await writeReceipt(acceptanceCommandId, receipt);
+
+  // The receipt exists, but nothing turns its command into an attempt yet.
+  await expect(scopes.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
+  await database.execute(sql`INSERT INTO factory_task_completions(tenant_id,project_id,run_id,interpreter_id,command_id,attempt_id,input_digest,authority_json,receipt_json,receipt_digest) VALUES (${tenantId},${projectId},${runId},${scope.interpreterId},${taskCommandId},${admission.attemptId},${contractDigest},'{}','{}',${`sha256:${"6".repeat(64)}`})`);
+
+  // Still nothing to read: the candidate artifact is not a sealed material for that attempt.
+  await expect(scopes.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
+  await database.execute(sql`INSERT INTO factory_artifact_materials (tenant_id,project_id,run_id,attempt_id,operation_id,object_name,version,media_type,digest,total_bytes,chunk_count,storage_version,sealed,object_id) VALUES (${tenantId},${projectId},${runId},${admission.attemptId},'material-operation-1','candidate',1,'application/octet-stream',${committed.candidateDigest},1,1,'v1',TRUE,${candidateArtifactId})`);
+
+  const resolved = await scopes.sourcesFor(tenantId, operationId, material);
+  expect(resolved.scope).toEqual({ tenantId, projectId, runId, attemptId: admission.attemptId, operationId: "material-operation-1" });
+  expect(resolved.candidate).toEqual(verified.artifact);
+  // The receipt and the candidate pointer are two independent derivations, and they agree.
+  expect(await scopes.attemptFor({ tenantId, projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 0, candidateDigest: committed.candidateDigest, decisionId: "decision-publication" } as never)).toBe(admission.attemptId);
+
+  // A sealed material another real attempt wrote is never reachable through this operation's scope.
+  const other = await admit(0, "node-publication-other");
+  await database.execute(sql`UPDATE factory_artifact_materials SET attempt_id=${other.attemptId} WHERE object_id=${candidateArtifactId}`);
+  await expect(scopes.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
+  await database.execute(sql`UPDATE factory_artifact_materials SET attempt_id=${admission.attemptId} WHERE object_id=${candidateArtifactId}`);
+
+  // An operation whose candidate digest no longer matches the receipt is refused.
+  await database.execute(sql`UPDATE factory_release_operations SET candidate_digest=${`sha256:${"9".repeat(64)}`} WHERE operation_id=${operationId}`);
+  await expect(scopes.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
+  await database.execute(sql`UPDATE factory_release_operations SET candidate_digest=${committed.candidateDigest} WHERE operation_id=${operationId}`);
+
+  // The agreement check is a real second opinion. A reader that answers with another attempt makes
+  // the two derivations disagree, and a disagreement is corruption rather than a choice.
+  const disagreeing = new FactoryPublicationProvenance({
+    database, tenantId, members: new FactoryGitPublicationMembers({ database, tenantId }),
+    agreement: { async attemptForCandidate() { return other.attemptId; } },
+  });
+  await expect(disagreeing.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
+
+  // And the pointer itself is sealed, so moving it in the database is caught as corruption before
+  // the agreement check can even be asked.
+  await database.execute(sql`UPDATE factory_release_current_candidates SET attempt_id=${other.attemptId} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${runId} AND node_instance_id='node-publication'`);
+  await expect(scopes.sourcesFor(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_release_candidate_corrupt" });
+  await database.execute(sql`UPDATE factory_release_current_candidates SET attempt_id=${admission.attemptId} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${runId} AND node_instance_id='node-publication'`);
+  // A pointer whose digest no longer matches the operation is refused by the agreement reader.
+  const agreement = new FactoryCandidatePointerAgreement({ database, tenantId, authority: authorityStore });
+  await expect(agreement.attemptForCandidate({ projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 0, candidateDigest: `sha256:${"4".repeat(64)}`, decisionId: "decision-publication", canonicalRequest: "{}" })).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
+  expect(() => new FactoryCandidatePointerAgreement({ database, tenantId: "foreign-tenant", authority: authorityStore })).toThrow("factory_release_scope");
+  // Without the agreement reader the receipt alone is the derivation, and it still resolves.
+  expect((await factoryGitPublicationProvenance({ database, tenantId }).sourcesFor(tenantId, operationId, material)).scope.attemptId).toBe(admission.attemptId);
+
+  // The publication set is the seam the archive writer consumes, and it plans the same members.
+  const controller = new AbortController(); controller.abort();
+  await expect(factoryGitPublicationSet({ database, tenantId, authority: authorityStore }).plan(tenantId, operationId, material, controller.signal)).rejects.toBeInstanceOf(DOMException);
+  const planned = await factoryGitPublicationSet({ database, tenantId, authority: authorityStore }).plan(tenantId, operationId, material);
+  expect(planned.map(item => item.role)).toEqual(["candidate"]);
+  expect(planned[0]).toMatchObject({ memberName: "candidate", scope: resolved.scope, artifact: verified.artifact });
 });
 
 test("candidate slots separate nodes and generations and deny a foreign-node terminal", async () => {

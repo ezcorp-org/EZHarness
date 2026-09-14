@@ -238,18 +238,25 @@ async function setup() {
 
   let sequence = 0;
   const mutationKey = (kind: string) => `${kind}-${suffix}-${++sequence}`;
-  /** Resolves one publication through the shared asynchronous profile, outside every transaction. */
+  /**
+   * Resolves one publication through the shared asynchronous profile, outside every transaction.
+   *
+   * `resolvePreparation` is W07's seam for that order: it reads the pinned decision and material
+   * under a short transaction, closes it, runs the profile, and seals the result so `prepare` can
+   * re-derive the same input under a lock and refuse a stale one.
+   */
+  const resolution = (object: string, overrides: Partial<FactoryS3AcceptedPublication> = {}) => ({
+    projectId, runId, nodeInstanceId: TASK_NODE, candidateGeneration: 1, decisionId: decision.decisionId, candidateDigest: trusted.candidateDigest,
+    acceptedManifest: { ...accepted, ...overrides } as unknown as JsonValue,
+    requestedDestination: { provider: "s3", account, object } as unknown as JsonValue,
+    deadlineMs: now + 600_000,
+  });
   const resolve = async (object: string, overrides: Partial<FactoryS3AcceptedPublication> = {}) => profile.resolve({
     tenantId: TENANT, projectId, runId, acceptedManifest: { ...accepted, ...overrides } as unknown as JsonValue,
     requestedDestination: { provider: "s3", account, object } as unknown as JsonValue, decision, material: releaseMaterial,
   }, new AbortController().signal);
-  const prepare = async (object: string, overrides: Partial<FactoryS3AcceptedPublication> = {}, idempotencyKey = mutationKey("prepare")) => {
-    const resolved = await resolve(object, overrides);
-    return releases.prepare(admin, {
-      projectId, runId, nodeInstanceId: TASK_NODE, candidateGeneration: 1, decisionId: decision.decisionId, candidateDigest: trusted.candidateDigest,
-      action: profile.action, destination: resolved.destination, request: resolved.request, estimatedSpendMicros: resolved.estimatedSpendMicros, deadlineMs: now + 600_000,
-    }, idempotencyKey);
-  };
+  const prepare = async (object: string, overrides: Partial<FactoryS3AcceptedPublication> = {}, idempotencyKey = mutationKey("prepare")) =>
+    releases.prepare(admin, await releases.resolvePreparation(resolution(object, overrides), profile, new AbortController().signal), idempotencyKey);
   const claim = async (operation: FactoryReleaseOperation) => {
     const approval = await assurance.requestApproval(admin, { projectId, operationId: operation.operationId, decisionId: decision.decisionId, destinationDigest: operation.destinationDigest, expectedGeneration: operation.dispatchGeneration + 1, expiresAtMs: operation.deadlineMs }, mutationKey("approval"));
     await assurance.decideApproval(admin, projectId, approval.approvalId, approval.contextDigest, true, mutationKey("decision"));
@@ -301,13 +308,13 @@ test("the attempt behind a publication comes from the verified protected provena
   expect(sources.scope).toEqual(world.scope);
   expect(sources.candidate).toEqual(world.members.candidate);
 
-  await expect(world.provenance.sourcesFor("other-tenant", operation.operationId, operation.material)).rejects.toMatchObject({ code: "factory_s3_provenance_untrusted" });
-  await expect(world.provenance.sourcesFor(TENANT, "factory-release:missing", operation.material)).rejects.toMatchObject({ code: "factory_s3_provenance_missing" });
-  await expect(world.provenance.attemptFor({ ...operation, tenantId: "other-tenant" })).rejects.toMatchObject({ code: "factory_s3_provenance_untrusted" });
+  await expect(world.provenance.sourcesFor("other-tenant", operation.operationId, operation.material)).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
+  await expect(world.provenance.sourcesFor(TENANT, "factory-release:missing", operation.material)).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
+  await expect(world.provenance.attemptFor({ ...operation, tenantId: "other-tenant" })).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
   for (const drift of [{ nodeInstanceId: "other-node" }, { candidateGeneration: 4 }, { candidateDigest: digest("9") }]) {
-    await expect(world.provenance.attemptFor({ ...operation, ...drift })).rejects.toMatchObject({ code: "factory_s3_provenance_untrusted" });
+    await expect(world.provenance.attemptFor({ ...operation, ...drift })).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
   }
-  await expect(world.provenance.attemptForDecision(world.projectId, world.runId, "no-such-decision")).rejects.toMatchObject({ code: "factory_s3_provenance_missing" });
+  await expect(world.provenance.attemptForDecision(world.projectId, world.runId, "no-such-decision")).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
   const aborted = new AbortController();
   aborted.abort();
   await expect(world.provenance.attemptForDecision(world.projectId, world.runId, world.decision.decisionId, aborted.signal)).rejects.toThrow();
@@ -323,15 +330,15 @@ test("a protected receipt that does not agree with itself or its completion supp
   const base = world.acceptanceReceipt("template");
 
   // A decision and its verified source must name the same node and generation.
-  await check("drifted-node", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-node", nodeInstanceId: "elsewhere" } });
-  await check("drifted-generation", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-generation", candidateGeneration: 3 } });
+  await check("drifted-node", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-node", nodeInstanceId: "elsewhere" } });
+  await check("drifted-generation", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-generation", candidateGeneration: 3 } });
   // A receipt that claims another run or another tenant is refused.
-  await check("foreign-run", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-run" }, reference: { ...base.reference, logicalRunId: "another-run" } });
-  await check("foreign-tenant", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-tenant" }, reference: { ...base.reference, tenantId: "another-tenant" } });
-  await check("foreign-project", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-project" }, reference: { ...base.reference, projectId: "another-project" } });
+  await check("foreign-run", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-run" }, reference: { ...base.reference, logicalRunId: "another-run" } });
+  await check("foreign-tenant", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-tenant" }, reference: { ...base.reference, tenantId: "another-tenant" } });
+  await check("foreign-project", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-project" }, reference: { ...base.reference, projectId: "another-project" } });
   // A task command with no verified completion, and a completion for another node.
-  await check("orphan", "factory_s3_provenance_missing", { decision: { ...world.decision, decisionId: "orphan" }, source: { ...base.source, attempt: { ...base.source.attempt, commandId: "never-completed" } } });
-  await check("mismatched", "factory_s3_provenance_untrusted", {
+  await check("orphan", "factory_publication_provenance_missing", { decision: { ...world.decision, decisionId: "orphan" }, source: { ...base.source, attempt: { ...base.source.attempt, commandId: "never-completed" } } });
+  await check("mismatched", "factory_publication_provenance_untrusted", {
     decision: { ...world.decision, decisionId: "mismatched", candidateGeneration: 9 },
     source: { ...base.source, candidateGeneration: 9 },
   });
@@ -578,7 +585,7 @@ test("a publication set is refused before it starts when its accepted candidate 
 test("the provenance reader and the profile refuse an impossible configuration", async () => {
   const world = await setup();
   for (const scanLimit of [0, -1, 1.5, 513]) {
-    expect(() => new FactoryS3PublicationProvenance({ database: world.db, tenantId: TENANT, scanLimit })).toThrow("factory_s3_provenance_invalid");
+    expect(() => new FactoryS3PublicationProvenance({ database: world.db, tenantId: TENANT, scanLimit })).toThrow("factory_publication_provenance_invalid");
   }
   expect(new FactoryS3PublicationProvenance({ database: world.db, tenantId: TENANT, scanLimit: 1 }).tenantId).toBe(TENANT);
   for (const broken of [{ account: "" }, { spendMicrosPerMebibyte: -1 }, { spendMicrosPerMebibyte: 1.5 }]) {

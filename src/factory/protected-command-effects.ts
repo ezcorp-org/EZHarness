@@ -5,13 +5,13 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
-import { FactoryAssuranceClaimError, type FactoryAcceptanceDecision, type FactoryAcceptedRelease, type FactoryClaimFailure, type FactoryGroupFailure } from "./assurance";
+import { FactoryAssuranceClaimError, type FactoryAcceptanceDecision, type FactoryClaimFailure, type FactoryGroupFailure } from "./assurance";
 import type { FactoryAssurance } from "./assurance";
 import type { FactoryCommandAuthority, FactoryAuthorizedAcceptanceCommand, FactoryAuthorizedReleaseCommand } from "./command-authority";
 import { resolveFactoryProtectedNodeSource, resolveFactoryProtectedTaskSource, type FactoryProtectedTaskSource } from "./protected-command-provenance";
 import { FactoryReleaseProfileError, sealFactoryReleaseProfileResult, type FactoryAsyncReleaseProfile } from "./release-profile";
 import type { FactoryReleaseAuthorityStore } from "./release-authority";
-import type { FactoryReleaseDestination, FactoryReleaseMaterial, FactoryReleaseOperation, FactoryReleaseRequest, FactoryReleases } from "./releases";
+import type { FactoryReleaseDestination, FactoryReleaseMaterial, FactoryReleaseOperation, FactoryReleasePreparation, FactoryReleaseRequest, FactoryReleaseResolution, FactoryReleases } from "./releases";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryTaskCompletions, FactoryVerifiedTaskCompletion } from "./task-completions";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
@@ -141,14 +141,22 @@ export interface FactoryRejectionReceipt {
   readonly event: RejectionEvent;
 }
 
-interface ReleaseReceipt {
-  readonly schemaVersion: "factory.protected-command-receipt.v1";
-  readonly kind: "request-release";
+/** Everything the authorized command pins, before any profile has run. */
+interface PreparedRelease {
   readonly reference: TrustedFactoryCommandReference;
   readonly commandDigest: string;
   readonly acceptanceReference: TrustedFactoryCommandReference;
-  readonly request: FactoryReleaseRequest;
+  readonly resolution: FactoryReleaseResolution;
+  /** The trusted adapter this node names, as the registry key. */
+  readonly profileKey: string;
   readonly requester: FactoryAuthorizedReleaseCommand["initiator"];
+}
+
+interface ReleaseReceipt extends PreparedRelease {
+  readonly schemaVersion: "factory.protected-command-receipt.v1";
+  readonly kind: "request-release";
+  /** The resolved request, which exists only after the profile ran outside every transaction. */
+  readonly request: FactoryReleaseRequest;
   readonly operationId: string;
   readonly requestDigest: string;
 }
@@ -173,7 +181,7 @@ function safeCount(value: number): void { if (!Number.isSafeInteger(value) || va
 
 /** Concrete private command effects. All product authority is re-derived from durable facts. */
 export class FactoryProtectedCommandEffects {
-  private readonly profiles = new Map<string, { readonly adapter: RunnerReference; readonly action: string; readonly build: FactoryReleaseCommandProfile["build"] }>();
+  private readonly profiles = new Map<string, FactoryAsyncReleaseProfile>();
 
   constructor(
     private readonly database: TransactionalDb,
@@ -194,7 +202,7 @@ export class FactoryProtectedCommandEffects {
       assertFactoryIdentity(captured.action);
       const key = profileKey(captured.adapter);
       if (this.profiles.has(key) || typeof profile.build !== "function" || typeof profile.resolve !== "function") throw new FactoryProtectedCommandEffectError("factory_protected_effect_invalid");
-      this.profiles.set(key, Object.freeze({ ...captured, build: profile.build.bind(profile) }));
+      this.profiles.set(key, Object.freeze({ ...captured, resolve: profile.resolve.bind(profile) }));
     }
   }
 
@@ -222,26 +230,50 @@ export class FactoryProtectedCommandEffects {
     return snapshot(receipt.event);
   };
 
-  requestRelease = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): Promise<null> => {
+  /**
+   * Turns one authorized release command into exactly one release operation.
+   *
+   * The order is the C04 order and the freeze's: read the pinned acceptance and destination under
+   * the command's authority, close that transaction, resolve the adapter profile outside every
+   * transaction under an abortable deadline, let `prepare` re-derive the same input under a lock
+   * and refuse a stale result, then re-derive the authority once more to write the receipt. No
+   * manifest work and no profile call ever holds a product lock.
+   *
+   * A replay reads the recorded receipt and completes its archive rather than resolving again: the
+   * operation already exists, and a second resolve could only produce bytes the first one did not.
+   */
+  requestRelease = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference, signal?: AbortSignal): Promise<null> => {
     const { service, reference } = this.capture(serviceValue, referenceValue);
     const existing = await this.database.transaction(transaction => this.readReceipt(transaction, reference, "request-release"));
     if (existing) {
       const receipt = existing as ReleaseReceipt;
-      const operation = await this.releases.prepare(receipt.requester, receipt.request, releaseKey(reference));
+      const operation = await this.releases.ensureArchived(receipt.requester, receipt.request.projectId, receipt.operationId);
       this.assertOperation(receipt, operation);
       return null;
     }
     const prepared = await this.authority.withCurrentRelease(service, reference, (transaction, context) => this.prepareRelease(transaction, reference, context));
-    const operation = await this.releases.prepare(prepared.requester, prepared.request, releaseKey(reference));
+    const preparation = await this.resolveRelease(prepared, signal);
+    const operation = await this.releases.prepare(prepared.requester, preparation, releaseKey(reference));
     await this.database.transaction(transaction => this.authority.withCurrentReleaseInTransaction(transaction, service, reference, async (tx, context) => {
       const current = await this.prepareRelease(tx, reference, context);
       if (!same(current, prepared)) throw new FactoryProtectedCommandEffectError("factory_protected_effect_conflict");
-      const receipt: ReleaseReceipt = { schemaVersion: "factory.protected-command-receipt.v1", kind: "request-release", ...current, operationId: operation.operationId, requestDigest: operation.requestDigest };
+      const receipt: ReleaseReceipt = { schemaVersion: "factory.protected-command-receipt.v1", kind: "request-release", ...current, request: preparation.request, operationId: operation.operationId, requestDigest: operation.requestDigest };
       await this.writeReceipt(tx, receipt);
       return null;
     }));
     return null;
   };
+
+  /** The one profile call, outside every transaction. */
+  private async resolveRelease(prepared: PreparedRelease, signal?: AbortSignal): Promise<FactoryReleasePreparation> {
+    const profile = this.profiles.get(prepared.profileKey);
+    if (!profile) throw new FactoryProtectedCommandEffectError("factory_protected_effect_untrusted");
+    let preparation: FactoryReleasePreparation;
+    try { preparation = await this.releases.resolvePreparation(prepared.resolution, profile, signal ?? new AbortController().signal); }
+    catch (error) { if (error instanceof FactoryReleaseProfileError) throw new FactoryProtectedCommandEffectError("factory_protected_effect_invalid"); throw error; }
+    safeCount(preparation.request.estimatedSpendMicros);
+    return preparation;
+  }
 
   /**
    * Re-derives the exact stopped task behind this command and records it as the current candidate.
@@ -300,7 +332,7 @@ export class FactoryProtectedCommandEffects {
       || completion.authority.nodeInstanceId !== source.nodeInstanceId || completion.authority.candidateGeneration !== source.candidateGeneration || completion.authority.attemptNumber !== source.attempt.attempt || completion.authority.attemptId !== completion.receipt.terminal.attemptId) throw new FactoryProtectedCommandEffectError("factory_protected_effect_untrusted");
   }
 
-  private async prepareRelease(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedReleaseCommand): Promise<Omit<ReleaseReceipt, "schemaVersion" | "kind" | "operationId" | "requestDigest">> {
+  private async prepareRelease(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedReleaseCommand): Promise<PreparedRelease> {
     const input = context.command.input;
     if (!input || typeof input !== "object" || Array.isArray(input) || !Object.hasOwn(input, "acceptedCandidate") || !Object.hasOwn(input, "destination")) throw new FactoryProtectedCommandEffectError("factory_protected_effect_invalid");
     const releaseInput = input as { acceptedCandidate: JsonValue; destination: JsonValue };
@@ -310,19 +342,16 @@ export class FactoryProtectedCommandEffects {
     if (!stored) throw new FactoryProtectedCommandEffectError("factory_protected_effect_missing");
     const acceptance = stored as AcceptanceReceipt;
     if (acceptance.event.nodeId !== source.nodeInstanceId || acceptance.event.candidateGeneration !== source.candidateGeneration || acceptance.event.attempt !== source.attempt.attempt || !same(acceptance.acceptedCandidate, releaseInput.acceptedCandidate)) throw new FactoryProtectedCommandEffectError("factory_protected_effect_untrusted");
-    const accepted: FactoryAcceptedRelease = { ...acceptance.decision, approvalDecision: acceptance.decision };
-    const material = snapshot(await this.releaseAuthority.readPinnedInTransaction(transaction, this.tenantId, accepted));
-    const profile = this.profiles.get(profileKey(context.node.adapter));
+    const key = profileKey(context.node.adapter);
+    const profile = this.profiles.get(key);
     if (!profile || !same(profile.adapter, context.node.adapter)) throw new FactoryProtectedCommandEffectError("factory_protected_effect_untrusted");
-    const built = snapshot(profile.build({ acceptedCandidate: releaseInput.acceptedCandidate, destination: releaseInput.destination, decision: acceptance.decision, material }));
-    safeCount(built.estimatedSpendMicros);
-    const request: FactoryReleaseRequest = {
+    const resolution: FactoryReleaseResolution = {
       projectId: reference.projectId, runId: reference.logicalRunId, nodeInstanceId: acceptance.decision.nodeInstanceId,
       candidateGeneration: acceptance.decision.candidateGeneration, decisionId: acceptance.decision.decisionId, candidateDigest: acceptance.decision.candidateDigest,
-      action: profile.action, destination: built.destination, request: built.request, estimatedSpendMicros: built.estimatedSpendMicros,
+      acceptedManifest: releaseInput.acceptedCandidate, requestedDestination: releaseInput.destination,
       deadlineMs: Math.min(context.command.deadlineAtMs, context.fence.deadlineAtMs),
     };
-    return { reference, commandDigest: context.commandDigest, acceptanceReference, request: snapshot(request), requester: snapshot(context.initiator) };
+    return { reference, commandDigest: context.commandDigest, acceptanceReference, resolution: snapshot(resolution), profileKey: key, requester: snapshot(context.initiator) };
   }
 
   private capture(serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): { service: TrustedFactoryServiceIdentity; reference: TrustedFactoryCommandReference } {
