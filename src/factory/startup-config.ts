@@ -63,6 +63,29 @@ export interface FactoryStartupConfig {
   readonly pool: { readonly baseUrl: string; readonly serviceTokenPath: string; readonly tls: FactoryStartupTlsMaterial };
   readonly storage: { readonly ordinary: FactoryStartupStorage; readonly archive: FactoryStartupStorage };
   readonly keys: { readonly masterKeyFilePath: string; readonly masterKeyId: string; readonly wrappedKeyFilePath: string; readonly grantableRoots: readonly string[] };
+  /**
+   * Where the host launch service listens, for the process that holds no runner.
+   *
+   * Optional, because an installation whose runner lives in the product process
+   * uses the in-process runtime and needs no transport. When present, every
+   * part is required: a base URL with no client material cannot open a mutual
+   * TLS connection, and half a transport is not a transport.
+   */
+  readonly hostLaunch?: {
+    readonly baseUrl: string;
+    readonly serverName: string;
+    readonly attemptTokenSecretPath: string;
+    readonly tls: FactoryStartupTlsMaterial & { readonly serviceTokenPath: string };
+  };
+  /**
+   * The host PUBLIC keys a physical-stop receipt is verified against.
+   *
+   * By reference, never by value, and never a private key: each entry names a
+   * host, a key id, and a file to read the PUBLIC key from. The product process
+   * verifies signatures with these; only the host itself holds the private half,
+   * and `loadFactoryHostSigningKey` on the host is the only thing that reads it.
+   */
+  readonly hostStopKeys?: readonly { readonly hostId: string; readonly hostKeyId: string; readonly publicKeyPath: string }[];
   /** An operator's verified replication statement. Absent on a development host. */
   readonly archiveReplicationEvidence?: string;
   readonly workers?: FactoryWorkerTuning;
@@ -136,6 +159,13 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "keys.masterKeyId", kind: "identity" },
   { field: "keys.wrappedKeyFilePath", kind: "path" },
   { field: "keys.grantableRoots", kind: "roots" },
+  { field: "hostLaunch.baseUrl", kind: "url", optional: true },
+  { field: "hostLaunch.serverName", kind: "identity", optional: true },
+  { field: "hostLaunch.attemptTokenSecretPath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.caPath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.certificatePath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.privateKeyPath", kind: "path", optional: true },
+  { field: "hostLaunch.tls.serviceTokenPath", kind: "path", optional: true },
   { field: "archiveReplicationEvidence", kind: "statement", optional: true },
   { field: "workers.batch", kind: "count", optional: true },
   { field: "workers.idleDelayMs", kind: "interval", optional: true },
@@ -189,14 +219,23 @@ function httpsUrl(value: unknown): boolean {
 }
 
 /** The set of leaf fields a valid document may carry, derived from the table. */
-const KNOWN_FIELDS: ReadonlySet<string> = new Set(["schemaVersion", ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field)]);
+const KNOWN_FIELDS: ReadonlySet<string> = new Set(["schemaVersion", "hostStopKeys", ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field)]);
+
+/** Exactly these keys, no more and no fewer. */
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const present = Object.keys(value);
+  return present.length === keys.length && keys.every((key) => present.includes(key));
+}
 
 function leaves(value: unknown, prefix = ""): string[] {
   if (!record(value)) return [prefix];
   const found: string[] = [];
   for (const [key, nested] of Object.entries(value)) {
     const field = prefix === "" ? key : `${prefix}.${key}`;
-    // `grantableRoots` is an array leaf; recursing would name its indices.
+    // `grantableRoots` is an array leaf, and `hostStopKeys` an array of
+    // records; recursing into either would name its indices. Both are checked
+    // by shape below instead.
+    if (field === "hostStopKeys") { found.push(field); continue; }
     found.push(...(record(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -231,6 +270,30 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   // provider becomes a substitute rather than a refusal.
   const pinned = ["modelProvider.provider", "modelProvider.model"].filter((field) => read(value, field).present);
   if (pinned.length === 1) invalid.push(pinned[0] === "modelProvider.provider" ? "modelProvider.model" : "modelProvider.provider");
+
+  // A host launch transport is every part or none. A base URL with no client
+  // material cannot open a mutual TLS connection, and half a transport would
+  // fail at the first dispatch rather than at boot.
+  const transport = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("hostLaunch."));
+  const supplied = transport.filter((spec) => read(value, spec.field).present);
+  if (supplied.length > 0 && supplied.length < transport.length) {
+    for (const spec of transport) if (!supplied.includes(spec)) missing.push(spec.field);
+  }
+
+  // Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
+  // file; a private key never appears in this document and an empty list is a
+  // list that verifies nothing.
+  const hostStopKeys = read(value, "hostStopKeys");
+  if (hostStopKeys.present) {
+    const entries = hostStopKeys.value;
+    if (!Array.isArray(entries) || entries.length === 0) invalid.push("hostStopKeys");
+    else for (const [index, entry] of entries.entries()) {
+      if (!record(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
+        || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
+        invalid.push(`hostStopKeys[${index}]`);
+      }
+    }
+  }
   if (missing.length > 0 || invalid.length > 0) throw new FactoryStartupConfigError(missing, invalid);
 
   const config = value as unknown as FactoryStartupConfig;

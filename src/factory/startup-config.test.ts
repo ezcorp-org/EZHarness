@@ -208,3 +208,45 @@ describe("the model provider pin", () => {
     }
   });
 });
+
+describe("the host launch transport and the host stop keys", () => {
+  const transport = {
+    baseUrl: "https://127.0.0.1:9443",
+    serverName: "localhost",
+    attemptTokenSecretPath: "/run/secrets/attempt-token",
+    tls: { caPath: "/run/secrets/ca.pem", certificatePath: "/run/secrets/client.pem", privateKeyPath: "/run/secrets/client.key", serviceTokenPath: "/run/secrets/service.token" },
+  };
+
+  test("the transport is every part or none", () => {
+    // An installation whose runner lives in the product process needs none.
+    expect(parseFactoryStartupConfig(valid()).hostLaunch).toBeUndefined();
+    expect(parseFactoryStartupConfig({ ...valid(), hostLaunch: transport }).hostLaunch).toEqual(transport);
+
+    // Half a transport would fail at the first dispatch rather than at boot.
+    try {
+      parseFactoryStartupConfig({ ...valid(), hostLaunch: { baseUrl: transport.baseUrl } });
+      throw new Error("half a host launch transport was accepted");
+    } catch (error) {
+      const missing = (error as { missing?: readonly string[] }).missing ?? [];
+      expect(missing).toContain("hostLaunch.serverName");
+      expect(missing).toContain("hostLaunch.attemptTokenSecretPath");
+      expect(missing).toContain("hostLaunch.tls.caPath");
+    }
+  });
+
+  test("host stop keys are public, by reference, and never an empty list", () => {
+    const keys = [{ hostId: "host-1", hostKeyId: "host-key-1", publicKeyPath: "/run/secrets/host-1.pub" }];
+    expect(parseFactoryStartupConfig({ ...valid(), hostStopKeys: keys }).hostStopKeys).toEqual(keys);
+
+    for (const bad of [
+      [],
+      [{ hostId: "host-1", hostKeyId: "host-key-1" }],
+      // A private key must never appear in this document, so an unknown key is
+      // refused rather than ignored.
+      [{ hostId: "host-1", hostKeyId: "host-key-1", publicKeyPath: "/p", privateKeyPath: "/secret" }],
+      [{ hostId: "", hostKeyId: "host-key-1", publicKeyPath: "/p" }],
+    ]) {
+      expect(() => parseFactoryStartupConfig({ ...valid(), hostStopKeys: bad })).toThrow();
+    }
+  });
+});
