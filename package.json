@@ -35,7 +35,13 @@
     "verify:all": "bun run verify:backup && bun run verify:edges && bun run verify:docker && bun run verify:docker-rollback && bun run verify:docker-upgrade",
     "typecheck": "bash scripts/typecheck.sh",
     "lint": "bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker docs tests .github index.ts drizzle.config.ts .*.json *.json \"$@\"' --",
-    "lint:fix": "bun run lint --write"
+    "lint:fix": "bun run lint --write",
+    "gate:coverage": "bun scripts/check-global-coverage.ts",
+    "gate:crap": "bun scripts/crap-score.ts",
+    "gate:crap:changed": "bun scripts/crap-score.ts --changed",
+    "gate:mutation": "bun scripts/mutation.ts --changed",
+    "gate:mutation:full": "bun scripts/mutation.ts --full",
+    "gate:report": "bun scripts/quality-report.ts --text"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",
