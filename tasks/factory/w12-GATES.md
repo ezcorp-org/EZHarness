@@ -24,6 +24,11 @@ Commits:
 | `66e697ad4` | fix(factory): give each reference-data step its own material operation |
 | `05e10a46f` | docs(factory): close every W12 gate with its receipt |
 | `b83ca7c0e` | test(factory): run the two data boundary cases in separate invocations |
+| `849d3bb8c` | docs(factory): record the shared-store fault and the head-commit receipts |
+| `5c8c66d3e` | fix(factory): widen the W04 object margin and stop giving the guest a world-writable directory |
+| `f48cf4bb8` | test(factory): make the faithful full-file run the reference-data producer |
+| `88162a98d` | test(factory): one faithful full-file run, not three |
+| `a74f65606` | docs(factory): record the validator findings and the commit that closes each |
 
 ## The one thing that blocked this package, and what was done about it
 
@@ -166,7 +171,7 @@ its outputs back afterwards, digest-verified, through W04's material service.
   CHECK: `postgres-env flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 5400000
   ./tests/postgres/factory-reference-data.test.ts`
   EXPECT: exit 0
-  EVIDENCE: `logs/postgres-journey.json`, exit 0. W08's own profile resolves the accepted
+  EVIDENCE: `logs/postgres-journey.json` at `f48cf4bb8`, exit 0, 11 pass. W08's own profile resolves the accepted
   publication into the frozen request, pinning each member's media type, digest, byte count, and
   chunk count from its sealed W04 record, and W08's own provider stages every member privately and
   writes `manifest.json` last as the publication point. The published Parquet is then read back out
@@ -181,7 +186,7 @@ its outputs back afterwards, digest-verified, through W04's material service.
   refused.
   CHECK: the same producer
   EXPECT: exit 0
-  EVIDENCE: `logs/postgres-journey.json`, exit 0. The generator streams exactly 268,435,456 bytes
+  EVIDENCE: `logs/postgres-journey.json` at `f48cf4bb8`, exit 0, 11 pass. The generator streams exactly 268,435,456 bytes
   of valid input at C10's declared field bounds (706,409 rows, 71 partitions, five categories),
   because "at most 256 MiB" is a boundary and not an approximation. **This case found a real
   defect**: the seal wrote one chunk per incoming block, so a 256 MiB input arriving in
@@ -194,7 +199,10 @@ its outputs back afterwards, digest-verified, through W04's material service.
   CHECK: `postgres-env flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 5400000
   --test-name-pattern "maximum row count" ./tests/postgres/factory-reference-data.test.ts`
   EXPECT: exit 0
-  EVIDENCE: `logs/postgres-maximum-rows.json`, exit 0, 1 pass / 0 fail in 80 seconds. One million
+  EVIDENCE: `logs/postgres-journey.json` at `f48cf4bb8`, exit 0, 11 pass / 0 fail. The case is
+  declared LAST in the suite, so the faithful full-file run is what proves it rather than an
+  isolated one; an earlier isolated receipt, `logs/postgres-maximum-rows.json`, passed while the
+  full run did not, which is the whole of validator finding F1. One million
   rows, a hundred ordered partitions, and a manifest total of 500,000,500,000 - which is
   `n(n+1)/2` and which no double holds exactly, so the decimal-string sums are doing real work.
   One row more fails the parse attempt with `row_limit` carried out of the guest. **This case found
