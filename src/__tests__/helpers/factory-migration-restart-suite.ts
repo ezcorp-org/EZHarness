@@ -96,6 +96,31 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     await expect((async () => { await db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state) VALUES ('restart-attempt-duplicate','restart-tenant','restart-project','restart-run',${"c".repeat(64)},'{}','restart-reservation',1,1,1,'restart-allocation','restart-host',${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},'restart-worker-duplicate',${expected},'prepared')`); })()).rejects.toThrow();
   });
 
+  test("the package-quarantine upgrade backfills the v4 generation fence and keeps one named state check", async () => {
+    const db = fixture.db;
+    const reference = `sha256:${"e".repeat(64)}`;
+    const raw = "f".repeat(64);
+    await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('restart-trust-user','restart-trust@example.test','x','Restart','admin') ON CONFLICT (id) DO NOTHING`);
+    await db.execute(sql`INSERT INTO extension_release_installations(id,owner_id,scope,payload) VALUES ('restart-installation','restart-trust-user','project:restart-project',${JSON.stringify({ id: "restart-installation", generation: 5 })})`);
+    await db.execute(sql`INSERT INTO factory_runner_package_bindings (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,reference_json,installation_id,release_id,release_digest,source_digest,artifact_digest,image_digest,manifest_digest,issuer_id,issuer_grant_revision,protected_digest) VALUES ('restart-tenant','restart-project','restart-pkg','1.0.0',${reference},'run',${reference},'{}','restart-installation','restart-release',${raw},${raw},${raw},'image',${raw},'restart-trust-user',1,${reference})`);
+    // Reproduce the pre-upgrade shape: no fence column, and a CHECK with no quarantined state.
+    await db.execute(sql`ALTER TABLE factory_runner_package_trust_revisions DROP COLUMN IF EXISTS installation_generation`);
+    await db.execute(sql`ALTER TABLE factory_runner_package_trust_revisions DROP CONSTRAINT IF EXISTS factory_runner_package_trust_state_check`);
+    await db.execute(sql`ALTER TABLE factory_runner_package_trust_revisions ADD CONSTRAINT factory_runner_package_trust_revisions_state_check CHECK (state IN ('active','revoked'))`);
+    await db.execute(sql`INSERT INTO factory_runner_package_trust_revisions (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,revision,state,package_trust_digest,approved_by,approval_grant_revision,protected_digest) VALUES ('restart-tenant','restart-project','restart-pkg','1.0.0',${reference},'run',${reference},1,'active',${reference},'restart-trust-user',1,${reference})`);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      const row = rows<{ installation_generation: number | string }>(await db.execute(sql`SELECT installation_generation FROM factory_runner_package_trust_revisions WHERE reference_digest=${reference} AND revision=1`))[0];
+      expect(Number(row?.installation_generation)).toBe(5);
+      const nullable = rows<{ is_nullable: string }>(await db.execute(sql`SELECT is_nullable FROM information_schema.columns WHERE table_name='factory_runner_package_trust_revisions' AND column_name='installation_generation'`));
+      expect(nullable.map(column => column.is_nullable)).toEqual(["NO"]);
+      // Exactly one state CHECK survives, so a mis-splice cannot leave two.
+      const checks = rows<{ conname: string }>(await db.execute(sql`SELECT conname FROM pg_constraint WHERE conrelid='factory_runner_package_trust_revisions'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%state%' ORDER BY conname`));
+      expect(checks.map(check => check.conname)).toEqual(["factory_runner_package_trust_state_check"]);
+    }
+    await expect((async () => { await db.execute(sql`INSERT INTO factory_runner_package_trust_revisions (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,revision,state,package_trust_digest,approved_by,approval_grant_revision,installation_generation,protected_digest) VALUES ('restart-tenant','restart-project','restart-pkg','1.0.0',${reference},'run',${reference},2,'suspended',${reference},'restart-trust-user',1,5,${reference})`); })()).rejects.toThrow();
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

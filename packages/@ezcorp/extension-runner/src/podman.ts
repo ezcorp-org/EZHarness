@@ -13,6 +13,19 @@ import { browserBuild, browserBuilderProgram } from "./browser";
 export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834";
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));`;
+const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
+/**
+ * The guest's environment is exactly `HOME`, `TMPDIR` and `BUN_INSTALL_CACHE_DIR`.
+ * `--unsetenv-all` drops the image's own `ENV`, which otherwise reached every
+ * guest: measured on the pinned images, that was `PATH`, `container`, and the
+ * interpreter's build metadata. Two variables remain because the OCI runtime
+ * writes them into the process after podman has built the spec, and `--unsetenv`
+ * cannot reach them: `LC_CTYPE=C.UTF-8`, and `HOSTNAME`, which is pinned to a
+ * fixed value below so it cannot carry the container's host-derived identity.
+ */
+const GUEST_HOSTNAME = "guest";
+/** Exactly what a guest may observe, including the two the runtime injects. */
+export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "HOSTNAME", "LC_CTYPE", "TMPDIR"]);
 const CHANNEL_FIFOS = ["in", "out", "err"] as const;
 /** Traversable and readable by the mapped guest uid, writable by nobody but the runner. */
 const CHANNEL_DIRECTORY_MODE = 0o755;
@@ -73,20 +86,20 @@ export class PodmanRunner implements Runner {
   protected readonly guestInterpreter: string = "/usr/local/bin/bun";
   protected readonly root: string;
   private readonly podman: string;
-  private readonly seccompPath: string;
+  protected readonly seccompPath: string;
   private readonly configuredDevices: readonly string[];
-  private readonly operations = new Map<string, RunnerInspection>();
+  protected readonly operations = new Map<string, RunnerInspection>();
   private readonly containers = new Map<string, string>();
   private readonly executions = new Map<string, FramedExecution>();
   private readonly channels = new Map<string, () => void>();
-  private readonly deadlines = new Map<string, ReturnType<typeof setTimeout>>();
+  protected readonly deadlines = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly buildWorkers = new Map<string, string>();
   private activeBuilds = 0;
   private activeExecutions = 0;
   private ready: Promise<void> | undefined;
   private lease: ChildProcessWithoutNullStreams | undefined;
-  constructor(private readonly options: PodmanRunnerOptions) {
+  constructor(protected readonly options: PodmanRunnerOptions) {
     this.root = resolve(options.root);
     this.image = options.image ?? DEFAULT_IMAGE;
     if (!/^[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(this.image)) throw new RunnerError("image_unpinned", "Runner image must use an immutable registry digest");
@@ -120,7 +133,7 @@ export class PodmanRunner implements Runner {
    * fails the operation instead of degrading it. The first caller decides the
    * orphan sweep, and the lazy build and execution paths never request it.
    */
-  private async prepare(cleanupOrphans: boolean): Promise<void> {
+  protected async prepare(cleanupOrphans: boolean): Promise<void> {
     this.ready ??= this.probe(cleanupOrphans).catch(async error => { await this.close(); this.ready = undefined; throw error; });
     return this.ready;
   }
@@ -147,9 +160,8 @@ export class PodmanRunner implements Runner {
     if (profile.defaultAction !== "SCMP_ACT_ERRNO") throw new RunnerError("seccomp_unavailable", "An explicit deny-by-default seccomp profile is required");
     const probeId = `probe-${randomUUID()}`;
     const limits = { ...executionLimits, memoryBytes: 128 * 1024 ** 2, cpuMillis: 500, pids: 32 };
-    const program = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
     try {
-      const probe = JSON.parse(await command(this.podman, [...this.args(probeId, limits), this.image, "-e", program]));
+      const probe = JSON.parse(await command(this.podman, [...this.args(probeId, limits), this.image, ...this.probeProgram()]));
       if (probe.uid !== 65534 || probe.writable || probe.memory !== String(limits.memoryBytes) || probe.swap !== "0" || probe.cpu !== "50000 100000" || probe.pids !== "32" || !/^CapEff:\s+0+$/m.test(probe.status) || !/^NoNewPrivs:\s+1$/m.test(probe.status) || !/^Seccomp:\s+2$/m.test(probe.status) || probe.routes.split("\n").length !== 1 || probe.ipv6.split("\n").some((line: string) => line && !line.endsWith("lo"))) throw new RunnerError("isolation_probe_failed", "Kernel controls did not match the secure runner profile");
     } finally { await this.remove(probeId); }
     if (!cleanupOrphans) return;
@@ -158,6 +170,8 @@ export class PodmanRunner implements Runner {
       if (/^ez-v4-[a-f0-9-]+$/.test(name)) await command(this.podman, ["rm", "--force", "--time=0", name]);
     }
   }
+  /** The in-guest program that reports the applied kernel controls, in the guest's own language. */
+  protected probeProgram(): string[] { return ["-e", probeProgramSource]; }
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
   /** Build and typecheck guests. They never receive a device, whatever the host configures. */
   protected launch(id: string, limits: ResourceLimits, staged: string, args: string[]): ChildProcessWithoutNullStreams {
@@ -263,7 +277,7 @@ export class PodmanRunner implements Runner {
   private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
@@ -273,7 +287,7 @@ export class PodmanRunner implements Runner {
     await writeFile(target, content, { mode: 0o400, flag: "wx" });
     await chmod(target, executable ? 0o555 : 0o444);
   }
-  private async stage(files: WorkspaceFiles): Promise<string> {
+  protected async stage(files: WorkspaceFiles): Promise<string> {
     const directory = await mkdtemp(join(this.root, "stage-"));
     await chmod(directory, 0o755);
     try {
@@ -377,7 +391,7 @@ export class PodmanRunner implements Runner {
     }
     return result;
   }
-  private async storeArtifact(artifactDigest: string, files: WorkspaceFiles): Promise<void> {
+  protected async storeArtifact(artifactDigest: string, files: WorkspaceFiles): Promise<void> {
     const target = join(this.root, "artifacts", digest(artifactDigest));
     const temporary = join(this.root, `artifact-${randomUUID()}`);
     const handle = await open(temporary, "wx", 0o400);
@@ -415,7 +429,7 @@ export class PodmanRunner implements Runner {
     void execution.exited.finally(() => { this.executions.delete(input.workerId); }).catch(() => undefined);
     return execution;
   }
-  private async startExecution(input: StartRequest, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
+  protected async startExecution(input: StartRequest, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");

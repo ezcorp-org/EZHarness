@@ -20,6 +20,8 @@ const reference: RunnerReference = { package: "package-runner", version: "1.0.0"
 const secondReference: RunnerReference = { ...reference, model: "model-b", configurationDigest: `sha256:${"c".repeat(64)}` };
 const limits: ResourceLimits = { memoryBytes: 64 * 1024 * 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 10_000 };
 
+function digestReference(value: RunnerReference): string { return `sha256:${digestObject(value)}`; }
+
 function release(sourceDigest: string, artifactDigest: string): ReleaseRecord {
   const manifest = { schemaVersion: 4 as const, name: reference.package, version: reference.version, author: { name: "Package test" }, description: "Factory package", permissions: {}, tools: [{ name: reference.export, description: "Echo", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
   const input = { installationId: "package-installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest, artifactDigest, imageDigest: "podman-image@sha256:test", manifest, evidence: { protocolVersion: 4 as const, validatorVersion: "runner-v4", discoveryDigest: digestObject(manifest), tests: [{ name: "unit", passed: true }] }, runnerProfile: "podman-v4", policyDigest: digestObject({ policy: "v4" }) };
@@ -48,9 +50,12 @@ async function packageContext(installationProject = projectId) {
   const repo = new DatabaseLifecycleRepository(database);
   const current = release(sourceDigest, artifactDigest);
   await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${installationProject}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
-  const trusts = new FactoryPackageTrusts(database, tenantId, grants);
+  const fenced: Array<{ state: string; trustRevision: number; reference: RunnerReference }> = [];
+  const trusts = new FactoryPackageTrusts(database, tenantId, grants, {
+    async fenceAttempts(_transaction, input) { fenced.push({ state: input.state, trustRevision: input.trustRevision, reference: input.reference }); return ["fenced-attempt"]; },
+  });
   return {
-    database, grants, source, artifacts, sourceDigest, artifactDigest, repo, current, trusts,
+    database, grants, source, artifacts, sourceDigest, artifactDigest, repo, current, trusts, fenced,
     preparations(runner: Pick<Runner, "build" | "collectArtifacts">) {
       return new FactoryPackagePreparations(database, tenantId, grants, trusts, new FactoryV4PackageCatalog(repo, blobs), runner, limits);
     },
@@ -239,4 +244,75 @@ test.each(["trust", "intent", "receipt"] as const)("rejects a damaged %s seal th
   }
 });
 
+test("quarantine blocks dispatch, fences live attempts, and is lifted only by an explicit re-publish", async () => {
+  const { trusts, runner, prepared, fenced, database } = await trustedPackage();
+  const receipt = await prepared.prepare(projectId, reference);
+  expect(await prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).toEqual(receipt);
+
+  const quarantined = await trusts.quarantine(admin, { projectId, reference, expectedRevision: 1 }, "quarantine-package");
+  expect(quarantined).toMatchObject({ revision: 2, state: "quarantined", installationGeneration: 1 });
+  expect(fenced).toEqual([{ state: "quarantined", trustRevision: 2, reference }]);
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_quarantined" });
+  await expect(prepared.prepare(projectId, reference)).rejects.toMatchObject({ code: "factory_package_quarantined" });
+  expect(factoryPackageDispatchDisposition(new FactoryPackagePreparationError("factory_package_quarantined"))).toBe("deny");
+
+  // Nothing lifts a quarantine but an explicit human re-publish at the next revision.
+  await expect(trusts.quarantine(admin, { projectId, reference, expectedRevision: 2 }, "quarantine-again")).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
+  const restored = await trusts.publish(admin, { projectId, reference, expectedRevision: 2 }, "lift-quarantine");
+  expect(restored).toMatchObject({ revision: 3, state: "active" });
+  // A receipt is keyed to its trust revision, so the lifted package is prepared
+  // again before it may dispatch: quarantine does not resurrect an old receipt.
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_not_prepared" });
+  expect(await prepared.prepare(projectId, reference)).toMatchObject({ trustRevision: 3 });
+  expect(await prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).toBeDefined();
+
+  // Every earlier decision is preserved rather than overwritten.
+  const history = releaseRows<{ revision: number | string; state: string }>(await database.execute(sql`SELECT revision,state FROM factory_runner_package_trust_revisions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND reference_digest=${digestReference(reference)} ORDER BY revision`));
+  expect(history.map(row => `${Number(row.revision)}:${row.state}`)).toEqual(["1:active", "2:quarantined", "3:active"]);
+  void runner;
+});
+
+test("revocation fences live attempts and can follow a quarantine without a return to active first", async () => {
+  const { trusts, prepared, fenced } = await trustedPackage();
+  await prepared.prepare(projectId, reference);
+  await trusts.quarantine(admin, { projectId, reference, expectedRevision: 1 }, "quarantine-before-revoke");
+  const revoked = await trusts.revoke(admin, { projectId, reference, expectedRevision: 2 }, "revoke-after-quarantine");
+  expect(revoked).toMatchObject({ revision: 3, state: "revoked" });
+  expect(fenced.map(entry => entry.state)).toEqual(["quarantined", "revoked"]);
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_revoked" });
+});
+
+test("a quarantine cannot be declared for a package that was never trusted or at the wrong revision", async () => {
+  const { trusts } = await trustedPackage();
+  // Revision 0 means "never trusted", which no blocking transition may follow.
+  await expect(trusts.quarantine(admin, { projectId, reference, expectedRevision: 0 }, "quarantine-wrong-revision")).rejects.toMatchObject({ code: "factory_package_trust_invalid" });
+  await expect(trusts.quarantine(admin, { projectId, reference, expectedRevision: 2 }, "quarantine-ahead")).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
+  await expect(trusts.quarantine(admin, { projectId, reference: secondReference, expectedRevision: 1 }, "quarantine-untrusted")).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
+  await expect(trusts.quarantine(admin, { projectId, reference, expectedRevision: -1 }, "quarantine-negative")).rejects.toMatchObject({ code: "factory_package_trust_invalid" });
+});
+
+test("a decision taken against an earlier v4 installation generation no longer authorizes dispatch", async () => {
+  const { trusts, prepared, repo, database } = await trustedPackage();
+  await prepared.prepare(projectId, reference);
+  // The v4 lifecycle increments the installation generation on activation and on
+  // disable. The trust decision is fenced to the generation it was taken against.
+  await repo.transact("package-installation", state => { state.installation.generation += 1; });
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_fence_stale" });
+  expect(factoryPackageDispatchDisposition(new FactoryPackagePreparationError("factory_package_fence_stale"))).toBe("deny");
+  const refreshed = await trusts.publish(admin, { projectId, reference, expectedRevision: 1 }, "retrust-after-generation");
+  expect(refreshed).toMatchObject({ revision: 2, state: "active", installationGeneration: 2 });
+  expect(await prepared.prepare(projectId, reference)).toMatchObject({ trustRevision: 2 });
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).resolves.toBeDefined();
+  void database;
+});
+
+test("a tampered trust state or generation is refused rather than trusted", async () => {
+  const { prepared, database } = await trustedPackage();
+  await prepared.prepare(projectId, reference);
+  const where = sql`tenant_id=${tenantId} AND project_id=${projectId} AND reference_digest=${digestReference(reference)} AND revision=1`;
+  await database.execute(sql`UPDATE factory_runner_package_trust_revisions SET state='quarantined' WHERE ${where}`);
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_trust_corrupt" });
+  await database.execute(sql`UPDATE factory_runner_package_trust_revisions SET state='active', installation_generation=99 WHERE ${where}`);
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_trust_corrupt" });
+});
 }
