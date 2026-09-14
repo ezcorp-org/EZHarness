@@ -17,6 +17,33 @@
  * It is shaped like the other two host process entries (`pool/process.ts`,
  * `orchestration-process.ts`): a strict config parser, an abort-aware loop, and
  * a `finally` that records why it stopped.
+ *
+ * ## The cadence contract, and why there are two loops
+ *
+ * The heartbeat write and the runner observation run on SEPARATE loops, and
+ * that separation is the whole design. The first version awaited the Podman
+ * probe between writes, so the interval between two records was
+ * `probeLatency + heartbeatMs` while the reader accepts a record only within
+ * `heartbeatMs * 3`. The probe creates a container, so on a loaded host it
+ * could exceed the window on its own and every record arrived already stale —
+ * a live supervisor that reads as dead, intermittently, depending on how busy
+ * the box is.
+ *
+ * All four numbers are multiples of one configured heartbeat, so the margins
+ * are stateable rather than coincidental:
+ *
+ * | Interval | Value | Why |
+ * | --- | --- | --- |
+ * | Heartbeat write | `heartbeatMs` | never waits for a probe |
+ * | Reader freshness window | `heartbeatMs * 3` | tolerates two missed writes |
+ * | Probe bound | `heartbeatMs * 4` | a probe may legitimately outlast a write |
+ * | Facts go stale | `heartbeatMs * 5` | the bound plus one full cycle |
+ *
+ * The record therefore always says what was last actually OBSERVED: a probe
+ * that hangs does not delay the heartbeat, and it does not let the heartbeat
+ * keep asserting a fact nobody is still checking either — once the last
+ * successful observation is older than the staleness bound, the published
+ * record degrades.
  */
 import { createPrivateKey } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
@@ -25,10 +52,16 @@ import { privateDirectory, readPrivateBounded } from "../private-files";
 import {
   createFactoryServiceReadinessWriter,
   factorySupervisorReadinessOptions,
+  type FactoryServiceReadinessUpdate,
   type FactoryServiceReadinessWriter,
 } from "../service-readiness";
 
 const CONFIG_SCHEMA = "factory.supervisor-process.v1";
+
+/** A probe may outlast a write, but not without bound. Multiples of the heartbeat. */
+export const FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS = 4;
+/** The probe bound plus one full cycle. After this the facts are not current. */
+export const FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS = 5;
 const MAX_CONFIG_BYTES = 32 * 1024;
 const MAX_KEY_BYTES = 64 * 1024;
 
@@ -52,6 +85,7 @@ export interface FactorySupervisorProcessDependencies {
   readonly probeRunner: (config: FactorySupervisorProcessConfig, signal: AbortSignal) => Promise<void>;
   readonly createReadiness: (config: FactorySupervisorProcessConfig) => FactoryServiceReadinessWriter;
   readonly wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
+  readonly now: () => number;
 }
 
 export interface FactorySupervisorMainDependencies {
@@ -133,6 +167,7 @@ export async function probeFactoryHostRunner(
 export const factorySupervisorProductionDependencies: FactorySupervisorProcessDependencies = {
   loadHostKey: loadFactoryHostKey,
   probeRunner: (config) => probeFactoryHostRunner(config),
+  now: Date.now,
   createReadiness: (config) => createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
     installationId: config.installationId,
     hostId: config.hostId,
@@ -152,8 +187,78 @@ export const factorySupervisorProductionDependencies: FactorySupervisorProcessDe
   }),
 };
 
+interface SupervisorObservation {
+  /** Whether an observation has been attempted at all. */
+  attempted: boolean;
+  hostKeyReady: boolean;
+  runnerReady: boolean;
+  /** When both facts were last observed TRUE. Zero means never. */
+  observedAtMs: number;
+  errorCode?: string;
+}
+
 /**
- * Observe, publish, heartbeat, and record why it stopped.
+ * One bounded observation of this host.
+ *
+ * The probe is raced against its bound rather than trusted to return. A probe
+ * that wins the race is a real observation; a bound that wins it is a failed
+ * one, and the derived controller cancels the probe so a hung container
+ * inspection does not outlive the cycle that asked for it.
+ */
+async function observeHost(
+  config: FactorySupervisorProcessConfig,
+  dependencies: FactorySupervisorProcessDependencies,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<Pick<SupervisorObservation, "hostKeyReady" | "runnerReady" | "errorCode">> {
+  let hostKeyReady = false;
+  const controller = new AbortController();
+  const stop = () => { controller.abort(signal.reason ?? new Error("factory supervisor observation stopped")); };
+  signal.addEventListener("abort", stop, { once: true });
+  try {
+    await dependencies.loadHostKey(config.hostKeyPath);
+    hostKeyReady = true;
+    const bounded = await Promise.race([
+      dependencies.probeRunner(config, controller.signal).then(() => "observed" as const),
+      dependencies.wait(timeoutMs, controller.signal).then(() => "elapsed" as const),
+    ]);
+    // A wait that ended because the process is stopping is not a timed-out probe.
+    if (bounded === "elapsed" && !signal.aborted) return { hostKeyReady, runnerReady: false, errorCode: "runner_probe_timeout" };
+    if (bounded === "elapsed") return { hostKeyReady, runnerReady: false, errorCode: "runner_unavailable" };
+    return { hostKeyReady, runnerReady: true };
+  } catch {
+    return { hostKeyReady, runnerReady: false, errorCode: hostKeyReady ? "runner_unavailable" : "host_key_unavailable" };
+  } finally {
+    controller.abort(new Error("factory supervisor observation finished"));
+    signal.removeEventListener("abort", stop);
+  }
+}
+
+/**
+ * What the heartbeat publishes, given the last observation and how old it is.
+ *
+ * Four states, and the distinction that matters is between a supervisor that
+ * has not looked yet and one that looked and did not like what it saw. A reader
+ * must be able to tell those apart, so `starting` means no observation has been
+ * attempted and never carries a reason.
+ */
+export function factorySupervisorRecord(
+  observation: SupervisorObservation,
+  nowMs: number,
+  stalenessMs: number,
+): FactoryServiceReadinessUpdate {
+  const facts = { hostKeyReady: observation.hostKeyReady, runnerReady: observation.runnerReady };
+  if (!observation.attempted) return { lifecycle: "starting", facts };
+  if (observation.errorCode !== undefined) return { lifecycle: "degraded", facts, errorCode: observation.errorCode };
+  // Both facts were observed true. A heartbeat never keeps asserting a fact
+  // nobody is still checking, so an observation that ages out degrades even
+  // though the last thing it saw was good.
+  if (nowMs - observation.observedAtMs > stalenessMs) return { lifecycle: "degraded", facts, errorCode: "observation_stale" };
+  return { lifecycle: "ready", facts };
+}
+
+/**
+ * Observe on one cadence, publish on another, and record why it stopped.
  *
  * A failed observation publishes `degraded` with its own code rather than
  * simply not writing: a reader must be able to tell a supervisor that is down
@@ -174,27 +279,36 @@ export async function runConfiguredFactorySupervisor(
   const config = parseFactorySupervisorProcessConfig(parsed);
   const readiness = dependencies.createReadiness(config);
   const heartbeatMs = config.readinessHeartbeatMs ?? 5_000;
-  let facts = { hostKeyReady: false, runnerReady: false };
-  await readiness.write({ lifecycle: "starting", facts });
+  const timeoutMs = heartbeatMs * FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS;
+  const stalenessMs = heartbeatMs * FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS;
+  const observation: SupervisorObservation = { attempted: false, hostKeyReady: false, runnerReady: false, observedAtMs: 0 };
+  await readiness.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false } });
 
-  try {
+  const observing = (async () => {
     while (!signal.aborted) {
-      try {
-        await dependencies.loadHostKey(config.hostKeyPath);
-        facts = { ...facts, hostKeyReady: true };
-        await dependencies.probeRunner(config, signal);
-        facts = { hostKeyReady: true, runnerReady: true };
-        await readiness.write({ lifecycle: "ready", facts });
-      } catch {
-        facts = { hostKeyReady: facts.hostKeyReady, runnerReady: false };
-        await readiness.write({
-          lifecycle: "degraded",
-          facts,
-          errorCode: facts.hostKeyReady ? "runner_unavailable" : "host_key_unavailable",
-        });
-      }
+      const seen = await observeHost(config, dependencies, timeoutMs, signal);
+      if (signal.aborted) break;
+      observation.attempted = true;
+      observation.hostKeyReady = seen.hostKeyReady;
+      observation.runnerReady = seen.runnerReady;
+      observation.errorCode = seen.errorCode;
+      if (seen.hostKeyReady && seen.runnerReady) observation.observedAtMs = dependencies.now();
       await dependencies.wait(heartbeatMs, signal);
     }
+  })();
+
+  const publishing = (async () => {
+    while (!signal.aborted) {
+      await readiness.write(factorySupervisorRecord(observation, dependencies.now(), stalenessMs));
+      await dependencies.wait(heartbeatMs, signal);
+    }
+  })();
+
+  try {
+    // Neither loop may outlive the other: a publisher without an observer would
+    // heartbeat a fact nobody is checking, and an observer without a publisher
+    // would see the host and tell nobody.
+    await Promise.all([observing, publishing]);
   } finally {
     await readiness.write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false } });
   }

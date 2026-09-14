@@ -105,7 +105,8 @@ that "closes admission until real probes pass" had a gate and no probe.
       CHECK: `bun /tmp/factory-platform-evidence/w09/repro/full-stack-proof.ts`
       EXPECT: pool and supervisor processes `ready`; `/api/ready` `200 ready`
       carrying the running and held role lists; `factory-runtime` torn down
-      first; exit 0, no survivors, port refused.
+      second, right after `background-timers`; exit 0, no survivors, port
+      refused. Three consecutive independent runs.
       EVIDENCE: `/tmp/factory-platform-evidence/w09/repro/full-stack-proof.json`
 - [x] G12: A role registers when its driver exists and holds by name when it does
       not — one rule, no role in neither list.
@@ -153,7 +154,7 @@ requirement weakened. It is recorded in the receipt's `simulatedInputs` field.
 | `GET /api/ready` | `200` `{"state":"ready"}` |
 | Roles running, from `/api/ready` | `compute-admission-dispatch`, `compute-admission-poll`, `run-projection` |
 | Roles held, from `/api/ready` | `attempt-dispatch` (W09), `notification-inbox-delivery` (W07/W08), `child-settlement` (W06), `release-outcome` (W07/W08), `usage-reconciliation` (W03), `notification-send` (W17), `stop-settlement` (W03) |
-| Shutdown order | `factory-runtime` teardown first of fourteen, `pglite-close` last |
+| Shutdown order | `background-timers`, then `factory-runtime`, then eleven more, `pglite-close` last |
 | SIGTERM | exit code 0, zero surviving children, port refused after stop |
 
 Three things follow that could not be said before. The composition root is
@@ -163,6 +164,20 @@ composition's own report, where the same build without the call reported
 and that is an HTTP-observable fact rather than a log line, because readiness
 carries the running and held lists. And a SIGTERM stops the roles before the
 database closes, with nothing left behind.
+
+**Correction to the previous submission.** That version claimed `factory-runtime`
+was "torn down first of fourteen". It is second. `hooks.server.ts` registers
+`background-timers` after `ensureInitialized()` returns, so it is registered last
+and, under LIFO, torn down first — by a design that predates this package. The
+full observed order is `background-timers`, `factory-runtime`,
+`extension-workflow-reload`, `goal-host`, `extension-delivery-runtime`,
+`event-subscription-dispatcher`, `extension-contribution-reload`,
+`lifecycle-dispatcher`, `extension-registry-kill-all`, `executor-destroy`,
+`extension-factory-agents`, `backups`, `permission-audit-coalescer`,
+`pglite-close`. Second is the position the factory wants: the host's daemons stop
+before it, and every handle it holds is released well before the database closes.
+The earlier claim came from a log filter that matched only `factory-runtime` and
+`graceful shutdown`, so the line above it was never in the excerpt I read.
 
 `GET /api/factories/projects/project-1/definitions` answered `401 Setup required`
 in this run, because the proof database has no administrator; the auth hook

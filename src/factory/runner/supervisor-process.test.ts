@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { readFactoryServiceReadiness, factorySupervisorReadinessOptions, FactoryServiceReadinessError } from "../service-readiness";
 import {
   loadFactoryHostKey,
+  factorySupervisorRecord,
+  FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
+  FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
   parseFactorySupervisorProcessConfig,
   probeFactoryHostRunner,
   runConfiguredFactorySupervisor,
@@ -55,16 +58,43 @@ async function writeHostKey(root: string): Promise<void> {
 
 let abortController: AbortController | undefined;
 
+const HEARTBEAT_MS = 1_000;
+
 /**
- * Drives the loop one pass at a time with no real timer: the injected wait
- * aborts the run, so every test observes exactly one observation cycle.
+ * Drives both loops without a real timer.
+ *
+ * The two loops are told apart by the interval they ask for: the cadence wait
+ * is one heartbeat, and the probe bound is four. The fixture counts cadence
+ * waits and stops after a bounded number, and leaves the bound pending so the
+ * probe wins its race unless a test says otherwise. Nothing asserts on elapsed
+ * time; `now` is a value the test moves by hand.
+ *
+ * The cadence wait yields a MACROTASK rather than resolving inline. A wait that
+ * resolves on the microtask queue starves the other loop's file I/O: the
+ * publish loop spins write-wait-write forever and the observation never lands,
+ * which is a property of the fake and not of the code under test. A real timer
+ * yields, so the fake yields too.
  */
-function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> = {}): FactorySupervisorProcessDependencies {
+function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> = {}, cadenceWaitsBeforeStop = 4): FactorySupervisorProcessDependencies {
+  let cadence = 0;
   return {
     loadHostKey: loadFactoryHostKey,
     probeRunner: async () => {},
     createReadiness: factorySupervisorProductionDependencies.createReadiness,
-    wait: async () => { abortController?.abort(); },
+    now: () => 1_000_000,
+    wait: async (milliseconds, waitSignal) => {
+      if (milliseconds !== HEARTBEAT_MS) {
+        // The probe bound. Pending until the observation ends, so a probe that
+        // returns always beats it.
+        return new Promise<void>((resolve) => {
+          if (waitSignal.aborted) return resolve();
+          waitSignal.addEventListener("abort", () => { resolve(); }, { once: true });
+        });
+      }
+      cadence += 1;
+      if (cadence >= cadenceWaitsBeforeStop) abortController?.abort();
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+    },
     ...overrides,
   };
 }
@@ -109,25 +139,71 @@ describe("loadFactoryHostKey", () => {
   });
 });
 
+describe("factorySupervisorRecord", () => {
+  const facts = { hostKeyReady: true, runnerReady: true };
+  const none = { hostKeyReady: false, runnerReady: false };
+
+  test("starting means it has not looked yet, and never carries a reason", () => {
+    // A reader must be able to tell a supervisor that has not looked from one
+    // that looked and did not like what it saw.
+    expect(factorySupervisorRecord({ attempted: false, ...none, observedAtMs: 0 }, 1_000, 500))
+      .toEqual({ lifecycle: "starting", facts: none });
+  });
+
+  test("publishes ready only for a fresh observation of both facts", () => {
+    expect(factorySupervisorRecord({ attempted: true, ...facts, observedAtMs: 900 }, 1_000, 500)).toEqual({ lifecycle: "ready", facts });
+    // Exactly at the bound is still current; one past it is not.
+    expect(factorySupervisorRecord({ attempted: true, ...facts, observedAtMs: 500 }, 1_000, 500)).toEqual({ lifecycle: "ready", facts });
+    expect(factorySupervisorRecord({ attempted: true, ...facts, observedAtMs: 499 }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts, errorCode: "observation_stale" });
+  });
+
+  test("never asserts a fact nobody is still checking", () => {
+    const aged = factorySupervisorRecord({ attempted: true, ...facts, observedAtMs: 1 }, 1_000_000, 500);
+    expect(aged).toEqual({ lifecycle: "degraded", facts, errorCode: "observation_stale" });
+  });
+
+  test("a failed observation names the failing fact", () => {
+    expect(factorySupervisorRecord({ attempted: true, hostKeyReady: true, runnerReady: false, observedAtMs: 0, errorCode: "runner_unavailable" }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts: { hostKeyReady: true, runnerReady: false }, errorCode: "runner_unavailable" });
+    expect(factorySupervisorRecord({ attempted: true, ...none, observedAtMs: 0, errorCode: "host_key_unavailable" }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts: none, errorCode: "host_key_unavailable" });
+    expect(factorySupervisorRecord({ attempted: true, hostKeyReady: true, runnerReady: false, observedAtMs: 0, errorCode: "runner_probe_timeout" }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts: { hostKeyReady: true, runnerReady: false }, errorCode: "runner_probe_timeout" });
+  });
+
+  test("the cadence ratios leave the reader two missed writes of margin", () => {
+    // The reader accepts within heartbeat * 3 and the publisher writes every
+    // heartbeat, so the probe bound may exceed a write interval without ever
+    // making a record arrive stale.
+    expect(FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS).toBeGreaterThan(3);
+    expect(FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS).toBeGreaterThan(FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS);
+  });
+});
+
 describe("runConfiguredFactorySupervisor", () => {
-  test("publishes ready only after both facts are observed, then stopped on abort", async () => {
+  test("a probe slower than the write interval does not delay the heartbeat", async () => {
     const root = await privateRoot();
     await writeHostKey(root);
     const path = await writeConfig(root);
     abortController = new AbortController();
-    const scope = factorySupervisorReadinessOptions({ installationId: "installation-01", hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 1_000 });
 
-    let probed = 0;
-    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ probeRunner: async () => { probed += 1; } }));
-    expect(probed).toBe(1);
-    // The loop's last act records why it stopped, so a reader cannot mistake a
-    // stopped supervisor for a live one whose record simply went stale.
-    await expect(readFactoryServiceReadiness(scope)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
-    const stopped = JSON.parse(await Bun.file(join(root, "supervisor.json")).text());
-    expect(stopped).toMatchObject({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false } });
+    // The defect this replaces: the probe was awaited BETWEEN writes, so the
+    // write interval was probeLatency + heartbeat against a reader window of
+    // heartbeat * 3. A probe that never returns within the cycle made every
+    // record arrive already stale, intermittently, depending on host load.
+    const writes: string[] = [];
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      probeRunner: () => new Promise<void>(() => {}),
+      createReadiness: () => ({ write: async (update) => { writes.push(update.lifecycle); return { ...update } as never; } }),
+    }, 4));
+
+    // Written on its own cadence while the probe never returned once.
+    expect(writes.filter((lifecycle) => lifecycle !== "stopped").length).toBeGreaterThanOrEqual(2);
+    expect(writes.at(-1)).toBe("stopped");
   });
 
-  test("a reader accepts the record while the supervisor is mid-loop", async () => {
+  test("publishes ready once both facts are observed, and a reader accepts it", async () => {
     const root = await privateRoot();
     await writeHostKey(root);
     const path = await writeConfig(root);
@@ -135,52 +211,84 @@ describe("runConfiguredFactorySupervisor", () => {
     const scope = factorySupervisorReadinessOptions({ installationId: "installation-01", hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 1_000 });
 
     let observed: unknown;
+    let probes = 0;
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
-      probeRunner: async () => {},
-      wait: async (_milliseconds, _signal) => {
-        observed = await readFactoryServiceReadiness(scope);
-        abortController!.abort();
+      probeRunner: async () => { probes += 1; },
+      wait: async () => {
+        // Both loops share this; read after the publish loop has written once.
+        try { observed = await readFactoryServiceReadiness(scope); } catch { /* not ready yet */ }
+        if (observed) abortController!.abort();
+        await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
       },
     }));
+    expect(probes).toBeGreaterThan(0);
     expect(observed).toMatchObject({ service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true } });
+  });
+
+  test("bounds the probe and names a timeout as its own failure", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+    const published: string[] = [];
+    const asked: number[] = [];
+    let cadence = 0;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      probeRunner: () => new Promise<void>(() => {}),
+      wait: async (milliseconds) => {
+        asked.push(milliseconds);
+        // The bound elapses here, which is what proves the probe is raced
+        // against it rather than awaited.
+        if (milliseconds !== HEARTBEAT_MS) return;
+        cadence += 1;
+        if (cadence >= 4) abortController!.abort();
+        await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      },
+      createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
+    }));
+    expect(asked).toContain(HEARTBEAT_MS * FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS);
+    expect(published.some((entry) => entry.includes("runner_probe_timeout"))).toBe(true);
+  });
+
+  test("a wait that ends because the process is stopping is not a timed-out probe", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+    const published: string[] = [];
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      probeRunner: () => new Promise<void>(() => {}),
+      wait: async () => { abortController!.abort(); await new Promise<void>((resolve) => { setTimeout(resolve, 0); }); },
+      createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
+    }));
+    expect(published.some((entry) => entry.includes("runner_probe_timeout"))).toBe(false);
+    expect(published.at(-1)).toBe("stopped:");
   });
 
   test("names which fact failed rather than simply not publishing", async () => {
     const root = await privateRoot();
     const path = await writeConfig(root);
-    abortController = new AbortController();
+    const published: string[] = [];
+    const record = () => ({ write: async (update: { lifecycle: string; errorCode?: string }) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } });
 
     // No host key on disk: the first fact fails.
-    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ probeRunner: async () => {} }));
-    let published: Record<string, unknown> = { lifecycle: "stopped" };
+    abortController = new AbortController();
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ createReadiness: record }, 6));
+    expect(published.some((entry) => entry === "degraded:host_key_unavailable")).toBe(true);
+
+    published.length = 0;
     abortController = new AbortController();
     await writeHostKey(root);
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
       probeRunner: async () => { throw new Error("podman is not answering"); },
-      wait: async () => {
-        published = JSON.parse(await Bun.file(join(root, "supervisor.json")).text());
-        abortController!.abort();
-      },
-    }));
-    expect(published).toMatchObject({ lifecycle: "degraded", errorCode: "runner_unavailable", facts: { hostKeyReady: true, runnerReady: false } });
+      createReadiness: record,
+    }, 6));
+    expect(published.some((entry) => entry === "degraded:runner_unavailable")).toBe(true);
   });
 
-  test("records host_key_unavailable when the key is the failing fact", async () => {
-    const root = await privateRoot();
-    const path = await writeConfig(root);
-    abortController = new AbortController();
-    let published: Record<string, unknown> = {};
-    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
-      loadHostKey: async () => { throw new Error("no key"); },
-      wait: async () => {
-        published = JSON.parse(await Bun.file(join(root, "supervisor.json")).text());
-        abortController!.abort();
-      },
-    }));
-    expect(published).toMatchObject({ lifecycle: "degraded", errorCode: "host_key_unavailable", facts: { hostKeyReady: false, runnerReady: false } });
-  });
-
-  test("takes no step at all when the signal has already aborted", async () => {
+  test("takes no observation at all when the signal has already aborted, and still records why", async () => {
     const root = await privateRoot();
     await writeHostKey(root);
     const path = await writeConfig(root);
@@ -201,7 +309,6 @@ describe("runConfiguredFactorySupervisor", () => {
     await expect(runConfiguredFactorySupervisor(join(root, "absent.json"), new AbortController().signal, dependencies())).rejects.toBeDefined();
   });
 });
-
 
 describe("probeFactoryHostRunner", () => {
   test("initializes the configured runner root and reports its verdict", async () => {

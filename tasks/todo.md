@@ -2275,7 +2275,8 @@ on other packages, which was an overstatement.
 is a real built server against real PostgreSQL, real S3, a real pool admission
 process, and a real host supervisor process: `/api/ready` answers `200 ready`
 and carries the running and held role lists, and a SIGTERM tears down
-`factory-runtime` first of fourteen with exit 0 and no surviving process. One
+`factory-runtime` second of fourteen, right after the pre-existing
+`background-timers`, with exit 0 and no surviving process. One
 input in that run is simulated and labelled in the receipt — the orchestration
 readiness record — because the pinned Temporal test server is plaintext while
 C01 requires an authenticated namespace, and I would rather label the gap than
