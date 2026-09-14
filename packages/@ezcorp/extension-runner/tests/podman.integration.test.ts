@@ -188,6 +188,54 @@ console.log(JSON.stringify(r));`;
   }
 }, 120_000);
 
+test("a guest writes real bytes to its material mount and the host reads them back without following anything", async () => {
+  const { listRunnerMaterials, openRunnerMaterial } = await import("../src/materials");
+  const materials = await mkdtemp(join(tmpdir(), "ez-runner-materials-"));
+  const files = source(`async () => {
+    const fs = require("node:fs");
+    fs.writeFileSync("/materials/report.json", JSON.stringify({ rows: 3 }));
+    fs.mkdirSync("/materials/partitions");
+    fs.writeFileSync("/materials/partitions/part-0.bin", "0123456789");
+    // A guest CAN do this; the host's reader is what refuses to follow it.
+    try { fs.symlinkSync("/etc/passwd", "/materials/escape"); } catch {}
+    return { complete: true };
+  }`);
+  try {
+    // The directory is the host's, 0o700 to the runner, opened to the mapped
+    // guest uid only as far as writing into it requires.
+    await chmod(materials, 0o777);
+    const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+    expect(build.state).toBe("succeeded");
+    const workerId = `materials-${randomUUID()}`;
+    const context = { workerId, invocationId: randomUUID(), releaseId: build.artifactDigest!, principalId: "owner", scopeId: "global", token: "materials-token", deadline: Date.now() + 60_000 };
+    const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits, materials }, async () => null);
+    try {
+      expect(await worker.request("extension/invoke", { name: "echo", input: {}, context })).toEqual({ complete: true });
+    } finally { await worker.close(); }
+
+    // The guest really planted the link, so the refusal below is not vacuous.
+    expect((await lstat(join(materials, "escape"))).isSymbolicLink()).toBe(true);
+    await expect(listRunnerMaterials(materials)).rejects.toThrow("symbolic link");
+
+    // With the link removed, the ordinary files round-trip exactly.
+    await rm(join(materials, "escape"));
+    expect(await listRunnerMaterials(materials)).toEqual([
+      { path: "partitions/part-0.bin", bytes: 10 },
+      { path: "report.json", bytes: 10 },
+    ]);
+    const handle = await openRunnerMaterial(materials, "report.json");
+    try { expect(JSON.parse((await handle.readFile()).toString())).toEqual({ rows: 3 }); }
+    finally { await handle.close(); }
+  } finally {
+    // A guest's subdirectories belong to a mapped subuid, so the host cannot
+    // write into them and an ordinary recursive remove fails with EACCES. The
+    // removal runs inside the user namespace instead, and never throws from
+    // here: cleanup must not mask the assertions above.
+    await command("podman", ["unshare", "rm", "-rf", materials]).catch(() => undefined);
+    await rm(materials, { recursive: true, force: true }).catch(() => undefined);
+  }
+}, 180_000);
+
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {
   const files = source("(_input,ctx) => { void ctx.call('lifetime.probe',{}).catch(()=>undefined); return {complete:true}; }");
   const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });

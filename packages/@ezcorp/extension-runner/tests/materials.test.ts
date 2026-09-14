@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listRunnerMaterials, openRunnerMaterial } from "../src/materials";
+import { GUEST_MATERIALS_PATH, runnerMaterialMount } from "../src/podman";
 
 async function root(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "ez-materials-"));
@@ -76,4 +77,21 @@ test("an entry that is not a regular file is refused", async () => {
     await expect(listRunnerMaterials(directory)).rejects.toThrow("not a regular file");
     await expect(openRunnerMaterial(directory, "pipe")).rejects.toThrow(/not a regular file|could not be opened/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("the material mount is read-write but carries the same posture the tmpfs does", () => {
+  // The exact option string, because both W11 and W12 consume this one function
+  // rather than writing their own, and a drifted option is a silent weakening.
+  expect(runnerMaterialMount("/srv/materials/attempt-a")).toEqual([
+    "--mount",
+    `type=bind,src=/srv/materials/attempt-a,dst=${GUEST_MATERIALS_PATH},rw=true,relabel=private,noexec,nosuid,nodev`,
+  ]);
+  const options = runnerMaterialMount("/srv/materials/attempt-a")[1]!;
+  // Writable, unlike /workspace and /channel, and that is the whole point.
+  expect(options).toContain("rw=true");
+  expect(options).not.toContain("ro=true");
+  // Never executable, setuid, or a device node.
+  for (const flag of ["noexec", "nosuid", "nodev"]) expect(options).toContain(flag);
+  // A fixed path, never an environment variable.
+  expect(GUEST_MATERIALS_PATH).toBe("/materials");
 });
