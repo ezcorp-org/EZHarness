@@ -921,3 +921,9 @@
   that recorded its steps but did not gate the outcome, and it spent three runs
   reporting 401 on every call while the receipt said `passed`. Make a new phase
   a pass criterion in the same change that adds it.
+- A negative control has to be re-checked against the thing it controls every
+  time that thing changes. Mine induced its failure by overriding an environment
+  variable, and a later change stopped the harness from reading that variable:
+  the control passed, reported "the failure path works", and proved nothing.
+  The fault a control injects must be something the current code path cannot
+  ignore.

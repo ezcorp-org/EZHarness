@@ -283,8 +283,10 @@ fix the second beat's probe failed `runner_store_busy`, which the supervisor
 publishes as `degraded`, and every successful beat before it added a lease. A run that reaches ready once and shuts down cannot tell those apart,
 which is precisely why three of them passed while the product was broken.
 
-**The harness proves its own failure path.** `repro/negative-control.sh` points
-the web server at a database that is not there. Receipt `negative-control.json`
+**The harness proves its own failure path.** `repro/negative-control.sh` sets
+`W09_BREAK_PRODUCT_DATABASE`, which points the web server, and only the web
+server, at a database that is not there, so the pool and supervisor still start
+and there are real children to clean up. Receipt `negative-control.json`
 at the same commit: exit 1, `outcome: "failed"`, `failure: "the server never
 reported ready"`, the logs of all four children kept, the pool and supervisor
 readiness that *was* reached recorded so the diagnostic names what worked, and no
@@ -702,3 +704,10 @@ sentence's "executes a guest" clause is still open.
   proof still reported `passed`, because the durable-run phase was not yet a
   pass criterion. Independence has to include the database, and a phase that
   cannot fail is not evidence.
+- Giving each run its own product database silently made the NEGATIVE control
+  vacuous: it had induced its failure by overriding `W09_DATABASE_URL`, which
+  the harness had just stopped reading, so the control passed and proved
+  nothing. It now sets an explicit fault flag that points the web server, and
+  only the web server, at a dead address, so the pool and supervisor still start
+  and the cleanup path is exercised with real children. A control has to be
+  re-checked against the thing it controls every time that thing changes.
