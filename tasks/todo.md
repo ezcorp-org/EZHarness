@@ -2275,3 +2275,17 @@ export, so W07 and W08 implement `resolve` only.
 The scheduler stops exactly where it can still be proven. Everything it writes is durable, keyed by
 the typed origin, and converges under repeat, concurrency, and restart; nothing downstream of the
 pool poll was written unproven.
+
+### W05 second addendum
+
+- [x] The evidence-reference scope check: a claim may cite only auxiliary materials its own attempt
+      wrote, so a report cannot make a repair read another attempt's findings.
+- [x] The attempt-dispatcher leg: a protected validator reuses the whole shared dispatch path and
+      settles through the journal, writing no kernel completion row and no inbox event.
+- [ ] The real Podman isolated-validator proof. Only the in-process runner differs now; it still
+      waits on the admission change, because the scheduler cannot produce a queue row until an
+      admission reaches `admitted`.
+
+W03 had not landed the validator-origin admission change at `a8c3e0fca`: `wp/w03-stop-settlement`
+is at `1d591eeaa` and none of its commits since the W01 merge touch the admission core. Nothing was
+cherry-picked, and nothing downstream of that point was written unproven.

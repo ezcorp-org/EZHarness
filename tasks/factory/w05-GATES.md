@@ -27,6 +27,9 @@ command, exit code, UTC start and end, counts, log checksum).
 | `f7a606132` | `Merge branch 'integ/w00' into wp/w05-protected-validators` (picks up W01) |
 | `b05a3aff7` | `feat(factory): widen the trusted validator gateway with both binders` (section 2, question 7) |
 | `dc5777a45` | `feat(factory): schedule missing protected validators through durable admission` |
+| `e0953a6ba` | `docs(factory): record the W05 scheduling gates and the blocked admission leg` |
+| `d8813edc7` | `feat(factory): settle protected validator attempts through the shared dispatcher` |
+| `a8c3e0fca` | `Merge branch 'integ/w00'` (picks up the wave-1 integration receipts) |
 
 W06, W07, and W08 can consume every type checkpoint from `64d7d470a`.
 
@@ -140,10 +143,33 @@ reorder them into the freeze's numbering without changing any result.
       CHECK: the ten `tests/postgres/factory-*` suites this package touches, under the shared heavy
       lock with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set.
       EXPECT: 127 pass, 0 fail, 4007 assertions.
-      EVIDENCE: `receipts.jsonl` record `w01-merged-postgres`, produced at `dc5777a45`.
+      EVIDENCE: `receipts.jsonl` record `w01-merged-postgres`, produced at `dc5777a45`, and
+      `final2-postgres` at `a8c3e0fca` with 129 pass, 0 fail, 4048 assertions after the dispatcher
+      leg landed. Coverage at the same commit: `final2-coverage` ("11 new source file(s) gated",
+      "24 file(s)" patch-covered), with `final2-typecheck` and `final2-lint`.
       The static gates and both coverage gates were reproduced at the same commit:
       `final-typecheck`, `final-lint`, `final-boundaries`, `final-gate-integrity`, and
       `final-coverage-backend` ("10 new source file(s) gated", "23 file(s)" patch-covered).
+
+- [x] G18: A claim may cite only evidence its own attempt wrote. A foreign attempt's material, a
+      tampered digest, a changed byte count, an unknown artifact, and a duplicated reference are all
+      refused, and the accepted case still seals its verdict.
+      CHECK: `bun test --timeout 180000 ./src/factory/validator-materials.test.ts`
+      EXPECT: 9 pass, 0 fail, 66 assertions. Each case runs its own repaired candidate, because a
+      candidate output is immutable and one attempt cannot publish two different reports.
+      EVIDENCE: `receipts.jsonl` record `dispatch-adapter-pglite`.
+- [x] G19: A protected validator settles through the shared attempt dispatcher and never through the
+      kernel task path.
+      CHECK: `bun test --timeout 600000 ./src/__tests__/factory-run-lifecycle.test.ts` plus the six
+      neighbouring suites in the same invocation.
+      EXPECT: 113 pass, 0 fail, 1225 assertions. One real `FactoryAttemptDispatcher` claims the
+      queue row, mints a fresh attempt token, runs the guest once, and settles; the guest receives
+      the candidate read-only with no grants and no tools; a lost acknowledgement recovers the
+      sealed terminal fact without relaunching; no `factory_task_completions` row and no inbox event
+      is written; the acceptance path then reads the evidence the dispatcher sealed; an unbound
+      attempt, a completed result on the outcome seam, and a non-completed result on the completion
+      seam are each refused.
+      EVIDENCE: `receipts.jsonl` record `dispatch-adapter-pglite`.
 
 ## Deviations from the freeze, all inside the owned surfaces
 
@@ -208,17 +234,16 @@ a file this package does not own, and that change is stated exactly rather than 
   point is why this was not done here: it is a behavioral change to the admission core with its own
   lost-response, concurrent-poll, and cancellation matrix, and guessing at it in another package's
   file is how a silent admission defect lands.
-- **The attempt dispatcher leg.** `FactoryAttemptDispatcher` completes through
-  `FactoryTaskCompletions`, which keys on a transition command a validator does not have. The
-  dispatcher's `completions` and `outcomes` are structural `Pick<>` seams, so the fix is an adapter
-  that records the terminal fact through the journal instead, reusing the whole claim, token-mint,
-  readiness, lease, and recovery path. It cannot be proven until an admission can reach `admitted`,
-  so it waits on the item above.
-- **Actual isolated validators through a real Podman guest.** Waits on the same two legs: with no
-  queue row there is nothing for W01's runtime to claim. Everything the guest needs on this side is
-  landed and tested: the request carries the candidate artifact read-only with no grants and no
-  tools, and the gateway seals provenance from the durable assignment row rather than from guest
-  JSON.
+- **Actual isolated validators through a real Podman guest.** The dispatcher leg is now landed and
+  proven (G19) with an in-process runner, so the only missing step is swapping that runner for
+  W01's `attempt-runtime` against a real guest. It waits on the item above because the scheduler
+  cannot produce a queue row until an admission reaches `admitted`; the test enqueues one directly
+  through the production queue API to prove everything downstream of that point.
+
+**W03 status as of `a8c3e0fca`.** `wp/w03-stop-settlement` is at `1d591eeaa` and its three commits
+since the W01 merge touch neither `compute-admissions.ts` nor `command-authority.ts`, and its gate
+file names no validator origin. There is nothing to cherry-pick yet. When that commit exists, merge
+it, run G16's reserve path through to `admitInTransaction`, and the real-guest proof follows.
 - **Evidence-reference scope.** The SDK validates the shape of every evidence reference a claim
   carries; it does not yet prove each one lies inside the attempt's scope. The durable claim row
   stores the reduced outcome, so an out-of-scope reference cannot become evidence, but the sealed
