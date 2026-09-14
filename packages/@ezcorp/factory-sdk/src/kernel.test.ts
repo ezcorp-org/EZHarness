@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { compileFactory } from "./compiler";
 import { FactoryKernelError, advanceKernel, createKernelState } from "./kernel";
 import { referenceCodeV1 } from "./references.js";
+import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "./types";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from "./types";
 
 const digest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
@@ -285,7 +286,7 @@ void ({} as JsonValue);
 test("artifact input fields wait for an exact bounded result before activation", () => {
   const graph = compiled([{ id: "work", kind: "task", runner, bindings: { value: { kind: "ref", root: "input", name: "data", path: ["label"] } }, inputPorts: { value: { type: "string" } } }], {}, { data: { type: "object", properties: { label: { type: "string" } }, required: ["label"] } });
   const artifact = { artifactId: "artifact", digest, encodedBytes: 70_000 };
-  const started = advanceKernel(graph, createKernelState(graph, "lazy", { data: { label: "placeholder" } }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
+  const started = advanceKernel(graph, createKernelState(graph, "lazy", { data: { label: "placeholder" } }, 0, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
   const read = started.commands.find(command => command.kind === "read-input-value");
   expect(read).toMatchObject({ name: "data", path: ["label"], artifact });
   if (read?.kind !== "read-input-value") throw new Error("lazy input read was not emitted");
@@ -302,7 +303,7 @@ test("artifact maps retain only one page while advancing exact absolute cursors"
   const map: Extract<FactoryNode, { kind: "map" }> = { id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items" }, itemSchema: { type: "string" }, body: { nodes: [], outputs: {} }, mode: "all", maxItems: 96, maxConcurrency: 4, outputPorts: {} };
   const graph = compiled([map], {}, { items: { type: "array", items: { type: "string" }, maxItems: 96 } });
   const artifact = { artifactId: "items", digest, encodedBytes: 96 * 1024 };
-  const started = advanceKernel(graph, createKernelState(graph, "lazy-map", { items: [] }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
+  const started = advanceKernel(graph, createKernelState(graph, "lazy-map", { items: [] }, 0, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
   const first = started.commands.find(command => command.kind === "read-input-page");
   expect(first).toMatchObject({ nodeId: "map", name: "items", cursor: 0, maxItems: 32, artifact });
   if (first?.kind !== "read-input-page") throw new Error("first map page was not emitted");
@@ -332,7 +333,7 @@ test("artifact map pages preserve absolute map.item values across windows", () =
   const map: Extract<FactoryNode, { kind: "map" }> = { id: "map", kind: "map", collection: { kind: "ref", root: "input", name: "items" }, itemSchema: { type: "string" }, body: { nodes: [task], outputs: { value: { kind: "ref", root: "node", name: "work", path: ["value"] } } }, mode: "all", maxItems: 96, maxConcurrency: 4, outputPorts: { value: { type: "array", items: { type: "string" }, maxItems: 96 } } };
   const graph = compiled([map], { result: { kind: "ref", root: "node", name: "map" } }, { items: { type: "array", items: { type: "string" }, maxItems: 96 } });
   const artifact = { artifactId: "map-items", digest, encodedBytes: 96 * 1024 };
-  const started = advanceKernel(graph, createKernelState(graph, "lazy-window", { items: [] }, 0, { schemaVersion: "factory.lazy-input.v1", parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
+  const started = advanceKernel(graph, createKernelState(graph, "lazy-window", { items: [] }, 0, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { items: { kind: "artifact", artifact } } }), event("start", { kind: "start" }));
   const first = started.commands.find(command => command.kind === "read-input-page");
   if (first?.kind !== "read-input-page") throw new Error("first map page missing");
   const page = (id: string, command: Extract<typeof first, { kind: "read-input-page" }>, items: readonly JsonValue[], nextCursor?: number) => event(id, { kind: "input-page-read" as const, commandId: command.id, nodeId: command.nodeId, candidateGeneration: command.candidateGeneration, cancellationEpoch: command.cancellationEpoch, name: command.name, artifact, path: [], storageVersion: "v1", mediaType: "application/json" as const, cursor: command.cursor, maxItems: command.maxItems, items, ...(nextCursor === undefined ? {} : { nextCursor }) });
@@ -368,12 +369,12 @@ test("durable artifact ports do not require an inline placeholder while inline p
   });
   const artifact = { artifactId: "durable-payload", digest, encodedBytes: 70_000 };
   const state = createKernelState(graph, "durable-required", {}, 0, {
-    schemaVersion: "factory.lazy-input.v1",
+    schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION,
     parameters: { payload: { kind: "artifact", artifact } },
   });
   expect(state.durableInput).toMatchObject({ parameters: { payload: { kind: "artifact", artifact } } });
   expect(() => createKernelState(graph, "bad-inline", {}, 0, {
-    schemaVersion: "factory.lazy-input.v1",
+    schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION,
     parameters: { payload: { kind: "inline", value: {} } },
   })).toThrow(FactoryKernelError);
 });

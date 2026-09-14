@@ -19,7 +19,7 @@ import type { FactoryReleaseApplication } from "./release-application";
 import type { FactoryAssuranceCommands } from "./assurance-commands";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { FactoryTransitionAuthority } from "./transition-authority";
-import type { FactoryRunControls } from "./run-controls";
+import { FactoryRunControls } from "./run-controls";
 
 export interface FactoryDefinitionAvailability {
   readonly availability: FactoryAvailability;
@@ -100,7 +100,10 @@ export function createFactoryApplication(options: FactoryApplicationOptions): Fa
   const journal = new FactoryExecutionJournal(options.database, runs.authorizeAttemptInTransaction);
   const releaseAuthority = new FactoryReleaseAuthorityStore(options.database, options.tenantId, grants, runs, journal, artifacts);
   const transitionAuthority = new FactoryTransitionAuthority(options.tenantId, runs, transitions);
-  const runControls = options.createRunControls?.(Object.freeze({ tenantId: options.tenantId, definitions, grants, runs, artifacts, inputs, transitions, authority: transitionAuthority }));
+  // Repair and replan are part of the platform, so the production application composes them by
+  // default; the seam stays for a test or a deployment that needs a different clock or store.
+  const composeRunControls = options.createRunControls ?? (context => new FactoryRunControls(options.database, context.tenantId, context.grants, context.runs, context.authority, context.definitions, context.inputs));
+  const runControls = composeRunControls(Object.freeze({ tenantId: options.tenantId, definitions, grants, runs, artifacts, inputs, transitions, authority: transitionAuthority }));
   if (runControls && runControls.tenantId !== options.tenantId) throw new Error("factory_scope_mismatch");
   if (runControls) Object.freeze(runControls);
   const releaseOperations = options.createReleaseOperations?.(Object.freeze({ tenantId: options.tenantId, grants, runs, artifacts, journal, releaseAuthority }));

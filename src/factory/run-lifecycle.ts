@@ -1,4 +1,5 @@
 import { lockFactoryScope } from "./locks";
+import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
 import { validateDurableInputPorts, validateValue } from "@ezcorp/factory-sdk/validation";
 import type { BudgetBounds, CompiledFactory, FactoryReference, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableInput, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue, KernelEvent } from "@ezcorp/factory-sdk";
@@ -132,7 +133,7 @@ export class FactoryRunLifecycle {
       const resolvedDescriptor = typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && (resolved as { kind?: unknown }).kind === "factory.run-resolved-parameters";
       const input = resolvedDescriptor ? (resolved as FactoryResolvedParameters).input : resolved as JsonValue;
       const ports = compiled.definition.inputPorts;
-      const durable = resolvedDescriptor ? { schemaVersion: "factory.lazy-input.v1" as const, parameters: body.parameters } : undefined;
+      const durable = resolvedDescriptor ? { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters } : undefined;
       if (durable !== undefined) {
         if (!validateDurableInputPorts(ports, input, durable).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
       } else if (typeof input !== "object" || input === null || Array.isArray(input) || Object.keys(input).some(name => !Object.hasOwn(ports, name)) || Object.entries(ports).some(([name, schema]) => !Object.hasOwn(input, name) || !validateValue(schema, input[name]!).ok)) throw new FactoryRunLifecycleError("factory_input_invalid");
@@ -145,7 +146,7 @@ export class FactoryRunLifecycle {
       await this.records.createRunInTransaction(transaction, { projectId: key.projectId, runId, definitionDigest: body.definitionDigest, interpreterBuild: this.options.interpreterBuild, executionEpoch: installation.executionEpoch, input, principalId: principal.id, principalKind: principal.kind, ...(principal.credential === undefined ? {} : { serviceCredential: principal.credential }) }, async tx => {
         const definition = await this.options.stageDefinitionInTransaction(tx, compiled, identity);
         if (definition.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
-        const workflowInput = JSON.parse(encodeFactoryPayload({ ...identity, startedAtMs, deadlineAtMs, definition, input, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters } })) as JsonValue;
+        const workflowInput = JSON.parse(encodeFactoryPayload({ ...identity, startedAtMs, deadlineAtMs, definition, input, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters } })) as JsonValue;
         await tx.execute(sql`INSERT INTO factory_run_lifecycle (tenant_id, project_id, run_id, factory_id, factory_version, definition_digest, grant_revision, status, deadline_ms, parameters_json, parameters_digest) VALUES (${this.tenantId}, ${key.projectId}, ${runId}, ${key.factoryId}, ${body.factoryVersion}, ${body.definitionDigest}, ${body.grantRevision}, 'queued', ${deadlineAtMs}, ${encodeFactoryPayload(body.parameters)}, ${digestObject(body.parameters)})`);
         await this.budgets.openEnvelopeInTransaction(tx, { projectId: key.projectId, runId, envelopeId: "root", limits: this.options.limits, deadlineAtMs });
         await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).enqueueInTransaction(tx, { kind: "start_run", projectId: key.projectId, logicalRunId: runId, interpreterId: "root", body: workflowInput });
@@ -280,13 +281,22 @@ export class FactoryRunLifecycle {
     await this.authorizeRunInTransaction(transaction, key);
   };
 
-  /** Trusted service boundary: lock the durable run and recheck its live authority. */
-  async authorizeRunInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunFence> {
+  /**
+   * Trusted service boundary: lock the durable run and recheck its live authority.
+   *
+   * `allowCancelling` admits a run whose operator cancellation is still
+   * settling. C02 requires a cancelling attempt to keep its stop authority
+   * until its stop event commits, and settlement continues after new dispatch
+   * stops, so the stop path passes it and no forward-dispatch path does.
+   */
+  async authorizeRunInTransaction(transaction: MigrationDb, key: FactoryRunKey, allowCancelling = false): Promise<FactoryRunFence> {
     key = { projectId: key.projectId, runId: key.runId };
     const ancestor = rows<ChildAncestorRow>(await transaction.execute(sql`SELECT parent_run_id,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,binding_digest FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.runId}`))[0];
     if (ancestor) {
       if (!ancestor.parent_run_id || !/^sha256:[a-f0-9]{64}$/.test(ancestor.binding_digest) || ![ancestor.parent_execution_epoch, ancestor.parent_cancellation_epoch, ancestor.parent_grant_revision].every(value => Number.isSafeInteger(Number(value)))) throw new FactoryRunLifecycleError("factory_child_corrupt");
-      const parent = await this.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: ancestor.parent_run_id });
+      // A nested cancellation reaches a cancelling parent, so the allowance
+      // propagates; the parent's epochs are still compared exactly.
+      const parent = await this.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: ancestor.parent_run_id }, allowCancelling);
       if (parent.executionEpoch !== Number(ancestor.parent_execution_epoch) || parent.cancellationEpoch !== Number(ancestor.parent_cancellation_epoch) || parent.grantRevision !== Number(ancestor.parent_grant_revision)) throw new FactoryRunLifecycleError("factory_child_stale");
     }
     const row = await this.row(transaction, key, true);
@@ -295,7 +305,7 @@ export class FactoryRunLifecycle {
     if (!installation || installation.execution_epoch !== request.executionEpoch) throw new FactoryRunLifecycleError("factory_run_fence_changed");
     const fence = Object.freeze({ tenantId: this.tenantId, ...key, executionEpoch: request.executionEpoch, cancellationEpoch: Number(row.cancellation_epoch), grantRevision: Number(row.grant_revision), revision: Number(row.revision), deadlineAtMs: Number(row.deadline_ms), definitionDigest: row.definition_digest, status: row.status });
     if (![fence.revision, fence.grantRevision, fence.deadlineAtMs].every(value => Number.isSafeInteger(value) && value > 0) || !Number.isSafeInteger(fence.cancellationEpoch) || fence.cancellationEpoch < 0 || fence.definitionDigest !== request.definitionDigest) throw new FactoryRunLifecycleError("factory_run_corrupt");
-    if (!["queued", "running", "waiting"].includes(row.status) || Number(row.deadline_ms) <= this.now()) throw new FactoryRunLifecycleError("factory_run_stopped");
+    if (!(allowCancelling ? ["queued", "running", "waiting", "cancelling"] : ["queued", "running", "waiting"]).includes(row.status) || Number(row.deadline_ms) <= this.now()) throw new FactoryRunLifecycleError("factory_run_stopped");
     await this.options.grants.authorizeInTransaction(transaction, initiator(request), key.projectId, "factory.run", Number(row.grant_revision));
     return fence;
   }
@@ -324,9 +334,9 @@ export class FactoryRunLifecycle {
   }
 
   /** Private command admission uses the exact published plan and the live initiator. */
-  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {
+  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey, allowCancelling = false): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {
     key = { projectId: key.projectId, runId: key.runId };
-    const fence = await this.authorizeRunInTransaction(transaction, key);
+    const fence = await this.authorizeRunInTransaction(transaction, key, allowCancelling);
     const row = await this.row(transaction, key);
     const request = await this.records.readRunRequestInTransaction(transaction, key);
     const principal = initiator(request);

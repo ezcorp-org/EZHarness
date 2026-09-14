@@ -28,10 +28,17 @@ const VALIDATOR_PATHS = new Set([
 
 export const SHARED_REUSE_MODULES = [
   "packages/@ezcorp/extension-runner/src/podman.ts",
+  // The second pinned guest language extends the shared runner rather than
+  // forking its launch path, so it is shared under the same C13 row (W02).
+  "packages/@ezcorp/extension-runner/src/python.ts",
   "packages/@ezcorp/extension-runner/src/dependencies.ts",
   "packages/@ezcorp/extension-runner/src/index.ts",
   "src/extensions/v4/lifecycle.ts",
   "src/extensions/project-pull-request-broker.ts",
+  // The broker's own GitHub transport. C10 requires the factory release adapter to reuse the
+  // pull-request broker's host-held credential path rather than open its own; sharing the
+  // transport is what makes that an executable boundary (W07).
+  "src/extensions/project-github-transport.ts",
   "src/extensions/secrets-store.ts",
   "src/extensions/credential-broker.ts",
   "src/extensions/network-broker.ts",
@@ -59,6 +66,11 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/archive-writer.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/admission-origin.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/child-artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/release-github.ts", sharedModule: "src/extensions/project-github-transport.ts" },
+  { factoryPath: "src/factory/release-github.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/release-profile.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
@@ -87,6 +99,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/records.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-adapters.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/release-s3-publication.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifact-materials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
@@ -102,13 +115,16 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/run-lifecycle.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/runner/attempt-runtime.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/runner/native.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/runner/python-guest.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/runner/supervisor.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/service-credentials.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/service-credentials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/task-admission.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/task-completions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/task-outcomes.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/task-stops.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/transition-artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/usage-settlement.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/validator-materials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
 ];
 

@@ -6,12 +6,13 @@ import type { FactoryRunnerRequest, FactoryRunnerResult } from "@ezcorp/factory-
 import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import { sql } from "drizzle-orm";
-import type { TransactionalDb } from "../../db/migrations/types";
+import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { releaseRows } from "../../db/queries/extension-releases";
 import type { FactoryPreparedPackageReceipt, FactoryRunnerDispatchReadiness } from "../package-preparation";
 import type { PoolAdmissionClient } from "../pool/client";
 import type { TrustedFactoryRunner } from "../trusted-command-gateway";
 import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
+import { FACTORY_SANDBOX_ABORT_GRACE_MS, FACTORY_SANDBOX_POLL_INTERVAL_MS, FactorySandboxStopError, factoryRunnerSandboxControl, stopFactorySandbox, type FactorySandboxControl } from "./sandbox-stop";
 
 const RENEW_INTERVAL_MS = 5_000;
 const MAX_DEVICES = 16;
@@ -81,6 +82,17 @@ export interface FactoryAttemptDeviceGrant {
   readonly capabilities: readonly ("compute" | "utility")[];
   /** `sha256:` digest over the canonical grant, excluding this field. */
   readonly grantDigest: string;
+}
+
+/**
+ * One GPU host's supported device profile.  The pool registers it for the host
+ * it offers; the local AMD profile fills `devices` and the production NVIDIA
+ * profile fills `cdiDevices`.
+ */
+export interface FactoryGpuHostProfile {
+  readonly hostId: string;
+  readonly devices: readonly string[];
+  readonly cdiDevices: readonly string[];
 }
 
 /**
@@ -179,7 +191,7 @@ function snapshotTerminalResult(result: FactoryRunnerResult): FactoryRunnerResul
 /** The paired-null CHECK on `factory_attempt_launches` guarantees a digest never outlives its result. */
 function storedTerminalResult(row: Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">): FactoryRunnerResult | undefined {
   if (row.terminal_result_json === null || row.terminal_result_json === undefined) return undefined;
-  const parsed = copy(typeof row.terminal_result_json === "string" ? JSON.parse(row.terminal_result_json) as FactoryRunnerResult : row.terminal_result_json as FactoryRunnerResult);
+  const parsed = jsonColumn<FactoryRunnerResult>(row.terminal_result_json);
   requireValid(validateFactoryRunnerResult(parsed), "Stored factory terminal result");
   const stored = Object.freeze(parsed);
   if (factoryTerminalResultDigest(stored) !== row.terminal_result_digest) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory terminal result does not match its durable digest.");
@@ -216,6 +228,19 @@ function requireValid(result: { ok: boolean; issues?: readonly { code: string }[
 }
 
 function copy<Value>(value: Value): Value { return JSON.parse(canonicalJson(value)) as Value; }
+
+/**
+ * One JSONB column, decoded the same way whichever driver returned it.
+ *
+ * PGlite hands back a parsed object; Bun's SQL driver hands back the raw text.
+ * Only the terminal-result reader handled both, so every other reader worked on
+ * PGlite and failed on real PostgreSQL, where a stored request decoded to a
+ * string and then failed its own schema validation. Decoding through one helper
+ * means a reader cannot be written that handles only one of the two.
+ */
+function jsonColumn<Value>(value: unknown): Value {
+  return copy(typeof value === "string" ? JSON.parse(value) as Value : value as Value);
+}
 
 function count(value: number, label: string, minimum = 1): void {
   if (!Number.isSafeInteger(value) || value < minimum) throw new FactoryAttemptRuntimeError("invalid_launch", `${label} is invalid.`);
@@ -262,6 +287,21 @@ export function factoryAttemptDeviceGrant(attemptId: string, lease: FactoryAttem
   return Object.freeze({ ...unsigned, grantDigest: `sha256:${createHash("sha256").update(canonicalJson(unsigned)).digest("hex")}` });
 }
 
+/**
+ * The exact device authority a held lease carries.  Only a `gpu-host` in the
+ * allocation vector can authorize a device, and only the profile registered for
+ * the host that actually holds the lease may supply the nodes, so a host-global
+ * device list can never authorize an attempt that the pool placed elsewhere.
+ */
+export function factoryHeldAllocationDevices(lease: FactoryAttemptLease, resources: { readonly "gpu-host"?: number } = {}, profile?: FactoryGpuHostProfile): FactoryAttemptDeviceAuthorization {
+  const held = snapshotLease(lease);
+  const gpuHosts = resources["gpu-host"] ?? 0;
+  if (!Number.isSafeInteger(gpuHosts) || gpuHosts < 0) throw new FactoryAttemptRuntimeError("invalid_launch", "Held gpu-host allocation is invalid.");
+  if (gpuHosts === 0) return Object.freeze({ devices: Object.freeze([]), cdiDevices: Object.freeze([]), gpuHosts: 0 });
+  if (!profile || profile.hostId !== held.hostId) throw new FactoryAttemptRuntimeError("invalid_launch", "A held gpu-host allocation needs the supported device profile of the host that holds it.");
+  return Object.freeze({ devices: Object.freeze([...profile.devices]), cdiDevices: Object.freeze([...profile.cdiDevices]), gpuHosts });
+}
+
 function snapshotLease(value: FactoryAttemptLease): FactoryAttemptLease {
   opaque(value.reservationId, "reservation id"); opaque(value.allocationToken, "allocation token"); count(value.grantRevision, "grant revision"); count(value.allocationGeneration, "allocation generation"); count(value.holderGeneration, "holder generation");
   opaque(value.hostId, "host id");
@@ -295,7 +335,7 @@ export function factoryAttemptDeviceFacts(grant: FactoryAttemptDeviceGrant): { r
 }
 
 function rowAuthorization(row: LaunchRow): FactoryAttemptDeviceAuthorization {
-  const stored = copy(row.device_grant_json);
+  const stored = jsonColumn<unknown>(row.device_grant_json);
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant is corrupt.");
   const facts = stored as { devices?: unknown; cdiDevices?: unknown };
   const devices = Array.isArray(facts.devices) ? facts.devices as readonly string[] : undefined;
@@ -306,20 +346,42 @@ function rowAuthorization(row: LaunchRow): FactoryAttemptDeviceAuthorization {
 
 function rowIntent(row: LaunchRow): FactoryAttemptLaunchIntent {
   if (!row || !["prepared", "launching", "launched", "terminal", "uncertain"].includes(row.state)) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is corrupt.");
-  const durable = copy(row.request_json) as Omit<FactoryRunnerRequest, "broker"> & { broker: Omit<FactoryRunnerRequest["broker"], "attemptToken"> };
+  const durable = jsonColumn<Omit<FactoryRunnerRequest, "broker"> & { broker: Omit<FactoryRunnerRequest["broker"], "attemptToken"> }>(row.request_json);
   const request = { ...durable, broker: { ...durable.broker, attemptToken: "durable-launch-validation" } } as FactoryRunnerRequest;
   requireValid(validateFactoryRunnerRequest(request), "Stored factory runner request");
   const lease = snapshotLease({ reservationId: row.reservation_id, grantRevision: Number(row.grant_revision), allocationGeneration: Number(row.allocation_generation), holderGeneration: Number(row.holder_generation), allocationToken: row.allocation_token, hostId: row.host_id });
-  const preparedPackage = copy(row.package_receipt_json) as FactoryPreparedPackageReceipt;
+  const preparedPackage = jsonColumn<FactoryPreparedPackageReceipt>(row.package_receipt_json);
   const actual = snapshotIntent(request, lease, preparedPackage, rowAuthorization(row));
   if (actual.request.authority.attemptId !== row.attempt_id || actual.request.authority.tenantId !== row.tenant_id || actual.request.authority.projectId !== row.project_id || actual.request.authority.runId !== row.run_id || actual.requestDigest !== row.request_digest || actual.workerId !== row.worker_id || actual.invocationId !== row.invocation_id) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent does not bind its request.");
-  if (canonicalJson(factoryAttemptDeviceFacts(actual.devices)) !== canonicalJson(copy(row.device_grant_json))) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant does not bind its held allocation.");
+  if (canonicalJson(factoryAttemptDeviceFacts(actual.devices)) !== canonicalJson(jsonColumn<unknown>(row.device_grant_json))) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant does not bind its held allocation.");
   if (row.device_grant_digest === null ? actual.devices.devices.length + actual.devices.cdiDevices.length > 0 : row.device_grant_digest !== actual.devices.grantDigest) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant digest is invalid.");
   return Object.freeze({ ...actual, state: row.state });
 }
 
 export class FactoryAttemptRuntimeError extends Error {
-  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked", message: string) { super(message); }
+  constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked" | "device_conflict", message: string) { super(message); }
+}
+
+/**
+ * Defence in depth over the pool's whole-GPU-host allocation: no second live
+ * attempt on this host may already hold a device node this grant names.  The
+ * host-scoped transaction lock makes the read and the claim one decision, so two
+ * simultaneous claims cannot both observe an empty conflict set.  A CPU grant
+ * names no device and therefore takes no lock.
+ */
+async function assertDevicesExclusive(transaction: MigrationDb, intent: FactoryAttemptLaunchIntent): Promise<void> {
+  if (intent.devices.devices.length === 0) return;
+  await transaction.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`factory-attempt-devices:${intent.lease.hostId}`}))`);
+  const conflict = releaseRows<{ attempt_id: string }>(await transaction.execute(sql`
+    SELECT attempt_id FROM factory_attempt_launches
+    WHERE host_id=${intent.lease.hostId}
+      AND attempt_id<>${intent.request.authority.attemptId}
+      AND state IN ('launching','launched','uncertain')
+      AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(factory_attempt_launches.device_grant_json->'devices') AS held(value)
+        JOIN jsonb_array_elements_text(${canonicalJson(intent.devices.devices)}::text::jsonb) AS wanted(value) ON held.value = wanted.value)
+    ORDER BY attempt_id LIMIT 1`))[0];
+  if (conflict) throw new FactoryAttemptRuntimeError("device_conflict", `Attempt ${conflict.attempt_id} already holds one of these devices on host ${intent.lease.hostId}.`);
 }
 
 /** Product-database intent store. It contains no broker token because only the durable request identity is stored. */
@@ -330,7 +392,7 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
     const intent = snapshotIntent(request, lease, preparedPackage, devices);
     const durableRequest = factoryRunnerRequestIdentity(intent.request);
     return this.database.transaction(async transaction => {
-      await transaction.execute(sql`INSERT INTO factory_attempt_launches (attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,device_grant_json,device_grant_digest,state) VALUES (${intent.request.authority.attemptId},${intent.request.authority.tenantId},${intent.request.authority.projectId},${intent.request.authority.runId},${intent.requestDigest},${canonicalJson(durableRequest)}::jsonb,${intent.lease.reservationId},${intent.lease.grantRevision},${intent.lease.allocationGeneration},${intent.lease.holderGeneration},${intent.lease.allocationToken},${intent.lease.hostId},${intent.preparedPackage.receiptDigest},${canonicalJson(intent.preparedPackage)}::jsonb,${intent.preparedPackage.artifactDigest},${intent.workerId},${intent.invocationId},${canonicalJson(factoryAttemptDeviceFacts(intent.devices))}::jsonb,${intent.devices.grantDigest},'prepared') ON CONFLICT (attempt_id) DO NOTHING`);
+      await transaction.execute(sql`INSERT INTO factory_attempt_launches (attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,device_grant_json,device_grant_digest,state) VALUES (${intent.request.authority.attemptId},${intent.request.authority.tenantId},${intent.request.authority.projectId},${intent.request.authority.runId},${intent.requestDigest},${canonicalJson(durableRequest)}::text::jsonb,${intent.lease.reservationId},${intent.lease.grantRevision},${intent.lease.allocationGeneration},${intent.lease.holderGeneration},${intent.lease.allocationToken},${intent.lease.hostId},${intent.preparedPackage.receiptDigest},${canonicalJson(intent.preparedPackage)}::text::jsonb,${intent.preparedPackage.artifactDigest},${intent.workerId},${intent.invocationId},${canonicalJson(factoryAttemptDeviceFacts(intent.devices))}::text::jsonb,${intent.devices.grantDigest},'prepared') ON CONFLICT (attempt_id) DO NOTHING`);
       const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${intent.request.authority.attemptId} FOR UPDATE`))[0];
       if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
       const stored = rowIntent(row);
@@ -345,6 +407,7 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
       const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
       if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
       const stored = rowIntent(row);
+      if (stored.state === "prepared") await assertDevicesExclusive(transaction, stored);
       const claimed = stored.state === "prepared" && releaseRows(await transaction.execute(sql`UPDATE factory_attempt_launches SET state='launching',updated_at=NOW() WHERE attempt_id=${attemptId} AND state='prepared' RETURNING attempt_id`)).length === 1;
       return Object.freeze({ intent: claimed ? Object.freeze({ ...stored, state: "launching" as const }) : stored, claimed });
     });
@@ -368,7 +431,7 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
         if (factoryTerminalResultDigest(existing) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory attempt already recorded a different terminal result.");
         return existing;
       }
-      await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
+      await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::text::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
       const saved = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
       const durable = saved && storedTerminalResult(saved);
       if (!durable || factoryTerminalResultDigest(durable) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory terminal result did not persist.");
@@ -386,6 +449,48 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
   }
 }
 
+/**
+ * The sealed physical facts a stop needs from one durable launch record.
+ *
+ * Sol lifecycle reads these inside its own run-authority transaction, so it
+ * never opens a second transaction and never rebuilds the launch intent it
+ * does not need. The worker and invocation identities are recomputed from the
+ * attempt so a rewritten row cannot rename a live guest.
+ */
+export interface FactoryAttemptLaunchFacts {
+  readonly attemptId: string;
+  readonly tenantId: string;
+  readonly projectId: string;
+  readonly runId: string;
+  readonly requestDigest: string;
+  readonly reservationId: string;
+  readonly grantRevision: number;
+  readonly allocationGeneration: number;
+  readonly holderGeneration: number;
+  readonly allocationToken: string;
+  readonly hostId: string;
+  readonly workerId: string;
+  readonly invocationId: string;
+  readonly state: FactoryAttemptLaunchState;
+  readonly terminalResult?: FactoryRunnerResult;
+}
+
+/** Reads one launch record under the caller's transaction and lock. */
+export async function readFactoryAttemptLaunchFacts(transaction: MigrationDb, attemptId: string, candidateGeneration: number, attemptNumber: number): Promise<FactoryAttemptLaunchFacts | undefined> {
+  opaque(attemptId, "attempt id");
+  const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR UPDATE`))[0];
+  if (!row) return undefined;
+  if (!["prepared", "launching", "launched", "terminal", "uncertain"].includes(row.state)) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch state is corrupt.");
+  const lease = snapshotLease({ reservationId: row.reservation_id, grantRevision: Number(row.grant_revision), allocationGeneration: Number(row.allocation_generation), holderGeneration: Number(row.holder_generation), allocationToken: row.allocation_token, hostId: row.host_id });
+  if (row.worker_id !== factoryAttemptWorkerId(attemptId) || row.invocation_id !== factoryAttemptInvocationId(attemptId, candidateGeneration, attemptNumber) || !requestDigestPattern.test(row.request_digest)) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent does not bind its request.");
+  const terminalResult = storedTerminalResult(row);
+  return Object.freeze({
+    attemptId: row.attempt_id, tenantId: row.tenant_id, projectId: row.project_id, runId: row.run_id,
+    requestDigest: row.request_digest, ...lease, workerId: row.worker_id, invocationId: row.invocation_id,
+    state: row.state, ...(terminalResult === undefined ? {} : { terminalResult }),
+  });
+}
+
 export interface IsolatedFactoryAttemptRuntimeOptions {
   readonly runner: Runner;
   readonly launches: FactoryAttemptLaunchStore;
@@ -399,6 +504,11 @@ export interface IsolatedFactoryAttemptRuntimeOptions {
   readonly presentStopReceipt: (receipt: FactoryPhysicalStopReceipt) => Promise<void>;
   /** Revalidated after the durable claim and before every token mint. */
   readonly readiness: FactoryRunnerDispatchReadiness;
+  /** C02.14 abort, cleanup, and kill. Defaults to the shared v4 runner's own verbs. */
+  readonly sandbox?: FactorySandboxControl;
+  /** The contract's cleanup budget between the abort and the kill. */
+  readonly abortGraceMs?: number;
+  readonly wait?: (milliseconds: number) => Promise<void>;
   readonly now?: () => number;
 }
 
@@ -407,7 +517,13 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
   private readonly active = new Map<string, RunnerExecution>();
   private readonly stops = new Map<string, Promise<FactoryPhysicalStopReceipt>>();
   private readonly now: () => number;
-  constructor(private readonly options: IsolatedFactoryAttemptRuntimeOptions) { this.now = options.now ?? Date.now; }
+  private readonly sandbox: FactorySandboxControl;
+  private readonly delay: (milliseconds: number) => Promise<void>;
+  constructor(private readonly options: IsolatedFactoryAttemptRuntimeOptions) {
+    this.now = options.now ?? Date.now;
+    this.sandbox = options.sandbox ?? factoryRunnerSandboxControl(options.runner);
+    this.delay = options.wait ?? (milliseconds => new Promise<void>(resolve => setTimeout(resolve, milliseconds)));
+  }
 
   async open(request: FactoryRunnerRequest, lease: FactoryAttemptLease, preparedPackage: FactoryPreparedPackageReceipt, devices?: FactoryAttemptDeviceAuthorization): Promise<FactoryAttemptOpen> {
     const persisted = await this.options.launches.prepare(request, lease, preparedPackage, devices);
@@ -468,6 +584,10 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
   }
 
   private startRequest(intent: FactoryAttemptLaunchIntent, request: FactoryRunnerRequest) {
+    // The shared runner injects raw device nodes only. A grant naming CDI
+    // devices belongs to the production NVIDIA profile, which no runtime here
+    // implements, so it is refused rather than launched with no device at all.
+    if (intent.devices.cdiDevices.length > 0) throw new FactoryAttemptRuntimeError("invalid_launch", "The Container Device Interface profile is not supported by this runtime; a CDI device grant cannot start an attempt.");
     const deadline = Math.min(intent.request.authority.deadlineAtMs, this.now() + executionLimits.timeoutMs);
     return { workerId: intent.workerId, artifactDigest: intent.preparedPackage.artifactDigest, context: { invocationId: intent.invocationId, workerId: intent.workerId, releaseId: intent.preparedPackage.artifactDigest, principalId: intent.request.authority.tenantId, scopeId: intent.request.authority.projectId, token: request.broker.attemptToken, deadline }, limits: executionLimits, devices: intent.devices.devices };
   }
@@ -568,9 +688,16 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
   }
 
   private async stopPhysical(intent: FactoryAttemptLaunchIntent, reason: FactoryPhysicalStopReason): Promise<FactoryPhysicalStopReceipt> {
-    await this.options.runner.cancel(intent.workerId);
-    const inspection = await this.options.runner.inspect(intent.workerId);
-    if (inspection.state !== "succeeded" && inspection.state !== "failed" && inspection.state !== "cancelled") throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory worker absence is not physically confirmed after stop.");
+    // C02.14: abort, at most the contract's cleanup budget, then kill the whole
+    // sandbox and confirm from the runtime that no process remains.
+    let stopped: Awaited<ReturnType<typeof stopFactorySandbox>>;
+    try {
+      stopped = await stopFactorySandbox(this.sandbox, intent.workerId, { graceMs: this.options.abortGraceMs ?? FACTORY_SANDBOX_ABORT_GRACE_MS, pollIntervalMs: FACTORY_SANDBOX_POLL_INTERVAL_MS, now: this.now, wait: this.delay });
+    } catch (error) {
+      if (error instanceof FactorySandboxStopError && error.code === "sandbox_stop_unconfirmed") throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory worker absence is not physically confirmed after stop.");
+      throw error;
+    }
+    if (!stopped.processGroupAbsent) throw new FactoryAttemptRuntimeError("launch_uncertain", "Factory worker absence is not physically confirmed after stop.");
     this.active.delete(intent.request.authority.attemptId);
     await this.options.launches.state(intent.request.authority.attemptId, "terminal");
     const unsigned: FactoryUnsignedPhysicalStopReceipt = { schemaVersion: "factory.physical-stop.v1", attemptId: intent.request.authority.attemptId, reservationId: intent.lease.reservationId, workerId: intent.workerId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration, processGroupAbsent: true, stoppedAtMs: this.now(), reason, hostId: intent.lease.hostId };
@@ -586,6 +713,8 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
 export interface FactoryIsolatedRunnerPreflight {
   lease(request: FactoryRunnerRequest): Promise<FactoryAttemptLease>;
   preparedPackage(request: FactoryRunnerRequest): Promise<FactoryPreparedPackageReceipt>;
+  /** The held allocation's device authority. Absent means a CPU attempt, whose grant is empty. */
+  devices?(request: FactoryRunnerRequest, lease: FactoryAttemptLease): Promise<FactoryAttemptDeviceAuthorization>;
 }
 
 /** Command-gateway adapter. Preflight happens after claim and before the short-lived guest token is minted. */
@@ -596,6 +725,7 @@ export class IsolatedFactoryTrustedRunner implements TrustedFactoryRunner {
     const [lease, preparedPackage] = await Promise.all([this.preflight.lease(request), this.preflight.preparedPackage(request)]);
     const receipt = await this.readiness.assertDispatchReady(request);
     if (receipt.receiptDigest !== preparedPackage.receiptDigest || receipt.artifactDigest !== preparedPackage.artifactDigest) throw new FactoryAttemptRuntimeError("invalid_launch", "Prepared package changed before isolated dispatch.");
-    return (await this.runtime.open(request, lease, preparedPackage)).wait();
+    const devices = await this.preflight.devices?.(request, lease);
+    return (await this.runtime.open(request, lease, preparedPackage, devices)).wait();
   }
 }

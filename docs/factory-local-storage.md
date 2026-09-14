@@ -42,3 +42,10 @@ ten tenant identities. It stops the ordinary service for one step, so run it
 under `flock /tmp/ezcorp-validation-heavy.lock` on a shared host. Its receipt
 records `failureDomain: "same-host-not-independent"` and the unmet criterion
 `deployed-independent-failure-domain`, because that is what one host can show.
+
+Each SeaweedFS server allows up to 400 volumes of 64 MiB (about 25 GiB). The
+first limit of 100 volumes was exhausted during the ten-tenant campaign because
+every tenant collection grows seven volumes at a time; the master then reported
+"failed to find writable volumes" and every upload failed. Raising the limit
+only changes the server command; the named data volumes and credential files
+are kept. Tests must still delete the objects they create.

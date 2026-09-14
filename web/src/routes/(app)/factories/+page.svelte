@@ -1,6 +1,7 @@
 <script lang="ts">
 	import FactoryConsole from "$lib/factory/FactoryConsole.svelte";
 	import FactoryReleaseInbox from "$lib/factory/FactoryReleaseInbox.svelte";
+	import FactoryRunControls from "$lib/factory/FactoryRunControls.svelte";
 	import { setActiveProjectId, store } from "$lib/stores.svelte.js";
 
 	let projects = $derived(store.projects.filter(project => project.id !== "global"));
@@ -12,4 +13,5 @@
 </svelte:head>
 
 <FactoryReleaseInbox {projectId} />
+<FactoryRunControls {projectId} />
 <FactoryConsole {projects} {projectId} onProjectChange={setActiveProjectId} />

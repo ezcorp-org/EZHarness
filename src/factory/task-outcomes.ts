@@ -12,6 +12,7 @@ import type { FactoryCommandAuthority } from "./command-authority";
 import type { FactoryComputeAdmissions } from "./compute-admissions";
 import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "./executions";
 import type { FactoryInbox } from "./inbox";
+import { firstFactoryJournalIssue, validateFactoryTaskOutcome } from "./journal-validation";
 import { lockFactoryScope } from "./locks";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import { factoryTaskReservationId } from "./task-admission";
@@ -26,6 +27,13 @@ export interface FactoryTaskOutcomeReceipt {
   readonly evidenceDigest: string;
   readonly usageDisposition: "measured_pending_stop" | "unknown_held";
   readonly event: Extract<KernelEvent, { readonly kind: "node-failed" }>;
+}
+
+/** Exact historical result and attempt authority for physical-stop reconciliation. */
+export interface FactoryVerifiedTaskOutcome {
+  readonly receipt: FactoryTaskOutcomeReceipt;
+  readonly result: FactoryNonSuccessfulRunnerResult;
+  readonly authority: FactoryAttemptAuthority;
 }
 
 interface OutcomeRow {
@@ -112,6 +120,8 @@ export class FactoryTaskOutcomes {
         const atMs = this.now();
         if (!Number.isSafeInteger(atMs) || atMs < context.state.nowMs) throw new FactoryTaskOutcomeError("factory_task_outcome_clock_invalid");
         const receipt = outcomeReceipt(stored.delivery.reference.reservationId, nonSuccess, evidence, attempt, atMs);
+        const facts = validateFactoryTaskOutcome(receipt, nonSuccess, attempt);
+        if (!facts.ok) throw new FactoryTaskOutcomeError(firstFactoryJournalIssue(facts) ?? "factory_task_outcome_invalid");
         if (nonSuccess.status === "uncertain") await this.budgets.markUncertainInTransaction(locked, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: receipt.reservationId }, "runner_outcome_uncertain");
         await this.inbox.enqueueInTransaction(locked, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, receipt.event);
         const authorityJson = canonicalJson({ ...attempt, deadlineAt: attempt.deadlineAt.getTime() });
@@ -133,6 +143,16 @@ export class FactoryTaskOutcomes {
     return this.withRun(transaction, reference, () => this.readReceipt(transaction, reference));
   }
 
+  /** Exact historical result and attempt authority for physical-stop reconciliation. */
+  async readVerifiedInTransaction(transaction: MigrationDb, valueService: TrustedFactoryServiceIdentity, valueReference: TrustedFactoryCommandReference): Promise<FactoryVerifiedTaskOutcome | undefined> {
+    const service = snapshot(valueService);
+    const reference = snapshot(valueReference);
+    this.authority.assertService(service);
+    assertFactoryIdentity(...Object.values(reference));
+    if (reference.tenantId !== this.authority.tenantId) throw new FactoryTaskOutcomeError("factory_task_outcome_scope");
+    return this.withRun(transaction, reference, () => this.readVerifiedReceipt(transaction, reference));
+  }
+
   private async withRun<Result>(transaction: MigrationDb, reference: TrustedFactoryCommandReference, work: () => Promise<Result>): Promise<Result> {
     if (!await lockFactoryScope(transaction, reference.tenantId, reference.projectId)) throw new FactoryTaskOutcomeError("factory_task_outcome_scope");
     const run = rows(await transaction.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} FOR UPDATE`))[0];
@@ -141,6 +161,10 @@ export class FactoryTaskOutcomes {
   }
 
   private async readReceipt(transaction: MigrationDb, reference: TrustedFactoryCommandReference, inputDigest?: string): Promise<FactoryTaskOutcomeReceipt | undefined> {
+    return (await this.readVerifiedReceipt(transaction, reference, inputDigest))?.receipt;
+  }
+
+  private async readVerifiedReceipt(transaction: MigrationDb, reference: TrustedFactoryCommandReference, inputDigest?: string): Promise<FactoryVerifiedTaskOutcome | undefined> {
     const row = rows<OutcomeRow>(await transaction.execute(sql`SELECT reservation_id,input_digest,authority_json,result_json,evidence_digest,receipt_json,receipt_digest FROM factory_task_outcomes WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
     if (!row) return undefined;
     const receipt = JSON.parse(row.receipt_json) as FactoryTaskOutcomeReceipt;
@@ -156,9 +180,10 @@ export class FactoryTaskOutcomes {
       || delivery.reference.reservationId !== row.reservation_id || canonicalJson(delivery.reference.command) !== canonicalJson(reference)
       || row.input_digest !== hash({ reference, result })
       || row.evidence_digest !== evidence.evidenceDigest
-      || canonicalJson(receipt) !== canonicalJson(outcomeReceipt(row.reservation_id, result, evidence, authority, atMs))) {
+      || canonicalJson(receipt) !== canonicalJson(outcomeReceipt(row.reservation_id, result, evidence, authority, atMs))
+      || !validateFactoryTaskOutcome(receipt, result as FactoryNonSuccessfulRunnerResult, authority).ok) {
       throw new FactoryTaskOutcomeError("factory_task_outcome_corrupt");
     }
-    return Object.freeze(receipt);
+    return Object.freeze({ receipt: Object.freeze(receipt), result: Object.freeze(result as FactoryNonSuccessfulRunnerResult), authority: Object.freeze(authority) });
   }
 }

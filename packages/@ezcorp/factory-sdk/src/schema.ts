@@ -6,8 +6,11 @@ import factoryRunnerRequestJsonSchema from "./factory-runner-request.schema.json
 import factoryRunnerResultJsonSchema from "./factory-runner-result.schema.json" with { type: "json" };
 import factoryApiRequestJsonSchema from "./factory-api-request.schema.json" with { type: "json" };
 import factoryApiResponseJsonSchema from "./factory-api-response.schema.json" with { type: "json" };
+import factoryValidatorClaimsJsonSchema from "./factory-validator-claims.schema.json" with { type: "json" };
+import factoryValidatorReportJsonSchema from "./factory-validator-report.schema.json" with { type: "json" };
+import factoryDurableInputJsonSchema from "./factory-durable-input.schema.json" with { type: "json" };
 import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
-import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryApiRequest, FactoryApiResponse, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "./types.js";
+import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryApiRequest, FactoryApiResponse, FactoryDurableInput, FactoryRunnerRequest, FactoryRunnerResult, FactoryValidatorClaimReport, FactoryValidatorReport, JsonValue } from "./types.js";
 
 export {
   compiledFactoryJsonSchema,
@@ -18,6 +21,9 @@ export {
   factoryRunnerResultJsonSchema,
   factoryApiRequestJsonSchema,
   factoryApiResponseJsonSchema,
+  factoryValidatorClaimsJsonSchema,
+  factoryValidatorReportJsonSchema,
+  factoryDurableInputJsonSchema,
 };
 
 type SchemaObject = Readonly<Record<string, unknown>>;
@@ -117,4 +123,16 @@ export function isFactoryApiRequest(value: unknown): value is FactoryApiRequest 
 
 export function isFactoryApiResponse(value: unknown): value is FactoryApiResponse {
   return matchesGeneratedSchema(factoryApiResponseJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryValidatorClaimReport(value: unknown): value is FactoryValidatorClaimReport {
+  return matchesGeneratedSchema(factoryValidatorClaimsJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryValidatorReport(value: unknown): value is FactoryValidatorReport {
+  return matchesGeneratedSchema(factoryValidatorReportJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryDurableInput(value: unknown): value is FactoryDurableInput {
+  return matchesGeneratedSchema(factoryDurableInputJsonSchema as SchemaObject, value);
 }

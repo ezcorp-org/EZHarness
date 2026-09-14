@@ -1,7 +1,7 @@
 export type * from "./types.js";
 export type * from "./transport-types.js";
-export { FACTORY_API_REQUEST_SCHEMA_VERSION, FACTORY_API_RESPONSE_SCHEMA_VERSION, FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION, FACTORY_IR_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_PARTITION_SCHEMA_VERSION, FACTORY_RUNNER_REQUEST_SCHEMA_VERSION, FACTORY_RUNNER_RESULT_SCHEMA_VERSION, FACTORY_SCHEMA_VERSION } from "./types.js";
-export { compiledExecutionManifestJsonSchema, compiledFactoryJsonSchema, compiledPartitionArtifactJsonSchema, factoryApiRequestJsonSchema, factoryApiResponseJsonSchema, factoryDefinitionJsonSchema, factoryRunnerRequestJsonSchema, factoryRunnerResultJsonSchema, isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryDefinition, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
+export { FACTORY_API_REQUEST_SCHEMA_VERSION, FACTORY_API_RESPONSE_SCHEMA_VERSION, FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION, FACTORY_IR_SCHEMA_VERSION, FACTORY_LAZY_INPUT_SCHEMA_VERSION, FACTORY_LIMITS, FACTORY_PARTITION_SCHEMA_VERSION, FACTORY_RUNNER_REQUEST_SCHEMA_VERSION, FACTORY_RUNNER_RESULT_SCHEMA_VERSION, FACTORY_SCHEMA_VERSION, FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION, FACTORY_VALIDATOR_REPORT_SCHEMA_VERSION } from "./types.js";
+export { compiledExecutionManifestJsonSchema, compiledFactoryJsonSchema, compiledPartitionArtifactJsonSchema, factoryApiRequestJsonSchema, factoryApiResponseJsonSchema, factoryDefinitionJsonSchema, factoryDurableInputJsonSchema, factoryRunnerRequestJsonSchema, factoryRunnerResultJsonSchema, factoryValidatorClaimsJsonSchema, factoryValidatorReportJsonSchema, isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryDefinition, isFactoryDurableInput, isFactoryRunnerRequest, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 export { evaluateExpression, validateExpression } from "./expressions.js";
 export { canonicalizeJson, isUnsignedDecimal, jsonEqual, sha256Hex, unicodeLength, validateIJson } from "./canonical.js";
 export { factoryApiMutationPayload, factoryApiPayloadDigest, validateFactoryApiPayloadDigest } from "./api.js";
@@ -11,7 +11,7 @@ export { compileFactory, createCompiledExecutionManifest, createCompiledPartitio
 export type { CompiledFactoryPageBytes } from "./compiler.js";
 export { defineFactory, FactoryAuthoringError } from "./authoring.js";
 export { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";
-export { firstValidationIssue, isSchemaContained, resolveSchemaReference, validateCompiledExecutionManifest, validateCompiledFactory, validateCompiledPartitionArtifact, validateFactoryApiRequest, validateFactoryApiResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult, validatePortSchema, validateValue, validateDurableInputPorts } from "./validation.js";
+export { factoryGraphNodes, firstValidationIssue, isSchemaContained, resolveSchemaReference, validateCompiledExecutionManifest, validateCompiledFactory, validateCompiledPartitionArtifact, validateFactoryApiRequest, validateFactoryApiResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult, validateFactoryValidatorClaimReport, validateFactoryValidatorReport, validatePortSchema, validateValue, validateDurableInputPorts } from "./validation.js";
 export type * from "./kernel-types.js";
 export { FactoryKernelError, advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState, currentEffectCommandMatches } from "./kernel.js";
 export { simulateFactory } from "./simulator.js";

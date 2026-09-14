@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import { createKernelState, referenceCodeV1, type FactoryDefinition, type FactoryDurableInput, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
+import { createKernelState, FACTORY_LAZY_INPUT_SCHEMA_VERSION, referenceCodeV1, type FactoryDefinition, type FactoryDurableInput, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
@@ -51,7 +51,7 @@ export function factoryRunInputsConformance(create: () => Promise<{ db: Transact
     const delivery = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${projectId} AND logical_run_id=${result.run.runId}`))[0]!;
     const workflow = JSON.parse(delivery.payload).command.body as { input: JsonValue; durableInput: FactoryDurableInput; startedAtMs: number };
     expect(workflow.input).toEqual({ label: "inline label" });
-    expect(workflow.durableInput).toEqual({ schemaVersion: "factory.lazy-input.v1", parameters: body.parameters });
+    expect(workflow.durableInput).toEqual({ schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters });
     expect(new TextEncoder().encode(delivery.payload).byteLength).toBeLessThan(64 * 1024);
     const { compiled } = await application.definitions.readVersion(principal, key, body.factoryVersion);
     expect(() => createKernelState(compiled, result.run.runId, workflow.input, workflow.startedAtMs, workflow.durableInput)).not.toThrow();

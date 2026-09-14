@@ -1,6 +1,7 @@
 import { validateDurableInputPorts, validateValue } from "./validation.js";
 import { evaluateExpression } from "./expressions.js";
 import { canonicalizeJson, isUnsignedDecimal, validateIJson } from "./canonical.js";
+import { FACTORY_LIMITS } from "./types.js";
 import type { FactoryDurableInput } from "./types.js";
 import type {
   AdvanceResult,
@@ -117,16 +118,16 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
   }
 
   if (event.kind === "cancel") {
-    next = beginStopping(next, event.reason, commands, true);
+    next = beginStopping(factory, next, event.reason, commands, true);
     return finish(factory, next, commands);
   }
   if (event.kind === "timer-expired" && event.nodeId === undefined) {
     if (event.commandId !== next.runTimerId || event.atMs < next.runDeadlineAtMs) return { nextState: next, commands };
-    next = beginStopping(next, "RUN_DEADLINE_EXPIRED", commands, false);
+    next = beginStopping(factory, next, "RUN_DEADLINE_EXPIRED", commands, false);
     return finish(factory, next, commands);
   }
   if (event.atMs >= next.runDeadlineAtMs && next.status !== "stopping") {
-    next = beginStopping(next, "RUN_DEADLINE_EXPIRED", commands, false);
+    next = beginStopping(factory, next, "RUN_DEADLINE_EXPIRED", commands, false);
   }
 
   switch (event.kind) {
@@ -408,7 +409,7 @@ function applyResult(factory: KernelFactoryPlan, state: KernelState, event: Extr
   const node = nodeFor(factory, event.nodeId);
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
   if (state.nowMs >= runtime.attempts.at(-1)!.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
-  if (!validateNodeOutput(node, event.output)) return stopFailedAttempt(state, event.nodeId, "OUTPUT_INVALID", commands);
+  if (!validateNodeOutput(node, event.output)) return stopFailedAttempt(factory, state, node, event.nodeId, "OUTPUT_INVALID", commands);
   const attempts = runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt);
   const next = withNode(state, event.nodeId, { ...runtime, status: "succeeded", output: snapshotValue(event.output), error: undefined, attempts });
   const progressed = activateReady(factory, next, commands, successorsFor(factory, event.nodeId));
@@ -420,7 +421,29 @@ function applyFailure(factory: KernelFactoryPlan, state: KernelState, event: Ext
   const node = nodeFor(factory, event.nodeId);
   if (!runtime || !node || !matchesAttempt(runtime, event)) return state;
   if (state.nowMs >= runtime.attempts.at(-1)!.deadlineAtMs) return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
-  return stopFailedAttempt(state, event.nodeId, event.error, commands);
+  if (event.failureKind === "acceptance_rejected" && node.kind === "acceptance") return applyRejection(factory, state, node, event.nodeId, event.error, commands);
+  return stopFailedAttempt(factory, state, node, event.nodeId, event.error, commands);
+}
+
+/**
+ * Answers a protected rejection with a bounded remediation wait, or exhausts the bound.
+ *
+ * An acceptance node is virtual. Its only attempt is the protected decision, which has already
+ * returned this event, so there is nothing physical to stop; answering with `stopFailedAttempt`
+ * would emit a `cancel-node` naming a task that never existed. The declared `maxRepairs` bounds the
+ * wait and `FACTORY_LIMITS.maxCandidateGenerations` caps every domain, so a rejection can neither
+ * be retried without end nor be swallowed as an activity error.
+ */
+function applyRejection(factory: KernelFactoryPlan, state: KernelState, node: Extract<FactoryNode, { kind: "acceptance" }>, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
+  const runtime = state.nodes[nodeId]!;
+  const settled = withNode(state, nodeId, { ...runtime, attempts: runtime.attempts.map(attempt => ({ ...attempt, stopped: true })), timer: undefined });
+  if (remainingRepairs(node, runtime.candidateGeneration) > 0) return escalateNode(factory, settled, nodeId, error, commands);
+  return failNode(factory, settled, node, nodeId, "ACCEPTANCE_BOUND_EXHAUSTED", "bound_exhausted", commands);
+}
+
+/** Repairs an acceptance node still authorizes. An undeclared bound authorizes none. */
+function remainingRepairs(node: Extract<FactoryNode, { kind: "acceptance" }>, candidateGeneration: number): number {
+  return Math.min(node.maxRepairs ?? 0, FACTORY_LIMITS.maxCandidateGenerations - 1) - candidateGeneration;
 }
 
 function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "attempt-stopped" }>, commands: KernelCommand[]): KernelState {
@@ -450,8 +473,12 @@ function applyStopped(factory: KernelFactoryPlan, state: KernelState, event: Ext
   return next;
 }
 
-function stopFailedAttempt(state: KernelState, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
+function stopFailedAttempt(factory: KernelFactoryPlan, state: KernelState, node: FactoryNode, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
   const runtime = state.nodes[nodeId]!;
+  if (!physicalNode(factory, nodeId)) {
+    const settled = withNode(state, nodeId, { ...runtime, attempts: runtime.attempts.map(attempt => ({ ...attempt, stopped: true })), timer: undefined });
+    return failNode(factory, settled, node, nodeId, error, "execution", commands);
+  }
   const attempt = runtime.attempts.at(-1)!;
   const stopping = withNode(state, nodeId, { ...runtime, status: "stopping", error });
   const command = commandFor(stopping, "cancel-node", nodeId);
@@ -470,7 +497,7 @@ function applyApproval(factory: KernelFactoryPlan, state: KernelState, event: Ex
     const attempts = runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt);
     return completeControl(factory, withNode(state, event.nodeId, { ...runtime, attempts }), event.nodeId, { choice: event.choice }, commands);
   }
-  return node.onDenied === "escalate" ? escalateNode(state, event.nodeId, "APPROVAL_DENIED", commands) : failNode(factory, state, node, event.nodeId, "APPROVAL_DENIED", "approval_denied", commands);
+  return node.onDenied === "escalate" ? escalateNode(factory, state, event.nodeId, "APPROVAL_DENIED", commands) : failNode(factory, state, node, event.nodeId, "APPROVAL_DENIED", "approval_denied", commands);
 }
 
 function applyTimer(factory: KernelFactoryPlan, state: KernelState, event: Extract<KernelEvent, { kind: "timer-expired" }>, commands: KernelCommand[]): KernelState {
@@ -481,7 +508,7 @@ function applyTimer(factory: KernelFactoryPlan, state: KernelState, event: Extra
   if (runtime.status === "retry_wait" && runtime.timer.purpose === "retry") return dispatchReady(factory, withNode(state, event.nodeId, { ...runtime, timer: undefined }), node, event.nodeId, commands);
   if (runtime.status !== "running" && runtime.status !== "waiting" && runtime.status !== "reserved") return state;
   if (node.kind === "loop") return exhaustLoop(factory, state, node, event.nodeId, "LOOP_BOUND_EXHAUSTED", commands);
-  if (node.kind === "approval") return node.onExpired === "escalate" ? escalateNode(state, event.nodeId, "APPROVAL_EXPIRED", commands) : failNode(factory, state, node, event.nodeId, "APPROVAL_EXPIRED", "approval_expired", commands);
+  if (node.kind === "approval") return node.onExpired === "escalate" ? escalateNode(factory, state, event.nodeId, "APPROVAL_EXPIRED", commands) : failNode(factory, state, node, event.nodeId, "APPROVAL_EXPIRED", "approval_expired", commands);
   return failNode(factory, state, node, event.nodeId, "NODE_DEADLINE_EXPIRED", "deadline", commands);
 }
 
@@ -512,7 +539,9 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Revi
   if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
   const node = nodeFor(factory, event.nodeId);
   const runtime = state.nodes[event.nodeId];
-  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release")) return state;
+  // Re-asking a protected contract about an unchanged candidate is not remediation: a repair must
+  // replace the work that produced the candidate, so acceptance joins approval and release here.
+  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release" || node?.kind === "acceptance")) return state;
   if (event.kind === "replan" && (node?.kind !== "subfactory" || event.replacement.id !== node.factory.id)) return state;
   if (node && !runtime) {
     const parentId = completedMapAncestor(state, event.nodeId);
@@ -582,9 +611,9 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Revi
       });
     }
   }
-  if (releaseStarted) return beginStopping(next, "PARTITION_SOURCE_INVALIDATED_AFTER_RELEASE", commands, false);
-  if (uncertain) return beginStopping(next, "PARTITION_SOURCE_INVALIDATED_WITH_UNCERTAIN_ATTEMPT", commands, false);
-  for (const id of affected) next = cancelScope(next, id, commands, true);
+  if (releaseStarted) return beginStopping(factory, next, "PARTITION_SOURCE_INVALIDATED_AFTER_RELEASE", commands, false);
+  if (uncertain) return beginStopping(factory, next, "PARTITION_SOURCE_INVALIDATED_WITH_UNCERTAIN_ATTEMPT", commands, false);
+  for (const id of affected) next = cancelScope(factory, next, id, commands, true);
   return completePendingRepair(factory, next, commands);
 }
 
@@ -778,16 +807,7 @@ function settleJoin(factory: KernelFactoryPlan, state: KernelState, node: Extrac
     const selectedIds = selected.map(([id]) => id);
     for (const [loserId] of outcomes) {
       if (selectedIds.includes(loserId)) continue;
-      for (const [id, runtime] of Object.entries(next.nodes)) {
-        if (id !== loserId && !id.startsWith(`${loserId}/`)) continue;
-        if (terminalStatus(runtime.status)) continue;
-        next = withNode(next, id, { ...runtime, discarded: true, status: runtime.attempts.some(attempt => !attempt.stopped) ? "stopping" : "cancelled", timer: undefined });
-        for (const attempt of runtime.attempts.filter(attempt => !attempt.stopped)) {
-          const cancel = commandFor(next, "cancel-node", id);
-          next = cancel.state;
-          commands.push({ kind: "cancel-node", id: cancel.id, nodeId: id, candidateGeneration: attempt.candidateGeneration, attempt: attempt.attempt, attemptCommandId: attempt.commandId, cancellationEpoch: next.cancellationEpoch });
-        }
-      }
+      next = cancelScope(factory, next, loserId, commands, true);
     }
   }
   return completeControl(factory, next, nodeId, next.nodes[nodeId]!.output!, commands);
@@ -808,6 +828,21 @@ function predecessorRuntime(state: KernelState, nodeId: string): KernelNodeState
   } : undefined;
 }
 
+/**
+ * Whether a stop command can name a physical attempt for this node.
+ *
+ * An acceptance attempt is the protected decision itself. The execution cancel route resolves a
+ * `cancel-node` through the attempt queue, which never holds one, so such a command fails its
+ * activity and kills the run. An acceptance therefore settles in place on every stop path, and it
+ * loses nothing by doing so because only a task may declare a retry.
+ *
+ * Approval and release attempts have the same shape and the same defect. Changing them would change
+ * cancellation semantics this package does not own, so they are unchanged here and filed instead.
+ */
+function physicalNode(factory: KernelFactoryPlan, nodeId: string): boolean {
+  return nodeFor(factory, nodeId)?.kind !== "acceptance";
+}
+
 function terminalStatus(status: KernelNodeState["status"]): boolean {
   return status === "succeeded" || status === "failed" || status === "skipped" || status === "cancelled";
 }
@@ -826,15 +861,16 @@ function isReady(state: KernelState, node: FactoryNode, instanceId: string): boo
   });
 }
 
-/** Stop only the named scope; stop acknowledgements remain necessary. */
-function cancelScope(state: KernelState, prefix: string, commands: KernelCommand[], includeSelf = false): KernelState {
+/** Stop only the named scope; a physical attempt's stop acknowledgement remains necessary. */
+function cancelScope(factory: KernelFactoryPlan, state: KernelState, prefix: string, commands: KernelCommand[], includeSelf = false): KernelState {
   let next = state;
   for (const [id, runtime] of Object.entries(state.nodes)) {
     if ((!includeSelf || id !== prefix) && !id.startsWith(`${prefix}/`)) continue;
     const active = runtime.attempts.filter(attempt => !attempt.stopped);
     if (terminalStatus(runtime.status) && active.length === 0) continue;
-    next = withNode(next, id, { ...runtime, discarded: true, status: active.length > 0 ? "stopping" : "cancelled", timer: undefined });
-    if (runtime.status === "stopping") continue;
+    const physical = active.length > 0 && physicalNode(factory, id);
+    next = withNode(next, id, { ...runtime, discarded: true, status: physical ? "stopping" : "cancelled", ...(physical ? {} : { attempts: runtime.attempts.map(attempt => ({ ...attempt, stopped: true })) }), timer: undefined });
+    if (runtime.status === "stopping" || !physical) continue;
     for (const attempt of active) {
       const cancel = commandFor(next, "cancel-node", id);
       next = cancel.state;
@@ -852,7 +888,7 @@ function failNode(factory: KernelFactoryPlan, state: KernelState, node: FactoryN
   const joins = dependents.filter(({ node: successor }) => successor.kind === "join" && successor.mode !== "all" && successor.predecessors.includes(node.id));
   if (joins.length > 0 && joins.length === dependents.length) {
     failed = withNode(failed, nodeId, { ...failed.nodes[nodeId]!, failureHandled: true });
-    failed = cancelScope(failed, nodeId, commands, true);
+    failed = cancelScope(factory, failed, nodeId, commands, true);
     return activateReady(factory, failed, commands, joins.map(join => join.id));
   }
   const scope = Object.values(state.scopes).find(candidate => candidate.nodeIds.includes(nodeId));
@@ -861,36 +897,37 @@ function failNode(factory: KernelFactoryPlan, state: KernelState, node: FactoryN
   if (parentId && parentNode?.kind === "map" && parentNode.mode === "collect") {
     failed = withNode(failed, nodeId, { ...failed.nodes[nodeId]!, failureHandled: true });
     const itemPrefix = `${parentId}/items/${nodeId.slice(`${parentId}/items/`.length).split("/")[0]}`;
-    failed = cancelScope(failed, itemPrefix, commands);
+    failed = cancelScope(factory, failed, itemPrefix, commands);
     return progressMap(factory, failed, nodeId, commands);
   }
   if (parentId && parentNode) {
     failed = withNode(failed, nodeId, { ...failed.nodes[nodeId]!, failureHandled: true });
-    failed = cancelScope(failed, location.scope, commands);
+    failed = cancelScope(factory, failed, location.scope, commands);
     return failNode(factory, failed, parentNode, parentId, parentNode.kind === "map" ? "MAP_ITEM_FAILED" : error, _kind, commands);
   }
-  return beginStopping(failed, error, commands, false);
+  return beginStopping(factory, failed, error, commands, false);
 }
 
-function escalateNode(state: KernelState, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
+function escalateNode(factory: KernelFactoryPlan, state: KernelState, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
   const runtime = state.nodes[nodeId]!;
-  let next = cancelScope(state, nodeId, commands);
+  let next = cancelScope(factory, state, nodeId, commands);
   next = withNode(next, nodeId, { ...runtime, status: "waiting", error, waitingReason: "remediation", waitingDeadlineAtMs: state.runDeadlineAtMs, timer: undefined, attempts: runtime.attempts.map(attempt => ({ ...attempt, stopped: true })) });
   const active = Object.values(next.nodes).some(node => ["ready", "reserved", "running", "retry_wait", "stopping"].includes(node.status));
   return { ...next, status: active ? "running" : "waiting" };
 }
 
 function exhaustLoop(factory: KernelFactoryPlan, state: KernelState, node: Extract<FactoryNode, { kind: "loop" }>, nodeId: string, error: string, commands: KernelCommand[]): KernelState {
-  return node.onExhausted === "escalate" ? escalateNode(state, nodeId, error, commands) : failNode(factory, state, node, nodeId, error, "bound_exhausted", commands);
+  return node.onExhausted === "escalate" ? escalateNode(factory, state, nodeId, error, commands) : failNode(factory, state, node, nodeId, error, "bound_exhausted", commands);
 }
 
-function beginStopping(state: KernelState, reason: string, commands: KernelCommand[], cancelled: boolean): KernelState {
+function beginStopping(factory: KernelFactoryPlan, state: KernelState, reason: string, commands: KernelCommand[], cancelled: boolean): KernelState {
   if (state.status === "stopping") return state;
   let next: KernelState = { ...state, status: "stopping", stopReason: reason, stopKind: cancelled ? "cancelled" : "failed", pendingRepair: undefined, cancellationEpoch: state.cancellationEpoch + 1 };
   for (const [nodeId, runtime] of Object.entries(next.nodes)) {
     const active = runtime.attempts.filter((attempt) => !attempt.stopped);
-    if (active.length === 0) {
-      if (!["succeeded", "failed", "skipped", "cancelled"].includes(runtime.status)) next = withNode(next, nodeId, { ...runtime, status: cancelled ? "cancelled" : "failed", error: runtime.error ?? reason, timer: undefined });
+    if (active.length === 0 || !physicalNode(factory, nodeId)) {
+      if (active.length === 0 && terminalStatus(runtime.status)) continue;
+      next = withNode(next, nodeId, { ...runtime, attempts: runtime.attempts.map((attempt) => ({ ...attempt, stopped: true })), status: terminalStatus(runtime.status) ? runtime.status : cancelled ? "cancelled" : "failed", error: runtime.error ?? reason, timer: undefined });
       continue;
     }
     const stopping = { ...runtime, status: "stopping" as const, error: runtime.error ?? reason };

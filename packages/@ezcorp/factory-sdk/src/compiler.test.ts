@@ -3,8 +3,9 @@ import { FactoryAuthoringError, defineFactory } from "./authoring";
 import { canonicalizeJson } from "./canonical";
 import { compileFactory } from "./compiler";
 import { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references";
+import { factoryGraphNodes } from "./validation";
 import { FACTORY_LIMITS } from "./types";
-import type { FactoryDefinition, FactoryGraph, FactoryNode, FactoryReference, JsonValue } from "./types";
+import type { FactoryDefinition, FactoryNode, FactoryReference, JsonValue } from "./types";
 
 function clone(definition: FactoryDefinition = referenceCodeV1): FactoryDefinition {
   return structuredClone(definition);
@@ -15,15 +16,8 @@ function codes(definition: unknown): string[] {
   return result.ok ? [] : result.diagnostics.map((entry) => entry.code);
 }
 
-function nodesIn(graph: FactoryGraph): FactoryNode[] {
-  return graph.nodes.flatMap((candidate) => [
-    candidate,
-    ...(candidate.kind === "branch" ? [...nodesIn(candidate.then), ...nodesIn(candidate.else)] : candidate.kind === "map" || candidate.kind === "loop" ? nodesIn(candidate.body) : []),
-  ]);
-}
-
 function node(definition: FactoryDefinition, id: string): FactoryNode {
-  return nodesIn(definition.graph).find((candidate) => candidate.id === id) as FactoryNode;
+  return factoryGraphNodes(definition.graph).find((candidate) => candidate.id === id) as FactoryNode;
 }
 
 describe("factory compiler", () => {
@@ -55,7 +49,7 @@ describe("factory compiler", () => {
     expect(referenceImageV1.acceptance.groups).toEqual([{ id: "semantic-quorum", claimIds: ["semantic-evaluation-1", "semantic-evaluation-2", "semantic-evaluation-3"], minimumPasses: 2, requireAllDecisive: true }]);
     expect(referenceCodeV1.acceptance.claims.map((claim) => claim.id)).toEqual(["frozen-install", "build", "typecheck", "declared-tests", "protected-fixtures", "dependency-advisory", "secret-scan", "allowed-paths", "protected-assets-unchanged", "supervised-review"]);
     expect((node(referenceDataV1, "parse-schema-validation") as Extract<FactoryNode, { kind: "task" }>).bindings!.partitionRows).toEqual({ kind: "literal", value: 10_000 });
-    for (const definition of referenceFactories) for (const taskNode of nodesIn(definition.graph).filter((candidate): candidate is Extract<FactoryNode, { kind: "task" }> => candidate.kind === "task")) expect(Object.keys(taskNode.bindings ?? {}).sort()).toEqual(Object.keys(taskNode.inputPorts ?? {}).sort());
+    for (const definition of referenceFactories) for (const taskNode of factoryGraphNodes(definition.graph).filter((candidate): candidate is Extract<FactoryNode, { kind: "task" }> => candidate.kind === "task")) expect(Object.keys(taskNode.bindings ?? {}).sort()).toEqual(Object.keys(taskNode.inputPorts ?? {}).sort());
   });
 
   test("materializes defaults and separates presentation digest", () => {
@@ -207,9 +201,9 @@ describe("factory compiler", () => {
     const retry = clone();
     (node(retry, "snapshot-repository") as { retry: unknown }).retry = { maxAttempts: 0, initialDelayMs: 2, maximumDelayMs: 1 };
     expect(codes(retry)).toContain("BOUND_RETRY");
-    const loop = clone();
-    (node(loop, "bounded-repair") as { maxIterations: number; budget: unknown }).maxIterations = 0;
-    (node(loop, "bounded-repair") as { budget: unknown }).budget = { maxCostMicros: "-1" };
+    const loop = clone(referenceImageV1);
+    (node(loop, "candidate-rounds") as { maxIterations: number; budget: unknown }).maxIterations = 0;
+    (node(loop, "candidate-rounds") as { budget: unknown }).budget = { maxCostMicros: "-1" };
     expect(codes(loop)).toEqual(expect.arrayContaining(["BOUND_LOOP", "BOUND_COST"]));
     const map = clone(referenceImageV1);
     (node(map, "generate-four-seeds") as { maxConcurrency: number }).maxConcurrency = FACTORY_LIMITS.maxConcurrentActivities + 1;
@@ -219,12 +213,12 @@ describe("factory compiler", () => {
     (node(resources, "snapshot-repository") as { resources: unknown }).resources = { maxTokens: -1, maxComputeMs: 1.5, memoryBytes: -1, resourceClass: "" };
     expect(codes(resources)).toEqual(expect.arrayContaining(["BOUND_RESOURCE"]));
 
-    const loopBudget = clone();
-    (node(loopBudget, "bounded-repair") as { budget: unknown }).budget = { maxTokens: -1 };
+    const loopBudget = clone(referenceImageV1);
+    (node(loopBudget, "candidate-rounds") as { budget: unknown }).budget = { maxTokens: -1 };
     expect(codes(loopBudget)).toContain("BOUND_RESOURCE");
 
-    const unsupportedRetry = clone();
-    (node(unsupportedRetry, "bounded-repair") as { retry: unknown }).retry = { maxAttempts: 1, initialDelayMs: 0, maximumDelayMs: 0 };
+    const unsupportedRetry = clone(referenceImageV1);
+    (node(unsupportedRetry, "candidate-rounds") as { retry: unknown }).retry = { maxAttempts: 1, initialDelayMs: 0, maximumDelayMs: 0 };
     expect(codes(unsupportedRetry)).toContain("RETRY_UNSUPPORTED");
   });
 
@@ -235,8 +229,8 @@ describe("factory compiler", () => {
     const release = clone();
     (node(release, "github-pr-release") as { dependsOn: string[] }).dependsOn = ["release-approval"];
     expect(codes(release)).toContain("RELEASE_ACCEPTANCE");
-    const expression = clone();
-    (node(expression, "bounded-repair") as { until: unknown }).until = { kind: "wat" };
+    const expression = clone(referenceImageV1);
+    (node(expression, "candidate-rounds") as { until: unknown }).until = { kind: "wat" };
     expect(codes(expression)).toContain("FACTORY_SCHEMA");
     const joinBase = clone();
     (joinBase.graph.nodes as FactoryNode[]).splice(1, 0, { id: "join", kind: "join", mode: "any", predecessors: ["snapshot-repository"], quorum: 0 });
@@ -251,8 +245,15 @@ describe("factory compiler", () => {
 
     const wrongContract = clone();
     (node(wrongContract, "acceptance") as Extract<FactoryNode, { kind: "acceptance" }>).contract = "other";
-    (node(wrongContract, "acceptance") as Extract<FactoryNode, { kind: "acceptance" }>).maxRepairs = -1;
+    // In range for the published schema but not a whole repair, so the compiler is the only gate left.
+    (node(wrongContract, "acceptance") as Extract<FactoryNode, { kind: "acceptance" }>).maxRepairs = 1.5;
     expect(codes(wrongContract)).toEqual(expect.arrayContaining(["ACCEPTANCE_CONTRACT", "BOUND_REPAIR"]));
+    // Three candidate generations is the launch ceiling, so the schema refuses a wider declared bound.
+    for (const declared of [-1, FACTORY_LIMITS.maxCandidateGenerations]) {
+      const overBound = clone();
+      (node(overBound, "acceptance") as Extract<FactoryNode, { kind: "acceptance" }>).maxRepairs = declared;
+      expect(codes(overBound)).toContain("FACTORY_SCHEMA");
+    }
   });
 
   test("rejects speculative publication, unlocked dependencies, and validator authority overlap", () => {
@@ -306,12 +307,12 @@ describe("factory compiler", () => {
     (node(unknownMap, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).body.outputs.other = { kind: "literal", value: true };
     expect(codes(unknownMap)).toContain("CONTROL_OUTPUT_UNKNOWN");
 
-    const invalidLoop = clone();
-    (node(invalidLoop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>).resultSchema = { type: "string" };
+    const invalidLoop = clone(referenceImageV1);
+    (node(invalidLoop, "candidate-rounds") as Extract<FactoryNode, { kind: "loop" }>).resultSchema = { type: "string" };
     expect(codes(invalidLoop)).toContain("LOOP_RESULT_SCHEMA");
 
-    const incompatibleLoop = clone();
-    const loop = node(incompatibleLoop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>;
+    const incompatibleLoop = clone(referenceImageV1);
+    const loop = node(incompatibleLoop, "candidate-rounds") as Extract<FactoryNode, { kind: "loop" }>;
     loop.resultSchema = { ...loop.resultSchema, properties: { ...loop.resultSchema.properties, candidate: { type: "string" } } };
     expect(codes(incompatibleLoop)).toContain("CONTROL_OUTPUT_TYPE");
 
@@ -344,8 +345,8 @@ describe("factory compiler", () => {
     const badMap = clone(referenceImageV1);
     (node(badMap, "generate-four-seeds") as Extract<FactoryNode, { kind: "map" }>).itemSchema = { type: "string" };
     expect(codes(badMap)).toContain("MAP_COLLECTION_TYPE");
-    const badLoop = clone();
-    (node(badLoop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>).initialInput = { kind: "literal", value: "wrong" };
+    const badLoop = clone(referenceImageV1);
+    (node(badLoop, "candidate-rounds") as Extract<FactoryNode, { kind: "loop" }>).initialInput = { kind: "literal", value: 7 };
     expect(codes(badLoop)).toContain("LOOP_INPUT_TYPE");
 
     const missingPort = clone();
@@ -394,8 +395,8 @@ describe("factory compiler", () => {
     const branch = clone();
     (branch.graph.nodes as FactoryNode[]).splice(1, 0, { id: "typed-branch", kind: "branch", dependsOn: ["snapshot-repository"], condition: { kind: "ref", root: "node", name: "snapshot-repository", path: ["snapshot"] }, then: { nodes: [], outputs: {} }, else: { nodes: [], outputs: {} } });
     expect(codes(branch)).toContain("EXPRESSION_TYPE");
-    const loop = clone();
-    (node(loop, "bounded-repair") as Extract<FactoryNode, { kind: "loop" }>).nextInput = { kind: "literal", value: "wrong" };
+    const loop = clone(referenceImageV1);
+    (node(loop, "candidate-rounds") as Extract<FactoryNode, { kind: "loop" }>).nextInput = { kind: "literal", value: 7 };
     expect(codes(loop)).toContain("EXPRESSION_TYPE");
     const retry = clone();
     (node(retry, "snapshot-repository") as { retry: unknown }).retry = { maxAttempts: 4, initialDelayMs: 0, maximumDelayMs: 0 };

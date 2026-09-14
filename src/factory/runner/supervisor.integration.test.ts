@@ -49,10 +49,12 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
   const checkpointReference = (journalCursor: number) => ({ artifactId: `checkpoint-${journalCursor}`, digest: `sha256:${"c".repeat(64)}`, encodedBytes: 96, journalCursor });
   const checkpointInputs: { operationId: string; operationIndex: number; attempt: { attemptId: string } }[] = [];
   let starts = 0;
+  const requestedDevices: Array<readonly string[] | undefined> = [];
   const runner: Runner = {
     build: async () => { throw new Error("build is external to the supervisor"); }, cancel: async () => {}, inspect: async () => ({ id: "unused", state: "unknown", diagnostics: [] }), collectArtifacts: async () => ({}),
     start: async (input: StartRequest, reverse): Promise<RunnerExecution> => {
       starts++;
+      requestedDevices.push(input.devices);
       return {
         workerId: input.workerId,
         onNotification: () => () => {},
@@ -84,6 +86,9 @@ test("supervisor journals before a v4 runner tool effect and checkpoints before 
   expect(await new FactoryExecutionJournal(db, async () => {}).status(request.authority)).toMatchObject({ status: "running", journalCursor: 0 });
   expect(await supervisor.invoke(request)).toEqual({ claimed: false, result: { effect: { stored: { path: "output.txt" } } } });
   expect(starts).toBe(1);
+  // A factory start names exactly the devices its invocation authorized, so it
+  // can never inherit whatever device list the host runner was configured with.
+  expect(requestedDevices).toEqual([[]]);
   const uncertainAuthority = admission({ ...request.authority, attemptId: "attempt-uncertain", attemptNumber: 4 });
   const requestDigest = createHash("sha256").update(canonicalJson({ artifactDigest: request.artifactDigest, toolName: request.toolName, toolInput: request.toolInput })).digest("hex");
   const uncertainOperation = { operationId: "run-a:node-a:2:1", operationIndex: 1, kind: "tool" as const, requestDigest };

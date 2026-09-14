@@ -4,7 +4,8 @@ import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
-import { FactoryAssurance, FactoryAssuranceError, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
+import { FactoryAssurance, FactoryAssuranceClaimError, FactoryAssuranceError, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
+import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
 interface Fixture { readonly db: TransactionalDb; close(): Promise<void> }
 export function factoryAssuranceConformance(createFixture: () => Promise<Fixture>): void {
@@ -20,6 +21,8 @@ let trusted: FactoryTrustedEvidence;
 let fenceStatus: "running" | "cancelling" = "running";
 class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
   async assertContractInTransaction(): Promise<void> {}
+  bindAttemptInTransaction = unboundFactoryValidatorBinders.bindAttemptInTransaction;
+  bindTaskAttemptInTransaction = unboundFactoryValidatorBinders.bindTaskAttemptInTransaction;
   async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenant !== tenantId || key.projectId !== trusted.projectId || key.runId !== trusted.runId || key.nodeInstanceId !== trusted.nodeInstanceId || key.candidateGeneration !== trusted.candidateGeneration || validatorId !== trusted.validatorId) throw new Error("configured validator did not authorize this exact candidate");
     return structuredClone(trusted);
@@ -54,7 +57,7 @@ beforeAll(async () => {
   await grants.set(admin, { projectId, principal: admin, action: "factory.trust", expectedRevision: 0, expiresAtMs: null });
   await grants.set(admin, { projectId, principal: admin, action: "factory.approve", expectedRevision: 0, expiresAtMs: null });
   await grants.set(admin, { projectId, principal: admin, action: "factory.release", expectedRevision: 0, expiresAtMs: null });
-  trusted = { ...candidate, validatorId: "protected-validator", validatorLockDigest: digest("b"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "host-issued-artifact", digest: digest("a"), encodedBytes: 42 }, environmentDigest: digest("e"), configurationDigest: digest("f"), runnerDigest: digest("c"), claims: [{ id: "tests", passed: true, decisive: true }, { id: "review", passed: true, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 1000 };
+  trusted = { ...candidate, validatorId: "protected-validator", validatorLockDigest: digest("b"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "host-issued-artifact", digest: digest("a"), encodedBytes: 42 }, environmentDigest: digest("e"), configurationDigest: digest("f"), runnerDigest: digest("c"), claims: [{ id: "tests", verdict: "PASS", decisive: true }, { id: "review", verdict: "PASS", decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 1000 };
   assurance = new FactoryAssurance(fixture.db, tenantId, grants, new Gateway(), new ReleaseFenceReader(), new Gateway(), () => now);
 });
 afterAll(async () => { await fixture?.close(); });
@@ -85,10 +88,11 @@ test("an optional protected claim may fail when the quorum still passes", async 
   const evidence = ["first", "second", "third"].map((id): FactoryTrustedEvidence => ({
     ...trusted, ...quorumCandidate, validatorId: id,
     artifact: { ...trusted.artifact, artifactId: `quorum-${id}` },
-    claims: [{ id, passed: id !== "third", decisive: true }],
+    claims: [{ id, verdict: id !== "third" ? "PASS" : "FAIL", decisive: true }],
   }));
   const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
     async assertContractInTransaction() {},
+    ...unboundFactoryValidatorBinders,
     async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) {
       const found = evidence.find(item => item.validatorId === validatorId);
       if (found) return structuredClone(found);
@@ -105,6 +109,56 @@ test("an optional protected claim may fail when the quorum still passes", async 
     claimGroups: [{ id: "two-of-three", claimIds: ["first", "second", "third"], minimumPasses: 2, requireAllDecisive: true }],
   }, mutationKey("optional-quorum"));
   await expect(fixture.db.transaction(transaction => quorum.acceptCurrentInTransaction(transaction, quorumCandidate, "optional-quorum"))).resolves.toMatchObject({ candidateGeneration: 40, candidateDigest: trusted.candidateDigest });
+});
+
+test("a semantic failure names every claim and group a bounded repair must fix", async () => {
+  const failing = { ...candidate, candidateGeneration: 41 };
+  const evidence = ["alpha", "beta", "gamma"].map((id): FactoryTrustedEvidence => ({
+    ...trusted, ...failing, validatorId: id,
+    artifact: { ...trusted.artifact, artifactId: `failing-${id}` },
+    claims: [{ id, verdict: id === "alpha" ? "PASS" : "FAIL", decisive: id !== "gamma" }],
+    issuedAtMs: id === "beta" ? now - 10_000 : now - 1,
+  }));
+  const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
+    async assertContractInTransaction() {},
+    ...unboundFactoryValidatorBinders,
+    async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) {
+      const found = evidence.find(item => item.validatorId === validatorId);
+      if (found) return structuredClone(found);
+      throw new Error("validator is not assigned");
+    },
+    async resolveCurrentEvidenceInTransaction(_transaction, _tenant, _key, validatorIds) {
+      return evidence.filter(item => validatorIds.includes(item.validatorId)).map(item => structuredClone(item));
+    },
+  };
+  const strict = new FactoryAssurance(fixture.db, tenantId, grants, gateway, new ReleaseFenceReader(), gateway, () => now);
+  await strict.approveContract(admin, {
+    projectId, contractId: "semantic-failure", revision: 1, contractDigest: digest("9"), validatorLockDigest: trusted.validatorLockDigest,
+    mandatoryClaims: [
+      { id: "alpha", validatorId: "alpha", freshnessMs: 100 },
+      { id: "beta", validatorId: "beta", freshnessMs: 100 },
+      { id: "gamma", validatorId: "gamma", freshnessMs: 100 },
+      { id: "omitted", validatorId: "alpha", freshnessMs: 100 },
+    ],
+    claimGroups: [{ id: "all-decisive", claimIds: ["alpha", "gamma"], minimumPasses: 1, requireAllDecisive: true }],
+  }, mutationKey("semantic-failure"));
+
+  const failure = await fixture.db.transaction(transaction => strict.acceptCurrentInTransaction(transaction, failing, "semantic-failure")).then(() => undefined, (error: unknown) => error);
+  expect(failure).toBeInstanceOf(FactoryAssuranceClaimError);
+  const claimError = failure as FactoryAssuranceClaimError;
+  expect(claimError.code).toBe("factory_assurance_claim_failed");
+  // Every required claim is reported at once: a stale report, a real FAIL, and one the assigned
+  // validator never reported. Neither INCONCLUSIVE form satisfies its claim.
+  expect(claimError.failures).toEqual([
+    { claimId: "beta", validatorId: "beta", verdict: "INCONCLUSIVE", reasonCode: "claim_stale" },
+    { claimId: "gamma", validatorId: "gamma", verdict: "FAIL", reasonCode: "claim_failed" },
+    { claimId: "omitted", validatorId: "alpha", verdict: "INCONCLUSIVE", reasonCode: "claim_missing" },
+  ]);
+  expect(claimError.groupFailures).toEqual([{ groupId: "all-decisive", passes: 1, minimumPasses: 1 }]);
+  expect(claimError.candidateDigest).toBe(trusted.candidateDigest);
+  expect(claimError.contractDigest).toBe(digest("9"));
+  expect(claimError.evidenceSetDigest).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(rows(await fixture.db.execute(sql`SELECT decision_id FROM factory_acceptance_decisions WHERE tenant_id=${tenantId} AND contract_id='semantic-failure'`))).toEqual([]);
 });
 
 test("human contract and approval receipts are stable, conflict-aware, and reauthorize cached reads", async () => {
@@ -180,7 +234,7 @@ test("acceptance rechecks the current protected gateway evidence and every manda
   trusted = { ...trusted, environmentDigest: digest("d") };
   await expect(assurance.accept({ ...currentCandidate, contractId: "current-candidate", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_stale" });
   const mandatoryCandidate = { ...candidate, candidateGeneration: 42 };
-  trusted = { ...original, ...mandatoryCandidate, claims: [{ id: "tests", passed: true, decisive: true }, { id: "review", passed: false, decisive: true }] };
+  trusted = { ...original, ...mandatoryCandidate, claims: [{ id: "tests", verdict: "PASS", decisive: true }, { id: "review", verdict: "FAIL", decisive: true }] };
   await assurance.captureEvidence({ ...mandatoryCandidate, validatorId: trusted.validatorId });
   await approveContract({ projectId, contractId: "mandatory-not-alternative", revision: 1, contractDigest: digest("b"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "tests", validatorId: trusted.validatorId, freshnessMs: 100 }, { id: "review", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "subset", claimIds: ["tests"], minimumPasses: 1, requireAllDecisive: true }] });
   await expect(assurance.accept({ ...mandatoryCandidate, contractId: "mandatory-not-alternative", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_claim_failed" });
@@ -224,12 +278,12 @@ test("a corrupt decision row cannot be presented for human consent", async () =>
 });
 
 test("forged validator provenance, stale evidence, and corrupt validator locks fail closed", async () => {
-  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async assertContractInTransaction() {}, async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), new Gateway(), () => now);
+  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async assertContractInTransaction() {}, ...unboundFactoryValidatorBinders, async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), new Gateway(), () => now);
   await expect(forged.captureEvidence({ ...candidate, validatorId: trusted.validatorId })).rejects.toMatchObject({ code: "factory_assurance_trust" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET validator_lock_digest=${digest("f")} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
   await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_evidence_stale" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET validator_lock_digest=${trusted.validatorLockDigest} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
-  await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET claims=${JSON.stringify([{ id: "tests", passed: false, decisive: true }, { id: "review", passed: true, decisive: true }])} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND candidate_generation=1`);
+  await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET claims=${JSON.stringify([{ id: "tests", verdict: "FAIL", decisive: true }, { id: "review", verdict: "PASS", decisive: true }])} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND candidate_generation=1`);
   await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_evidence_stale" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET claims=${JSON.stringify(trusted.claims)} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND candidate_generation=1`);
   const stale = { ...candidate, candidateGeneration: 2 };
@@ -241,10 +295,11 @@ test("forged validator provenance, stale evidence, and corrupt validator locks f
 
 test("two protected validators retain separate evidence rows", async () => {
   const multiCandidate = { ...candidate, candidateGeneration: 3 };
-  const first = { ...trusted, ...multiCandidate, claims: [{ id: "first", passed: true, decisive: true }] };
-  const second = { ...trusted, ...multiCandidate, validatorId: "second-validator", claims: [{ id: "second", passed: true, decisive: true }] };
+  const first: FactoryTrustedEvidence = { ...trusted, ...multiCandidate, claims: [{ id: "first", verdict: "PASS", decisive: true }] };
+  const second: FactoryTrustedEvidence = { ...trusted, ...multiCandidate, validatorId: "second-validator", claims: [{ id: "second", verdict: "PASS", decisive: true }] };
   const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
     async assertContractInTransaction() {},
+    ...unboundFactoryValidatorBinders,
     async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) { if (validatorId === first.validatorId) return first; if (validatorId === second.validatorId) return second; throw new Error("unknown validator"); },
     async resolveCurrentEvidenceInTransaction() { return [first, second]; },
   };
@@ -256,9 +311,9 @@ test("two protected validators retain separate evidence rows", async () => {
 });
 
 test("expired or failed evidence never becomes an acceptance decision", async () => {
-  trusted = { ...trusted, claims: [{ id: "tests", passed: false, decisive: true }, { id: "review", passed: true, decisive: true }] };
+  trusted = { ...trusted, claims: [{ id: "tests", verdict: "FAIL", decisive: true }, { id: "review", verdict: "PASS", decisive: true }] };
   await expect(assurance.captureEvidence({ ...candidate, validatorId: trusted.validatorId })).rejects.toThrow("factory_assurance_conflict");
-  trusted = { ...trusted, claims: [{ id: "tests", passed: true, decisive: true }, { id: "review", passed: true, decisive: true }] };
+  trusted = { ...trusted, claims: [{ id: "tests", verdict: "PASS", decisive: true }, { id: "review", verdict: "PASS", decisive: true }] };
   expect(() => new FactoryAssurance(fixture.db, "other-tenant", grants, new Gateway(), new ReleaseFenceReader(), new Gateway(), () => now)).toThrow(FactoryAssuranceError);
 });
 

@@ -1,0 +1,101 @@
+{
+  "package": "w03",
+  "validator": "w03-validator",
+  "headValidated": "a957835f72ed8e4427736a92eb9eb400f9b66242",
+  "branch": "wp/w03-stop-settlement",
+  "baseRef": "integ/w00",
+  "mergeBase": "ab29eea118250bf688aee9c4819205888b899068",
+  "mergeOfIntegW00At": "9c28eda43",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "processNote": "Two internal research agents dispatched for interface-conformance and gate-integrity review overstepped scope: they independently reran the full validator protocol, wrote to this path, and messaged team-lead directly with conflicting verdicts before synthesis. Their raw logs (v-*.log and unprefixed *.log in this directory) were verified legitimate by the validator (commands, exit codes, log content, and the one substantive factual conflict between them all checked against source directly) and are cited as evidence, but this file and report.md are the validator's own synthesis and supersede anything the research agents sent.",
+  "treeState": {
+    "gitStatusPorcelainEmptyAtHead": true,
+    "commitCountIntegW00ToHead": 16,
+    "allReportedCommitsFoundOnBranch": true,
+    "sha256sumsVerified": "30/30 OK"
+  },
+  "reruns": [
+    { "label": "typecheck", "command": "bun run typecheck", "exitCode": 0 },
+    { "label": "lint", "command": "bun run lint", "exitCode": 0, "result": "5037 files, 0 errors" },
+    { "label": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exitCode": 0 },
+    { "label": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exitCode": 0 },
+    { "label": "focused-21-files-coverage", "exitCode": 0, "pass": 222, "fail": 0, "expectCalls": 1922, "matchesWorkerReceipt": "head2-focused.json exact match" },
+    { "label": "dependent-14-files-coverage", "exitCode": 0, "pass": 172, "fail": 0, "expectCalls": 1492, "note": "worker final-dependent.json (168/0/1467) at earlier commit 1688d5263; growth not regression at HEAD" },
+    { "label": "real-postgres-7-files", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 600-700 bun test tests/postgres/factory-{task-stops,budgets,schema,migration-restart,executions,compute-admissions,pool}.test.ts", "exitCode": 0, "pass": 65, "fail": 0, "expectCalls": 3156, "note": "worker final-postgres.json (62/0/3106) at earlier commit cfb9a3a8c; growth not regression" },
+    { "label": "real-podman-6-files", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 900 bun test (incl. package-preparation.podman.integration.test.ts, not in worker's own receipts)", "exitCode": 0, "pass": 29, "fail": 0, "expectCalls": 152 },
+    { "label": "real-podman-coverage-2-files", "exitCode": 0, "pass": 17, "fail": 0, "expectCalls": 98, "matchesWorkerReceipt": "final-podman-coverage.json exact match" },
+    { "label": "orchestrator-node-factory-transport", "command": "flock /tmp/ezcorp-validation-heavy.lock bash scripts/factory-orchestrator-coverage.sh", "exitCode": 0, "pass": 79, "fail": 0 },
+    { "label": "merge-lcov", "exitCode": 0, "result": "669 source files merged", "matchesWorkerReceipt": "head2-coverage-gates.log exact match" },
+    { "label": "new-file-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "exitCode": 0, "result": "11 new source files gated, 100%" },
+    { "label": "patch-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "exitCode": 0, "result": "28 files, all changed executable lines covered" },
+    { "label": "whole-repo-coverage-informational", "command": "bun scripts/check-coverage.ts", "exitCode": 1, "note": "expected non-zero on a partial merge; not claimed by worker; confirmed no W03-owned file in below-threshold list" }
+  ],
+  "gateIntegrityChecks": {
+    "lowered_thresholds": "none; scripts/coverage-thresholds.json diff is purely additive (11 new 100% entries)",
+    "new_excludes": "none",
+    "skip_only_todo_in_touched_tests": "none found via git diff scan of every touched *.test.ts",
+    "biome_json_changes": "none",
+    "fixed_sleep_as_proof": "none found",
+    "wall_clock_assertions": "none found",
+    "credential_leakage": "none; grep hit on 'password_hash' schema column name only, confirmed false positive"
+  },
+  "interfaceConformance": {
+    "section3_liveCancellationSource": "CONFORMS",
+    "section4_usageSettledEvent": "CONFORMS",
+    "section8_journalValidation": "CONFORMS (disclosed FactoryPhysicalStopExpectation narrowing verified structurally sound, FactoryTaskStopRequest extends it)",
+    "section6_16_hostLaunchProtocolReconciliation": "PARTIAL: FactoryHostLaunchProtocol.stop (attempt-runtime.ts:145-149) unchanged, still takes W01's FactoryPhysicalStopRequest; W03 built a parallel FactoryPhysicalStopper interface instead (task-stops.ts:74). Cross-host replacement enforcement (signed-receipt consumption at task-stops.ts:373-376 assertUnconsumedReceipt, plus generation/host fencing at task-stops.ts:246-248) IS implemented and tested. End-to-end production wiring of the real mTLS client/server/supervisor chain into one running process is not assembled anywhere on this branch and is not named as an open W09 dependency in GATES.md (finding W03-2).",
+    "section12_ownership": "Real crossings into executions.ts (W01), run-lifecycle.ts (W06), attempt-runtime.ts (W01), extension-contract/types.d.ts + podman.ts (Terra runtime shared) in commit c11899dcc, disclosed exhaustively in that commit's body but not cross-tabulated against the ownership table in GATES.md itself (finding W03-3)."
+  },
+  "planBulletProofMap": [
+    { "bullet": 1, "text": "Phase B stop service, exact vocabulary", "status": "proven", "proof": "src/factory/task-stops.ts:59-96" },
+    { "bullet": 2, "text": "Cancel a still-running attempt, no fabricated outcome", "status": "proven", "proof": "src/__tests__/helpers/factory-task-stops-suite.ts:130" },
+    { "bullet": 3, "text": "Only supervisor signs physical facts", "status": "proven", "proof": "src/factory/runner/host-stop-service.ts:141-145; factory-task-stops-suite.ts:326" },
+    { "bullet": 4, "text": "Authenticated transport, rotation, unknown-key rejection", "status": "proven", "proof": "src/factory/host-stop-transport.integration.test.ts; loadFactoryHostSigningKey re-reads per signature" },
+    { "bullet": 5, "text": "Abort<=10s cleanup then kill, confirmed from runtime", "status": "proven", "proof": "src/factory/runner/sandbox-stop.podman.integration.test.ts; sandbox-abort-ignored.log is the genuine pre-fix failure" },
+    { "bullet": 6, "text": "Bounded timeout retains uncertainty; later valid stop settles once", "status": "proven", "proof": "factory-task-stops-suite.ts:301 (G8)" },
+    { "bullet": 7, "text": "Receipts verified before release/settlement; unknown cost never zero", "status": "proven", "proof": "task-stops.ts:246-249, 352-364" },
+    { "bullet": 8, "text": "Idempotent usage-settled event; concurrent/corrupt/pool-ack-then-failure", "status": "proven", "proof": "factory-task-stops-suite.ts:367, 442" },
+    { "bullet": "9a", "text": "Cancellation during admission", "status": "proven", "proof": "factory-task-stops-suite.ts:475 (G13)" },
+    { "bullet": "9b", "text": "Nested cancellation", "status": "UNPROVEN, overstated in GATES.md Open-and-why section", "proof": "grep for allowCancelling in every *.test.ts returns zero hits; see finding W03-1" },
+    { "bullet": "9c", "text": "Losing join branches", "status": "partial", "proof": "kernel-level join semantics pre-date this branch; no physical-stop integration tested here" },
+    { "bullet": "9d", "text": "One-slot parent/child execution", "status": "UNPROVEN", "proof": "no test found repo-wide naming this scenario; pool suite's one-slot case is an unrelated-tenant capacity race, not the kernel parent/child concept; GATES.md correctly declines to claim this one" },
+    { "bullet": "9e", "text": "Last-budget-unit race, lost acks, ledger loss, partitioned survivors", "status": "proven", "proof": "src/__tests__/helpers/factory-pool-suite.ts:87,66,221,233; factory-task-stops-suite.ts:301" },
+    { "bullet": 10, "text": "Round-robin/aging-lane/minima/atomic-vector/infeasible/limits+429/skew", "status": "proven, Retry-After header openly deferred to W09", "proof": "factory-pool-suite.ts:247,274,294; src/factory/pool/service-routes.ts:28 returns real 429 for queue-full" }
+  ],
+  "findings": [
+    {
+      "id": "W03-1",
+      "severity": "moderate",
+      "title": "GATES.md states nested-cancellation ancestor propagation as an accomplished fact with zero test evidence",
+      "evidence": "tasks/factory/w03-GATES.md 'Open, and why' section; grep -rn \"allowCancelling\" --include=\"*.ts\" src hits only src/factory/run-lifecycle.ts (implementation: lines 291,298,307) and src/factory/command-authority.ts (caller: lines 296-298) -- zero hits in any *.test.ts",
+      "fixRequested": "Add a test exercising a cancelling-ancestor scenario through authorizeRunInTransaction, or reword the GATES.md sentence to state the mechanism is implemented but untested on this branch"
+    },
+    {
+      "id": "W03-2",
+      "severity": "moderate",
+      "title": "End-to-end production wiring of the real host-stop mTLS chain is not assembled or named as an open dependency",
+      "evidence": "grep -rln \"host-stop-service|host-stop-client\" src returns only the two source files plus src/factory/host-stop-transport.integration.test.ts; no production composition file (application.ts, boot.ts, both W09-owned) wires a real FactoryHostStopSupervisor over attempt-runtime.ts's real Podman stop behind createFactoryHostStopRouteHandler",
+      "fixRequested": "Add an explicit line to GATES.md 'Filed to other owners' naming this as an open W09 composition dependency, mirroring the existing Retry-After entry"
+    },
+    {
+      "id": "W03-3",
+      "severity": "low",
+      "title": "Ownership crossings (attempt-runtime.ts, run-lifecycle.ts, podman.ts, extension-contract/types.d.ts) disclosed only in commit c11899dcc's body, not cross-tabulated against the freeze's ownership table in GATES.md",
+      "evidence": "git show c11899dcc commit message lists every file and reason in detail; tasks/factory/w03-GATES.md's own summary narrates it only as 'two real defects found by running the contract'",
+      "fixRequested": "Add a short 'files touched outside W03's owned set' list to GATES.md"
+    },
+    {
+      "id": "W03-4",
+      "severity": "informational, not a defect",
+      "title": "src/factory/admission-origin.test.ts contains two literal NUL bytes, read by git as a binary file",
+      "evidence": "od -c confirms NUL bytes at byte offsets 5458 and 6371, inside string literals 'node\\0a' and 'claim\\0a' -- deliberate control-character-injection test fixtures, consistent with the codebase's existing control-character rejection pattern (host-stop-service.ts:54). Not corruption; file executes correctly in every rerun.",
+      "fixRequested": "none"
+    }
+  ],
+  "securityPosture": {
+    "credentialLeakage": "none found",
+    "authorityChecksRemoved": "none; allowCancelling only widens the allowed-status set on the cancellation path, never removes a check",
+    "supervisorKeyExposure": "none; host-stop-service.ts signs internally, host-stop-client.ts only ever receives the public signed receipt"
+  },
+  "reportPath": "/tmp/factory-platform-evidence/w03-validation/report.md"
+}

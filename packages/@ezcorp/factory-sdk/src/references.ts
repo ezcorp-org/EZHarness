@@ -33,12 +33,15 @@ const mapOutcomeSchema = (value: PortSchema): PortSchema => ({
   required: ["outcome"],
   additionalProperties: false,
 });
-const repairResultSchema: PortSchema = {
-  type: "object",
-  properties: { accepted: { type: "boolean" }, candidate: artifactSchema },
-  required: ["accepted", "candidate"],
-  additionalProperties: false,
-};
+/**
+ * The one input an authorized repair may replace on a candidate producer.
+ *
+ * A rejection carries its failures back to the operator, who seals them here. Re-running the
+ * producer with them is what makes the next generation a repair rather than a blind retry, and the
+ * empty literal is the first generation's "no remediation yet".
+ */
+const remediationSchema: PortSchema = { type: "string", maxLength: 4096 };
+const noRemediation = { kind: "literal" as const, value: "" };
 
 function runner(packageName: string, exportName: string, hex: string, model?: string): RunnerReference {
   let packageCode = 0;
@@ -94,7 +97,6 @@ function baseDefinition(id: string, graph: FactoryGraph, inputPorts: Readonly<Re
 
 const codeSnapshot = runner("@ezcorp/reference-code", "snapshotRepository", "a");
 const codeGenerate = runner("@ezcorp/reference-code", "generateCandidate", "b", "claude-haiku-4-5-20251001");
-const codeRepair = runner("@ezcorp/reference-code", "repairCandidate", "c", "claude-haiku-4-5-20251001");
 const codeFreeze = runner("@ezcorp/reference-code", "freezeGitTree", "d");
 const codeChecks = runner("@ezcorp/reference-code-validator", "protectedChecks", "e", "claude-haiku-4-5-20251001");
 const githubRelease = runner("@ezcorp/github-release", "releasePullRequest", "f");
@@ -109,31 +111,15 @@ export const referenceCodeV1: FactoryDefinition = baseDefinition(
         bindings: { repositoryConnection: input("repositoryConnection"), baseCommitSha: input("baseCommitSha") },
       },
       {
+        // The one repairable node. A protected rejection replaces its remediation input, and the
+        // freeze, the checks and the decision below all re-run against the tree it then produces.
         ...task("generate-private-candidate", codeGenerate, ["snapshot-repository"], { candidate: artifactSchema }, ["write"]),
-        inputPorts: { snapshot: artifactSchema, request: stringSchema, baseBranch: stringSchema },
-        bindings: { snapshot: ref("snapshot-repository", "snapshot"), request: input("request"), baseBranch: input("baseBranch") },
+        inputPorts: { snapshot: artifactSchema, request: stringSchema, baseBranch: stringSchema, remediation: remediationSchema },
+        bindings: { snapshot: ref("snapshot-repository", "snapshot"), request: input("request"), baseBranch: input("baseBranch"), remediation: noRemediation },
+        repairableInputs: ["remediation"],
         maxIterations: 12,
       },
-      {
-        id: "bounded-repair",
-        kind: "loop",
-        dependsOn: ["generate-private-candidate"],
-        initialInput: ref("generate-private-candidate", "candidate"),
-        carriedSchema: artifactSchema,
-        resultSchema: repairResultSchema,
-        body: {
-          nodes: [{ ...task("repair-candidate", codeRepair, [], { result: repairResultSchema }, ["write"]), inputPorts: { candidate: artifactSchema, request: stringSchema }, bindings: { candidate: { kind: "ref", root: "loop", name: "carried" }, request: input("request") } }],
-          outputs: { accepted: { kind: "ref", root: "node", name: "repair-candidate", path: ["result", "accepted"] }, candidate: { kind: "ref", root: "node", name: "repair-candidate", path: ["result", "candidate"] } },
-        },
-        until: { kind: "ref", root: "loop", name: "result", path: ["accepted"] },
-        nextInput: { kind: "ref", root: "loop", name: "result", path: ["candidate"] },
-        maxIterations: 3,
-        maxElapsedMs: 6 * 60 * 60 * 1_000,
-        onExhausted: "escalate",
-        outputPorts: { accepted: booleanSchema, candidate: artifactSchema },
-        effects: ["write"],
-      },
-      { ...task("freeze-complete-git-tree", codeFreeze, ["bounded-repair"], { candidate: artifactSchema }), inputPorts: { candidate: artifactSchema, baseCommitSha: stringSchema }, bindings: { candidate: ref("bounded-repair", "candidate"), baseCommitSha: input("baseCommitSha") } },
+      { ...task("freeze-complete-git-tree", codeFreeze, ["generate-private-candidate"], { candidate: artifactSchema }), inputPorts: { candidate: artifactSchema, baseCommitSha: stringSchema }, bindings: { candidate: ref("generate-private-candidate", "candidate"), baseCommitSha: input("baseCommitSha") } },
       { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "candidate") } },
       { id: "acceptance", kind: "acceptance", dependsOn: ["freeze-complete-git-tree", "protected-checks"], contract: "reference.code.v1.contract", candidate: ref("freeze-complete-git-tree", "candidate"), evidence: ref("protected-checks", "evidence"), maxRepairs: 2, outputPorts: { acceptedCandidate: artifactSchema } },
       { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
@@ -161,7 +147,7 @@ export const referenceCodeV1: FactoryDefinition = baseDefinition(
     claim("protected-assets-unchanged", codeChecks, 24 * 60 * 60 * 1_000),
     claim("supervised-review", runner("@ezcorp/reference-code-validator", "supervisedReview", "e", "claude-haiku-4-5-20251001"), 15 * 60 * 1_000),
   ],
-  [codeSnapshot, codeGenerate, codeRepair, codeFreeze, codeChecks, githubRelease].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
+  [codeSnapshot, codeGenerate, codeFreeze, codeChecks, githubRelease].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
 );
 
 const imageGenerate = runner("@ezcorp/reference-image", "generateSdxl", "a");
@@ -187,8 +173,9 @@ export const referenceImageV1: FactoryDefinition = baseDefinition(
     nodes: [
       {
         ...task("brief-snapshot", runner("@ezcorp/reference-image", "snapshotBrief", "f"), [], { brief: stringSchema }),
-        inputPorts: { brief: stringSchema, outputName: stringSchema },
-        bindings: { brief: input("brief"), outputName: input("outputName") },
+        inputPorts: { brief: stringSchema, outputName: stringSchema, remediation: remediationSchema },
+        bindings: { brief: input("brief"), outputName: input("outputName"), remediation: noRemediation },
+        repairableInputs: ["remediation"],
       },
       {
         id: "candidate-rounds",
@@ -270,7 +257,7 @@ export const referenceDataV1: FactoryDefinition = baseDefinition(
   "reference.data.v1",
   {
     nodes: [
-      { ...task("input-snapshot", runner("@ezcorp/reference-data", "snapshotCsv", "e"), [], { snapshot: artifactSchema }), inputPorts: { csv: artifactSchema }, bindings: { csv: input("csv") } },
+      { ...task("input-snapshot", runner("@ezcorp/reference-data", "snapshotCsv", "e"), [], { snapshot: artifactSchema }), inputPorts: { csv: artifactSchema, remediation: remediationSchema }, bindings: { csv: input("csv"), remediation: noRemediation }, repairableInputs: ["remediation"] },
       {
         ...task("parse-schema-validation", dataParse, ["input-snapshot"], { partitions: { type: "array", items: artifactSchema, maxItems: 100 } }),
         inputPorts: { snapshot: artifactSchema, maximumRows: { type: "integer", const: 1_000_000 }, maximumBytes: { type: "integer", const: 256 * 1024 * 1024 }, partitionRows: { type: "integer", const: 10_000 } },

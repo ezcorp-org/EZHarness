@@ -127,7 +127,7 @@ run_coverage() {
   # unmeasured line in a shipped runner.
   echo "→ coverage.py over one real script invocation"
   echo '{}' | py coverage run --rcfile="$PROJECT_REL/pyproject.toml" --data-file="$data" --append \
-    "$PROJECT_REL/c02_runner.py" --request-schema /nonexistent --result-schema /nonexistent --sdk-bridge /nonexistent
+    "$PROJECT_REL/c02_runner.py" --request-schema /nonexistent --result-schema /nonexistent
   local script_status=$?
   # The deliberately malformed envelope must be REJECTED (exit 1). Exit 0 would
   # mean the wire gate admitted an envelope with no kind and no value.

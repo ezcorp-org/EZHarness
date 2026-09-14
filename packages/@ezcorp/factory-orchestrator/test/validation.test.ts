@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { compileFactory } from "@ezcorp/factory-sdk";
+import { compileFactory, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { assertActivityPayloadSize, assertCommandBatchSize, assertContinuationSize, isPartitionSource, validateCompiledFactoryShape, validateDefinitionSource, validateInboxEnvelope, validateInboxEvent, validateLoadedDefinitionPage, validateManifestPage, validateObjectReference, validatePartitionSource, validateWorkflowInput } from "../src/validation.ts";
 
@@ -35,7 +35,7 @@ describe("orchestrator boundary validation", () => {
   it("accepts bounded workflow identities and deadlines", () => {
     assert.doesNotThrow(() => validateWorkflowInput(valid));
     assert.doesNotThrow(() => validateWorkflowInput({ ...valid, deadlineAtMs: 1 }));
-    assert.doesNotThrow(() => validateWorkflowInput({ ...valid, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: { artifactId: "artifact", digest, encodedBytes: 70_000 } } } } }));
+    assert.doesNotThrow(() => validateWorkflowInput({ ...valid, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact: { artifactId: "artifact", digest, encodedBytes: 70_000 } } } } }));
     assert.doesNotThrow(() => validateWorkflowInput({
       ...valid,
       continuation: { stateArtifact: { sourceSequence: 7, manifest: reference }, inbox: [], pendingInbox: [], sourceSequence: 7, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 },
@@ -51,7 +51,7 @@ describe("orchestrator boundary validation", () => {
     assert.throws(() => validateWorkflowInput({ ...valid, deadlineAtMs: 0 }), /workflow deadline/);
     assert.throws(() => validateWorkflowInput({ ...valid, deadlineAtMs: 1.5 }), /workflow deadline/);
     assert.throws(() => validateWorkflowInput({ ...valid, input: "x".repeat(70_000) }), /65536 bytes/);
-    assert.throws(() => validateWorkflowInput({ ...valid, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: { artifactId: "artifact", digest: "bad", encodedBytes: 1 } } } } }), /durable input artifact digest/);
+    assert.throws(() => validateWorkflowInput({ ...valid, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact: { artifactId: "artifact", digest: "bad", encodedBytes: 1 } } } } }), /durable input artifact digest/);
     assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: `sha256:${"b".repeat(64)}` }, acknowledgedInboxSequence: 0 } }), /digest/);
     assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: digest }, acknowledgedInboxSequence: -1 } }), /inbox sequence/);
     assert.throws(() => validateWorkflowInput({ ...valid, continuation: { state: { definitionDigest: digest }, acknowledgedInboxSequence: 1.5 } }), /inbox sequence/);

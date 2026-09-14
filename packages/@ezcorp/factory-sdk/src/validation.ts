@@ -1,8 +1,9 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
-import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryRunnerResult } from "./schema.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
+  FACTORY_LAZY_INPUT_SCHEMA_VERSION,
   FACTORY_LIMITS,
   type CompiledExecutionManifest,
   type CompiledArtifactDescriptor,
@@ -22,6 +23,11 @@ import {
   type FactoryTransportValue,
   type FactoryDurableInput,
   type FactoryUsage,
+  type FactoryValidatorClaimOutcome,
+  type FactoryValidatorClaimReport,
+  type FactoryValidatorError,
+  type FactoryValidatorProvenance,
+  type FactoryValidatorReport,
   type JsonValue,
   type PortSchema,
   type ValidationIssue,
@@ -409,8 +415,13 @@ function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, dept
     if (node.predecessors.length === 0 || new Set(node.predecessors).size !== node.predecessors.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners) return issue("COMPILED_JOIN", "Join predecessors and winners output are invalid.", ["indexes", "nodeById", node.id]);
   } else if (node.kind === "approval") {
     if (!safeCounter(node.expiresInMs, 1) || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice) return issue("COMPILED_APPROVAL", "Approval bounds, choices, or choice output are invalid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs >= factory.definition.bounds.maxExpandedNodes)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
+  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
   return { ok: true };
+}
+
+/** Every node in a graph, including the nodes inside branch, map, and loop bodies. */
+export function factoryGraphNodes(graph: FactoryGraph): readonly FactoryNode[] {
+  return graphNodes(graph).map(entry => entry.node);
 }
 
 export function validateCompiledExecutionManifest(value: unknown, expectedFactoryDigest?: string, descriptor?: CompiledArtifactDescriptor): ValidationResult {
@@ -678,6 +689,63 @@ export function validateFactoryRunnerResult(value: unknown): ValidationResult {
   return { ok: true };
 }
 
+/** Shared by the guest envelope and the gateway-sealed report; neither may hold a duplicate claim. */
+function validateValidatorClaims(claims: readonly FactoryValidatorClaimOutcome[], error: FactoryValidatorError | undefined): ValidationResult {
+  const seen = new Set<string>();
+  for (let index = 0; index < claims.length; index += 1) {
+    const claim = claims[index] as FactoryValidatorClaimOutcome;
+    if (seen.has(claim.id)) return issue("VALIDATOR_CLAIM_DUPLICATE", "A report carries each claim identity at most once.", ["claims", index, "id"]);
+    seen.add(claim.id);
+    if (!boundedText(claim.id, 512) || !boundedText(claim.reasonCode, 128)) return issue("VALIDATOR_CLAIM_IDENTITY", "Claim id and reason code must be bounded text without control characters.", ["claims", index]);
+    if (!safeCounter(claim.measuredAtMs)) return issue("VALIDATOR_CLAIM_MEASURED_AT", "Claim measurement time must be a nonnegative safe integer.", ["claims", index, "measuredAtMs"]);
+    for (let evidenceIndex = 0; evidenceIndex < claim.evidence.length; evidenceIndex += 1) {
+      const reference = validateArtifactReference(claim.evidence[evidenceIndex] as FactoryArtifactReference, ["claims", index, "evidence", evidenceIndex]);
+      if (!reference.ok) return reference;
+    }
+    if (claim.verdict === "FAIL" && claim.evidence.length === 0 && claim.summary.length === 0) return issue("VALIDATOR_CLAIM_EVIDENCE", "A FAIL claim must carry evidence or a summary a repair can read.", ["claims", index]);
+  }
+  if (error !== undefined) {
+    if (!boundedText(error.code, 128) || !boundedText(error.message, 4_096)) return issue("VALIDATOR_ERROR_BODY", "A validator error needs a bounded code and message.", ["error"]);
+    if (claims.some((claim) => claim.verdict !== "VALIDATOR_ERROR")) return issue("VALIDATOR_ERROR_SCOPE", "A validator error is reportable only when every claim is VALIDATOR_ERROR.", ["error"]);
+  }
+  return { ok: true };
+}
+
+/** The isolated guest writes claims only. Any provenance key is rejected by the generated schema. */
+export function validateFactoryValidatorClaimReport(value: unknown): ValidationResult {
+  if (!isFactoryValidatorClaimReport(value)) return issue("VALIDATOR_CLAIMS_SCHEMA", "Value does not match the generated FactoryValidatorClaimReport schema.", []);
+  const report = value as FactoryValidatorClaimReport;
+  return validateValidatorClaims(report.claims, report.error);
+}
+
+function validateValidatorProvenance(provenance: FactoryValidatorProvenance): ValidationResult {
+  for (const key of ["attemptId", "tenantId", "projectId", "runId", "candidateNodeInstanceId"] as const) {
+    if (!boundedText(provenance[key], 512)) return issue("VALIDATOR_PROVENANCE_IDENTITY", "Sealed provenance identities must be bounded text without control characters.", ["provenance", key]);
+  }
+  for (const key of ["candidateDigest", "validatorLockDigest", "runnerDigest", "environmentDigest", "configurationDigest"] as const) {
+    if (!validDigest(provenance[key], true)) return issue("VALIDATOR_PROVENANCE_DIGEST", "Sealed provenance digests must be prefixed lowercase sha256 values.", ["provenance", key]);
+  }
+  if (!safeCounter(provenance.candidateGeneration)) return issue("VALIDATOR_PROVENANCE_COUNTER", "Candidate generation must be a nonnegative safe integer.", ["provenance", "candidateGeneration"]);
+  for (const key of ["trustRevision", "issuerGrantRevision", "issuedAtMs"] as const) {
+    if (!safeCounter(provenance[key], 1)) return issue("VALIDATOR_PROVENANCE_COUNTER", "Trust revision, issuer grant revision, and issue time must be positive safe integers.", ["provenance", key]);
+  }
+  if (!safeCounter(provenance.expiresAtMs, provenance.issuedAtMs + 1)) return issue("VALIDATOR_PROVENANCE_FRESHNESS", "Sealed provenance must expire after it was issued.", ["provenance", "expiresAtMs"]);
+  const model = provenance.model;
+  if (model !== undefined && (!boundedText(model.provider) || !boundedText(model.model) || !validDigest(model.configurationDigest, true) || !validDigest(model.policyDigest, true) || model.configurationDigest !== provenance.configurationDigest)) {
+    return issue("VALIDATOR_PROVENANCE_MODEL", "A pinned model must match the sealed configuration digest.", ["provenance", "model"]);
+  }
+  return { ok: true };
+}
+
+/** Only the gateway validator path constructs a sealed report; a runner cannot supply provenance. */
+export function validateFactoryValidatorReport(value: unknown): ValidationResult {
+  if (!isFactoryValidatorReport(value)) return issue("VALIDATOR_REPORT_SCHEMA", "Value does not match the generated FactoryValidatorReport schema.", []);
+  const report = value as FactoryValidatorReport;
+  const provenance = validateValidatorProvenance(report.provenance);
+  if (!provenance.ok) return provenance;
+  return validateValidatorClaims(report.claims, report.error);
+}
+
 function validateApiPreconditions(request: Extract<FactoryApiRequest, { preconditions: unknown }>): ValidationResult {
   const { idempotencyKey, expectedRevision } = request.preconditions;
   if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
@@ -698,7 +766,7 @@ function validateApiPath(request: FactoryApiRequest): ValidationResult {
 /** Validates durable artifact descriptors without materializing artifact bytes into kernel state. */
 export function validateDurableInputPorts(ports: Readonly<Record<string, PortSchema>>, input: JsonValue, durable: FactoryDurableInput): ValidationResult {
   if (!isRecord(input) || !validateIJson(input).ok || encodedBytes(input) > FACTORY_LIMITS.maxInlineValueBytes) return issue("DURABLE_INPUT", "Durable input placeholders must be bounded I-JSON objects.", ["input"]);
-  if (!isRecord(durable) || durable.schemaVersion !== "factory.lazy-input.v1" || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
+  if (!isRecord(durable) || durable.schemaVersion !== FACTORY_LAZY_INPUT_SCHEMA_VERSION || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
   for (const name of Object.keys(input)) if (!own(ports, name)) return issue("DURABLE_INPUT", "Durable input contains an undeclared port.", ["input", name]);
   for (const [name, transport] of Object.entries(durable.parameters)) {
     if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength) || !own(ports, name) || !isRecord(transport)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter is invalid.", ["durableInput", "parameters", name]);

@@ -56,6 +56,9 @@
           "type": "string"
         },
         "maxRepairs": {
+          "description": "Repairs this contract authorizes after a protected rejection.\n\nThe first candidate is not a repair, so the node runs at most `maxRepairs + 1` candidate generations. An absent bound authorizes no remediation at all: a rejection is terminal. `FACTORY_LIMITS.maxCandidateGenerations` caps every domain at three generations.",
+          "maximum": 2,
+          "minimum": 0,
           "type": "number"
         },
         "outputPorts": {

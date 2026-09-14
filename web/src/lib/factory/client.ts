@@ -21,7 +21,10 @@ import type {
 	FactoryReleaseReconciliationBody,
 	FactoryApprovalResource,
 	FactoryDurableReceipt,
+	FactoryRunDetails,
+	FactoryRunListQuery,
 	FactoryRunRevisionBody,
+	FactoryRunSummary,
 	RunnerReference,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
@@ -252,6 +255,20 @@ export class FactoryApiClient {
 		return expectKind(await this.read(path, this.mutationInit("decide-command-approval:" + approvalId, 0, { contextDigest, choice }, "PUT")), "approval.resource").resource;
 	}
 
+	private runs(projectId: string): string {
+		return "/api/factories/projects/" + encoded(projectId) + "/runs";
+	}
+
+	async listRuns(projectId: string, query: FactoryRunListQuery = {}): Promise<{ readonly items: readonly FactoryRunSummary[]; readonly nextCursor: string | null }> {
+		const response = expectKind(await this.read(this.runs(projectId) + queryString({ limit: query.limit, cursor: query.cursor, status: query.status, factoryId: query.factoryId })), "run.page");
+		return { items: response.page.items, nextCursor: response.page.nextCursor ?? null };
+	}
+
+	/** Reads the canonical run, which is where a control gets the revision it must match. */
+	async getRun(projectId: string, runId: string): Promise<FactoryRunDetails> {
+		return expectKind(await this.read(this.runs(projectId) + "/" + encoded(runId)), "run.details").resource;
+	}
+
 	async controlRun(projectId: string, runId: string, revision: number, body: FactoryRunRevisionBody): Promise<FactoryDurableReceipt> {
 		const path = "/api/factories/projects/" + encoded(projectId) + "/runs/" + encoded(runId) + "/control";
 		return expectKind(await this.read(path, this.mutationInit("control-run:" + runId + ":" + body.action + ":" + body.nodeId, revision, body)), "mutation.accepted").receipt;
@@ -290,7 +307,7 @@ export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
 
 export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval" | "decideCommandApproval">;
 
-export type FactoryRunControlApi = Pick<FactoryApiClient, "controlRun">;
+export type FactoryRunControlApi = Pick<FactoryApiClient, "listRuns" | "getRun" | "controlRun">;
 
 export function blankFactory(factoryId: string): FactoryDefinition {
 	return {

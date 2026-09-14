@@ -1,9 +1,9 @@
-import { createGatewayTransport, type GatewayResponse, type GatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
-import { POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
+import { createGatewayTransport, GatewayStatusError, type GatewayResponse, type GatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
+import { POOL_LEASE_STATES, POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
 import type { PoolAdmissionRequest, PoolLeaseFenceInput } from "./service";
 import { parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
 
-const leaseStates = new Set<PoolLeaseState>(["queued", "held", "running", "revoking", "uncertain", "settled", "rejected"]);
+const leaseStates = new Set<PoolLeaseState>(POOL_LEASE_STATES);
 const decisionStates = new Set<PoolDecision["status"]>(["queued", "rejected", "admitted", "cancelled"]);
 
 export interface PoolAdmissionClient {
@@ -114,6 +114,29 @@ async function requestJson(transport: GatewayTransport, method: "GET" | "POST", 
   return transport.request(method, path, body, POOL_HTTP_BYTES_LIMIT, signal);
 }
 
+/**
+ * C03 answers a full admission queue with HTTP 429 carrying the decision. The
+ * shared transport still fails closed on every other non-2xx status.
+ */
+async function admissionJson(transport: GatewayTransport, body: unknown, signal?: AbortSignal): Promise<GatewayResponse> {
+  try { return await requestJson(transport, "POST", "/v1/pool/requests", body, signal); }
+  catch (error) {
+    if (error instanceof GatewayStatusError && error.response.statusCode === POOL_QUEUE_FULL_HTTP_STATUS) return error.response;
+    throw error;
+  }
+}
+
+/**
+ * `Retry-After` in delta-seconds. The HTTP-date form carries no bounded
+ * interval for a caller that holds no clock agreement, so it is ignored and the
+ * decision body's own retry interval stays in force.
+ */
+function retryAfterHeader(response: GatewayResponse): number | undefined {
+  const raw = response.headers["retry-after"];
+  const value = typeof raw === "string" ? raw.trim() : "";
+  return /^[0-9]{1,6}$/.test(value) && Number(value) >= 1 ? Number(value) : undefined;
+}
+
 /** Tenant-scoped C03 client. Every mutation makes one bounded transport call. */
 export async function createPoolAdmissionClient(options: PoolAdmissionClientOptions): Promise<PoolAdmissionClient> {
   const tenantId = wireText(options.tenantId, "client tenant id");
@@ -122,8 +145,14 @@ export async function createPoolAdmissionClient(options: PoolAdmissionClientOpti
   const client: PoolAdmissionClient = {
     async request(value: PoolAdmissionRequest, signal?: AbortSignal) {
       const input = snapshotRequest(value);
-      const result = parsePoolDecision(json(await requestJson(transport, "POST", "/v1/pool/requests", input, signal), "admission decision"));
+      const response = await admissionJson(transport, input, signal);
+      const result = parsePoolDecision(json(response, "admission decision"));
       if (result.reservationId !== input.reservationId) throw new Error("Pool admission returned a mismatched reservation.");
+      if (response.statusCode === POOL_QUEUE_FULL_HTTP_STATUS) {
+        if (result.status !== "rejected" || result.reason !== POOL_QUEUE_FULL_REASON) throw new Error("Pool admission returned an unexpected queue-full decision.");
+        const seconds = retryAfterHeader(response);
+        return seconds === undefined ? result : { ...result, retryAfterSeconds: seconds };
+      }
       if (result.status === "admitted") assertLeaseBinding(result.lease!, tenantId, input, input.resources);
       return result;
     },

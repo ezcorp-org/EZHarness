@@ -2048,7 +2048,10 @@ Integration defects found only on the combined tree (wave 1): an unregistered Po
 
 ## Later waves
 
-- [ ] Wave 2: W02, W03, W05 running from `88effb159`; W06, W07, W08, W09 follow their inputs.
+- [x] Wave 2 (part 1): W03 merged as `fdad73e4b` (validation ACCEPT-WITH-FIXES, low fixes landed), W02 merged as `4acc452ea` (ACCEPT-WITH-FIXES → fixes → ACCEPT); combined run on `4acc452ea` passes every producer, four Podman suites, and both gate bases with the canonical pool/compute/provisioning/Python coverage producers (`docs/validation/factory/wave2/`).
+- [x] Wave 2 (part 2): W05 merged as `1dc9a0226` after resolving its merge onto W03 (validation ACCEPT-WITH-FIXES, fixes landed); combined run on `1dc9a0226` passes every producer, four Podman suites, and both gate bases (`docs/validation/factory/wave2/wave2c-*`). Integration fix: the schema-drift test now derives the generated schema count instead of pinning eight.
+- [x] Wave 2 (part 3): W08 merged as `6c3991b4d` (ACCEPT), W06 as `9768f2a5b` (ACCEPT-WITH-FIXES → ACCEPT), W07 as `b90dbb60d` (ACCEPT-WITH-FIXES twice, all findings fixed and verified; a window-based storage prune run against the shared store was replaced by manifest-only cleanup). Combined run on `b90dbb60d` passes every producer, four Podman suites, and both gate bases (`docs/validation/factory/wave2/wave2d-*`). Infrastructure: the local SeaweedFS volume cap raised to 400 after the ordinary store exhausted 100 volumes.
+- [ ] Wave 2 (part 4): W09 rejected twice (composition root never invoked; Podman probe not reentrant-safe), fixed, third independent validation pending.
 - [ ] Wave 3: W10–W12, W13, W14, W15–W17.
 - [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
 
@@ -2319,3 +2322,325 @@ own timestamps against the run window. Two other evidence scripts piped test
 output through `tail` inside a loop and recorded `tail`'s exit code; one postgres
 producer was failing on a missing environment variable and read as green. Both
 now accumulate per-file exit codes.
+
+## W03 — Physical stop, cancellation, and budget settlement
+
+Branch `wp/w03-stop-settlement`, base `integ/w00` at `88effb159`. Gates and receipts:
+`tasks/factory/w03-GATES.md`, `/tmp/factory-platform-evidence/w03/`.
+
+- [x] Type checkpoint: share journal fact validation (freeze section 8).
+- [x] Type checkpoint: type live stop authority (freeze section 3, migration + Drizzle coherence).
+- [x] Type checkpoint: type usage settlement (freeze section 4, migration + inbox co-enqueue proof).
+- [x] Finish the Phase B stop service on the exact attempt, reservation, worker, host, generation,
+      request, and cancellation command.
+- [x] Cancel a still-running attempt with no terminal result, from the sealed admission plus the
+      launch record. No fabricated outcome.
+- [x] Host identity and key wiring: only the supervisor signs a physical fact.
+- [x] Concrete authenticated host stop transport over the real private mTLS service, with key
+      rotation and reload, unknown-key rejection, and the retained-trust policy for an old key.
+- [x] Abort, at most ten seconds of cleanup, then whole-sandbox termination confirmed from the
+      runtime. Proven against real rootless Podman.
+- [x] Bounded stop timeout leaves durable uncertainty and holds; a later valid receipt reconciles
+      without replacement work and without rewriting a prior outcome.
+- [x] Receipts verified before pool release and before atomic journal, budget, and inbox
+      settlement. Unknown provider cost is never settled as zero.
+- [x] Trusted later usage reconciliation with one idempotent usage-settled event, concurrent
+      stop and confirm, corruption rejection, and pool-ack-then-product-failure recovery.
+- [x] Cancellation during admission, lost acknowledgements, ledger loss, and partitioned
+      survivors. See the gate file for what the stop path proves and what is routed elsewhere.
+- [x] C03 fairness and limits: round-robin service, the thirty-second oldest-first lane, reserved
+      minima, atomic whole-vector admission, infeasible rejection, the outstanding limits with
+      HTTP 429, the reservation vocabulary, the allocation-trace audit, and the skewed workload.
+
+- [x] Unblock W05: admit a protected-validator origin through the acceptance command, key it with
+      `factoryReservationIdForOrigin`, and emit no `admission-result`. Commit `97fb7ab16`.
+- [x] Root-cause and guard the pool suite spin that held the shared heavy lock. Commit `c2d6f27d1`.
+
+### Review
+
+The package landed three type checkpoints, the stop service, the C02.14 sandbox termination, the
+authenticated host stop transport, and the C03 scheduling work. Six real defects were found by
+running the contracts rather than reading them: a pool round that never ended and starved every
+tenant but the lexicographically smallest; a guest shim that discarded every graceful stop because
+a container's PID 1 has no default signal action; a launch reader that only decoded `jsonb` in its
+PGlite form; a run authorizer that made a cancelling run unstoppable; an assertion against an undriven lazy
+`SQLQuery` that busy-spun a core and held the shared heavy lock for fifty minutes; and a durable
+constraint that made a validator admission impossible to settle. Each is described in its own
+commit with the measurement that found it.
+## W02 — Isolated Python and per-attempt CPU/GPU allocation (Terra runtime, `wp/w02-python-isolation`)
+
+Gates and receipts: `tasks/factory/w02-GATES.md`, `/tmp/factory-platform-evidence/w02/`.
+
+Per-attempt device authority:
+- [x] A factory execution start names exactly the devices its held pool allocation authorized; a CPU start names none. `configuredDevices` stays only for a v4 caller that names no field at all, and a build or discovery guest is denied a device whatever the host configures.
+- [x] `factoryHeldAllocationDevices` derives the authorization from the lease's own resource vector and the registered profile of the host that actually holds it.
+- [x] Unapproved, stale and overlapping grants are all refused: no `gpu-host` in the vector, a node outside the shared allowlist, a second `prepare` under a different lease, and a second live attempt on the same host holding a node this grant names, fenced durably under a host-scoped transaction lock.
+- [x] A real Podman proof that a CPU guest sees no GPU device on a host runner configured with three.
+
+Isolated Python guest:
+- [x] Digest-pinned CPython 3.13.12 guest through the shared recipe machinery, extending `PodmanRunner` rather than forking it.
+- [x] The FIFO shim contract: the in-guest shim holds `/channel/{in,out,err}` `O_RDWR` for the guest's whole life, so no host process's exit reaches the guest as end-of-input.
+- [x] The framed request and result bridge, answering `extension/discover`, `extension/invoke` and `extension/cancel` over the same frame policy the Bun guest uses.
+- [x] The immutable dependency and model closure: interpreter pin, committed `uv.lock` by digest, importable distribution closure, model closure and resource class, all sealed into `.runner/recipe.json` and compared with the running guest at build time.
+
+Python-native validator equivalence (C07.8, discrepancy 20):
+- [x] `c02_runner.py` no longer shells out to the Node bridge. `factory_ijson`, `factory_schema` and `factory_validation` are the Python counterpart of the SDK's canonical, schema and validation modules.
+- [x] The shared generated schemas and their negative fixtures run under real isolated Bun and Python guests and are compared issue code by issue code.
+- [x] Host-Python conformance stays as a separate, narrower entry point.
+- [x] W18's Python lanes pass with 100% line and branch coverage, and the three rule families W18 deferred (`I`, `S`, `E5`) are now enforced.
+
+Package states on the shared v4 fence:
+- [x] `quarantined` beside `revoked`, with every revision recording the v4 installation generation it was decided against.
+- [x] A decision the installation has outrun no longer authorizes dispatch; a blocking transition fences live attempts through a seam inside its own commit; every earlier decision is preserved.
+
+Applied controls and hardening:
+- [x] Every applied control read from the container runtime while the guest runs, and compared with the guest's own report, for both pinned guest languages.
+- [x] The guest environment is exactly the three declared variables plus the two the OCI runtime injects with fixed values. The image's own `ENV` no longer reaches any guest.
+- [x] The base-hardening regressions re-run on the final code.
+
+GPU:
+- [x] Real AMD ROCm computation in ten fresh containers with a missing-device control, under the user-scoped GPU lock.
+- [x] The per-attempt grant proved through the factory's own launch path, one verdict per rule.
+- [x] The supported local profile recorded, and every production criterion written as an explicit unmet row with its own measured verdict.
+
+Review (W02): the two headline gaps are closed. Device authority is now a property of the held allocation rather than of the host, fenced durably so two live attempts cannot share a node, and the Python runtime has a validator of its own instead of a subprocess call into Node. Three defects surfaced while verifying rather than while writing. Every guest, in both languages, was receiving the container image's own environment, including `PATH` and the interpreter's build metadata, although C05 names exactly three variables and the requirement index recorded that row as closed; `--unsetenv-all` removes it and the two the OCI runtime still injects are pinned to fixed, tenant-independent values. A grant naming CDI devices would have launched an attempt with no device at all, because the shared runner injects raw nodes only; it is now refused at start. The ROCm fixture could not be read by the container's mapped user in a worktree made with a restrictive umask, which would have failed the GPU proof for a reason that has nothing to do with the GPU. One deviation for the coordinator: `FactoryAttemptRuntimeError` gains a `device_conflict` code, and `FactoryPackageTrusts` gains an optional fence seam whose implementation is W03's stop path.
+
+## W05 — protected validators and child provenance
+
+- [x] One strict validator report for PASS, FAIL, INCONCLUSIVE, and VALIDATOR_ERROR, in the SDK and
+      consumed by the product. A clean process exit is not a verdict.
+- [x] Multi-claim result key migration, populated-schema backfill, repeat migration, and real
+      PostgreSQL parity between the fresh and the upgraded catalog.
+- [x] Resolve the exact compiled evidence source and stopped task, verify its journal request and
+      candidate binding, and bind claims only to their pinned runner, model, and configuration.
+- [ ] Schedule missing protected validators through durable admission, pool allocation, the attempt
+      dispatcher, and isolated execution. Blocked on W01; the typed origin and its migration landed.
+- [x] Typed validator origin in shared admission, where ordinary admission still requires a
+      dispatch-node command, with one reservation per validator identity.
+- [x] Verify required and quorum claims, freshness, issuer grants, complete report fields, current
+      trust, and the latest immutable trust revision.
+- [x] Bind a child's accepted artifact alias to the exact parent attempt, child binding, child
+      decision, artifact, and live ancestry fences, with parent acceptance kept separate.
+
+### Review
+
+Eight commits land five frozen type checkpoints plus the two behaviors those types exist for. The
+SDK now owns the only validator-report parser, so the product's hand-rolled boolean parser is gone
+and a claim's verdict is the only acceptance input: INCONCLUSIVE and VALIDATOR_ERROR are stored,
+counted, and refused rather than collapsed into FAIL. A failing required claim stopped being a
+thrown activity error and became a durable rejection receipt plus one `node-failed` event, which is
+what lets a bounded repair ever run.
+
+Three things were harder than the sketch. The freeze's branch field name `decision` was already
+taken by the acceptance decision object, so renaming it would have invalidated every stored receipt
+digest; the branch is `outcome` and the column keeps the frozen name. The freeze's release-profile
+CHECK cannot be installed before a writer exists, because the landed release path would fail every
+dispatch closed. And moving evidence claims from `passed` to `verdict` makes any evidence row
+written before the change unverifiable, which is the safe direction: rewriting those digests would
+be forging sealed evidence.
+
+Two findings went to other packages rather than being fixed here. The kernel still answers an
+acceptance rejection with a `cancel-node` for a node that has no physical attempt, which the plan
+forbids and W06 owns; the exact command is pinned in a test so the fix flips an assertion. The
+release provider's `publish` gained the missing `AbortSignal` and the request-byte bound became an
+export, so W07 and W08 implement `resolve` only.
+
+### W05 addendum after W01 integration
+
+- [x] Widen `FactoryTrustedValidatorGateway` with both binders, so the scheduler and the acceptance
+      path bind through one seam (freeze section 2, open question 7).
+- [x] Schedule missing protected validators from the acceptance command through durable admission,
+      with exactly one budget reservation and one compute admission per validator identity and the
+      typed origin sealed on both rows.
+- [ ] Pool allocation, the attempt dispatcher leg, and a real isolated guest. Blocked on one change
+      in W03's admission core: a validator admission's reference is the acceptance command, which
+      `withCurrent` does not admit and `assertContext` re-keys with the task reservation rule. The
+      change also has to suppress the `admission-result` kernel event, because a validator has no
+      kernel node to receive one, so it carries its own lost-response and cancellation matrix.
+
+The scheduler stops exactly where it can still be proven. Everything it writes is durable, keyed by
+the typed origin, and converges under repeat, concurrency, and restart; nothing downstream of the
+pool poll was written unproven.
+
+### W05 second addendum
+
+- [x] The evidence-reference scope check: a claim may cite only auxiliary materials its own attempt
+      wrote, so a report cannot make a repair read another attempt's findings.
+- [x] The attempt-dispatcher leg: a protected validator reuses the whole shared dispatch path and
+      settles through the journal, writing no kernel completion row and no inbox event.
+- [ ] The real Podman isolated-validator proof. Only the in-process runner differs now; it still
+      waits on the admission change, because the scheduler cannot produce a queue row until an
+      admission reaches `admitted`.
+
+W03 had not landed the validator-origin admission change at `a8c3e0fca`: `wp/w03-stop-settlement`
+is at `1d591eeaa` and none of its commits since the W01 merge touch the admission core. Nothing was
+cherry-picked, and nothing downstream of that point was written unproven.
+
+### W05 final addendum
+
+- [x] Cherry-picked W03's `97fb7ab16` so a validator admission authorizes through the acceptance
+      path, and applied `310d3da5f`'s shared-root-envelope correction by hand.
+- [x] The whole scheduling chain: plan, reserve, pool admission with no kernel event, one durable
+      attempt, one dispatch through W01's shared dispatcher, evidence resolved, and no further
+      schedule needed. A repeat, concurrency, a restart, and a cancellation all converge.
+- [x] A real isolated Podman guest runs one protected validator through W01's runtime and returns a
+      report the SDK validator accepts, with no grants, no tools, and a freshly minted token.
+- [x] The evidence-reference scope check.
+
+Every W05 checklist row is now closed. One defect this package introduced was caught by W18's
+derived C13 inventory in the final sweep and fixed in `b100258c0`: two new modules imported a shared
+module without declaring it, which the boundary script alone does not detect.
+
+## W08 — S3 manifest publication and reconciliation (`wp/w08-s3-publication`)
+
+Owner: free Terra worker. Base `integ/w00` at `1dc9a0226`. Evidence
+`/tmp/factory-platform-evidence/w08/`. Gates `tasks/factory/w08-GATES.md`.
+
+- [x] Type the S3 publication set: the frozen request, the published manifest, and the
+      verified receipt that names every file key, digest, media type, and object version,
+      plus the final manifest digest. Never an ETag as a content digest.
+- [x] Publish an approved set of exact files under one operation directory with the
+      configured destination credentials only. Stage each member conditionally and
+      privately, verify SHA-256, media type, and object version, then write `manifest.json`
+      last. Partial staging is never published.
+- [x] Export a 256 MiB material through W04's chunks as a real S3 multipart upload.
+- [x] Reconcile an interrupted staging only under the same authorized identity. Refuse
+      conflicting content, a missing version, changed media, a manifest race, and any
+      second confirmed publication.
+- [x] Supply the S3 publication-set scope resolver for `factoryArchivePublicationSet`. Read
+      the attempt id from the verified protected command provenance, never from caller
+      input. Feed W04a's archive-before-claim and keep receipt-before-settlement.
+- [x] Implement the shared asynchronous release profile (`resolve`) for the S3 adapter.
+- [x] Prove all ten tenant credentials enforce isolation with measured cross-tenant denials.
+- [x] Full verification: focused suites with coverage, the PostgreSQL producers, typecheck,
+      lint, boundaries, gate integrity, and `BASE_REF=integ/w00` new-file and patch coverage.
+
+### Review — W08
+
+Every checklist item above is complete and has a receipt in
+`/tmp/factory-platform-evidence/w08/receipts.jsonl`. Gates are in
+`tasks/factory/w08-GATES.md`.
+
+The publication is the manifest. Members are staged conditionally and privately under one
+operation directory, each is verified by reading it back at its exact object version and
+recomputing its SHA-256 and media type, and `manifest.json` is written last. A reader that
+follows the manifest therefore never sees a partial set, and a directory with no manifest has
+published nothing. The receipt names every file key, digest, media type, and object version and
+carries the manifest digest as the one confirmed effect. No ETag reaches it: a probe of the real
+service recorded a composite ETag and no `ChecksumSHA256` at all for a multipart object, so
+neither could serve as a content digest.
+
+Two new files carry the work and `src/factory/releases.ts` is untouched.
+`release-s3-publication.ts` is the provider; `release-s3-scope.ts` is W04a's publication-set
+scope resolver and W05's asynchronous profile for S3. The attempt id comes only from the stored
+protected command trail and must agree with `factory_executions`, so a request can never widen
+the scope it is read under.
+
+The one open engineering point is stated in the gate file rather than hidden: a published member
+may be 256 MiB and the archive's per-member ceiling is 16 MiB, so member bytes are not archive
+members. The archived recovery intent already carries the whole frozen request, so every member's
+key, media type, and SHA-256 survives in the archive without them, which is what reconciliation
+needs.
+
+`deployed-independent-failure-domain` stays unmet on this host, exactly as W04a recorded. This
+package does not soften that verdict anywhere.
+## W06 — rejection, repair, and replan (Sol controls)
+
+Worktree `.worktrees/w06-remediation`, branch `wp/w06-remediation`, from `integ/w00` at `1dc9a0226`.
+
+- [x] 1. Kernel remediation wait. A `node-failed` with `failureKind: "acceptance_rejected"` enters a
+      bounded remediation wait instead of `stopFailedAttempt`. No `cancel-node` for a virtual node.
+- [x] 2. Bound consumption. `AcceptanceNode.maxRepairs` is the declared bound; the kernel holds an
+      absolute ceiling of three candidate generations. An exhausted bound fails with `bound_exhausted`.
+- [x] 3. Repair targets the producer, never the acceptance node itself; a repair must produce a new
+      candidate, not re-ask the same contract.
+- [x] 4. Reference remediation. `reference.code.v1` decides after the protected checks: generate →
+      freeze → checks → acceptance → bounded repair → new candidate → freeze → checks → new decision.
+- [x] 5. Replan authority. Equality of the protected contract, and denial of every widening of
+      grants, effects, resource limits, deadline, and parent budget, each tested separately.
+- [x] 6. Settleable-child scan. `FactoryChildRuns.listSettleableInTransaction`, bounded, oldest-first,
+      with empty, paged, and concurrent tests. Hands W09 its worker enumeration.
+- [x] 7. Production wiring. `runControls` composed by default; run read and repair/replan controls in
+      the browser client and a user control component.
+- [x] 8. Verification. PGlite, real PostgreSQL, the Node Temporal replay producer, kernel golden
+      traces, coverage, lint, typecheck, boundaries, gate integrity, BASE_REF=integ/w00 gates.
+
+### Review
+
+Six commits from `1dc9a0226`. The kernel now answers a protected rejection with a bounded
+remediation wait instead of a stop command naming a task that never existed, consuming the
+acceptance contract's declared `maxRepairs` under an absolute ceiling of three candidate
+generations. `reference.code.v1` decides after its protected checks, so a rejection produces a new
+candidate, a new freeze, every check again, and a new decision, which is the graph C10 specifies and
+the defect the plan named. A replan is bounded by the authority the run already holds along sixteen
+dimensions, each denied on its own. `FactoryChildRuns.listSettleableInTransaction` unblocks W09.
+The production application composes the controls by default and an operator can drive them from the
+browser.
+
+Two bugs the tests found and one defect measured outside the checklist. The browser control cleared
+the banner that reported its own outcome, twice. Cancelling a run with an in-flight acceptance, or
+its deadline expiring, emitted a stop command the gateway cannot answer and that kills the whole
+workflow; that is fixed for acceptance and filed for approval and release, whose cancellation
+semantics this package does not own.
+
+Full gate table, deviations, and receipts: `tasks/factory/w06-GATES.md`.
+
+## W07 — GitHub publication and reconciliation
+
+Branch `wp/w07-github-publication` from `integ/w00` at `1dc9a0226`. Evidence
+`/tmp/factory-platform-evidence/w07/`. Gate file `tasks/factory/w07-GATES.md`.
+
+- [x] 1. `feat(factory): encode operation ids in git refs` — freeze section 11. New
+      `src/factory/release-git-refs.ts` with the reversible suffix, the `ezcorp-factory/`
+      namespace, round-trip and conflict tests, a `git check-ref-format` conformance test, the
+      `ref`/`branch` receipt fields, the `destination_ref`/`destination_branch` binding on the
+      operation row, and the unvalidated head-branch interpolation in
+      `src/extensions/project-open-pr.ts` fixed through one shared ref grammar.
+- [x] 2. `fix(factory): move release reconciliation proofs out of the transaction` — freeze
+      correction 1. Provider proofs and archive writes happen outside; authority is re-derived
+      inside one transaction.
+- [x] 3. `feat(factory): seal the resolved release profile into the claim` — resolve outside
+      transactions under an abortable deadline, revalidate the exact input inside, install the
+      release-profile completeness CHECK W05 left, add `listClaimableInTransaction`, the
+      publication-set scope resolver reading the attempt id from verified protected command
+      provenance, and production `FactoryDestinationReservationReader` / `FactorySenderFence`.
+- [x] 4. `feat(factory): publish accepted candidates as draft pull requests` — the GitHub
+      provider over the shared broker transport: immutable Git objects, the exact unique branch,
+      one draft PR, returned-identity verification, never force-update or merge, complete tree,
+      base parent, protected assets, paths, lock, and the submodule/LFS/link/network-install
+      rejections.
+- [x] 5. Archive-before-claim and receipt-before-settlement through W04a's writer; dropped
+      responses after each external and archive write recovered by identity; reconciliation by
+      exact ref/SHA and PR marker with the F04 matrix.
+- [x] 6. Real tests against `ezcorp-org/factory-platform-publication-tests` with remote content
+      verification, retained receipts, and cleanup of disposable resources only after evidence
+      capture; the selected-repository App and broker-only namespace verification, with
+      CLI-credential runs labelled as the narrower smoke test.
+- [x] 7. Full verification per common.md and the `BASE_REF=integ/w00` gates; registered
+      `tests/postgres` suites; restart-conformance cases for the migration change.
+
+### W07 review
+
+Every checklist row is closed except the two that are not code. The selected-repository GitHub App
+and the broker-only ref namespace are unverified, because the runs use the local GitHub CLI
+credential; the evidence says so in `credentialScope`, `selectedRepositoryAppVerified`, and
+`brokerOnlyNamespaceVerified` rather than implying otherwise. And the archive-writer and
+child-artifact PostgreSQL producers are blocked by the shared "ordinary" SeaweedFS store running out
+of writable volumes for the `tenant-01` collection, which the repository's own unchanged
+`verify-factory-storage.ts` reproduces; that receipt is kept as a failure, not counted as a pass.
+
+What landed. One git branch grammar shared by the factory encoder and the v4 project path, so
+"the branch is a valid ref" became an executable fact and the unvalidated head-branch interpolation
+is fixed by construction. Local git object identity measured against real git, which turns every
+SHA GitHub returns into a comparison rather than a claim. The reconciliation proofs and archive
+writes moved out of the product transaction, with a test that counts transaction depth at every
+external call and goes red when the old shape is put back. The asynchronous release profile sealed
+into every preparation and revalidated against the pinned decision and material under a lock, which
+let W05's deferred claim CHECK be installed. The GitHub adapter itself: one complete immutable tree,
+one unique branch, one draft pull request, no force-update and no merge, and a real pull request
+published to the private repository with its content read back byte for byte.
+
+The one thing I would flag hardest for the coordinator is not a defect in this package: W08 and W07
+each built a publication-scope resolver that reads the verified attempt id, by two different durable
+paths. Both are correct and neither takes caller input, but one concept with two implementations is
+what C13 forbids, and collapsing them crosses both packages' files.

@@ -1,0 +1,129 @@
+import { expect, test } from "bun:test";
+import {
+  assertFactoryAdmissionOrigin,
+  assertFactoryDispatchNodeOrigin,
+  FACTORY_ADMISSION_ORIGIN_SCHEMA_VERSION,
+  FactoryAdmissionOriginError,
+  factoryAdmissionOriginDigest,
+  factoryReservationIdForOrigin,
+  type FactoryAdmissionOrigin,
+  type FactoryDispatchNodeOrigin,
+  type FactoryProtectedValidatorOrigin,
+} from "./admission-origin";
+import { factoryTaskReservationId } from "./task-admission";
+import type { FactoryAuthorizedCommand } from "./command-authority";
+import type { TrustedFactoryCommandReference } from "./trusted-command-gateway";
+
+const reference = { tenantId: "tenant-1", projectId: "project-1", logicalRunId: "run-1", interpreterId: "interpreter-1", commandId: "command-1" } as TrustedFactoryCommandReference;
+const digest = (fill: string) => `sha256:${fill.repeat(64).slice(0, 64)}`;
+
+function dispatchNode(overrides: Partial<FactoryDispatchNodeOrigin> = {}): FactoryDispatchNodeOrigin {
+  return { schemaVersion: FACTORY_ADMISSION_ORIGIN_SCHEMA_VERSION, kind: "dispatch-node", commandId: "attempt-1", nodeInstanceId: "node-a", candidateGeneration: 0, attemptNumber: 1, ...overrides };
+}
+
+function protectedValidator(overrides: Partial<FactoryProtectedValidatorOrigin> = {}): FactoryProtectedValidatorOrigin {
+  return {
+    schemaVersion: FACTORY_ADMISSION_ORIGIN_SCHEMA_VERSION,
+    kind: "protected-validator",
+    acceptanceCommandId: "acceptance-1",
+    candidate: { projectId: "project-1", runId: "run-1", nodeInstanceId: "node-a", candidateGeneration: 0 },
+    validatorIds: ["build", "frozen-install"],
+    validatorLockDigest: digest("a"),
+    executionProfileDigest: digest("b"),
+    ...overrides,
+  };
+}
+
+/** The shape `factoryTaskReservationId` reads: the last attempt of the addressed node. */
+function authorizedCommand(nodeId: string, candidateGeneration: number, attempt: number): FactoryAuthorizedCommand {
+  return { command: { kind: "request-admission", nodeId, candidateGeneration }, state: { nodes: { [nodeId]: { attempts: [{ attempt: attempt - 1 }, { attempt }] } } } } as unknown as FactoryAuthorizedCommand;
+}
+
+const code = (act: () => unknown): string | undefined => {
+  try { act(); return undefined; }
+  catch (error) { return error instanceof FactoryAdmissionOriginError ? error.code : `unexpected:${String(error)}`; }
+};
+
+test("a dispatch-node origin reserves exactly what the live task path already reserves", () => {
+  for (const [nodeId, candidateGeneration, attempt] of [["node-a", 0, 1], ["node-b", 3, 7]] as const) {
+    const origin = dispatchNode({ nodeInstanceId: nodeId, candidateGeneration, attemptNumber: attempt });
+    expect(factoryReservationIdForOrigin(reference, origin)).toBe(factoryTaskReservationId(reference, authorizedCommand(nodeId, candidateGeneration, attempt)));
+  }
+});
+
+test("a protected validator reserves one identity per acceptance command and claim set", () => {
+  const origin = protectedValidator();
+  const reservation = factoryReservationIdForOrigin(reference, origin);
+  expect(reservation).toStartWith("factory-reservation:");
+  expect(factoryReservationIdForOrigin(reference, protectedValidator())).toBe(reservation);
+  expect(factoryReservationIdForOrigin(reference, dispatchNode())).not.toBe(reservation);
+  for (const different of [
+    protectedValidator({ acceptanceCommandId: "acceptance-2" }),
+    protectedValidator({ validatorIds: ["build"] }),
+    protectedValidator({ candidate: { projectId: "project-1", runId: "run-1", nodeInstanceId: "node-a", candidateGeneration: 1 } }),
+  ]) expect(factoryReservationIdForOrigin(reference, different)).not.toBe(reservation);
+  expect(factoryReservationIdForOrigin({ ...reference, interpreterId: "interpreter-2" } as TrustedFactoryCommandReference, origin)).not.toBe(reservation);
+  // The lock and profile digests bind the runtime, not the reservation identity.
+  expect(factoryReservationIdForOrigin(reference, protectedValidator({ validatorLockDigest: digest("c") }))).toBe(reservation);
+});
+
+test("the origin digest covers every field and is a prefixed lowercase sha256", () => {
+  const digestValue = factoryAdmissionOriginDigest(protectedValidator());
+  expect(digestValue).toMatch(/^sha256:[0-9a-f]{64}$/u);
+  expect(factoryAdmissionOriginDigest(protectedValidator())).toBe(digestValue);
+  expect(factoryAdmissionOriginDigest(protectedValidator({ validatorLockDigest: digest("c") }))).not.toBe(digestValue);
+  expect(factoryAdmissionOriginDigest(protectedValidator({ executionProfileDigest: digest("d") }))).not.toBe(digestValue);
+  expect(factoryAdmissionOriginDigest(dispatchNode())).not.toBe(digestValue);
+  expect(factoryAdmissionOriginDigest(dispatchNode({ attemptNumber: 2 }))).not.toBe(factoryAdmissionOriginDigest(dispatchNode()));
+});
+
+test("an unknown kind, a missing schema version, or any extra key is rejected", () => {
+  for (const value of [
+    undefined, null, 42, "dispatch-node", [dispatchNode()],
+    { ...dispatchNode(), schemaVersion: "factory.admission-origin.v2" },
+    { ...dispatchNode(), kind: "cancel-node" },
+    { ...dispatchNode(), extra: 1 },
+    { ...protectedValidator(), extra: 1 },
+    { ...dispatchNode(), commandId: undefined },
+  ]) expect(code(() => assertFactoryAdmissionOrigin(value))).toBe("factory_admission_origin_invalid");
+});
+
+test("a dispatch-node origin needs bounded identities and real counters", () => {
+  for (const origin of [
+    dispatchNode({ commandId: "" }),
+    dispatchNode({ nodeInstanceId: "node\u0000a" }),
+    dispatchNode({ commandId: "c".repeat(513) }),
+    dispatchNode({ candidateGeneration: -1 }),
+    dispatchNode({ candidateGeneration: 1.5 }),
+    dispatchNode({ attemptNumber: 0 }),
+  ]) expect(code(() => assertFactoryAdmissionOrigin(origin))).toBe("factory_admission_origin_invalid");
+  expect(assertFactoryAdmissionOrigin(dispatchNode())).toEqual(dispatchNode());
+});
+
+test("a protected validator origin needs a sorted, deduplicated, bounded claim set and real digests", () => {
+  for (const origin of [
+    protectedValidator({ validatorIds: [] }),
+    protectedValidator({ validatorIds: ["build", "build"] }),
+    protectedValidator({ validatorIds: ["frozen-install", "build"] }),
+    protectedValidator({ validatorIds: Array.from({ length: 1001 }, (_value, index) => String(index).padStart(5, "0")) }),
+    protectedValidator({ validatorIds: [""] }),
+    protectedValidator({ validatorIds: ["claim\u0000a"] }),
+    protectedValidator({ validatorIds: "build" as unknown as readonly string[] }),
+    protectedValidator({ validatorLockDigest: "not-a-digest" }),
+    protectedValidator({ executionProfileDigest: `sha256:${"A".repeat(64)}` }),
+    protectedValidator({ acceptanceCommandId: "" }),
+    protectedValidator({ candidate: { projectId: "project-1", runId: "run-1", nodeInstanceId: "node-a", candidateGeneration: -1 } }),
+    protectedValidator({ candidate: { projectId: "project-1", runId: "run-1", nodeInstanceId: "" } as never }),
+    protectedValidator({ candidate: { projectId: "project-1", runId: "run-1", nodeInstanceId: "node-a", candidateGeneration: 0, extra: 1 } as never }),
+    protectedValidator({ candidate: null as never }),
+  ]) expect(code(() => assertFactoryAdmissionOrigin(origin))).toBe("factory_admission_origin_invalid");
+  expect(assertFactoryAdmissionOrigin(protectedValidator())).toEqual(protectedValidator());
+  expect(assertFactoryAdmissionOrigin(protectedValidator({ validatorIds: Array.from({ length: 1000 }, (_value, index) => String(index).padStart(5, "0")) }))).toBeDefined();
+});
+
+test("a validator origin can never stand in for a committed transition command", () => {
+  expect(assertFactoryDispatchNodeOrigin(dispatchNode())).toEqual(dispatchNode());
+  expect(code(() => assertFactoryDispatchNodeOrigin(protectedValidator()))).toBe("factory_admission_origin_forbidden");
+  expect(code(() => factoryReservationIdForOrigin(reference, { ...dispatchNode(), kind: "request-acceptance" } as unknown as FactoryAdmissionOrigin))).toBe("factory_admission_origin_invalid");
+  expect(code(() => factoryAdmissionOriginDigest({ ...protectedValidator(), validatorIds: ["b", "a"] } as FactoryAdmissionOrigin))).toBe("factory_admission_origin_invalid");
+});

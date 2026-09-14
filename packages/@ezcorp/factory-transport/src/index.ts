@@ -34,8 +34,26 @@ function encoded(value: unknown, limit: number): Buffer {
   return body;
 }
 
+/**
+ * A non-2xx reply from a private gateway. Every non-2xx still throws, so the
+ * transport stays fail-closed; the reply is carried on the error so a caller
+ * that documents a rejection status can decode its body instead of losing it.
+ * C03 answers a full admission queue with HTTP 429 and an admission decision.
+ */
+export class GatewayStatusError extends Error {
+  // An explicit field, not a constructor parameter property: `node --test
+  // --experimental-strip-types` runs this file and cannot strip one.
+  readonly response: GatewayResponse;
+
+  constructor(response: GatewayResponse) {
+    super(`factory gateway returned HTTP ${response.statusCode}`);
+    this.name = "GatewayStatusError";
+    this.response = response;
+  }
+}
+
 function requireSuccess(response: GatewayResponse): GatewayResponse {
-  if (response.statusCode < 200 || response.statusCode >= 300) throw new Error(`factory gateway returned HTTP ${response.statusCode}`);
+  if (response.statusCode < 200 || response.statusCode >= 300) throw new GatewayStatusError(response);
   return response;
 }
 

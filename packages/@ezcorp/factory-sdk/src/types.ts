@@ -9,6 +9,9 @@ export const FACTORY_PARTITION_SCHEMA_VERSION = "factory.partition.v1" as const;
 export const FACTORY_EXECUTION_MANIFEST_SCHEMA_VERSION = "factory.execution-manifest.v1" as const;
 export const FACTORY_API_REQUEST_SCHEMA_VERSION = "factory.api.request.v1" as const;
 export const FACTORY_API_RESPONSE_SCHEMA_VERSION = "factory.api.response.v1" as const;
+export const FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION = "factory.validator-claims.v1" as const;
+export const FACTORY_VALIDATOR_REPORT_SCHEMA_VERSION = "factory.validator-report.v1" as const;
+export const FACTORY_LAZY_INPUT_SCHEMA_VERSION = "factory.lazy-input.v1" as const;
 export const FACTORY_LIMITS = Object.freeze({
   maxDefinitionBytes: 16 * 1024 * 1024,
   maxInlineValueBytes: 64 * 1024,
@@ -26,6 +29,7 @@ export const FACTORY_LIMITS = Object.freeze({
   defaultNodeDeadlineMs: 30 * 60 * 1_000,
   maximumNodeDeadlineMs: 24 * 60 * 60 * 1_000,
   maximumApprovalWaitMs: 24 * 60 * 60 * 1_000,
+  maxCandidateGenerations: 3,
   maxWireBytes: 64 * 1024,
   maxApiIdentifierLength: 512,
   maxApiIdempotencyKeyLength: 200,
@@ -247,6 +251,16 @@ export interface AcceptanceNode extends BaseNode {
   readonly contract: string;
   readonly candidate: ValueSource;
   readonly evidence: ValueSource;
+  /**
+   * Repairs this contract authorizes after a protected rejection.
+   *
+   * The first candidate is not a repair, so the node runs at most `maxRepairs + 1` candidate
+   * generations. An absent bound authorizes no remediation at all: a rejection is terminal.
+   * `FACTORY_LIMITS.maxCandidateGenerations` caps every domain at three generations.
+   *
+   * @minimum 0
+   * @maximum 2
+   */
   readonly maxRepairs?: number;
 }
 
@@ -559,6 +573,85 @@ export type FactoryRunnerResult =
     readonly usage: FactoryUnknownUsage;
     readonly workspaceCheckpoint?: FactoryCheckpointReference;
   });
+
+/** A process exit alone is never a verdict. Only this union decides a protected claim. */
+export type FactoryValidatorVerdict = "PASS" | "FAIL" | "INCONCLUSIVE" | "VALIDATOR_ERROR";
+
+export interface FactoryValidatorClaimOutcome {
+  /** @minLength 1 @maxLength 512 */
+  readonly id: string;
+  readonly verdict: FactoryValidatorVerdict;
+  /** A decisive claim can close its group alone. */
+  readonly decisive: boolean;
+  /** @maxLength 2048 */
+  readonly summary: string;
+  /** Machine-readable reason. @minLength 1 @maxLength 128 */
+  readonly reasonCode: string;
+  /** @maxItems 100 */
+  readonly evidence: readonly FactoryArtifactReference[];
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly measuredAtMs: number;
+}
+
+export interface FactoryValidatorError {
+  /** @minLength 1 @maxLength 128 */
+  readonly code: string;
+  /** @minLength 1 @maxLength 4096 */
+  readonly message: string;
+}
+
+/** What the isolated guest writes. It carries no provenance and mints no trust. */
+export interface FactoryValidatorClaimReport {
+  readonly schemaVersion: "factory.validator-claims.v1";
+  /** @minItems 1 @maxItems 1000 */
+  readonly claims: readonly FactoryValidatorClaimOutcome[];
+  /** Present only when every claim is VALIDATOR_ERROR. */
+  readonly error?: FactoryValidatorError;
+}
+
+/** Gateway-sealed provenance. Every field is read from the durable assignment row. */
+export interface FactoryValidatorProvenance {
+  /** @minLength 1 @maxLength 512 */
+  readonly attemptId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly tenantId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly projectId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly runId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly candidateNodeInstanceId: string;
+  /** @minimum 0 @maximum 9007199254740991 */
+  readonly candidateGeneration: number;
+  /** @minLength 71 @maxLength 71 */
+  readonly candidateDigest: string;
+  /** @minLength 71 @maxLength 71 */
+  readonly validatorLockDigest: string;
+  /** @minLength 71 @maxLength 71 */
+  readonly runnerDigest: string;
+  /** @minLength 71 @maxLength 71 */
+  readonly environmentDigest: string;
+  /** @minLength 71 @maxLength 71 */
+  readonly configurationDigest: string;
+  readonly model?: FactoryModelPin;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly trustRevision: number;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly issuerGrantRevision: number;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly issuedAtMs: number;
+  /** @minimum 1 @maximum 9007199254740991 */
+  readonly expiresAtMs: number;
+}
+
+/** The sealed report. Only the gateway validator path constructs one. */
+export interface FactoryValidatorReport {
+  readonly schemaVersion: "factory.validator-report.v1";
+  readonly provenance: FactoryValidatorProvenance;
+  /** @minItems 1 @maxItems 1000 */
+  readonly claims: readonly FactoryValidatorClaimOutcome[];
+  readonly error?: FactoryValidatorError;
+}
 
 export interface CompilerDiagnostic {
   readonly code: string;

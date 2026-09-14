@@ -10,6 +10,8 @@ import { __test } from "../../src/db/connection";
 import { releaseRows } from "../../src/db/queries/extension-releases";
 import * as schema from "../../src/db/schema";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../src/factory/executions";
+import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptDeviceAuthorization, type FactoryAttemptLease } from "../../src/factory/runner/attempt-runtime";
+import { factoryLaunchPackage } from "../../src/__tests__/helpers/factory-attempt-launch-fixture";
 import { nativeFactoryJournal } from "../../src/factory/runner/native";
 import { verifyFactoryExecutionAdmission } from "../../src/__tests__/helpers/factory-execution-admission-suite";
 
@@ -99,7 +101,7 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     const operation = operationFor(attempt, 0);
     await journal.prepare(attempt, operation);
     await journal.dispatch(attempt, operation.operationId);
-    const usage = { kind: "measured", inputTokens: 1, outputTokens: 2, computeMs: 3, costMicros: "4" };
+    const usage = { kind: "measured" as const, inputTokens: 1, outputTokens: 2, computeMs: 3, costMicros: "4" };
     await journal.settle(attempt, operation.operationId, "completed", { resultDigest: "a".repeat(64), result: { output: "done" }, usage, workspaceCheckpoint: { artifactId: "checkpoint", digest: `sha256:${"b".repeat(64)}`, encodedBytes: 4, journalCursor: 0 } });
     const snapshot = await nativeFactoryJournal(journal).snapshot(attempt.request);
     expect(snapshot).toMatchObject({ journalCursor: 0, usage, operations: [{ ...operation, state: "completed" }] });
@@ -118,11 +120,11 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     await journal.prepare(attempt, one);
     await journal.dispatch(attempt, zero.operationId);
     await journal.dispatch(attempt, one.operationId);
-    await journal.settle(attempt, one.operationId, "completed", { resultDigest: "one", result: { output: "one" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 1 } });
+    await journal.settle(attempt, one.operationId, "completed", { resultDigest: "one", result: { output: "one" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-1", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 1 } });
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: -1 });
-    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
-    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
-    await expect(journal.settle(attempt, zero.operationId, "completed", { resultDigest: "changed", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } })).rejects.toThrow("cannot settle");
+    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-0", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 0 } });
+    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-0", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 0 } });
+    await expect(journal.settle(attempt, zero.operationId, "completed", { resultDigest: "changed", result: { output: "zero" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-0", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 0 } })).rejects.toThrow("cannot settle");
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: 1 });
   });
 
@@ -156,5 +158,56 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     if (!outcome) throw new Error("Factory effect did not settle after project revocation released.");
     if (outcome.status === "fulfilled") expect(outcome.value).toEqual({ claimed: true });
     else expect((outcome.reason as Error).message).toContain("stale, cancelled, or expired");
+  });
+  /**
+   * The device-exclusivity fence under genuine concurrency.
+   *
+   * PGlite has one connection, so two `claimStart` calls there serialize in the
+   * driver and prove nothing about the fence. This pool has four, so the two
+   * transactions really do overlap, and the host-scoped advisory lock is what
+   * decides between them rather than the order they happened to arrive in.
+   */
+  test("two simultaneous claims for the same device on one host settle with exactly one winner", async () => {
+    const lease: FactoryAttemptLease = { reservationId: "device-race-reservation", grantRevision: 1, allocationGeneration: 1, holderGeneration: 1, allocationToken: "device-race-allocation", hostId: "device-race-host" };
+    const devices: FactoryAttemptDeviceAuthorization = { gpuHosts: 1, devices: ["/dev/kfd", "/dev/dri/renderD128"] };
+    const store = new FactoryDatabaseAttemptLaunchStore(db as never);
+    const attempts = ["device-race-a", "device-race-b"];
+    for (const attemptId of attempts) {
+      const attempt = admission(authority({ attemptId, nodeInstanceId: `node-${attemptId}` }));
+      await journal.admit(attempt);
+      await store.prepare(attempt.request, lease, factoryLaunchPackage(attempt.request), devices);
+    }
+
+    // Every launch column must be a real JSONB object. Bun's SQL driver types a
+    // string parameter as json, so `${text}::jsonb` is a no-op cast that stores
+    // a JSON string scalar instead: `->'devices'` then reads NULL server-side
+    // and the fence below silently matches nothing. PGlite hides this entirely.
+    const shapes = releaseRows<{ request: string; receipt: string; grant: string; devices: unknown }>(await db.execute(sql`
+      SELECT jsonb_typeof(request_json) AS request, jsonb_typeof(package_receipt_json) AS receipt,
+             jsonb_typeof(device_grant_json) AS grant, device_grant_json->'devices' AS devices
+        FROM factory_attempt_launches WHERE host_id=${lease.hostId}`));
+    expect(shapes).toHaveLength(2);
+    for (const shape of shapes) {
+      expect([shape.request, shape.receipt, shape.grant]).toEqual(["object", "object", "object"]);
+      expect(shape.devices).not.toBeNull();
+    }
+
+    const settled = await Promise.all(attempts.map(attemptId => store.claimStart(attemptId).then(
+      claim => ({ attemptId, claimed: claim.claimed, code: undefined as string | undefined }),
+      (error: unknown) => ({ attemptId, claimed: false, code: (error as { code?: string }).code }),
+    )));
+    const winners = settled.filter(entry => entry.claimed);
+    const losers = settled.filter(entry => !entry.claimed);
+    expect(winners).toHaveLength(1);
+    expect(losers.map(entry => entry.code)).toEqual(["device_conflict"]);
+
+    // The durable rows agree with the decision: one launching, one still prepared.
+    const states = releaseRows<{ attempt_id: string; state: string }>(await db.execute(sql`SELECT attempt_id,state FROM factory_attempt_launches WHERE host_id=${lease.hostId} ORDER BY attempt_id`));
+    expect(states.map(row => row.state).sort()).toEqual(["launching", "prepared"]);
+    expect(states.find(row => row.state === "launching")?.attempt_id).toBe(winners[0]!.attemptId);
+
+    // The loser is not poisoned: once the winner is terminal, it claims.
+    await store.state(winners[0]!.attemptId, "terminal");
+    expect((await store.claimStart(losers[0]!.attemptId)).claimed).toBe(true);
   });
 });

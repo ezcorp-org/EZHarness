@@ -1,4 +1,4 @@
-import { validateDurableInputPorts, validateValue, type CompiledFactory, type FactoryRunStartBody, type JsonValue, type PortSchema } from "@ezcorp/factory-sdk";
+import { FACTORY_LAZY_INPUT_SCHEMA_VERSION, validateDurableInputPorts, validateValue, type CompiledFactory, type FactoryRunStartBody, type JsonValue, type PortSchema } from "@ezcorp/factory-sdk";
 import type { MigrationDb } from "../db/migrations/types";
 import type { FactoryDefinitionKey } from "./definitions";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
@@ -29,7 +29,7 @@ export class FactoryRunInputs {
     const parameters = JSON.parse(encodeFactoryPayload(input)) as FactoryRunStartBody["parameters"];
     const values: Record<string, JsonValue> = Object.create(null);
     for (const [name, value] of Object.entries(parameters)) if (value.kind === "inline") values[name] = value.value;
-    if (!validateDurableInputPorts(ports, values, { schemaVersion: "factory.lazy-input.v1", parameters }).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
+    if (!validateDurableInputPorts(ports, values, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters }).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
     for (const [name, value] of Object.entries(parameters)) {
       if (value.kind !== "artifact") continue;
       const loaded = await this.artifacts.loadInTransaction(transaction, projectId, value.artifact).catch(error => {

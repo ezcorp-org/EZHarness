@@ -10,7 +10,7 @@ import { bundleWorkflowCode, Worker, type WorkflowBundle } from "@temporalio/wor
 import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
 import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
-import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact } from "@ezcorp/factory-sdk";
+import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
 import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
@@ -380,6 +380,69 @@ describe("factory Temporal workflow", () => {
     });
   });
 
+  it("answers a protected rejection with a bounded remediation wait and replays the new decision", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const remediationFactory = compiled([
+      { ...node, id: "candidate", inputPorts: { instruction: { type: "string" } }, bindings: { instruction: { kind: "literal", value: "first" } }, repairableInputs: ["instruction"], outputPorts: { candidate: { type: "string" } } },
+      { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: "test-acceptance", candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, maxRepairs: 1, outputPorts: { acceptedCandidate: { type: "string" } } },
+    ], "remediation-replay");
+    let rejected = () => undefined;
+    const rejection = new Promise<void>(resolve => { rejected = resolve; });
+    const decisions = [];
+    const stops = [];
+    const activities = {
+      ...definitionActivities(remediationFactory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") return { kind: "node-result", id: `${command.id}:result`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: { candidate: `tree-${command.candidateGeneration}` } };
+        if (command.kind === "request-acceptance") {
+          decisions.push({ generation: command.candidateGeneration, candidate: command.candidate });
+          if (command.candidateGeneration > 0) return { kind: "node-result", id: `${command.id}:accepted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: { acceptedCandidate: command.candidate } };
+          // The rejected fact returns as an event. Throwing here would retry until the activity
+          // timed out and the run would never reach its bounded repair.
+          const failure = { kind: "node-failed", id: `${command.id}:rejected`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, error: "factory_assurance_claim_failed", failureKind: "acceptance_rejected" };
+          setTimeout(rejected, 0);
+          return failure;
+        }
+        if (command.kind === "cancel-node") {
+          // Recorded, not answered: the gateway resolves this through the attempt queue, which holds
+          // nothing for an acceptance, so one reaching here would fail the activity and kill the run.
+          stops.push(command.nodeId);
+          return { kind: "attempt-stopped", id: `${command.id}:stopped`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.attemptCommandId, candidateGeneration: command.candidateGeneration, attempt: command.attempt };
+        }
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const workflowId = `tenant/remediation-replay-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(remediationFactory, { logicalRunId: "remediation-replay", startedAtMs })] });
+      await rejection;
+      for (let attempt = 0; attempt < 500; attempt += 1) {
+        const waiting: KernelState = await handle.query("factoryState");
+        if (waiting.nodes.accept?.waitingReason === "remediation") break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const waiting: KernelState = await handle.query("factoryState");
+      assert.equal(waiting.nodes.accept?.status, "waiting");
+      assert.equal(waiting.nodes.accept?.waitingReason, "remediation");
+      assert.equal(waiting.status, "waiting");
+
+      const repair = { kind: "repair", id: "remediation-replay:event", atMs: startedAtMs + 1, nodeId: "candidate", reason: "factory_assurance_claim_failed", inputOverride: { instruction: "second" } };
+      await handle.signal("factoryInbox", { sequence: 1, eventId: repair.id, eventHash: eventHash(repair), event: repair });
+      const result = await handle.result();
+      assert.equal(result.status, "completed");
+      assert.deepEqual(decisions, [{ generation: 0, candidate: "tree-0" }, { generation: 1, candidate: "tree-1" }]);
+      assert.deepEqual(stops, []);
+      const state: KernelState = await handle.query("factoryState");
+      assert.equal(state.nodes.accept?.candidateGeneration, 1);
+      assert.deepEqual(state.nodes.accept?.priorCandidates, [{ candidateGeneration: 0, status: "cancelled", error: "factory_assurance_claim_failed" }]);
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+  });
+
   it("advances independent successors while another branch is blocked", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const parallelFactory = compiled([
@@ -741,10 +804,10 @@ describe("factory Temporal workflow", () => {
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/lazy-field-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
-        args: [workflowInput(lazyFactory, { logicalRunId: "lazy-field", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+        args: [workflowInput(lazyFactory, { logicalRunId: "lazy-field", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact } } } })],
       });
       assert.equal(result.status, "completed");
-      assert.deepEqual(result.state.durableInput, { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } });
+      assert.deepEqual(result.state.durableInput, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact } } });
       assert.equal(result.state.lazyInput?.versions[`${artifact.artifactId}\u0000${artifact.digest}\u0000${artifact.encodedBytes}`], "storage-v1");
     });
     assert.deepEqual(observed, ["read-input-value", "request-admission", "dispatch-node"]);
@@ -782,7 +845,7 @@ describe("factory Temporal workflow", () => {
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/lazy-parent-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
-        args: [workflowInput(parentFactory, { logicalRunId: "lazy-parent", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+        args: [workflowInput(parentFactory, { logicalRunId: "lazy-parent", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact } } } })],
       });
       assert.equal(result.status, "completed");
     });
@@ -805,7 +868,7 @@ describe("factory Temporal workflow", () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/undeclared-durable-input-${process.pid}`, taskQueue: queue,
         workflowExecutionTimeout: "10 seconds", retry: { maximumAttempts: 1 },
-        args: [workflowInput(factory, { logicalRunId: "undeclared-durable-input", startedAtMs, input: { data: {} }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: { artifactId: "undeclared", digest: packageDigest, encodedBytes: 70_000 } } } } })],
+        args: [workflowInput(factory, { logicalRunId: "undeclared-durable-input", startedAtMs, input: { data: {} }, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact: { artifactId: "undeclared", digest: packageDigest, encodedBytes: 70_000 } } } } })],
       });
       await assert.rejects(handle.result(), (error) => {
         const cause = (error as { cause?: { type?: string; nonRetryable?: boolean; message?: string } }).cause;
@@ -908,7 +971,7 @@ describe("factory Temporal workflow", () => {
     const artifact = { artifactId: "persisted", digest: packageDigest, encodedBytes: 70_000 };
     const replacement = { artifactId: "replacement", digest: packageDigest, encodedBytes: 70_000 };
     const state = createKernelState(continuationFactory, "durable-continuation", {}, startedAtMs, {
-      schemaVersion: "factory.lazy-input.v1",
+      schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION,
       parameters: { data: { kind: "artifact", artifact } },
     });
     let effects = 0;
@@ -924,7 +987,7 @@ describe("factory Temporal workflow", () => {
         args: [workflowInput(continuationFactory, {
           logicalRunId: "durable-continuation",
           startedAtMs,
-          durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: replacement } } },
+          durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact: replacement } } },
           continuation: { state, inbox: [], pendingInbox: [], sourceSequence: 0, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 },
         })],
       });

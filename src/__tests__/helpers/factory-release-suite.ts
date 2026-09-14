@@ -9,7 +9,14 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryNotificationDelivery } from "../../factory/notification-delivery";
 import { FactoryReleaseApplication } from "../../factory/release-application";
-import { FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
+import { digestObject } from "../../extensions/v4/blobs";
+import { FACTORY_GITHUB_BASE_FILES, FACTORY_GITHUB_CANDIDATE_FILES, FACTORY_GITHUB_IDENTITY, FactoryGitHubFake, factoryGitHubPublicationFixture } from "./factory-github-fake";
+import { FactoryGitHubReleaseProvider } from "../../factory/release-github";
+import { FactoryDestinationReservations, FactoryStoreSenderFence } from "../../factory/release-destinations";
+import { FACTORY_RELEASE_RESOLVE_TIMEOUT_MS, sealFactoryReleaseProfileResult } from "../../factory/release-profile";
+import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
+import { FACTORY_BRANCH_NAMESPACE, FACTORY_BRANCH_REF_PREFIX, factoryGitBranchBinding, factoryOperationIdFromRef } from "../../factory/release-git-refs";
+import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
 export function factoryReleaseConformance(setup: () => Promise<{ db: TransactionalDb; close: () => Promise<void> }>): void {
 const now = Date.UTC(2031, 0, 1);
@@ -30,9 +37,13 @@ let fenceStatus: FactoryReleaseAuthority["status"] = "running";
 const releaseEnableEpoch = 4;
 let destinationVersion: string | null = null;
 let trusted: FactoryTrustedEvidence;
+/** The pinned material a profile resolves against. Changing it must invalidate a sealed result. */
+let materialEvidence: readonly unknown[] = [];
 
 class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
   async assertContractInTransaction(): Promise<void> {}
+  bindAttemptInTransaction = unboundFactoryValidatorBinders.bindAttemptInTransaction;
+  bindTaskAttemptInTransaction = unboundFactoryValidatorBinders.bindTaskAttemptInTransaction;
   async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenant !== tenantId || key.projectId !== projectId || key.runId !== candidate.runId || key.nodeInstanceId !== candidate.nodeInstanceId || key.candidateGeneration !== candidate.candidateGeneration || validatorId !== trusted.validatorId) throw new Error("current candidate mismatch");
     return structuredClone(trusted);
@@ -93,10 +104,15 @@ class Provider implements FactoryReleaseProvider {
   proofCalls = 0;
   loseResponse = false;
   noEffect = false;
+  /** A git provider that forgets the ref it created, or names a different one. */
+  gitRef: "exact" | "omitted" | "other" = "exact";
   receipts = new Map<string, FactoryProviderReceipt>();
   async publish(claim: FactoryReleaseClaim): Promise<FactoryProviderReceipt> {
     this.calls += 1;
-    const receipt = { provider: claim.destination.provider, account: claim.destination.account, object: claim.destination.object, requestDigest: claim.requestDigest, operationId: claim.operationId, dispatchGeneration: claim.dispatchGeneration, providerReceiptId: `receipt-${claim.operationId}`, version: `v${claim.dispatchGeneration}`, effectDigest: digest("f") };
+    const git = !claim.destinationRef || this.gitRef === "omitted" ? {}
+      : this.gitRef === "other" ? { ref: `${FACTORY_BRANCH_REF_PREFIX}other`, branch: `${FACTORY_BRANCH_NAMESPACE}/other` }
+      : { ref: claim.destinationRef, branch: claim.destinationBranch! };
+    const receipt = { provider: claim.destination.provider, account: claim.destination.account, object: claim.destination.object, requestDigest: claim.requestDigest, operationId: claim.operationId, dispatchGeneration: claim.dispatchGeneration, providerReceiptId: `receipt-${claim.operationId}`, version: `v${claim.dispatchGeneration}`, effectDigest: digest("f"), ...git };
     this.receipts.set(claim.operationId, receipt);
     if (this.loseResponse) throw new Error("response lost after write");
     return receipt;
@@ -116,7 +132,19 @@ function request(suffix: string, overrides: Partial<FactoryReleaseRequest> = {})
 
 let mutationSequence = 0;
 const mutationKey = (kind: string) => `${kind}-${++mutationSequence}`;
-const prepareRelease = (actor: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey = mutationKey("prepare")) => releases.prepare(actor, input, idempotencyKey);
+/**
+ * Every preparation carries a sealed profile result. This suite already knows the exact request it
+ * wants, so the identity profile is the honest one: the resolve still runs outside every
+ * transaction and the seal still binds the acceptance decision and the pinned material.
+ */
+const prepareRelease = async (actor: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey = mutationKey("prepare"), store: FactoryReleases = releases) => {
+  const preparation = await store.resolvePreparation({
+    projectId: input.projectId, runId: input.runId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration,
+    decisionId: input.decisionId, candidateDigest: input.candidateDigest,
+    acceptedManifest: { candidate: input.candidateDigest }, requestedDestination: { ...input.destination }, deadlineMs: input.deadlineMs,
+  }, factoryRequestedReleaseProfile(input, () => now), new AbortController().signal);
+  return store.prepare(actor, preparation, idempotencyKey);
+};
 const createReleasePolicy = (actor: FactoryPrincipal, policy: Parameters<FactoryReleases["createPolicy"]>[1], idempotencyKey = mutationKey("policy-create")) => releases.createPolicy(actor, policy, idempotencyKey);
 const revokeReleasePolicy = (actor: FactoryPrincipal, currentProjectId: string, policyId: string, expectedRevision: number, idempotencyKey = mutationKey("policy-revoke")) => releases.revokePolicy(actor, currentProjectId, policyId, expectedRevision, idempotencyKey);
 const requestReleaseApproval = async (actor: FactoryPrincipal, currentProjectId: string, operationId: string, expiresAtMs: number, idempotencyKey = mutationKey("approval-request")) => {
@@ -148,13 +176,14 @@ beforeAll(async () => {
   grants = new FactoryGrants(database, tenantId, () => now);
   for (const action of ["factory.trust", "factory.approve", "factory.release", "factory.operate"] as const) await grants.set(admin, { projectId, principal: admin, action, expectedRevision: 0, expiresAtMs: null });
   await grants.set(admin, { projectId, principal: service, action: "factory.release", expectedRevision: 0, expiresAtMs: now + 5_000 });
-  trusted = { ...candidate, validatorId: "validator", validatorLockDigest: digest("c"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "artifact", digest: digest("a"), encodedBytes: 10 }, environmentDigest: digest("e"), configurationDigest: digest("d"), runnerDigest: digest("e"), claims: [{ id: "passed", passed: true, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 10_000 };
+  trusted = { ...candidate, validatorId: "validator", validatorLockDigest: digest("c"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "artifact", digest: digest("a"), encodedBytes: 10 }, environmentDigest: digest("e"), configurationDigest: digest("d"), runnerDigest: digest("e"), claims: [{ id: "passed", verdict: "PASS" as const, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 10_000 };
+  materialEvidence = [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }];
   const gateway = new Gateway();
   assurance = new FactoryAssurance(database, tenantId, grants, gateway, new RunFence(), gateway, () => now);
   await assurance.approveContract(admin, { projectId, contractId: "contract", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "passed", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "all", claimIds: ["passed"], minimumPasses: 1, requireAllDecisive: true }] }, mutationKey("contract"));
   await assurance.captureEvidence({ ...candidate, validatorId: trusted.validatorId });
   decisionId = (await assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).decisionId;
-  materials = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
+  materials = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: materialEvidence, packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
   releases = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, new Destination(), archive, sender, () => now);
 });
 
@@ -193,8 +222,21 @@ test("archive is immutable and read-verified before claim", async () => {
 });
 
 test("authority selection rejects another candidate-producing node in the same run", async () => {
-  await expect(prepareRelease(admin, request("foreign-node", { nodeInstanceId: "another-release-node" }))).rejects.toThrow("canonical lifecycle lock mismatch");
+  // The pinned-decision read refuses a foreign node before any profile resolves, so no request
+  // bytes are ever produced for it.
+  await expect(prepareRelease(admin, request("foreign-node", { nodeInstanceId: "another-release-node" }))).rejects.toMatchObject({ code: "factory_assurance_stale" });
   expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/foreign-node'`))).toEqual([]);
+
+  // And a preparation resolved for the real node cannot be re-aimed: the canonical lifecycle lock
+  // is taken for the node the request names, inside the product transaction.
+  const genuine = request("foreign-node-reaimed");
+  const preparation = await releases.resolvePreparation({
+    projectId: genuine.projectId, runId: genuine.runId, nodeInstanceId: genuine.nodeInstanceId, candidateGeneration: genuine.candidateGeneration,
+    decisionId: genuine.decisionId, candidateDigest: genuine.candidateDigest,
+    acceptedManifest: { candidate: genuine.candidateDigest }, requestedDestination: { ...genuine.destination }, deadlineMs: genuine.deadlineMs,
+  }, factoryRequestedReleaseProfile(genuine, () => now), new AbortController().signal);
+  await expect(releases.prepare(admin, { ...preparation, request: { ...preparation.request, nodeInstanceId: "another-release-node" } }, mutationKey("prepare-reaimed"))).rejects.toThrow("canonical lifecycle lock mismatch");
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/foreign-node-reaimed'`))).toEqual([]);
 });
 
 test("approval request and its human notification commit together once", async () => {
@@ -472,6 +514,362 @@ test("transactional audit failure rolls claim and policy counters back", async (
   await database.execute(sql`DROP TRIGGER reject_release_audit ON audit_log`); await database.execute(sql`DROP FUNCTION reject_release_audit()`);
   expect(await releases.inspect(projectId, operation.operationId)).toMatchObject({ state: "pending", dispatchGeneration: 0 });
   expect(rows<{ used_operations: number | string }>(await database.execute(sql`SELECT used_operations FROM factory_release_policies WHERE policy_id='policy-audit'`)).map(row => Number(row.used_operations))).toEqual([0]);
+});
+
+test("a sealed profile is resolved outside every transaction and revalidated against the pinned input", async () => {
+  const resolution = (input: FactoryReleaseRequest) => ({
+    projectId: input.projectId, runId: input.runId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration,
+    decisionId: input.decisionId, candidateDigest: input.candidateDigest,
+    acceptedManifest: { candidate: input.candidateDigest }, requestedDestination: { ...input.destination }, deadlineMs: input.deadlineMs,
+  });
+
+  const accepted = request("profile-seal");
+  const sealed = await releases.resolvePreparation(resolution(accepted), factoryRequestedReleaseProfile(accepted, () => now), new AbortController().signal);
+  expect(sealed.profile).toMatchObject({ schemaVersion: "factory.release-profile-result.v1", resolvedAtMs: now, destination: accepted.destination, estimatedSpendMicros: accepted.estimatedSpendMicros });
+  expect(sealed.profileInput).toMatchObject({ tenantId, projectId, runId: candidate.runId, acceptedManifest: { candidate: accepted.candidateDigest } });
+  const operation = await releases.prepare(admin, sealed, mutationKey("profile-seal"));
+  expect(operation).toMatchObject({ profileInputDigest: sealed.profile.inputDigest, profileResultDigest: sealed.profile.resultDigest, profileResolvedAtMs: now });
+  // PGlite decodes a bigint as a number and the real driver as a string, so normalize.
+  expect(rows<{ profile_input_digest: string; profile_result_digest: string; profile_resolved_at_ms: number | string }>(await database.execute(sql`SELECT profile_input_digest,profile_result_digest,profile_resolved_at_ms FROM factory_release_operations WHERE operation_id=${operation.operationId}`))
+    .map(row => ({ ...row, profile_resolved_at_ms: Number(row.profile_resolved_at_ms) }))).toEqual([
+    { profile_input_digest: sealed.profile.inputDigest, profile_result_digest: sealed.profile.resultDigest, profile_resolved_at_ms: now },
+  ]);
+
+  // The pinned material moved after the resolve, so the sealed result no longer describes it.
+  const drifting = request("profile-drift");
+  const stale = await releases.resolvePreparation(resolution(drifting), factoryRequestedReleaseProfile(drifting, () => now), new AbortController().signal);
+  const original = materialEvidence;
+  materialEvidence = [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }, { note: "a second evidence reference the resolve never saw" }];
+  const writes = archive.writes;
+  await expect(releases.prepare(admin, stale, mutationKey("profile-drift"))).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  materialEvidence = original;
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/profile-drift'`))).toEqual([]);
+  expect(archive.writes).toBe(writes);
+
+  // A result older than the resolve timeout is unusable; re-resolve rather than reuse. The resolve
+  // refuses it as it returns, and `prepare` refuses it again if one reaches the transaction.
+  const aged = request("profile-aged");
+  await expect(releases.resolvePreparation(resolution(aged), factoryRequestedReleaseProfile(aged, () => now - FACTORY_RELEASE_RESOLVE_TIMEOUT_MS - 1), new AbortController().signal)).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  const fresh = await releases.resolvePreparation(resolution(aged), factoryRequestedReleaseProfile(aged, () => now), new AbortController().signal);
+  const agedPreparation = { ...fresh, profile: sealFactoryReleaseProfileResult(fresh.profileInput, fresh.profile, now - FACTORY_RELEASE_RESOLVE_TIMEOUT_MS - 1) };
+  await expect(releases.prepare(admin, agedPreparation, mutationKey("profile-aged"))).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/profile-aged'`))).toEqual([]);
+
+  // A forged seal is invalid, not merely stale.
+  const forged = request("profile-forged");
+  const forgedPreparation = await releases.resolvePreparation(resolution(forged), factoryRequestedReleaseProfile(forged, () => now), new AbortController().signal);
+  await expect(releases.prepare(admin, { ...forgedPreparation, profile: { ...forgedPreparation.profile, estimatedSpendMicros: forged.estimatedSpendMicros + 1 } }, mutationKey("profile-forged"))).rejects.toMatchObject({ code: "factory_release_profile_invalid" });
+
+  // An aborted resolve produces no operation row and no archive object.
+  const abandoned = request("profile-aborted");
+  const controller = new AbortController(); controller.abort();
+  const before = archive.writes;
+  await expect(releases.resolvePreparation(resolution(abandoned), factoryRequestedReleaseProfile(abandoned, () => now), controller.signal)).rejects.toMatchObject({ code: "factory_release_profile_aborted" });
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/profile-aborted'`))).toEqual([]);
+  expect(archive.writes).toBe(before);
+
+  // An operation that lost its seal cannot be claimed, and the database refuses the same row.
+  const unsealed = await prepareRelease(admin, request("profile-unsealed"));
+  const approval = await approved(unsealed);
+  await database.execute(sql`UPDATE factory_release_operations SET profile_input_digest=NULL,profile_result_digest=NULL,profile_resolved_at_ms=NULL WHERE operation_id=${unsealed.operationId}`);
+  await expect(releases.claim(admin, projectId, unsealed.operationId, { kind: "approval", approvalId: approval })).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  const forcedClaim = await database.execute(sql`UPDATE factory_release_operations SET state='executing' WHERE operation_id=${unsealed.operationId}`).then(() => null, (error: unknown) => error);
+  expect(forcedClaim).toBeInstanceOf(Error);
+  expect(rows<{ state: string }>(await database.execute(sql`SELECT state FROM factory_release_operations WHERE operation_id=${unsealed.operationId}`))).toEqual([{ state: "pending" }]);
+});
+
+test("the claimable scan lists only operations a claim could take, oldest deadline first", async () => {
+  const claimable = async () => (await database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 1000))).map(item => item.operationId);
+  const first = await prepareRelease(admin, request("scan-first", { deadlineMs: now + 1_000 }));
+  const second = await prepareRelease(admin, request("scan-second", { deadlineMs: now + 2_000 }));
+  const listed = await claimable();
+  expect(listed.indexOf(first.operationId)).toBeLessThan(listed.indexOf(second.operationId));
+  expect(listed).toContain(second.operationId);
+
+  // Claiming removes it; an expired deadline and a missing archive never appear.
+  await releases.claim(admin, projectId, first.operationId, { kind: "approval", approvalId: await approved(first) });
+  expect(await claimable()).not.toContain(first.operationId);
+  await database.execute(sql`UPDATE factory_release_operations SET deadline_ms=${now} WHERE operation_id=${second.operationId}`);
+  expect(await claimable()).not.toContain(second.operationId);
+  await database.execute(sql`UPDATE factory_release_operations SET deadline_ms=${now + 2_000},archive_ready=FALSE WHERE operation_id=${second.operationId}`);
+  expect(await claimable()).not.toContain(second.operationId);
+  await database.execute(sql`UPDATE factory_release_operations SET archive_ready=TRUE WHERE operation_id=${second.operationId}`);
+  expect(await claimable()).toContain(second.operationId);
+
+  // The scan is bounded and its bound is checked.
+  expect(await database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 1))).toHaveLength(1);
+  await expect(database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 1001))).rejects.toMatchObject({ code: "factory_release_invalid" });
+  await expect(database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 0))).rejects.toMatchObject({ code: "factory_release_invalid" });
+  expect(await database.transaction(transaction => releases.listClaimableInTransaction(transaction, "another-project"))).toEqual([]);
+});
+
+test("no provider proof and no archive write happens inside an open transaction", async () => {
+  // Freeze correction 1. The counter wraps the release store's own database handle, so "inside a
+  // transaction" is a fact this test observes rather than a claim about the code.
+  const depth = { current: 0, max: 0 };
+  const tracked: TransactionalDb = {
+    execute: query => database.execute(query),
+    transaction: async work => {
+      depth.current += 1; depth.max = Math.max(depth.max, depth.current);
+      try { return await database.transaction(work); } finally { depth.current -= 1; }
+    },
+  };
+  const seen: { at: string; depth: number }[] = [];
+  const note = <Result>(at: string, call: () => Promise<Result>): Promise<Result> => { seen.push({ at, depth: depth.current }); return call(); };
+  const watchedArchive: FactoryReleaseArchive = {
+    writeImmutable: (tenant, operationId, name, bytes) => note(`archive.write:${name}`, () => archive.writeImmutable(tenant, operationId, name, bytes)),
+    read: reference => note("archive.read", () => archive.read(reference)),
+  };
+  const watchedProvider: FactoryReleaseProvider = {
+    publish: claim => note("provider.publish", () => provider.publish(claim)),
+    verifyReceipt: (operation, receipt) => note("provider.verifyReceipt", () => provider.verifyReceipt(operation, receipt)),
+    proveNoEffect: (operation, evidence) => note("provider.proveNoEffect", () => provider.proveNoEffect(operation, evidence)),
+  };
+  const watchedFence: FactorySenderFence = { proveStopped: (operation, token, evidence) => note("fence.proveStopped", () => sender.proveStopped(operation, token, evidence)) };
+  const split = new FactoryReleases(tracked, tenantId, grants, assurance, materials, authority, new Destination(), watchedArchive, watchedFence, () => now);
+
+  const attach = await prepareRelease(admin, request("split-attach"), mutationKey("split-prepare"), split);
+  const attachClaim = await split.claim(admin, projectId, attach.operationId, { kind: "approval", approvalId: await approved(attach) });
+  provider.loseResponse = true;
+  expect(await split.dispatch(attachClaim, watchedProvider)).toMatchObject({ state: "uncertain" });
+  provider.loseResponse = false;
+  expect(await split.reconcile(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt: provider.receipts.get(attach.operationId)! }, attachClaim.dispatchGeneration, watchedProvider, mutationKey("split-attach-reconcile"))).toMatchObject({ state: "succeeded" });
+
+  const absent = await prepareRelease(admin, request("split-absent"), mutationKey("split-prepare-absent"), split);
+  const absentClaim = await split.claim(admin, projectId, absent.operationId, { kind: "approval", approvalId: await approved(absent) });
+  provider.loseResponse = true;
+  await split.dispatch(absentClaim, watchedProvider);
+  provider.loseResponse = false;
+  sender.stopped = true; provider.noEffect = true;
+  expect(await split.reconcile(admin, { projectId, operationId: absent.operationId, action: "confirm_no_effect", reason: "sender stopped and lookup found no object", providerEvidence: { operationId: absent.operationId } }, absentClaim.dispatchGeneration, watchedProvider, mutationKey("split-absence"))).toMatchObject({ state: "pending", outcomeCode: "confirmed_no_effect" });
+  sender.stopped = false; provider.noEffect = false;
+
+  // Every external and archive call ran at depth zero, and the store really did open transactions.
+  expect(seen.filter(entry => entry.depth !== 0)).toEqual([]);
+  expect(depth.max).toBeGreaterThanOrEqual(1);
+  expect(new Set(seen.map(entry => entry.at))).toEqual(new Set([
+    "archive.write:intent", "archive.write:material", "archive.write:receipt", "archive.write:reconciliation", "archive.read",
+    "provider.publish", "provider.verifyReceipt", "provider.proveNoEffect", "fence.proveStopped",
+  ]));
+});
+
+test("the production destination reservation and sender fence answer from durable facts only", async () => {
+  const reservations = new FactoryDestinationReservations({ database, tenantId });
+  const fence = new FactoryStoreSenderFence({ database, tenantId, quietPeriodMs: 60_000 });
+  const store = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, reservations, archive, fence, () => now);
+  const destination = { provider: "fixture", account: "account-a", object: "releases/durable-destination" };
+
+  // Nothing has published here, so the destination reports no version and a first claim may take it.
+  const first = await prepareRelease(admin, request("durable-first", { destination }), mutationKey("durable-first"), store);
+  expect(await database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).toEqual({ currentVersion: null });
+  const claim = await store.claim(admin, projectId, first.operationId, { kind: "approval", approvalId: await approved(first) });
+  const settled = await store.dispatch(claim, provider);
+  expect(settled).toMatchObject({ state: "succeeded" });
+
+  // After the confirmed receipt the version is the provider's own, read from the receipt the
+  // platform stored rather than from the remote system.
+  expect(await database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).toEqual({ currentVersion: settled.receipt!.version });
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, "foreign-tenant", first))).rejects.toMatchObject({ code: "factory_release_scope" });
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, { ...first, tenantId: "foreign-tenant" }))).rejects.toMatchObject({ code: "factory_release_scope" });
+
+  // A second operation aimed at the same object sees that version, so a claim declaring none fails.
+  const second = await prepareRelease(admin, request("durable-second", { destination, nodeInstanceId: candidate.nodeInstanceId, action: "publish-again" }), mutationKey("durable-second"), store);
+  await expect(store.claim(admin, projectId, second.operationId, { kind: "approval", approvalId: await approved(second) })).rejects.toMatchObject({ code: "factory_release_destination_changed" });
+
+  // A corrupt stored receipt is corruption, not a version.
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json='not json' WHERE operation_id=${first.operationId}`);
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json=${canonicalJson({ ...settled.receipt!, object: "another-object" })} WHERE operation_id=${first.operationId}`);
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json=${canonicalJson({ ...settled.receipt!, version: "" })} WHERE operation_id=${first.operationId}`);
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json=${canonicalJson(settled.receipt!)} WHERE operation_id=${first.operationId}`);
+  await database.execute(sql`UPDATE factory_release_destination_reservations SET state='released' WHERE operation_id=${first.operationId}`);
+  expect(await database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).toEqual({ currentVersion: null });
+  await database.execute(sql`UPDATE factory_release_destination_reservations SET state='confirmed' WHERE operation_id=${first.operationId}`);
+
+  // The sender fence: an uncertain operation whose row was just written is not yet quiet.
+  const lost = await prepareRelease(admin, request("durable-fence", { destination: { ...destination, object: "releases/durable-fence" } }), mutationKey("durable-fence"), store);
+  const lostClaim = await store.claim(admin, projectId, lost.operationId, { kind: "approval", approvalId: await approved(lost) });
+  provider.loseResponse = true;
+  const uncertain = await store.dispatch(lostClaim, provider);
+  provider.loseResponse = false;
+  expect(uncertain).toMatchObject({ state: "uncertain" });
+  const evidence = { operationId: lost.operationId };
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(false);
+
+  // Age the row past the quiet period and the same facts now prove the sender cannot send again.
+  await database.execute(sql`UPDATE factory_release_operations SET updated_at=NOW() - INTERVAL '1 hour' WHERE operation_id=${lost.operationId}`);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(true);
+
+  // Nothing an operator supplies can substitute for those facts.
+  expect(await fence.proveStopped(uncertain, "another-token", evidence)).toBe(false);
+  expect(await fence.proveStopped(uncertain, "", evidence)).toBe(false);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, { operationId: "another-operation" })).toBe(false);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, null)).toBe(false);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, [evidence])).toBe(false);
+  expect(await fence.proveStopped({ ...uncertain, dispatchGeneration: uncertain.dispatchGeneration + 1 }, lostClaim.senderToken, evidence)).toBe(false);
+  expect(await fence.proveStopped({ ...uncertain, operationId: `factory-release:${"0".repeat(64)}` }, lostClaim.senderToken, evidence)).toBe(false);
+  expect(await fence.proveStopped({ ...uncertain, senderToken: "another-token" }, "another-token", evidence)).toBe(false);
+  await expect(fence.proveStopped({ ...uncertain, tenantId: "foreign-tenant" }, lostClaim.senderToken, evidence)).rejects.toMatchObject({ code: "factory_release_scope" });
+  const aborted = new AbortController(); aborted.abort();
+  await expect(fence.proveStopped(uncertain, lostClaim.senderToken, evidence, aborted.signal)).rejects.toBeInstanceOf(DOMException);
+
+  // A settled operation has no sender to fence.
+  await database.execute(sql`UPDATE factory_release_operations SET state='succeeded' WHERE operation_id=${lost.operationId}`);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(false);
+  await database.execute(sql`UPDATE factory_release_operations SET state='uncertain',dispatch_started=FALSE WHERE operation_id=${lost.operationId}`);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(false);
+  await database.execute(sql`UPDATE factory_release_operations SET dispatch_started=TRUE WHERE operation_id=${lost.operationId}`);
+
+  expect(() => new FactoryStoreSenderFence({ database, tenantId, quietPeriodMs: 0 })).toThrow("factory_release_invalid");
+  expect(new FactoryStoreSenderFence({ database, tenantId }).tenantId).toBe(tenantId);
+  expect(new FactoryDestinationReservations({ database, tenantId }).tenantId).toBe(tenantId);
+});
+
+test("a git destination binds one broker-namespace ref and refuses a receipt naming another", async () => {
+  const gitDestination = (object: string) => ({ provider: "github", account: "ezcorp-org/factory-platform-publication-tests", object });
+  const operation = await prepareRelease(admin, request("git-branch", { destination: gitDestination("pull-request/git-branch") }));
+  const binding = factoryGitBranchBinding(operation.operationId);
+  expect(operation).toMatchObject({ destinationRef: binding.ref, destinationBranch: binding.branch });
+  expect(binding.ref.startsWith(FACTORY_BRANCH_REF_PREFIX)).toBe(true);
+  // The ref reverses to the operation with no lookup table, which is what reconciliation needs.
+  expect(factoryOperationIdFromRef(binding.ref)).toBe(operation.operationId);
+  expect(rows(await database.execute(sql`SELECT destination_ref,destination_branch FROM factory_release_operations WHERE operation_id=${operation.operationId}`))).toEqual([{ destination_ref: binding.ref, destination_branch: binding.branch }]);
+
+  // A receipt that forgets the ref, or names another branch, never settles a git operation.
+  for (const mode of ["omitted", "other"] as const) {
+    const target = await prepareRelease(admin, request(`git-${mode}`, { destination: gitDestination(`pull-request/git-${mode}`) }));
+    const approval = await approved(target);
+    const claim = await releases.claim(admin, projectId, target.operationId, { kind: "approval", approvalId: approval });
+    provider.gitRef = mode;
+    expect([mode, await releases.dispatch(claim, provider)]).toMatchObject([mode, { state: "uncertain", outcomeCode: "receipt_archive_unknown" }]);
+  }
+  provider.gitRef = "exact";
+
+  const approval = await approved(operation);
+  const claim = await releases.claim(admin, projectId, operation.operationId, { kind: "approval", approvalId: approval });
+  expect(claim).toMatchObject({ destinationRef: binding.ref, destinationBranch: binding.branch });
+  const settled = await releases.dispatch(claim, provider);
+  expect(settled).toMatchObject({ state: "succeeded", receipt: { ref: binding.ref, branch: binding.branch } });
+
+  // A destination that is not a git destination carries no ref at all.
+  const objectStore = await prepareRelease(admin, request("no-branch"));
+  expect(objectStore.destinationRef).toBeUndefined();
+  expect(objectStore.destinationBranch).toBeUndefined();
+
+  // A redirected or invented ref is corruption, not a different branch.
+  const foreign = await prepareRelease(admin, request("git-tamper", { destination: gitDestination("pull-request/git-tamper") }));
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=${`${FACTORY_BRANCH_REF_PREFIX}other`},destination_branch=${`${FACTORY_BRANCH_NAMESPACE}/other`} WHERE operation_id=${foreign.operationId}`);
+  await expect(releases.inspect(projectId, foreign.operationId)).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=${`${FACTORY_BRANCH_REF_PREFIX}x`},destination_branch=NULL WHERE operation_id=${foreign.operationId}`).then(() => null, (error: unknown) => error);
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=${binding.ref},destination_branch=${binding.branch} WHERE operation_id=${objectStore.operationId}`);
+  await expect(releases.inspect(projectId, objectStore.operationId)).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET destination_ref=NULL,destination_branch=NULL WHERE operation_id=${objectStore.operationId}`);
+  const restored = await releases.inspect(projectId, objectStore.operationId);
+  expect([restored?.state, restored?.destinationRef, restored?.destinationBranch]).toEqual(["pending", undefined, undefined]);
+});
+
+test("the F04 reconciliation matrix runs against the real GitHub adapter", async () => {
+  const repositoryId = 1_368_432_892;
+  const repository = "ezcorp-org/factory-platform-publication-tests";
+  const server = new FactoryGitHubFake({ repository, repositoryId, baseBranch: "main", baseFiles: FACTORY_GITHUB_BASE_FILES, identity: FACTORY_GITHUB_IDENTITY });
+  const github = new FactoryGitHubReleaseProvider({ repository, projectId, authorize: async () => {}, readToken: async () => "fixture-token", request: server.request });
+
+  // The operation id is derived, so the publication request is built once the identity is known.
+  const identityFor = (destinationObject: string) => ({ ...candidate, decisionId, candidateDigest: trusted.candidateDigest, action: "publish", destination: { provider: "github", account: repository, object: destinationObject } });
+  const preparedFor = async (label: string) => {
+    // Each label publishes its own candidate tree, so each has its own accepted commit and its own
+    // destination object. Two operations aimed at one destination is a reservation conflict, which
+    // the neighbouring durable-destination case already proves.
+    const files = [...FACTORY_GITHUB_CANDIDATE_FILES, { path: `src/${label}.ts`, mode: "100644" as const, content: new TextEncoder().encode(`export const label = "${label}";\n`) }];
+    const provisional = factoryGitHubPublicationFixture(server, `factory-release:${"0".repeat(64)}`, { repositoryId, baseBranch: "main", files });
+    const destinationObject = `pull-request/main/${provisional.commitSha}`;
+    const seed = { ...identityFor(destinationObject), request: {}, estimatedSpendMicros: 0, deadlineMs: now + 5_000, nodeInstanceId: candidate.nodeInstanceId, action: `publish:${label}` };
+    const operationId = `factory-release:${digestObject({ projectId, runId: seed.runId, nodeInstanceId: seed.nodeInstanceId, candidateGeneration: seed.candidateGeneration, candidateDigest: seed.candidateDigest, action: seed.action, destination: seed.destination })}`;
+    const request = factoryGitHubPublicationFixture(server, operationId, { repositoryId, baseBranch: "main", files });
+    return { input: { ...seed, request } as FactoryReleaseRequest, operationId };
+  };
+
+  // A confirmed publication: one branch, one draft pull request, and a receipt naming both.
+  const attach = await preparedFor("attach");
+  const attachOperation = await prepareRelease(admin, attach.input, mutationKey("github-attach"));
+  expect(attachOperation.operationId).toBe(attach.operationId);
+  const attachClaim = await releases.claim(admin, projectId, attachOperation.operationId, { kind: "approval", approvalId: await approved(attachOperation) });
+  archive.failWrite = true;
+  const uncertain = await releases.dispatch(attachClaim, github);
+  archive.failWrite = false;
+  expect(uncertain).toMatchObject({ state: "uncertain", outcomeCode: "receipt_archive_unknown" });
+  expect(server.pulls).toHaveLength(1);
+
+  // The operator reads the provider for the receipt. The lookup sends no create of any kind, so
+  // it can never produce a second effect.
+  const writesBefore = server.calls.filter(call => call.method !== "GET").length;
+  // The lookup is made against the operation as it stands now, so the receipt names its generation.
+  const receipt = (await github.lookupReceipt(uncertain))!;
+  expect(server.calls.filter(call => call.method !== "GET").length).toBe(writesBefore);
+  expect(server.pulls).toHaveLength(1);
+  expect(receipt).toMatchObject({ ref: attachOperation.destinationRef, branch: attachOperation.destinationBranch, version: attach.input.request && (attach.input.request as { commitSha: string }).commitSha });
+  const settled = await reconcileRelease(admin, { projectId, operationId: attachOperation.operationId, action: "attach_receipt", reason: "the provider lookup found the exact draft pull request", providerEvidence: { lookup: true }, receipt }, github);
+  expect(settled).toMatchObject({ state: "succeeded", receipt: { ref: attachOperation.destinationRef } });
+
+  // Absence cannot be confirmed while the branch exists, however the operator words it.
+  const absent = await preparedFor("absent");
+  const absentOperation = await prepareRelease(admin, absent.input, mutationKey("github-absent"));
+  const absentClaim = await releases.claim(admin, projectId, absentOperation.operationId, { kind: "approval", approvalId: await approved(absentOperation) });
+  server.failNext = { method: "POST", pathIncludes: "/pulls", status: 500 };
+  expect(await releases.dispatch(absentClaim, github)).toMatchObject({ state: "uncertain", outcomeCode: "provider_response_unknown" });
+  sender.stopped = true;
+  const absenceRequest = { projectId, operationId: absentOperation.operationId, action: "confirm_no_effect" as const, reason: "the operator believes nothing was created", providerEvidence: { operationId: absentOperation.operationId } };
+  await expect(reconcileRelease(admin, absenceRequest, github)).rejects.toMatchObject({ code: "factory_release_absence_unproved" });
+
+  // Keeping it uncertain is the honest outcome, and it consumes no new consent. The operation was
+  // already uncertain, so it keeps the code its lost dispatch recorded rather than gaining one.
+  const kept = await reconcileRelease(admin, { ...absenceRequest, action: "keep_uncertain", reason: "the branch exists and the pull request state is unknown" }, github);
+  expect([kept.state, kept.outcomeCode]).toEqual(["uncertain", "provider_response_unknown"]);
+  expect(rows(await database.execute(sql`SELECT reconciliation_id FROM factory_release_reconciliations WHERE operation_id=${absentOperation.operationId}`))).toHaveLength(1);
+  sender.stopped = false;
+
+  // An operation that never reached the provider proves absence and returns to pending, and the
+  // approval its failed dispatch consumed cannot be reused for the next send.
+  const unsent = await preparedFor("unsent");
+  const unsentOperation = await prepareRelease(admin, unsent.input, mutationKey("github-unsent"));
+  const unsentApproval = await approved(unsentOperation);
+  const unsentClaim = await releases.claim(admin, projectId, unsentOperation.operationId, { kind: "approval", approvalId: unsentApproval });
+  server.failNext = { method: "POST", pathIncludes: "/git/refs", status: 500 };
+  expect(await releases.dispatch(unsentClaim, github)).toMatchObject({ state: "uncertain" });
+  sender.stopped = true;
+  const reopened = await reconcileRelease(admin, { projectId, operationId: unsentOperation.operationId, action: "confirm_no_effect", reason: "the ref was never created and no pull request names it", providerEvidence: { operationId: unsentOperation.operationId } }, github);
+  expect(reopened).toMatchObject({ state: "pending", outcomeCode: "confirmed_no_effect" });
+  sender.stopped = false;
+  await expect(releases.claim(admin, projectId, unsentOperation.operationId, { kind: "approval", approvalId: unsentApproval })).rejects.toThrow();
+  const freshApproval = await approved(reopened);
+  await expect(releases.claim(admin, projectId, reopened.operationId, { kind: "approval", approvalId: freshApproval })).resolves.toMatchObject({ dispatchGeneration: 2 });
+});
+
+test("a principal without the release grant cannot claim, and no other path reaches the provider", async () => {
+  // C04's broker-only rule at the product boundary: publication is a claim, and a claim needs the
+  // `factory.release` grant. An ordinary runner principal and a wrapped legacy tool run under a
+  // service identity that has task grants and no release grant.
+  const runner: FactoryPrincipal = { kind: "service", id: "ordinary-runner", authentication: "service" };
+  await database.execute(sql`INSERT INTO service_accounts(id,name,created_by_user_id,project_id,max_tokens_per_day,expires_at) VALUES (${runner.id},'Ordinary runner',${admin.id},${projectId},100,${new Date(now + 10_000)})`);
+  await grants.set(admin, { projectId, principal: runner, action: "factory.operate", expectedRevision: 0, expiresAtMs: now + 5_000 });
+
+  const operation = await prepareRelease(admin, request("runner-denied"));
+  const approval = await approved(operation);
+  const calls = provider.calls;
+  await expect(releases.claim(runner, projectId, operation.operationId, { kind: "approval", approvalId: approval })).rejects.toThrow("factory_forbidden");
+  // The approval survives a denied claim, and nothing reached the provider.
+  expect(rows<{ status: string }>(await database.execute(sql`SELECT status FROM factory_release_approvals WHERE approval_id=${approval}`))).toEqual([{ status: "approved" }]);
+  expect(provider.calls).toBe(calls);
+  expect(await releases.inspect(projectId, operation.operationId)).toMatchObject({ state: "pending", dispatchGeneration: 0 });
+
+  // A dispatch needs a claim, and a claim is the only thing that mints a sender token. A forged
+  // one, at the right generation or the wrong one, is fenced before the provider is called.
+  const forged = { ...operation, state: "executing" as const, senderToken: "forged", dispatchGeneration: 1, authority: { kind: "approval" as const, id: approval } };
+  await expect(releases.dispatch(forged, provider)).rejects.toMatchObject({ code: "factory_release_sender_fenced" });
+  await expect(releases.dispatch({ ...forged, dispatchGeneration: 0 }, provider)).rejects.toMatchObject({ code: "factory_release_sender_fenced" });
+  expect(provider.calls).toBe(calls);
 });
 
 test("tampered pinned operation facts fail closed before provider dispatch", async () => {
