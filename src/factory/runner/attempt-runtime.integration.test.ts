@@ -176,6 +176,24 @@ test("the trusted runner checks current package readiness before the isolated ru
   expect(calls).toEqual(["lease", "package", "readiness"]);
 });
 
+test("the trusted runner carries the held allocation's device authority into the open, and none when there is no preflight", async () => {
+  const canonical = { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: 0, operations: [] } as const;
+  const opened: Array<FactoryAttemptDeviceAuthorization | undefined> = [];
+  const runtime: FactoryAttemptRuntime = { open: async (_request, _lease, _package, devices) => { opened.push(devices); return { disposition: "started", workerId: "factory-test", invocationId: "invocation-test", wait: async () => canonical, stop: async () => { throw new Error("stop is not part of this dispatch test"); } }; } };
+  const preflight = { lease: async () => lease, preparedPackage: async () => prepared };
+  const readiness = { assertDispatchReady: async () => prepared };
+
+  await new IsolatedFactoryTrustedRunner(runtime, preflight, readiness).run(request);
+  expect(opened).toEqual([undefined]);
+
+  const authorization: FactoryAttemptDeviceAuthorization = { gpuHosts: 1, devices: ["/dev/kfd"] };
+  await new IsolatedFactoryTrustedRunner(runtime, { ...preflight, devices: async () => authorization }, readiness).run(request);
+  expect(opened[1]).toEqual(authorization);
+  // Absent means a CPU attempt: the grant the runtime builds from it is empty.
+  expect(factoryAttemptDeviceGrant(request.authority.attemptId, lease, opened[0]).devices).toEqual([]);
+  expect(factoryAttemptDeviceGrant(request.authority.attemptId, lease, opened[1]).devices).toEqual(["/dev/kfd"]);
+});
+
 test("a fresh isolated Bun guest receives only the minted attempt token and returns its canonical result", async () => {
   const root = await mkdtemp(join(tmpdir(), "factory-attempt-runtime-"));
   const database = new PGlite({ extensions: { vector, pg_trgm } });

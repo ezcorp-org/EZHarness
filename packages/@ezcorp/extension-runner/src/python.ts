@@ -1,6 +1,6 @@
 import { readFile, rm } from "node:fs/promises";
 import type { BuildResult, ResourceLimits, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { canonicalJson, validateManifest, workspaceText } from "@ezcorp/extension-contract";
+import { canonicalJson, validateManifest } from "@ezcorp/extension-contract";
 import { PodmanRunner, type PodmanRunnerOptions } from "./podman";
 import { buildLimits, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, sha256, validateFiles } from "./core";
 
@@ -194,9 +194,4 @@ export class PythonPodmanRunner extends PodmanRunner {
     }
     return result;
   }
-}
-
-/** The staged source of one guest: the entrypoint reads the recipe the build sealed. */
-export function pythonRecipeRuntime(artifacts: WorkspaceFiles): { runtime?: unknown; closureDigest?: unknown } {
-  return JSON.parse(workspaceText(artifacts[".runner/recipe.json"] ?? "{}", ".runner/recipe.json")) as { runtime?: unknown; closureDigest?: unknown };
 }
