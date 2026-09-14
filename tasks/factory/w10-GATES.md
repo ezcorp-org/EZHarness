@@ -220,6 +220,14 @@ What follows from that, exactly:
   `changed-line-coverage.json` (246 pass, 0 fail, 1135 assertions)
 - [ ] G27: The end-to-end journey through the real started application, once W09 lands on
   `integ/w00`. NOT STARTED: W09 is on `wp/w09-startup` and has not been merged to `integ/w00`.
+  What W09 needs from this package is one call: `REFERENCE_CODE_IMPLEMENTATIONS` in
+  `src/factory/reference-code/pack.ts` is the registry, and `createFactoryProviderBroker({ pin })`
+  in `src/providers/factory-broker.ts` is the transport the runner is handed.
+- [x] G27a: W10 and W09 do not conflict in any source file. Measured, not assumed.
+  CHECK: `git merge-tree --write-tree --name-only HEAD wp/w09-startup`
+  EXPECT: the only conflict is `tasks/lessons.md`, an append to a shared documentation file;
+  `scripts/coverage-thresholds.json` and `tasks/todo.md` auto-merge.
+  EVIDENCE: `/tmp/factory-platform-evidence/w10/w09-integration-probe.json`
 
 ## Pre-existing failures inherited from the base, named so nobody counts them as W10's
 
