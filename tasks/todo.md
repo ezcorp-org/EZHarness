@@ -2218,3 +2218,44 @@ Behavior, every plan bullet:
 - [x] C05 re-run across PGlite, real PostgreSQL and S3, real Podman preparation, and schema and foreign-key parity; two model and configuration tuples sharing one package and export with only one revoked.
 
 Review (W01): the recorded C02 gap is closed. `wait()` after a recovery boundary no longer refuses; one canonical terminal result is digest-sealed into the launch row before the runtime acknowledges it, and `open()` replays it without touching the runner, so a fresh gateway returns the identical result after exactly one start and one invocation. Six defects surfaced and were fixed rather than routed. The merged branch had silently removed the kernel isolation probe from every build, which is a C05 control and not merely the `ENOENT` symptom that exposed it. The isolated runtime accepted any reverse envelope with an `input` key, so a broker frame was bound to nothing even though the v4 guest already sends the exact invocation context. A readiness denial after the durable claim stranded the attempt in `launching` forever. My own first fix then introduced two more, both caught only by the real container suite: probing the kernel on `attach()` cost about four seconds and the guest whose control pipe died did not survive that window, and sweeping orphans on the lazy build and execution paths would destroy another attempt's surviving guest now that execution is detached. Finally, real PostgreSQL parity rejected a plain object as a jsonb column default. One deviation from the freeze for the coordinator to confirm: the durable terminal result lives in two columns on `factory_attempt_launches` rather than in `factory_execution_terminals`, because that table requires verified candidate output bytes and measured usage and so cannot hold a failed, cancelled, or uncertain runner result. It is still no new table.
+
+## W09 — Complete application and service startup (wp/w09-startup)
+
+Owner: coordinator-owned package, delegated. Evidence: `/tmp/factory-platform-evidence/w09/`.
+Gates: `tasks/factory/w09-GATES.md`.
+
+- [x] W09.1 Validated startup configuration. `src/factory/startup-config.ts` parses one factory
+      runtime configuration document strictly and fails by the exact name of each missing required
+      dependency. No composition reads `process.env` a second time.
+- [x] W09.2 Real service probes. `src/factory/service-probes.ts` probes each of the seven
+      `FACTORY_REQUIRED_SERVICES` for real and returns the available set plus a named failure per
+      unavailable service. Admission stays closed until every probe passes.
+- [x] W09.3 Stop-aware bounded workers. `src/factory/background-workers.ts` gives one worker
+      shape: bounded batch, single-flight, own `AbortController`, abort-aware idle wait, stop that
+      awaits the in-flight step. One registry starts in order and stops in reverse.
+- [x] W09.4 Composition root. `src/factory/runtime-composition.ts` composes harness/API stores,
+      Bun gateway roles (execution, materials, archive writer), host supervisor with W01's launch
+      protocol, pool client, encrypted stores, controls, and the archive writer as
+      `FactoryReleases`' `archive`. Registers the eight workers: compute polling, attempts,
+      command/inbox delivery, child settlement, projections, release outcomes, usage
+      reconciliation, notifications.
+- [x] W09.5 Typed seams, not fake success. W03 (stop worker, usage reconciler), W05 (validators),
+      W07/W08 (release profiles), W17 (notification sender) each get a typed seam that refuses
+      when absent. No seam returns a fabricated success.
+- [x] W09.6 Startup race. Reproduce `web/src/lib/server/context.ts` simultaneous initialization and
+      failed-start retry through the real server, then fix at the source.
+- [x] W09.7 Disabled reason string. `factory_disabled` becomes the contract's `factory-disabled`
+      (requirement index discrepancy 9, row C09.7).
+- [x] W09.8 API scopes. Align `src/api-registry.ts` with the C01 authority table (discrepancy 10):
+      version publish becomes `write`, grant management becomes `admin`. Record the package
+      install/quarantine row, which has no lifecycle to register against until W02 lands.
+- [x] W09.9 Process boundaries. An executable test proves only Node links `@temporalio/*`, Node
+      holds no product database, object-store, or provider credential, the supervisor holds only
+      host identity, and runners hold attempt-scoped authority.
+- [x] W09.10 Behaviour tests: shutdown order, credential expiry and refresh, dependency loss,
+      restart, queue backpressure, safe re-drive, simultaneous initialization, failed-start retry.
+- [x] W09.11 Full verification per `common.md` with receipts under the evidence directory.
+
+### Review
+
+(filled at the end)
