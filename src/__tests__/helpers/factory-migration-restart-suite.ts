@@ -96,6 +96,31 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     await expect((async () => { await db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state) VALUES ('restart-attempt-duplicate','restart-tenant','restart-project','restart-run',${"c".repeat(64)},'{}','restart-reservation',1,1,1,'restart-allocation','restart-host',${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},'restart-worker-duplicate',${expected},'prepared')`); })()).rejects.toThrow();
   });
 
+  test("the task-stop table keeps a live sealed-launch stop and still binds a terminal-outcome stop", async () => {
+    const db = fixture.db;
+    const attemptId = "restart-stop-attempt";
+    const receipt = JSON.stringify({ projectId: "restart-project", artifactDigest: "b".repeat(64) });
+    await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${attemptId},'restart-tenant','restart-project','restart-run','restart-stop-node',0,1,1,1,1,0,NOW() + INTERVAL '1 hour',${"e".repeat(64)},'{}','running')`);
+    await db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state) VALUES (${attemptId},'restart-tenant','restart-project','restart-run',${"e".repeat(64)},'{}','restart-stop-reservation',1,1,1,'restart-stop-allocation','restart-stop-host',${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},'restart-stop-worker','restart-stop-invocation','launched')`);
+    await db.execute(sql`INSERT INTO factory_audit_batches(tenant_id,project_id,run_id,interpreter_id,source_sequence,sequence,digest,payload) VALUES ('restart-tenant','restart-project','restart-run','root',41,41,'restart-stop-batch','{}')`);
+    await db.execute(sql`INSERT INTO factory_transition_commands(tenant_id,project_id,run_id,interpreter_id,command_id,source_sequence,command_digest) VALUES ('restart-tenant','restart-project','restart-run','root','restart-stop-cancel',41,${`sha256:${"b".repeat(64)}`})`);
+    await db.execute(sql`INSERT INTO factory_task_stops(tenant_id,project_id,run_id,interpreter_id,cancel_command_id,attempt_id,reservation_id,request_json,request_digest,source,state,accepted_at_ms) VALUES ('restart-tenant','restart-project','restart-run','root','restart-stop-cancel',${attemptId},'restart-stop-reservation','{}',${`sha256:${"a".repeat(64)}`},'sealed-launch','accepted',17)`);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      const stored = rows<{ source: string; state: string; attempt_command_id: string | null; accepted_at_ms: number | string }>(await db.execute(sql`SELECT source,state,attempt_command_id,accepted_at_ms FROM factory_task_stops WHERE attempt_id=${attemptId}`));
+      expect(stored).toEqual([{ source: "sealed-launch", state: "accepted", attempt_command_id: null, accepted_at_ms: stored[0]!.accepted_at_ms }]);
+      expect(Number(stored[0]!.accepted_at_ms)).toBe(17);
+      const definitions = rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_task_stops'::regclass ORDER BY conname`)).map(row => row.definition).join("\n");
+      expect(definitions).toContain("FOREIGN KEY (attempt_id) REFERENCES factory_attempt_launches(attempt_id)");
+      expect(definitions).toContain("accepted_at_ms >= 0");
+      expect(definitions).toContain("state = 'stopped'::text) = ((stop_receipt_json IS NOT NULL) AND (stopped_event_json IS NOT NULL))");
+      const terminalWithoutOutcome = await db.execute(sql`INSERT INTO factory_task_stops(tenant_id,project_id,run_id,interpreter_id,cancel_command_id,attempt_id,reservation_id,request_json,request_digest,source,state,accepted_at_ms) VALUES ('restart-tenant','restart-project','restart-run','root','restart-stop-cancel-2','restart-stop-attempt-2','restart-stop-reservation','{}',${`sha256:${"a".repeat(64)}`},'terminal-outcome','accepted',17)`).then(() => null, (error: unknown) => error);
+      expect(terminalWithoutOutcome).toBeInstanceOf(Error);
+      const withoutLaunch = await db.execute(sql`INSERT INTO factory_task_stops(tenant_id,project_id,run_id,interpreter_id,cancel_command_id,attempt_id,reservation_id,request_json,request_digest,source,state,accepted_at_ms) VALUES ('restart-tenant','restart-project','restart-run','root','restart-stop-cancel-3','restart-stop-unlaunched','restart-stop-reservation','{}',${`sha256:${"a".repeat(64)}`},'sealed-launch','accepted',17)`).then(() => null, (error: unknown) => error);
+      expect(withoutLaunch).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

@@ -29,6 +29,13 @@ export interface FactoryTaskOutcomeReceipt {
   readonly event: Extract<KernelEvent, { readonly kind: "node-failed" }>;
 }
 
+/** Exact historical result and attempt authority for physical-stop reconciliation. */
+export interface FactoryVerifiedTaskOutcome {
+  readonly receipt: FactoryTaskOutcomeReceipt;
+  readonly result: FactoryNonSuccessfulRunnerResult;
+  readonly authority: FactoryAttemptAuthority;
+}
+
 interface OutcomeRow {
   reservation_id: string;
   input_digest: string;
@@ -144,6 +151,10 @@ export class FactoryTaskOutcomes {
   }
 
   private async readReceipt(transaction: MigrationDb, reference: TrustedFactoryCommandReference, inputDigest?: string): Promise<FactoryTaskOutcomeReceipt | undefined> {
+    return (await this.readVerifiedReceipt(transaction, reference, inputDigest))?.receipt;
+  }
+
+  private async readVerifiedReceipt(transaction: MigrationDb, reference: TrustedFactoryCommandReference, inputDigest?: string): Promise<FactoryVerifiedTaskOutcome | undefined> {
     const row = rows<OutcomeRow>(await transaction.execute(sql`SELECT reservation_id,input_digest,authority_json,result_json,evidence_digest,receipt_json,receipt_digest FROM factory_task_outcomes WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND command_id=${reference.commandId}`))[0];
     if (!row) return undefined;
     const receipt = JSON.parse(row.receipt_json) as FactoryTaskOutcomeReceipt;
@@ -163,6 +174,6 @@ export class FactoryTaskOutcomes {
       || !validateFactoryTaskOutcome(receipt, result as FactoryNonSuccessfulRunnerResult, authority).ok) {
       throw new FactoryTaskOutcomeError("factory_task_outcome_corrupt");
     }
-    return Object.freeze(receipt);
+    return Object.freeze({ receipt: Object.freeze(receipt), result: Object.freeze(result as FactoryNonSuccessfulRunnerResult), authority: Object.freeze(authority) });
   }
 }

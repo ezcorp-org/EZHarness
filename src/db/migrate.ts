@@ -3095,4 +3095,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await upFactoryAttemptLaunches(db);
   const { up: addFactoryArtifactMaterials } = await import("./migrations/add-factory-artifact-materials");
   await addFactoryArtifactMaterials(db);
+  const { up: addFactoryTaskStops } = await import("./migrations/add-factory-task-stops");
+  await addFactoryTaskStops(db);
 }
