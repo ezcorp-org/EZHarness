@@ -142,6 +142,11 @@ export const SOURCE_GLOBS: readonly string[] = [
   // no runnable coverage producer, and are recorded as W18 backlog rather
   // than pulled into a gate that nothing can satisfy.
   "src/factory/runner/python/**/*.py",
+  // The image pack's locked Python distribution, on the same terms as the
+  // runner's. Both are real projects with their own pyproject.toml and uv.lock,
+  // and scripts/python-quality.sh measures both, so leaving this one out would
+  // ship a gate that nothing enforces for half the Python in the repository.
+  "src/factory/reference-image/python/**/*.py",
 ];
 
 // Test/spec/type files are never "product code" for the new-file gate.

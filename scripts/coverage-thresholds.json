@@ -1046,5 +1046,12 @@
   "src/factory/reference-code/snapshot.ts": 100,
   "src/factory/reference-code/workspace.ts": 100,
   "src/factory/release-s3-publication.ts": 100,
-  "src/factory/release-s3-scope.ts": 100
+  "src/factory/release-s3-scope.ts": 100,
+  "src/factory/reference-image/closure.ts": 100,
+  "src/factory/reference-image/lock.ts": 100,
+  "src/factory/reference-image/model-lock.ts": 100,
+  "src/factory/reference-image/publication.ts": 100,
+  "src/factory/reference-image/semantic-quorum.ts": 100,
+  "src/factory/reference-image/variants.ts": 100,
+  "src/factory/reference-image/python/**": 100
 }

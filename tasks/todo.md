@@ -2624,3 +2624,63 @@ guest environment, and a guest whose lifetime outlives its supervisor — while 
 behavior that was lost. Nothing was skipped, relaxed, or excluded; the two closure tests still read
 `RUNNER_GUEST_ENVIRONMENT` and so still assert the exact declared set, and the trusted-local test
 kept every assertion and gained one. Full detail and receipts: `tasks/factory/wreg-GATES.md`.
+## W11 — Real image reference pack (Terra domain)
+
+Branch `wp/w11-image-pack` from `integ/w00` at `1d3edf5b0`. Evidence
+`/tmp/factory-platform-evidence/w11/`. Gate file `tasks/factory/w11-GATES.md`.
+
+- [x] Lock the SDXL revision, every weight digest, the runtime image, the
+      interpreter, the generation settings, the normalization, the OCR
+      configuration and threshold, and the evaluation configuration in one
+      committed document with one digest.
+- [x] Fetch the weight closure with every byte bound to a digest the lock
+      declared first; seal it read-only and record source and digest.
+- [x] Build the pinned guest image from the ROCm base plus the pinned wheels and
+      the sealed weights; record its digest.
+- [x] Pure-stdlib PNG structure, normalization, and OCR interpretation in the
+      locked Python project, so the deterministic claims need no heavy
+      dependency and stay fully measured.
+- [x] The SDXL generation adapter with an injected pipeline, so the torch call
+      site is exercised rather than excluded.
+- [x] Seal the image guest through the shared Python recipe machinery with the
+      observed distribution closure and the model pins.
+- [x] Execute seeds 11, 23, 37, and 53 with the C10 settings under the GPU lock
+      through W02's per-attempt device grant.
+- [x] Ordered collect semantics: a dense input-ordered outcome per seed, failed
+      variants visible, first accepted in input order selected.
+- [x] Three strict protected semantic evaluations with the quorum and error
+      rules; a missing or error result never counts as a pass. The rules are
+      implemented and covered; the live provider leg is blocked on a credential.
+- [x] The wrong-size and SALE-caption fixtures, with a blank control.
+- [ ] The car and retained tree fixtures: their defects are semantic, so both
+      wait on the evaluator.
+- [ ] Publish the accepted variant through W08 with exact verified bytes. The
+      mapping is implemented and covered; the end-to-end leg is blocked because
+      a variant larger than one mebibyte cannot leave an isolated guest.
+- [x] Report AMD execution separately from production GPU isolation, which stays
+      unmet.
+
+### Review
+
+The pack is real where the platform allows it to be. One committed lock pins the
+SDXL revision, all eighteen files, both images, the interpreter, the C10
+settings, the normalization, the OCR threshold and the evaluation configuration,
+and its digest moves when any of them does. The 6.94 GB weight closure was
+fetched with every byte bound to a digest the lock declared first, and the guest
+image was built from it and sealed at its own digest.
+
+All four recorded seeds generated real 1,024-pixel variants on this host's AMD
+card, each in its own isolated attempt through W02's grant path, and the device
+contract held inside this pack rather than only in W02's probe. The byte-level
+claims and the OCR threshold are measured by the pack's own standard-library
+reader inside the guest that holds the bytes. The OCR claim discriminated on
+real output without being tuned to: it rejected three variants for marks the
+model painted and accepted the fourth, with a blank control scoring nothing.
+
+Three things are open and none of them is a shortcut. A variant larger than one
+mebibyte cannot leave an isolated guest at all, because the shared runner's
+control-output budget is a per-worker lifetime limit; that blocks publication of
+the accepted bytes and the semantic evaluation equally. There is no Anthropic
+credential on this host. And `broker.invoke` has no production implementation,
+so a guest-initiated model call has nowhere to land. Each is recorded as an
+unmet row with its own verdict rather than folded into a summary.
