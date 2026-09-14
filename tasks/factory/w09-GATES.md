@@ -141,14 +141,38 @@ database, and freshly started pool, supervisor, and web processes each time.
 | 2 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
 | 3 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
 
-The previous submission showed one passing run, and the validation was right
-that it was not reliable: the supervisor's heartbeat write sat behind an
-unbounded Podman probe, so the interval between records was probe latency plus
-the heartbeat against a reader window of three heartbeats. That is fixed at the
-design level rather than by widening a window — observation and publication are
-separate loops now, and the four intervals are stated multiples of one
-heartbeat: writes every one, reader window three, probe bound four, facts stale
-at five. `src/factory/runner/supervisor-process.ts` carries that table.
+### Two rounds of getting this wrong
+
+The first submission showed one passing run. The second showed three, after I
+decoupled the heartbeat from the probe's LATENCY — and an independent validator
+still could not reproduce it, because the real fault was in the probe itself and
+I had diagnosed the symptom.
+
+`PodmanRunner.prepareStore` ends in `acquireLease()`, an exclusive
+`flock --nonblock` child held for the instance's life. The probe built a NEW
+runner on every call, so the second probe on the same root failed
+`runner_store_busy` deterministically, and every successful one leaked a `flock`
+child. A supervisor therefore degraded on its second heartbeat and leaked a
+process per heartbeat before that. My three runs each started a fresh process and
+sampled `/api/ready` the moment it turned green, so none of them ever observed a
+second probe. Three runs of a test that cannot see the defect is not three
+passes.
+
+The fix is one runner held for the process lifetime, closed in the run's
+`finally`, which makes the repeat a no-op by the runner's own memoisation and
+releases the lease on stop. `src/factory/runner/supervisor-process.podman.integration.test.ts`
+exercises the REAL `PodmanRunner`: three consecutive probes on one root, exactly
+one `flock` child across all of them and none after `close()`, a fresh holder
+able to take the store again after the first released it, and a rival holder
+correctly refused with `runner_store_busy` while the first still holds it. Every
+other test for this file injects a fake probe, which is why the defect survived
+two reviews.
+
+The heartbeat decoupling stands on its own merits and is unchanged: observation
+and publication are separate loops, and the four intervals are stated multiples
+of one heartbeat — writes every one, reader window three, probe bound four,
+facts stale at five. `src/factory/runner/supervisor-process.ts` carries that
+table.
 
 Real processes in this run: the shared PostgreSQL proof container, the local S3
 services (ordinary and archive), **the real pool admission process**
@@ -216,9 +240,10 @@ proved separately in `repro/real-server-factory-probe.json`.
 | `src/factory/runtime-workers.test.ts` | 15 pass / 0 fail |
 | `src/factory/runtime-composition.test.ts` | 23 pass / 0 fail |
 | `src/factory/release-composition.test.ts` | 17 pass / 0 fail |
-| `src/factory/installation-startup.test.ts` | 15 pass / 0 fail |
-| `src/factory/role-drivers.test.ts` | 12 pass / 0 fail |
-| `src/factory/runner/supervisor-process.test.ts` | 23 pass / 0 fail |
+| `src/factory/installation-startup.test.ts` | 19 pass / 0 fail |
+| `src/factory/role-drivers.test.ts` | 15 pass / 0 fail |
+| `src/factory/runner/supervisor-process.test.ts` | 25 pass / 0 fail |
+| `src/factory/runner/supervisor-process.podman.integration.test.ts` | 3 pass / 0 fail, real Podman |
 | `src/__tests__/factory-process-boundaries.test.ts` | 14 pass / 0 fail |
 | `web/src/__tests__/factory-boot.server.test.ts` | 10 pass / 0 fail |
 | `web/src/__tests__/context-initialization.server.test.ts` | 4 pass / 0 fail |
@@ -230,7 +255,7 @@ proved separately in `repro/real-server-factory-probe.json`.
 
 Logs and receipt JSON per producer under `/tmp/factory-platform-evidence/w09/`.
 
-Thirteen new source files, each at 100% line coverage after merge:
+Twelve new source files, each at 100% line coverage after merge:
 `background-workers.ts`, `startup-config.ts`, `service-probes.ts`,
 `service-readiness.ts`, `runtime-seams.ts`, `runtime-workers.ts`,
 `runtime-composition.ts`, `release-composition.ts`, `installation-startup.ts`,

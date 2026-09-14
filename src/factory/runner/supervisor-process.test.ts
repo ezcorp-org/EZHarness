@@ -9,7 +9,7 @@ import {
   FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
   FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
   parseFactorySupervisorProcessConfig,
-  probeFactoryHostRunner,
+  factoryHostRunnerProbe,
   runConfiguredFactorySupervisor,
   runFactorySupervisorMain,
   startFactorySupervisorMain,
@@ -39,6 +39,14 @@ function config(root: string, overrides: Partial<FactorySupervisorProcessConfig>
     readinessFilePath: join(root, "supervisor.json"),
     readinessHeartbeatMs: 1_000,
     ...overrides,
+  };
+}
+
+function configFor(runnerRoot: string): Record<string, unknown> {
+  return {
+    schemaVersion: "factory.supervisor-process.v1", installationId: "installation-01", hostId: "host-01",
+    hostKeyPath: "/run/secrets/host.key", hostKeyId: "host-key-1", runnerRoot,
+    readinessFilePath: "/run/factory/supervisor.json", readinessHeartbeatMs: HEARTBEAT_MS,
   };
 }
 
@@ -79,7 +87,7 @@ function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> =
   let cadence = 0;
   return {
     loadHostKey: loadFactoryHostKey,
-    probeRunner: async () => {},
+    createRunnerProbe: () => ({ probe: async () => {}, close: async () => {} }),
     createReadiness: factorySupervisorProductionDependencies.createReadiness,
     now: () => 1_000_000,
     wait: async (milliseconds, waitSignal) => {
@@ -194,7 +202,7 @@ describe("runConfiguredFactorySupervisor", () => {
     // record arrive already stale, intermittently, depending on host load.
     const writes: string[] = [];
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
-      probeRunner: () => new Promise<void>(() => {}),
+      createRunnerProbe: () => ({ probe: () => new Promise<void>(() => {}), close: async () => {} }),
       createReadiness: () => ({ write: async (update) => { writes.push(update.lifecycle); return { ...update } as never; } }),
     }, 4));
 
@@ -213,7 +221,7 @@ describe("runConfiguredFactorySupervisor", () => {
     let observed: unknown;
     let probes = 0;
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
-      probeRunner: async () => { probes += 1; },
+      createRunnerProbe: () => ({ probe: async () => { probes += 1; }, close: async () => {} }),
       wait: async () => {
         // Both loops share this; read after the publish loop has written once.
         try { observed = await readFactoryServiceReadiness(scope); } catch { /* not ready yet */ }
@@ -235,7 +243,7 @@ describe("runConfiguredFactorySupervisor", () => {
     let cadence = 0;
 
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
-      probeRunner: () => new Promise<void>(() => {}),
+      createRunnerProbe: () => ({ probe: () => new Promise<void>(() => {}), close: async () => {} }),
       wait: async (milliseconds) => {
         asked.push(milliseconds);
         // The bound elapses here, which is what proves the probe is raced
@@ -259,7 +267,7 @@ describe("runConfiguredFactorySupervisor", () => {
     const published: string[] = [];
 
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
-      probeRunner: () => new Promise<void>(() => {}),
+      createRunnerProbe: () => ({ probe: () => new Promise<void>(() => {}), close: async () => {} }),
       wait: async () => { abortController!.abort(); await new Promise<void>((resolve) => { setTimeout(resolve, 0); }); },
       createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
     }));
@@ -282,7 +290,7 @@ describe("runConfiguredFactorySupervisor", () => {
     abortController = new AbortController();
     await writeHostKey(root);
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
-      probeRunner: async () => { throw new Error("podman is not answering"); },
+      createRunnerProbe: () => ({ probe: async () => { throw new Error("podman is not answering"); }, close: async () => {} }),
       createReadiness: record,
     }, 6));
     expect(published.some((entry) => entry === "degraded:runner_unavailable")).toBe(true);
@@ -295,8 +303,14 @@ describe("runConfiguredFactorySupervisor", () => {
     const controller = new AbortController();
     controller.abort();
     let probed = 0;
-    await runConfiguredFactorySupervisor(path, controller.signal, dependencies({ probeRunner: async () => { probed += 1; } }));
+    let closed = 0;
+    await runConfiguredFactorySupervisor(path, controller.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => { probed += 1; }, close: async () => { closed += 1; } }),
+    }));
     expect(probed).toBe(0);
+    // The run still closes what it built, so an immediate abort leaves no
+    // store lease behind either.
+    expect(closed).toBe(1);
     expect(JSON.parse(await Bun.file(join(root, "supervisor.json")).text())).toMatchObject({ lifecycle: "stopped" });
   });
 
@@ -310,34 +324,74 @@ describe("runConfiguredFactorySupervisor", () => {
   });
 });
 
-describe("probeFactoryHostRunner", () => {
-  test("initializes the configured runner root and reports its verdict", async () => {
-    const root = await privateRoot();
-    const seen: string[] = [];
+describe("factoryHostRunnerProbe", () => {
+  test("builds the runner ONCE and probes it repeatedly", async () => {
+    const constructed: string[] = [];
+    let initialized = 0;
     class Runner {
-      constructor(readonly options: { root: string }) { seen.push(options.root); }
-      async initialize(): Promise<void> {}
+      constructor(readonly options: { root: string }) { constructed.push(options.root); }
+      async initialize(): Promise<void> { initialized += 1; }
+      async close(): Promise<void> {}
     }
-    await probeFactoryHostRunner(parseFactorySupervisorProcessConfig(config(root)), async () => Runner);
-    expect(seen).toEqual([join(root, "runner")]);
+    const probe = factoryHostRunnerProbe(async () => Runner);
+    const config = parseFactorySupervisorProcessConfig(configFor("/tmp/w09-runner-root"));
 
-    class Refusing {
-      constructor(_options: { root: string }) {}
-      async initialize(): Promise<void> { throw new Error("isolation_unavailable"); }
-    }
-    await expect(probeFactoryHostRunner(parseFactorySupervisorProcessConfig(config(root)), async () => Refusing))
-      .rejects.toThrow("isolation_unavailable");
+    await probe.probe(config);
+    await probe.probe(config);
+    await probe.probe(config);
+
+    // The defect this replaces: a runner per call. PodmanRunner's store lease is
+    // an exclusive flock child held for the instance's life, so the second
+    // instance on the same root fails runner_store_busy and every successful
+    // one leaks a child.
+    expect(constructed).toEqual(["/tmp/w09-runner-root"]);
+    expect(initialized).toBe(3);
   });
 
-  test("the production loader really loads the container runner, and it refuses an unusable store root", async () => {
-    const root = await privateRoot();
-    // A regular file cannot become an artifact store, so the real runner's own
-    // store preparation refuses before any container is created. That makes the
-    // default loader provable on any host, with or without a live container.
-    const file = join(root, "not-a-directory");
-    await writeFile(file, "", { mode: 0o600 });
-    await expect(probeFactoryHostRunner(parseFactorySupervisorProcessConfig(config(root, { runnerRoot: file }))))
-      .rejects.toBeDefined();
+  test("closes the instance it built, and builds a fresh one afterwards", async () => {
+    let closed = 0;
+    const constructed: string[] = [];
+    class Runner {
+      constructor(readonly options: { root: string }) { constructed.push(options.root); }
+      async initialize(): Promise<void> {}
+      async close(): Promise<void> { closed += 1; }
+    }
+    const probe = factoryHostRunnerProbe(async () => Runner);
+    const config = parseFactorySupervisorProcessConfig(configFor("/tmp/w09-runner-root"));
+
+    await probe.probe(config);
+    await probe.close();
+    expect(closed).toBe(1);
+    // Closing twice must not close a runner that is no longer held.
+    await probe.close();
+    expect(closed).toBe(1);
+
+    await probe.probe(config);
+    expect(constructed).toHaveLength(2);
+  });
+
+  test("closing before any probe is safe", async () => {
+    const probe = factoryHostRunnerProbe(async () => { throw new Error("the loader must not be reached"); });
+    await probe.close();
+  });
+
+  test("a failed initialize propagates, and the next probe retries the same instance", async () => {
+    let attempts = 0;
+    const constructed: string[] = [];
+    class Runner {
+      constructor(readonly options: { root: string }) { constructed.push(options.root); }
+      async initialize(): Promise<void> { attempts += 1; if (attempts === 1) throw new Error("isolation_unavailable"); }
+      async close(): Promise<void> {}
+    }
+    const probe = factoryHostRunnerProbe(async () => Runner);
+    const config = parseFactorySupervisorProcessConfig(configFor("/tmp/w09-runner-root"));
+
+    await expect(probe.probe(config)).rejects.toThrow("isolation_unavailable");
+    // The runner clears its own memo on failure, so the retry is a real retry
+    // against the instance that already holds the store lease.
+    await probe.probe(config);
+    expect(constructed).toHaveLength(1);
+    expect(attempts).toBe(2);
   });
 });
 

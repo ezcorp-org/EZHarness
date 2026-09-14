@@ -81,8 +81,11 @@ export interface FactorySupervisorProcessConfig {
 export interface FactorySupervisorProcessDependencies {
   /** Proves the host key loads. It is never returned, logged, or published. */
   readonly loadHostKey: (path: string) => Promise<void>;
-  /** Proves the container runner answers on this host. */
-  readonly probeRunner: (config: FactorySupervisorProcessConfig, signal: AbortSignal) => Promise<void>;
+  /**
+   * Builds the runner probe this run owns. Called once, closed in the run's
+   * `finally`, so the store lease is taken once and released once.
+   */
+  readonly createRunnerProbe: () => FactoryHostRunnerProbe;
   readonly createReadiness: (config: FactorySupervisorProcessConfig) => FactoryServiceReadinessWriter;
   readonly wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly now: () => number;
@@ -137,36 +140,68 @@ export async function loadFactoryHostKey(path: string): Promise<void> {
   createPrivateKey(Buffer.from(bytes));
 }
 
-/** The container runner the host supervisor probes, loaded on demand. */
-export type FactoryHostRunnerLoader = () => Promise<new (options: { root: string }) => { initialize(): Promise<void> }>;
+/** The part of the container runner this process uses. */
+export interface FactoryHostRunner {
+  initialize(): Promise<void>;
+  close(): Promise<void>;
+}
+
+export type FactoryHostRunnerLoader = () => Promise<new (options: { root: string }) => FactoryHostRunner>;
 
 const loadPodmanRunner: FactoryHostRunnerLoader = async () => (await import("@ezcorp/extension-runner")).PodmanRunner as never;
 
 /**
- * Prove the container runner answers on this host.
+ * The host's runner, held for the process lifetime, and probed repeatedly.
  *
- * `initialize()` is the one public entry that runs the fail-closed kernel probe
- * — rootless, seccomp, cgroup v2 controllers, deny-by-default profile. It is
- * also the only path W01 permits to sweep orphans, and a daemon startup is
- * exactly the caller that lesson names. `prepare` memoises inside the runner,
- * so a later heartbeat re-probes only after a failure rather than sweeping a
- * surviving guest again.
+ * ONE instance, not one per heartbeat. `PodmanRunner.prepareStore` ends in
+ * `acquireLease()`, which spawns a `flock --exclusive --nonblock` child that
+ * holds the store lock for the instance's life. A second instance on the same
+ * root therefore fails `runner_store_busy` deterministically from the second
+ * probe onward, and every successful construction leaks one `flock` child.
  *
- * The loader is a parameter so this is provable without a live container: the
- * fact under test is that the supervisor refuses to publish `ready` unless the
- * runner it is configured with initializes.
+ * The first version built a runner per call and so did both: the supervisor
+ * degraded on its second heartbeat and leaked a process per heartbeat before
+ * that. Decoupling the heartbeat from the probe did not touch it, because the
+ * fault is in the probe rather than in its latency, and a single-run proof
+ * never observed the second call.
+ *
+ * Holding one instance makes the repeat a no-op by the runner's own design:
+ * `prepare()` memoises with `this.ready ??= …`. A FAILED probe is not memoised
+ * — the runner closes itself and clears `ready` — so a transient failure still
+ * retries on the next heartbeat against the same instance.
  */
-export async function probeFactoryHostRunner(
-  config: FactorySupervisorProcessConfig,
-  loadRunner: FactoryHostRunnerLoader = loadPodmanRunner,
-): Promise<void> {
-  const Runner = await loadRunner();
-  await new Runner({ root: config.runnerRoot }).initialize();
+export interface FactoryHostRunnerProbe {
+  /** Prove the runner answers. Real work once; a no-op after that. */
+  probe(config: FactorySupervisorProcessConfig): Promise<void>;
+  /** Release the store lease, so the process leaves no `flock` child behind. */
+  close(): Promise<void>;
+}
+
+export function factoryHostRunnerProbe(loadRunner: FactoryHostRunnerLoader = loadPodmanRunner): FactoryHostRunnerProbe {
+  let runner: FactoryHostRunner | undefined;
+  return {
+    async probe(config: FactorySupervisorProcessConfig): Promise<void> {
+      if (!runner) {
+        const Runner = await loadRunner();
+        runner = new Runner({ root: config.runnerRoot });
+      }
+      // `initialize()` is the one public entry that runs the fail-closed kernel
+      // probe — rootless, seccomp, cgroup v2 controllers, deny-by-default
+      // profile. It is also the only path W01 permits to sweep orphans, and a
+      // daemon startup is exactly the caller that lesson names.
+      await runner.initialize();
+    },
+    async close(): Promise<void> {
+      const current = runner;
+      runner = undefined;
+      await current?.close();
+    },
+  };
 }
 
 export const factorySupervisorProductionDependencies: FactorySupervisorProcessDependencies = {
   loadHostKey: loadFactoryHostKey,
-  probeRunner: (config) => probeFactoryHostRunner(config),
+  createRunnerProbe: () => factoryHostRunnerProbe(),
   now: Date.now,
   createReadiness: (config) => createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
     installationId: config.installationId,
@@ -208,6 +243,7 @@ interface SupervisorObservation {
 async function observeHost(
   config: FactorySupervisorProcessConfig,
   dependencies: FactorySupervisorProcessDependencies,
+  runnerProbe: FactoryHostRunnerProbe,
   timeoutMs: number,
   signal: AbortSignal,
 ): Promise<Pick<SupervisorObservation, "hostKeyReady" | "runnerReady" | "errorCode">> {
@@ -219,7 +255,7 @@ async function observeHost(
     await dependencies.loadHostKey(config.hostKeyPath);
     hostKeyReady = true;
     const bounded = await Promise.race([
-      dependencies.probeRunner(config, controller.signal).then(() => "observed" as const),
+      runnerProbe.probe(config).then(() => "observed" as const),
       dependencies.wait(timeoutMs, controller.signal).then(() => "elapsed" as const),
     ]);
     // A wait that ended because the process is stopping is not a timed-out probe.
@@ -282,11 +318,12 @@ export async function runConfiguredFactorySupervisor(
   const timeoutMs = heartbeatMs * FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS;
   const stalenessMs = heartbeatMs * FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS;
   const observation: SupervisorObservation = { attempted: false, hostKeyReady: false, runnerReady: false, observedAtMs: 0 };
+  const runnerProbe = dependencies.createRunnerProbe();
   await readiness.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false } });
 
   const observing = (async () => {
     while (!signal.aborted) {
-      const seen = await observeHost(config, dependencies, timeoutMs, signal);
+      const seen = await observeHost(config, dependencies, runnerProbe, timeoutMs, signal);
       if (signal.aborted) break;
       observation.attempted = true;
       observation.hostKeyReady = seen.hostKeyReady;
@@ -310,6 +347,9 @@ export async function runConfiguredFactorySupervisor(
     // would see the host and tell nobody.
     await Promise.all([observing, publishing]);
   } finally {
+    // Release the store lease before recording the stop, so a supervisor that
+    // has said `stopped` really is holding nothing.
+    await runnerProbe.close();
     await readiness.write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false } });
   }
 }
