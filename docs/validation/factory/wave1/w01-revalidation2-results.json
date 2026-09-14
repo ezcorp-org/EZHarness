@@ -1,0 +1,109 @@
+{
+  "package": "W01",
+  "task": "Second re-validation of the channel-hardening delta after the prior re-validation REJECTed at 80d7e4236 on a HIGH finding (guest-writable /channel directory + unguarded host reopen-by-path let a sandboxed guest symlink-swap a channel entry and have the host dereference an arbitrary host path).",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "head_assigned": "14474b690354c2a3fbba00aacc5660ef18ba0c62",
+  "head_validated": "8499f9220372f54879d93d2267ebdaed18c6b5ae",
+  "note_on_head": "A further commit landed on wp/w01-durable-runtime after the task was assigned: 8499f9220 'docs(factory): record single-commit receipt provenance', a one-line docs-only correction to tasks/factory/w01-GATES.md's receipt-provenance sentence (it now correctly states all seven final receipts came from 14474b690 with a clean tree, rather than a mix of older commit SHAs). Verified this claim against the raw receipt JSONs in /tmp/factory-platform-evidence/w01/logs/final-*.json: six of seven do record commit 14474b690b...62, and the seventh (final-static-gates.json) correctly records 8499f9220 itself (it necessarily runs after the doc commit that describes it). Validated the full delta 80d7e4236..8499f9220 (three commits): 4a6c8af79 (the hardening fix), 14474b690 (gate text + G15 count correction), 8499f9220 (receipt-provenance correction). Tree clean at 8499f9220, no dirty files, no untracked files.",
+  "commits_in_delta": [
+    {"sha": "4a6c8af79", "subject": "fix(runner): deny a guest any control over the channel entries the host opens"},
+    {"sha": "14474b690", "subject": "docs(factory): add the channel security gate and correct the G15 count"},
+    {"sha": "8499f9220", "subject": "docs(factory): record single-commit receipt provenance"}
+  ],
+  "diffstat_vs_80d7e4236": "5 files changed, 193 insertions(+), 12 deletions(-): packages/@ezcorp/extension-runner/src/podman.ts (+68/-11), packages/@ezcorp/extension-runner/tests/channel-identity.test.ts (new, +77), packages/@ezcorp/extension-runner/tests/podman.integration.test.ts (+46), tasks/factory/w01-GATES.md (+11/-1), tasks/lessons.md (+3)",
+  "scope_conformance": "Confirmed via `git diff --name-only 80d7e4236..8499f9220 | grep -vE '^(packages/@ezcorp/extension-runner/(src|tests)/|src/factory/runner/|tasks/)'` returning nothing: every touched file is inside W01's owned surface. No W02/W03/W04/W05 file touched. No frozen consumer-facing signature changed: StartRequest, Runner, FactoryHostLaunchProtocol, FactoryAttemptOpen, device grant, and FramedTransport's member set are all untouched by this delta (only podman.ts's private internals and two test files changed).",
+  "item_a_poc_rerun": {
+    "summary": "Reran the prior validator's attack class against the shipped mount/flags at the new head, plus an independently authored broader PoC in a scratch directory outside any repository (/tmp/w01-revalidation2-scratch, removed at end of session).",
+    "live_container_poc": {
+      "script": "/tmp/w01-revalidation2-scratch/live-guest-attack-poc.sh",
+      "log": "/tmp/factory-platform-evidence/w01-revalidation2/logs/live-guest-attack-poc.log",
+      "method": "Imported runnerChannelMount() and DEFAULT_IMAGE directly from the shipped packages/@ezcorp/extension-runner/src/podman.ts (cannot drift from what ships). Ran a real, unprivileged, fully sandboxed Podman guest (--cap-drop=ALL, --security-opt=no-new-privileges, --user=65534:65534, --network=none, --read-only) with the exact production channel mount against a real FIFO directory.",
+      "attack_vectors_tried": ["openReadWrite (baseline)", "unlink", "rename", "symlinkSwap", "createRegular", "mkdirInChannel", "hardlink", "fchmodEntry"],
+      "result": "openReadWrite: allowed. Every other vector (including hardlink and fchmod, which neither the worker's own new test nor the prior validator's PoC tried): EROFS. Host-side entry after the attack: still the same FIFO, same inode. First attempt included a ninth vector (open with O_WRONLY|O_TRUNC) that hung the guest container indefinitely -- a bug in my own PoC script, not a product defect: opening a FIFO write-only blocks until a reader attaches, which is normal FIFO semantics unrelated to the read-only mount. Killed the hung container, removed the vector, reran clean. Confirmed no leftover container by name afterward.",
+      "exit": 0
+    },
+    "host_identity_poc": {
+      "script": "/tmp/w01-revalidation2-scratch/host-identity-poc.ts",
+      "log": "/tmp/factory-platform-evidence/w01-revalidation2/logs/host-identity-poc.log",
+      "method": "Subclassed PodmanRunner (same technique the worker's own channel-identity.test.ts uses) to invoke the private openChannelEntry() directly against six scenarios.",
+      "results": [
+        {"case": "honest FIFO, matching recorded identity", "expected": "opens", "observed": "opens", "pass": true},
+        {"case": "FIFO recreated in place at the same path (real unlink+mkfifo, not a doctored record)", "expected": "n/a -- methodology note", "observed": "the recreated FIFO reused the exact same kernel inode number both times this was tried (24555797, 24555808), so this scenario cannot produce a genuinely different real inode on this filesystem and does not exercise the mismatch branch; the worker's own test correctly avoids this by editing the recorded facts file directly instead of relying on recreation, which is the right technique", "pass": "n/a (test methodology limitation, not a product finding)"},
+        {"case": "directory swapped in for the FIFO", "expected": "refused", "observed": "refused, but via a raw Node EISDIR error from open(), not the typed RunnerError('channel_untrusted', ...) -- the open() call itself fails before the fstat/identity check ever runs", "pass": true, "note": "see finding 2"},
+        {"case": "symlink swapped in for the FIFO", "expected": "refused", "observed": "refused, but via a raw Node ELOOP error from open() (caused by the O_NOFOLLOW flag), not the typed RunnerError -- same shape as the directory case", "pass": true, "note": "see finding 2"},
+        {"case": "regular file swapped in for the FIFO", "expected": "refused with the typed error", "observed": "refused with RunnerError('channel_untrusted', 'Runner control channel entry is not the FIFO the runner created') -- open() succeeds (a regular file opens fine), then fstat's isFIFO() check fails and throws the typed error", "pass": true},
+        {"case": "facts file missing entirely", "expected": "fails closed with the typed error", "observed": "RunnerError('channel_untrusted', 'Runner control channel has no recorded identity')", "pass": true}
+      ]
+    }
+  },
+  "item_b_code_reading": {
+    "single_shared_path": "openChannelEntry() (podman.ts:184-199) is the only place any host code opens a channel path. launchDetached() calls it via channelTransport() at podman.ts:216 (initial launch) and attach() calls it via the same channelTransport() at podman.ts:391 (every recovery/reattach). One function, two call sites, no duplication.",
+    "O_NOFOLLOW_and_fstat": "Confirmed at podman.ts:192-196: every open adds fsConstants.O_NOFOLLOW, then handle.stat() is checked for isFIFO() and exact dev/ino match against the recorded facts before the handle is returned; a mismatch closes the handle and throws.",
+    "identity_record_location": "channelFactsPath() (podman.ts:183) returns `${channelDirectory}.channel.json`, a sibling of the channel directory (e.g. .../channels/<container>.channel.json next to .../channels/<container>/), never a path inside the directory the guest's mount exposes. The guest's only mount is the channel directory itself (runnerChannelMount), so it cannot see or reach the sibling facts file.",
+    "missing_or_incomplete_record_fails_closed": "Confirmed by the host_identity_poc missing-facts-file and incomplete-facts cases: both throw RunnerError('channel_untrusted', ...) rather than falling back to any permissive default.",
+    "no_0o777_remains": "grep -rn '0o777' packages/@ezcorp/extension-runner/src src/factory/runner -> no matches. grep -rn 'ro=false' -> no matches. The only directory mode in the channel path is CHANNEL_DIRECTORY_MODE = 0o755 (podman.ts:18); the only file mode is CHANNEL_FIFO_MODE = 0o666 (podman.ts:20), applied only to the three FIFO inodes, never to the directory."
+  },
+  "item_c_unchanged_flags": {
+    "args_method_diff": "git diff of PodmanRunner.args() between 80d7e4236 and 8499f9220 shows exactly one substitution: the inline channel mount string literal is replaced by a call to the new exported runnerChannelMount(channel) helper. --network=none, --read-only, --read-only-tmpfs=false, --cap-drop=ALL, --security-opt=no-new-privileges, the seccomp profile path, --user=65534:65534, --pid=private, --ipc=private, --cgroupns=private, and the /workspace ro=true mount are all byte-for-byte unchanged.",
+    "shared_mount_builder": "runnerChannelMount() (podman.ts:29-31) is exported and imported directly by both tests/channel-identity.test.ts and tests/podman.integration.test.ts (confirmed by grep across the repo: only these three files and podman.ts itself reference it or the literal 'dst=/channel' mount string), so production and the security tests cannot drift apart. My own independent PoC script also imported it directly from the shipped source rather than re-typing the flags, for the same reason."
+  },
+  "item_d_reruns": [
+    {"producer": "Full Podman suite run 1 (heavy lock)", "command": "flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=.../podman-run1 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "exit": 0, "result": "16 pass / 0 fail / 86 expect(), 72.86s", "worker_claim": "16/0/86", "match": true},
+    {"producer": "Full Podman suite run 2, back to back (heavy lock)", "command": "same, fresh coverage dir", "exit": 0, "result": "16 pass / 0 fail / 86 expect(), 75.01s", "worker_claim": "16/0/86", "match": true},
+    {"producer": "attempt-runtime.integration.test.ts (heavy lock)", "exit": 0, "result": "6 pass / 0 fail / 27 expect()", "worker_claim": "6/0/27", "match": true},
+    {"producer": "supervisor.podman.integration.test.ts (heavy lock)", "exit": 0, "result": "2 pass / 0 fail / 6 expect()", "worker_claim": "2/0/6", "match": true},
+    {"producer": "package-preparation.podman.integration.test.ts (heavy lock)", "exit": 0, "result": "1 pass / 0 fail / 6 expect()", "worker_claim": "1/0/6", "match": true},
+    {"producer": "podman ps -a before/during/after every rerun", "result": "55 unique container names before and after (56 lines including header on one raw check); grep for any name containing my scratch-run prefixes ('reval2', 'w01-poc') found none afterward; no leftover labelled container from any of my reruns. The only two 'Up' containers throughout were pre-existing and unrelated: nostalgic_lovelace (a 7-day-old playwright container) and factory-platform-proof-postgres (the shared proof database)."}
+  ],
+  "item_e_reruns": [
+    {"producer": "Focused suites (9 files, includes the new channel-identity.test.ts)", "command": "bun test --timeout 120000 --coverage --coverage-dir=.../focused-suites ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts ./src/factory/runner/guest-frames.test.ts ./src/factory/runner/workspace-checkpoint-seam.test.ts ./src/factory/runner/supervisor.integration.test.ts ./src/__tests__/factory-migration-restart.test.ts ./scripts/check-factory-boundaries.test.ts ./packages/@ezcorp/extension-runner/tests/protocol.test.ts ./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts", "exit": 0, "result": "77 pass / 0 fail / 259 expect()", "worker_claim": "77/0/259", "match": true},
+    {"producer": "6 real-Postgres producers", "note": "Not part of items (d)/(e) as literally scoped by the team lead's instructions (this delta touches no DB/storage code), but rerun anyway for due diligence since common.md's general protocol names them. First attempt exited 1 solely because I forgot to export EZCORP_FACTORY_STORAGE_SECRETS_DIR in my own shell -- a self-inflicted environment gap, not a product or delta defect (14 pass / 14 fail, every failure the identical 'EZCORP_FACTORY_STORAGE_SECRETS_DIR is required' error). Reran with the correct env from common.md.", "command": "flock ... bun test --timeout 300000 --coverage ... ./tests/postgres/factory-{schema,migration-restart,executions,attempt-queue,execution-gateway,package-preparation}.test.ts", "exit": 0, "result": "28 pass / 0 fail / 2794 expect()", "worker_claim": "28/0/2794", "match": true},
+    {"producer": "bun run typecheck", "exit": 0, "result": "pass"},
+    {"producer": "bun run lint", "exit": 0, "result": "pass, 8 pre-existing infos, unrelated to W01"},
+    {"producer": "bun scripts/check-factory-boundaries.ts", "exit": 0, "result": "Factory boundary checks passed (F07, F13)"},
+    {"producer": "bun scripts/gate-integrity.ts", "exit": 0, "result": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected"},
+    {"producer": "merge-lcov.ts (my 7 producer LCOVs, incl. podman.ts from every producer) -> coverage/lcov.info", "exit": 0, "result": "591 source files merged"},
+    {"producer": "BASE_REF=integ/w00 check-new-file-coverage.ts", "exit": 0, "result": "New-file coverage gate PASSED: 3 new source file(s) gated", "worker_claim": "3 new source file(s) gated", "match": true},
+    {"producer": "BASE_REF=integ/w00 check-patch-coverage.ts", "exit": 0, "result": "Patch coverage gate PASSED: all changed executable lines covered (10 file(s))", "worker_claim": "10 file(s), per the now-corrected G15 evidence text", "match": true},
+    {"producer": "per-file line coverage from my own merged LCOV (all 6 touched executable files)", "result": {"podman.ts": "386/386", "protocol.ts": "86/86", "attempt-runtime.ts": "307/307", "supervisor.ts": "72/72", "guest-frames.ts": "13/13", "add-factory-attempt-launches.ts": "23/23"}}
+  ],
+  "item_f_scope_and_frozen_signatures": "All three commits touch only W01-owned files (packages/@ezcorp/extension-runner/{src,tests}, tasks/). No W02/W03/W04/W05 file touched. No frozen consumer-facing signature changed.",
+  "item_g_gate_and_receipt_text_at_final_head": {
+    "gate_count": "tasks/factory/w01-GATES.md line 5 says 'All seventeen gates pass.' Counted checkbox lines: G1-G13, G16, G17, G14, G15 = 17 items, all `[x]`. Consistent.",
+    "G15_evidence": "Now reads 'all changed executable lines covered (10 file(s))', matching my own independent rerun (10 file(s)) and correcting the prior round's finding that it was stale at '9 file(s)'.",
+    "G17_evidence": "New gate for this delta. Its CHECK/EXPECT/EVIDENCE lines were verified against my own reruns of podman.integration.test.ts and channel-identity.test.ts and against my own independent PoCs; the described mechanism (two independent barriers: read-only 0o755 mount, and O_NOFOLLOW+fstat identity check with a typed channel_untrusted error) matches the code exactly, EXCEPT that the gate's evidence text implies the typed error covers 'anything else' unconditionally, which item (a)/(b) below shows is not quite true for symlink and directory substitution (see finding 2).",
+    "receipt_provenance": "The final commit 8499f9220 corrects the provenance sentence to 'every final receipt was produced at 14474b690 from clean committed source with no dirty files.' Verified directly against the seven final-*.json receipt files: six record commit 14474b690354c2a3fbba00aacc5660ef18ba0c62 with dirty:'' , and the seventh (final-static-gates.json, necessarily run after the docs commit describing the other six) records 8499f9220372f54879d93d2267ebdaed18c6b5ae with dirty:''. The correction is accurate."
+  },
+  "findings": [
+    {
+      "id": 1,
+      "severity": "resolved",
+      "title": "Prior HIGH finding (guest-writable channel directory permitting a symlink swap the host would dereference) is closed and independently reproven with a broader attack surface",
+      "evidence": "Live sandboxed-guest PoC (/tmp/factory-platform-evidence/w01-revalidation2/logs/live-guest-attack-poc.log) against the exact shipped runnerChannelMount()/args() flags: unlink, rename, symlink-swap, regular-file-create, directory-create, and (new vs. both the prior validator's PoC and the worker's own test) hardlink and fchmod all return EROFS, while the read-write FIFO open succeeds and the host-side entry's inode is unchanged after the attack. Code reading confirms the identity check (O_NOFOLLOW + fstat + recorded dev/ino match, facts stored outside the mounted directory) is applied through one shared private method used identically on initial launch and on every attach/recovery, closing the 'unconditionally reachable via recovery' concern the prior validator raised."
+    },
+    {
+      "id": 2,
+      "severity": "low",
+      "title": "The design addendum and G17's gate evidence overstate the typed-error guarantee; a symlink or directory substituted for a channel entry is refused by a raw OS error, not by RunnerError('channel_untrusted', ...)",
+      "location": "packages/@ezcorp/extension-runner/src/podman.ts:184-199 (openChannelEntry); tasks/factory/w01-GATES.md G17 evidence ('refusing anything else with a typed channel_untrusted error'); /tmp/factory-platform-evidence/w01/DESIGN-guest-lifetime.md addendum ('Anything else is refused with a typed channel_untrusted error')",
+      "description": "open(path, flags | O_NOFOLLOW) throws a raw Node fs error (ELOOP for a symlink, EISDIR for a directory) before the function's own fstat/identity check ever executes; only a type-mismatch that survives open() -- a regular file swapped in for the FIFO -- reaches the isFIFO()/dev/ino comparison and gets the typed RunnerError. Reproduced directly against the shipped private method in /tmp/factory-platform-evidence/w01-revalidation2/logs/host-identity-poc.log: symlink -> 'ELOOP: too many symbolic links encountered' (not channel_untrusted); directory -> 'EISDIR' (not channel_untrusted); regular file -> RunnerError('channel_untrusted', 'Runner control channel entry is not the FIFO the runner created') as claimed. This is not a security bypass -- every attack vector is still refused unconditionally, confirmed live in finding 1 -- and no caller in the codebase pattern-matches on the 'channel_untrusted' code (grep found only the four throw sites), so nothing downstream currently depends on the distinction. The worker's own channel-identity.test.ts quietly reflects this: its symlink case asserts only `.rejects.toThrow()` with no message check, while every other case in that file asserts the specific message text. Remediation: wrap the open() call in openChannelEntry() in a try/catch and rethrow any failure as RunnerError('channel_untrusted', ...), which would make the claim in the design addendum and G17 literally true, or correct the addendum/gate prose to state precisely which failure mode applies to which substitution."
+    },
+    {
+      "id": 3,
+      "severity": "informational",
+      "title": "The identity check's collision resistance depends on the filesystem not reusing a freed inode number; this only matters if the (independently proven robust) primary read-only-mount barrier were ever defeated by some other means",
+      "location": "packages/@ezcorp/extension-runner/src/podman.ts:191-196 (dev/ino comparison in openChannelEntry)",
+      "description": "Attempting to construct a 'FIFO recreated with a genuinely different real inode' test case (as opposed to the worker's own test, which correctly edits the recorded facts file directly rather than relying on recreation) found that unlink+mkfifo at the same path immediately reused the exact same kernel inode number on this host's filesystem, both times tried (/tmp/factory-platform-evidence/w01-revalidation2/logs/host-identity-poc.log, case 'recreated-fifo-real-different-inode-refused'). This is a filesystem behavior observation, not a reachable exploit: production's read-only bind mount and 0o755 directory (proven live in finding 1, including against hardlink and directory-create attempts my own broader PoC added) already prevent the guest from ever unlinking or recreating a channel entry in the first place, so this only becomes relevant if that primary barrier is bypassed by an unrelated defect. Noting it as a documentation point for the design record: the device+inode identity check is a second, independent, but not on-its-own collision-proof layer; recording it as defense-in-depth rather than a self-sufficient control would be more precise. No action required to accept this delta."
+    },
+    {
+      "id": 4,
+      "severity": "informational",
+      "title": "A commit landed on the branch after the task was assigned; verified consistent with the assigned head",
+      "location": "8499f9220372f54879d93d2267ebdaed18c6b5ae",
+      "description": "See note_on_head. Docs-only, verified accurate against the raw receipt JSONs. Not a defect; recorded here only so the coordinator knows the branch moved during this validation window and what changed."
+    }
+  ],
+  "not_reverified": [
+    "Full plan-bullet-by-plan-bullet and interface-freeze-surface-by-surface conformance for all of W01 (that was the first validation round's job; this round's brief scoped the check to the channel-hardening delta specifically). Scope conformance and frozen-signature checks for this delta were done (item f)."
+  ]
+}

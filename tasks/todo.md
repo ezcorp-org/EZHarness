@@ -1996,17 +1996,17 @@ Team: coordinator (this session), Opus implementation workers, Sonnet validators
 - [x] Shared interface freeze with single writers (`docs/plans/2026-09-13-composable-factory-platform-interfaces.md`).
 - [x] Redacted evidence summaries and checksums copied into `docs/validation/factory/w00/`.
 - [x] Correct overstated task notes with appended notes, without deleting history (eight files; four understated gate files also annotated).
-- [ ] Fast-forward `feat/composable-factory-platform` to the finished `integ/w00`.
+- [x] Fast-forward `feat/composable-factory-platform` to the finished `integ/w00` (c6ac529d2, then each wave-1 merge).
 
 Review (W00): the integration revision is clean and every imported change has a source/test record in `tasks/factory/w00-GATES.md`. Two regressions surfaced and one was fixed here: the canonical web pool failed two session-refresh cases because the branch's JWT verifier now requires installation-bound claims (fixed in `425c1bfde`); Terra's runtime branch fails one Podman cleanup case on a fresh runner (routed to W01). Routed defects from the audit: pool 200-instead-of-429 and reservation vocabulary (W03); `factory_disabled` reason string, API scope mismatches, missing package install/quarantine route (W09/W14); five unregistered PostgreSQL suites and a runner precheck with no consuming job (W18); unimplemented workspace checkpoints (W04 with a W01 seam); Python validator equivalence (W02); provider I/O inside the release transaction (W07).
 
 ## Wave 1 — W01, W04, W18 (parallel) then W04a
 
-- [ ] W01 durable execution and recovery (Opus worker, `.worktrees/w01-runtime`, branch `wp/w01-durable-runtime`).
-- [ ] W04 artifact materials and checkpoints (Opus worker, `.worktrees/w04-artifacts`, branch `wp/w04-artifact-materials`).
-- [ ] W18 coverage/CI framework and registration (Opus worker, `.worktrees/w18-ci`, branch `wp/w18-ci-coverage`); final seven-lane gate follows W13–W17.
-- [ ] W04a independent archive writer (after W04).
-- [ ] Sonnet validation of each package before integration; coordinator combined-integration run on the merged result.
+- [x] W01 durable execution and recovery: 34 commits merged as `88effb159`; validation ACCEPT-WITH-FIXES → REJECT (0o777 rw channel directory, live PoC) → ACCEPT-WITH-FIXES → typed-refusal fix `61fcba297`; full Podman suites green in the combined run.
+- [x] W04 artifact materials and checkpoints: 11 commits merged as `4c4e1421e`; validation ACCEPT at a07a637a2.
+- [x] W18 coverage/CI framework and registration: 16 commits merged as `c3e6d479a`; validation ACCEPT; final seven-lane enforcement gate (G16–G18) follows W13–W17.
+- [x] W04a independent archive writer: 10 commits merged as `e4cb1c369`; validation ACCEPT; deployed-independent failure domain explicitly unmet on this host.
+- [x] Sonnet validation of each package before integration; combined-integration run on `88effb159` passes every producer (61 focused files, canonical web pool, 24 PostgreSQL/S3 producers, types, lint, gates, boundaries, node coverage, four Podman suites) and both coverage gate bases (`docs/validation/factory/wave1/`).
 
 ## W18 wave 1 — coverage and CI framework (branch `wp/w18-ci-coverage`)
 
@@ -2044,9 +2044,11 @@ All results here are LOCAL. No required check is registered, no runner exists,
 and no secret is provisioned, so the three labelled lanes are expected to be
 RED. That is the designed fail-closed state.
 
+Integration defects found only on the combined tree (wave 1): an unregistered PostgreSQL suite caught by W18's gate; W01 rows requiring a shared module absent from the inventory; two restart-conformance cases inserting the same attempt id into one fixture. Each fixed in the merge commit with a test rerun.
+
 ## Later waves
 
-- [ ] Wave 2: W02, W03, W05, W06, W07, W08, W09.
+- [ ] Wave 2: W02, W03, W05 running from `88effb159`; W06, W07, W08, W09 follow their inputs.
 - [ ] Wave 3: W10–W12, W13, W14, W15–W17.
 - [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
 
