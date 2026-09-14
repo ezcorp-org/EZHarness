@@ -372,3 +372,49 @@ single root envelope, so neither depends on the other's position (`310d3da5f`).
 ## Independent validation (Sonnet validator, 2026-09-14)
 
 Verdict: ACCEPT-WITH-FIXES at `a957835f7`; report `/tmp/factory-platform-evidence/w03-validation/report.md`. Five low or informational findings; three were fixed in `d093d8670` (ownership cross-table, nested-cancellation wording, weighted test name). The end-to-end host-stop composition is routed to W09 and the NUL literals in `admission-origin.test.ts` to W05.
+
+## Addendum, 2026-09-14: work-list scans for W09's held roles — `6da1f67cd`
+
+W09's composition could not register the stop-settlement and usage-reconciliation roles because
+nothing enumerated their work. Branch merged `integ/w00` at `1d3edf5b0` first, which fast-forwarded
+`wp/w03-stop-settlement`: every earlier W03 commit is already an ancestor.
+
+`6da1f67cd` adds two bounded, oldest-first, tenant-scoped scans.
+
+- **`FactoryTaskStops.listStoppableInTransaction`** returns accepted cancellations that have not
+  reached a settled stop, each carrying the cancel command reference `stop` itself takes. Ordered by
+  the acceptance clock with the cancel command breaking ties. It takes no row locks: exclusion
+  belongs to `stop`, which locks the row it settles, so two workers may list the same work and only
+  one commits it.
+- **`FactoryBudgets.listUncertainWithCostInTransaction`** returns reservations whose cost is still
+  held and which no settlement has resolved. A settlement still carrying an unknown amount leaves
+  the hold listed; one that resolves it does not.
+
+Two decisions worth stating rather than leaving to a reader:
+
+1. `factory_budget_reservations` carries no timestamp, so "oldest first" is by the run's creation,
+   with `run_id` and `reservation_id` breaking ties. The order is total and temporal only to the
+   resolution of the run, which is what the table can support without a migration.
+2. Both scans are fail-closed, not fail-quiet. A zero cost is excluded in SQL, but a non-canonical
+   amount is deliberately let through the filter so it reaches `decode` and throws, instead of
+   disappearing from a worker's list where nobody would notice. The stop scan refuses a row whose
+   state or source is outside its union; that path is normally unreachable behind a durable CHECK,
+   so the test lifts the constraint, corrupts the column, asserts the refusal, and restores both.
+
+- [x] G18: The two scans enumerate exactly their worker's work, page without repeat or gap, and
+  refuse every malformed input.
+  CHECK: `bun test --timeout 300000 ./src/__tests__/factory-budgets.test.ts ./src/__tests__/factory-task-stops.test.ts`
+  and the same suites on the real engine through `tests/postgres/`
+  EXPECT: exit 0 on both engines; empty tenant, held and running reservations excluded, a settled
+  stop leaving the list, pages partitioning the work, a cursor past the end returning nothing,
+  concurrent scans agreeing, and every bound and malformed cursor refused
+  EVIDENCE: `scans-coverage.json` (115 pass), `scans-postgres.json` (28 pass),
+  `scans-static.json` (20 pass), `scans-coverage-gates.json`. `src/factory/budgets.ts` 245/245 lines
+  and `src/factory/task-stops.ts` 310/310 lines in the merged report; both diff-scoped gates pass
+  against `integ/w00` with two changed files fully covered.
+
+Only rows these tests create are removed; nothing pre-existing in a shared store is deleted.
+
+### Work-list scans addendum validation (Sonnet validator, 2026-09-14)
+
+Verdict: ACCEPT at `688d48f4d`; report `/tmp/factory-platform-evidence/w03b-validation/report.md`.
