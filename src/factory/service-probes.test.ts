@@ -37,6 +37,8 @@ function identity(root: string): FactoryProbeIdentity {
     temporalNamespace: "tenant-01.factory",
     orchestrationReadinessFilePath: join(root, "orchestration.json"),
     poolReadinessFilePath: join(root, "pool.json"),
+    supervisorReadinessFilePath: join(root, "supervisor.json"),
+    hostId: "host-01",
     readinessHeartbeatMs: 5_000,
   };
 }

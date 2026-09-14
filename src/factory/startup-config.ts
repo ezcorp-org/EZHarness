@@ -45,6 +45,8 @@ export interface FactoryStartupConfig {
   readonly temporalNamespace: string;
   readonly orchestrationReadinessFilePath: string;
   readonly poolReadinessFilePath: string;
+  readonly supervisorReadinessFilePath: string;
+  readonly hostId: string;
   readonly readinessHeartbeatMs?: number;
   readonly gateway: { readonly hostname: string; readonly port: number; readonly tls: FactoryStartupTlsMaterial };
   readonly privateService: { readonly hostname: string; readonly port: number; readonly certificateIdentity: string; readonly tls: FactoryStartupTlsMaterial };
@@ -103,6 +105,8 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "temporalNamespace", kind: "identity" },
   { field: "orchestrationReadinessFilePath", kind: "path" },
   { field: "poolReadinessFilePath", kind: "path" },
+  { field: "supervisorReadinessFilePath", kind: "path" },
+  { field: "hostId", kind: "identity" },
   { field: "readinessHeartbeatMs", kind: "interval", optional: true },
   { field: "gateway.hostname", kind: "identity" },
   { field: "gateway.port", kind: "port" },

@@ -44,6 +44,8 @@ function document(root: string, overrides: Record<string, unknown> = {}): Record
     temporalNamespace: "tenant-01.factory",
     orchestrationReadinessFilePath: join(root, "orchestration.json"),
     poolReadinessFilePath: join(root, "pool.json"),
+    supervisorReadinessFilePath: join(root, "supervisor.json"),
+    hostId: "host-01",
     readinessHeartbeatMs: 5_000,
     gateway: { hostname: "127.0.0.1", port: 8443, tls: tlsMaterial },
     privateService: { hostname: "127.0.0.1", port: 8444, certificateIdentity: "factory-private", tls: tlsMaterial },
@@ -103,7 +105,7 @@ function dependencies(overrides: Partial<FactoryRuntimeDependencies> = {}): Fact
     workers: {
       compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
       attempts: { dispatchOne: async () => ({ kind: "idle" }) },
-      projections: { projectPending: async () => ({ applied: 0 }) },
+      projections: { projectPending: async () => ({ runs: [] }) },
     },
     report: () => {},
     ...overrides,
@@ -247,7 +249,7 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
       workers: {
         compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
         attempts: { dispatchOne: async () => { dispatched++; return { kind: "idle" }; } },
-        projections: { projectPending: async () => { projected++; return { applied: 0 }; } },
+        projections: { projectPending: async () => { projected++; return { runs: [] }; } },
       },
     });
     await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
@@ -263,7 +265,7 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
       workers: {
         compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
         attempts: { dispatchOne: async () => ({ kind: "idle" }) },
-        projections: { projectPending: async () => ({ applied: 0 }) },
+        projections: { projectPending: async () => ({ runs: [] }) },
         notificationInbox: { deliverNextAcrossProjects: async () => false },
       },
     });
@@ -273,9 +275,12 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
   test("a supplied seam is reported as present and removes its hold", async () => {
     const root = await privateRoot();
     await writeReadyRecords(root);
-    const runtime = await start(root, { seams: { physicalStopper: { stop: () => {} } } });
+    const runtime = await start(root, { seams: { physicalStopper: { step: async () => false } } });
     expect(runtime.seams.physicalStopper.present).toBe(true);
     expect(runtime.report().heldWorkers.map((held) => held.role)).not.toContain("stop-settlement");
+    // Registered and running, not merely un-held.
+    expect(runtime.report().workers.map((worker) => worker.name)).toContain("stop-settlement");
+    expect(runtime.workers.get("stop-settlement").state.running).toBe(true);
   });
 });
 
@@ -298,7 +303,7 @@ describe("startFactoryRuntime shuts down in reverse", () => {
             return { kind: "idle" };
           },
         },
-        projections: { projectPending: async () => ({ applied: 0 }) },
+        projections: { projectPending: async () => ({ runs: [] }) },
       },
     });
     await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
@@ -338,7 +343,7 @@ describe("startFactoryRuntime shuts down in reverse", () => {
       workers: {
         compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
         attempts: { dispatchOne: async () => { await wedged; return { kind: "idle" }; } },
-        projections: { projectPending: async () => ({ applied: 0 }) },
+        projections: { projectPending: async () => ({ runs: [] }) },
       },
     });
     await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
@@ -383,7 +388,7 @@ describe("startFactoryRuntime survives what a live deployment does to it", () =>
             return { kind: "idle" };
           },
         },
-        projections: { projectPending: async () => ({ applied: 0 }) },
+        projections: { projectPending: async () => ({ runs: [] }) },
       },
     }, { workers: { idleDelayMs: 10, errorDelayMs: 10, maxErrorDelayMs: 20, batch: 1 } });
 
@@ -422,7 +427,7 @@ describe("startFactoryRuntime survives what a live deployment does to it", () =>
           pollNext: async () => ({ status: "idle" }),
         },
         attempts: { dispatchOne: async () => ({ kind: "idle" }) },
-        projections: { projectPending: async () => ({ applied: 0 }) },
+        projections: { projectPending: async () => ({ runs: [] }) },
       },
     }, { workers: { idleDelayMs: 10, errorDelayMs: 10, maxErrorDelayMs: 20, batch: 4 } });
 

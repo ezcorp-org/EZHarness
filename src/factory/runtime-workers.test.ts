@@ -10,11 +10,13 @@ function collaborators(overrides: Partial<FactoryRuntimeWorkerCollaborators> = {
     seams: factoryRuntimeSeams(),
     compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
     attempts: { dispatchOne: async () => ({ kind: "idle" }) },
-    projections: { projectPending: async () => ({ applied: 0 }) },
+    projections: { projectPending: async () => ({ runs: [] }) },
     report: () => {},
     ...overrides,
   };
 }
+
+const driver = (worked = false) => ({ step: async () => worked });
 
 function releaseSeams(): FactoryRuntimeWorkerCollaborators["seams"] {
   return factoryRuntimeSeams(Object.fromEntries(FACTORY_RELEASE_SEAMS.map((key) => [key, {}])));
@@ -40,7 +42,7 @@ describe("registerFactoryRuntimeWorkers", () => {
     const set = registerFactoryRuntimeWorkers(collaborators());
     expect(set.held.map((held) => `${held.role}:${held.workPackage}`)).toEqual([
       "notification-inbox-delivery:W07/W08",
-      "child-settlement:W05",
+      "child-settlement:W06",
       "release-outcome:W07/W08",
       "usage-reconciliation:W03",
       "notification-send:W17",
@@ -55,14 +57,42 @@ describe("registerFactoryRuntimeWorkers", () => {
     for (const held of set.held) expect(set.workers.names()).not.toContain(held.role);
   });
 
-  test("a supplied seam removes its hold", () => {
+  // The defect this replaces: the three seam-driven roles only ever called
+  // hold(), so supplying the seam removed the hold and registered nothing. The
+  // role vanished from both lists and never ran.
+  test("a supplied seam REGISTERS its role, it does not merely lift the hold", () => {
     const set = registerFactoryRuntimeWorkers(collaborators({
-      seams: factoryRuntimeSeams({ physicalStopper: {}, usageReconciler: {}, notificationSender: {} }),
+      seams: factoryRuntimeSeams({
+        physicalStopper: driver(), usageReconciler: driver(), notificationSender: driver(),
+        childSettlement: driver(), releaseProviders: driver(),
+      }),
     }));
-    const heldRoles = set.held.map((held) => held.role);
-    expect(heldRoles).not.toContain("stop-settlement");
-    expect(heldRoles).not.toContain("usage-reconciliation");
-    expect(heldRoles).not.toContain("notification-send");
+    for (const role of ["stop-settlement", "usage-reconciliation", "notification-send", "child-settlement", "release-outcome"]) {
+      expect(set.workers.names()).toContain(role);
+      expect(set.held.map((held) => held.role)).not.toContain(role);
+    }
+    // Every role is accounted for exactly once, in exactly one list.
+    expect(set.workers.names().length + set.held.length).toBe(FACTORY_WORKER_ROLES.length);
+  });
+
+  test("a seam-driven role runs its seam's bounded step", async () => {
+    const seen: boolean[] = [];
+    const set = registerFactoryRuntimeWorkers(collaborators({
+      seams: factoryRuntimeSeams({
+        physicalStopper: { step: async () => { seen.push(true); return true; } },
+        usageReconciler: { step: async () => { seen.push(false); return false; } },
+      }),
+    }));
+    expect(await set.workers.get("stop-settlement").runBatch(new AbortController().signal)).toBe("worked");
+    expect(await set.workers.get("usage-reconciliation").runBatch(signal)).toBe("idle");
+    expect(seen.length).toBeGreaterThan(0);
+  });
+
+  test("a role whose own collaborator could not be built holds by name", () => {
+    const set = registerFactoryRuntimeWorkers(collaborators({ compute: undefined, attempts: undefined, projections: undefined }));
+    expect(set.workers.names()).toEqual([]);
+    expect(set.held.map((held) => held.role)).toEqual([...FACTORY_WORKER_ROLES]);
+    expect(set.held.find((held) => held.role === "attempt-dispatch")!.reason).toContain("container runner");
   });
 
   test("distinguishes the two reasons a release outcome can be held", () => {
@@ -109,7 +139,7 @@ describe("registerFactoryRuntimeWorkers", () => {
   test("bounds one projection pass and treats zero applied as no work", async () => {
     const passes: Array<{ runs?: number } | undefined> = [];
     const worked = registerFactoryRuntimeWorkers(collaborators({
-      projections: { projectPending: async (options) => { passes.push(options); return { applied: 3 }; } },
+      projections: { projectPending: async (options) => { passes.push(options); return { runs: [{ progress: { applied: 3 } }] }; } },
       projectionRuns: 4,
       tuning: { batch: 3 },
     }));
@@ -126,7 +156,7 @@ describe("registerFactoryRuntimeWorkers", () => {
   test("uses the default projection bound when the composition does not set one", async () => {
     const passes: Array<{ runs?: number } | undefined> = [];
     const set = registerFactoryRuntimeWorkers(collaborators({
-      projections: { projectPending: async (options) => { passes.push(options); return { applied: 0 }; } },
+      projections: { projectPending: async (options) => { passes.push(options); return { runs: [{ progress: { applied: 0 } }] }; } },
     }));
     await set.workers.get("run-projection").runBatch(signal);
     expect(passes).toEqual([{ runs: 8 }]);
@@ -187,5 +217,6 @@ describe("registerFactoryRuntimeWorkers", () => {
     const set = registerFactoryRuntimeWorkers(collaborators());
     const accounted = new Set([...set.workers.names(), ...set.held.map((held) => held.role)]);
     expect([...accounted].sort()).toEqual([...FACTORY_WORKER_ROLES].sort());
+    expect(set.workers.names().length + set.held.length).toBe(FACTORY_WORKER_ROLES.length);
   });
 });

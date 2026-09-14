@@ -38,6 +38,7 @@ import {
   factorySandboxProbe,
   factoryStorageProbe,
   factorySupervisorProbe,
+  factorySupervisorReadinessProbe,
   probeFactoryServices,
   unavailableFactoryServices,
   type FactoryListenerProbeTarget,
@@ -71,7 +72,8 @@ export interface FactoryRuntimeDependencies {
   readonly listeners: readonly FactoryStartedListener[];
   readonly storage: FactoryStorageProbeTarget;
   readonly gateway: FactoryListenerProbeTarget;
-  readonly supervisor: FactorySupervisorProbeTarget;
+  /** Present only when this process holds the container runner. */
+  readonly supervisor?: FactorySupervisorProbeTarget;
   readonly workers: Omit<FactoryRuntimeWorkerCollaborators, "service" | "seams" | "tuning" | "report">;
   readonly service: FactoryRuntimeWorkerCollaborators["service"];
   readonly seams?: FactoryRuntimeSeamInputs;
@@ -121,6 +123,8 @@ function requiredProbes(config: FactoryStartupConfig, dependencies: FactoryRunti
     temporalNamespace: config.temporalNamespace,
     orchestrationReadinessFilePath: config.orchestrationReadinessFilePath,
     poolReadinessFilePath: config.poolReadinessFilePath,
+    supervisorReadinessFilePath: config.supervisorReadinessFilePath,
+    hostId: config.hostId,
     ...(config.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: config.readinessHeartbeatMs }),
   };
   return Object.freeze([
@@ -128,7 +132,9 @@ function requiredProbes(config: FactoryStartupConfig, dependencies: FactoryRunti
     factoryPoolProbe(identity),
     factoryStorageProbe(dependencies.storage, `${config.storage.ordinary.prefix}/readiness/${config.installationId}`),
     factoryGatewayProbe(dependencies.gateway),
-    factorySupervisorProbe(dependencies.supervisor),
+    // A deployment that holds a runner in this process can preflight it; every
+    // other deployment reads the record the host supervisor publishes.
+    dependencies.supervisor ? factorySupervisorProbe(dependencies.supervisor) : factorySupervisorReadinessProbe(identity),
     factorySandboxProbe(boot),
     ...(dependencies.extraProbes ?? []),
   ]);

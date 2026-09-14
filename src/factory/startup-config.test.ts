@@ -28,6 +28,8 @@ function valid(overrides: Record<string, unknown> = {}): Record<string, unknown>
     temporalNamespace: "tenant-01.factory",
     orchestrationReadinessFilePath: "/run/factory/orchestration.json",
     poolReadinessFilePath: "/run/factory/pool.json",
+    supervisorReadinessFilePath: "/run/factory/supervisor.json",
+    hostId: "host-01",
     gateway: { hostname: "127.0.0.1", port: 8443, tls: { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" } },
     privateService: { hostname: "127.0.0.1", port: 8444, certificateIdentity: "factory-private", tls: { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" } },
     pool: { baseUrl: "https://127.0.0.1:8445", serviceTokenPath: "/run/secrets/pool-token", tls: { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" } },

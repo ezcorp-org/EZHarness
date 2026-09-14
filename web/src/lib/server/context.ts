@@ -12,7 +12,7 @@ import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
 import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
 import { loadReleaseWorkflowEntries } from "$server/runtime/workflow-release-assets";
-import { initDb, closeDb } from "$server/db/connection";
+import { initDb, closeDb, getDb, getDbPath } from "$server/db/connection";
 import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
@@ -467,6 +467,34 @@ async function initialize(): Promise<void> {
   // Load workflows from extension assets + YAML + DB
   workflows = await buildWorkflowCache();
   registerTeardown("extension-workflow-reload", registry.onReload(reloadWorkflows));
+
+  // ── Factory composition (C09) ────────────────────────────────────────
+  // The factory's composition root exists in `src/factory/runtime-composition.ts`
+  // and, until this call, nothing invoked it: a flag-on installation sat at
+  // `booting / factory-services-pending` for the process lifetime while every
+  // store it needed was already constructible, and `/api/factories/*` answered
+  // 503 forever. This is the call.
+  //
+  // It runs LAST in initialize() on purpose. Composition opens product
+  // admission, so everything a factory route can reach — the database, the
+  // extension registry, the executor — is already built when it does. It is
+  // gated on the boot-captured flag, so a flag-off installation composes
+  // nothing and starts no factory service, exactly as C09 requires.
+  //
+  // A failure here degrades the factory and not the host: the readiness state
+  // carries the named reason, `getFactoryApplication()` stays null so every
+  // factory route answers 503, and the rest of the server keeps serving. It is
+  // not swallowed — the operator sees the code in `/api/ready`.
+  const { startFactoryIfEnabled } = await import("$lib/server/factory-boot");
+  const { getShutdownSignal } = await import("$lib/server/shutdown");
+  await startFactoryIfEnabled({
+    database: getDb() as never,
+    blobsRoot: `${getDbPath()}/factory-blobs`,
+    databaseUrl: process.env.DATABASE_URL,
+    signal: getShutdownSignal(),
+    registerTeardown,
+    log: console,
+  });
 
   // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The
   // adapter (svelte-adapter-bun) emits `sveltekit:shutdown` BEFORE

@@ -21,7 +21,7 @@
  */
 import { FactoryBackgroundWorkers, type FactoryWorkerProgress } from "./background-workers";
 import type { FactoryWorkerTuning } from "./startup-config";
-import { factoryReleaseSeamsPresent, type FactoryRuntimeSeams } from "./runtime-seams";
+import { factoryReleaseSeamsPresent, type FactoryRoleDriver, type FactoryRuntimeSeams } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 /** What the compute-admission primitives report; only `idle` means no work. */
@@ -34,8 +34,15 @@ export interface FactoryAttemptDispatchDriver {
   dispatchOne(): Promise<{ readonly kind: string }>;
 }
 
+/**
+ * `projectPending` answers with the runs it visited, each carrying its own
+ * progress. A pass did work when at least one run applied a transition; an
+ * empty page and a page where every run applied nothing are both no work.
+ */
 export interface FactoryProjectionDriver {
-  projectPending(options?: { readonly runs?: number; readonly batchesPerRun?: number }): Promise<{ readonly applied: number }>;
+  projectPending(options: { readonly runs?: number; readonly batchesPerRun?: number }): Promise<{
+    readonly runs: readonly { readonly progress?: { readonly applied: number } }[];
+  }>;
 }
 
 /** One bounded delivery of the durable in-app release notification inbox. */
@@ -46,9 +53,10 @@ export interface FactoryNotificationInboxDriver {
 export interface FactoryRuntimeWorkerCollaborators {
   readonly service: TrustedFactoryServiceIdentity;
   readonly seams: FactoryRuntimeSeams;
-  readonly compute: FactoryComputeAdmissionDriver;
-  readonly attempts: FactoryAttemptDispatchDriver;
-  readonly projections: FactoryProjectionDriver;
+  /** Absent when this process cannot build it; the role then holds by name. */
+  readonly compute?: FactoryComputeAdmissionDriver;
+  readonly attempts?: FactoryAttemptDispatchDriver;
+  readonly projections?: FactoryProjectionDriver;
   /** Present only once the release store is composable. */
   readonly notificationInbox?: FactoryNotificationInboxDriver;
   readonly tuning?: FactoryWorkerTuning;
@@ -120,56 +128,82 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     held.push(Object.freeze({ role, seam, workPackage, reason }));
   };
 
+  /** A role runs when its driver exists, and holds by name when it does not. */
+  const role = (
+    name: FactoryWorkerRole,
+    driver: ((signal: AbortSignal) => Promise<FactoryWorkerProgress>) | undefined,
+    seam: string,
+    workPackage: string,
+    reason: string,
+  ) => {
+    if (driver) define(name, driver);
+    else hold(name, seam, workPackage, reason);
+  };
+
   // Drains the `pool` destination of the durable command outbox and settles
   // each delivery through the existing state machine.
-  define("compute-admission-dispatch", async (signal) =>
-    progress((await collaborators.compute.dispatchNext(collaborators.service, signal)).status === "idle"));
+  const compute = collaborators.compute;
+  role("compute-admission-dispatch",
+    compute && (async (signal) => progress((await compute.dispatchNext(collaborators.service, signal)).status === "idle")),
+    "compute-admissions", "W09",
+    "the composition could not build FactoryComputeAdmissions; it needs a pool admission client");
 
   // Advances a reservation the pool has not yet decided. `busy` and `retry`
   // are progress: the reservation moved and the next pass may move it again.
-  define("compute-admission-poll", async (signal) =>
-    progress((await collaborators.compute.pollNext(collaborators.service, signal)).status === "idle"));
+  role("compute-admission-poll",
+    compute && (async (signal) => progress((await compute.pollNext(collaborators.service, signal)).status === "idle")),
+    "compute-admissions", "W09",
+    "the composition could not build FactoryComputeAdmissions; it needs a pool admission client");
 
-  define("attempt-dispatch", async () => progress((await collaborators.attempts.dispatchOne()).kind === "idle"));
+  // Claims a durable attempt and dispatches it to a trusted runner.
+  //
+  // The product process cannot build this one from the stores alone.
+  // `FactoryAttemptDispatcher` takes a `TrustedFactoryRunner` and a dispatch
+  // readiness, and the only production readiness is `FactoryPackagePreparations`,
+  // whose constructor requires a container `Runner` (`build`/`collectArtifacts`).
+  // That is a deployment fact about which process holds a runner, not a missing
+  // collaborator: the role registers the moment a dispatcher is supplied.
+  const attempts = collaborators.attempts;
+  role("attempt-dispatch",
+    attempts && (async () => progress((await attempts.dispatchOne()).kind === "idle")),
+    "attempt-dispatcher", "W09",
+    "FactoryAttemptDispatcher needs a TrustedFactoryRunner and FactoryPackagePreparations, which requires a container runner this process does not hold");
 
-  define("run-projection", async () => progress((await collaborators.projections.projectPending({ runs: projectionRuns })).applied === 0));
+  const projections = collaborators.projections;
+  role("run-projection",
+    projections && (async () => {
+      const page = await projections.projectPending({ runs: projectionRuns });
+      return progress(!page.runs.some((visited) => (visited.progress?.applied ?? 0) > 0));
+    }),
+    "run-projector", "W09",
+    "the composition could not build FactoryRunTransitionProjector");
 
-  if (collaborators.notificationInbox) {
-    const inbox = collaborators.notificationInbox;
-    define("notification-inbox-delivery", async (signal) => progress(!(await inbox.deliverNextAcrossProjects(signal))));
-  } else {
-    hold("notification-inbox-delivery", "destination-reservations", "W07/W08",
-      "the release store cannot be composed until its destination reservation and sender fence land");
-  }
+  const inbox = collaborators.notificationInbox;
+  role("notification-inbox-delivery",
+    inbox && (async (signal) => progress(!(await inbox.deliverNextAcrossProjects(signal)))),
+    "destination-reservations", "W07/W08",
+    "the release store cannot be composed until its destination reservation and sender fence land");
 
-  // No scan exists for a child run whose parent has not settled it:
-  // `FactoryChildRuns` exposes `resolve` and `settle`, both keyed by an exact
-  // child, and nothing lists the settleable set. Inventing a scan here would
-  // put a lifecycle query in the composition root and duplicate the owner's.
-  hold("child-settlement", "current-candidate", "W05",
-    "FactoryChildRuns has no settleable-child scan; the run lifecycle owner must expose one");
+  // The remaining four are seam-driven. Each seam is a bounded step the owning
+  // package composes from its own collaborator and its own scan, so supplying it
+  // registers the role rather than merely lifting the hold.
+  const seamRole = (name: FactoryWorkerRole, key: keyof typeof collaborators.seams, reason: string) => {
+    const seam = collaborators.seams[key];
+    const driver = seam.optional() as FactoryRoleDriver | undefined;
+    role(name, driver && (async (signal) => progress(!(await driver.step(signal)))), seam.seam, seam.workPackage, reason);
+  };
 
-  // Held for one of two distinct reasons, and the operator needs to know which:
-  // either the release store itself cannot be built, or it can and still has no
-  // way to enumerate the operations an outcome loop would claim.
-  hold("release-outcome", "release-providers", "W07/W08", factoryReleaseSeamsPresent(collaborators.seams)
+  seamRole("child-settlement", "childSettlement",
+    "FactoryChildRuns has no settleable-child scan; the run lifecycle owner composes the step");
+  seamRole("release-outcome", "releaseProviders", factoryReleaseSeamsPresent(collaborators.seams)
     ? "the release store composes, but no claimable-operation scan exists to drive an outcome loop"
     : "a release outcome needs the provider resolver, the destination reservation, and the sender fence");
-
-  if (!collaborators.seams.usageReconciler.present) {
-    hold("usage-reconciliation", "usage-reconciler", "W03",
-      "an uncertain reservation is never settled as zero; reconciliation needs the trusted reconciler");
-  }
-
-  if (!collaborators.seams.notificationSender.present) {
-    hold("notification-send", "notification-sender", "W17",
-      "a notification is not delivered until a sender confirms it left this host");
-  }
-
-  if (!collaborators.seams.physicalStopper.present) {
-    hold("stop-settlement", "physical-stopper", "W03",
-      "a stop is settled only against a signed physical-stop receipt, never against an API answer");
-  }
+  seamRole("usage-reconciliation", "usageReconciler",
+    "an uncertain reservation is never settled as zero; reconciliation needs the trusted reconciler");
+  seamRole("notification-send", "notificationSender",
+    "a notification is not delivered until a sender confirms it left this host");
+  seamRole("stop-settlement", "physicalStopper",
+    "a stop is settled only against a signed physical-stop receipt, never against an API answer");
 
   return Object.freeze({ workers, held: Object.freeze(held) });
 }

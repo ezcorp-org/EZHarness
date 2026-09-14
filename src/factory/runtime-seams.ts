@@ -51,16 +51,39 @@ export function factorySeam<Value>(seam: string, workPackage: string, value?: Va
 }
 
 /**
+ * One bounded step, which is what a background role actually needs.
+ *
+ * The freeze names the collaborator types the owning packages deliver —
+ * `FactoryPhysicalStopper` (section 3), `FactoryUsageReconciler` (section 4),
+ * `FactoryAsyncReleaseProfile` (section 5). None of them is a loop: each acts on
+ * one exact operation a caller already identified. A worker also needs the half
+ * that finds the next operation to act on, and that half reads the owning
+ * package's tables. So the seam is the composed step, and the owning package
+ * adapts its collaborator plus its own scan into it. That keeps a lifecycle
+ * query in the file that owns the lifecycle instead of in this composition root.
+ */
+export interface FactoryRoleDriver {
+  /** Resolves true when it did work, false when there was none. */
+  step(signal: AbortSignal): Promise<boolean>;
+}
+
+/**
  * Everything the composition consumes that W09 does not own.
  *
- * The names match the plan's rows so a reader can go from a held worker to the
- * package that unblocks it without reading any code.
+ * Five of these drive a background role and five are collaborators the release
+ * store needs before it can be constructed at all.
  */
 export interface FactoryRuntimeSeamInputs {
-  /** W03 — the physical stopper the stop worker drives. */
-  readonly physicalStopper?: unknown;
-  /** W03 — trusted later settlement of an operation whose cost was unknown. */
-  readonly usageReconciler?: unknown;
+  /** W03 — settles a stop against a signed physical-stop receipt. */
+  readonly physicalStopper?: FactoryRoleDriver;
+  /** W03 — settles an operation whose cost was unknown, never as zero. */
+  readonly usageReconciler?: FactoryRoleDriver;
+  /** W05/W06 — settles a child run its parent has not yet settled. */
+  readonly childSettlement?: FactoryRoleDriver;
+  /** W07/W08 — claims and dispatches the next release operation. */
+  readonly releaseProviders?: FactoryRoleDriver;
+  /** W17 — delivers a notification off this host and confirms it left. */
+  readonly notificationSender?: FactoryRoleDriver;
   /** W05 — the trusted validator gateway `FactoryAssurance` requires. */
   readonly validatorGateway?: unknown;
   /** W05 — the release fence reader `FactoryAssurance` requires. */
@@ -71,34 +94,32 @@ export interface FactoryRuntimeSeamInputs {
   readonly destinations?: unknown;
   /** W07/W08 — the sender fence proving a stopped sender before reconciliation. */
   readonly senderFence?: unknown;
-  /** W07/W08 — asynchronous release profiles, and the provider resolver. */
-  readonly releaseProviders?: unknown;
-  /** W17 — the sender that delivers a notification off this host. */
-  readonly notificationSender?: unknown;
 }
 
 export interface FactoryRuntimeSeams {
-  readonly physicalStopper: FactorySeam<unknown>;
-  readonly usageReconciler: FactorySeam<unknown>;
+  readonly physicalStopper: FactorySeam<FactoryRoleDriver>;
+  readonly usageReconciler: FactorySeam<FactoryRoleDriver>;
+  readonly childSettlement: FactorySeam<FactoryRoleDriver>;
+  readonly releaseProviders: FactorySeam<FactoryRoleDriver>;
+  readonly notificationSender: FactorySeam<FactoryRoleDriver>;
   readonly validatorGateway: FactorySeam<unknown>;
   readonly releaseFenceReader: FactorySeam<unknown>;
   readonly currentCandidate: FactorySeam<unknown>;
   readonly destinations: FactorySeam<unknown>;
   readonly senderFence: FactorySeam<unknown>;
-  readonly releaseProviders: FactorySeam<unknown>;
-  readonly notificationSender: FactorySeam<unknown>;
 }
 
 const SEAM_OWNERS: Readonly<Record<keyof FactoryRuntimeSeams, { readonly seam: string; readonly workPackage: string }>> = Object.freeze({
   physicalStopper: { seam: "physical-stopper", workPackage: "W03" },
   usageReconciler: { seam: "usage-reconciler", workPackage: "W03" },
+  childSettlement: { seam: "child-settlement", workPackage: "W06" },
+  releaseProviders: { seam: "release-providers", workPackage: "W07/W08" },
+  notificationSender: { seam: "notification-sender", workPackage: "W17" },
   validatorGateway: { seam: "validator-gateway", workPackage: "W05" },
   releaseFenceReader: { seam: "release-fence-reader", workPackage: "W05" },
   currentCandidate: { seam: "current-candidate", workPackage: "W05" },
   destinations: { seam: "destination-reservations", workPackage: "W07/W08" },
   senderFence: { seam: "sender-fence", workPackage: "W07/W08" },
-  releaseProviders: { seam: "release-providers", workPackage: "W07/W08" },
-  notificationSender: { seam: "notification-sender", workPackage: "W17" },
 });
 
 export function factoryRuntimeSeams(inputs: FactoryRuntimeSeamInputs = {}): FactoryRuntimeSeams {
@@ -106,7 +127,7 @@ export function factoryRuntimeSeams(inputs: FactoryRuntimeSeamInputs = {}): Fact
   for (const [key, owner] of Object.entries(SEAM_OWNERS) as Array<[keyof FactoryRuntimeSeams, { seam: string; workPackage: string }]>) {
     built[key] = factorySeam(owner.seam, owner.workPackage, inputs[key]);
   }
-  return Object.freeze(built) as FactoryRuntimeSeams;
+  return Object.freeze(built) as unknown as FactoryRuntimeSeams;
 }
 
 /** Every seam's verdict, for the runtime's readiness report and its evidence. */

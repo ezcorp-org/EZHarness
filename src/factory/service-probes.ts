@@ -23,6 +23,7 @@
 import { FACTORY_REQUIRED_SERVICES, type FactoryBootConfig, type FactoryService } from "./boot";
 import { readFactoryOrchestrationReadiness } from "./orchestration-readiness";
 import { readFactoryPoolReadiness } from "./pool/readiness";
+import { factorySupervisorReadinessOptions, readFactoryServiceReadiness } from "./service-readiness";
 
 export interface FactoryServiceProbe {
   readonly service: FactoryService;
@@ -102,6 +103,8 @@ export interface FactoryProbeIdentity {
   readonly temporalNamespace: string;
   readonly orchestrationReadinessFilePath: string;
   readonly poolReadinessFilePath: string;
+  readonly supervisorReadinessFilePath: string;
+  readonly hostId: string;
   readonly readinessHeartbeatMs?: number;
 }
 
@@ -185,6 +188,25 @@ export function factoryGatewayProbe(target: FactoryListenerProbeTarget): Factory
 
 export function factorySupervisorProbe(target: FactorySupervisorProbeTarget): FactoryServiceProbe {
   return probeOf("host-supervisor", (signal) => target.preflight(signal));
+}
+
+/**
+ * The host supervisor's own live record, read the same way the other two host
+ * processes' records are.
+ *
+ * The product process cannot preflight a container runner it does not hold, and
+ * C01 forbids it holding host identity, so the only honest signal is the record
+ * the supervisor publishes about itself.
+ */
+export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity): FactoryServiceProbe {
+  return probeOf("host-supervisor", async () => {
+    await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
+      installationId: identity.installationId,
+      hostId: identity.hostId,
+      readinessFilePath: identity.supervisorReadinessFilePath,
+      ...(identity.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: identity.readinessHeartbeatMs }),
+    }));
+  });
 }
 
 /**

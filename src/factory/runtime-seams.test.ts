@@ -28,7 +28,7 @@ describe("factorySeam", () => {
   });
 
   test("a present collaborator is returned unchanged by both accessors", () => {
-    const collaborator = { stop: () => "receipt" };
+    const collaborator = { step: async () => true };
     const seam = factorySeam("physical-stopper", "W03", collaborator);
     expect(seam.present).toBe(true);
     expect(seam.require()).toBe(collaborator);
@@ -51,18 +51,19 @@ describe("factoryRuntimeSeams", () => {
     expect(factorySeamStates(seams)).toEqual([
       { seam: "physical-stopper", workPackage: "W03", present: false },
       { seam: "usage-reconciler", workPackage: "W03", present: false },
+      { seam: "child-settlement", workPackage: "W06", present: false },
+      { seam: "release-providers", workPackage: "W07/W08", present: false },
+      { seam: "notification-sender", workPackage: "W17", present: false },
       { seam: "validator-gateway", workPackage: "W05", present: false },
       { seam: "release-fence-reader", workPackage: "W05", present: false },
       { seam: "current-candidate", workPackage: "W05", present: false },
       { seam: "destination-reservations", workPackage: "W07/W08", present: false },
       { seam: "sender-fence", workPackage: "W07/W08", present: false },
-      { seam: "release-providers", workPackage: "W07/W08", present: false },
-      { seam: "notification-sender", workPackage: "W17", present: false },
     ]);
   });
 
   test("marks only the collaborators that were supplied as present", () => {
-    const seams = factoryRuntimeSeams({ physicalStopper: { stop: () => {} }, notificationSender: { send: () => {} } });
+    const seams = factoryRuntimeSeams({ physicalStopper: { step: async () => true }, notificationSender: { step: async () => false } });
     expect(seams.physicalStopper.present).toBe(true);
     expect(seams.notificationSender.present).toBe(true);
     expect(seams.usageReconciler.present).toBe(false);
@@ -85,6 +86,7 @@ describe("factoryReleaseSeamsPresent", () => {
   });
 
   test("a supplied non-release seam does not make the release store composable", () => {
-    expect(factoryReleaseSeamsPresent(factoryRuntimeSeams({ physicalStopper: {}, usageReconciler: {}, notificationSender: {} }))).toBe(false);
+    const drivers = { physicalStopper: { step: async () => false }, usageReconciler: { step: async () => false }, notificationSender: { step: async () => false } };
+    expect(factoryReleaseSeamsPresent(factoryRuntimeSeams(drivers))).toBe(false);
   });
 });
