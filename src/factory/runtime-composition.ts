@@ -48,7 +48,7 @@ import {
 } from "./service-probes";
 import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, type FactoryRuntimeSeams, type FactorySeamState } from "./runtime-seams";
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
-import type { FactoryBackgroundWorkerState } from "./background-workers";
+import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState } from "./background-workers";
 
 /** A started listener the composition owns and must stop. */
 export interface FactoryStartedListener {
@@ -94,6 +94,11 @@ export interface FactoryRuntime {
   readonly application: FactoryApplication;
   readonly config: FactoryStartupConfig;
   readonly seams: FactoryRuntimeSeams;
+  /**
+   * The registered roles, so an operator surface can inspect one and a test can
+   * drive a single bounded pass without waiting on a timer.
+   */
+  readonly workers: FactoryBackgroundWorkers;
   report(): FactoryRuntimeReport;
   /** Reverse of startup, awaiting every step. Idempotent. */
   stop(): Promise<void>;
@@ -219,7 +224,7 @@ export async function startFactoryRuntime(
   workerSet.workers.start(signal);
   setReadiness({ state: "ready" });
 
-  return Object.freeze({ application, config, seams, report, stop });
+  return Object.freeze({ application, config, seams, workers: workerSet.workers, report, stop });
 }
 
 export type { FactoryService };

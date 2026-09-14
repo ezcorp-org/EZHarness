@@ -364,6 +364,149 @@ describe("startFactoryRuntime shuts down in reverse", () => {
   });
 });
 
+
+describe("startFactoryRuntime survives what a live deployment does to it", () => {
+  test("a dependency lost after startup is reported and retried, never reported as done", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const reported: Array<{ role: string; message: string }> = [];
+    let calls = 0;
+    const runtime = await start(root, {
+      report: (role, error) => { reported.push({ role, message: String(error) }); },
+      workers: {
+        compute: { dispatchNext: async () => ({ status: "idle" }), pollNext: async () => ({ status: "idle" }) },
+        attempts: {
+          dispatchOne: async () => {
+            calls++;
+            // The queue's database goes away for exactly one pass, then returns.
+            if (calls === 3) throw new Error("connection terminated");
+            return { kind: "idle" };
+          },
+        },
+        projections: { projectPending: async () => ({ applied: 0 }) },
+      },
+    }, { workers: { idleDelayMs: 10, errorDelayMs: 10, maxErrorDelayMs: 20, batch: 1 } });
+
+    // Quiesce the role's own loop, then drive it by hand so nothing depends on
+    // elapsed time. `stop()` awaits the step already in flight.
+    const worker = runtime.workers.get("attempt-dispatch");
+    await worker.stop();
+    const before = worker.state;
+    calls = 0;
+    const controller = new AbortController();
+
+    expect(await worker.runBatch(controller.signal)).toBe("idle");
+    expect(await worker.runBatch(controller.signal)).toBe("idle");
+    await expect(worker.runBatch(controller.signal)).rejects.toThrow("connection terminated");
+    // The dependency comes back and the role picks up where it left off; the
+    // failed pass was never recorded as work it did not do.
+    expect(await worker.runBatch(controller.signal)).toBe("idle");
+    expect(worker.state.worked).toBe(before.worked);
+    expect(worker.state.idle).toBe(before.idle + 3);
+    expect(reported.length).toBe(0);
+    await runtime.stop();
+  });
+
+  test("a queue refusing new work backs the role off instead of spinning on it", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const reported: string[] = [];
+    let attempts = 0;
+    const runtime = await start(root, {
+      report: (_role, error) => { reported.push(String(error)); },
+      workers: {
+        compute: {
+          // C08's durable inbox refuses past 128 unacknowledged events. A role
+          // that treated that as a transient nothing would spin a core.
+          dispatchNext: async () => { attempts++; throw Object.assign(new Error("factory_inbox_full"), { code: "factory_inbox_full" }); },
+          pollNext: async () => ({ status: "idle" }),
+        },
+        attempts: { dispatchOne: async () => ({ kind: "idle" }) },
+        projections: { projectPending: async () => ({ applied: 0 }) },
+      },
+    }, { workers: { idleDelayMs: 10, errorDelayMs: 10, maxErrorDelayMs: 20, batch: 4 } });
+
+    await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+    const worker = runtime.workers.get("compute-admission-dispatch");
+    // Each pass costs one refusal, not `batch` of them: the pass aborts on the
+    // first throw rather than hammering a queue that just said it is full.
+    expect(worker.state.failures).toBe(attempts);
+    expect(reported.every((message) => message.includes("factory_inbox_full"))).toBe(true);
+    await runtime.stop();
+  });
+
+  test("a stopped runtime re-drives safely on the same inputs", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const first = await start(root);
+    const firstApplication = first.application;
+    await first.stop();
+    expect(getFactoryApplication()).toBeNull();
+
+    // A second composition over the same configuration and the same database.
+    const second = await start(root);
+    expect(getFactoryApplication()).toBe(second.application);
+    expect(second.application).not.toBe(firstApplication);
+    expect(second.report().workers.every((worker) => worker.running)).toBe(true);
+    expect(second.report().probes.every((probe) => probe.available)).toBe(true);
+    await second.stop();
+  });
+
+  test("a credential set that rotates is re-read, and an unreadable one fails by name", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    // The storage probe writes and reads back through the store the product
+    // uses, so a rotated credential that still works passes, and a store that
+    // stops answering fails without ever reporting ready.
+    let live = true;
+    const stored = new Map<string, Uint8Array>();
+    const rotating = {
+      async put(key: string, content: Uint8Array) {
+        if (!live) throw Object.assign(new Error("InvalidAccessKeyId"), { code: "InvalidAccessKeyId" });
+        stored.set(key, content);
+      },
+      async get(key: string) {
+        if (!live) throw Object.assign(new Error("InvalidAccessKeyId"), { code: "InvalidAccessKeyId" });
+        return stored.get(key)!;
+      },
+    };
+    const runtime = await start(root, { storage: rotating });
+    expect(runtime.report().probes.find((probe) => probe.service === "object-storage")).toMatchObject({ available: true });
+    await runtime.stop();
+
+    live = false;
+    const error = await bootFailure(start(root, { storage: rotating }));
+    expect(error.code).toBe("factory-services-unavailable");
+    expect(error.message).toContain("object-storage");
+    const detail = getReadiness().detail as { unavailable: string[] };
+    expect(detail.unavailable).toContain("object-storage: InvalidAccessKeyId");
+    expect(getFactoryApplication()).toBeNull();
+  });
+
+  test("an expired readiness record closes admission on the next start", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const runtime = await start(root);
+    expect(runtime.report().admissionOpen).toBe(true);
+    await runtime.stop();
+
+    // The orchestration process stopped heartbeating; its record is now stale.
+    const stale = {
+      schemaVersion: "factory.orchestrator-readiness.v1",
+      installationId: "installation-01", tenantId: "tenant-01", namespace: "tenant-01.factory", taskQueue: "factory-orchestrator",
+      lifecycle: "ready", observedAtMs: Date.now() - 60_000, workerPolling: true, dispatcherLive: true, credentialGeneration: 2,
+    };
+    const path = join(root, "orchestration.json");
+    await writeFile(path, JSON.stringify(stale), { mode: 0o600 });
+    await chmod(path, 0o600);
+
+    const error = await bootFailure(start(root));
+    expect(error.code).toBe("factory-services-unavailable");
+    expect(error.message).toContain("temporal");
+    expect(getFactoryApplication()).toBeNull();
+  });
+});
+
 describe("startFactoryRuntime validates its own inputs", () => {
   test("refuses a document whose schema version is not the one it parses", async () => {
     const root = await privateRoot();
