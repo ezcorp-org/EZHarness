@@ -724,6 +724,8 @@
 - Pin a member's chunk count in the frozen request. `FactoryScopedArtifactReader` exposes `read` and `readChunk(index)` and nothing that reports how many chunks exist, so a consumer that streams must be told, or it discovers the end by provoking a denial.
 - A test that drives a pinned request cannot vary the data behind it alone. Rewriting a reader's chunks to three while the request still pins two makes the provider read two and succeed, so the "overlong stream" case proved nothing until the request's own `chunkCount` moved with it.
 - `merge-lcov.ts` globs from `process.cwd()`. An absolute pattern matches nothing and the script refuses to write rather than writing an empty report, which reads as a coverage failure. Copy the leg's lcov under the repo's gitignored `coverage/` and pass a relative glob.
+- The local SeaweedFS stores have a fixed volume cap, and a SeaweedFS collection grows several volumes at a time. When uploads start failing with "failed to find writable volumes" while the host disk has space, check the master log for "only 0 volumes left" before suspecting the code; raise `-volume.max` in the compose profile and recreate the service (data volumes and credentials survive), and make S3 tests delete what they create.
+
 
 ## 2026-09-14 — W07 GitHub publication
 
