@@ -244,49 +244,52 @@ its outputs back afterwards, digest-verified, through W04's material service.
   read-write mount but `/tmp`, which is exactly what a mount added unconditionally would have
   broken.
 
-## Host fault during this package
+## Independent validation, and the commit that closes each finding
 
-**The shared ordinary object store was OOM-killed at its 768 MiB container cap while W12's final
-re-run was in flight.** `docker inspect` reports `OOMKilled: true`, exit 137,
-`HostConfig.Memory: 805306368`; the archive service stayed up and healthy, and the repository's own
-unchanged `scripts/verify-factory-storage.ts` reproduces `ECONNREFUSED`, which places the fault
-outside this branch. The cause is this package's workload: the real producer runs both C10 boundary
-cases in one process, roughly 600 MB of objects through the encrypted blob store in three minutes.
-Each leg had already passed on its own against the same store, twice, so the cap is what the
-combination crossed. A `docker restart` will not fix it - restart reuses the existing container's
-`Cmd` and `HostConfig` - so the service needs a recreate, which is a shared-service config change
-and the coordinator's to make. Nothing here restarted, reconfigured, or pruned it.
+Verdict ACCEPT-WITH-FIXES (`/tmp/factory-platform-evidence/w12-validation/results.json`).
 
-The evidence is split accordingly and says so:
+| Finding | Closed by | What changed |
+| --- | --- | --- |
+| F1 HIGH: the maximum-row case failed a faithful full-file rerun with `factory_material_operation_full` and passed only in isolation | `5c8c66d3e`, proved by `logs/postgres-journey.json` | Root cause was the MARGIN, not the ordering: at C10's hundred partitions the `partitions` operation wrote one partition CSV and one summary each, 200 objects against W04's frozen cap of 256. The hundred summaries are now ONE material, so the widest operation at C10's maximum holds 102 of 256. The reduction still reads durable bytes, because it reads that material back rather than whatever the host happens to still hold. W04's limit is untouched. The case is declared LAST in the suite, so the faithful full-file run is what proves the budget after every sibling. Each case already used a distinct project, run, attempt and operation id, and each fixture's database is dropped on close, so nothing leaks between them. |
+| F2 MEDIUM: the gate file was never committed | `05e10a46f` | `.gitignore` line 8 ignores `tasks`, so `git add -A` skipped it silently and the commit meant to carry it had nothing to commit and failed. Force-added, which is how every sibling package's gate file got in. |
+| F3 MEDIUM: `tasks/todo.md` claimed completion at a commit preceding the receipt it rested on | `5c8c66d3e` | The review now states the actual order of events, including the full-file failure F1 records. |
+| F4 MEDIUM: an unapproved change to a shared file outside W12's ownership | OPEN, under review | `StartRequest.materials` and `PodmanRunner`'s material mount are an UNAPPROVED CROSSING into Terra-owned files, disclosed here and now owned by the Terra runtime owner on `wp/w01c-materials-review`. This branch keeps its own version unchanged and does not merge theirs. W11 has been told to consume theirs rather than mine. |
+| F5 LOW: `shared-runner-regression.log` was truncated to 0 bytes, orphaning its receipt's SHA-256 | `f48cf4bb8` | Re-run and re-recorded. Every receipt's `logBytes` now equals its log's size on disk. |
+| F6 LOW: the guest output directory was 0o777 | `5c8c66d3e` | It is handed to the guest's own uid with `podman unshare chown 65534:0` at mode 0o770: the mapped uid owns it, this user is its group, and other gets nothing. Inputs stay host-owned at 0o644, so a guest cannot replace what it was given. A host with no container runtime fails closed rather than widening the mode, and leaves nothing behind. |
+| F7 INFO: two platform-level interface conflicts | not W12's | The v4 manifest-name grammar against `releaseFacts()` is assigned to W02; the host-side reconciliation waits on W09's composition. Both stated under "Interface questions" below. |
 
-| Receipt | Commit | Result | What it proves |
-| --- | --- | --- | --- |
-| `logs/postgres-journey.json` | `997552e26` | exit 0, 10 pass | golden journey, W08 publication read back from the real store, 256 MiB boundary |
-| `logs/postgres-maximum-rows.json` | `66e697ad4` | exit 0, 1 pass | the million-row maximum, on the final code |
-| `logs/postgres-journey.log` | `66e697ad4` | exit 1, 9 pass / 3 fail | KEPT AS A FAILURE; all three failures are `ECONNREFUSED` against the dead store |
+## Shared-store incident
 
-One clean re-run of the real producer at the head commit is what remains, and it needs the store
-back. Every other producer passes at head `b83ca7c0e` with zero dirty files, including the coverage
-gates, which do not need the real leg: every gated source line is reached by the embedded journey
-and the focused suites.
+The ordinary SeaweedFS service was OOM-killed twice under this package's load, at its own 768 MiB
+container limit and not for want of host memory. Recorded by the coordinator at
+`/tmp/factory-platform-evidence/w00/shared-store-incidents.jsonl`; the limit was raised to 2 GiB on
+`integ/w00` at `c054c6430` and documented in `docs/factory-local-storage.md`. As of this gate file
+the ARCHIVE service carries 2147483648 and the ORDINARY one still carries 805306368 and is exited,
+which is reported to the coordinator.
 
-Within this package's own scope the real producer now runs in THREE invocations rather than one -
-everything but the boundaries, then the 256 MiB case, then the million-row case, with a pause
-between - in both `scripts/factory-reference-data-coverage.sh` and the evidence runner. That lowers
-the peak and weakens no case; raising the container's memory ceiling is a shared-service change and
-not this package's to make. Nothing here restarted, recreated, reconfigured, or pruned the store.
+Nothing here restarted, recreated, reconfigured, or pruned either service. What this package did
+change is its own footprint: the real leg is ONE faithful full-file run, not three. Repeating the
+two boundary cases in separate invocations added no proof the full run does not already make and
+doubled the object volume on that service.
 
-Receipts at head `b83ca7c0e`, all with zero dirty files:
+## Receipts
 
-| Receipt | Result |
-| --- | --- |
-| `logs/static-gates.json` | exit 0, 18 pass |
-| `logs/focused-suites.json` | exit 0, 88 pass |
-| `logs/script-gates.json` | exit 0, 18 pass |
-| `logs/python-quality.json` | exit 0, 100% line and branch |
-| `logs/journey-pglite.json` | exit 0, 11 pass |
-| `logs/shared-runner-regression.json` | exit 0, 33 pass |
-| `logs/coverage-gates.json` | exit 0, 13 new files gated, 12 changed files covered |
+Every receipt below was recorded from a clean committed tree, and every log's size on disk equals
+its own recorded `logBytes`.
+
+| Receipt | Commit | Result |
+| --- | --- | --- |
+| `logs/postgres-journey.json` | `f48cf4bb8` | exit 0, 11 pass / 0 fail, 240 s |
+| `logs/journey-pglite.json` | `f48cf4bb8` | exit 0, 11 pass / 0 fail |
+| `logs/shared-runner-regression.json` | `f48cf4bb8` | exit 0, 33 pass / 0 fail |
+| `logs/static-gates.json` | `f48cf4bb8` | exit 0, 18 pass / 0 fail |
+| `logs/focused-suites.json` | `f48cf4bb8` | exit 0, 89 pass / 0 fail |
+| `logs/script-gates.json` | `f48cf4bb8` | exit 0, 18 pass / 0 fail |
+| `logs/python-quality.json` | `f48cf4bb8` | exit 0, 100% line and branch |
+| `logs/coverage-gates.json` | `88162a98d` | exit 0, 13 new files gated, 12 changed files covered |
+
+`f48cf4bb8..88162a98d` changes exactly one file, `scripts/factory-reference-data-coverage.sh`, and
+no code under test, so the real-services receipt is a proof of this head's behaviour.
 
 ## Landed deviations for the coordinator
 
