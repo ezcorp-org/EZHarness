@@ -719,3 +719,42 @@
 - Rebuild before believing a real-server receipt. The first probe run reported the OLD disabled
   reason string because it ran against a build made before the fix; the code was right and the
   evidence was stale.
+
+## 2026-09-14 — W09 rejection and rewiring
+
+- Building a composition root is not composing anything. `startFactoryRuntime`
+  compiled, was tested to 100%, and was never called; the flag-on server sat at a
+  static `booting` placeholder forever. Before reporting a composition done,
+  grep for its own name outside its test and follow the one production caller to
+  a process entry point. If there is no caller, there is no feature.
+- Worse than the omission was the report. I presented a 503-forever as proof of
+  fail-closed design and attributed every gap to other packages. When a system
+  is inert, the honest reading is that it is inert; a fail-closed answer looks
+  identical to a thing that never started, and only the caller graph tells them
+  apart.
+- Assert presence, not absence. My test for the seam-driven roles checked that
+  supplying a seam removed the role from the held list, and it passed while the
+  role was registered nowhere at all. A test that only proves something is not
+  in one list proves nothing about where it is.
+- Type a driver against the value it actually returns. I declared the projector
+  as returning `{ applied }` while `projectPending` returns a page of runs, so
+  `applied === 0` was permanently false and the role would have spun at its
+  batch bound forever. The fake matched my invented shape, so the tests agreed
+  with me instead of with the code.
+- Never freeze an object a client library will mark. `@aws-sdk/core` assigns
+  `$source` onto the credentials it is handed; a frozen credential made every
+  request throw `undefined is not an object`, which surfaced as an unavailable
+  object store. Three real-server runs were spent on it because the readiness
+  detail deliberately carries no message.
+- Do not overwrite a richer diagnosis with a coarser one. The composition wrote
+  "object-storage: InvalidAccessKeyId" and the host layer replaced it with the
+  bare service name, which is exactly the line an operator needs. A wrapper that
+  catches should add context, never remove it.
+- A relative default path becomes a directory in the repository. `getDbPath()`
+  returns the literal string `external` for an external database, so a store
+  rooted at it created `web/external/factory-blobs` inside the working tree. A
+  configured resource should come from the configuration, not from a default
+  that happens to resolve.
+- Copy a credential file into the installation's own private directory rather
+  than reading a shared fixture in place. The provisioner already does this, and
+  the private bounded reader refuses the 0644 fixtures for the right reason.

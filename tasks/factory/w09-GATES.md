@@ -172,32 +172,33 @@ proved separately in `repro/real-server-factory-probe.json`.
 
 ## Other receipts
 
-| Producer | Result | Receipt |
-| --- | --- | --- |
-| `src/factory/background-workers.test.ts` | 20 pass / 0 fail, 60 assertions | `unit-background-workers.json` |
-| `src/factory/startup-config.test.ts` | 14 pass / 0 fail, 74 assertions | `unit-startup-config.json` |
-| `src/factory/service-probes.test.ts` | 15 pass / 0 fail, 41 assertions | `unit-service-probes.json` |
-| `src/factory/runtime-seams.test.ts` | 7 pass / 0 fail, 29 assertions | `unit-runtime-seams.json` |
-| `src/factory/runtime-workers.test.ts` | 13 pass / 0 fail, 61 assertions | `unit-runtime-workers.json` |
-| `src/factory/runtime-composition.test.ts` | 23 pass / 0 fail, 77 assertions | `unit-runtime-composition.json` |
-| `src/factory/release-composition.test.ts` | 16 pass / 0 fail, 38 assertions | `unit-release-composition.json` |
-| `src/__tests__/factory-process-boundaries.test.ts` | 11 pass / 0 fail | `unit-process-boundaries.json` |
-| `web` Vitest pool, full | 591 files / 7443 tests pass | `logs/web-vitest-coverage.log` |
-| `tests/postgres/factory-boot` | 1 pass / 0 fail | `logs/postgres-affected.log` |
-| `tests/postgres/factory-schema` | 2 pass / 0 fail, 2620 assertions | `logs/postgres-affected.log` |
-| `tests/postgres/factory-private-service` | 5 pass / 0 fail, 76 assertions | `logs/postgres-affected.log` |
-| `tests/postgres/factory-migration-restart` | 4 pass / 0 fail, 48 assertions | `logs/postgres-affected.log` |
-| `bun run typecheck` | passed | `gate-typecheck.json` |
-| `bun run lint` | passed, 8 pre-existing infos | `gate-lint.json` |
-| `bun scripts/check-factory-boundaries.ts` | passed | `gate-factory-boundaries.json` |
-| `bun scripts/gate-integrity.ts` | passed | `gate-integrity.json` |
-| `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` | passed, 7 new files gated | `logs/` |
-| `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts` | passed, 13 files | `logs/` |
+| Producer | Result |
+| --- | --- |
+| `src/factory/background-workers.test.ts` | 20 pass / 0 fail |
+| `src/factory/startup-config.test.ts` | 14 pass / 0 fail |
+| `src/factory/service-probes.test.ts` | 15 pass / 0 fail |
+| `src/factory/service-readiness.test.ts` | 8 pass / 0 fail |
+| `src/factory/runtime-seams.test.ts` | 7 pass / 0 fail |
+| `src/factory/runtime-workers.test.ts` | 15 pass / 0 fail |
+| `src/factory/runtime-composition.test.ts` | 23 pass / 0 fail |
+| `src/factory/release-composition.test.ts` | 17 pass / 0 fail |
+| `src/factory/installation-startup.test.ts` | 15 pass / 0 fail |
+| `src/factory/runner/supervisor-process.test.ts` | 17 pass / 0 fail |
+| `src/__tests__/factory-process-boundaries.test.ts` | 14 pass / 0 fail |
+| `web/src/__tests__/factory-boot.server.test.ts` | 10 pass / 0 fail |
+| `web/src/__tests__/context-initialization.server.test.ts` | 4 pass / 0 fail |
+| `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail, 2745 assertions |
+| `bun run typecheck`, `bun run lint` | pass; 9 pre-existing infos |
+| `bun scripts/check-factory-boundaries.ts`, `bun scripts/gate-integrity.ts` | pass |
 
-Every new source file is at 100% line coverage: `background-workers.ts` 151/151,
-`startup-config.ts` 129/129, `service-probes.ts` 76/76, `runtime-seams.ts` 39/39,
-`runtime-workers.ts` 63/63, `runtime-composition.ts` 85/85,
-`release-composition.ts` 78/78.
+Logs and receipt JSON per producer under `/tmp/factory-platform-evidence/w09/`.
+
+Eleven new source files, each at 100% line coverage after merge:
+`background-workers.ts` 151, `startup-config.ts` 131, `service-probes.ts` 85,
+`service-readiness.ts` 92, `runtime-seams.ts` 40, `runtime-workers.ts` 84,
+`runtime-composition.ts` 96, `release-composition.ts` 78,
+`installation-startup.ts` 112, `runner/supervisor-process.ts` 127, and
+`web/src/lib/server/factory-boot.ts`.
 
 ## The startup race, before and after
 
