@@ -298,7 +298,9 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     check("factory_compute_admissions_poll_lease_check", sql`(${table.pollLeaseToken} IS NULL) = (${table.pollLeaseUntil} = 0)`),
     check("factory_compute_admissions_response_check", sql`(${table.responseDigest} IS NULL) = (${table.responseJson} IS NULL)`),
     check("factory_compute_admissions_event_check", sql`(${table.eventDigest} IS NULL) = (${table.eventJson} IS NULL)`),
-    check("factory_compute_admissions_terminal_event_check", sql`(${table.state} IN ('admitted', 'rejected')) = (${table.eventJson} IS NOT NULL)`),
+    // A protected validator has no kernel node, so it never carries an
+    // `admission-result`; every other origin still must once it settles.
+    check("factory_compute_admissions_terminal_event_check", sql`CASE WHEN ${table.originKind} = 'protected-validator' THEN ${table.eventJson} IS NULL ELSE (${table.state} IN ('admitted', 'rejected')) = (${table.eventJson} IS NOT NULL) END`),
     check("factory_compute_admissions_origin_kind_check", sql`${table.originKind} IN ('dispatch-node', 'protected-validator')`),
     check("factory_compute_admissions_origin_digest_check", sql`${table.originDigest} IS NULL OR ${table.originDigest} ~ '^sha256:[0-9a-f]{64}$'`),
     check("factory_compute_admissions_origin_body_check", sql`(${table.originKind} = 'protected-validator') = (${table.originJson} IS NOT NULL)`),

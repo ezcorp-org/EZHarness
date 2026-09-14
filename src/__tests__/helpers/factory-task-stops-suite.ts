@@ -146,6 +146,9 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, inbox, { ...requestPool, async request() { return { status: "admitted" as const, reservationId: reserved.reservationId, lease: poolLease }; }, async status() { return undefined; } }, () => now);
     const admitted = await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId });
     if (admitted.status !== "admitted") throw new Error("fixture compute admission failed");
+    // A dispatch-node admission always carries its kernel event; a validator
+    // origin is the only shape that does not, and this fixture has none.
+    if (!admitted.receipt.event) throw new Error("fixture compute admission produced no admission-result event");
     const next = advanceKernel(compiled, first.nextState, admitted.receipt.event);
     const dispatch = next.commands.find(command => command.kind === "dispatch-node")!;
     await persistTransition(identity, 2, admitted.receipt.event, next.nextState, next.commands, undefined, activities);

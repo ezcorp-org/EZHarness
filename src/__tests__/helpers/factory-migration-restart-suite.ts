@@ -182,6 +182,41 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("a settled validator admission may never carry a kernel event, and every other origin still must", async () => {
+    const db = fixture.db;
+    const tenantId = "restart-tenant", projectId = "restart-project", runId = "restart-run";
+    const digest = (fill: string) => `sha256:${fill.repeat(64).slice(0, 64)}`;
+    const originJson = JSON.stringify({ schemaVersion: "factory.admission-origin.v1", kind: "protected-validator", acceptanceCommandId: "acceptance-event" });
+    await db.execute(sql`INSERT INTO factory_budget_envelopes(tenant_id,project_id,run_id,envelope_id,request_digest,limits,allocated,spent,deadline_ms,state) VALUES (${tenantId},${projectId},${runId},'root',${digest("1")},'{}','{}','{}',1,'open') ON CONFLICT DO NOTHING`);
+    for (const reservationId of ["event-validator", "event-task"]) {
+      await db.execute(sql`INSERT INTO factory_budget_reservations(tenant_id,project_id,run_id,reservation_id,envelope_id,request_digest,amount,state) VALUES (${tenantId},${projectId},${runId},${reservationId},'root',${digest("1")},'{}','held') ON CONFLICT DO NOTHING`);
+    }
+    const admission = (reservationId: string, originKind: string, originDigest: string | null, state: string, eventJson: string | null) =>
+      db.execute(sql`INSERT INTO factory_compute_admissions(tenant_id,project_id,run_id,reservation_id,request_digest,request_json,state,next_poll_at,origin_kind,origin_json,origin_digest,event_json,event_digest) VALUES (${tenantId},${projectId},${runId},${reservationId},${digest("1")},'{}',${state},0,${originKind},${originKind === "protected-validator" ? originJson : null},${originDigest},${eventJson},${eventJson === null ? null : digest("5")})`);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      await db.execute(sql`DELETE FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND reservation_id IN ('event-validator','event-task')`);
+      // A settled validator admission with no event is exactly what the
+      // admission path writes, and it is accepted.
+      await admission("event-validator", "protected-validator", digest("4"), "admitted", null);
+      // An event on a validator admission is refused in any state.
+      const eventful = await db.execute(sql`UPDATE factory_compute_admissions SET event_json='{}',event_digest=${digest("5")} WHERE tenant_id=${tenantId} AND reservation_id='event-validator'`).then(() => null, (error: unknown) => error);
+      expect(eventful).toBeInstanceOf(Error);
+      // Ordinary task work still must carry one once it settles.
+      const unevented = await admission("event-task", "dispatch-node", null, "admitted", null).then(() => null, (error: unknown) => error);
+      expect(unevented).toBeInstanceOf(Error);
+      await admission("event-task", "dispatch-node", null, "admitted", "{}");
+      expect(rows(await db.execute(sql`SELECT reservation_id,origin_kind,event_json FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND reservation_id IN ('event-validator','event-task') ORDER BY reservation_id`))).toEqual([
+        { reservation_id: "event-task", origin_kind: "dispatch-node", event_json: "{}" },
+        { reservation_id: "event-validator", origin_kind: "protected-validator", event_json: null },
+      ]);
+      // Exactly one constraint governs the rule, on both the fresh and the
+      // upgraded path, so the two databases cannot disagree about it.
+      const governing = rows<{ conname: string }>(await db.execute(sql`SELECT conname FROM pg_constraint WHERE conrelid='factory_compute_admissions'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%event_json IS NOT NULL%' ORDER BY conname`));
+      expect(governing).toEqual([{ conname: "factory_compute_admissions_terminal_event_check" }]);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

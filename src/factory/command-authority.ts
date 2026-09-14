@@ -2,6 +2,7 @@ import { currentEffectCommandMatches, nodeFor } from "@ezcorp/factory-sdk/kernel
 import type { AcceptanceNode, ApprovalNode, CompiledFactory, FactoryNode, KernelAttempt, KernelCommand, KernelState, ReleaseNode, SubfactoryNode, TaskNode } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
+import type { FactoryAdmissionOrigin } from "./admission-origin";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryPrincipal } from "./grants";
@@ -70,6 +71,9 @@ export interface FactoryAuthorizedCancellationCommand extends Omit<FactoryAuthor
   readonly node: FactoryNode;
   readonly attempt: KernelAttempt;
 }
+
+/** Either authority a shared-admission poll may hold. */
+export type FactoryAuthorizedAdmissionCommand = FactoryAuthorizedCommand | FactoryAuthorizedAcceptanceCommand;
 
 export type FactoryCurrentApprovalFence = Readonly<{
   nodeInstanceId: string;
@@ -166,6 +170,19 @@ export class FactoryCommandAuthority {
       if (runtime.waitingReason !== "external_reconciliation" || runtime.waitingDeadlineAtMs !== context.command.deadlineAtMs || !currentEffectCommandMatches(context.compiled, context.state, context.command)) throw new FactoryCommandAuthorityError("factory_command_stale");
       return work(transaction, { ...context, node, attempt });
     }, suppliedTransaction);
+  }
+
+  /**
+   * Authority for one shared-admission poll.
+   *
+   * Ordinary task work is authorized by its committed `request-admission`
+   * command. A protected validator has no kernel node and therefore no such
+   * command: the acceptance command that revealed the need is its authority,
+   * checked through the same acceptance path, so a validator poll can never be
+   * mistaken for a committed transition and cannot forge one.
+   */
+  withCurrentAdmission<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, origin: FactoryAdmissionOrigin | undefined, work: (transaction: MigrationDb, context: FactoryAuthorizedAdmissionCommand) => Promise<Result>): Promise<Result> {
+    return origin?.kind === "protected-validator" ? this.acceptance(service, value, work) : this.execution(service, value, work);
   }
 
   async withCurrentInput<Result>(service: TrustedFactoryServiceIdentity, value: TrustedFactoryCommandReference, work: (transaction: MigrationDb, context: FactoryAuthorizedInputCommand) => Promise<Result>): Promise<Result> {
