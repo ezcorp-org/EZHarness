@@ -243,18 +243,36 @@ describe("factoryWorkerClock", () => {
   test("resolves immediately when the signal has already aborted", async () => {
     const controller = new AbortController();
     controller.abort();
-    await factoryWorkerClock.wait(60_000, controller.signal);
+    let resolved = false;
+    // A minute-long delay that resolves inside this test's budget is the proof
+    // the already-aborted case never armed a timer at all.
+    await factoryWorkerClock.wait(60_000, controller.signal).then(() => { resolved = true; });
+    expect(resolved).toBe(true);
   });
 
-  test("resolves on abort without waiting out the delay", async () => {
+  test("stays pending until the signal aborts, then resolves rather than rejecting", async () => {
     const controller = new AbortController();
-    const waiting = factoryWorkerClock.wait(60_000, controller.signal);
-    controller.abort();
+    const settled: string[] = [];
+    const waiting = factoryWorkerClock.wait(60_000, controller.signal).then(
+      () => settled.push("resolved"),
+      () => settled.push("rejected"),
+    );
+    await tick();
+    expect(settled).toEqual([]);
+
+    controller.abort(new Error("server shutting down"));
     await waiting;
+    // Resolving, not rejecting: a loop must not need a catch to tell a clean
+    // shutdown apart from a worker fault.
+    expect(settled).toEqual(["resolved"]);
   });
 
-  test("resolves when the delay elapses", async () => {
-    await factoryWorkerClock.wait(1, new AbortController().signal);
+  test("resolves when the delay elapses with no abort", async () => {
+    const controller = new AbortController();
+    let resolved = false;
+    await factoryWorkerClock.wait(1, controller.signal).then(() => { resolved = true; });
+    expect(resolved).toBe(true);
+    expect(controller.signal.aborted).toBe(false);
   });
 });
 
