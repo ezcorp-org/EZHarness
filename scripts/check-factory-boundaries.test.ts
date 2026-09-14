@@ -98,6 +98,18 @@ describe("factory static boundaries", () => {
     expect(checkFactoryBoundaries([...safeFactory, compiler], shared, requirements)).toEqual([]);
   });
 
+  test("F13 resolves a workspace package specifier to its entry point", () => {
+    const requirements: RequiredImport[] = [{
+      factoryPath: "src/factory/runner/attempt-runtime.ts",
+      sharedModule: "packages/@ezcorp/extension-runner/src/index.ts",
+    }];
+    const runtime = { path: requirements[0]!.factoryPath, source: 'import { executionLimits } from "./limits";\nexport const open = () => executionLimits;' };
+    expect(checkFactoryBoundaries([...safeFactory, runtime], shared, requirements)).toContainEqual(expect.objectContaining({ rule: "f13-required-import", path: requirements[0]!.factoryPath }));
+
+    runtime.source = 'import { configuredRunnerDevices } from "@ezcorp/extension-runner";\nexport const open = () => configuredRunnerDevices([]);';
+    expect(checkFactoryBoundaries([...safeFactory, runtime], shared, requirements)).toEqual([]);
+  });
+
   test("F13 fails when a declared factory module is absent", () => {
     expect(checkFactoryBoundaries(safeFactory, shared, [{ factoryPath: "src/factory/release.ts", sharedModule: "src/extensions/v4/blobs.ts" }]))
       .toContainEqual(expect.objectContaining({ rule: "f13-required-import", message: "factory module is missing" }));

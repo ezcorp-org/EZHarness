@@ -51,6 +51,17 @@ Note (W00 audit 2026-09-13): the three checked items below cite no receipt. Thei
 - [x] Write approval request, decision, and consumption audit facts in their owning transactions.
 - [ ] Prove direct pre-accept and post-approval tampering, plus audit write faults, fail closed on PGlite and PostgreSQL.
 - [ ] Run static checks, coverage, and real PostgreSQL proof; record the review.
+
+## C02 isolated attempt runtime — Terra
+
+- [x] Persist the canonical launch intent and exact held lease before a guest start.
+- [x] Implement inspect-first stable-worker open, recovery, result wait, and physical-stop receipt.
+- [ ] Bind the Python C02 wire bridge into the production guest path alongside Bun.
+- [x] Prove the five-second renewal and lease-revoked stop path.
+- [x] Prove fresh Bun/Python/Podman GPU execution, response-loss recovery, and no duplicate start.
+- [ ] Run PGlite, PostgreSQL/S3, type, lint, coverage, and gates; record review.
+
+Checkpoint review: `attempt-runtime.integration.test.ts` passes five PGlite/real-Podman cases and 24 assertions. It persists a token-free request and prepared receipt before start, reattaches after a lost start response, rejects terminal and uncertain recovery execution, renews every five seconds and physically stops on loss, uses only the provider broker reverse capability, and verifies an RSA-SHA256 host stop proof over canonical unsigned receipt bytes. Focused coverage is 177/177 executable lines in `attempt-runtime.ts` and 9/9 in `add-factory-attempt-launches.ts` at `/tmp/factory-platform-evidence/terra-c02-attempt-runtime-coverage/lcov.info`. Full PostgreSQL schema conformance reaches this migration but currently fails the known pre-import C05 three-FK mismatch for `factory_runner_package_bindings`; root's `310534627` correction resolves that during integration. Python needs its separate pinned guest recipe before this leaf is complete.
 ## Factory continuation reader leaf — Terra
 
 - [x] Load scoped transition manifests and pages through immutable artifact references.
@@ -2176,3 +2187,32 @@ What this does not show is an independent failure domain. Both services are on t
 `tasks/factory/w04a-GATES.md`, in every readiness result, and in the real-services receipt, and
 the classifier will not return the independent verdict without an operator's replication
 statement that nothing here writes.
+## W01 — Durable Bun execution and recovery (Terra runtime, `wp/w01-durable-runtime`)
+
+Gates and receipts: `tasks/factory/w01-GATES.md`, `/tmp/factory-platform-evidence/w01/`. All fifteen gates pass.
+
+Step 0:
+- [x] Merge `feat/factory-lazy-input` (`28bc2bfc3`) as `0df2f128d`; `tasks/lessons.md` and `tasks/todo.md` resolved by union.
+- [x] Reproduce the fresh-runner regression exactly: 11 pass / 1 fail, `ENOENT ... rename 'artifact-<uuid>' -> 'artifacts/<digest>'` (`logs/step0-repro-podman.json`).
+- [x] Root cause: `6c500113a` changed `PodmanRunner.build()` from `initialize()` to `acquireLease()`, dropping store preparation and the fail-closed kernel isolation probe from every build.
+- [x] Fix at the source; full shared Podman suite 14 pass / 0 fail (`logs/final-podman-suite.json`).
+- [x] Verify real PostgreSQL schema conformance on the merged tree: 28 pass / 0 fail, 2794 assertions (`logs/final-postgres-producers.json`). Terra's reported pre-import three-foreign-key mismatch for `factory_runner_package_bindings` does not reproduce here.
+
+Type checkpoint (`ea1bd94de`, reported to the coordinator, never amended):
+- [x] `FactoryAttemptDeviceGrant`, `factoryAttemptDeviceGrant`, `FactoryGuestControlFrame`, `FactoryHostLaunchProtocol`, `invocationId` on `FactoryAttemptOpen`, optional `StartRequest.devices`.
+- [x] `factoryAttemptInvocationId`, durable and reproducible, replacing the ephemeral `${workerId}:run`.
+- [x] Migration columns and the freeze's `package_receipt_json` `SET NOT NULL` correction; `factoryMigrationRestartConformance` case; freeze correction 9.
+
+Behavior, every plan bullet:
+- [x] Launch intent committed before the guest starts; one concurrent claimant launches one physical attempt.
+- [x] The intent binds request digest, identity tuple, worker and invocation IDs, lease fence, and the full package receipt; readiness is revalidated after the claim and immediately before the token mint.
+- [x] Bounded authenticated reconnectable guest-control channel with frames bound to worker, invocation, and attempt. Losing the controlling attachment neither terminates the guest nor authorizes another effect; a fresh attach creates no container, skips orphan cleanup, and issues no second invocation.
+- [x] Terminal results durable before acknowledgement; a fresh gateway reads the same result with no second `extension/invoke`.
+- [x] Recovery of transcript, cursor, tool results, and pinned model and provider configuration from durable records, on a supervisor that does not hold the original local directory. Workspace bytes stay behind the existing artifact-store seam for W04.
+- [x] The shared executor's broker transport and journal hooks preserved; one real model and tool operation through Node, the Bun gateway, and an isolated guest. No authority check removed.
+- [x] Crash matrix across the gateway, guest, and supervisor around each journal and result boundary; a reattach or a confirmed stop precedes any replacement, and an API failure never proves physical absence.
+- [x] Both recovery topologies, including the signed physical-stop receipt verified against the canonical unsigned facts.
+- [x] The real subprocess test with a genuine SIGKILLed child, one labelled container, attach without cleanup, and removal of every owned resource.
+- [x] C05 re-run across PGlite, real PostgreSQL and S3, real Podman preparation, and schema and foreign-key parity; two model and configuration tuples sharing one package and export with only one revoked.
+
+Review (W01): the recorded C02 gap is closed. `wait()` after a recovery boundary no longer refuses; one canonical terminal result is digest-sealed into the launch row before the runtime acknowledges it, and `open()` replays it without touching the runner, so a fresh gateway returns the identical result after exactly one start and one invocation. Six defects surfaced and were fixed rather than routed. The merged branch had silently removed the kernel isolation probe from every build, which is a C05 control and not merely the `ENOENT` symptom that exposed it. The isolated runtime accepted any reverse envelope with an `input` key, so a broker frame was bound to nothing even though the v4 guest already sends the exact invocation context. A readiness denial after the durable claim stranded the attempt in `launching` forever. My own first fix then introduced two more, both caught only by the real container suite: probing the kernel on `attach()` cost about four seconds and the guest whose control pipe died did not survive that window, and sweeping orphans on the lazy build and execution paths would destroy another attempt's surviving guest now that execution is detached. Finally, real PostgreSQL parity rejected a plain object as a jsonb column default. One deviation from the freeze for the coordinator to confirm: the durable terminal result lives in two columns on `factory_attempt_launches` rather than in `factory_execution_terminals`, because that table requires verified candidate output bytes and measured usage and so cannot hold a failed, cancelled, or uncertain runner result. It is still no new table.
