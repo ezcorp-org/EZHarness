@@ -2258,4 +2258,35 @@ Gates: `tasks/factory/w09-GATES.md`.
 
 ### Review
 
-(filled at the end)
+W09 turned out to be the composition root itself rather than a rewiring of one.
+`createFactoryApplication` and `assertFactoryBootReadiness` both shipped on
+`integ/w00` with no production caller, so the gate that closes admission until
+real probes pass had a gate and no probe, and four durable primitives had no
+driver at all. Seven new modules supply the missing half: a validated startup
+document that names every absent dependency at once, seven real probes that read
+live records rather than configuration, one bounded stop-aware worker shape
+shared by every role, typed seams that refuse instead of answering, and the
+archive writer wired as the release store's archive with publication grade
+reported as a visible field.
+
+Three defects surfaced and were fixed rather than routed. `ensureInitialized`
+latched a boolean before the work it stood for, so a concurrent caller and every
+caller after a failed start were told initialization succeeded; the in-flight
+promise is now the latch and a failed attempt clears it. The flag-off 404 emitted
+`factory_disabled` where C09 names `factory-disabled`, which a client written to
+the contract could never match. And my own first composition called the readiness
+half of the boot check with an empty available set, reporting all seven services
+down before a single probe ran.
+
+One scope change is a real widening and the coordinator should confirm it: C01
+assigns version publish the `write` scope, so a `write` key holding the project
+`factory.publish` grant can now publish where a human session was required.
+Grant management moved the other way and is now gated on the tenant-administrator
+role as well as the scope.
+
+The pass sentence is partial. Start, restart, shutdown with no leaked process,
+and both documented flag answers are proved through the real built server against
+real PostgreSQL. The durable run in the middle of that sentence needs W03's
+stopper and reconciler, W05's validator gateway and candidate resolver, and
+W07/W08's destination reservation and sender fence; `tasks/factory/w09-GATES.md`
+names each missing collaborator and its owner.
