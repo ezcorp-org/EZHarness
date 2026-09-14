@@ -61,7 +61,7 @@ const INTERPRETER = "interpreter-1";
 const TASK_NODE = "produce-dataset";
 const RELEASE_NODE = "publish-dataset";
 const digest = (letter: string) => `sha256:${letter.repeat(64)}`;
-const ADAPTER: RunnerReference = { package: "@ezcorp/factory-s3-publisher", version: "1.0.0", digest: digest("a"), export: "publish" };
+const ADAPTER: RunnerReference = { package: "@ezcorp/factory-s3-publisher", manifestName: "factory-s3-publisher", version: "1.0.0", digest: digest("a"), export: "publish" };
 const bare = (letter: string) => letter.repeat(64);
 const sha256 = (bytes: Uint8Array) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const encoder = new TextEncoder();

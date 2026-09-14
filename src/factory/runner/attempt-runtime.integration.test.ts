@@ -25,7 +25,7 @@ const digest = `sha256:${raw}`;
 const request = {
   schemaVersion: "factory.runner.request.v1" as const,
   authority: { attemptId: "attempt-runtime", tenantId: "tenant-runtime", projectId: "project-runtime", runId: "run-runtime", nodeInstanceId: "node-runtime", candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0, deadlineAtMs: Date.now() + 60_000, nextOperationIndex: 0 },
-  runner: { package: "runner", version: "1", digest, export: "run", model: "runtime-model", configurationDigest: digest }, input: { kind: "inline" as const, value: { prompt: "isolated" } }, grants: [], resources: {}, tools: [], broker: { audience: "gateway", attemptToken: "ephemeral-token" },
+  runner: { package: "@ezcorp/runner", manifestName: "runner", version: "1", digest, export: "run", model: "runtime-model", configurationDigest: digest }, input: { kind: "inline" as const, value: { prompt: "isolated" } }, grants: [], resources: {}, tools: [], broker: { audience: "gateway", attemptToken: "ephemeral-token" },
 };
 const lease: FactoryAttemptLease = { reservationId: "reservation-runtime", grantRevision: 4, allocationGeneration: 5, holderGeneration: 5, allocationToken: "allocation-runtime", hostId: "host-runtime" };
 const renewedLease: PoolLease = { ...lease, tenantId: request.authority.tenantId, fence: "lease-fence", deadlineAt: new Date(Date.now() + 60_000), resources: {} };

@@ -49,12 +49,22 @@ function runner(packageName: string, exportName: string, hex: string, model?: st
   const packageHex = "abcdef"[packageCode] as string;
   return {
     package: packageName,
+    // The scoped distribution name is not a legal v4 manifest name, so the
+    // manifest's own name is derived by stripping the scope and normalising.
+    manifestName: manifestNameOf(packageName),
     version: "1.0.0",
     digest: digest(packageHex),
     export: exportName,
     ...(model === undefined ? {} : { model }),
     configurationDigest: digest(hex),
   };
+}
+
+/** The v4 manifest name a scoped distribution name corresponds to. */
+export function manifestNameOf(packageName: string): string {
+  const unscoped = packageName.includes("/") ? packageName.slice(packageName.lastIndexOf("/") + 1) : packageName;
+  const normalised = [...unscoped.toLowerCase()].map(character => (/[a-z0-9-]/.test(character) ? character : "-")).join("").replace(/^-+/, "").slice(0, 64);
+  return normalised.length > 0 ? normalised : "runner";
 }
 
 function packageOf(reference: RunnerReference): PackageReference {

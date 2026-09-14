@@ -6,7 +6,7 @@ import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "./types";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from "./types";
 
 const digest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-const runner = { package: "inert", version: "1", digest, export: "run" } as const;
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" } as const;
 
 function compiled(nodes: readonly FactoryNode[], _outputs: Record<string, { readonly kind: "ref"; readonly root: "node"; readonly name: string }>, inputPorts: FactoryDefinition["inputPorts"] = {}): CompiledFactory {
   const normalize = (node: FactoryNode): FactoryNode => {

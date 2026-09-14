@@ -5,7 +5,7 @@ import { referenceCodeV1 } from "./references.js";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, KernelCommand, KernelState } from "./index";
 
 const digest = `sha256:${"d".repeat(64)}`;
-const runner = { package: "inert", version: "1", digest, export: "run" } as const;
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" } as const;
 
 function partitionedFactory(target: FactoryNode | readonly FactoryNode[], source: FactoryNode = { id: "a", kind: "task", runner, outputPorts: { value: { type: "number" } } }): CompiledFactory {
   const padding: FactoryNode[] = Array.from({ length: 128 }, (_, index) => ({

@@ -140,8 +140,21 @@ export interface ResourceBounds extends BudgetBounds {
   readonly memoryBytes?: number;
 }
 
+/**
+ * One pinned runner, named twice on purpose.
+ *
+ * `package` is the scoped distribution identity a human publishes and installs,
+ * for example `@ezcorp/reference-data`. `manifestName` is the name inside the
+ * built v4 manifest, which the shared extension contract constrains to
+ * `^[a-z][a-z0-9-]{0,63}$` and therefore can never be scoped. The two were
+ * previously required to be equal, which no real pack could satisfy: the v4
+ * grammar is the shared contract and stays, so the reference now carries the
+ * manifest's exact name explicitly and the scoped identity keeps its own field.
+ */
 export interface RunnerReference {
   readonly package: string;
+  /** Exactly `manifest.name` of the built v4 release. Bound into the receipt and the trust revision. */
+  readonly manifestName: string;
   readonly version: string;
   readonly digest: string;
   readonly export: string;
