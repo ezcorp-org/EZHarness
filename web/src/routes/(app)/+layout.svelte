@@ -24,6 +24,7 @@
 	import TeamChatPanel from "$lib/components/TeamChatPanel.svelte";
 	import DockHost from "$lib/components/tool-cards/DockHost.svelte";
 	import PendingDecisionsTray from "$lib/components/tool-cards/PendingDecisionsTray.svelte";
+	import UnsandboxedExtensionsBanner from "$lib/components/UnsandboxedExtensionsBanner.svelte";
 	import EzPanel from "$lib/components/ez/EzPanel.svelte";
 
 	let { children } = $props();
@@ -37,6 +38,9 @@
 	let shortcuts = $state<ShortcutBinding[]>([]);
 	let isAdmin = $state(false);
 	let currentUser = $state<{ id: string; name: string; email: string; role: string } | null>(null);
+	// `extensionRunner` from the same /api/auth/me fetch: "isolated" or
+	// "trusted-local". Drives the standing not-sandboxed banner.
+	let extensionRunner = $state<string | null>(null);
 	let userMenuOpen = $state(false);
 
 	function toggleSidebar() {
@@ -97,6 +101,7 @@
 					currentUser = me.user;
 					if (me.user.role === "admin") isAdmin = true;
 				}
+				if (typeof me.extensionRunner === "string") extensionRunner = me.extensionRunner;
 			})
 			.catch(() => {});
 
@@ -516,6 +521,7 @@
 
 <PullToRefresh />
 <ConnectionBanner />
+<UnsandboxedExtensionsBanner mode={extensionRunner} />
 <ToastContainer />
 <ImageLightbox />
 <DockHost />

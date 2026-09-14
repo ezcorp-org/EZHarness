@@ -82,6 +82,14 @@ const MODULE_PATHS = [
   "../../extensions/project-open-pr",
   "../../search/egress",
   "@ezcorp/extension-runner",
+  // extension-lifecycle-service-trusted-local.test.ts stubs the host wiring
+  // of the trusted-local runner (records `configureTrustedLocalRunner`, hands
+  // out a canned runner). A leaked stub would make every later file's
+  // `resolveTrustedLocalRunner()` throw its "no runner provided" error and
+  // silently drop the service's hook installation. Cheap to preload: its
+  // imports are node:path, the runner package (snapshotted above), logger,
+  // project-root and runner-mode — no db, no daemon.
+  "../../extensions/trusted-local-runner",
   "../../db/connection",
   "../../auth/middleware",
   "../../auth/jwt",

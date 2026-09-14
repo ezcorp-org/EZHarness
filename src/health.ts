@@ -3,6 +3,7 @@ import { getDb, getPglite } from "./db/connection";
 import { isEmbeddingReady } from "./memory/embeddings";
 import { checkEndpointReachability } from "./providers/local-model-check";
 import { LLM_PROVIDER_IDS } from "./runtime/routing/llm-providers";
+import { getExtensionRunnerMode, type ExtensionRunnerMode } from "./extensions/runner-mode";
 
 export interface HealthResponse {
   status: "healthy" | "degraded";
@@ -10,6 +11,17 @@ export interface HealthResponse {
   embeddings?: { status: "ready" | "not_initialized" };
   providers?: Record<string, { status: "configured" | "not_configured" }>;
   localModels?: Record<string, { status: "reachable" | "unreachable"; latencyMs?: number }>;
+  /** Which extension runner this host uses. `trusted-local` means extensions are NOT sandboxed. */
+  extensions?: { runner: ExtensionRunnerMode | "invalid" };
+}
+
+/** Never throws: health must answer even when the mode env is incoherent — then it says so. */
+function extensionRunnerStatus(): HealthResponse["extensions"] {
+  try {
+    return { runner: getExtensionRunnerMode() };
+  } catch {
+    return { runner: "invalid" };
+  }
 }
 
 export async function buildHealthResponse(detail: boolean): Promise<HealthResponse> {
@@ -88,5 +100,6 @@ export async function buildHealthResponse(detail: boolean): Promise<HealthRespon
     embeddings: { status: embeddingStatus },
     providers,
     ...(localModels ? { localModels } : {}),
+    extensions: extensionRunnerStatus(),
   };
 }

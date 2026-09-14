@@ -1,4 +1,9 @@
 {
+  "web/e2e/extension-author-trusted-local.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte",
+    "web/src/lib/components/UnsandboxedExtensionsBanner.svelte",
+    "web/src/routes/(app)/+layout.svelte"
+  ],
   "web/e2e/extension-author-heading.spec.ts": [
     "web/src/routes/(app)/+layout.svelte",
     "web/src/routes/(app)/extensions/author/+page.svelte"
