@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { referenceDataV1, referenceCodeV1 } from "@ezcorp/factory-sdk";
+import { isManifestName, manifestNameOf, referenceDataV1, referenceCodeV1 } from "@ezcorp/factory-sdk";
 import { fakeReferenceCodeBroker } from "../../__tests__/helpers/reference-code-broker-fake";
 import { freezeReferenceCodeCandidate } from "./freeze";
 import { referenceCodeFixtureCandidate, referenceCodeLaunchRepository, REFERENCE_CODE_FIXTURE_REQUEST } from "./fixtures";
@@ -8,8 +8,13 @@ import { REFERENCE_CODE_REVIEW_CLAIM_ID } from "./review";
 import { snapshotReferenceCodeRepository } from "./snapshot";
 
 const MODEL = { provider: "anthropic", model: "claude-haiku-4-5-20251001" };
+import { REFERENCE_CODE_GUEST_MANIFEST } from "./guest-entry";
 import {
   referenceCodeDeclaredExports,
+  referenceCodeManifestNameFaults,
+  REFERENCE_CODE_EXPORT_MANIFEST_NAMES,
+  REFERENCE_CODE_GENERATOR_MANIFEST_NAME,
+  REFERENCE_CODE_VALIDATOR_MANIFEST_NAME,
   referenceCodePackIdentity,
   referenceCodeRunnerReferences,
   REFERENCE_CODE_EXPORT_PACKAGES,
@@ -105,6 +110,7 @@ describe("the pack answers exactly what the definition declares", () => {
     expect(identity.definitionId).toBe("reference.code.v1");
     expect(identity.definitionVersion).toBe(referenceCodeV1.version);
     expect(identity.packages).toEqual([REFERENCE_CODE_GENERATOR_PACKAGE, REFERENCE_CODE_VALIDATOR_PACKAGE]);
+    expect(identity.manifestNames).toEqual(["reference-code", "reference-code-validator"]);
     expect([...identity.exports].sort()).toEqual(referenceCodeDeclaredExports() as ReferenceCodeExportName[]);
     expect(identity.validatorGuestDigest).toMatch(/^[0-9a-f]{64}$/);
   });
@@ -164,5 +170,68 @@ describe("the contract, as C10 writes it", () => {
     // Filed as an interface question: a model grant a validator never uses is authority it should
     // not hold. Recorded rather than changed, because `references.ts` is the SDK owner's file.
     expect([...new Set(unpinned)].sort()).toEqual(["freezeGitTree", "releasePullRequest", "snapshotRepository"]);
+  });
+});
+
+describe("the runner reference names its manifest (freeze section 17)", () => {
+  test("every reference this pack owns carries the manifest name its scoped package builds under", () => {
+    expect(referenceCodeManifestNameFaults()).toEqual([]);
+    expect(REFERENCE_CODE_GENERATOR_MANIFEST_NAME).toBe("reference-code");
+    expect(REFERENCE_CODE_VALIDATOR_MANIFEST_NAME).toBe("reference-code-validator");
+  });
+
+  test("a manifest name is never a scoped name, and always satisfies the v4 grammar", () => {
+    for (const reference of referenceCodeRunnerReferences()) {
+      expect(isManifestName(reference.manifestName)).toBe(true);
+      expect(reference.manifestName).not.toContain("@");
+      expect(reference.manifestName).not.toContain("/");
+    }
+    // The scoped identity survives unchanged; the two are expected to differ.
+    expect(isManifestName(REFERENCE_CODE_VALIDATOR_PACKAGE)).toBe(false);
+    expect(REFERENCE_CODE_VALIDATOR_PACKAGE).not.toBe(REFERENCE_CODE_VALIDATOR_MANIFEST_NAME);
+  });
+
+  test("the guest this pack ships declares exactly the manifest name its reference carries", () => {
+    // This is the comparison `releaseFacts()` makes, so an agreement here is what lets
+    // `FactoryPackagePreparations.bind` accept the built validator release.
+    expect(REFERENCE_CODE_GUEST_MANIFEST.name).toBe(REFERENCE_CODE_VALIDATOR_MANIFEST_NAME);
+    expect(REFERENCE_CODE_GUEST_MANIFEST.name).toBe(manifestNameOf(REFERENCE_CODE_VALIDATOR_PACKAGE));
+    const validatorReferences = referenceCodeRunnerReferences().filter(reference => reference.package === REFERENCE_CODE_VALIDATOR_PACKAGE);
+    expect(validatorReferences.length).toBeGreaterThan(0);
+    for (const reference of validatorReferences) expect(reference.manifestName).toBe(REFERENCE_CODE_GUEST_MANIFEST.name);
+  });
+
+  test("each export is attributed to the manifest that serves it", () => {
+    for (const reference of referenceCodeRunnerReferences()) {
+      const expected = REFERENCE_CODE_EXPORT_MANIFEST_NAMES[reference.export as ReferenceCodeExportName];
+      if (expected === undefined) continue;
+      expect(reference.manifestName).toBe(expected);
+    }
+  });
+
+  test("a drifted manifest name is reported rather than reconciled", () => {
+    const drifted = {
+      ...referenceCodeV1,
+      graph: {
+        ...referenceCodeV1.graph,
+        nodes: referenceCodeV1.graph.nodes.map(node => ("runner" in node && node.runner?.package === REFERENCE_CODE_GENERATOR_PACKAGE
+          ? { ...node, runner: { ...node.runner, manifestName: "@ezcorp/reference-code" } }
+          : node)),
+      },
+    };
+    const faults = referenceCodeManifestNameFaults(drifted);
+    expect(faults.length).toBeGreaterThan(0);
+    expect(faults[0]).toContain("which the v4 grammar refuses");
+
+    const wrong = {
+      ...referenceCodeV1,
+      graph: {
+        ...referenceCodeV1.graph,
+        nodes: referenceCodeV1.graph.nodes.map(node => ("runner" in node && node.runner?.package === REFERENCE_CODE_GENERATOR_PACKAGE
+          ? { ...node, runner: { ...node.runner, manifestName: "some-other-runner" } }
+          : node)),
+      },
+    };
+    expect(referenceCodeManifestNameFaults(wrong)[0]).toContain("rather than 'reference-code'");
   });
 });

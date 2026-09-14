@@ -26,7 +26,8 @@ import {
 } from "../runner/attempt-runtime";
 import { referenceCodeFixtureCandidate, referenceCodeLaunchRepository, REFERENCE_CODE_FIXTURE_REQUEST } from "./fixtures";
 import { referenceCodeGuestFiles, REFERENCE_CODE_GUEST_ENTRYPOINT } from "./guest";
-import { REFERENCE_CODE_GUEST_SCHEMA_VERSION, REFERENCE_CODE_GUEST_TOOL, type ReferenceCodeGuestInput } from "./guest-entry";
+import { REFERENCE_CODE_GUEST_MANIFEST, REFERENCE_CODE_GUEST_SCHEMA_VERSION, REFERENCE_CODE_GUEST_TOOL, type ReferenceCodeGuestInput } from "./guest-entry";
+import { REFERENCE_CODE_VALIDATOR_MANIFEST_NAME, REFERENCE_CODE_VALIDATOR_PACKAGE } from "./pack";
 import type { ReferenceCodeFile } from "./snapshot";
 
 /**
@@ -69,7 +70,10 @@ function request(input: ReferenceCodeGuestInput): FactoryRunnerRequest {
   return {
     schemaVersion: "factory.runner.request.v1",
     authority: { attemptId, tenantId, projectId, runId, nodeInstanceId, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, deadlineAtMs: Date.now() + 120_000, nextOperationIndex: 0 },
-    runner: { package: "@ezcorp/reference-code-validator", manifestName: "reference-code-validator", version: "1.0.0", digest, export: REFERENCE_CODE_GUEST_TOOL, configurationDigest: digest },
+    // The manifest name is taken from the guest's OWN manifest rather than written out, because
+    // that is the string `releaseFacts()` compares the reference against (freeze section 17). A
+    // literal here would let the two drift apart silently and only fail at bind time.
+    runner: { package: REFERENCE_CODE_VALIDATOR_PACKAGE, manifestName: REFERENCE_CODE_GUEST_MANIFEST.name, version: "1.0.0", digest, export: REFERENCE_CODE_GUEST_TOOL, configurationDigest: digest },
     input: { kind: "inline", value: input as never },
     grants: [],
     resources: {},
@@ -100,6 +104,10 @@ test("a real isolated guest reports the reference code contract's static protect
 
     const files = guestSource;
     expect(Object.keys(files)).toContain(REFERENCE_CODE_GUEST_ENTRYPOINT);
+    // The scoped package and the v4 manifest name are different strings for the same package, and
+    // the reference carries both. Nothing here reconciles them.
+    expect(REFERENCE_CODE_GUEST_MANIFEST.name).toBe(REFERENCE_CODE_VALIDATOR_MANIFEST_NAME);
+    expect(REFERENCE_CODE_VALIDATOR_PACKAGE).not.toBe(REFERENCE_CODE_GUEST_MANIFEST.name);
     const build = await runner.build({ operationId: "reference-code-guest-build", sourceDigest: filesDigest(files), files, entrypoint: REFERENCE_CODE_GUEST_ENTRYPOINT, limits: buildLimits });
     if (build.state !== "succeeded") throw new Error(`isolated reference code validator build failed: ${build.diagnostics.map(diagnostic => `${diagnostic.code}: ${diagnostic.message}`).join(" | ").slice(0, 4000)}`);
     if (!build.artifactDigest) throw new Error("isolated reference code validator artifact was not built");
