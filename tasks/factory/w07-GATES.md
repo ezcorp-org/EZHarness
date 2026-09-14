@@ -42,7 +42,9 @@ not code work.
 | `5198acfee` | `docs(factory): record the W07 gates, review, and lessons` |
 | `5e6f142be` | `docs(factory): stamp the W07 gate commit table` |
 | `75533ea96` | `fix(factory): consolidate the publication scope resolver and the path error class` (validation F1, F2) |
-| `<stamp>` | `docs(factory): record the W07 validation fixes` (a file cannot carry its own hash) |
+| `aeda8ebb4` | `docs(factory): record the W07 validation fixes` |
+| `f3a251ff1` | `Merge branch 'integ/w00'` (brings the SeaweedFS volume-cap change `b18b080fa`) |
+| `<stamp>` | `docs(factory): replace the blocked storage receipts` (a file cannot carry its own hash) |
 
 ## The landed API
 
@@ -300,28 +302,38 @@ new FactoryS3PublicationProvenance({ database, tenantId }).publicationSet(); // 
 
 ## Previously blocked, now green
 
-- [x] G20: The archive-writer and child-artifact PostgreSQL producers.
-      CHECK: `bun test --timeout 600000 ./tests/postgres/factory-archive-writer.test.ts ./tests/postgres/factory-child-artifacts.test.ts ./tests/postgres/factory-run-lifecycle.test.ts ./tests/postgres/factory-assurance.test.ts`
-      EXPECT: 87 pass, 0 fail, 1042 assertions.
-      EVIDENCE: receipt `fix-postgres-archive`, log `logs/fix-postgres-archive.log`.
-      HISTORY: the first run was **72 pass, 11 fail** (receipt `postgres-neighbours`, kept as the
-      failure it was). The local "ordinary" SeaweedFS store had run out of writable volumes for the
-      `tenant-01` collection, so every S3 PUT returned HTTP 500 `InternalError`; the repository's
-      own unchanged `bun scripts/verify-factory-storage.ts` failed the same way, which is what
-      placed the fault outside this branch. The coordinator repaired the store; `verify-factory-storage.ts`
-      then reported "conformance passed for 10 tenant identities across ordinary and archive
-      storage" and these four suites passed.
+- [x] G20: The archive-writer, child-artifact, and S3 publication PostgreSQL producers.
+      CHECK: `bun test --timeout 600000 ./tests/postgres/factory-archive-writer.test.ts ./tests/postgres/factory-child-artifacts.test.ts ./tests/postgres/factory-run-lifecycle.test.ts ./tests/postgres/factory-assurance.test.ts ./tests/postgres/factory-s3-publication.test.ts`
+      under the shared heavy lock, with `FACTORY_TEST_POSTGRES_URL`, `DATABASE_URL`, and
+      `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set.
+      EXPECT: 99 pass, 0 fail, 1181 assertions. That includes W08's "a 256 MiB material exports
+      through W04 chunks as a real multipart upload", which is the case that used to exhaust the
+      store.
+      EVIDENCE: receipt `m2-postgres-neighbours`, log `logs/m2-postgres-neighbours.log`.
+      HISTORY, kept rather than overwritten: the first run was **72 pass, 11 fail** (receipt
+      `postgres-neighbours`) and the second **97 pass, 2 fail** (receipt `fix-postgres-neighbours`).
+      Both failed on S3 HTTP 500 `InternalError`, because the local "ordinary" SeaweedFS store had
+      no writable volumes left for the `tenant-01` collection. The repository's own unchanged
+      `bun scripts/verify-factory-storage.ts` failed the same way, which is what placed the fault
+      outside this branch. An intermediate run of the four non-S3-publication suites alone passed
+      at 87 pass, 0 fail (receipt `fix-postgres-archive`).
 
-- [ ] G20a: W08's own `tests/postgres/factory-s3-publication.test.ts` — still 2 failing.
-      CHECK: `bun test --timeout 600000 ./tests/postgres/factory-s3-publication.test.ts`
-      RESULT: **2 fail** out of 99 across the five-suite run (receipt
-      `fix-postgres-neighbours`), both the same S3 HTTP 500 `InternalError` on the ordinary store.
-      CAUSE: the store re-exhausts DURING the run. The case "a 256 MiB material exports through W04
-      chunks as a real multipart upload" consumes the remaining headroom at
-      `-master.volumeSizeLimitMB=64 -volume.max=100`, and `verify-factory-storage.ts` fails again
-      immediately afterwards. Repairing the store once is therefore not enough: the volume budget
-      cannot hold a 256 MiB export alongside the rest of the campaign's data. That is a capacity
-      decision for the coordinator, and the two cases are W08's, not W07's.
+- [x] G21: The objects a producer run creates are deleted again, so re-running does not spend the
+      shared volume budget.
+      CHECK: `bun scripts/prune-factory-storage-run.ts --receipt <run receipt>.json` to see what
+      would go, then `--apply`.
+      EXPECT: only versions whose `LastModified` falls inside that run's recorded window are
+      deleted. For `m2-postgres-neighbours`: 16178 versions scanned across ten tenant buckets, 212
+      matched, 212 deleted, and `verify-factory-storage.ts` passes afterwards. The matched keys were
+      exactly the prefixes those five suites write — `ordinary/s3-publication` (121),
+      `ordinary/archive-writer` (60), `ordinary/s3-published` (16), `ordinary/factory-child-artifacts`,
+      a `version-proof-*` pair, and eleven bare content-addressed blobs.
+      EVIDENCE: receipt `m2-storage-prune`.
+      WHY A WINDOW, NOT A PREFIX: objects older than the window belong to W04a's, W05's, and W08's
+      receipts. Deleting by prefix would free space by destroying their evidence; deleting by run
+      window cannot reach anything this run did not create. The producers hold the shared heavy lock
+      for their whole run, which is what makes the window exclusive. A dry run is the default and
+      `--apply` is the only thing that deletes.
 
 ## Pre-existing failures inherited from the base, named so nobody counts them as W07's
 
@@ -395,10 +407,19 @@ their trees:
    of this file. This is the one plan row W07 cannot close with code.
 2. **`deployed-independent-failure-domain` stays unmet**, as W04a recorded. A production-equivalent
    publication claim remains blocked for the archive reason, independently of GitHub.
-3. **The ordinary S3 store re-exhausts under W08's 256 MiB export case.** The archive-writer and
-   child-artifact producers are green again after the coordinator's repair (G20), but the two
-   remaining failures in W08's own suite return the store to "No writable volumes" within one run.
-   The volume budget is the open question, not the repair. See G20a.
+3. **The running ordinary SeaweedFS container is still on the old volume cap.** `integ/w00` at
+   `b18b080fa` sets `-volume.max=400` for both services in
+   `compose.factory-storage.local.yml`, and the archive container carries it. The ordinary
+   container does not:
+   `docker inspect ezcorp-factory-storage-1001-factory-storage-ordinary-1 --format '{{json .Config.Cmd}}'`
+   still reports `-volume.max=100`, its master reports `Max 100, Free -7`, and its `Created` and
+   `StartedAt` timestamps are equal, which is what a `docker restart` looks like — restart reuses
+   the existing container's `Cmd`, so the compose change never reached it. A
+   `docker compose -f compose.factory-storage.local.yml up -d --force-recreate factory-storage-ordinary`
+   is what applies it. This package did not run it: it restarts a service several packages are
+   using, and completing that repair keeps one owner for it. The coordinator has the diagnosis.
+   G20 is green regardless, because the store had enough reclaimed room at run time and G21 gives
+   the run its space back.
 4. **CLOSED — the two publication-scope resolvers are now one.** `FactoryPublicationProvenance` in
    `release-publication-set.ts` owns the single derivation: the accepted protected receipt, its
    completion, and the execution that must agree. Each provider supplies only its member half
