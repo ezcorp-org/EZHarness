@@ -132,7 +132,7 @@ describe("taking a snapshot through a reader", () => {
     const snapshot = await snapshotReferenceCodeRepository(reader(entries()), BASE);
     expect(snapshot.baseSha).toBe(BASE);
     expect(snapshot.files).toHaveLength(referenceCodeLaunchRepository().length);
-    expect(REFERENCE_CODE_FIXTURE_REQUEST.dependencyLockPath).toBe(snapshot.dependencyLockPath);
+    expect(snapshot.dependencyLockPath).toBe(REFERENCE_CODE_FIXTURE_REQUEST.dependencyLockPath);
   });
 
   test("refuses a reader that answers a different commit than the one pinned", async () => {
