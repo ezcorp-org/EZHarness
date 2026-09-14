@@ -2216,3 +2216,41 @@ Behavior, every plan bullet:
 - [x] C05 re-run across PGlite, real PostgreSQL and S3, real Podman preparation, and schema and foreign-key parity; two model and configuration tuples sharing one package and export with only one revoked.
 
 Review (W01): the recorded C02 gap is closed. `wait()` after a recovery boundary no longer refuses; one canonical terminal result is digest-sealed into the launch row before the runtime acknowledges it, and `open()` replays it without touching the runner, so a fresh gateway returns the identical result after exactly one start and one invocation. Six defects surfaced and were fixed rather than routed. The merged branch had silently removed the kernel isolation probe from every build, which is a C05 control and not merely the `ENOENT` symptom that exposed it. The isolated runtime accepted any reverse envelope with an `input` key, so a broker frame was bound to nothing even though the v4 guest already sends the exact invocation context. A readiness denial after the durable claim stranded the attempt in `launching` forever. My own first fix then introduced two more, both caught only by the real container suite: probing the kernel on `attach()` cost about four seconds and the guest whose control pipe died did not survive that window, and sweeping orphans on the lazy build and execution paths would destroy another attempt's surviving guest now that execution is detached. Finally, real PostgreSQL parity rejected a plain object as a jsonb column default. One deviation from the freeze for the coordinator to confirm: the durable terminal result lives in two columns on `factory_attempt_launches` rather than in `factory_execution_terminals`, because that table requires verified candidate output bytes and measured usage and so cannot hold a failed, cancelled, or uncertain runner result. It is still no new table.
+
+## W02 — Isolated Python and per-attempt CPU/GPU allocation (Terra runtime, `wp/w02-python-isolation`)
+
+Gates and receipts: `tasks/factory/w02-GATES.md`, `/tmp/factory-platform-evidence/w02/`.
+
+Per-attempt device authority:
+- [x] A factory execution start names exactly the devices its held pool allocation authorized; a CPU start names none. `configuredDevices` stays only for a v4 caller that names no field at all, and a build or discovery guest is denied a device whatever the host configures.
+- [x] `factoryHeldAllocationDevices` derives the authorization from the lease's own resource vector and the registered profile of the host that actually holds it.
+- [x] Unapproved, stale and overlapping grants are all refused: no `gpu-host` in the vector, a node outside the shared allowlist, a second `prepare` under a different lease, and a second live attempt on the same host holding a node this grant names, fenced durably under a host-scoped transaction lock.
+- [x] A real Podman proof that a CPU guest sees no GPU device on a host runner configured with three.
+
+Isolated Python guest:
+- [x] Digest-pinned CPython 3.13.12 guest through the shared recipe machinery, extending `PodmanRunner` rather than forking it.
+- [x] The FIFO shim contract: the in-guest shim holds `/channel/{in,out,err}` `O_RDWR` for the guest's whole life, so no host process's exit reaches the guest as end-of-input.
+- [x] The framed request and result bridge, answering `extension/discover`, `extension/invoke` and `extension/cancel` over the same frame policy the Bun guest uses.
+- [x] The immutable dependency and model closure: interpreter pin, committed `uv.lock` by digest, importable distribution closure, model closure and resource class, all sealed into `.runner/recipe.json` and compared with the running guest at build time.
+
+Python-native validator equivalence (C07.8, discrepancy 20):
+- [x] `c02_runner.py` no longer shells out to the Node bridge. `factory_ijson`, `factory_schema` and `factory_validation` are the Python counterpart of the SDK's canonical, schema and validation modules.
+- [x] The shared generated schemas and their negative fixtures run under real isolated Bun and Python guests and are compared issue code by issue code.
+- [x] Host-Python conformance stays as a separate, narrower entry point.
+- [x] W18's Python lanes pass with 100% line and branch coverage, and the three rule families W18 deferred (`I`, `S`, `E5`) are now enforced.
+
+Package states on the shared v4 fence:
+- [x] `quarantined` beside `revoked`, with every revision recording the v4 installation generation it was decided against.
+- [x] A decision the installation has outrun no longer authorizes dispatch; a blocking transition fences live attempts through a seam inside its own commit; every earlier decision is preserved.
+
+Applied controls and hardening:
+- [x] Every applied control read from the container runtime while the guest runs, and compared with the guest's own report, for both pinned guest languages.
+- [x] The guest environment is exactly the three declared variables plus the two the OCI runtime injects with fixed values. The image's own `ENV` no longer reaches any guest.
+- [x] The base-hardening regressions re-run on the final code.
+
+GPU:
+- [x] Real AMD ROCm computation in ten fresh containers with a missing-device control, under the user-scoped GPU lock.
+- [x] The per-attempt grant proved through the factory's own launch path, one verdict per rule.
+- [x] The supported local profile recorded, and every production criterion written as an explicit unmet row with its own measured verdict.
+
+Review (W02): the two headline gaps are closed. Device authority is now a property of the held allocation rather than of the host, fenced durably so two live attempts cannot share a node, and the Python runtime has a validator of its own instead of a subprocess call into Node. Three defects surfaced while verifying rather than while writing. Every guest, in both languages, was receiving the container image's own environment, including `PATH` and the interpreter's build metadata, although C05 names exactly three variables and the requirement index recorded that row as closed; `--unsetenv-all` removes it and the two the OCI runtime still injects are pinned to fixed, tenant-independent values. A grant naming CDI devices would have launched an attempt with no device at all, because the shared runner injects raw nodes only; it is now refused at start. The ROCm fixture could not be read by the container's mapped user in a worktree made with a restrictive umask, which would have failed the GPU proof for a reason that has nothing to do with the GPU. One deviation for the coordinator: `FactoryAttemptRuntimeError` gains a `device_conflict` code, and `FactoryPackageTrusts` gains an optional fence seam whose implementation is W03's stop path.
