@@ -97,7 +97,9 @@ describe("bounded repair through three candidate generations", () => {
     const first = await generation(0, "", WRONG_OUTPUT);
     expect(unsatisfied(first.claims)).toEqual(["declared-tests", "protected-fixtures"]);
     expect(first.prompt).not.toContain("was rejected");
-    expect(referenceCodeRepairAuthorized(0, referenceCodeV1.graph.nodes.find(node => node.id === "acceptance")!.maxRepairs ?? 0)).toBe(true);
+    const acceptanceNode = referenceCodeV1.graph.nodes.find(node => node.id === "acceptance");
+    const declaredRepairs = acceptanceNode && "maxRepairs" in acceptanceNode ? acceptanceNode.maxRepairs ?? 0 : 0;
+    expect(referenceCodeRepairAuthorized(0, declaredRepairs)).toBe(true);
 
     // The rejection is sealed into the one input a repair may replace.
     const firstRemediation = referenceCodeRemediation(first.claims);

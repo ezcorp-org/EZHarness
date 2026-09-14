@@ -3,7 +3,6 @@ import { digestObject } from "../../extensions/v4/blobs";
 import { assertFactoryGitHubPublicationRequest } from "../release-github";
 import {
   freezeReferenceCodeCandidate,
-  referenceCodeChangedPaths,
   referenceCodePullRequestBody,
   ReferenceCodeFreezeError,
   REFERENCE_CODE_COMMIT_AUTHOR,
@@ -11,7 +10,7 @@ import {
   type ReferenceCodeFreezeInput,
 } from "./freeze";
 import { referenceCodeFixtureCandidate, referenceCodeLaunchRepository, withoutReferenceCodeFile, withReferenceCodeFile, REFERENCE_CODE_FIXTURE_REQUEST } from "./fixtures";
-import { sealReferenceCodeSnapshot, type ReferenceCodeFile } from "./snapshot";
+import { referenceCodeChangedPaths, sealReferenceCodeSnapshot, type ReferenceCodeFile } from "./snapshot";
 
 const BASE = "a".repeat(39) + "1";
 const TREE = "b".repeat(39) + "2";

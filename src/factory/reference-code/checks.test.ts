@@ -204,7 +204,7 @@ describe("the static claims on their own", () => {
   test("report an inconclusive advisory claim when the candidate has no lockfile", () => {
     const files = referenceCodeFixtureCandidate("accepted").filter(file => file.path !== "bun.lock");
     const statics = referenceCodeStaticClaims({
-      candidate: freeze(referenceCodeFixtureCandidate("accepted")),
+      changedPaths: freeze(referenceCodeFixtureCandidate("accepted")).changedPaths,
       snapshot,
       files,
       allowedPaths: [...REFERENCE_CODE_FIXTURE_REQUEST.allowedPaths],
@@ -221,7 +221,7 @@ describe("the static claims on their own", () => {
   test("record a non-blocking advisory in the passing summary rather than hiding it", () => {
     const files = referenceCodeFixtureCandidate("accepted");
     const statics = referenceCodeStaticClaims({
-      candidate: freeze(files),
+      changedPaths: freeze(files).changedPaths,
       snapshot,
       files,
       allowedPaths: [...REFERENCE_CODE_FIXTURE_REQUEST.allowedPaths],

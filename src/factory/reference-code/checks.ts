@@ -3,13 +3,9 @@ import {
   type FactoryValidatorClaimOutcome,
   type FactoryValidatorClaimReport,
 } from "@ezcorp/factory-sdk";
-import { digestBytes } from "../../extensions/v4/blobs";
+import { referenceCodeClaimOutcome, referenceCodeStaticClaims, type ReferenceCodeClaimId } from "./static-claims";
 import type { ReferenceCodeCandidate } from "./freeze";
 import {
-  referenceCodeAdvisoryFindings,
-  referenceCodeBlockingAdvisories,
-  referenceCodePathAllowed,
-  referenceCodeSecretFindings,
   REFERENCE_CODE_ADVISORY_SNAPSHOT,
   type ReferenceCodeAdvisoryFinding,
   type ReferenceCodeAdvisorySnapshot,
@@ -42,19 +38,7 @@ import {
  * process both run the candidate's code and judge it.
  */
 
-export const REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS = Object.freeze([
-  "frozen-install",
-  "build",
-  "typecheck",
-  "declared-tests",
-  "protected-fixtures",
-  "dependency-advisory",
-  "secret-scan",
-  "allowed-paths",
-  "protected-assets-unchanged",
-] as const);
-
-export type ReferenceCodeClaimId = (typeof REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS)[number];
+export { REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS, referenceCodeStaticClaims, type ReferenceCodeClaimId } from "./static-claims";
 
 export const REFERENCE_CODE_CHECK_TIMEOUTS = Object.freeze({
   install: 300_000,
@@ -89,85 +73,21 @@ export interface ReferenceCodeChecksReport {
   readonly verifiedWorkspaceDigest: string | null;
 }
 
-function outcome(
-  id: ReferenceCodeClaimId,
-  verdict: FactoryValidatorClaimOutcome["verdict"],
-  reasonCode: string,
-  summary: string,
-  measuredAtMs: number,
-): FactoryValidatorClaimOutcome {
-  return { id, verdict, decisive: verdict === "PASS" || verdict === "FAIL", summary: summary.slice(0, 2048), reasonCode, evidence: [], measuredAtMs };
-}
-
 /** A command's verdict: exit zero passes, any other exit fails, a timeout is its own reason. */
 function commandOutcome(id: ReferenceCodeClaimId, result: ReferenceCodeCommandResult, measuredAtMs: number): FactoryValidatorClaimOutcome {
   if (result.timedOut) {
-    return outcome(id, "INCONCLUSIVE", "command_timed_out", `\`${result.command.join(" ")}\` was killed after ${result.durationMs} ms without reporting a result.`, measuredAtMs);
+    return referenceCodeClaimOutcome(id, "INCONCLUSIVE", "command_timed_out", `\`${result.command.join(" ")}\` was killed after ${result.durationMs} ms without reporting a result.`, measuredAtMs);
   }
   if (result.exitCode === 0) {
-    return outcome(id, "PASS", "command_exit_zero", `\`${result.command.join(" ")}\` exited 0 in ${result.durationMs} ms.`, measuredAtMs);
+    return referenceCodeClaimOutcome(id, "PASS", "command_exit_zero", `\`${result.command.join(" ")}\` exited 0 in ${result.durationMs} ms.`, measuredAtMs);
   }
   const tail = result.output.trim().split("\n").slice(-12).join("\n");
-  return outcome(id, "FAIL", "command_exit_nonzero", `\`${result.command.join(" ")}\` exited ${result.exitCode}.\n${tail}`, measuredAtMs);
+  return referenceCodeClaimOutcome(id, "FAIL", "command_exit_nonzero", `\`${result.command.join(" ")}\` exited ${result.exitCode}.\n${tail}`, measuredAtMs);
 }
 
 /** Claims that describe a command that never ran, because its prerequisite failed. */
 function unmeasured(ids: readonly ReferenceCodeClaimId[], reason: string, measuredAtMs: number): FactoryValidatorClaimOutcome[] {
-  return ids.map(id => outcome(id, "INCONCLUSIVE", "prerequisite_failed", reason, measuredAtMs));
-}
-
-/**
- * The static claims: what the candidate's bytes say, before anything executes.
- *
- * These three need no workspace and no subprocess, so they are measured even when the disposable
- * copy cannot be made. A candidate that leaked a credential should be told so, not told that a
- * temporary directory could not be created.
- */
-export function referenceCodeStaticClaims(input: {
-  readonly candidate: ReferenceCodeCandidate;
-  readonly snapshot: ReferenceCodeSnapshot;
-  readonly files: readonly ReferenceCodeFile[];
-  readonly allowedPaths: readonly string[];
-  readonly protectedPaths: readonly string[];
-  readonly advisories: ReferenceCodeAdvisorySnapshot;
-  readonly measuredAtMs: number;
-}): {
-  readonly claims: readonly FactoryValidatorClaimOutcome[];
-  readonly advisoryFindings: readonly ReferenceCodeAdvisoryFinding[];
-  readonly secretFindings: readonly ReferenceCodeSecretFinding[];
-  readonly disallowedPaths: readonly string[];
-  readonly changedProtectedPaths: readonly string[];
-} {
-  const { measuredAtMs } = input;
-  const lock = input.files.find(file => file.path === input.snapshot.dependencyLockPath);
-  const advisoryFindings = lock ? referenceCodeAdvisoryFindings(lock.content, input.advisories) : [];
-  const blocking = referenceCodeBlockingAdvisories(advisoryFindings);
-  const secretFindings = referenceCodeSecretFindings(input.files);
-  const disallowedPaths = input.candidate.changedPaths.filter(path => !referenceCodePathAllowed(path, input.allowedPaths));
-
-  const base = new Map(input.snapshot.files.map(file => [file.path, digestBytes(file.content)]));
-  const after = new Map(input.files.map(file => [file.path, digestBytes(file.content)]));
-  const changedProtectedPaths = input.protectedPaths.filter(path => base.get(path) !== after.get(path)).sort();
-
-  const advisoryClaim = lock === undefined
-    ? outcome("dependency-advisory", "INCONCLUSIVE", "lock_missing", `The candidate does not contain \`${input.snapshot.dependencyLockPath}\`, so no dependency set could be resolved.`, measuredAtMs)
-    : blocking.length === 0
-      ? outcome("dependency-advisory", "PASS", "no_blocking_advisory", `No high or critical advisory in the pinned ${input.advisories.source} snapshot of ${new Date(input.advisories.capturedAtMs).toISOString()} matches the resolved dependencies (${advisoryFindings.length} non-blocking match(es)).`, measuredAtMs)
-      : outcome("dependency-advisory", "FAIL", "blocking_advisory", `Blocking advisories: ${blocking.map(finding => `${finding.advisoryId} (${finding.severity}) ${finding.package}@${finding.version}`).join("; ")}.`, measuredAtMs);
-
-  const secretClaim = secretFindings.length === 0
-    ? outcome("secret-scan", "PASS", "no_secret_finding", `The pinned secret rules matched nothing in ${input.files.length} file(s).`, measuredAtMs)
-    : outcome("secret-scan", "FAIL", "secret_found", `Secret findings: ${secretFindings.map(finding => `${finding.ruleId} at ${finding.path}:${finding.line}`).join("; ")}. The matched text is deliberately not recorded.`, measuredAtMs);
-
-  const pathClaim = disallowedPaths.length === 0
-    ? outcome("allowed-paths", "PASS", "changes_within_allowed_paths", `All ${input.candidate.changedPaths.length} changed path(s) sit under ${input.allowedPaths.join(", ")}.`, measuredAtMs)
-    : outcome("allowed-paths", "FAIL", "path_not_allowed", `Changed outside the request's allowed paths (${input.allowedPaths.join(", ")}): ${disallowedPaths.join(", ")}.`, measuredAtMs);
-
-  const protectedClaim = changedProtectedPaths.length === 0
-    ? outcome("protected-assets-unchanged", "PASS", "protected_assets_identical", `All ${input.protectedPaths.length} protected asset(s) are byte-identical to base ${input.snapshot.baseSha}.`, measuredAtMs)
-    : outcome("protected-assets-unchanged", "FAIL", "protected_asset_changed", `Protected asset(s) changed or removed against base ${input.snapshot.baseSha}: ${changedProtectedPaths.join(", ")}.`, measuredAtMs);
-
-  return { claims: [advisoryClaim, secretClaim, pathClaim, protectedClaim], advisoryFindings, secretFindings, disallowedPaths, changedProtectedPaths };
+  return ids.map(id => referenceCodeClaimOutcome(id, "INCONCLUSIVE", "prerequisite_failed", reason, measuredAtMs));
 }
 
 /**
@@ -184,7 +104,7 @@ export async function referenceCodeProtectedChecks(input: ReferenceCodeChecksInp
   const runner = input.runner ?? new ReferenceCodeProcessRunner();
   const measuredAtMs = now();
   const statics = referenceCodeStaticClaims({
-    candidate: input.candidate,
+    changedPaths: input.candidate.changedPaths,
     snapshot: input.snapshot,
     files: input.files,
     allowedPaths: input.allowedPaths,

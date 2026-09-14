@@ -1,4 +1,5 @@
-import { digestBytes, digestObject } from "../../extensions/v4/blobs";
+import { digestObject } from "../../extensions/v4/blobs";
+import { digestBytes } from "../../extensions/v4/digest";
 import { factoryGitCommitId, factoryGitTreeId, type FactoryGitIdentity } from "../git-objects";
 import {
   assertFactoryGitHubPublicationRequest,
@@ -7,7 +8,7 @@ import {
   type FactoryGitHubPublicationPlan,
   type FactoryGitHubPublicationRequest,
 } from "../release-github";
-import { referenceCodeFilesDigest, type ReferenceCodeFile, type ReferenceCodeSnapshot } from "./snapshot";
+import { referenceCodeChangedPaths, referenceCodeFilesDigest, type ReferenceCodeFile, type ReferenceCodeSnapshot } from "./snapshot";
 
 /**
  * Freezes a generated candidate into one complete, named Git tree and commit.
@@ -101,19 +102,6 @@ export function referenceCodePullRequestBody(input: {
     "",
     "The protected checks ran against that exact base commit. They say nothing about the current head of the base branch, or about the result of merging this branch into it.",
   ].join("\n");
-}
-
-/** Paths whose content differs between two complete trees, including additions and removals. */
-export function referenceCodeChangedPaths(
-  base: readonly ReferenceCodeFile[],
-  candidate: readonly ReferenceCodeFile[],
-): readonly string[] {
-  const before = new Map(base.map(file => [file.path, `${file.mode} ${digestBytes(file.content)}`]));
-  const after = new Map(candidate.map(file => [file.path, `${file.mode} ${digestBytes(file.content)}`]));
-  const changed = new Set<string>();
-  for (const [path, value] of after) if (before.get(path) !== value) changed.add(path);
-  for (const path of before.keys()) if (!after.has(path)) changed.add(path);
-  return [...changed].sort();
 }
 
 /**

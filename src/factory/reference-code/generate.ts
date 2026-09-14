@@ -1,7 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Message, Tool, ToolCall } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryOperation } from "../../runtime/factory-execution";
-import { digestBytes, digestObject } from "../../extensions/v4/blobs";
+import { digestObject } from "../../extensions/v4/blobs";
+import { digestBytes } from "../../extensions/v4/digest";
 import { assertFactoryGitPath, FactoryGitObjectError } from "../git-objects";
 import { referenceCodeFilesDigest, type ReferenceCodeFile, type ReferenceCodeSnapshot } from "./snapshot";
 

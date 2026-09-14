@@ -72,7 +72,11 @@ describe("the disposable validation copy", () => {
       expectedDigest: referenceCodeFilesDigest(files),
       protectedPaths: ["docs/absent.md"],
     });
-    try { await workspace.assertProtectedUnchanged(); } finally { await workspace.dispose(); }
+    try {
+      // The absent path is simply not sealed, so the check passes and the copy still holds the tree.
+      await workspace.assertProtectedUnchanged();
+      expect(await readFile(join(workspace.root, "package.json"), "utf8")).toContain("slugify-launch");
+    } finally { await workspace.dispose(); }
   });
 
   test("dispose removes the copy and is safe to repeat", async () => {

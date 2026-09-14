@@ -1,4 +1,4 @@
-import { digestBytes } from "../../extensions/v4/blobs";
+import { digestBytes } from "../../extensions/v4/digest";
 import { assertFactoryGitPath, assertFactoryGitSha, factoryGitBlobId, FactoryGitObjectError, type FactoryGitFileMode } from "../git-objects";
 
 /**
@@ -218,6 +218,19 @@ export async function snapshotReferenceCodeRepository(
   }
   const entries = await reader.readTree(resolved.commitSha);
   return sealReferenceCodeSnapshot({ baseSha, treeSha: resolved.treeSha, entries });
+}
+
+/** Paths whose content differs between two complete trees, including additions and removals. */
+export function referenceCodeChangedPaths(
+  base: readonly ReferenceCodeFile[],
+  candidate: readonly ReferenceCodeFile[],
+): readonly string[] {
+  const before = new Map(base.map(file => [file.path, `${file.mode} ${digestBytes(file.content)}`]));
+  const after = new Map(candidate.map(file => [file.path, `${file.mode} ${digestBytes(file.content)}`]));
+  const changed = new Set<string>();
+  for (const [path, value] of after) if (before.get(path) !== value) changed.add(path);
+  for (const path of before.keys()) if (!after.has(path)) changed.add(path);
+  return [...changed].sort();
 }
 
 /** The snapshot's files keyed by path, for callers that compare a candidate against the base. */
