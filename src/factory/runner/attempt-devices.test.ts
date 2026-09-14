@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { createFactoryLaunchFixture, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, type FactoryLaunchFixture } from "../../__tests__/helpers/factory-attempt-launch-fixture";
-import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, type FactoryAttemptDeviceAuthorization } from "./attempt-runtime";
+import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, IsolatedFactoryAttemptRuntime, type FactoryAttemptDeviceAuthorization } from "./attempt-runtime";
 
 const gpu: FactoryAttemptDeviceAuthorization = { gpuHosts: 1, devices: ["/dev/kfd", "/dev/dri/renderD128"] };
 const otherGpu: FactoryAttemptDeviceAuthorization = { gpuHosts: 1, devices: ["/dev/dri/renderD129"] };
@@ -111,4 +111,23 @@ test("a tampered durable device grant is refused rather than launched", async ()
   await store.prepare(first, factoryLaunchLease, factoryLaunchPackage(first), gpu);
   await fixture.db.execute(sql`UPDATE factory_attempt_launches SET device_grant_json='{"devices":["/dev/kfd","/dev/dri/renderD128","/dev/dri/renderD129"],"cdiDevices":[],"capabilities":["compute","utility"]}'::jsonb WHERE attempt_id=${first.authority.attemptId}`);
   await expect(store.claimStart(first.authority.attemptId)).rejects.toThrow("device grant digest is invalid");
+});
+
+test("a CDI device grant is refused rather than started with no device", async () => {
+  await store.prepare(first, factoryLaunchLease, factoryLaunchPackage(first), { gpuHosts: 1, cdiDevices: ["nvidia.com/gpu=0"] });
+  const intent = (await store.claimStart(first.authority.attemptId)).intent;
+  expect(intent.devices.cdiDevices).toEqual(["nvidia.com/gpu=0"]);
+  expect(intent.devices.devices).toEqual([]);
+  const runtime = new IsolatedFactoryAttemptRuntime({
+    runner: { async build() { throw new Error("unused"); }, async collectArtifacts() { throw new Error("unused"); }, async inspect(id) { return { id, state: "unknown", diagnostics: [] }; }, async cancel() {}, async start() { throw new Error("a CDI grant must never reach a physical start"); } },
+    launches: store,
+    mintAttemptToken: async () => "minted-cdi-token",
+    pool: { acknowledgeStart: async () => { throw new Error("unused"); }, renew: async () => { throw new Error("unused"); } } as never,
+    broker: { invoke: async () => { throw new Error("unused"); } },
+    signStopReceipt: async () => ({ hostKeyId: "k", hostSignature: "s" }),
+    presentStopReceipt: async () => {},
+    readiness: { assertDispatchReady: async () => factoryLaunchPackage(first) },
+  });
+  await store.state(first.authority.attemptId, "prepared");
+  await expect(runtime.open(first, factoryLaunchLease, factoryLaunchPackage(first), { gpuHosts: 1, cdiDevices: ["nvidia.com/gpu=0"] })).rejects.toThrow("Container Device Interface profile is not supported");
 });

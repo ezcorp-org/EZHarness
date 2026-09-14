@@ -517,6 +517,10 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
   }
 
   private startRequest(intent: FactoryAttemptLaunchIntent, request: FactoryRunnerRequest) {
+    // The shared runner injects raw device nodes only. A grant naming CDI
+    // devices belongs to the production NVIDIA profile, which no runtime here
+    // implements, so it is refused rather than launched with no device at all.
+    if (intent.devices.cdiDevices.length > 0) throw new FactoryAttemptRuntimeError("invalid_launch", "The Container Device Interface profile is not supported by this runtime; a CDI device grant cannot start an attempt.");
     const deadline = Math.min(intent.request.authority.deadlineAtMs, this.now() + executionLimits.timeoutMs);
     return { workerId: intent.workerId, artifactDigest: intent.preparedPackage.artifactDigest, context: { invocationId: intent.invocationId, workerId: intent.workerId, releaseId: intent.preparedPackage.artifactDigest, principalId: intent.request.authority.tenantId, scopeId: intent.request.authority.projectId, token: request.broker.attemptToken, deadline }, limits: executionLimits, devices: intent.devices.devices };
   }
