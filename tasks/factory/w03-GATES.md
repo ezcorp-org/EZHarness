@@ -25,6 +25,8 @@ Branch `wp/w03-stop-settlement`. Base `integ/w00` at `88effb159`.
 | `741faf6c6` | `feat(factory): type validator admission origin` (cherry-pick of W05's `1e6a95668`) |
 | `310d3da5f` | `fix(factory): share one root envelope between the restart cases` |
 | `97fb7ab16` | **`feat(factory): admit a protected validator origin`** — the commit W05 is waiting on |
+| `a957835f7` | `docs(factory): record the W05 checkpoint, the lock incident, and the merge` |
+| this commit | `docs(factory): cross-tabulate ownership crossings and correct two overclaims` — the ACCEPT-WITH-FIXES items W03-1, W03-4, and W03-5. Its own SHA is reported to the coordinator, since a commit cannot contain its own hash. |
 
 ## Four defects found by running the contracts
 
@@ -113,6 +115,24 @@ afterwards. Nothing was retried and no receipt is affected.
    one for W02. `factory_task_stops` is keyed by its cancel command and carries a foreign key to
    `factory_transition_commands`, so a quarantine stop with no `cancel-node` command needs its own
    record shape, not a second branch in `withCurrentCancellation`. Filed to W02 below.
+
+### Files changed outside W03's owned set
+
+`c11899dcc` is the only commit that crosses an ownership boundary. Every crossing, against freeze
+section 12's table:
+
+| File | Section 12 owner | Why it changed here |
+| --- | --- | --- |
+| `src/factory/executions.ts` | Terra runtime (W01) | The stop needs `cancelInTransaction`, `acceptCancellationInTransaction`, `confirmStoppedInTransaction`, and `readAuthorityInTransaction`, so it can name the holder it is fencing without the dispatch command. Section 12 already says "W03 files the usage type change" against this file. |
+| `src/factory/run-lifecycle.ts` | Sol controls (W06) | `authorizeRunInTransaction` allowed only `queued\|running\|waiting`, so an operator cancellation made its own attempt unstoppable. Gains `allowCancelling`, passed by the cancellation path only. |
+| `src/factory/runner/attempt-runtime.ts` | Terra runtime (W01) | `readFactoryAttemptLaunchFacts` for the sealed stop facts, the `storedJson` correction that made every launch read fail on the real engine, and the three-phase C02.14 stop. |
+| `packages/@ezcorp/extension-contract/src/types.d.ts` | Terra runtime | One optional `Runner.abort`. Section 12 scopes this file to "`StartRequest.devices` only", so this is a widening of that scope. |
+| `packages/@ezcorp/extension-runner/src/podman.ts` | Terra runtime (C13 shared) | Implements `abort`, and gives the guest shim the SIGTERM handler without which a container's PID 1 discards every graceful stop. |
+
+Two further files W03 does not own changed in later commits: `src/db/factory-schema.ts` and
+`src/db/migrate.ts` (Coordinator), for the two W03 migrations and the validator-admission event
+constraint, and `src/__tests__/helpers/factory-migration-restart-suite.ts` (Coordinator), which
+section 12 says every new migration adds a case to.
 
 ## Filed to other owners
 
@@ -254,10 +274,18 @@ single root envelope, so neither depends on the other's position (`310d3da5f`).
   CHECK: `bun test --timeout 120000 ./src/factory/pool/ledger.integration.test.ts ./src/factory/pool/service-routes.test.ts ./src/factory/pool/client.test.ts`
   EXPECT: exit 0; the captured allocation trace matches the contract's one-feasible-allocation-per-
   tenant-per-round rule, ordered inside a tenant by priority, ready sequence, then node identity
-  EVIDENCE: `final-focused.json`, `final-postgres.json`, and the pool receipts under
+  EVIDENCE: `fixes-pool-and-static.json` (37 pass) and `fixes-pool-postgres.json` (22 pass) at the
+  head of this branch, plus `final-focused.json`, `final-postgres.json`, and the pool receipts under
   `/tmp/factory-platform-evidence/w03/pool/`. The outstanding bounds are injectable and can only be
   tightened; the defaults are asserted to be 10,000 and 100,000 and the real comparison runs at a
   small configured bound.
+  Two corrections from validation finding W03-5. The ten-tenant test is renamed to what it proves,
+  round-robin service with one allocation per tenant per round, because every score in its trace
+  tied at zero service and the weight never changed its outcome. A genuinely weight-sensitive case
+  replaces the missing proof: two tenants at weights 1 and 3 holding 2 and 3 units score 2 and 1,
+  so the tenant holding MORE absolute capacity is served first, and swapping only the weights
+  inverts the trace. It also records the rule the first attempt got wrong: round membership decides
+  who is eligible and always outranks weight, which orders only those who already are.
 
 - [x] G12: The reservation vocabulary cannot drift from C03 again.
   CHECK: `bun test --timeout 120000 ./src/factory/pool/ledger.integration.test.ts -t "documented C03 mapping"`
@@ -316,11 +344,27 @@ single root envelope, so neither depends on the other's position (`310d3da5f`).
 
 - **`Retry-After` header.** The status is 429 and the interval is in the body, but the header needs
   the W09 seam described above. Filed, not worked around.
-- **Losing join branches and one-slot parent/child execution.** These are kernel and scheduler
-  behaviours: the stop service sees only a `cancel-node` for one attempt. The pool suite proves a
-  one-slot race and the skewed workload; the join and nested-run cases need W06's run-controls
-  fixtures, which are not on this branch. The settlement-scoped run authority this package added
-  is what makes a nested cancellation reach a cancelling parent, and it propagates to ancestors.
+- **Nested cancellation is architecturally enabled but untested.** `authorizeRunInTransaction`
+  propagates `allowCancelling` to ancestors, which is what lets a child's stop reach a cancelling
+  parent, and `assertLiveAncestors` threads the same allowance. No test exercises it: nothing on
+  this branch builds a parent and child run, and grepping the suites for `factory_child_stale`,
+  `factory_child_corrupt`, or `allowCancelling` returns nothing. Treat it as a reviewed code path,
+  not a proven one. It needs W06's run-controls fixtures, which are not on this branch.
+- **Losing join branches has no coverage here**, for the same reason: the stop service sees only a
+  `cancel-node` for one attempt, and the join is kernel behaviour.
+- **One-slot parent/child execution has no coverage anywhere in the repo.** An earlier draft of
+  this file cited the pool suite's last-capacity-unit race as covering it. That was wrong and is
+  withdrawn: that test races two unrelated tenants for one pool unit, which is not the plan's
+  parent-and-child-sharing-one-slot concept.
+- **The end-to-end host-stop chain is not composed.** Each piece is proven on its own: the mTLS
+  transport (G6), the real Podman kill (G7), and the gateway orchestration class (G4, G5). Nothing
+  wires them together in `application.ts` or `boot.ts`, no production class implements
+  `FactoryHostStopSupervisor`, and `new FactoryTaskStops(` appears nowhere outside tests. That
+  composition is W09's. Freeze section 16 asked W03 to reconcile
+  `FactoryHostLaunchProtocol.stop`'s `FactoryPhysicalStopRequest` with `FactoryTaskStopRequest`;
+  that sentence is superseded rather than fulfilled, because W03 introduced a separate
+  `FactoryPhysicalStopper` seam instead of widening W01's signature, and `FactoryHostLaunchProtocol.stop`
+  still takes the original type.
 - **Partitioned survivors** are covered by the bounded-timeout gate (G8): the gateway cannot reach
   the host, the stop degrades to uncertainty, capacity and charge are retained, and a later receipt
   settles the original operation. A partition that also loses the pool response is covered by G10.

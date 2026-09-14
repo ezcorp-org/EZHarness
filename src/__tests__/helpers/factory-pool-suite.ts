@@ -94,7 +94,7 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     expect((await pool.status("race-b"))?.state).toBe("queued");
   });
 
-  test("uses deterministic weighted max-min service across ten tenants", async () => {
+  test("serves ten tenants one allocation each per round, in a deterministic order", async () => {
     await pool.configureCapacity("cpu", 11);
     await pool.setTenantPolicy({ tenantId: "tenant-heavy", weight: 2 });
     const tenantIds = Array.from({ length: 9 }, (_, index) => `tenant-${index}`);
@@ -105,6 +105,38 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     for (let index = 0; index < 11; index += 1) allocations.push((await pool.schedule())?.lease?.tenantId ?? "");
     expect(allocations).toEqual(["tenant-0", "tenant-1", "tenant-2", "tenant-3", "tenant-4", "tenant-5", "tenant-6", "tenant-7", "tenant-8", "tenant-heavy", "tenant-heavy"]);
     expect(allocations.filter(tenantId => tenantId === "tenant-heavy")).toHaveLength(2);
+  });
+
+  test("weighting orders a round, so a heavier tenant holding more capacity is still served first", async () => {
+    await pool.configureCapacity("cpu", 12);
+    await pool.setTenantPolicy({ tenantId: "tenant-light", weight: 1 });
+    await pool.setTenantPolicy({ tenantId: "tenant-heavy", weight: 3 });
+    const hold = async (tenantId: string, count: number, label: string) => {
+      for (let index = 0; index < count; index += 1) {
+        await pool.request(request(`${label}-${tenantId}-${index}`, tenantId, { cpu: 1 }, clock));
+        await admitted(pool);
+      }
+    };
+    // Active service of 2 and 3 units against weights 1 and 3 scores 2 and 1,
+    // so the tenant holding MORE absolute capacity sorts first. Nothing but the
+    // weight can produce that order.
+    await hold("tenant-light", 2, "first");
+    await hold("tenant-heavy", 3, "first");
+    await pool.request(request("next-light", "tenant-light", { cpu: 1 }, clock));
+    await pool.request(request("next-heavy", "tenant-heavy", { cpu: 1 }, clock));
+    // Begin a fresh round. Round membership decides WHO is eligible and always
+    // outranks weight; weight decides the order among those who are.
+    await poolDatabase.unsafe("DELETE FROM factory_pool_round_members");
+    expect([(await pool.schedule())?.reservationId, (await pool.schedule())?.reservationId]).toEqual(["next-heavy", "next-light"]);
+
+    // Swap the weights with the holdings otherwise unchanged in shape, and the
+    // order inverts. The trace is the assertion, not the test's name.
+    await pool.setTenantPolicy({ tenantId: "tenant-light", weight: 3 });
+    await pool.setTenantPolicy({ tenantId: "tenant-heavy", weight: 1 });
+    await pool.request(request("later-light", "tenant-light", { cpu: 1 }, clock));
+    await pool.request(request("later-heavy", "tenant-heavy", { cpu: 1 }, clock));
+    await poolDatabase.unsafe("DELETE FROM factory_pool_round_members");
+    expect([(await pool.schedule())?.reservationId, (await pool.schedule())?.reservationId]).toEqual(["later-light", "later-heavy"]);
   });
 
   test("uses weighted service for each resource class instead of summing CPU and provider units", async () => {
