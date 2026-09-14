@@ -49,8 +49,10 @@ bun test --timeout 1800000 --coverage --coverage-reporter=lcov --coverage-dir="$
 # object store at its container memory cap; each leg on its own is well inside
 # it. Splitting lowers the peak without weakening any case.
 if [ -n "${FACTORY_TEST_POSTGRES_URL:-}" ]; then
-  bun test --timeout 5400000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres" \
-    --test-name-pattern '^(?!.*(256 MiB|maximum row count)).*$' ./tests/postgres/factory-reference-data.test.ts
+  # The faithful full-file run, with the maximum-row case declared last so this
+  # is what proves W04's per-operation object budget after every sibling.
+  bun test --timeout 4800000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres" \
+    ./tests/postgres/factory-reference-data.test.ts
   sleep 30
   bun test --timeout 5400000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres-bytes" \
     --test-name-pattern '256 MiB' ./tests/postgres/factory-reference-data.test.ts
