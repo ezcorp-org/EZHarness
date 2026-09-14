@@ -36,6 +36,7 @@ from reference_image.claims import (
     text_claim,
     text_error_claim,
 )
+from reference_image.fixtures import FixtureError, blank_fixture, caption_fixture
 from reference_image.ocr_report import OcrError, read_words, tesseract_command
 from reference_image.png_format import PngFormatError
 from reference_image.png_normalize import normalize_png
@@ -75,6 +76,7 @@ MANIFEST: Final[dict[str, Any]] = {
             ("normalize", "Rewrite one held image to the canonical PNG form"),
             ("claims", "Measure the deterministic and OCR claims over one held image"),
             ("runtime", "Report the observed generation runtime"),
+            ("fixtures", "Draw the caption negative fixture and its blank control"),
         )
     ],
 }
@@ -142,14 +144,24 @@ class Guest:
         return {"name": name, "received": len(data), "sealed": True, "digest": identity, "bytes": len(data)}
 
     def fetch(self, params: Any) -> dict[str, Any]:  # noqa: ANN401
+        """Returns one piece, at most the caller's size and never more than the ceiling.
+
+        The caller knows its own frame budget and this guest does not, so the
+        size is an input. It is still clamped here, because a caller that asked
+        for a piece larger than a frame would be told the answer was too big
+        rather than given a smaller one.
+        """
         identity = _require_str(params, "digest")
         offset = _require_int(params, "offset")
+        maximum = min(int(params.get("maximum", CHUNK_BYTES)), CHUNK_BYTES)
+        if maximum < 1:
+            raise GuestError("the requested piece size must be at least one byte")
         data = self.held.get(identity)
         if data is None:
             raise GuestError(f"no held image {identity}")
         if offset < 0 or offset > len(data):
             raise GuestError(f"offset {offset} is outside the held image")
-        piece = data[offset : offset + CHUNK_BYTES]
+        piece = data[offset : offset + maximum]
         return {
             "digest": identity,
             "offset": offset,
@@ -162,6 +174,29 @@ class Guest:
 
     def runtime(self, _params: Any) -> dict[str, Any]:  # noqa: ANN401
         return {"guest": GUEST_VERSION, "runtime": runtime_facts()}
+
+    def fixtures(self, params: Any) -> dict[str, Any]:  # noqa: ANN401
+        """Draws the caption fixture and the blank control, and holds both.
+
+        They are drawn inside the guest rather than sent in, so the bytes the
+        OCR claim measures are the bytes this pack's own encoder produced. The
+        blank control exists so a caption's failure can be attributed to the
+        caption: without it, an engine reporting text on any white frame would
+        look like a correct rejection.
+        """
+        width = _require_int(params, "width")
+        height = _require_int(params, "height")
+        scale = _require_int(params, "scale")
+        level = _require_int(params, "compressLevel")
+        drawn: dict[str, Any] = {}
+        for name, data in (
+            ("caption", caption_fixture(width, height, "SALE", scale=scale, compress_level=level)),
+            ("blank", blank_fixture(width, height, compress_level=level)),
+        ):
+            identity = digest_of(data)
+            self.held[identity] = data
+            drawn[name] = {"digest": identity, "bytes": len(data)}
+        return drawn
 
     def generate(self, params: Any) -> dict[str, Any]:  # noqa: ANN401
         """Produces one seeded variant with exactly the settings it was given."""
@@ -266,13 +301,14 @@ class Guest:
             "normalize": self.normalize,
             "claims": self.claims,
             "runtime": self.runtime,
+            "fixtures": self.fixtures,
         }
         handler = handlers.get(name if isinstance(name, str) else "")
         if handler is None:
             raise GuestError(f"unknown export {name}")
         try:
             return handler(given)
-        except (GenerationError, PngFormatError) as error:
+        except (FixtureError, GenerationError, PngFormatError) as error:
             raise GuestError(f"{error.code}: {error}") from error
 
     def dispatch(self, method: str, params: Any) -> Any:  # noqa: ANN401

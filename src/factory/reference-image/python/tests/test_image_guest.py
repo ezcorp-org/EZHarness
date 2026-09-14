@@ -83,6 +83,27 @@ class TransferTest(unittest.TestCase):
         self.assertEqual(b"".join(pieces), data)
         self.assertGreater(len(pieces), 1)
 
+    def test_the_caller_can_ask_for_a_smaller_piece(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        data = bytes(range(256)) * 8
+        guest.held[digest_of(data)] = data
+        answer = guest.fetch({"digest": digest_of(data), "offset": 0, "maximum": 100})
+        self.assertEqual(answer["length"], 100)
+        self.assertEqual(answer["remaining"], len(data) - 100)
+
+    def test_a_piece_size_above_the_ceiling_is_clamped_rather_than_honoured(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        data = bytes(CHUNK_BYTES * 2)
+        guest.held[digest_of(data)] = data
+        answer = guest.fetch({"digest": digest_of(data), "offset": 0, "maximum": CHUNK_BYTES * 4})
+        self.assertEqual(answer["length"], CHUNK_BYTES)
+
+    def test_a_piece_size_below_one_byte_is_refused(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        guest.held[digest_of(b"abc")] = b"abc"
+        with self.assertRaises(GuestError):
+            guest.fetch({"digest": digest_of(b"abc"), "offset": 0, "maximum": 0})
+
     def test_a_piece_never_exceeds_the_transfer_size(self) -> None:
         guest = Guest("/opt/model", fixed_clock)
         data = bytes(CHUNK_BYTES * 2 + 7)
@@ -316,9 +337,38 @@ class TesseractTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "ocr_engine_unavailable")
 
 
+class FixturesToolTest(unittest.TestCase):
+    def test_it_holds_the_caption_and_its_blank_control(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        drawn = guest.fixtures({"width": 256, "height": 128, "scale": 8, "compressLevel": 6})
+        self.assertEqual(set(drawn), {"caption", "blank"})
+        for entry in drawn.values():
+            self.assertIn(entry["digest"], guest.held)
+            self.assertEqual(len(guest.held[entry["digest"]]), entry["bytes"])
+        self.assertNotEqual(drawn["caption"]["digest"], drawn["blank"]["digest"])
+
+    def test_the_two_fixtures_differ_only_by_the_caption(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        drawn = guest.fixtures({"width": 256, "height": 128, "scale": 8, "compressLevel": 6})
+        caption = parse_png(guest.held[str(drawn["caption"]["digest"])])
+        blank = parse_png(guest.held[str(drawn["blank"]["digest"])])
+        self.assertEqual((caption.header.width, caption.header.height), (blank.header.width, blank.header.height))
+        self.assertGreater(caption.total_bytes, blank.total_bytes)
+
+    def test_a_caption_that_cannot_be_drawn_becomes_a_named_guest_error(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        with self.assertRaises(GuestError) as caught:
+            guest.invoke({"name": "fixtures", "input": {"width": 40, "height": 128, "scale": 24, "compressLevel": 6}})
+        self.assertIn("fixture_text_too_wide", str(caught.exception))
+
+
 class DispatchTest(unittest.TestCase):
     def test_discovery_returns_the_manifest(self) -> None:
         self.assertEqual(Guest("/opt/model", fixed_clock).dispatch("extension/discover", None), MANIFEST)
+
+    def test_the_manifest_lists_every_tool_the_guest_answers(self) -> None:
+        named = {str(tool["name"]) for tool in MANIFEST["tools"]}
+        self.assertEqual(named, {"put", "fetch", "generate", "normalize", "claims", "runtime", "fixtures"})
 
     def test_the_manifest_declares_no_permission(self) -> None:
         self.assertEqual(MANIFEST["permissions"], {})
@@ -376,7 +426,16 @@ class ServeTest(unittest.TestCase):
 
     def test_an_invoke_frame_reaches_the_tool_and_returns_its_result(self) -> None:
         answers = self._answers(
-            [json.dumps({"jsonrpc": "2.0", "id": 4, "method": "extension/invoke", "params": {"name": "put", "input": {"name": "v", "data": ""}}})]
+            [
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "extension/invoke",
+                        "params": {"name": "put", "input": {"name": "v", "data": ""}},
+                    }
+                )
+            ]
         )
         self.assertEqual(answers[0]["result"], {"name": "v", "received": 0, "sealed": False})
 
