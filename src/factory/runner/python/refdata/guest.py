@@ -39,9 +39,20 @@ WORKSPACE: Final = Path(__file__).resolve().parent.parent
 
 GUEST_VERSION: Final = "factory.reference-data-guest.v1"
 
+#: The v4 manifest name.
+#:
+#: It is NOT the factory package reference. `validateManifest` requires
+#: `^[a-z][a-z0-9-]{0,63}$`, so no scoped npm name can ever be a v4 manifest
+#: name, while `FactoryPackagePreparations.releaseFacts` requires the manifest
+#: name to EQUAL the runner reference's package, which the compiled definition
+#: writes as `@ezcorp/reference-data`. The two landed rules cannot both hold.
+#: This guest keeps the rule that a real build enforces and the mismatch is
+#: filed for the owners of those two surfaces.
+MANIFEST_NAME: Final = "reference-data"
+
 MANIFEST: Final[dict[str, Json]] = {
     "schemaVersion": 4,
-    "name": "@ezcorp/reference-data",
+    "name": MANIFEST_NAME,
     "version": "1.0.0",
     "author": {"name": "EZCorp factory platform"},
     "description": "Pinned CSV snapshot, strict parse, PyArrow partition transform and ordered reduction",

@@ -101,7 +101,7 @@ class GuestCase(unittest.TestCase):
 
 class Discovery(GuestCase):
     def test_declares_exactly_the_four_pinned_exports(self) -> None:
-        self.assertEqual(MANIFEST["name"], "@ezcorp/reference-data")
+        self.assertEqual(MANIFEST["name"], "reference-data")
         self.assertEqual(
             [tool["name"] for tool in MANIFEST["tools"]],
             ["snapshotCsv", "parseCsv", "transformPartition", "orderedReduce"],
@@ -431,7 +431,7 @@ class Launcher(GuestCase):
         with patch.object(sys, "stdin", frames), patch.object(sys, "stdout", sink):
             self.assertEqual(main(SCHEMAS), 0)
         answered = json.loads(sink.getvalue().strip())
-        self.assertEqual(answered["result"]["name"], "@ezcorp/reference-data")
+        self.assertEqual(answered["result"]["name"], "reference-data")
 
 
 
