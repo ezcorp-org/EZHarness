@@ -272,9 +272,22 @@ export class FactoryComputeAdmissions {
 
   /** Read an admitted allocation while the caller holds the run authority transaction. */
   async readAdmittedInTransaction(transaction: MigrationDb, key: FactoryComputeAdmissionKey): Promise<FactoryComputeAdmissionMaterial> {
+    return this.readAdmittedMaterialInTransaction(transaction, key, ["running"]);
+  }
+
+  /**
+   * Read the exact admitted lease while a physical stop still retains its hold.
+   * A reservation that already reached `uncertain` keeps its capacity, so the
+   * stop path must still be able to name the holder it is fencing.
+   */
+  async readRetainedAdmittedInTransaction(transaction: MigrationDb, key: FactoryComputeAdmissionKey): Promise<FactoryComputeAdmissionMaterial> {
+    return this.readAdmittedMaterialInTransaction(transaction, key, ["running", "uncertain"]);
+  }
+
+  private async readAdmittedMaterialInTransaction(transaction: MigrationDb, key: FactoryComputeAdmissionKey, retainedStates: readonly string[]): Promise<FactoryComputeAdmissionMaterial> {
     assertFactoryIdentity(key.projectId, key.runId, key.reservationId);
     const budget = rowResult(rows<BudgetReservationRow>(await transaction.execute(sql`SELECT state,compute_allocation FROM factory_budget_reservations WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId} FOR UPDATE`)));
-    if (budget?.state !== "running") throw new FactoryComputeAdmissionError("factory_compute_admission_not_admitted");
+    if (!budget || !retainedStates.includes(budget.state)) throw new FactoryComputeAdmissionError("factory_compute_admission_not_admitted");
     const allocation = decodeAllocation(budget);
     const row = rowResult(rows<AdmissionRow>(await transaction.execute(sql`SELECT * FROM factory_compute_admissions WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND reservation_id=${key.reservationId} FOR UPDATE`)));
     if (!row) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");

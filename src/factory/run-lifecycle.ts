@@ -280,13 +280,22 @@ export class FactoryRunLifecycle {
     await this.authorizeRunInTransaction(transaction, key);
   };
 
-  /** Trusted service boundary: lock the durable run and recheck its live authority. */
-  async authorizeRunInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunFence> {
+  /**
+   * Trusted service boundary: lock the durable run and recheck its live authority.
+   *
+   * `allowCancelling` admits a run whose operator cancellation is still
+   * settling. C02 requires a cancelling attempt to keep its stop authority
+   * until its stop event commits, and settlement continues after new dispatch
+   * stops, so the stop path passes it and no forward-dispatch path does.
+   */
+  async authorizeRunInTransaction(transaction: MigrationDb, key: FactoryRunKey, allowCancelling = false): Promise<FactoryRunFence> {
     key = { projectId: key.projectId, runId: key.runId };
     const ancestor = rows<ChildAncestorRow>(await transaction.execute(sql`SELECT parent_run_id,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,binding_digest FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND child_run_id=${key.runId}`))[0];
     if (ancestor) {
       if (!ancestor.parent_run_id || !/^sha256:[a-f0-9]{64}$/.test(ancestor.binding_digest) || ![ancestor.parent_execution_epoch, ancestor.parent_cancellation_epoch, ancestor.parent_grant_revision].every(value => Number.isSafeInteger(Number(value)))) throw new FactoryRunLifecycleError("factory_child_corrupt");
-      const parent = await this.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: ancestor.parent_run_id });
+      // A nested cancellation reaches a cancelling parent, so the allowance
+      // propagates; the parent's epochs are still compared exactly.
+      const parent = await this.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: ancestor.parent_run_id }, allowCancelling);
       if (parent.executionEpoch !== Number(ancestor.parent_execution_epoch) || parent.cancellationEpoch !== Number(ancestor.parent_cancellation_epoch) || parent.grantRevision !== Number(ancestor.parent_grant_revision)) throw new FactoryRunLifecycleError("factory_child_stale");
     }
     const row = await this.row(transaction, key, true);
@@ -295,7 +304,7 @@ export class FactoryRunLifecycle {
     if (!installation || installation.execution_epoch !== request.executionEpoch) throw new FactoryRunLifecycleError("factory_run_fence_changed");
     const fence = Object.freeze({ tenantId: this.tenantId, ...key, executionEpoch: request.executionEpoch, cancellationEpoch: Number(row.cancellation_epoch), grantRevision: Number(row.grant_revision), revision: Number(row.revision), deadlineAtMs: Number(row.deadline_ms), definitionDigest: row.definition_digest, status: row.status });
     if (![fence.revision, fence.grantRevision, fence.deadlineAtMs].every(value => Number.isSafeInteger(value) && value > 0) || !Number.isSafeInteger(fence.cancellationEpoch) || fence.cancellationEpoch < 0 || fence.definitionDigest !== request.definitionDigest) throw new FactoryRunLifecycleError("factory_run_corrupt");
-    if (!["queued", "running", "waiting"].includes(row.status) || Number(row.deadline_ms) <= this.now()) throw new FactoryRunLifecycleError("factory_run_stopped");
+    if (!(allowCancelling ? ["queued", "running", "waiting", "cancelling"] : ["queued", "running", "waiting"]).includes(row.status) || Number(row.deadline_ms) <= this.now()) throw new FactoryRunLifecycleError("factory_run_stopped");
     await this.options.grants.authorizeInTransaction(transaction, initiator(request), key.projectId, "factory.run", Number(row.grant_revision));
     return fence;
   }
@@ -324,9 +333,9 @@ export class FactoryRunLifecycle {
   }
 
   /** Private command admission uses the exact published plan and the live initiator. */
-  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {
+  async readExecutionPlanInTransaction(transaction: MigrationDb, key: FactoryRunKey, allowCancelling = false): Promise<{ readonly fence: FactoryRunFence; readonly compiled: CompiledFactory; readonly initiator: FactoryPrincipal }> {
     key = { projectId: key.projectId, runId: key.runId };
-    const fence = await this.authorizeRunInTransaction(transaction, key);
+    const fence = await this.authorizeRunInTransaction(transaction, key, allowCancelling);
     const row = await this.row(transaction, key);
     const request = await this.records.readRunRequestInTransaction(transaction, key);
     const principal = initiator(request);

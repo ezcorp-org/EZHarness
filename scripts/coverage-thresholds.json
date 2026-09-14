@@ -195,6 +195,12 @@
   "src/factory/task-completions.ts": 100,
   "src/db/migrations/add-factory-task-completions.ts": 100,
   "src/factory/task-outcomes.ts": 100,
+  "src/factory/journal-validation.ts": 100,
+  "src/factory/host-stop-client.ts": 100,
+  "src/factory/runner/sandbox-stop.ts": 100,
+  "src/factory/runner/host-stop-service.ts": 100,
+  "src/factory/usage-settlement.ts": 100,
+  "src/factory/task-stops.ts": 100,
   "src/db/migrations/add-factory-task-outcomes.ts": 100,
   "src/factory/validator-materials.ts": 100,
   "src/db/migrations/add-factory-validator-materials.ts": 100,
@@ -974,6 +980,8 @@
   "src/factory/artifact-access.ts": 100,
   "src/factory/artifact-materials.ts": 100,
   "src/db/migrations/add-factory-artifact-materials.ts": 100,
+  "src/db/migrations/add-factory-task-stops.ts": 100,
+  "src/db/migrations/add-factory-usage-settlements.ts": 100,
   "src/factory/lazy-input.ts": 100,
   "src/factory/input-artifacts.ts": 100,
   "src/factory/run-inputs.ts": 100,
@@ -1006,5 +1014,7 @@
   "src/db/migrations/add-factory-release-authority.ts": 100,
   "src/db/migrations/factory-artifact-admission-index.ts": 100,
   "src/factory/package-preparation.ts": 100,
-  "src/db/migrations/add-factory-package-preparations.ts": 100
+  "src/db/migrations/add-factory-package-preparations.ts": 100,
+  "src/factory/runner/python-guest.ts": 100,
+  "src/db/migrations/add-factory-package-quarantine.ts": 100
 }

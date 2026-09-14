@@ -24,6 +24,12 @@ export interface FactoryToolInvocation {
   toolName: string;
   toolInput: JsonValue;
   workspace: FactoryWorkspaceCheckpoint;
+  /**
+   * Exactly the devices the held allocation authorized for this invocation.
+   * Absent means none: a factory start never inherits the host's global device
+   * list, whatever that host configures.
+   */
+  devices?: readonly string[];
 }
 
 export interface FactoryRunnerSupervisorOptions {
@@ -32,6 +38,8 @@ export interface FactoryRunnerSupervisorOptions {
   authorizeAttempt(authority: FactoryAttemptAuthority): Promise<void>;
   /** The gateway owns this broker callback; the supervisor never owns tenant credentials. */
   invokeTool(input: JsonValue): Promise<JsonValue>;
+  /** Injected so a tool operation records real elapsed compute rather than a constant. */
+  now?(): number;
 }
 
 function digest(value: unknown): string {
@@ -56,8 +64,9 @@ function context(input: FactoryToolInvocation) {
  */
 export class FactoryRunnerSupervisor {
   private readonly active = new Map<string, RunnerExecution>();
+  private readonly now: () => number;
 
-  constructor(private readonly options: FactoryRunnerSupervisorOptions) {}
+  constructor(private readonly options: FactoryRunnerSupervisorOptions) { this.now = options.now ? () => options.now!() : Date.now; }
 
   async invoke(input: FactoryToolInvocation): Promise<{ claimed: boolean; result?: JsonValue }> {
     if (!Number.isSafeInteger(input.operationIndex) || input.operationIndex < 0 || !input.toolName) throw new Error("Factory runner request is malformed.");
@@ -74,13 +83,14 @@ export class FactoryRunnerSupervisor {
     try {
       worker = await this.worker(input, invocation, this.reverse(input, invocation, operationEntry, () => { effectClaimed = true; }));
       this.active.set(input.authority.attemptId, worker);
+      const startedAtMs = this.now();
       const result = await worker.request("extension/invoke", { name: input.toolName, input: input.toolInput, context: invocation }) as JsonValue;
       if (!effectClaimed) throw new Error("Factory runner returned before its tool effect dispatched.");
       const checkpoint = await input.workspace.checkpoint({ operationId: operationEntry.operationId, operationIndex: operationEntry.operationIndex, attempt: input.authority, result });
-      // The journal stores canonical JSON, and a declared interface never
-      // satisfies JsonValue's index signature, so snapshot it once here.
-      const checkpointJson = JSON.parse(canonicalJson(checkpoint)) as JsonValue;
-      await this.options.journal.settle(input.authority, operationEntry.operationId, "completed", { resultDigest: digest(result), result, usage: {}, workspaceCheckpoint: checkpointJson });
+      // A local tool consumes no provider tokens and carries no provider cost,
+      // so its measured usage is its real elapsed compute and an explicit zero.
+      const usage = { kind: "measured" as const, inputTokens: 0, outputTokens: 0, computeMs: Math.max(0, this.now() - startedAtMs), costMicros: "0" };
+      await this.options.journal.settle(input.authority, operationEntry.operationId, "completed", { resultDigest: digest(result), result, usage, workspaceCheckpoint: checkpoint });
       return { claimed: true, result };
     } finally {
       this.active.delete(input.authority.attemptId);
@@ -92,10 +102,10 @@ export class FactoryRunnerSupervisor {
     const inspection = await this.options.runner.inspect(invocation.workerId);
     if (inspection.state === "running") {
       if (!this.options.runner.attach) throw new Error("Factory runner cannot reattach to a surviving worker.");
-      return this.options.runner.attach({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, reverse);
+      return this.options.runner.attach({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [] }, reverse);
     }
     if (inspection.state !== "unknown") throw new Error("Factory worker is stopped and cannot be restarted by recovery.");
-    return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, reverse);
+    return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [] }, reverse);
   }
 
   private reverse(input: FactoryToolInvocation, invocation: ReturnType<typeof context>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {

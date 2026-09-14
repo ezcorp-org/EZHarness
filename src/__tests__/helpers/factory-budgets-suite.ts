@@ -3,6 +3,11 @@ import { sql } from "drizzle-orm";
 import { FactoryBudgets, type FactoryBudgetRequest } from "../../factory/budgets";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryCommandOutbox } from "../../factory/outbox";
+import { FactoryInbox } from "../../factory/inbox";
+import { buildFactoryUsageSettlement } from "../../factory/usage-settlement";
+import type { FactoryAttemptAuthority } from "../../factory/executions";
+import { encodeFactoryPayload } from "../../factory/records";
+import { digestObject } from "../../extensions/v4/blobs";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { up } from "../../db/migrations/add-factory-budgets";
@@ -230,6 +235,38 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
     expect((await budgets.inspect(key())).spent.costMicros).toBe("9007199254740991");
     await fixture.db.execute(sql`UPDATE factory_budget_envelopes SET allocated='{"costMicros":"-1","tokens":"0","computeMs":"0"}' WHERE run_id=${runId}`);
     await expect(budgets.inspect(key())).rejects.toMatchObject({ code: "factory_budget_corrupt" });
+  });
+
+  test("a settled stop enqueues attempt-stopped and usage-settled in the same transaction", async () => {
+    await open();
+    const request = reserve("usage-settled", 6);
+    await budgets.reserve(request, enqueue);
+    await budgets.markRunning(request, { allocationToken: "usage-allocation", reservationGeneration: 1 });
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const inboxKey = { projectId, runId, interpreterId: "root" };
+    const authority = { attemptId: "usage-attempt", tenantId, projectId, runId, nodeInstanceId: "usage-node", candidateGeneration: 1, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(now + 1000) } satisfies FactoryAttemptAuthority;
+    const settlement = buildFactoryUsageSettlement({ reservationId: request.reservationId, attemptId: authority.attemptId, authority, revision: 1, source: "stop", knownCostMicros: "4", settledAtMs: now });
+    const stopped = { kind: "attempt-stopped" as const, id: `${authority.attemptId}:stopped`, atMs: now, nodeId: authority.nodeInstanceId, commandId: authority.attemptId, candidateGeneration: 1, attempt: 1 };
+    const commit = async (transaction: MigrationDb) => {
+      await budgets.settleInTransaction(transaction, request, amount(4), receipt);
+      await inbox.enqueueInTransaction(transaction, inboxKey, stopped);
+      await inbox.enqueueInTransaction(transaction, inboxKey, settlement.event);
+      await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${tenantId},${projectId},${runId},${request.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`}) ON CONFLICT DO NOTHING`);
+    };
+    await expect(fixture.db.transaction(async transaction => { await commit(transaction); throw new Error("stop settlement failed"); })).rejects.toThrow("stop settlement failed");
+    expect(await budgets.inspect(key())).toMatchObject({ allocated: { costMicros: "6" }, spent: { costMicros: "0" } });
+    expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${runId}`))).toEqual([]);
+    expect(rows(await fixture.db.execute(sql`SELECT revision FROM factory_usage_settlements WHERE run_id=${runId}`))).toEqual([]);
+    for (let replay = 0; replay < 2; replay++) await fixture.db.transaction(commit);
+    expect(await budgets.inspect(key())).toMatchObject({ allocated: { costMicros: "0" }, spent: { costMicros: "4" } });
+    const enqueued = rows<{ event_id: string; sequence: number | string }>(await fixture.db.execute(sql`SELECT event_id,sequence FROM factory_inbox_events WHERE run_id=${runId} ORDER BY sequence`));
+    expect(enqueued.map(row => row.event_id)).toEqual([`${authority.attemptId}:stopped`, `${request.reservationId}:usage:1`]);
+    const stored = rows<{ revision: number | string; known_cost_micros: string; unknown_cost_micros: string | null; event_json: string }>(await fixture.db.execute(sql`SELECT revision,known_cost_micros,unknown_cost_micros,event_json FROM factory_usage_settlements WHERE run_id=${runId}`));
+    expect(stored).toHaveLength(1);
+    expect({ revision: Number(stored[0]!.revision), known: stored[0]!.known_cost_micros, unknown: stored[0]!.unknown_cost_micros }).toEqual({ revision: 1, known: "4", unknown: null });
+    expect(JSON.parse(stored[0]!.event_json)).toEqual(settlement.event);
+    const conflicting = buildFactoryUsageSettlement({ reservationId: request.reservationId, attemptId: authority.attemptId, authority, revision: 1, source: "stop", knownCostMicros: "5", settledAtMs: now });
+    await expect(inbox.enqueue(inboxKey, conflicting.event)).rejects.toMatchObject({ code: "factory_inbox_conflict" });
   });
 
   test("invalid, stale and foreign requests fail without durable allocation", async () => {

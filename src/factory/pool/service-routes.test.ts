@@ -102,6 +102,29 @@ describe("shared pool admission routes", () => {
     }
   });
 
+  test("answers a full admission queue with HTTP 429 and leaves every other decision at 200", async () => {
+    const full = { status: "rejected", reservationId: lease.reservationId, reason: "queue-full", retryAfterSeconds: 1 };
+    const start = () => response(handler(request("POST", "/v1/pool/requests", admission)));
+    (service.request as ReturnType<typeof mock>).mockResolvedValueOnce(full);
+    // The retry interval travels in the body: the private HTTPS response
+    // carries no headers, so `Retry-After` itself waits on the W09 seam.
+    expect(await start()).toEqual({ status: 429, body: full });
+
+    for (let index = 0; index < 8; index += 1) (service.request as ReturnType<typeof mock>).mockResolvedValueOnce(full);
+    expect((await Promise.all(Array.from({ length: 8 }, start))).map(value => value.status)).toEqual(Array.from({ length: 8 }, () => 429));
+
+    for (const other of [
+      { status: "rejected", reservationId: lease.reservationId, reason: "request-exceeds-configured-capacity" },
+      { status: "queued", reservationId: lease.reservationId, queueAgeMs: 0, blockingResource: "cpu" },
+    ]) {
+      (service.request as ReturnType<typeof mock>).mockResolvedValueOnce(other);
+      expect(await start()).toEqual({ status: 200, body: other });
+    }
+
+    (service.request as ReturnType<typeof mock>).mockRejectedValueOnce(new Error("Pool grant scope is not owned by the tenant."));
+    expect(await start()).toEqual({ status: 403, body: { error: "forbidden" } });
+  });
+
   test("bounds service replies and snapshots certificate and token configuration", async () => {
     (service.request as ReturnType<typeof mock>).mockResolvedValueOnce({ status: "rejected", reservationId: lease.reservationId, reason: "x".repeat(20_000) });
     expect(await response(handler(request("POST", "/v1/pool/requests", admission)))).toEqual({ status: 500, body: { error: "request_failed" } });

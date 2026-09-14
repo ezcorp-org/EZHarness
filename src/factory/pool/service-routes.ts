@@ -1,4 +1,5 @@
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
+import { POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, type PoolDecision } from "./ledger";
 import { authenticatePoolPrincipal, type PoolAdmissionIdentityConfig, type PoolAdmissionRequest, type PoolAdmissionService, type PoolLeaseFenceInput, type PoolReimageInput, type PoolStopInput } from "./service";
 import type { PoolTokenVerifierOptions } from "./service-token";
 import { decodeReservationPath, encodeWireJson, parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
@@ -16,6 +17,17 @@ class PoolRouteError extends Error {
 function fail(status: number, code: string): never { throw new PoolRouteError(status, code); }
 function json(status: number, value: unknown): FactoryPrivateResponse { return { status, body: encodeWireJson(value) }; }
 function empty(): FactoryPrivateResponse { return { status: 204, body: Buffer.alloc(0) }; }
+
+/**
+ * C03 rejects a new start with 429 when the outstanding-request queue is full.
+ * The retry interval travels in the decision body: `FactoryPrivateResponse`
+ * carries no response headers, so this handler cannot emit `Retry-After` yet.
+ * `docs/factory-pool-admission.md` records the change W09 must make to
+ * `src/factory/private-https.ts` for the header itself.
+ */
+function decision(value: PoolDecision): FactoryPrivateResponse {
+  return json(value.status === "rejected" && value.reason === POOL_QUEUE_FULL_REASON ? POOL_QUEUE_FULL_HTTP_STATUS : 200, value);
+}
 
 function authorization(request: FactoryPrivateRequest, options: PoolAdmissionRouteOptions) {
   const value = request.headers.authorization;
@@ -83,7 +95,7 @@ export function createPoolAdmissionRouteHandler(options: PoolAdmissionRouteOptio
       const parts = url.pathname.split("/").filter(Boolean);
       if (request.method === "POST" && url.pathname === "/v1/pool/requests") {
         const body = payload(request, ["reservationId", "grantRevision", "grantScope", "resources", "admissionDeadline", "priority", "readySequence", "nodeId"]);
-        return json(200, await snapshot.service.request(principal, requestInput(body)));
+        return decision(await snapshot.service.request(principal, requestInput(body)));
       }
       if (parts.length === 4 && parts[0] === "v1" && parts[1] === "pool" && parts[2] === "requests" && request.method === "GET") {
         if (request.body.byteLength !== 0) fail(400, "invalid_request");
