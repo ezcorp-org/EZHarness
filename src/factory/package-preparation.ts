@@ -62,13 +62,20 @@ function trustSeal(tenantId: string, value: Omit<FactoryRunnerPackageTrustRecord
 
 /**
  * Exactly which transitions the fence permits. Every state change appends a new
- * revision, so the earlier decision is preserved rather than overwritten. A
- * blocked package returns only through an explicit human re-publish at the next
- * revision, which is the "explicit repair within existing authority" C05 allows;
+ * revision, so the earlier decision is preserved rather than overwritten, and
  * nothing about a blocked state expires or lifts itself.
+ *
+ * `quarantined` is the reversible block: a human may publish the same pinned
+ * tuple again at the next revision, which is the "explicit repair within
+ * existing authority" C05 allows. `revoked` is terminal for that tuple. C05
+ * says security revocation wins over the desire to drain a vulnerable version,
+ * so the way forward is C05's other sentence: a replacement package requires a
+ * new pinned definition, which is a different runner reference with its own
+ * binding and its own trust chain. No transition out of `revoked` exists here,
+ * so no later publish can quietly reopen the exact bytes that were revoked.
  */
 const TRUST_TRANSITIONS: Readonly<Record<FactoryPackageTrustTransition, { readonly next: FactoryRunnerPackageTrustState; readonly from: readonly (FactoryRunnerPackageTrustState | "none")[] }>> = Object.freeze({
-  publish: { next: "active", from: ["none", "active", "quarantined", "revoked"] },
+  publish: { next: "active", from: ["none", "active", "quarantined"] },
   quarantine: { next: "quarantined", from: ["active"] },
   revoke: { next: "revoked", from: ["active", "quarantined"] },
 });
@@ -84,7 +91,10 @@ export class FactoryPackageTrusts {
   async publish(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, "publish"); }
   /** Blocks new dispatch and fences live attempts. A quarantine can be lifted by a later publish. */
   async quarantine(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, "quarantine"); }
-  /** Terminal. Security revocation wins over draining, so no later publish can reopen it. */
+  /**
+   * Terminal for this pinned tuple. Security revocation wins over draining, so
+   * no later publish reopens it; a replacement needs a new pinned definition.
+   */
   async revoke(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, "revoke"); }
   private async change(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string, transition: FactoryPackageTrustTransition): Promise<FactoryRunnerPackageTrustRecord> {
     const principal = snapshot(actor), value = { projectId: input.projectId, reference: runner(input.reference), expectedRevision: input.expectedRevision };

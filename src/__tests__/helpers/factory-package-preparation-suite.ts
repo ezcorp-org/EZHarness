@@ -51,11 +51,17 @@ async function packageContext(installationProject = projectId) {
   const current = release(sourceDigest, artifactDigest);
   await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${installationProject}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
   const fenced: Array<{ state: string; trustRevision: number; reference: RunnerReference }> = [];
+  // A case can make the stop path fail to prove the state change is atomic with it.
+  const fence = { fail: false };
   const trusts = new FactoryPackageTrusts(database, tenantId, grants, {
-    async fenceAttempts(_transaction, input) { fenced.push({ state: input.state, trustRevision: input.trustRevision, reference: input.reference }); return ["fenced-attempt"]; },
+    async fenceAttempts(_transaction, input) {
+      fenced.push({ state: input.state, trustRevision: input.trustRevision, reference: input.reference });
+      if (fence.fail) throw new Error("stop path crashed mid-fence");
+      return ["fenced-attempt"];
+    },
   });
   return {
-    database, grants, source, artifacts, sourceDigest, artifactDigest, repo, current, trusts, fenced,
+    database, grants, source, artifacts, sourceDigest, artifactDigest, repo, current, trusts, fenced, fence,
     preparations(runner: Pick<Runner, "build" | "collectArtifacts">) {
       return new FactoryPackagePreparations(database, tenantId, grants, trusts, new FactoryV4PackageCatalog(repo, blobs), runner, limits);
     },
@@ -156,12 +162,23 @@ test("prepares an exact active v4 release outside the factory transaction and fe
   expect(factoryPackageDispatchDisposition(new FactoryPackagePreparationError("factory_package_not_prepared"))).toBe("retry");
   expect(factoryPackageDispatchDisposition(new FactoryPackagePreparationError("factory_package_revoked"))).toBe("deny");
 
-  await trusts.publish(admin, { projectId, reference, expectedRevision: 2 }, "restore-trust");
-  const recovered = await preparations.prepare(projectId, reference);
-  expect(recovered).toMatchObject({ trustRevision: 3, artifactDigest });
+  // Revocation is terminal for this pinned tuple. Nothing republishes it, and
+  // the replacement is a different pinned definition with its own trust chain.
+  await expect(trusts.publish(admin, { projectId, reference, expectedRevision: 2 }, "restore-trust")).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
+  await expect(trusts.quarantine(admin, { projectId, reference, expectedRevision: 2 }, "soften-revocation")).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
+  await expect(preparations.prepare(projectId, reference)).rejects.toMatchObject({ code: "factory_package_revoked" });
+
+  const replacement: RunnerReference = { ...reference, digest: `sha256:${"d".repeat(64)}` };
+  await preparations.bind(admin, { projectId, reference: replacement, installationId: current.installationId, releaseId: current.id }, "bind-replacement");
+  await trusts.publish(admin, { projectId, reference: replacement, expectedRevision: 0 }, "trust-replacement");
+  const recovered = await preparations.prepare(projectId, replacement);
+  expect(recovered).toMatchObject({ trustRevision: 1, artifactDigest, reference: replacement });
   const restarted = context.preparations(runner);
-  expect(await restarted.prepare(projectId, reference)).toEqual(recovered);
+  expect(await restarted.prepare(projectId, replacement)).toEqual(recovered);
   expect(builds).toBe(2);
+  // The revoked tuple stays revoked while its replacement dispatches.
+  await expect(preparations.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_revoked" });
+  await expect(preparations.assertDispatchReady({ authority: { tenantId, projectId }, runner: replacement })).resolves.toEqual(recovered);
 });
 
 test("rejects tampered binding metadata before a runner build", async () => {
@@ -280,6 +297,39 @@ test("revocation fences live attempts and can follow a quarantine without a retu
   expect(revoked).toMatchObject({ revision: 3, state: "revoked" });
   expect(fenced.map(entry => entry.state)).toEqual(["quarantined", "revoked"]);
   await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_revoked" });
+});
+
+test("revocation is terminal for its pinned tuple and no transition leaves it", async () => {
+  const { trusts, prepared, fenced, database } = await trustedPackage();
+  await prepared.prepare(projectId, reference);
+  await trusts.revoke(admin, { projectId, reference, expectedRevision: 1 }, "revoke-terminal");
+  expect(fenced.map(entry => entry.state)).toEqual(["revoked"]);
+  for (const transition of ["publish", "quarantine", "revoke"] as const) {
+    await expect(trusts[transition](admin, { projectId, reference, expectedRevision: 2 }, `after-revoke-${transition}`)).rejects.toMatchObject({ code: "factory_package_trust_conflict" });
+  }
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_revoked" });
+  // Only two revisions exist: nothing reopened the revoked bytes.
+  const history = releaseRows<{ revision: number | string; state: string }>(await database.execute(sql`SELECT revision,state FROM factory_runner_package_trust_revisions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND reference_digest=${digestReference(reference)} ORDER BY revision`));
+  expect(history.map(row => `${Number(row.revision)}:${row.state}`)).toEqual(["1:active", "2:revoked"]);
+});
+
+test("a stop path that crashes mid-fence leaves the package active rather than half-quarantined", async () => {
+  const { trusts, prepared, fenced, fence, database } = await trustedPackage();
+  const receipt = await prepared.prepare(projectId, reference);
+
+  fence.fail = true;
+  await expect(trusts.quarantine(admin, { projectId, reference, expectedRevision: 1 }, "quarantine-crash")).rejects.toThrow("stop path crashed mid-fence");
+  // The fence ran inside the transaction, so its failure took the state with it:
+  // no half-state where dispatch is blocked but no attempt was ever fenced.
+  expect(fenced.map(entry => entry.state)).toEqual(["quarantined"]);
+  const afterCrash = releaseRows<{ revision: number | string; state: string }>(await database.execute(sql`SELECT revision,state FROM factory_runner_package_trust_revisions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND reference_digest=${digestReference(reference)} ORDER BY revision`));
+  expect(afterCrash.map(row => `${Number(row.revision)}:${row.state}`)).toEqual(["1:active"]);
+  expect(await prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).toEqual(receipt);
+
+  // The retry, with the stop path healthy, commits both together.
+  fence.fail = false;
+  expect(await trusts.quarantine(admin, { projectId, reference, expectedRevision: 1 }, "quarantine-retry")).toMatchObject({ revision: 2, state: "quarantined" });
+  await expect(prepared.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).rejects.toMatchObject({ code: "factory_package_quarantined" });
 });
 
 test("a quarantine cannot be declared for a package that was never trusted or at the wrong revision", async () => {

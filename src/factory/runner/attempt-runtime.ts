@@ -190,7 +190,7 @@ function snapshotTerminalResult(result: FactoryRunnerResult): FactoryRunnerResul
 /** The paired-null CHECK on `factory_attempt_launches` guarantees a digest never outlives its result. */
 function storedTerminalResult(row: Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">): FactoryRunnerResult | undefined {
   if (row.terminal_result_json === null || row.terminal_result_json === undefined) return undefined;
-  const parsed = copy(typeof row.terminal_result_json === "string" ? JSON.parse(row.terminal_result_json) as FactoryRunnerResult : row.terminal_result_json as FactoryRunnerResult);
+  const parsed = jsonColumn<FactoryRunnerResult>(row.terminal_result_json);
   requireValid(validateFactoryRunnerResult(parsed), "Stored factory terminal result");
   const stored = Object.freeze(parsed);
   if (factoryTerminalResultDigest(stored) !== row.terminal_result_digest) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory terminal result does not match its durable digest.");
@@ -227,6 +227,19 @@ function requireValid(result: { ok: boolean; issues?: readonly { code: string }[
 }
 
 function copy<Value>(value: Value): Value { return JSON.parse(canonicalJson(value)) as Value; }
+
+/**
+ * One JSONB column, decoded the same way whichever driver returned it.
+ *
+ * PGlite hands back a parsed object; Bun's SQL driver hands back the raw text.
+ * Only the terminal-result reader handled both, so every other reader worked on
+ * PGlite and failed on real PostgreSQL, where a stored request decoded to a
+ * string and then failed its own schema validation. Decoding through one helper
+ * means a reader cannot be written that handles only one of the two.
+ */
+function jsonColumn<Value>(value: unknown): Value {
+  return copy(typeof value === "string" ? JSON.parse(value) as Value : value as Value);
+}
 
 function count(value: number, label: string, minimum = 1): void {
   if (!Number.isSafeInteger(value) || value < minimum) throw new FactoryAttemptRuntimeError("invalid_launch", `${label} is invalid.`);
@@ -321,7 +334,7 @@ export function factoryAttemptDeviceFacts(grant: FactoryAttemptDeviceGrant): { r
 }
 
 function rowAuthorization(row: LaunchRow): FactoryAttemptDeviceAuthorization {
-  const stored = copy(row.device_grant_json);
+  const stored = jsonColumn<unknown>(row.device_grant_json);
   if (!stored || typeof stored !== "object" || Array.isArray(stored)) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant is corrupt.");
   const facts = stored as { devices?: unknown; cdiDevices?: unknown };
   const devices = Array.isArray(facts.devices) ? facts.devices as readonly string[] : undefined;
@@ -332,14 +345,14 @@ function rowAuthorization(row: LaunchRow): FactoryAttemptDeviceAuthorization {
 
 function rowIntent(row: LaunchRow): FactoryAttemptLaunchIntent {
   if (!row || !["prepared", "launching", "launched", "terminal", "uncertain"].includes(row.state)) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is corrupt.");
-  const durable = copy(row.request_json) as Omit<FactoryRunnerRequest, "broker"> & { broker: Omit<FactoryRunnerRequest["broker"], "attemptToken"> };
+  const durable = jsonColumn<Omit<FactoryRunnerRequest, "broker"> & { broker: Omit<FactoryRunnerRequest["broker"], "attemptToken"> }>(row.request_json);
   const request = { ...durable, broker: { ...durable.broker, attemptToken: "durable-launch-validation" } } as FactoryRunnerRequest;
   requireValid(validateFactoryRunnerRequest(request), "Stored factory runner request");
   const lease = snapshotLease({ reservationId: row.reservation_id, grantRevision: Number(row.grant_revision), allocationGeneration: Number(row.allocation_generation), holderGeneration: Number(row.holder_generation), allocationToken: row.allocation_token, hostId: row.host_id });
-  const preparedPackage = copy(row.package_receipt_json) as FactoryPreparedPackageReceipt;
+  const preparedPackage = jsonColumn<FactoryPreparedPackageReceipt>(row.package_receipt_json);
   const actual = snapshotIntent(request, lease, preparedPackage, rowAuthorization(row));
   if (actual.request.authority.attemptId !== row.attempt_id || actual.request.authority.tenantId !== row.tenant_id || actual.request.authority.projectId !== row.project_id || actual.request.authority.runId !== row.run_id || actual.requestDigest !== row.request_digest || actual.workerId !== row.worker_id || actual.invocationId !== row.invocation_id) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent does not bind its request.");
-  if (canonicalJson(factoryAttemptDeviceFacts(actual.devices)) !== canonicalJson(copy(row.device_grant_json))) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant does not bind its held allocation.");
+  if (canonicalJson(factoryAttemptDeviceFacts(actual.devices)) !== canonicalJson(jsonColumn<unknown>(row.device_grant_json))) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant does not bind its held allocation.");
   if (row.device_grant_digest === null ? actual.devices.devices.length + actual.devices.cdiDevices.length > 0 : row.device_grant_digest !== actual.devices.grantDigest) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch device grant digest is invalid.");
   return Object.freeze({ ...actual, state: row.state });
 }
@@ -365,7 +378,7 @@ async function assertDevicesExclusive(transaction: MigrationDb, intent: FactoryA
       AND state IN ('launching','launched','uncertain')
       AND EXISTS (
         SELECT 1 FROM jsonb_array_elements_text(factory_attempt_launches.device_grant_json->'devices') AS held(value)
-        JOIN jsonb_array_elements_text(${canonicalJson(intent.devices.devices)}::jsonb) AS wanted(value) ON held.value = wanted.value)
+        JOIN jsonb_array_elements_text(${canonicalJson(intent.devices.devices)}::text::jsonb) AS wanted(value) ON held.value = wanted.value)
     ORDER BY attempt_id LIMIT 1`))[0];
   if (conflict) throw new FactoryAttemptRuntimeError("device_conflict", `Attempt ${conflict.attempt_id} already holds one of these devices on host ${intent.lease.hostId}.`);
 }
@@ -378,7 +391,7 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
     const intent = snapshotIntent(request, lease, preparedPackage, devices);
     const durableRequest = factoryRunnerRequestIdentity(intent.request);
     return this.database.transaction(async transaction => {
-      await transaction.execute(sql`INSERT INTO factory_attempt_launches (attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,device_grant_json,device_grant_digest,state) VALUES (${intent.request.authority.attemptId},${intent.request.authority.tenantId},${intent.request.authority.projectId},${intent.request.authority.runId},${intent.requestDigest},${canonicalJson(durableRequest)}::jsonb,${intent.lease.reservationId},${intent.lease.grantRevision},${intent.lease.allocationGeneration},${intent.lease.holderGeneration},${intent.lease.allocationToken},${intent.lease.hostId},${intent.preparedPackage.receiptDigest},${canonicalJson(intent.preparedPackage)}::jsonb,${intent.preparedPackage.artifactDigest},${intent.workerId},${intent.invocationId},${canonicalJson(factoryAttemptDeviceFacts(intent.devices))}::jsonb,${intent.devices.grantDigest},'prepared') ON CONFLICT (attempt_id) DO NOTHING`);
+      await transaction.execute(sql`INSERT INTO factory_attempt_launches (attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,device_grant_json,device_grant_digest,state) VALUES (${intent.request.authority.attemptId},${intent.request.authority.tenantId},${intent.request.authority.projectId},${intent.request.authority.runId},${intent.requestDigest},${canonicalJson(durableRequest)}::text::jsonb,${intent.lease.reservationId},${intent.lease.grantRevision},${intent.lease.allocationGeneration},${intent.lease.holderGeneration},${intent.lease.allocationToken},${intent.lease.hostId},${intent.preparedPackage.receiptDigest},${canonicalJson(intent.preparedPackage)}::text::jsonb,${intent.preparedPackage.artifactDigest},${intent.workerId},${intent.invocationId},${canonicalJson(factoryAttemptDeviceFacts(intent.devices))}::text::jsonb,${intent.devices.grantDigest},'prepared') ON CONFLICT (attempt_id) DO NOTHING`);
       const row = releaseRows<LaunchRow>(await transaction.execute(sql`SELECT * FROM factory_attempt_launches WHERE attempt_id=${intent.request.authority.attemptId} FOR UPDATE`))[0];
       if (!row) throw new FactoryAttemptRuntimeError("launch_corrupt", "Factory launch intent is missing.");
       const stored = rowIntent(row);
@@ -417,7 +430,7 @@ export class FactoryDatabaseAttemptLaunchStore implements FactoryAttemptLaunchSt
         if (factoryTerminalResultDigest(existing) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory attempt already recorded a different terminal result.");
         return existing;
       }
-      await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
+      await transaction.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(snapshot)}::text::jsonb,terminal_result_digest=${resultDigest},state='terminal',updated_at=NOW() WHERE attempt_id=${attemptId} AND terminal_result_json IS NULL`);
       const saved = releaseRows<Pick<LaunchRow, "terminal_result_json" | "terminal_result_digest">>(await transaction.execute(sql`SELECT terminal_result_json,terminal_result_digest FROM factory_attempt_launches WHERE attempt_id=${attemptId} FOR SHARE`))[0];
       const durable = saved && storedTerminalResult(saved);
       if (!durable || factoryTerminalResultDigest(durable) !== resultDigest) throw new FactoryAttemptRuntimeError("launch_conflict", "Factory terminal result did not persist.");
