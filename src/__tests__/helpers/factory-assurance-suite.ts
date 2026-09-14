@@ -5,6 +5,7 @@ import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryAssurance, FactoryAssuranceClaimError, FactoryAssuranceError, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
+import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
 interface Fixture { readonly db: TransactionalDb; close(): Promise<void> }
 export function factoryAssuranceConformance(createFixture: () => Promise<Fixture>): void {
@@ -20,6 +21,8 @@ let trusted: FactoryTrustedEvidence;
 let fenceStatus: "running" | "cancelling" = "running";
 class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
   async assertContractInTransaction(): Promise<void> {}
+  bindAttemptInTransaction = unboundFactoryValidatorBinders.bindAttemptInTransaction;
+  bindTaskAttemptInTransaction = unboundFactoryValidatorBinders.bindTaskAttemptInTransaction;
   async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenant !== tenantId || key.projectId !== trusted.projectId || key.runId !== trusted.runId || key.nodeInstanceId !== trusted.nodeInstanceId || key.candidateGeneration !== trusted.candidateGeneration || validatorId !== trusted.validatorId) throw new Error("configured validator did not authorize this exact candidate");
     return structuredClone(trusted);
@@ -89,6 +92,7 @@ test("an optional protected claim may fail when the quorum still passes", async 
   }));
   const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
     async assertContractInTransaction() {},
+    ...unboundFactoryValidatorBinders,
     async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) {
       const found = evidence.find(item => item.validatorId === validatorId);
       if (found) return structuredClone(found);
@@ -117,6 +121,7 @@ test("a semantic failure names every claim and group a bounded repair must fix",
   }));
   const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
     async assertContractInTransaction() {},
+    ...unboundFactoryValidatorBinders,
     async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) {
       const found = evidence.find(item => item.validatorId === validatorId);
       if (found) return structuredClone(found);
@@ -273,7 +278,7 @@ test("a corrupt decision row cannot be presented for human consent", async () =>
 });
 
 test("forged validator provenance, stale evidence, and corrupt validator locks fail closed", async () => {
-  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async assertContractInTransaction() {}, async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), new Gateway(), () => now);
+  const forged = new FactoryAssurance(fixture.db, tenantId, grants, { async assertContractInTransaction() {}, ...unboundFactoryValidatorBinders, async resolveValidatorInTransaction() { return { ...trusted, validatorId: "forged-validator" }; } }, new ReleaseFenceReader(), new Gateway(), () => now);
   await expect(forged.captureEvidence({ ...candidate, validatorId: trusted.validatorId })).rejects.toMatchObject({ code: "factory_assurance_trust" });
   await fixture.db.execute(sql`UPDATE factory_acceptance_evidence SET validator_lock_digest=${digest("f")} WHERE tenant_id=${tenantId} AND project_id=${projectId}`);
   await expect(assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).rejects.toMatchObject({ code: "factory_assurance_evidence_stale" });
@@ -294,6 +299,7 @@ test("two protected validators retain separate evidence rows", async () => {
   const second: FactoryTrustedEvidence = { ...trusted, ...multiCandidate, validatorId: "second-validator", claims: [{ id: "second", verdict: "PASS", decisive: true }] };
   const gateway: FactoryTrustedValidatorGateway & FactoryCurrentCandidateResolver = {
     async assertContractInTransaction() {},
+    ...unboundFactoryValidatorBinders,
     async resolveValidatorInTransaction(_transaction, _tenant, _key, validatorId) { if (validatorId === first.validatorId) return first; if (validatorId === second.validatorId) return second; throw new Error("unknown validator"); },
     async resolveCurrentEvidenceInTransaction() { return [first, second]; },
   };

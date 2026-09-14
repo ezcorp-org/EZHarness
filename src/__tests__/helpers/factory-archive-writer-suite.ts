@@ -26,6 +26,7 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryReleases, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterial, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider } from "../../factory/releases";
 import { FaultInjectingArchive, MemoryFactoryReleaseArchive, type FactoryArchiveStore } from "./factory-archive-fixtures";
+import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
 export interface FactoryArchiveWriterFixture {
   readonly db: TransactionalDb;
@@ -145,6 +146,8 @@ async function setup() {
   };
   class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
     async assertContractInTransaction(): Promise<void> {}
+    bindAttemptInTransaction = unboundFactoryValidatorBinders.bindAttemptInTransaction;
+    bindTaskAttemptInTransaction = unboundFactoryValidatorBinders.bindTaskAttemptInTransaction;
     async resolveValidatorInTransaction(): Promise<FactoryTrustedEvidence> { return structuredClone(trusted); }
     async resolveCurrentEvidenceInTransaction(): Promise<readonly FactoryTrustedEvidence[]> { return [structuredClone(trusted)]; }
   }

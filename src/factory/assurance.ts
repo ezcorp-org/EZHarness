@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
-import type { FactoryArtifactReference, FactoryValidatorVerdict } from "@ezcorp/factory-sdk";
+import type { FactoryArtifactReference, FactoryValidatorVerdict, JsonValue } from "@ezcorp/factory-sdk";
+import type { FactoryAttemptAuthority } from "./executions";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
@@ -18,9 +19,33 @@ export interface FactoryMandatoryClaim { readonly id: string; readonly validator
 export interface FactoryClaimGroup { readonly id: string; readonly claimIds: readonly string[]; readonly minimumPasses: number; readonly requireAllDecisive: boolean }
 export interface FactoryContractRevision { readonly projectId: string; readonly contractId: string; readonly revision: number; readonly contractDigest: string; readonly validatorLockDigest: string; readonly mandatoryClaims: readonly FactoryMandatoryClaim[]; readonly claimGroups: readonly FactoryClaimGroup[] }
 export interface FactoryTrustedEvidence extends FactoryCandidateKey { readonly validatorId: string; readonly validatorLockDigest: string; readonly issuerGrantRevision: number; readonly candidateDigest: string; readonly artifact: FactoryArtifactReference; readonly environmentDigest: string; readonly configurationDigest: string; readonly runnerDigest: string; readonly claims: readonly FactoryValidatorClaimVerdict[]; readonly issuedAtMs: number; readonly expiresAtMs: number }
-/** Only the configured gateway may bind an approved contract and construct evidence from protected host facts. */
+/** The exact attempt a dedicated protected validator runs under. */
+export interface FactoryValidatorAttemptBinding {
+  readonly candidate: FactoryCandidateKey;
+  readonly validatorId: string;
+  readonly authority: FactoryAttemptAuthority;
+}
+
+/** One ordinary protected task, bound to every claim its pinned runner reports. */
+export interface FactoryValidatorTaskBinding {
+  readonly candidate: FactoryCandidateKey;
+  readonly validatorIds: readonly string[];
+  readonly authority: FactoryAttemptAuthority;
+  readonly expectedInput: JsonValue;
+}
+
+/**
+ * Only the configured gateway may bind an approved contract, bind an attempt to its claims, and
+ * construct evidence from protected host facts.
+ *
+ * The two binders are on the interface rather than only on the concrete class because the scheduler
+ * that admits a missing protected validator has to bind its attempt through the same seam the
+ * acceptance path resolves evidence through, and neither may reach past it.
+ */
 export interface FactoryTrustedValidatorGateway {
   assertContractInTransaction(transaction: MigrationDb, tenantId: string, contract: FactoryContractRevision): Promise<void>;
+  bindAttemptInTransaction(transaction: MigrationDb, request: FactoryValidatorAttemptBinding): Promise<void>;
+  bindTaskAttemptInTransaction(transaction: MigrationDb, request: FactoryValidatorTaskBinding): Promise<void>;
   resolveValidatorInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence>;
 }
 export interface FactoryAcceptanceDecision extends FactoryCandidateKey { readonly decisionId: string; readonly candidateDigest: string; readonly evidenceSetDigest: string; readonly contractDigest: string; readonly contractSnapshotDigest: string; readonly executionEpoch: number; readonly cancellationEpoch: number }

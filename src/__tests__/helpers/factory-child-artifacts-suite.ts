@@ -11,6 +11,7 @@ import { FactoryChildArtifacts, type FactoryAncestryFenceReader, type FactoryPar
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import type { FactoryRunFence } from "../../factory/run-lifecycle";
+import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
 interface Fixture { readonly db: TransactionalDb; readonly blobs: BlobStore; close(): Promise<void> }
 
@@ -33,6 +34,8 @@ export function factoryChildArtifactsConformance(createFixture: () => Promise<Fi
 
   class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
     async assertContractInTransaction(): Promise<void> {}
+    bindAttemptInTransaction = unboundFactoryValidatorBinders.bindAttemptInTransaction;
+    bindTaskAttemptInTransaction = unboundFactoryValidatorBinders.bindTaskAttemptInTransaction;
     async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
       if (tenant !== tenantId || key.runId !== childRunId || validatorId !== trusted.validatorId) throw new Error("configured validator did not authorize this candidate");
       return structuredClone(trusted);
