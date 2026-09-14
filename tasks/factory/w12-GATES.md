@@ -310,7 +310,7 @@ repeat-leg receipts kept as `logs/superseded-*.json` belong to invocations that 
 case passing in isolation while the full run did not, which is validator finding F1 in one pair of
 files.
 
-## One instruction that did not survive contact, and what was done instead
+## The output-directory handover: measured, kept, and now answered
 
 The round's instruction was to "remove the 0o777 chmod (the runner owns the directory mode now)".
 The first half is done and the second half does not hold: `runnerMaterialMount` mounts the path and
@@ -326,11 +326,29 @@ drwx------ 1001 .../out
 Removing the handover outright would have shipped a pack whose every guest write fails, and
 re-adding 0o777 would have reopened F6. So the handover is KEPT in the form F6 asked for:
 `podman unshare chown 65534:0` on the output directory at mode 0o770, which is not world-writable
-and not world-readable. If the Terra owner would rather the runner did this, the four lines in
-`ReferenceDataGuestDirectory.create` are the whole of it and they should move there, because every
-domain pack needs the same thing.
+and not world-readable.
+
+**ANSWERED by the coordinator.** The measurement stands and the handover belongs in the runner, not
+in each pack. Terra runtime lands it as leaf W01d: at launch, mode 0o770 and then
+`podman unshare chown` to the mapped guest uid with the runner's gid, refused unless the directory
+is a real runner-owned directory. This round finishes with the four lines in
+`ReferenceDataGuestDirectory.create` in place; when W01d is on `integ/w00` the coordinator signals
+and those four lines are deleted in a small follow-up, so every pack uses one implementation. Until
+then this pack's copy is the only thing keeping its guests able to write, and removing it early
+would break every journey.
 
 ## Interface questions
+
+0. **ANSWERED.** Whether the output-directory handover belongs in each pack or in the shared
+   runner: the runner, as W01d. See the section above. The one question still open is narrower:
+   the C13 row for the hardened read-back binds to
+   `packages/@ezcorp/extension-runner/src/index.ts` rather than to `src/materials.ts`, because the
+   package publishes no `./materials` subpath and `WORKSPACE_PACKAGE_ENTRIES` resolves only the
+   bare package name. `materials.ts` is in `SHARED_REUSE_MODULES`, so a second implementation of
+   `listRunnerMaterials` or `openRunnerMaterial` is still a duplicate violation. If the deep
+   binding is wanted, it needs an `exports` entry in the runner package and a
+   `WORKSPACE_PACKAGE_ENTRIES` row, both Terra-owned.
+
 
 1. **CLOSED by W02b in `7ac4b261d`.** `RunnerReference` now carries `manifestName` beside the
    scoped `package`, and `releaseFacts()` compares that, so the two no longer have to agree. The
