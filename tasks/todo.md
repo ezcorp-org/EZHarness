@@ -2275,9 +2275,11 @@ Gates: `tasks/factory/w09-GATES.md`.
 - [ ] W09.20 Hand the broker to a runner. Blocked on a contract, not a wiring: the runtime wants
       `invoke(request, input)`, the broker offers `stream(request)`, and the host launch supervisor
       wants a third shape. Nothing defines what a guest sends to request a model stream.
-- [ ] W09.21 Register attempt-dispatch and prove G14 with a real guest. Every collaborator landed
-      with W01b; what is missing is composition-side only — `hostLaunch.{baseUrl,serverName,tls.*}`
-      and `attemptTokenSecretPath` in the startup document, and a `FactoryIsolatedRunnerPreflight`.
+- [ ] W09.21 Register attempt-dispatch and prove G14 with a real guest. The configuration landed
+      (`hostLaunch.*`, `attemptTokenSecretPath`, `hostStopKeys`). One collaborator remains: a
+      production `FactoryIsolatedRunnerPreflight`. `preparedPackage` is `assertDispatchReady`;
+      `lease(request)` needs the durable record a claimed attempt reads its held allocation back
+      from, which is a compute-admission decision rather than a wiring choice.
 - [ ] W09.22 Register stop-settlement. Needs a `FactoryPoolStopAcknowledger` client over the
       existing `confirmStopped` route, and a startup-document field for the host PUBLIC keys.
       Scoped at the integration merge: `IsolatedFactoryAttemptRuntime` needs a launch store, the

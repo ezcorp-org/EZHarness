@@ -883,7 +883,7 @@ them, and the reasons differ by role rather than being one shortage:
 
 | Role | Every collaborator present? | What it still needs |
 | --- | --- | --- |
-| `attempt-dispatch` | **yes** — W01b's `createFactoryAttemptDispatchDriver`, `createFactoryHostLaunchClient`, `FactoryRemoteAttemptRuntime` | composition only: `hostLaunch.{baseUrl,serverName,tls.*}` and `attemptTokenSecretPath` in the startup document, plus a `FactoryIsolatedRunnerPreflight` that resolves the lease and the prepared package. No other package is blocking |
+| `attempt-dispatch` | **yes** — W01b's `createFactoryAttemptDispatchDriver`, `createFactoryHostLaunchClient`, `FactoryRemoteAttemptRuntime` | the configuration landed here (`hostLaunch.*`, `attemptTokenSecretPath`). What remains is one collaborator: a `FactoryIsolatedRunnerPreflight`. See below |
 | `stop-settlement` | no | a `FactoryPoolStopAcknowledger`. `PoolAdmissionService.confirmStopped` and its route exist; `PoolAdmissionClient` has no `confirmStopped`, so the client adapter is unwritten. Also the `FactoryStopHostKey[]` PUBLIC keys: only the host's private signing side has a loader, and the startup document has no field |
 | `usage-reconciliation` | no | the four facts `reconcile` requires. A listed hold carries none of `attemptId`, `operationId`, `providerReceiptDigest`, `usage`, and no reader produces them. Supplying a plausible usage here is the "never settled as zero" rule broken |
 | `release-outcome` | no | a production `FactoryReleaseProviderResolver`. The claimable scan, the enumerator, and all three providers exist; nothing turns a claim into a provider |
@@ -911,6 +911,42 @@ outside that and each is disclosed here rather than left to a diff:
 | `.github/workflows/db-postgres.yml` | registered `tests/postgres/factory-tenant-projects.test.ts` and `tests/postgres/factory-host-launch.test.ts` in the factory-storage lane | Additive only. `scripts/factory-postgres-suite-registration.test.ts` fails otherwise, and it failed on this branch after the merge because W01b's own suite was unregistered. A suite no workflow names is a suite nobody runs |
 | `src/factory/tenant-projects.ts` | a composition-owned READ of `factory_projects`, a table `FactoryRecords` writes | Assigned by the coordinator after this package reported it as the blocker for two roles. Read-only; binding a project stays where it is |
 | `src/__tests__/factory-process-boundaries.test.ts` | admitted `now` to the supervisor's exact option set | The set is exact by design so a new option cannot arrive unreviewed. W03's clock arrived; a clock is neither tenant identity nor a host key |
+
+### The last gap for attempt-dispatch: the preflight
+
+The coordinator settled the architecture — the product process composes the
+dispatcher over `IsolatedFactoryTrustedRunner` with W01b's
+`FactoryRemoteAttemptRuntime` through the host launch client, and the supervisor
+process this package already runs hosts W01b's launch service and W03's stop
+service, owns the `PodmanRunner`, and holds the host private key. No third
+process. The startup document now carries what that needs:
+`hostLaunch.{baseUrl,serverName,attemptTokenSecretPath,tls.*}`, all-or-nothing,
+and `hostStopKeys` as public keys by reference.
+
+One collaborator is still missing and it is worth naming precisely rather than
+counting it as wiring. `createFactoryAttemptDispatchDriver` takes a
+`FactoryIsolatedRunnerPreflight`:
+
+```
+lease(request): Promise<FactoryAttemptLease>
+preparedPackage(request): Promise<FactoryPreparedPackageReceipt>
+```
+
+No production implementation exists — `grep` finds the interface, the driver's
+use of it, and nothing else — and W01b's own end-to-end suite supplies a literal
+(`{ lease: async () => factoryLaunchLease, preparedPackage: async () => prepared }`).
+
+The second half is easy: `FactoryPackagePreparations.assertDispatchReady`
+returns exactly a `FactoryPreparedPackageReceipt`. The first half is the real
+question. A `FactoryAttemptLease` is the HELD allocation —
+`reservationId, grantRevision, allocationGeneration, holderGeneration,
+allocationToken, hostId` — and which durable record a claimed attempt reads it
+back from is a decision about the compute-admission ledger, not a wiring
+choice. Answering it by calling `PoolAdmissionClient.status` and assembling a
+lease from what comes back would be inventing the attempt's allocation identity
+in the composition, which is the class of substitute this package has twice been
+corrected for. It is the next thing to do, with whoever owns the reservation
+record.
 
 ## What the integration still needs, in one place
 
