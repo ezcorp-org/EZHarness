@@ -22,6 +22,8 @@ Commits:
 | `997552e26` | docs(factory): W12 gates, checklist, review, and lessons |
 | `02457a858` | merge: integ/w00 at 2377caaa4 |
 | `66e697ad4` | fix(factory): give each reference-data step its own material operation |
+| `05e10a46f` | docs(factory): close every W12 gate with its receipt |
+| `b83ca7c0e` | test(factory): run the two data boundary cases in separate invocations |
 
 ## The one thing that blocked this package, and what was done about it
 
@@ -264,7 +266,27 @@ The evidence is split accordingly and says so:
 | `logs/postgres-journey.log` | `66e697ad4` | exit 1, 9 pass / 3 fail | KEPT AS A FAILURE; all three failures are `ECONNREFUSED` against the dead store |
 
 One clean re-run of the real producer at the head commit is what remains, and it needs the store
-back. Every other producer passes at the head commit with zero dirty files.
+back. Every other producer passes at head `b83ca7c0e` with zero dirty files, including the coverage
+gates, which do not need the real leg: every gated source line is reached by the embedded journey
+and the focused suites.
+
+Within this package's own scope the real producer now runs in THREE invocations rather than one -
+everything but the boundaries, then the 256 MiB case, then the million-row case, with a pause
+between - in both `scripts/factory-reference-data-coverage.sh` and the evidence runner. That lowers
+the peak and weakens no case; raising the container's memory ceiling is a shared-service change and
+not this package's to make. Nothing here restarted, recreated, reconfigured, or pruned the store.
+
+Receipts at head `b83ca7c0e`, all with zero dirty files:
+
+| Receipt | Result |
+| --- | --- |
+| `logs/static-gates.json` | exit 0, 18 pass |
+| `logs/focused-suites.json` | exit 0, 88 pass |
+| `logs/script-gates.json` | exit 0, 18 pass |
+| `logs/python-quality.json` | exit 0, 100% line and branch |
+| `logs/journey-pglite.json` | exit 0, 11 pass |
+| `logs/shared-runner-regression.json` | exit 0, 33 pass |
+| `logs/coverage-gates.json` | exit 0, 13 new files gated, 12 changed files covered |
 
 ## Landed deviations for the coordinator
 
