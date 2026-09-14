@@ -3,6 +3,8 @@ import { referenceDataV1, referenceCodeV1 } from "@ezcorp/factory-sdk";
 import { fakeReferenceCodeBroker } from "../../__tests__/helpers/reference-code-broker-fake";
 import { freezeReferenceCodeCandidate } from "./freeze";
 import { referenceCodeFixtureCandidate, referenceCodeLaunchRepository, REFERENCE_CODE_FIXTURE_REQUEST } from "./fixtures";
+import { REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS } from "./static-claims";
+import { REFERENCE_CODE_REVIEW_CLAIM_ID } from "./review";
 import { snapshotReferenceCodeRepository } from "./snapshot";
 
 const MODEL = { provider: "anthropic", model: "claude-haiku-4-5-20251001" };
@@ -105,5 +107,62 @@ describe("the pack answers exactly what the definition declares", () => {
     expect(identity.packages).toEqual([REFERENCE_CODE_GENERATOR_PACKAGE, REFERENCE_CODE_VALIDATOR_PACKAGE]);
     expect([...identity.exports].sort()).toEqual(referenceCodeDeclaredExports() as ReferenceCodeExportName[]);
     expect(identity.validatorGuestDigest).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("the contract, as C10 writes it", () => {
+  const HOUR = 60 * 60 * 1_000;
+  const MINUTE = 60 * 1_000;
+
+  test("declares exactly the ten mandatory claims, every one required and protected", () => {
+    const claims = referenceCodeV1.acceptance.claims;
+    expect(claims.map(claim => claim.id)).toEqual([
+      "frozen-install", "build", "typecheck", "declared-tests", "protected-fixtures",
+      "dependency-advisory", "secret-scan", "allowed-paths", "protected-assets-unchanged",
+      "supervised-review",
+    ]);
+    expect(claims.every(claim => claim.required)).toBe(true);
+    expect(claims.every(claim => claim.protected)).toBe(true);
+  });
+
+  test("the nine deterministic claims this package measures are the contract's first nine", () => {
+    expect([...REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS].sort())
+      .toEqual(referenceCodeV1.acceptance.claims.slice(0, 9).map(claim => claim.id).sort());
+    expect(referenceCodeV1.acceptance.claims[9]!.id).toBe(REFERENCE_CODE_REVIEW_CLAIM_ID);
+  });
+
+  test("freshness is 24 hours for the deterministic claims and 15 minutes for the advisory and the review", () => {
+    const freshness = Object.fromEntries(referenceCodeV1.acceptance.claims.map(claim => [claim.id, claim.freshnessMs]));
+    expect(freshness["dependency-advisory"]).toBe(15 * MINUTE);
+    expect(freshness["supervised-review"]).toBe(15 * MINUTE);
+    for (const id of ["frozen-install", "build", "typecheck", "declared-tests", "protected-fixtures", "secret-scan", "allowed-paths", "protected-assets-unchanged"]) {
+      expect(freshness[id]).toBe(24 * HOUR);
+    }
+  });
+
+  test("the generator is the one repairable node, and the release is bound to the acceptance", () => {
+    const nodes = Object.fromEntries(referenceCodeV1.graph.nodes.map(node => [node.id, node]));
+    const repairable = referenceCodeV1.graph.nodes.filter(node => "repairableInputs" in node && node.repairableInputs?.length);
+    expect(repairable.map(node => node.id)).toEqual(["generate-private-candidate"]);
+    expect(nodes["github-pr-release"]!.kind).toBe("release");
+    expect(nodes["github-pr-release"]!.dependsOn).toEqual(["acceptance", "release-approval"]);
+    expect(nodes["release-approval"]!.kind).toBe("approval");
+  });
+
+  test("every pinned model is the one identifier C10 names, and nothing else", () => {
+    const pinned = referenceCodeRunnerReferences().filter(reference => reference.model !== undefined);
+    expect([...new Set(pinned.map(reference => reference.model))]).toEqual(["claude-haiku-4-5-20251001"]);
+    expect([...new Set(pinned.map(reference => reference.export))].sort())
+      .toEqual(["generateCandidate", "protectedChecks", "supervisedReview"]);
+  });
+
+  test("nothing unpinned reaches the model, and the pin's reach is recorded rather than assumed", () => {
+    const unpinned = referenceCodeRunnerReferences().filter(reference => reference.model === undefined).map(reference => reference.export);
+    expect(unpinned).not.toContain("generateCandidate");
+    expect(unpinned).not.toContain("supervisedReview");
+    // `protectedChecks` also carries the pin, although the nine claims it reports run no model.
+    // Filed as an interface question: a model grant a validator never uses is authority it should
+    // not hold. Recorded rather than changed, because `references.ts` is the SDK owner's file.
+    expect([...new Set(unpinned)].sort()).toEqual(["freezeGitTree", "releasePullRequest", "snapshotRepository"]);
   });
 });

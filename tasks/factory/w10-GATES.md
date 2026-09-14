@@ -176,6 +176,13 @@ What follows from that, exactly:
   CHECK: `bun test --timeout 300000 ./src/factory/reference-code/pack.test.ts`
   EXPECT: 6 pass, 0 fail; the declared and implemented export lists are equal in both directions.
   EVIDENCE: `/tmp/factory-platform-evidence/w10/pack-registry.json`
+- [x] G21b: The contract is executable, not prose. `reference.code.v1` declares exactly the ten
+  mandatory claims in C10's order, every one required and protected; freshness is 24 hours for the
+  deterministic claims and 15 minutes for the advisory and the review; the generator is the one
+  repairable node; the release depends on the acceptance and the approval; and every pinned model is
+  `claude-haiku-4-5-20251001` and nothing else.
+  CHECK: `bun test --timeout 300000 ./src/factory/reference-code/pack.test.ts`
+  EXPECT: 12 pass, 0 fail. EVIDENCE: `/tmp/factory-platform-evidence/w10/pack-registry.json`
 - [x] G22: Every new executable file is covered to 100%, and the whole package's suites are green.
   CHECK: `bun test --timeout 900000 --coverage --coverage-reporter=lcov ./src/factory/reference-code/ ./src/providers/factory-broker.test.ts`
   EXPECT: 147 pass, 0 fail, 522 assertions; 16 new files at 100% line coverage.
@@ -271,7 +278,13 @@ keeps `factory-publication-base`. Receipt: `/tmp/factory-platform-evidence/w10/g
    entry. W09 composes the application; it needs to construct
    `createFactoryProviderBroker({ pin })` and hand the broker to the runner, and no wiring for that
    exists yet.
-3. **Who owns the publication's `titleBodyDigest` when the operation marker is appended?** The
+3. **`protectedChecks` carries a model pin it never uses.** In `references.ts` the deterministic
+   validator declares `claude-haiku-4-5-20251001`, but the nine claims it reports run no model.
+   `FactoryNativeRunnerPolicy` validates the model pin before dispatch, so this is a model grant a
+   validator holds and never exercises. Recorded and tested against rather than changed, because
+   `references.ts` is the SDK owner's file. Removing it is a one-line change to `codeChecks`.
+
+4. **Who owns the publication's `titleBodyDigest` when the operation marker is appended?** The
    journey driver appends `EZCorp-Factory-Operation:` to the body after the freeze and recomputes
    the digest. If the marker belongs inside the frozen candidate, the freeze should add it and the
    adapter should stop requiring a post-freeze edit.
