@@ -32,6 +32,65 @@ registerFactoryRuntimeWorkers({ ...collaborators, attempts });
 
 **One correction to W09's recorded hold reason.** It says the role needs `FactoryPackagePreparations`, "which requires a container runner this process does not hold". `FactoryPackagePreparations` takes a container runner in its constructor, but `assertDispatchReady`, the only method the dispatch path calls, is a database read that never touches it. The container runner is needed by `prepare()` and by actually running a guest, not by readiness. So the product process needs a runner only for the `runtime` argument, which is the deployment choice below.
 
+## The transport configuration W09 must compose
+
+Two processes, one private mutual-TLS service each way, and no second transport.
+
+### The supervisor process, which holds the container runner
+
+```ts
+import { startFactoryPrivateHttps } from "./private-https";
+import { createFactoryHostLaunchRouteHandler } from "./runner/host-launch-service";
+import { createFactoryHostLaunchSupervisor } from "./runner/host-launch-supervisor";
+
+const supervisor = createFactoryHostLaunchSupervisor({
+  runner,                    // PodmanRunner, the only process that holds one
+  hostId,                    // must equal the lease's hostId on every intent
+  broker,                    // forwards the guest's one reverse call to the product process
+});
+
+startFactoryPrivateHttps({
+  tls: { key, cert, ca },    // the same server material the host stop route uses
+  hostname, port,            // the host launch port; may be the host stop port, the paths do not collide
+  handle: createFactoryHostLaunchRouteHandler({
+    hostId,
+    allowedPeers: [productCertificateSubject],   // mutual-TLS subjects allowed to drive attempts here
+    supervisor,
+    launchTimeoutMs,         // default 60000
+    resultTimeoutMs,         // default 120000
+  }),
+});
+```
+
+Paths served: `POST /v1/host/launches`, `POST /v1/host/attachments`, `POST /v1/host/results`. W03's `POST /v1/host/stops` is unchanged and can be mounted on the same listener; nothing here touches it or the host signing key, because this transport signs nothing. The host key stays exactly where W03 put it: `loadFactoryHostSigningKey` reads the PEM and key-id files per signature so rotation needs no restart, and only the stop route uses it.
+
+### The product process, which holds every durable record
+
+```ts
+import { createFactoryHostLaunchClient } from "./host-launch-client";
+import { FactoryRemoteAttemptRuntime } from "./runner/remote-attempt-runtime";
+
+const transport = await createFactoryHostLaunchClient({
+  baseUrl,                   // the supervisor's private HTTPS URL
+  tls: { caPath, certificatePath, privateKeyPath, serviceTokenPath },
+  serverName,                // TLS server name, "localhost" in the local profile
+  hostId,                    // an intent for any other host never leaves this process
+});
+
+const runtime = new FactoryRemoteAttemptRuntime({
+  launches,                  // FactoryDatabaseAttemptLaunchStore on the product database
+  transport,
+  readiness,                 // FactoryPackagePreparations
+  mintAttemptToken,          // signFactoryAttemptToken bound to the installation
+  pool,                      // acknowledgeStart only
+  stop,                      // W03's FactoryPhysicalStopper, so the product never signs a host fact
+});
+```
+
+Then pass that `runtime` to `createFactoryAttemptDispatchDriver` above. The in-process deployment passes `IsolatedFactoryAttemptRuntime` instead and changes nothing else, which is the point of putting the deployment choice behind that one argument.
+
+The `serviceTokenPath` file must exist and be non-empty because the shared gateway transport requires one, but these routes authorize by mutual-TLS peer identity alone, exactly as the host stop route does. Nothing in a request body names its caller.
+
 ## Gates
 
 - [x] G1: The `attempt-dispatch` role has a driver with the shape W09 registers.
