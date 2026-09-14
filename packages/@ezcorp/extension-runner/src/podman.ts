@@ -3,7 +3,7 @@ import { constants as fsConstants } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
@@ -23,6 +23,27 @@ const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
  * the existing exit relay ends the sandbox as soon as it goes.
  */
 const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));for(const s of["SIGTERM","SIGINT"])process.on(s,()=>{try{c.kill(s)}catch{process.exit(143)}});`;
+const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
+/**
+ * The guest's environment is exactly `HOME`, `TMPDIR` and `BUN_INSTALL_CACHE_DIR`.
+ * `--unsetenv-all` drops the image's own `ENV`, which otherwise reached every
+ * guest: measured on the pinned images, that was `PATH`, `container`, and the
+ * interpreter's build metadata. Two variables remain because the OCI runtime
+ * writes them into the process after podman has built the spec, and `--unsetenv`
+ * cannot reach them: `LC_CTYPE=C.UTF-8`, and `HOSTNAME`, which is pinned to a
+ * fixed value below so it cannot carry the container's host-derived identity.
+ */
+const GUEST_HOSTNAME = "guest";
+/** Exactly the three variables the profile declares. Every guest has all three. */
+export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "TMPDIR"]);
+/**
+ * The only names a guest may carry beyond the three declared ones. The OCI
+ * runtime writes them after podman has built the spec, so `--unsetenv` cannot
+ * reach them, and which of the two appears depends on the image. Both carry
+ * fixed, tenant-independent values: the hostname is pinned above and the locale
+ * is the C UTF-8 default.
+ */
+export const RUNNER_GUEST_ENVIRONMENT_RESIDUE = Object.freeze(["HOSTNAME", "LC_CTYPE"]);
 const CHANNEL_FIFOS = ["in", "out", "err"] as const;
 /** Traversable and readable by the mapped guest uid, writable by nobody but the runner. */
 const CHANNEL_DIRECTORY_MODE = 0o755;
@@ -66,24 +87,37 @@ export function configuredRunnerDevices(value: readonly string[] | undefined): r
   return Object.freeze([...devices]);
 }
 
+/**
+ * The exact device list one execution start may use. A caller that names the
+ * field owns the decision for that start and the host-global configuration is
+ * ignored entirely, which is how a factory attempt carries the devices its held
+ * pool allocation authorized and how a CPU attempt carries none. Only a v4
+ * extension caller, which never names the field, keeps the host default.
+ */
+export function startExecutionDevices(requested: readonly string[] | undefined, configured: readonly string[]): readonly string[] {
+  return requested === undefined ? configured : configuredRunnerDevices(requested);
+}
+
 export class PodmanRunner implements Runner {
   readonly image: string;
+  /** The in-container program `--entrypoint` names. A pinned guest language overrides it. */
+  protected readonly guestInterpreter: string = "/usr/local/bin/bun";
   protected readonly root: string;
   private readonly podman: string;
-  private readonly seccompPath: string;
+  protected readonly seccompPath: string;
   private readonly configuredDevices: readonly string[];
-  private readonly operations = new Map<string, RunnerInspection>();
+  protected readonly operations = new Map<string, RunnerInspection>();
   private readonly containers = new Map<string, string>();
   private readonly executions = new Map<string, FramedExecution>();
   private readonly channels = new Map<string, () => void>();
-  private readonly deadlines = new Map<string, ReturnType<typeof setTimeout>>();
+  protected readonly deadlines = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly controllers = new Map<string, AbortController>();
   private readonly buildWorkers = new Map<string, string>();
   private activeBuilds = 0;
   private activeExecutions = 0;
   private ready: Promise<void> | undefined;
   private lease: ChildProcessWithoutNullStreams | undefined;
-  constructor(private readonly options: PodmanRunnerOptions) {
+  constructor(protected readonly options: PodmanRunnerOptions) {
     this.root = resolve(options.root);
     this.image = options.image ?? DEFAULT_IMAGE;
     if (!/^[a-zA-Z0-9./_-]+@sha256:[a-f0-9]{64}$/.test(this.image)) throw new RunnerError("image_unpinned", "Runner image must use an immutable registry digest");
@@ -117,7 +151,7 @@ export class PodmanRunner implements Runner {
    * fails the operation instead of degrading it. The first caller decides the
    * orphan sweep, and the lazy build and execution paths never request it.
    */
-  private async prepare(cleanupOrphans: boolean): Promise<void> {
+  protected async prepare(cleanupOrphans: boolean): Promise<void> {
     this.ready ??= this.probe(cleanupOrphans).catch(async error => { await this.close(); this.ready = undefined; throw error; });
     return this.ready;
   }
@@ -144,9 +178,8 @@ export class PodmanRunner implements Runner {
     if (profile.defaultAction !== "SCMP_ACT_ERRNO") throw new RunnerError("seccomp_unavailable", "An explicit deny-by-default seccomp profile is required");
     const probeId = `probe-${randomUUID()}`;
     const limits = { ...executionLimits, memoryBytes: 128 * 1024 ** 2, cpuMillis: 500, pids: 32 };
-    const program = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
     try {
-      const probe = JSON.parse(await command(this.podman, [...this.args(probeId, limits), this.image, "-e", program]));
+      const probe = JSON.parse(await command(this.podman, [...this.args(probeId, limits), this.image, ...this.probeProgram()]));
       if (probe.uid !== 65534 || probe.writable || probe.memory !== String(limits.memoryBytes) || probe.swap !== "0" || probe.cpu !== "50000 100000" || probe.pids !== "32" || !/^CapEff:\s+0+$/m.test(probe.status) || !/^NoNewPrivs:\s+1$/m.test(probe.status) || !/^Seccomp:\s+2$/m.test(probe.status) || probe.routes.split("\n").length !== 1 || probe.ipv6.split("\n").some((line: string) => line && !line.endsWith("lo"))) throw new RunnerError("isolation_probe_failed", "Kernel controls did not match the secure runner profile");
     } finally { await this.remove(probeId); }
     if (!cleanupOrphans) return;
@@ -155,10 +188,15 @@ export class PodmanRunner implements Runner {
       if (/^ez-v4-[a-f0-9-]+$/.test(name)) await command(this.podman, ["rm", "--force", "--time=0", name]);
     }
   }
+  /** The in-guest program that reports the applied kernel controls, in the guest's own language. */
+  protected probeProgram(): string[] { return ["-e", probeProgramSource]; }
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
-  protected launch(id: string, limits: ResourceLimits, staged: string, args: string[], assignedDevices = false): ChildProcessWithoutNullStreams {
-    return processSpawn(this.podman, [...this.args(id, limits, staged, assignedDevices), this.image, ...args]);
+  /** Build and typecheck guests. They never receive a device, whatever the host configures. */
+  protected launch(id: string, limits: ResourceLimits, staged: string, args: string[]): ChildProcessWithoutNullStreams {
+    return processSpawn(this.podman, [...this.args(id, limits, staged, []), this.image, ...args]);
   }
+  /** The argv that starts the in-guest channel shim. A pinned guest language overrides it. */
+  protected guestEntrypointArgs(): string[] { return ["-e", guestShim]; }
   private channelDirectory(id: string): string { return join(this.root, "channels", this.containerName(id)); }
   /**
    * Execution containers outlive every control client. The guest's stdin is a
@@ -167,7 +205,7 @@ export class PodmanRunner implements Runner {
    * what `podman attach` could not give us: its stream is the container's stdin,
    * so a client's EOF always terminated the guest.
    */
-  private async launchDetached(id: string, limits: ResourceLimits, staged: string): Promise<FramedTransport> {
+  private async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[]): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
     await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
     await chmod(directory, CHANNEL_DIRECTORY_MODE);
@@ -184,7 +222,7 @@ export class PodmanRunner implements Runner {
     // Recorded beside the channel, never inside it, so the guest cannot reach
     // the identities the host checks against.
     await writeFile(this.channelFactsPath(id), canonicalJson(facts), { mode: 0o600 });
-    await command(this.podman, [...this.args(id, limits, staged, true, directory), "--detach", this.image, "-e", guestShim]);
+    await command(this.podman, [...this.args(id, limits, staged, devices, directory), "--detach", this.image, ...this.guestEntrypointArgs()]);
     return this.channelTransport(id);
   }
   private channelFactsPath(id: string): string { return `${this.channelDirectory(id)}.channel.json`; }
@@ -254,10 +292,10 @@ export class PodmanRunner implements Runner {
   protected async run(id: string, limits: ResourceLimits, staged: string, args: string[], maximumBytes = limits.outputBytes): Promise<string> {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
   }
-  private args(id: string, limits: ResourceLimits, mount?: string, assignedDevices = false, channel?: string): string[] {
+  private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...(assignedDevices ? this.configuredDevices.flatMap(device => ["--device", device]) : []), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), "--entrypoint=/usr/local/bin/bun", "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
@@ -267,7 +305,7 @@ export class PodmanRunner implements Runner {
     await writeFile(target, content, { mode: 0o400, flag: "wx" });
     await chmod(target, executable ? 0o555 : 0o444);
   }
-  private async stage(files: WorkspaceFiles): Promise<string> {
+  protected async stage(files: WorkspaceFiles): Promise<string> {
     const directory = await mkdtemp(join(this.root, "stage-"));
     await chmod(directory, 0o755);
     try {
@@ -371,7 +409,7 @@ export class PodmanRunner implements Runner {
     }
     return result;
   }
-  private async storeArtifact(artifactDigest: string, files: WorkspaceFiles): Promise<void> {
+  protected async storeArtifact(artifactDigest: string, files: WorkspaceFiles): Promise<void> {
     const target = join(this.root, "artifacts", digest(artifactDigest));
     const temporary = join(this.root, `artifact-${randomUUID()}`);
     const handle = await open(temporary, "wx", 0o400);
@@ -389,11 +427,11 @@ export class PodmanRunner implements Runner {
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
     return files;
   }
-  async start(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, reverseRpc: ReverseRpc): Promise<FramedExecution> {
+  async start(input: StartRequest, reverseRpc: ReverseRpc): Promise<FramedExecution> {
     return this.startExecution(input, reverseRpc, false);
   }
   /** Reconnect to an existing container after a supervisor restart. Recovery never admits new reverse effects. */
-  async attach(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, _reverseRpc: ReverseRpc): Promise<FramedExecution> {
+  async attach(input: StartRequest, _reverseRpc: ReverseRpc): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
@@ -409,7 +447,7 @@ export class PodmanRunner implements Runner {
     void execution.exited.finally(() => { this.executions.delete(input.workerId); }).catch(() => undefined);
     return execution;
   }
-  private async startExecution(input: { workerId: string; artifactDigest: string; context: InvocationContext; limits: ResourceLimits }, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
+  protected async startExecution(input: StartRequest, reverseRpc: ReverseRpc, discovery: boolean): Promise<FramedExecution> {
     identifier(input.workerId);
     const limits = limitsWithin(input.limits, this.options.executionCeiling ?? executionLimits);
     if (input.context.workerId !== input.workerId || !Number.isSafeInteger(input.context.deadline) || input.context.deadline <= Date.now()) throw new RunnerError("invalid_context", "Worker context or deadline is invalid");
@@ -433,7 +471,10 @@ export class PodmanRunner implements Runner {
         await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
-      const child = await this.launchDetached(input.workerId, limits, stage);
+      // Discovery is a build-phase guest, so it is denied a device even when the
+      // host configures one. Every other start uses exactly what it was given.
+      const devices = discovery ? [] : startExecutionDevices(input.devices, this.configuredDevices);
+      const child = await this.launchDetached(input.workerId, limits, stage, devices);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);

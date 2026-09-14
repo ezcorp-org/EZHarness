@@ -3103,4 +3103,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryAdmissionOrigin(db);
   const { up: addFactoryValidatorAdmissionEvent } = await import("./migrations/add-factory-validator-admission-event");
   await addFactoryValidatorAdmissionEvent(db);
+  const { up: addFactoryPackageQuarantine } = await import("./migrations/add-factory-package-quarantine");
+  await addFactoryPackageQuarantine(db);
 }

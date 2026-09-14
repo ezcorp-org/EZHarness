@@ -13,7 +13,7 @@ import type { FactoryGrants, FactoryPrincipal } from "./grants";
 
 const MAX_BUILD_ID_BYTES = 512;
 type BindingRow = { reference_json: string; reference_digest: string; installation_id: string; release_id: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; manifest_digest: string; issuer_id: string; issuer_grant_revision: number | string; protected_digest: string };
-type TrustRow = { revision: number | string; latest_revision: number | string; state: "active" | "revoked"; package_trust_digest: string; approved_by: string; approval_grant_revision: number | string; protected_digest: string };
+type TrustRow = { revision: number | string; latest_revision: number | string; state: FactoryRunnerPackageTrustState; installation_generation: number | string; package_trust_digest: string; approved_by: string; approval_grant_revision: number | string; protected_digest: string };
 type IntentRow = { trust_revision: number | string; package_trust_digest: string; installation_id: string; release_id: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; manifest_digest: string; issuer_id: string; issuer_grant_revision: number | string; binding_protected_digest: string; evidence_digest: string; entrypoint: string; build_identity: string; state: "prepared" | "completed"; intent_digest: string };
 type ReceiptRow = { trust_revision: number | string; package_trust_digest: string; release_digest: string; source_digest: string; artifact_digest: string; image_digest: string; manifest_digest: string; evidence_digest: string; build_identity: string; receipt_digest: string };
 
@@ -21,7 +21,20 @@ export interface FactoryV4PackageBindingInput { readonly projectId: string; read
 export interface FactoryV4PackageBinding extends FactoryV4PackageBindingInput { readonly releaseDigest: string; readonly sourceDigest: string; readonly artifactDigest: string; readonly imageDigest: string; readonly manifestDigest: string; readonly issuerId: string; readonly issuerGrantRevision: number; readonly protectedDigest: string; }
 export interface FactoryRunnerPackageTrustPublication { readonly projectId: string; readonly reference: RunnerReference; readonly expectedRevision: number; }
 /** Trust is per complete runner tuple. C04 release trust remains separate. */
-export interface FactoryRunnerPackageTrustRecord { readonly projectId: string; readonly reference: RunnerReference; readonly revision: number; readonly state: "active" | "revoked"; readonly packageTrustDigest: string; readonly approvedBy: string; readonly approvalGrantRevision: number; readonly protectedDigest: string; }
+export type FactoryRunnerPackageTrustState = "active" | "quarantined" | "revoked";
+/** The two factory states C05 adds to the v4 lifecycle, on the same generation fence. */
+export type FactoryPackageTrustTransition = "publish" | "quarantine" | "revoke";
+export interface FactoryRunnerPackageTrustRecord { readonly projectId: string; readonly reference: RunnerReference; readonly revision: number; readonly state: FactoryRunnerPackageTrustState; readonly packageTrustDigest: string; readonly approvedBy: string; readonly approvalGrantRevision: number; /** The v4 `extension_release_installations.generation` this decision was taken against. */ readonly installationGeneration: number; readonly protectedDigest: string; }
+
+/**
+ * The stop seam quarantine and revocation drive. Sol lifecycle (W03) implements
+ * it over the physical stop path; it is called inside the same transaction that
+ * records the state, so a package can never be quarantined without its live
+ * attempts being fenced in the same commit.
+ */
+export interface FactoryPackageQuarantineFence {
+  fenceAttempts(transaction: MigrationDb, input: { readonly tenantId: string; readonly projectId: string; readonly reference: RunnerReference; readonly state: FactoryRunnerPackageTrustState; readonly trustRevision: number }): Promise<readonly string[]>;
+}
 /** Dispatcher calls this after durable claim and before it mints a runner token. */
 type FactoryPackageDispatchRequest = Pick<FactoryRunnerRequest, "runner"> & { readonly authority: Pick<FactoryRunnerRequest["authority"], "tenantId" | "projectId"> };
 export interface FactoryRunnerDispatchReadiness { assertDispatchReady(request: FactoryPackageDispatchRequest): Promise<FactoryPreparedPackageReceipt>; }
@@ -45,7 +58,27 @@ function sameBindingFacts(left: FactoryV4PackageBinding, right: FactoryV4Package
 function referenceDigest(reference: RunnerReference): string { return sha(reference); }
 function tuple(reference: RunnerReference): [string, string, string, string, string] { return [reference.package, reference.version, reference.digest, reference.export, referenceDigest(reference)]; }
 function bindingSeal(tenantId: string, input: Omit<FactoryV4PackageBinding, "protectedDigest">): string { return sha({ tenantId, projectId: input.projectId, reference: input.reference, installationId: input.installationId, releaseId: input.releaseId, releaseDigest: input.releaseDigest, sourceDigest: input.sourceDigest, artifactDigest: input.artifactDigest, imageDigest: input.imageDigest, manifestDigest: input.manifestDigest, issuerId: input.issuerId, issuerGrantRevision: input.issuerGrantRevision }); }
-function trustSeal(tenantId: string, value: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, revision: value.revision, state: value.state, packageTrustDigest: value.packageTrustDigest, approvedBy: value.approvedBy, approvalGrantRevision: value.approvalGrantRevision }); }
+function trustSeal(tenantId: string, value: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, revision: value.revision, state: value.state, packageTrustDigest: value.packageTrustDigest, approvedBy: value.approvedBy, approvalGrantRevision: value.approvalGrantRevision, installationGeneration: value.installationGeneration }); }
+
+/**
+ * Exactly which transitions the fence permits. Every state change appends a new
+ * revision, so the earlier decision is preserved rather than overwritten, and
+ * nothing about a blocked state expires or lifts itself.
+ *
+ * `quarantined` is the reversible block: a human may publish the same pinned
+ * tuple again at the next revision, which is the "explicit repair within
+ * existing authority" C05 allows. `revoked` is terminal for that tuple. C05
+ * says security revocation wins over the desire to drain a vulnerable version,
+ * so the way forward is C05's other sentence: a replacement package requires a
+ * new pinned definition, which is a different runner reference with its own
+ * binding and its own trust chain. No transition out of `revoked` exists here,
+ * so no later publish can quietly reopen the exact bytes that were revoked.
+ */
+const TRUST_TRANSITIONS: Readonly<Record<FactoryPackageTrustTransition, { readonly next: FactoryRunnerPackageTrustState; readonly from: readonly (FactoryRunnerPackageTrustState | "none")[] }>> = Object.freeze({
+  publish: { next: "active", from: ["none", "active", "quarantined"] },
+  quarantine: { next: "quarantined", from: ["active"] },
+  revoke: { next: "revoked", from: ["active", "quarantined"] },
+});
 function intentSeal(tenantId: string, value: Omit<FactoryPackagePreparationIntent, "intentDigest" | "state">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, trustRevision: value.trustRevision, packageTrustDigest: value.packageTrustDigest, binding: value.binding, evidenceDigest: value.evidenceDigest, entrypoint: value.entrypoint, buildIdentity: value.buildIdentity }); }
 function receiptSeal(tenantId: string, value: Omit<FactoryPreparedPackageReceipt, "receiptDigest">): string { return sha({ tenantId, projectId: value.projectId, reference: value.reference, trustRevision: value.trustRevision, packageTrustDigest: value.packageTrustDigest, releaseDigest: value.releaseDigest, sourceDigest: value.sourceDigest, artifactDigest: value.artifactDigest, imageDigest: value.imageDigest, manifestDigest: value.manifestDigest, evidenceDigest: value.evidenceDigest, buildIdentity: value.buildIdentity }); }
 function releaseFacts(binding: FactoryV4PackageBinding, release: ReleaseRecord): void { if (release.id !== binding.releaseId || release.installationId !== binding.installationId || release.releaseDigest !== binding.releaseDigest || release.sourceDigest !== binding.sourceDigest || release.artifactDigest !== binding.artifactDigest || release.imageDigest !== binding.imageDigest || digestObject(release.manifest) !== binding.manifestDigest || release.manifest.name !== binding.reference.package || release.manifest.version !== binding.reference.version || !release.manifest.tools?.some(tool => tool.name === binding.reference.export)) throw new FactoryPackagePreparationError("factory_package_release_stale"); }
@@ -54,35 +87,58 @@ function entrypoint(release: ReleaseRecord): string { const value = (release.man
 /** Versioned human trust for one runner tuple. It deliberately does not reuse C04 release trust. */
 export class FactoryPackageTrusts {
   private readonly mutations: FactoryMutations;
-  constructor(database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants) { assertFactoryIdentity(tenantId); if (grants.tenantId !== tenantId) throw new FactoryPackagePreparationError("factory_package_scope"); this.mutations = new FactoryMutations(database, tenantId, grants); }
-  async publish(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, false); }
-  async revoke(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, true); }
-  private async change(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string, revoked: boolean): Promise<FactoryRunnerPackageTrustRecord> {
+  constructor(database: TransactionalDb, readonly tenantId: string, private readonly grants: FactoryGrants, private readonly fence?: FactoryPackageQuarantineFence) { assertFactoryIdentity(tenantId); if (grants.tenantId !== tenantId) throw new FactoryPackagePreparationError("factory_package_scope"); this.mutations = new FactoryMutations(database, tenantId, grants); }
+  async publish(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, "publish"); }
+  /** Blocks new dispatch and fences live attempts. A quarantine can be lifted by a later publish. */
+  async quarantine(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, "quarantine"); }
+  /**
+   * Terminal for this pinned tuple. Security revocation wins over draining, so
+   * no later publish reopens it; a replacement needs a new pinned definition.
+   */
+  async revoke(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string): Promise<FactoryRunnerPackageTrustRecord> { return this.change(actor, input, idempotencyKey, "revoke"); }
+  private async change(actor: FactoryPrincipal, input: FactoryRunnerPackageTrustPublication, idempotencyKey: string, transition: FactoryPackageTrustTransition): Promise<FactoryRunnerPackageTrustRecord> {
     const principal = snapshot(actor), value = { projectId: input.projectId, reference: runner(input.reference), expectedRevision: input.expectedRevision };
-    if (principal.kind !== "user" || principal.authentication !== "session" || !Number.isSafeInteger(value.expectedRevision) || value.expectedRevision < (revoked ? 1 : 0)) throw new FactoryPackagePreparationError("factory_package_trust_invalid");
+    const rule = TRUST_TRANSITIONS[transition];
+    if (principal.kind !== "user" || principal.authentication !== "session" || !Number.isSafeInteger(value.expectedRevision) || value.expectedRevision < (rule.from.includes("none") ? 0 : 1)) throw new FactoryPackagePreparationError("factory_package_trust_invalid");
     assertFactoryIdentity(value.projectId);
-    return this.mutations.execute({ principal, projectId: value.projectId, action: "factory.trust", idempotencyKey, input: { kind: revoked ? "factory.package.trust.revoke" : "factory.package.trust.publish", ...value } }, async transaction => {
+    return this.mutations.execute({ principal, projectId: value.projectId, action: "factory.trust", idempotencyKey, input: { kind: `factory.package.trust.${transition}`, ...value } }, async transaction => {
       if (!await lockFactoryScope(transaction, this.tenantId, value.projectId, "write")) throw new FactoryPackagePreparationError("factory_package_scope");
       const current = await this.current(transaction, value.projectId, value.reference, "update");
       const previous = current ? await this.require(transaction, value.projectId, value.reference, "update", false) : undefined;
-      if (Number(previous?.revision ?? 0) !== value.expectedRevision || revoked && previous?.state !== "active") throw new FactoryPackagePreparationError("factory_package_trust_conflict");
+      if (Number(previous?.revision ?? 0) !== value.expectedRevision || !rule.from.includes(previous?.state ?? "none")) throw new FactoryPackagePreparationError("factory_package_trust_conflict");
       const authority = await this.grants.authorizeInTransaction(transaction, principal, value.projectId, "factory.trust"), revision = value.expectedRevision + 1;
-      const unsigned: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest"> = { projectId: value.projectId, reference: value.reference, revision, state: revoked ? "revoked" : "active", packageTrustDigest: previous?.packageTrustDigest ?? sha(value.reference), approvedBy: principal.id, approvalGrantRevision: authority.revision };
+      const unsigned: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest"> = { projectId: value.projectId, reference: value.reference, revision, state: rule.next, packageTrustDigest: previous?.packageTrustDigest ?? sha(value.reference), approvedBy: principal.id, approvalGrantRevision: authority.revision, installationGeneration: await this.installationGeneration(transaction, value.projectId, value.reference) };
       const record: FactoryRunnerPackageTrustRecord = { ...unsigned, protectedDigest: trustSeal(this.tenantId, unsigned) };
       const refDigest = referenceDigest(record.reference);
-      await transaction.execute(sql`INSERT INTO factory_runner_package_trust_revisions (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,revision,state,package_trust_digest,approved_by,approval_grant_revision,protected_digest) VALUES (${this.tenantId},${record.projectId},${record.reference.package},${record.reference.version},${record.reference.digest},${record.reference.export},${refDigest},${record.revision},${record.state},${record.packageTrustDigest},${record.approvedBy},${record.approvalGrantRevision},${record.protectedDigest})`);
+      await transaction.execute(sql`INSERT INTO factory_runner_package_trust_revisions (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,revision,state,package_trust_digest,approved_by,approval_grant_revision,installation_generation,protected_digest) VALUES (${this.tenantId},${record.projectId},${record.reference.package},${record.reference.version},${record.reference.digest},${record.reference.export},${refDigest},${record.revision},${record.state},${record.packageTrustDigest},${record.approvedBy},${record.approvalGrantRevision},${record.installationGeneration},${record.protectedDigest})`);
       if (current) { const changed = rows(await transaction.execute(sql`UPDATE factory_runner_package_trust_current SET revision=${record.revision},updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${record.projectId} AND package_name=${record.reference.package} AND package_version=${record.reference.version} AND package_digest=${record.reference.digest} AND export_name=${record.reference.export} AND reference_digest=${refDigest} AND revision=${value.expectedRevision} RETURNING revision`)); if (changed.length !== 1) throw new FactoryPackagePreparationError("factory_package_trust_conflict"); }
       else await transaction.execute(sql`INSERT INTO factory_runner_package_trust_current (tenant_id,project_id,package_name,package_version,package_digest,export_name,reference_digest,revision) VALUES (${this.tenantId},${record.projectId},${record.reference.package},${record.reference.version},${record.reference.digest},${record.reference.export},${refDigest},${record.revision})`);
-      await insertTransactionalAuditEntry(transaction, `factory-package-trust:${this.tenantId}:${record.projectId}:${record.reference.digest}:${record.reference.export}:${record.revision}`, principal.id, revoked ? "factory.package.trust.revoked" : "factory.package.trust.published", record.projectId, { tenantId: this.tenantId, projectId: record.projectId, reference: record.reference, revision: record.revision, ...(revoked ? { priorRevision: value.expectedRevision } : { packageTrustDigest: record.packageTrustDigest }), approvalGrantRevision: record.approvalGrantRevision });
+      await insertTransactionalAuditEntry(transaction, `factory-package-trust:${this.tenantId}:${record.projectId}:${record.reference.digest}:${record.reference.export}:${record.revision}`, principal.id, `factory.package.trust.${transition}d`, record.projectId, { tenantId: this.tenantId, projectId: record.projectId, reference: record.reference, revision: record.revision, ...(transition === "publish" ? { packageTrustDigest: record.packageTrustDigest } : { priorRevision: value.expectedRevision }), state: record.state, installationGeneration: record.installationGeneration, approvalGrantRevision: record.approvalGrantRevision });
+      // The stop path runs inside this transaction, so a package cannot reach a
+      // blocking state without its live attempts being fenced in the same commit.
+      if (record.state !== "active") await this.fence?.fenceAttempts(transaction, { tenantId: this.tenantId, projectId: record.projectId, reference: record.reference, state: record.state, trustRevision: record.revision });
       return record;
     });
+  }
+  /**
+   * The v4 installation generation the decision is taken against. It is read
+   * from the binding's own installation, so a later activation or disable moves
+   * the fence and every earlier trust revision becomes stale.
+   */
+  private async installationGeneration(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<number> {
+    const [name, version, digest, exported, refDigest] = tuple(reference);
+    const row = rows<{ generation: number | string }>(await transaction.execute(sql`SELECT (i.payload::jsonb ->> 'generation')::bigint AS generation FROM factory_runner_package_bindings b JOIN extension_release_installations i ON i.id=b.installation_id WHERE b.tenant_id=${this.tenantId} AND b.project_id=${projectId} AND b.package_name=${name} AND b.package_version=${version} AND b.package_digest=${digest} AND b.export_name=${exported} AND b.reference_digest=${refDigest}`))[0];
+    if (!row) throw new FactoryPackagePreparationError("factory_package_binding_missing");
+    const generation = Number(row.generation);
+    if (!Number.isSafeInteger(generation) || generation < 0) throw new FactoryPackagePreparationError("factory_package_trust_corrupt");
+    return generation;
   }
   async readActiveInTransaction(transaction: MigrationDb, projectId: string, reference: RunnerReference): Promise<FactoryRunnerPackageTrustRecord> { return this.require(transaction, projectId, runner(reference), "share", true); }
   private async current(transaction: MigrationDb, projectId: string, reference: RunnerReference, lock: "share" | "update"): Promise<TrustRow | undefined> {
     const [name, version, digest, exported, refDigest] = tuple(reference);
     const clause = lock === "update" ? sql`FOR UPDATE` : sql`FOR SHARE`;
     const row = rows<TrustRow>(await transaction.execute(sql`
-      SELECT r.revision,r.state,r.package_trust_digest,r.approved_by,r.approval_grant_revision,r.protected_digest,
+      SELECT r.revision,r.state,r.package_trust_digest,r.approved_by,r.approval_grant_revision,r.installation_generation,r.protected_digest,
         (SELECT MAX(latest.revision) FROM factory_runner_package_trust_revisions latest
           WHERE latest.tenant_id=c.tenant_id AND latest.project_id=c.project_id
             AND latest.package_name=c.package_name AND latest.package_version=c.package_version
@@ -101,9 +157,16 @@ export class FactoryPackageTrusts {
   private async require(transaction: MigrationDb, projectId: string, reference: RunnerReference, lock: "share" | "update", active: boolean): Promise<FactoryRunnerPackageTrustRecord> {
     const row = await this.current(transaction, projectId, reference, lock); if (!row) throw new FactoryPackagePreparationError("factory_package_trust_missing"); const revision = Number(row.revision), approvalGrantRevision = Number(row.approval_grant_revision);
     if (!Number.isSafeInteger(revision) || revision < 1 || !Number.isSafeInteger(approvalGrantRevision) || approvalGrantRevision < 1 || !/^sha256:[a-f0-9]{64}$/.test(row.package_trust_digest)) throw new FactoryPackagePreparationError("factory_package_trust_corrupt");
-    const unsigned: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest"> = { projectId, reference, revision, state: row.state, packageTrustDigest: row.package_trust_digest, approvedBy: row.approved_by, approvalGrantRevision };
+    const installationGeneration = Number(row.installation_generation);
+    if (!Number.isSafeInteger(installationGeneration) || installationGeneration < 0) throw new FactoryPackagePreparationError("factory_package_trust_corrupt");
+    const unsigned: Omit<FactoryRunnerPackageTrustRecord, "protectedDigest"> = { projectId, reference, revision, state: row.state, packageTrustDigest: row.package_trust_digest, approvedBy: row.approved_by, approvalGrantRevision, installationGeneration };
     if (row.protected_digest !== trustSeal(this.tenantId, unsigned) || row.package_trust_digest !== sha(reference)) throw new FactoryPackagePreparationError("factory_package_trust_corrupt"); const trust: FactoryRunnerPackageTrustRecord = { ...unsigned, protectedDigest: row.protected_digest };
-    if (active && trust.state !== "active") throw new FactoryPackagePreparationError("factory_package_revoked"); if (active) await this.grants.authorizeInTransaction(transaction, { kind: "user", id: trust.approvedBy, authentication: "session" }, projectId, "factory.trust", trust.approvalGrantRevision); return trust;
+    if (active && trust.state === "quarantined") throw new FactoryPackagePreparationError("factory_package_quarantined");
+    if (active && trust.state !== "active") throw new FactoryPackagePreparationError("factory_package_revoked");
+    // The v4 generation fence: a decision taken against an installation that has
+    // since been activated, disabled, or uninstalled no longer authorizes dispatch.
+    if (active && await this.installationGeneration(transaction, projectId, reference) !== trust.installationGeneration) throw new FactoryPackagePreparationError("factory_package_fence_stale");
+    if (active) await this.grants.authorizeInTransaction(transaction, { kind: "user", id: trust.approvedBy, authentication: "session" }, projectId, "factory.trust", trust.approvalGrantRevision); return trust;
   }
 }
 
