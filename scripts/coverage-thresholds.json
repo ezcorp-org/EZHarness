@@ -994,5 +994,6 @@
   "src/db/migrations/add-factory-release-authority.ts": 100,
   "src/db/migrations/factory-artifact-admission-index.ts": 100,
   "src/factory/package-preparation.ts": 100,
-  "src/db/migrations/add-factory-package-preparations.ts": 100
+  "src/db/migrations/add-factory-package-preparations.ts": 100,
+  "src/factory/background-workers.ts": 100
 }
