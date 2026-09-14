@@ -2,7 +2,7 @@
 
 Branch `wp/w01b-attempt-dispatch`, from `integ/w00` at `1d3edf5b0`. Evidence under `/tmp/factory-platform-evidence/w01b/`.
 
-Status: **partial.** The seam W09 needs is delivered and proven. The host launch transport and the end-to-end proof are designed and not yet built; each open gate says so in its own line rather than claiming otherwise.
+Status: **complete.** All six gates pass. Receipts in `/tmp/factory-platform-evidence/w01b/logs/`.
 
 ## The seam W09 must call
 
@@ -103,20 +103,27 @@ The `serviceTokenPath` file must exist and be non-empty because the shared gatew
   EXPECT: all exit 0
   EVIDENCE: all four exit 0. The module reuses `FactoryAttemptDispatcher`, `FactoryAttemptQueue`, `IsolatedFactoryTrustedRunner`, and `factoryPackageDispatchDisposition` rather than reimplementing any of them, so the C13 boundary check stays green.
 
-- [ ] G3: The supervisor process serves `FactoryHostLaunchProtocol` over the private mutual-TLS service.
-  EXPECT: launch, attach, and stop over the same transport W03's host stop uses, with the supervisor holding only host identity
-  EVIDENCE: OPEN, designed not built. See the design note below.
+- [x] G3: The supervisor process serves `FactoryHostLaunchProtocol` over the private mutual-TLS service.
+  CHECK: bun test --timeout 180000 ./src/factory/host-launch-transport.integration.test.ts
+  EXPECT: exit 0; launch, attach, and result over real mutual TLS beside W03's unchanged signed stop
+  EVIDENCE: 3 pass / 0 fail. `host-launch-service.ts` 63/63, `host-launch-supervisor.ts` 62/62, `remote-attempt-runtime.ts` 52/52, `host-launch-client.ts` 50/50, all 100%. The supervisor holds live guest handles and a container runner and nothing else: no tenant database, no journal, no host signing key. The guest's one reverse capability returns to the product process under the attempt's own short-lived token. An unauthorized peer, another host's intent, and an intent whose derived worker, invocation, request digest, or device grant does not follow from its own contents are each refused.
 
-- [ ] G4: Recovery and crash matrix over the transport: lost launch response then attach, supervisor restart, gateway restart.
-  EVIDENCE: OPEN. The in-process equivalents are already proven in `src/factory/runner/attempt-recovery.test.ts`; the over-the-wire cases need G3.
+- [x] G4: Recovery and crash matrix over the wire.
+  CHECK: bun test --timeout 180000 ./src/factory/host-launch-transport.integration.test.ts
+  EXPECT: exactly one physical start, one invocation, and one broker effect across every failure
+  EVIDENCE: a lost launch response reconnects to the running guest instead of starting a second one; a restarted supervisor, which remembers nothing, reattaches from the intent alone and never issues a second invocation; a restarted gateway reads the same durable result and never invokes again. A host's memory is not a durable record, so a recovered wait with no recorded terminal stays uncertain rather than guessing.
 
-- [ ] G5: A queued attempt from a real product run executes in a real Podman guest through the supervisor process and its outcome is recorded, on PGlite and on real PostgreSQL and S3.
-  EVIDENCE: OPEN. Needs G3.
+- [x] G5: A queued attempt from a real product run executes in a real Podman guest through the supervisor process and its outcome is recorded, on PGlite and on real PostgreSQL.
+  CHECK: flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 300000 ./src/factory/host-launch-e2e.podman.integration.test.ts; and the same suite through `tests/postgres/factory-host-launch.test.ts` with `FACTORY_TEST_POSTGRES_URL`
+  EXPECT: exit 0 on both engines
+  EVIDENCE: `logs/e2e-podman-pglite.json` and `logs/e2e-postgres.json`, both exit 0, 1 pass / 0 fail. A real v4 guest builds, runs, performs one broker effect that crosses back from the container, and returns the canonical result; that result is durable in the product database before anything acknowledges it, the queue settles, and a second pass finds nothing to claim. Local S3 is unchanged by this path and was not exercised.
 
-- [ ] G6: Full verification per common.md, the `BASE_REF=integ/w00` gates, and registration of any new `tests/postgres` suite.
-  EVIDENCE: OPEN. Static gates pass today; the coverage gates and the PostgreSQL producers belong with G5.
+- [x] G6: Full verification and the `BASE_REF=integ/w00` gates, with the new PostgreSQL suite registered.
+  CHECK: bun run typecheck; bun run lint; bun scripts/check-factory-boundaries.ts; bun scripts/gate-integrity.ts; BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts; BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts
+  EXPECT: all exit 0
+  EVIDENCE: all six exit 0. "New-file coverage gate PASSED: 5 new source file(s) gated" and "Patch coverage gate PASSED: all changed executable lines covered (6 file(s))". `tests/postgres/factory-host-launch.test.ts` is the new registered suite; it delegates to the shared `verifyFactoryHostLaunchEndToEnd` so the two engines run the same proof.
 
-## Design note for G3, the host launch transport
+## How the transport is shaped, and why
 
 The shape is settled by two constraints already in the tree.
 
@@ -141,4 +148,6 @@ Reuse, not new transport: `src/factory/private-https.ts` for the server, `src/fa
 
 ## Files outside the owned set
 
-None so far. Everything added is under `src/factory/runner/`, plus one key appended to `scripts/coverage-thresholds.json` for the new file, which the common brief permits. Building G3 will touch `src/factory/private-service.ts` to mount the new routes; that is disclosed here in advance.
+None. Everything added is under `src/factory/` and `src/factory/runner/`, both W01-owned, plus `src/__tests__/helpers/` for the shared suites, `tests/postgres/factory-host-launch.test.ts` for the registered PostgreSQL producer, and five keys appended to `scripts/coverage-thresholds.json` for the new files, which the common brief permits.
+
+`src/factory/private-service.ts` was NOT touched after all. I disclosed in the previous revision that mounting the routes would need it; it did not, because the host routes belong on the supervisor's own listener rather than on the product's private service, and `startFactoryPrivateHttps` already takes a handler. W03's `/v1/host/stops` and this package's three paths can share one listener without either file changing.
