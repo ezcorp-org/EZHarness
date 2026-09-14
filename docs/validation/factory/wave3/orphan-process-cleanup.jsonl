@@ -1,0 +1,1 @@
+{"stoppedAt":"2026-09-14T11:06:17-04:00","pids":[420496,775157],"reason":"orphaned bun test processes in state R for 10-11 hours at full CPU, per-test timeouts exceeded, owning agents idle, not lock holders"}

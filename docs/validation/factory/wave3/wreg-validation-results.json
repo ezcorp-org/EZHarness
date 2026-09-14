@@ -1,0 +1,179 @@
+{
+  "package": "WREG",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "head": "7d3396096a2cba03b60ac2e10fca6ab4a3b44e4b",
+  "branch": "wp/wreg-backend-failures",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/wreg-fixes",
+  "tree_clean_at_check": true,
+  "commits_in_delta": [
+    {"sha": "3a8350b88", "subject": "fix(contract): regenerate the wire schema for StartRequest.devices"},
+    {"sha": "c9d0c3a05", "subject": "fix(runner): declare the guest search path so a v4 extension can spawn by name"},
+    {"sha": "638f2e7d1", "subject": "fix(runner): route trusted-local execution through its own launch seam"},
+    {"sha": "c8bbf95f7", "subject": "merge: receive integ/w00 through the W10 code reference pack (5f04c7131)"},
+    {"sha": "7d3396096", "subject": "docs(factory): record the WREG backend-pool regression fixes and their receipts"}
+  ],
+  "all_commit_shas_confirmed_on_branch": true,
+  "fixer_own_diff_confined_to": [
+    "packages/@ezcorp/extension-contract/src/wire-schema.json",
+    "packages/@ezcorp/extension-runner/src/podman.ts",
+    "packages/@ezcorp/extension-runner/src/python.ts",
+    "packages/@ezcorp/extension-runner/src/trusted-local.ts",
+    "packages/@ezcorp/extension-runner/tests/trusted-local.test.ts",
+    "src/factory/runner/applied-controls.integration.test.ts",
+    "src/factory/runner/python-guest.integration.test.ts",
+    "tasks/factory/wreg-GATES.md",
+    "tasks/lessons.md",
+    "tasks/todo.md"
+  ],
+  "merge_commit_c8bbf95f7_diffstat_matches_integ_w00_second_parent_exactly": true,
+  "receipt_audit": {
+    "method": "opened every receipt cited in tasks/factory/wreg-GATES.md under /tmp/factory-platform-evidence/wreg/, recomputed sha256 of each referenced log and compared to the recorded logSha256",
+    "files_checked": ["verify-wire-schema.json", "verify-trusted-local.json", "verify-substack.json", "verify-path-docs-autonote.json", "podman-suites.json", "gates.json", "backend-pool.json", "coverage-producers.json"],
+    "result": "all logSha256 values matched their logs; all receipts internally consistent; no receipt shows a failure while the gate file claims pass"
+  },
+  "independent_reruns": [
+    {
+      "id": "typecheck",
+      "command": "bun run typecheck",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/typecheck.log",
+      "result": "pass (backend, web, backend-tests, web-e2e, and locked Python mypy --strict all pass)",
+      "matches_worker_claim": true
+    },
+    {
+      "id": "lint",
+      "command": "bun run lint",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/lint.log",
+      "result": "8 infos, all pre-existing and unrelated to the diff (scripts/lcov-noise-filter.ts, src/__tests__/executor-mode-extensions-filter.test.ts, src/chat/attachments/pdf-extract.ts x3, src/extensions/mcp-sandbox.ts, web component test) — none in extension-runner/extension-contract/trusted-local",
+      "matches_worker_claim": true
+    },
+    {
+      "id": "boundaries",
+      "command": "bun scripts/check-factory-boundaries.ts",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/boundaries.log",
+      "matches_worker_claim": true
+    },
+    {
+      "id": "gate-integrity",
+      "command": "bun scripts/gate-integrity.ts",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/gate-integrity.log",
+      "matches_worker_claim": true
+    },
+    {
+      "id": "focused-suites-with-coverage",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 3600 bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/wreg-validation/lcov ./packages/@ezcorp/extension-contract/src/schema.test.ts ./docs/extensions/examples/docs-updater/subprocess.integration.test.ts ./docs/extensions/examples/auto-note/e2e-server-pipeline.test.ts ./src/__tests__/substack-pilot-installer.test.ts ./packages/@ezcorp/extension-runner/tests/trusted-local.test.ts ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts ./packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts ./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts ./src/factory/runner/applied-controls.integration.test.ts ./src/factory/runner/python-guest.integration.test.ts ./src/factory/package-preparation.podman.integration.test.ts",
+      "note": "the 11th file (package-preparation.podman.integration.test.ts) is not one of the worker's five but is required by common.md/validator.md whenever Podman/runner code is touched",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/focused-suites.log",
+      "result": "56 pass, 0 fail, 458 expect() calls, 11 files, 181.25s",
+      "cross_check": "sum of worker's per-file receipts for these same tests (1+8+3+1+42) = 55, plus the one extra required file = 56; matches exactly"
+    },
+    {
+      "id": "coverage-new-file-gate",
+      "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/coverage-new-file.log",
+      "result": "no new source files in this diff",
+      "matches_worker_claim": true
+    },
+    {
+      "id": "coverage-patch-gate",
+      "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/coverage-patch.log",
+      "result": "all changed executable lines covered (3 file(s))",
+      "matches_worker_claim": true,
+      "note": "own merged LCOV from the 11-file focused rerun, via bun scripts/merge-lcov.ts"
+    },
+    {
+      "id": "canonical-backend-pool",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bun run test",
+      "exit": 0,
+      "log": "/tmp/factory-platform-evidence/wreg-validation/logs/backend-pool.log",
+      "result": "26947 pass | 0 fail | 1804 files",
+      "started": "2026-09-14T11:27:38-04:00",
+      "finished": "2026-09-14T11:52:44-04:00",
+      "matches_worker_claim": true,
+      "note": "exact match to worker's backend-pool.json (26947 pass, 0 fail, 1804 files)"
+    }
+  ],
+  "root_cause_verification": {
+    "failure_1_wire_schema": {
+      "claim": "StartRequest.devices is additive per interface freeze section 6 (W01, types.d.ts:160-166); wire-schema.json was stale and needed schema:generate",
+      "verified": true,
+      "evidence": [
+        "types.d.ts:160-166 contains 'devices?: readonly string[]' with the exact freeze-section-6 comment",
+        "wire-schema.json StartRequest has additionalProperties:false confirmed by direct JSON parse",
+        "regenerating with schema:generate in a scratch check reproduced the committed file byte-for-byte except the trailing newline, then reverted (git checkout --) leaving the worktree clean"
+      ]
+    },
+    "failures_2_3_5_path": {
+      "claim": "--unsetenv-all dropped the image's PATH; fix declares PATH via guestPath, keeping RUNNER_GUEST_ENVIRONMENT as the exact declared set",
+      "verified": true,
+      "evidence": [
+        "W01 hardening intact: read-only /channel bind mount (runnerChannelMount, ro=true), per-FIFO O_NOFOLLOW open with recorded (device,inode) identity check (openChannelEntry) — all present and untouched by this diff, addressing the HIGH finding in docs/validation/factory/wave1/w01-revalidation-results.json",
+        "the two closure tests (applied-controls.integration.test.ts, python-guest.integration.test.ts) changed only prose comments, not assertions — confirmed by diff",
+        "PythonPodmanRunner.guestPath follows the exact same override pattern as the pre-existing guestInterpreter override (DRY, no parallel implementation)"
+      ],
+      "finding": {
+        "severity": "LOW",
+        "title": "gate file misattributes the commit that introduced --unsetenv-all",
+        "detail": "tasks/factory/wreg-GATES.md says '--unsetenv-all to the podman run arguments (662682a00, ...)'. git log -S\"unsetenv-all\" -- packages/@ezcorp/extension-runner/src/podman.ts shows the flag first appears in commit e0598fe79 ('feat(factory): isolated Python guest with a Python-native C02 validator'), not 662682a00. Verified directly: `git show 662682a00 -- packages/@ezcorp/extension-runner/src/podman.ts` only renames/splits the RUNNER_GUEST_ENVIRONMENT constant (no args() change); `git show e0598fe79^:...podman.ts | grep unsetenv-all` is empty and `git show e0598fe79:...podman.ts | grep unsetenv-all` shows two hits (docstring + args array). e0598fe79's own commit message independently confirms the same causal claim about PATH loss, so the root-cause NARRATIVE is correct and the W02 attribution is still correct (e0598fe79 is also part of the W02 Python-isolation merge range) — only the cited SHA is wrong. Does not affect the fix's correctness or the verdict; should be corrected in the gate file for anyone bisecting from that citation."
+      }
+    },
+    "failure_4_trusted_local": {
+      "claim": "detached execution (6c500113a) replaced TrustedLocalRunner's overridable launch() call in start() with a private launchDetached; fix makes launchDetached protected and overridden",
+      "verified": true,
+      "evidence": [
+        "git log -S\"launchDetached\" -- podman.ts shows the private method was introduced in 6c500113a, chronologically after TrustedLocalRunner was wired (36ab1c39e) and before the wreg fix",
+        "FramedTransport (protocol.ts) is deliberately structural so ChildProcessWithoutNullStreams satisfies it — the override typechecks by design, confirmed by the docstring at protocol.ts:6-9 and by bun run typecheck passing",
+        "the cited W01 revalidation quote ('build()/launch()/run() are byte-for-byte unchanged...') exists verbatim in docs/validation/factory/wave1/w01-revalidation-results.json:80",
+        "new device-refusal test in trusted-local.test.ts is a genuine added assertion (RunnerError 'device_unenforceable'), not a relaxed one"
+      ],
+      "finding": null
+    }
+  },
+  "ownership_and_disclosure": {
+    "podman.ts": {"owner": "Terra runtime", "disclosed": true, "evidence": "gate file explicitly discloses to Terra runtime for both the PATH fix and the launch-seam fix"},
+    "python.ts": {"owner": "Terra runtime / W02 (via SHARED_REUSE_MODULES comment, no explicit section-12 row)", "disclosed": false, "severity": "LOW", "detail": "the gate file's disclosure paragraph for failures 2/3/5 names only podman.ts and 'the src/factory/runner/* suites', not python.ts, even though python.ts was changed (guestPath override). The change itself is a minimal, symmetric, already-established pattern (mirrors the existing guestInterpreter override) and is correct, but the disclosure prose should have named the file."},
+    "trusted-local.ts": {"owner": "none in section 12", "disclosed": true, "evidence": "gate file correctly notes trusted-local.ts has no section-12 row and discloses the seam change to Terra runtime anyway"},
+    "types.d.ts": {"owner": "Terra runtime, StartRequest.devices only", "touched_by_wreg": false, "note": "wreg correctly did not touch this file; only the generated wire-schema.json, which has no owner row of its own per section 12"}
+  },
+  "gate_integrity_review": {
+    "skip_only_todo_found": false,
+    "lowered_thresholds": false,
+    "new_excludes": false,
+    "assertion_free_tests": false,
+    "empty_catch_in_tests": false,
+    "wall_clock_assertions": false,
+    "duplicated_shared_helpers": false,
+    "second_parallel_implementation": false,
+    "prose_only_changes_confirmed_in": ["src/factory/runner/applied-controls.integration.test.ts", "src/factory/runner/python-guest.integration.test.ts"],
+    "new_assertion_added_not_removed_in": "packages/@ezcorp/extension-runner/tests/trusted-local.test.ts (device-grant refusal case)"
+  },
+  "security_posture": {
+    "credentials_in_logs_or_receipts": "none found (scanned all logs under /tmp/factory-platform-evidence/wreg/logs/ and the three changed source files for password/AKIA/BEGIN-key/secret patterns)",
+    "authority_checks_removed": false,
+    "w01_channel_hardening_intact": true,
+    "guest_path_value_host_identity_leak": false,
+    "detail": "guestPath is a fixed, pinned-image directory list (same value class as the pre-existing --env=HOME/TMPDIR/BUN_INSTALL_CACHE_DIR declarations); it carries no host or tenant identity and only widens what the guest can already reach inside its own read-only image."
+  },
+  "plan_conformance": {
+    "applicable": false,
+    "reason": "WREG is not a numbered work package in docs/plans/2026-09-13-composable-factory-platform-completion.md section 5; it is a coordinator-assigned regression-fix leaf for seven inherited backend-pool failures recorded by W07/W10. Mapped instead against tasks/factory/wreg-GATES.md's own G1-G8, all independently reproduced above (G6's raw pass/fail/file counts match exactly)."
+  },
+  "negative_path_depth": {
+    "applicable_new_behavior": "trusted-local device grant refusal",
+    "test_present": "packages/@ezcorp/extension-runner/tests/trusted-local.test.ts (device grant on an execution start is rejected with device_unenforceable, and the worker ends up in state 'failed')",
+    "other_negative_cases": "not applicable — this package fixes three existing regressions and adds no new authority surface beyond the device-refusal case"
+  },
+  "postgres_producers": {
+    "ran": false,
+    "reason": "grepped every tests/postgres/factory-*.test.ts for imports of podman/extension-runner/trusted-local; none reference the changed files, so none are affected producers for this diff. Not run to conserve the shared heavy-lock queue (observed 2+ other validators contending for it during this session)."
+  },
+  "overall_diffstat_confined": true,
+  "notes": "The worker's own receipts (checksummed and verified genuine) and my fully independent reruns agree on every number, including the exact 26947/0/1804 backend-pool result. All 8 gates in tasks/factory/wreg-GATES.md reproduce green. Two low-severity documentation-accuracy findings do not affect functional correctness or the verdict."
+}

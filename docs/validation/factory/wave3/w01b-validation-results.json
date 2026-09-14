@@ -1,0 +1,82 @@
+{
+  "package": "w01b",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "validated_head": "516d4a8d4d0533feaad08195693361a9f934da74",
+  "merge_base_integ_w00": "69a025e50c8412a77b7310659170c4807629f4ef",
+  "branch": "wp/w01b-attempt-dispatch",
+  "validation_worktree": ".worktrees/w01b-validate (detached at validated_head; the assigned .worktrees/w01-runtime had moved on to branch wp/w01c-materials-review under a concurrent worker session before validation started, so an isolated worktree was created off the same repo to avoid disrupting it)",
+  "tree_state": "clean (git status --porcelain empty) at validated_head; no edits made during validation",
+  "commits_verified_on_branch": [
+    "119e4000e00bd758efc9974c15a1634b7c41256b feat(factory): compose the attempt-dispatch driver W09 holds by name",
+    "69a025e50c8412a77b7310659170c4807629f4ef Merge branch 'integ/w00' into wp/w01b-attempt-dispatch",
+    "009b96fc9bbeedec160fe9c4228c5aeac9f0d2bb feat(factory): serve the host launch protocol over the private mutual-TLS service",
+    "7b4e9db0f7bacf6be3f30dbd22e155d6e29c3dce test(factory): prove a queued attempt runs in a real guest through the supervisor",
+    "516d4a8d4d0533feaad08195693361a9f934da74 feat(factory): prove the attempt-dispatch path end to end on both engines"
+  ],
+  "reruns": [
+    { "label": "typecheck", "command": "bun run typecheck", "exit_code": 0, "start": "2026-09-14T14:37:47Z", "end": "2026-09-14T14:38:26Z", "notes": "backend, web, tests-typecheck, and mypy --strict on the Python runner all pass" },
+    { "label": "lint", "command": "bun run lint", "exit_code": 0, "start": "n/a", "end": "n/a", "notes": "5121 files checked, 0 errors; 1 warning (unused import) + 8 infos, none block the gate" },
+    { "label": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exit_code": 0 },
+    { "label": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exit_code": 0 },
+    { "label": "focused-suites", "command": "bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=<dir>/focused ./src/factory/runner/attempt-dispatch-driver.test.ts ./src/factory/host-launch-client.test.ts ./src/factory/host-launch-transport.integration.test.ts ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts ./src/factory/runner/guest-frames.test.ts ./src/factory/runner/workspace-checkpoint-seam.test.ts", "exit_code": 0, "start": "2026-09-14T14:38:53Z", "end": "2026-09-14T14:39:32Z", "result": "51 pass / 0 fail, 227 expect() calls", "matches_worker_claim": true },
+    { "label": "g1-driver-only", "command": "bun test --timeout 120000 ./src/factory/runner/attempt-dispatch-driver.test.ts", "exit_code": 0, "result": "4 pass / 0 fail, 11 expect() calls", "matches_worker_claim": true },
+    { "label": "postgres-suites", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 300 <postgres-env.sh> bun test --timeout 60000 ./tests/postgres/factory-host-launch.test.ts ./tests/postgres/factory-schema.test.ts", "exit_code": 0, "start": "2026-09-14T14:39:41Z", "end": "2026-09-14T14:41:14Z", "result": "3 pass / 0 fail, 2870 expect() calls (host-launch producer + schema parity)", "matches_worker_claim": true },
+    { "label": "e2e-podman", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 900 bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=<dir>/e2e ./src/factory/host-launch-e2e.podman.integration.test.ts", "exit_code": 0, "result": "1 pass / 0 fail, 13 expect() calls, 6.79s, real Podman guest", "matches_worker_claim": true },
+    { "label": "new-file-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "exit_code": 0, "result": "5 new source files gated, 100% each", "matches_worker_claim": true },
+    { "label": "patch-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "exit_code": 0, "result": "all changed executable lines covered across 6 files", "matches_worker_claim": true },
+    { "label": "podman-shared-suite", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 900 bun test --timeout 300000 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "exit_code": null, "notes": "BLOCKED: /tmp/ezcorp-validation-heavy.lock has been held continuously since 2026-09-13 by an unrelated process (pid 420496, `bun test --timeout 600000 ./w03-spin-probe.test.ts`), observed at 11h+ elapsed / 656+ min CPU with zero progress -- matches the already-documented 'lazy Bun.sql query spins forever' failure class in tasks/factory/w03-GATES.md, just far past that incident's 50-minute precedent. Not started as of report time. Flagged to team-lead. w01b's branch touches zero files under packages/@ezcorp/extension-runner, and the real-Podman e2e test above already exercises the actual PodmanRunner through the new production code paths (host-launch-supervisor.ts, host-launch-client.ts), so this is a residual evidence gap rather than a likely defect. Recommend the coordinator re-run this suite once the stuck lock holder clears, before final integration." },
+    { "label": "package-preparation-podman-suite", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 600 bun test --timeout 300000 ./src/factory/package-preparation.podman.integration.test.ts", "exit_code": null, "notes": "Not attempted -- same lock blocker as above. package-preparation.ts is unmodified by this branch (read-only reference used to verify the FactoryPackagePreparations correction), so risk is low." },
+    { "label": "coverage-verification", "command": "per-file LH/LF read from merged coverage/lcov.info (merge-lcov.ts '<dir>/*/*.lcov' coverage/lcov.info)", "exit_code": 0, "result": "host-launch-service.ts 63/63, host-launch-supervisor.ts 62/62, remote-attempt-runtime.ts 52/52, host-launch-client.ts 50/50, attempt-dispatch-driver.ts 22/22 -- all 100%, matches worker's INDEX.md table exactly" }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "moderate",
+      "title": "Remote runtime's mid-launch gateway-restart recovery path never reconnects to the host",
+      "file": "src/factory/runner/remote-attempt-runtime.ts",
+      "lines": "38-39",
+      "description": "In FactoryRemoteAttemptRuntime.open(), when launches.claimStart(attemptId) returns claimed:false (the row is already 'launching'/'launched'/'uncertain' from a prior, possibly-crashed open() call, and no terminal result exists yet), the method returns disposition 'attached' immediately via `return this.settled(claim.intent, \"attached\", () => this.durable(attemptId, ...))` WITHOUT ever calling `this.options.transport.attach()`. This is inconsistent with (a) the same file's own lost-launch-response handler four lines below (lines 52-58), which does call `this.options.transport.attach(tokened)` before giving up, and (b) the in-process IsolatedFactoryAttemptRuntime.attached() (src/factory/runner/attempt-runtime.ts, ~652-672), which always physically reattaches via `runner.attach()` before returning. Practical effect: when the attempt-dispatch driver's queue redelivers an attempt after a gateway restart (FactoryAttemptDispatcher -> IsolatedFactoryTrustedRunner.run() -> runtime.open()) and the row is stuck mid-launch, the remote deployment reports outcome_unknown immediately with no attempt to learn the guest's true state from the host, even if the host is still reachable and the guest is alive or already finished.",
+      "reproduction": "grep every `claimStart` call site: only src/factory/host-launch-transport.integration.test.ts:167 calls it directly to simulate a restarted supervisor, and it bypasses FactoryRemoteAttemptRuntime.open() entirely (calls store.claimStart + client.attach at the transport layer, not through the runtime). No test calls open() a second time on a row left in 'launching'/'launched' state to exercise remote-attempt-runtime.ts:38-39.",
+      "plan_reference": "docs/plans/2026-09-13-composable-factory-platform-completion.md W01 pass criteria: \"Prove both recovery topologies: a restarted/moved gateway reconnects to the same host supervisor\" -- proven for supervisor restart (via direct store/client calls) and for gateway restart AFTER completion (terminal result already recorded), but not for gateway restart DURING an in-flight remote launch through the actual runtime API.",
+      "recommendation": "In the !claim.claimed branch, call `this.options.transport.attach(claim.intent)` before falling back to a durable-only read, mirroring the lost-launch-response handler in the same file. Add a test that leaves a row in 'launching' state and calls open() again, asserting it reconnects (attaches: 1, no second start) rather than immediately reporting uncertain.",
+      "gate_overstatement": "G4's EXPECT line says 'exactly one physical start, one invocation, and one broker effect across every failure' -- true for the three specific scenarios its EVIDENCE lists (lost launch response, supervisor restart, gateway restart after completion), but broader than what is proven; this specific scenario is unproven, not merely undocumented."
+    },
+    {
+      "id": "F2",
+      "severity": "minor",
+      "title": "Unused import in new test file (lint warning)",
+      "file": "src/factory/host-launch-transport.integration.test.ts",
+      "lines": "6",
+      "description": "`import type { FactoryRunnerResult } from \"@ezcorp/factory-sdk\";` is never used. Biome flags it (`lint/correctness/noUnusedImports`) as a warning; does not fail `bun run lint` (exit 0) but is sloppy.",
+      "recommendation": "Remove the unused import."
+    },
+    {
+      "id": "F3",
+      "severity": "minor",
+      "title": "Stale provenance header in evidence index and gate file",
+      "file": "/tmp/factory-platform-evidence/w01b/INDEX.md and tasks/factory/w01b-GATES.md",
+      "lines": "header lines",
+      "description": "Both open with 'Branch wp/w01b-attempt-dispatch, from integ/w00 at 1d3edf5b0' -- but per git reflog, 1d3edf5b0 is where wp/w01b-attempt-dispatch was cut from wp/w01-durable-runtime, and integ/w00 was merged in later at 69a025e50 (matching the coordinator's own head/merge-base). The header appears to be an unedited holdover from an earlier draft. Not a fabrication: every individual logs/*.json receipt correctly records its own producing commit SHA, and those all check out.",
+      "recommendation": "Correct the header line to read 'from wp/w01-durable-runtime at 1d3edf5b0, merged integ/w00 at 69a025e50' for a future reader."
+    },
+    {
+      "id": "F4",
+      "severity": "evidence-gap-not-a-defect",
+      "title": "Full shared Podman suite and package-preparation Podman suite not independently rerun",
+      "description": "Blocked by an unrelated stuck process holding /tmp/ezcorp-validation-heavy.lock since 2026-09-13 (see reruns[].podman-shared-suite). Flagged to team-lead during validation.",
+      "recommendation": "Coordinator should re-run packages/@ezcorp/extension-runner/tests/podman.integration.test.ts and src/factory/package-preparation.podman.integration.test.ts once the lock clears, as part of final integration -- not a blocker for this package's verdict given w01b touches no files under packages/@ezcorp/extension-runner."
+    }
+  ],
+  "confirmed_accurate_claims": [
+    "All receipt-cited pass/fail counts and coverage percentages reproduce exactly under independent rerun.",
+    "FactoryPackagePreparations correction (W09's recorded hold reason): verified true by reading src/factory/package-preparation.ts directly -- assertDispatchReady (line 187) calls only assertPreparedInTransaction, which never touches this.runnerClient; only the private hydrate()/prepare() methods do.",
+    "No second transport: host-launch-service.ts and host-stop-service.ts (W03) both consume the same src/factory/private-https.ts module and the identical peerIdentity/allowedPeers 401 pattern -- verified by direct comparison.",
+    "No host signing key material reachable from any of the five new files (grep for SigningKey/hostSignature/signStopReceipt/privateKey found nothing).",
+    "Derived-identity binding (worker/invocation/request digest/device grant) is recomputed server-side from the intent's own contents and a mismatch is refused (400); an intent for another host is refused (403); an unrecognized mutual-TLS peer is refused (401) -- all directly tested in host-launch-transport.integration.test.ts's third test and independently re-read against source.",
+    "Composition module (attempt-dispatch-driver.ts) adds no queue and no second state machine -- wires FactoryAttemptDispatcher + IsolatedFactoryTrustedRunner, confirmed by direct read.",
+    "Seam/configuration documented for W09 (constructor options, ports, certs, host key) matches the actual exported signatures exactly, field for field.",
+    "Ownership: every file added or changed is under src/factory/, src/factory/runner/, src/__tests__/helpers/, tests/postgres/, or scripts/coverage-thresholds.json -- no crossing outside the declared owned set.",
+    "No credential values found in any evidence log produced during this validation.",
+    "git status clean at the validated head; no gate weakening, no .skip/.only/.todo, no lowered thresholds, no new EXCLUDES."
+  ]
+}
