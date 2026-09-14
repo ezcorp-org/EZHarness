@@ -105,6 +105,8 @@ export async function pythonLockDigest(lockPath: string): Promise<string> {
  */
 export class PythonPodmanRunner extends PodmanRunner {
   protected override readonly guestInterpreter = "/usr/local/bin/python3";
+  /** The pinned Python image's own directory list, deduplicated. */
+  protected override readonly guestPath = "/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin";
   readonly closure: PythonRunnerClosure;
 
   constructor(options: PythonPodmanRunnerOptions) {

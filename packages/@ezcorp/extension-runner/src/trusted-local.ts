@@ -35,6 +35,16 @@ export class TrustedLocalRunner extends PodmanRunner {
     if (!approval || approval.digest !== exactDigest || approval.phase !== phase || !approval.approvedBy || approval.expiresAt <= Date.now() || TRUSTED_LOCAL_OMITTED_CONTROLS.some(control => !approval.omittedControls.includes(control))) throw new RunnerError("trusted_approval_required", "Admin approval for this exact digest and omitted controls is required");
     await this.trusted.audit({ mode: "trusted-local", approval });
   }
+  /**
+   * The execution guest is this runner's own local process, not a container, so
+   * it launches through the same seam the build guests use. A device grant is
+   * refused rather than ignored: this mode omits every kernel control, so it
+   * cannot confine a guest to the device nodes an allocation authorized.
+   */
+  protected override async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[]): Promise<ChildProcessWithoutNullStreams> {
+    if (devices.length > 0) throw new RunnerError("device_unenforceable", "Trusted-local runner cannot confine a guest to an authorized device list");
+    return this.launch(id, limits, staged, ["./.runner/extension.js"]);
+  }
   protected override launch(id: string, _limits: ResourceLimits, staged: string, args: string[]): ChildProcessWithoutNullStreams {
     const child = spawn(this.trusted.setprivPath ?? "setpriv", ["--no-new-privs", "--inh-caps=-all", "--ambient-caps=-all", this.trusted.bunPath, ...args], { cwd: staged, detached: true, stdio: ["pipe", "pipe", "pipe"], env: { PATH: process.env.PATH, HOME: "/nonexistent", TMPDIR: "/tmp", LANG: "C.UTF-8" } });
     this.children.set(id, child);

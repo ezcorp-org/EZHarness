@@ -761,3 +761,26 @@
   shared service, run `docker ps -a` and `podman ps -a` both (the storage stack is Docker, the proof
   database is Podman) and read `OOMKilled` from `inspect` before blaming the workload. Size container
   limits from a measured idle footprint with the data loaded, and record the measurement in the doc.
+# WREG inherited backend-pool regressions — 2026-09-14
+
+- "Byte-for-byte unchanged" is not "still called". W01's revalidation recorded truthfully that
+  `build()`, `launch()` and `run()` were unchanged and concluded the runner subclasses were safe.
+  `start()` had simply stopped calling `launch()` and now called a **private** `launchDetached`, so
+  `TrustedLocalRunner`'s override became dead code and every trusted-local build failed on an image
+  that does not exist. When a new call path replaces an overridable method, ask which seams it
+  bypasses, not only which bodies changed — and note that a suite which only exercises the base
+  class cannot see the break.
+- Hardening an environment must declare what it removes. `--unsetenv-all` gave the guest a declared,
+  tenant-independent environment and dropped the image's `PATH` as collateral, which broke every v4
+  extension that spawns a helper by bare name — three first-party extensions stopped building.
+  Dropping `PATH` buys no isolation, because the read-only image's binaries stay reachable by
+  absolute path; it only breaks name resolution. Declaring a fixed `--env=PATH=…` keeps the property
+  that was wanted and restores the behavior that was lost.
+- A generated artifact is a product surface, not just a drift check. `wire-schema.json` compiles into
+  the wire validator and `StartRequest` carries `additionalProperties: false`, so a schema that
+  lagged `types.d.ts` by one optional field rejected the exact payload the interface freeze had
+  authorized. Run `schema:generate` in the same commit as the type change.
+- A branch cut from `integ/w00` must re-merge it before running `BASE_REF=integ/w00` gates. The base
+  advanced by fifteen commits mid-task, so `git diff integ/w00 HEAD` read the newer base's ~5700
+  added lines as deletions and the gates measured a diff that was mostly not mine. `git rev-list
+  --count HEAD..integ/w00` is the one command that says so before the gate does.
