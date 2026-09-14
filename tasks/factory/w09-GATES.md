@@ -230,17 +230,26 @@ five failures are all outside this branch's diff and are named below, and
 `negative-control.json`, which is the proof that the harness records its own
 failures. The three-run receipts were produced twice at that commit: once during the
 shared-store outage, where they correctly failed, and once after the store was
-restored, where all three pass. Only the second set survives under `repro/`,
-because the driver writes to fixed names; the first set's summaries are in
-`shared-store-outage-observation.json`.
+restored, where all three passed.
 
-| Run | `/api/ready` | Ready beats, lease children | Run start | Read back | After restart | Exit | Survivors | Record fresh |
+**Read this table with its dates.** The three-run receipts currently on disk are
+from the close-out at `2ec332e57`, and all three FAIL on
+`object-storage: ConnectionRefused` — the second store outage described above.
+The passing set below was observed at `8b27a699b`, between the two outages, and
+its records were overwritten by the close-out before the driver kept history, so
+the row values are reproduced here rather than citable from a file. A fresh
+passing set is owed as soon as the ordinary store is recreated at its declared
+limit, and nothing here should be read as if that had already happened.
+
+| Run at `8b27a699b` | `/api/ready` | Ready beats, lease children | Run start | Read back | After restart | Exit | Survivors | Record fresh |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `200 ready` | 5 ready, 1 lease | `202` | `200 queued` | `ready`, same run, `queued` | 0 | none | yes |
 | 2 | `200 ready` | 5 ready, 1 lease | `202` | `200 queued` | `ready`, same run, `queued` | 0 | none | yes |
 | 3 | `200 ready` | 5 ready, 1 lease | `202` | `200 queued` | `ready`, same run, `queued` | 0 | none | yes |
 
-Every run also reported the pool and supervisor processes `ready`,
+The three failing records from the close-out are kept under `repro/history/`,
+stamped with their start instants, which is the driver change this overwrite
+prompted. Every passing run also reported the pool and supervisor processes `ready`,
 `compute-admission-dispatch`, `compute-admission-poll`, `run-projection`, and
 `child-settlement` running, and `factory-runtime` torn down second of fourteen.
 A failure in any of the run-start, read-back, or restart facts now fails the
