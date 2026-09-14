@@ -11,7 +11,7 @@ from factory_schema import (
     resolve_reference,
     type_matches,
 )
-from tests.fixtures import REQUEST_SCHEMA, request
+from tests import REQUEST_SCHEMA, request
 
 Json = Any
 

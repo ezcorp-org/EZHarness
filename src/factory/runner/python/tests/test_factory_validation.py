@@ -21,7 +21,7 @@ from factory_validation import (
     validate_factory_runner_result,
     validate_port_schema,
 )
-from tests.fixtures import (
+from tests import (
     DIGEST,
     OTHER_DIGEST,
     REQUEST_SCHEMA,

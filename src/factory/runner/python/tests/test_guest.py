@@ -14,7 +14,7 @@ from unittest import mock
 import c02_runner
 from factory_validation import validate_factory_runner_result
 from guest import MANIFEST, Guest, GuestError, _execute_from_tmp, load_schema, main, read_control, serve
-from tests.fixtures import (
+from tests import (
     REQUEST_SCHEMA,
     RESULT_SCHEMA,
     at,
